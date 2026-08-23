@@ -1,0 +1,16 @@
+"""PyPTO framework compatibility plugins."""
+
+from .versions import (
+    EXPECTED_SGLANG_COMMIT,
+    EXPECTED_SGLANG_VERSION,
+    EXPECTED_TORCH_COMMIT,
+    EXPECTED_TORCH_VERSION,
+)
+
+__all__ = [
+    "EXPECTED_SGLANG_COMMIT",
+    "EXPECTED_SGLANG_VERSION",
+    "EXPECTED_TORCH_COMMIT",
+    "EXPECTED_TORCH_VERSION",
+]
+
