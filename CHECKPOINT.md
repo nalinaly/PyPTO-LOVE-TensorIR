@@ -1,6 +1,6 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0002`
+**Checkpoint:** `CP-0003`
 
 **Status:** R0 started; no compiler or model milestone accepted.
 
@@ -15,6 +15,12 @@
 - Both Qwen3.5 snapshots are independently copied under `models/`, made
   read-only, and verified byte-for-byte against the tracked manifest. The AMD
   source tree was never modified.
+- The standalone kernel project now has a reviewed, versioned, immutable ABI
+  for tensor arguments, operator/problem/schedule identity, tuning records, and
+  requested-versus-produced artifact provenance.
+- The framework plugin now binds actual imports to the locked CUDA Torch tree
+  and clean SGLang checkout, rejects mixed linear-attention providers, and
+  fails before launch while the real PyPTO Inductor dispatcher is unavailable.
 - The local target is an NVIDIA GeForce RTX 5090 Laptop GPU, SM120, 24,463 MiB.
 - CUDA Toolkit 13.3 is installed under `/usr/local/cuda-13.3`; the installed
   PyTorch is 2.13.0+cu130.
@@ -26,6 +32,7 @@
 ## Resume action
 
 Run `python tools/preflight.py --mode light`, inspect the protected-process
-report, then continue TensorIR/CUDA Tile source integration, project dependency
-installation, and the unmodified SGLang baseline. Re-run the live heavy gate
-before every build/model/server step because zcode lanes can restart.
+report, then continue the pending PyPTO object-target build gate, TensorIR/CUDA
+Tile source integration, project dependency installation, and the unmodified
+SGLang baseline. Re-run the live heavy gate before every build/model/server
+step because zcode lanes can restart.

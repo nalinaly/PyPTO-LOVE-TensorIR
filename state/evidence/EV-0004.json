@@ -1,0 +1,20 @@
+{
+  "id": "EV-0004",
+  "kind": "operator_abi_and_plugin_bootstrap",
+  "status": "pass",
+  "repositories": {
+    "pypto-kernels": "98f937633788dd7d6d4f61fbef9f85fff209f47e",
+    "pypto-framework-plugins": "c8fba0688906b06d43c7d7d02769093dfa01d146"
+  },
+  "tests": {
+    "pypto-kernels": {"passed": 14, "framework_imports": 0},
+    "pypto-framework-plugins": {"passed": 19}
+  },
+  "torch_tree_sha256": "1f77cf114e19ac071bbb3e552e98bd7d1b28f58484225d8929aa077d8ddc00d9",
+  "not_claimed": [
+    "PyPTO Inductor scheduling implemented",
+    "SGLang backend runnable",
+    "operator CUDA correctness",
+    "strict model coverage"
+  ]
+}

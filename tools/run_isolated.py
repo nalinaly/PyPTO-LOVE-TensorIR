@@ -129,7 +129,7 @@ def main() -> int:
         for item in command
         for marker in ("sglang", "acceptance")
     )
-    if args.mode == "gpu-benchmark":
+    if args.mode == "gpu-benchmark" or command_requires_plugins:
         python = ENV_PREFIX / "bin" / "python"
         if not python.is_file():
             raise FileNotFoundError(
