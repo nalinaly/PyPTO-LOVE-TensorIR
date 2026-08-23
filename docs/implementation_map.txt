@@ -1,7 +1,7 @@
 PYPTO-NVIDIA-QWEN35-V1 IMPLEMENTATION MAP
 =========================================
 
-Generated from the local checkouts on 2026-08-23. Paths are relative to
+Generated from the local checkouts on 2026-08-24. Paths are relative to
 /home/zhaosiying/pypto-love-tensor-ir unless explicitly stated otherwise.
 This is an ownership/implementation map, not a runtime-support claim.
 
@@ -18,15 +18,21 @@ projects/pypto
   rerun-full-suite gates remain open.
 
 projects/pypto-kernels
-  Head: 632bf10272e3ee71e79cf71543bd46cd3f6dc27c. Contains framework-neutral
-  contracts and semantic ABI v1 for matmul, paged_attention and gdn. It has no
-  compiler emitter, CUDA kernel, reference, tuning database or performance
-  result yet.
+  Head: 6f73857b52c86dd98e25d23fbc825a675fb25b6a. Contains framework-neutral
+  semantic/operator/invocation ABI v1 for matmul, paged_attention and gdn;
+  canonical adapter ABI/provenance; deterministic CPU numerical references;
+  a process-safe source-only tuning database; independent Torch CPU
+  cross-checks; and benchmark evidence contract v1. It has no compiler emitter,
+  CUDA kernel, generated benchmark result or performance evidence yet.
 
 projects/pypto-framework-plugins
-  Head: c8fba0688906b06d43c7d7d02769093dfa01d146. Contains exact-version and
-  bootstrap guards and intentionally raises BackendNotReadyError. It has no
-  Inductor dispatcher, attention/GDN implementation or coverage auditor yet.
+  Head: 3f9d712c6bc522552426ee77e0137e0746bf27a6. Contains exact framework and
+  standalone-operator identity guards, ContextVar constructor dispatch,
+  strict normalized-trace/artifact coverage contract, the 41-site Qwen3.5
+  compute inventory, the selected SGLang StateBundle lifecycle inventory and a
+  31-source/full-manifest Inductor surface audit. It intentionally raises
+  BackendNotReadyError and performs no Torch registration. It has no real
+  scheduling/wrapper, activity collector or attention/GDN adapter yet.
 
 Internal NVIDIA sources in projects/pypto/3rdparty/nvidia
   tensor-ir: 3b5a8bebc00510b46a1e8b97229d06dd0d006215
@@ -70,9 +76,11 @@ Rules:
   - pypto-framework-plugins alone owns framework tensors, FX/Inductor nodes,
     SGLang metadata, custom-op registration and exact-source guards. It owns no
     algorithm or tuning choice.
-  - Exact Triton must remain installed because pinned Scheduler.create_backend
-    calls has_triton() for GPU devices. Strict coverage means zero Triton
-    model-forward kernels, not absence of the compatibility package.
+  - A usable Triton must remain installed because pinned
+    Scheduler.create_backend calls has_triton() for GPU devices. The exact
+    Torch/Triton pair identity and workspace wheel are still open. Strict
+    coverage means zero Triton model-forward kernels, not absence of the
+    compatibility package.
 
 
 3. projects/pypto existing boundaries to modify
@@ -228,31 +236,35 @@ Packaging gate
 ------------------------
 
 Existing contracts to retain/extend
-  src/pypto_kernels/{ops,families,runtime,tuning,provenance}/
+  src/pypto_kernels/{matmul,paged_attention,gdn}.py
+  src/pypto_kernels/families/
+  src/pypto_kernels/references/
+  src/pypto_kernels/runtime/
+  src/pypto_kernels/tuning/database.py
+  src/pypto_kernels/provenance/
+  src/pypto_kernels/{abi_manifest,_canonical}.py
+  benchmarks/operators/contract_v1.py
   tests/test_dependency_boundary.py
-    These remain the canonical framework-neutral semantic, launch, target,
-    schedule, tuning and provenance types. Add public PyPTO as a dependency only
-    when the first implementation lands.
+    These are the canonical framework-neutral semantic/invocation ABI,
+    reference, target/schedule/tuning/provenance and evidence types. The
+    benchmark contract has no publisher or result. Add public PyPTO as a
+    dependency only when the first executable implementation lands.
 
-Files to add after exact framework tensor inventory
-  src/pypto_kernels/ops/{matmul,paged_attention,gdn}.py
-    Concrete OperatorSpec argument order, dtype, mutation and alias semantics.
-
+Files to add after the compiler/runtime executable gates
   src/pypto_kernels/implementations/matmul/{tensor_ir,schedules}.py
   src/pypto_kernels/implementations/paged_attention/{decode,prefill,schedules}.py
   src/pypto_kernels/implementations/gdn/{decode,prefill,schedules}.py
     Every custom high-performance algorithm is here. Matmul uses public PyPTO
     TensorIR APIs; paged attention/GDN use public CUDA Tile builders.
 
-  src/pypto_kernels/references/{matmul,paged_attention,gdn}.py
   src/pypto_kernels/schedules/{registry,validation}.py
   src/pypto_kernels/runtime/{catalog,planner,compiler,launcher,workspace}.py
-  src/pypto_kernels/tuning/{database,autotuner,benchmark}.py
+  src/pypto_kernels/tuning/{autotuner,benchmark}.py
   src/pypto_kernels/provenance/manifest.py
-  benchmarks/operators/
   tests/operators/{matmul,paged_attention,gdn}/
     Resolve typed config -> schedule -> PyPTO executable without framework
-    objects. Store CUDA-event results in a device-fingerprinted database.
+    objects. Publish CUDA-event results only after real CUBIN/TargetInfo identity
+    and atomic no-replace evidence publication exist.
 
 GDN completeness
   Coverage includes projection split, causal convolution, q/k normalization,
@@ -265,12 +277,16 @@ GDN completeness
 
 Existing facades
   src/pypto_plugins/{bootstrap,versions,torch_backend,torch_inductor,
-      sglang_plugin}.py
-    Retain exact commit/tree/entry-point validation. Replace BackendNotReady
-    only after the real dispatcher exists.
+      sglang_plugin,operator_library,coverage}.py
+  src/pypto_plugins/torch/{context,dispatch,inductor_inventory}.py
+  src/pypto_plugins/sglang/{inventory,state_lifecycle_inventory}.py
+    Retain exact commit/tree/entry-point and producer-ABI validation, immutable
+    source inventories, ContextVar/original-backend dispatch law and strict
+    trace/artifact evidence policy. Replace BackendNotReady only after every
+    ordered executable gate closes.
 
 Torch modules to add
-  src/pypto_plugins/torch/{context,registration,scheduling,kernel,cse,wrapper,
+  src/pypto_plugins/torch/{registration,scheduling,kernel,cse,wrapper,
       async_compile,choices,templates,custom_ops,auditor}.py
     Install one ContextVar-controlled CUDA DeviceCodegen dispatcher. Preserve
     the captured original backend outside PyPTO mode; inside strict mode emit
@@ -286,10 +302,13 @@ SGLang modules to add
     files remain unchanged.
 
 Strict audit
-  Record provider, kernel, FX/Inductor node, PyPTO region, artifact id, calls
-  and GPU time. Allow pypto.generic/tensorir/matmul/attention/gdn. Reject
-  Triton, FlashInfer, CuTe, sgl-kernel, eager ATen, cuBLAS/cuBLASLt and unknown
-  model-forward compute.
+  coverage.py already defines the closed normalized-trace/artifact evidence
+  contract, providers, strict rejection and publication law. The future
+  collector must record provider, kernel, FX/Inductor node, PyPTO region,
+  artifact id, calls and GPU time. Allow
+  pypto.generic/tensorir/matmul/attention/gdn. Reject Triton, FlashInfer, CuTe,
+  sgl-kernel, eager ATen, cuBLAS/cuBLASLt and unknown model-forward compute.
+  No CUPTI collector or closed Qwen trace exists yet.
 
 
 8. Pinned TorchInductor extension points and instability
@@ -298,24 +317,43 @@ Strict audit
 Read-only contracts
   upstream/pytorch/torch/_inductor/codegen/common.py
     device_codegens is one process-global map; register_backend_for_device
-    overwrites CUDA; init_backend_registration is cached.
+    overwrites CUDA; init_backend_registration is cached. DeviceCodegen has
+    scheduling, Python wrapper, C++ wrapper and FX wrapper fields. Codecache
+    hashes custom backend passes/configs after registration.
   upstream/pytorch/torch/_inductor/config.py
     cuda_backend Literal has triton/halide/pallas, not pypto.
     inductor_choices_class is the intended OOT choices hook.
+  upstream/pytorch/torch/_inductor/codegen/cuda/device_op_overrides.py
+  upstream/pytorch/torch/_inductor/stream_utils.py
+    Python wrapper current/raw-stream emission is commit-specific and must be
+    replaced by the PyPTO wrapper launch ABI, not inherited accidentally.
   upstream/pytorch/torch/_inductor/codegen/simd.py
   upstream/pytorch/torch/_inductor/codegen/triton.py
   upstream/pytorch/torch/_inductor/scheduler.py
   upstream/pytorch/torch/_inductor/ir.py
   upstream/pytorch/torch/_inductor/select_algorithm.py
   upstream/pytorch/torch/_inductor/choices.py
-    SIMDScheduling/SIMDKernel, CSEProxy, SchedulerNode/FusedSchedulerNode,
-    TemplateBuffer/ChoiceCaller and choices signatures are commit-specific.
-    Reuse SIMD abstractions, never Triton emitters. Fingerprint all signatures.
+  upstream/pytorch/torch/_inductor/lowering.py
+  upstream/pytorch/torch/_inductor/kernel/{mm,bmm,mm_plus_mm}.py
+  upstream/pytorch/torch/_inductor/autotune_process.py
+  upstream/pytorch/torch/_inductor/codegen/cutedsl/
+    The 31-source SHA/AST audit and full 346-file manifest prove this pin has no
+    TileKernel/cuTile abstraction, but does have CuTeDSL. CSEProxy derives
+    dtype/shape only for triton/cpp/mps. Extern nodes bypass backend scheduling;
+    foreach accepts only SIMDScheduling/CUDACombinedScheduling/
+    XPUCombinedScheduling; multi-template can choose extern; MM/BMM/MM-plus-MM
+    declare 12 explicit ExternKernelChoice producers. These are strict blockers,
+    not reusable fallbacks. Key signatures/defaults/decorators and eight actual
+    get_current_backend() call sites are frozen by CP-0018/EV-0030.
 
 OOT strategy
   Initialize and capture the original CUDA DeviceCodegen, replace the CUDA slot
-  with a context dispatcher, and delegate only outside PyPTO mode. Do not edit
-  config.py or any upstream Torch file.
+  plus both custom registry mappings in one reversible transaction, and
+  delegate only outside PyPTO mode. Inside PyPTO mode use plugin-owned
+  CSE/scheduling/choice/Python+subgraph wrapper/artifact loading and reject
+  extern/foreach/multi-template/subprocess paths until implemented. Do not edit
+  config.py or any upstream Torch file. Exact Triton remains installed solely
+  to satisfy pinned has_triton(); it is never a strict compute provider.
 
 
 9. Pinned SGLang extension points and instability
