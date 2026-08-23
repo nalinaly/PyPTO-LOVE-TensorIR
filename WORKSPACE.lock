@@ -1,5 +1,5 @@
 schema=1
-checkpoint=CP-0015
+checkpoint=CP-0016
 control.head=SELF
 projects.pypto.head=f550d4c33e8fef03e7dabcbf60c3db38b0f0a215
 projects.pypto.branch=feature/nvidia-sm120
@@ -9,7 +9,7 @@ projects.pypto_target_info_candidate.branch=feature/nvidia-target-info
 projects.pypto_target_info_candidate.status=SOURCE_REVIEWED_UNBUILT
 projects.pypto.tensor_ir=3b5a8bebc00510b46a1e8b97229d06dd0d006215
 projects.pypto.cuda_tile=af2417041cc939b87ef56d92cfdcf61737c5457e
-projects.pypto_kernels.head=6afb3505d5785b20014c9865804cd7f7c49273fa
+projects.pypto_kernels.head=6f73857b52c86dd98e25d23fbc825a675fb25b6a
 projects.pypto_framework_plugins.head=92721a29ea095c8b239a77118b328a75534309a5
 upstream.pytorch.head=cf30153c4c131c8164ee7798e5022d810682e2cb
 upstream.pytorch.checkout=sparse

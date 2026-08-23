@@ -60,6 +60,11 @@
       `pypto-kernels`; remove the plugin's copied partial schema.
 - [x] Pin ABI/source/distribution identity for isolated wheel and real PEP-660
       installs, and make Torch/SGLang pre-strict failure non-suppressible.
+- [x] Define and independently review the canonical operator benchmark JSON v1
+      contract with symmetric baseline/candidate evidence and no live result.
+- [ ] After real CUBIN and complete TargetInfo identity land, implement atomic
+      no-replace benchmark publication under ignored artifacts and run the
+      first CUDA-event measurements.
 
 ## Safety hold
 

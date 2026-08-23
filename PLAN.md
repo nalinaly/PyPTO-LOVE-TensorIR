@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `5`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `6`
 
 ## Current phase: R0 workspace and provenance bootstrap
 
@@ -55,6 +55,11 @@ Checkpoint `CP-0015` independently cross-checks all three current scalar
 operator references against CPU Torch while keeping Torch out of the standalone
 runtime product and parent import process. CUDA correctness/performance remains
 open. The protected heavy lane still blocks the ordered single-DSO gate.
+
+Checkpoint `CP-0016` freezes the source-only operator benchmark evidence
+contract and its fail-closed comparison boundary. It publishes no result and
+does not advance performance acceptance. Atomic publication and tuning reuse
+remain ordered after real CUBIN and complete TargetInfo identity.
 
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.

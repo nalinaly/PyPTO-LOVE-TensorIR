@@ -1,0 +1,59 @@
+{
+  "id": "EV-0028",
+  "kind": "source_only_operator_benchmark_evidence_contract_v1",
+  "status": "pass_contract_no_generated_result_no_publisher",
+  "repository": "projects/pypto-kernels",
+  "repository_head": "6f73857b52c86dd98e25d23fbc825a675fb25b6a",
+  "schema": {
+    "version": 1,
+    "source": "benchmarks/operators/contract_v1.py",
+    "generated_json_files": 0,
+    "publisher_implemented": false,
+    "tuning_database_promotable": false
+  },
+  "closed_joins": [
+    "typed operator config == ProblemConfig",
+    "family descriptor validator == full TuningKey tensors",
+    "closed dynamic workload/capacity/metadata/state identity",
+    "candidate TuningRecord + exact CUBIN ArtifactProvenance",
+    "symmetric candidate/baseline provider-artifact composition",
+    "requested-to-actual provider resolution",
+    "driver + DeviceFingerprint + opaque TargetInfo digest + compiler ABI",
+    "per-provider correctness under one reviewed tolerance policy",
+    "all ABI arguments before/after mutation contract",
+    "separate profile trace + dynamic profile cohort + artifact registry",
+    "reset before stateful warmups/samples/profile invocations outside timing",
+    "independent fixed environment and bounded thermal observations",
+    "raw CUDA event and host dispatch samples with explicit normalization"
+  ],
+  "derived_fields": [
+    "median/min/max/p90/p95/p99/MAD/IQR/CV latency",
+    "throughput",
+    "matmul logical bytes and FLOPS",
+    "baseline latency",
+    "unambiguous speedup or slowdown",
+    "compute kernels per invocation"
+  ],
+  "unavailable_by_design": {
+    "attention_bandwidth_flops": "no reviewed v1 accounting formula",
+    "gdn_bandwidth_flops": "no reviewed v1 accounting formula",
+    "tuning_database_promotion": "driver and full TargetInfo identity are not yet in TuningKey",
+    "publication": "requires real CUBIN bytes and atomic no-replace implementation"
+  },
+  "validation": {
+    "tests_passed": 117,
+    "subtests_passed": 71,
+    "compileall": "pass",
+    "diff_check": "pass",
+    "wheel_sha256": "86b442e0a39d39ec2a1585400814f7a0d8d6c4da7028be97e919cc4ebc423f0c",
+    "clean_wheel_plugin_guard": "pass at builds/kernels-benchmark-contract-probe.tFZB8R",
+    "independent_reviews": "three final approvals, no remaining P0/P1"
+  },
+  "not_claimed": [
+    "any measured RTX 5090 latency, throughput, bandwidth or FLOPS",
+    "CUDA kernel correctness",
+    "benchmark publisher durability",
+    "autotuning winner",
+    "operator, model or end-to-end performance"
+  ]
+}

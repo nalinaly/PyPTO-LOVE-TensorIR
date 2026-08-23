@@ -41,7 +41,7 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0015.md` and evidence `EV-0005` through `EV-0027`.
+- Read `state/checkpoints/CP-0016.md` and evidence `EV-0005` through `EV-0028`.
 - `projects/pypto` has two intentional uncommitted CMake files implementing the
   single-DSO compiler object boundary. Editable build and 486 focused tests
   pass. The first full run's three failures have layered fixes and targeted
@@ -51,15 +51,16 @@ upstream checkouts and their optional/manual suites.
 - `projects/pypto-target-info` is a separate clean worktree at unbuilt candidate
   `9939b88`. Never treat it as main-branch or build acceptance. Apply it only
   after the object-DSO CMake commit; expect a small CMake conflict.
-- `projects/pypto-kernels` is clean at `6afb350...` with typed semantic
+- `projects/pypto-kernels` is clean at `6f73857...` with typed semantic
   families, canonical process-safe tuning database, matmul invocation ABI v1,
   catalog-bound canonical operator artifact provenance, paged-attention ABI v1
   and its deterministic CPU numerical reference, plus unified GDN core ABI and
   paired-state reference, a structured-matmul reference, and the canonical
   framework-adapter ABI manifest, plus independent CPU Torch cross-checks for
-  matmul, shared-prefix paged attention and paired-state GDN; 105 tests plus 65
-  subtests pass. Torch stays child/test-only. No CUDA operator or device
-  measurement exists yet.
+  matmul, shared-prefix paged attention and paired-state GDN, plus the
+  source-only canonical operator benchmark evidence contract; 117 tests plus
+  71 subtests pass. Torch stays child/test-only. No CUDA operator, generated
+  benchmark result, publisher, or device measurement exists yet.
 - `projects/pypto-framework-plugins` is clean at `92721a2...`; its context and
   constructor dispatcher, 41-site Qwen3.5 static inventory, and strict
   trace/artifact coverage evidence contract now include a full producer ABI,
