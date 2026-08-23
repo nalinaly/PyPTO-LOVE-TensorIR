@@ -1,6 +1,6 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0016`
+**Checkpoint:** `CP-0017`
 
 **Status:** R0 started; no compiler or model milestone accepted.
 
@@ -41,7 +41,7 @@
   sourceless bytecode. Torch and SGLang adapter entry paths perform identity and
   executable-readiness checks before framework mutation; pre-strict failures
   cannot be swallowed as ordinary fallback exceptions.
-- The operator project has 117 tests plus 71 subtests; the plugin has 118
+- The operator project has 117 tests plus 71 subtests; the plugin has 122
   tests. Both wheel and real editable identity probes pass. No executable
   kernel, framework registration, model correctness, coverage or performance
   is claimed by this boundary.
@@ -62,6 +62,11 @@
   PyPTO runtime infrastructure, not an operator or framework copy kernel. The
   detailed StateBundle ABI/lease/stream design is documentation only and is
   ordered after single-DSO, TargetInfo and current-stream executable gates.
+- The framework plugin now has a pinned active-route SGLang state lifecycle
+  inventory: 11 sources and 35 sites across UnifiedRadix/MambaComponent,
+  unified slot translation, deferred clear/COW, checkpoint/donate and reuse.
+  Its immutable scope keeps registration readiness false; plugin tests are now
+  122 passing.
 - Operator artifact provenance now exposes a canonical complete-field digest
   restricted to the explicit matmul/paged-attention/GDN ABI catalog. It is only
   a future join input: physical cache/loading stays compiler-owned and the

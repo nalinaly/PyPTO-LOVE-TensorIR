@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `6`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `7`
 
 ## Current phase: R0 workspace and provenance bootstrap
 
@@ -64,6 +64,10 @@ remain ordered after real CUBIN and complete TargetInfo identity.
 Decision `D-0008` freezes generic StateBundle ownership and the post-TargetInfo,
 post-current-stream landing order. It is a design constraint, not an
 implementation milestone; no state transfer API or executor exists yet.
+
+Checkpoint `CP-0017` freezes the selected SGLang state lifecycle route and
+adapter obligations while keeping registration explicitly unready. It does not
+move StateBundle implementation ahead of compiler/runtime prerequisites.
 
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.

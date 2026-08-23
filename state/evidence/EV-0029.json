@@ -1,0 +1,67 @@
+{
+  "id": "EV-0029",
+  "kind": "generic_statebundle_ownership_and_sglang_lifecycle_inventory",
+  "status": "pass_source_inventory_no_runtime_adapter",
+  "repositories": {
+    "control": "06b16d8aa7231989c56d50d6297c73dbb23a7d2c",
+    "pypto_framework_plugins": "0dfa2fc5278fc793b7eb746eee23d12451017823"
+  },
+  "design": {
+    "document": "docs/state_bundle_transfer_design.md",
+    "executor_owner": "generic PyPTO compiler/runtime",
+    "gdn_owner": "paired state numerical/layout semantics only",
+    "plugin_owner": "SGLang lifecycle translation and completion handoff only",
+    "operator_catalog_entry": false,
+    "operator_tuning_record": false,
+    "implementation_exists": false
+  },
+  "inventory": {
+    "source_count": 11,
+    "site_count": 35,
+    "scope_digest": "ee2e68278b60386b2b06b3d8c97b32ed1579dccf87d6251c53269b6f9c895371",
+    "selected_route": "registry -> UnifiedRadixCache -> MambaComponent",
+    "legacy_mamba_radix_selected": false,
+    "covered_lifecycle": [
+      "slot allocation/translation/reuse",
+      "new-slot clear",
+      "restore copy-on-write",
+      "prefill/decode checkpoint snapshot",
+      "extra-buffer and lazy ping-pong donation",
+      "checkpoint commit",
+      "forward metadata snapshot",
+      "current forward-stream handoff"
+    ],
+    "registration_ready": false,
+    "required_order": [
+      "single-dso",
+      "target-info",
+      "compile-request-current-stream",
+      "statebundle-runtime",
+      "sglang-plugin-adapter"
+    ]
+  },
+  "excluded_scope": [
+    "speculative/MTP",
+    "ReplaySSM",
+    "int8 checkpoint",
+    "HiCache",
+    "disaggregation",
+    "CUDA Graph state transfer"
+  ],
+  "validation": {
+    "plugin_tests_passed": 122,
+    "compileall": "pass",
+    "diff_check": "pass",
+    "wheel_sha256": "8d9bb0ec4edd1701b042c007fd61c7f1483eaca9b64d0f2a614eb712607998fe",
+    "clean_probe": "pass at builds/plugin-state-inventory-probe.RKuvcF",
+    "independent_reviews": "three final approvals, no remaining P0/P1"
+  },
+  "not_claimed": [
+    "StateBundle ABI implementation",
+    "zero/copy/checkpoint execution",
+    "current-stream CUDA runtime",
+    "SGLang adapter registration readiness",
+    "CUDA Graph safety",
+    "model correctness, coverage or performance"
+  ]
+}

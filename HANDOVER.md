@@ -41,7 +41,7 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0016.md` and evidence `EV-0005` through `EV-0028`.
+- Read `state/checkpoints/CP-0017.md` and evidence `EV-0005` through `EV-0029`.
 - `projects/pypto` has two intentional uncommitted CMake files implementing the
   single-DSO compiler object boundary. Editable build and 486 focused tests
   pass. The first full run's three failures have layered fixes and targeted
@@ -61,12 +61,13 @@ upstream checkouts and their optional/manual suites.
   source-only canonical operator benchmark evidence contract; 117 tests plus
   71 subtests pass. Torch stays child/test-only. No CUDA operator, generated
   benchmark result, publisher, or device measurement exists yet.
-- `projects/pypto-framework-plugins` is clean at `92721a2...`; its context and
+- `projects/pypto-framework-plugins` is clean at `0dfa2fc...`; its context and
   constructor dispatcher, 41-site Qwen3.5 static inventory, and strict
   trace/artifact coverage evidence contract now include a full producer ABI,
   distribution/import/source identity guard and non-suppressible Torch/SGLang
-  preflight ordering. Its 118 tests, isolated wheel guard, real PEP-660 guard,
-  and clean wheel pass. The auditor has no CUDA collector or Qwen trace yet.
+  preflight ordering, plus a pinned active-route SGLang StateBundle lifecycle
+  inventory. Its 122 tests, isolated wheel guard, real PEP-660 guard, and clean
+  wheel pass. The auditor has no CUDA collector or Qwen trace yet.
   `install()` remains intentionally unready/registration-free.
 - `upstream/triton` is the clean exact PyTorch pin. Do not use the inherited
   external editable Triton for acceptance.

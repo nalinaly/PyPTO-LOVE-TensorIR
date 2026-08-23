@@ -52,6 +52,8 @@
       expression, including paired-state prefill-to-decode continuity.
 - [x] Freeze ownership and the generic StateBundle zero/copy/checkpoint design;
       keep it out of the GDN operator catalog.
+- [x] Freeze the pinned active SGLang UnifiedRadix/MambaComponent lifecycle
+      inventory and fail-closed adapter readiness order.
 - [ ] After single-DSO, TargetInfo and current-stream executable gates,
       implement generic PyPTO StateBundle zero/copy needed for new slots and
       segmented Radix checkpoints.
