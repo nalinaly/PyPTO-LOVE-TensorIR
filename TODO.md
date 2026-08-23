@@ -54,6 +54,13 @@
       keep it out of the GDN operator catalog.
 - [x] Freeze the pinned active SGLang UnifiedRadix/MambaComponent lifecycle
       inventory and fail-closed adapter readiness order.
+- [x] Freeze the pinned TorchInductor zero-diff backend surface with exact
+      source/AST contracts, the full `_inductor` Python manifest, and explicit
+      fail-closed CSE/extern/foreach/multi-template/GEMM obligations.
+- [ ] After single-DSO, TargetInfo, CompileRequest/current-stream artifact and
+      operator-executable gates, implement plugin-owned PyPTO scheduling,
+      CSE dtype/shape propagation, Python/subgraph wrapper, strict template
+      choice filtering, and an atomic reversible CUDA registry transaction.
 - [ ] After single-DSO, TargetInfo and current-stream executable gates,
       implement generic PyPTO StateBundle zero/copy needed for new slots and
       segmented Radix checkpoints.
@@ -73,7 +80,7 @@
 
 ## Safety hold
 
-The action-boundary heavy preflight is red for the newly observed
-`zcode-vllm-tp2-v3` TP=2 vLLM/gem5 lane. No native PyPTO action began. Continue
+The action-boundary heavy preflight is red for the observed
+`zcode-vllm-tp2-v4` TP=2 vLLM/gem5 lane. No native PyPTO action began. Continue
 only light work, wait for natural exit, and rerun preflight. Observation is
 allowed; signals and cleanup remain forbidden.

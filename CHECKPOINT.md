@@ -1,6 +1,6 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0017`
+**Checkpoint:** `CP-0018`
 
 **Status:** R0 started; no compiler or model milestone accepted.
 
@@ -65,8 +65,9 @@
 - The framework plugin now has a pinned active-route SGLang state lifecycle
   inventory: 11 sources and 35 sites across UnifiedRadix/MambaComponent,
   unified slot translation, deferred clear/COW, checkpoint/donate and reuse.
-  Its immutable scope keeps registration readiness false; plugin tests are now
-  122 passing.
+  Its immutable scope keeps registration readiness false. That transaction had
+  122 passing tests; the current plugin suite has 128 after the later Inductor
+  inventory transaction.
 - Operator artifact provenance now exposes a canonical complete-field digest
   restricted to the explicit matmul/paged-attention/GDN ABI catalog. It is only
   a future join input: physical cache/loading stays compiler-owned and the
@@ -95,6 +96,22 @@
   original-backend preservation outside that mode, pinned wrapper proxy
   semantics, and strict no-fallback failures inside it. It deliberately does
   not register with Torch until real scheduling/wrapper constructors exist.
+- The zero-diff TorchInductor route now has a reviewed 31-source SHA/AST
+  inventory plus a manifest for all 346 Python files under `_inductor`. It
+  freezes registry/cache, scheduler/wrapper/current-stream,
+  template/lowering/fallback, and Triton/CuTeDSL/autotune reference lanes.
+- The audit proves there is no pinned TileKernel/cuTile abstraction to reuse,
+  records the existing CuTeDSL path, the closed native CUDA selector and
+  mandatory `has_triton()` check, and exposes the eight actual
+  `get_current_backend()` call sites.
+- It also freezes unsafe surfaces that the plugin must own or reject: CSEProxy
+  omits `pypto` dtype/shape propagation, extern codegen bypasses the backend,
+  foreach accepts only three upstream scheduling types, multi-template can
+  select extern, and MM/BMM producers contain explicit extern choices.
+- Registration remains false. PyPTO scheduling, wrapper/subgraph wrapper,
+  CSE propagation, strict choice filtering, atomic registry installation and
+  subprocess compilation are explicitly unimplemented. The full plugin suite
+  passes 128 tests; wheel and isolated producer-ABI/source audit pass.
 - The framework plugin also freezes 41 source-hashed Qwen3.5 text-path compute
   obligations across generic, matmul, full-attention and GDN providers. This is
   a static inventory only; no site is marked implemented or covered.
@@ -141,14 +158,15 @@
   evidence and the CPython 3.12 baseline environment is not built yet.
 - Prior reconnaissance did not complete a TensorIR SM120 runtime launch. Static
   target support is not runtime acceptance.
-- The packaging-time safety preflight was green, but the required recheck
-  immediately before the PyPTO full suite is now red: zcode started a new TP=2
-  vLLM/gem5 lane. No PyPTO heavy action began. Protected processes remain
+- The packaging-time safety preflight was green, but the latest required
+  recheck is red: zcode is running `zcode-vllm-tp2-v4` with TP=2 vLLM/gem5.
+  No PyPTO heavy action began. Protected processes remain
   untouchable; continue light work and rerun preflight after natural exit.
 
 ## Resume action
 
-Wait for the observed protected lane to exit naturally, then run
+Wait for the observed protected `zcode-vllm-tp2-v4` lane to exit naturally,
+then run
 `python tools/preflight.py --mode heavy`. If and only if it is green, rerun the
 full PyPTO suite and continue the fresh wheel build in
 `builds/pypto-wheel.dfB4Xk`, then inspect/install it into a clean target outside

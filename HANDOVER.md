@@ -41,7 +41,7 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0017.md` and evidence `EV-0005` through `EV-0029`.
+- Read `state/checkpoints/CP-0018.md` and evidence `EV-0005` through `EV-0030`.
 - `projects/pypto` has two intentional uncommitted CMake files implementing the
   single-DSO compiler object boundary. Editable build and 486 focused tests
   pass. The first full run's three failures have layered fixes and targeted
@@ -61,19 +61,23 @@ upstream checkouts and their optional/manual suites.
   source-only canonical operator benchmark evidence contract; 117 tests plus
   71 subtests pass. Torch stays child/test-only. No CUDA operator, generated
   benchmark result, publisher, or device measurement exists yet.
-- `projects/pypto-framework-plugins` is clean at `0dfa2fc...`; its context and
+- `projects/pypto-framework-plugins` is clean at `3f9d712...`; its context and
   constructor dispatcher, 41-site Qwen3.5 static inventory, and strict
   trace/artifact coverage evidence contract now include a full producer ABI,
   distribution/import/source identity guard and non-suppressible Torch/SGLang
   preflight ordering, plus a pinned active-route SGLang StateBundle lifecycle
-  inventory. Its 122 tests, isolated wheel guard, real PEP-660 guard, and clean
-  wheel pass. The auditor has no CUDA collector or Qwen trace yet.
-  `install()` remains intentionally unready/registration-free.
+  inventory. It now also has a reviewed 31-source/346-file TorchInductor
+  inventory covering registry/cache, scheduler/wrapper/current stream,
+  lowering/GEMM fallback and Triton/CuTeDSL/autotune reference lanes. The
+  source audit exposes CSEProxy, extern, foreach and multi-template blockers;
+  it does not implement them. Its 128 tests, isolated wheel guard, real PEP-660
+  guard, and clean wheel pass. The auditor has no CUDA collector or Qwen trace
+  yet. `install()` remains intentionally unready/registration-free.
 - `upstream/triton` is the clean exact PyTorch pin. Do not use the inherited
   external editable Triton for acceptance.
-- The packaging-time preflight was briefly green, but the mandatory recheck
-  before the PyPTO full suite returned 75 after zcode launched
-  `zcode-vllm-tp2-v3` with TP=2 vLLM workers and gem5. No PyPTO heavy command
+- The packaging-time preflight was briefly green, but the latest mandatory
+  recheck returned 75 while zcode was running `zcode-vllm-tp2-v4` with TP=2
+  vLLM workers and gem5. No PyPTO heavy command
   started. Wait for natural exit, rerun preflight, and never signal or clean up
   that lane.
 - After the single-DSO full-suite/fresh-wheel gate closes, the next isolated

@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `7`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `8`
 
 ## Current phase: R0 workspace and provenance bootstrap
 
@@ -68,6 +68,14 @@ implementation milestone; no state transfer API or executor exists yet.
 Checkpoint `CP-0017` freezes the selected SGLang state lifecycle route and
 adapter obligations while keeping registration explicitly unready. It does not
 move StateBundle implementation ahead of compiler/runtime prerequisites.
+
+Checkpoint `CP-0018` freezes the pinned TorchInductor backend surface before
+implementation. The 31-source audit plus full 346-file manifest proves no
+TileKernel/cuTile abstraction exists in this pin and records every reviewed
+registry, cache, current-stream, explicit fallback and scheduling bypass that a
+zero-diff plugin must own or reject. It does not register a backend or generate
+code; all readiness flags remain false until the ordered compiler/runtime gates
+close.
 
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.

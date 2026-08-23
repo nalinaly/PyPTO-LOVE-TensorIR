@@ -1,0 +1,83 @@
+{
+  "id": "EV-0030",
+  "kind": "pinned_torchinductor_zero_diff_backend_surface_inventory",
+  "status": "pass_source_inventory_no_backend_registration",
+  "repositories": {
+    "control_before_checkpoint": "7baebe55e12e43cd8a7bf74428f90fad0ee4bb77",
+    "pypto_framework_plugins": "3f9d712c6bc522552426ee77e0137e0746bf27a6",
+    "pytorch": "cf30153c4c131c8164ee7798e5022d810682e2cb"
+  },
+  "inventory": {
+    "key_source_count": 31,
+    "symbol_count": 44,
+    "inductor_python_file_count": 346,
+    "inductor_python_manifest_sha256": "3bef71727acfceb4c1dbc1f433ac26e21c65ff715435feefc80cc32d4cb88cd6",
+    "scope_digest": "9fa6b8bd2eb912d1fc4510fc032ec09bb64a5bc574544e099f8f2eae8e025856",
+    "lanes": [
+      "registry and code-cache consumers",
+      "scheduler, wrapper and current-stream emission",
+      "template, lowering, GEMM and fallback producers",
+      "Triton, CuTeDSL and autotune reference paths"
+    ]
+  },
+  "derived_facts": {
+    "tilekernel_present": false,
+    "cutile_present": false,
+    "cutedsl_present": true,
+    "cuda_backend_values": [
+      "triton",
+      "halide",
+      "pallas"
+    ],
+    "scheduler_requires_has_triton": true,
+    "get_current_backend_call_sites": 8,
+    "cseproxy_dtype_shape_backends": [
+      "triton",
+      "cpp",
+      "mps"
+    ],
+    "scheduler_extern_bypasses_backend": true,
+    "scheduler_foreach_backend_types": [
+      "SIMDScheduling",
+      "CUDACombinedScheduling",
+      "XPUCombinedScheduling"
+    ],
+    "scheduler_multi_template_extern_fallback": true,
+    "explicit_extern_choice_count": 12,
+    "codecache_registry_sequence": [
+      "init_backend_registration",
+      "custom_backend_passes",
+      "custom_backend_codegen_configs"
+    ]
+  },
+  "readiness": {
+    "pytorch_source_diff_required": false,
+    "registration_ready": false,
+    "atomic_registry_install_implemented": false,
+    "python_wrapper_implemented": false,
+    "python_subgraph_wrapper_implemented": false,
+    "cseproxy_pypto_dtype_shape_implemented": false,
+    "strict_lowering_choice_filter_implemented": false,
+    "subprocess_compile_supported": false,
+    "triton_compute_allowed": false
+  },
+  "validation": {
+    "plugin_tests_passed": 128,
+    "targeted_inventory_tests_passed": 6,
+    "compileall": "pass",
+    "diff_check": "pass",
+    "pytorch_tree_clean": true,
+    "wheel_sha256": "8b05bc88cf6a32d07e9faf07e2af1eb361fa2de90e3b50c7f93bfdf6ef91b9ad",
+    "clean_probe": "pass at builds/plugin-inductor-inventory-probe.LcfnCR",
+    "independent_reviews": "three final approvals, no remaining P0/P1",
+    "heavy_preflight": "exit 75 for protected zcode-vllm-tp2-v4; no heavy action started"
+  },
+  "not_claimed": [
+    "PyPTO Inductor scheduling or wrapper implementation",
+    "atomic CUDA registry installation",
+    "Triton-free compiled graph",
+    "CUDA kernel generation or launch",
+    "model correctness or strict coverage",
+    "operator or end-to-end performance"
+  ]
+}
