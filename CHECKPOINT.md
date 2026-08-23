@@ -24,6 +24,9 @@
 - Its reviewed persistent tuning database now provides complete key/cohort
   auditing, deterministic winner selection, multiprocess-safe atomic
   publication and corruption rejection. It contains no device measurement yet.
+- Structured matmul has a reviewed explicit ABI v1 for contiguous/aligned BF16
+  rank-2 and batched rank-3 tensors, FP32 accumulation, transpose semantics and
+  output non-aliasing. No lowering, schedule, launch or performance exists yet.
 - The framework plugin now binds actual imports to the locked CUDA Torch tree
   and clean SGLang checkout, rejects mixed linear-attention providers, and
   fails before launch while the real PyPTO Inductor dispatcher is unavailable.

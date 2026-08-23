@@ -42,9 +42,10 @@ changed project repositories before the root checkpoint commit.
   single-DSO compiler object boundary. Editable build and 486 focused tests
   pass. The first full run's three failures have layered fixes and targeted
   proof at `EV-0009`; the full rerun and fresh wheel gate have not run.
-- `projects/pypto-kernels` is clean at `f7d623d...` with typed semantic
-  families plus a canonical process-safe tuning database; 35 tests and a clean
-  wheel import pass. No CUDA operator or device measurement exists yet.
+- `projects/pypto-kernels` is clean at `88e6030...` with typed semantic
+  families, canonical process-safe tuning database, and matmul invocation ABI
+  v1; 42 tests and a clean wheel import pass. No CUDA operator or device
+  measurement exists yet.
 - `projects/pypto-framework-plugins` is clean at `56313dd...`; its context and
   constructor dispatcher plus the 41-site Qwen3.5 static inventory have 37
   passing tests and clean-wheel proof. `install()` remains intentionally

@@ -1,0 +1,32 @@
+{
+  "id": "EV-0014",
+  "kind": "matmul_v1_invocation_abi",
+  "status": "pass_contract_no_codegen",
+  "repository": "projects/pypto-kernels",
+  "repository_head": "88e6030714d1da266dd83e4d5715d78975409539",
+  "contract": {
+    "arguments": ["lhs:read-only", "rhs:read-only", "output:write-only"],
+    "storage": "BF16",
+    "output": "BF16",
+    "accumulation": "FP32",
+    "ranks": ["rank-2 non-batched", "rank-3 explicitly batched including B=1"],
+    "transpose_combinations": ["NN", "NT", "TN", "TT"],
+    "layout": "exact contiguous physical tensors, at least 16-byte aligned",
+    "aliasing": "lhs/rhs may share read-only storage; output may not overlap either input address range",
+    "excluded": ["bias", "activation", "epilogue", "broadcast", "quantization", "model/layer identity"]
+  },
+  "tests": {
+    "passed": 42,
+    "compileall": "pass",
+    "clean_wheel_import": "pass",
+    "independent_reviews": "two approvals, no remaining P0/P1"
+  },
+  "not_claimed": [
+    "TensorIR lowering",
+    "schedule availability",
+    "compilation or CUDA launch",
+    "numerical correctness",
+    "performance",
+    "framework integration"
+  ]
+}
