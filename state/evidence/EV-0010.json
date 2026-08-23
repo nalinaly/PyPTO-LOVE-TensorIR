@@ -1,0 +1,29 @@
+{
+  "id": "EV-0010",
+  "kind": "torch_context_dispatch_contract",
+  "status": "pass",
+  "repository": "projects/pypto-framework-plugins",
+  "repository_head": "8b8b5de825c58ebea081c62b91ce0971c63e3ca7",
+  "properties": [
+    "ContextVar mode is nested, exception-safe, task-local, and explicitly transferable to worker threads",
+    "original CUDA scheduling/wrappers are selected outside PyPTO mode",
+    "missing PyPTO constructors never delegate to original CUDA compute",
+    "C++ and FX wrappers are rejected in PyPTO mode",
+    "wrapper proxies implement pinned supports_caching and four-argument create contracts",
+    "pinned DeviceCodegen fields and registration/create signatures are AST-locked",
+    "module import does not import Torch or mutate its global registry"
+  ],
+  "tests": {
+    "passed": 33,
+    "compileall": "pass",
+    "clean_wheel_import": "pass",
+    "independent_review": "no P0 or P1 findings"
+  },
+  "not_claimed": [
+    "Torch DeviceCodegen registration",
+    "PyPTOScheduling",
+    "PyPTO wrapper code generation",
+    "TorchInductor model compilation",
+    "strict compute coverage"
+  ]
+}

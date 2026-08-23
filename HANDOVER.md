@@ -44,6 +44,9 @@ changed project repositories before the root checkpoint commit.
   proof at `EV-0009`; the full rerun and fresh wheel gate have not run.
 - `projects/pypto-kernels` is clean at `632bf10...` with 24 semantic-contract
   tests and an independently verified wheel import.
+- `projects/pypto-framework-plugins` is clean at `8b8b5de...`; its context and
+  constructor dispatcher contract has 33 passing tests and clean-wheel proof,
+  but `install()` remains intentionally unready/registration-free.
 - `upstream/triton` is the clean exact PyTorch pin. Do not use the inherited
   external editable Triton for acceptance.
 - Re-run the live heavy preflight before resuming any wheel build. At this

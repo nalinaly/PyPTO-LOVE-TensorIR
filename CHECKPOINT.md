@@ -24,6 +24,10 @@
 - The framework plugin now binds actual imports to the locked CUDA Torch tree
   and clean SGLang checkout, rejects mixed linear-attention providers, and
   fails before launch while the real PyPTO Inductor dispatcher is unavailable.
+- Its constructor-dispatch foundation now has a reviewed ContextVar mode,
+  original-backend preservation outside that mode, pinned wrapper proxy
+  semantics, and strict no-fallback failures inside it. It deliberately does
+  not register with Torch until real scheduling/wrapper constructors exist.
 - The cloned environment is not baseline-ready yet: its Triton distribution is
   still editable from `/home/zhaosiying/codebase/triton`. The runtime audit
   rejects this path. FlashInfer is corrected to the official 0.6.17 wheel and
