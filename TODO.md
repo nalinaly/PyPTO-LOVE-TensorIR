@@ -3,10 +3,10 @@
 ## Active R0
 
 - [x] Initialize the root control repository and persistence skeleton.
-- [ ] Commit the root bootstrap transaction.
-- [ ] Clone authorized PyPTO at the exact locked SHA.
-- [ ] Clone clean PyTorch and SGLang official checkouts.
-- [ ] Initialize `pypto-kernels` and `pypto-framework-plugins` repositories.
+- [x] Commit the root bootstrap transaction.
+- [x] Clone authorized PyPTO at the exact locked SHA.
+- [x] Clone clean PyTorch and SGLang official checkouts.
+- [x] Initialize `pypto-kernels` and `pypto-framework-plugins` repositories.
 - [ ] Vendor/pin TensorIR and CUDA Tile inside the PyPTO project.
 - [ ] Clone `triton-dev` into `envs/pypto-nvidia` without mutating the source.
 - [ ] Copy and hash Qwen3.5 model snapshots after the protected-workload gate.
@@ -19,4 +19,3 @@
 Heavy build/model/server work remains paused while protected zcode SGLang,
 gem5, or high-parallel gem5 builds are active. Observation is allowed; signals
 and cleanup are forbidden.
-

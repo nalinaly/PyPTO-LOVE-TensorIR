@@ -1,0 +1,22 @@
+{
+  "id": "EV-0002",
+  "kind": "multi_project_source_lock",
+  "status": "pass",
+  "repositories": {
+    "pypto": "e2d0f78ae6d709c0d6ee345a48db2c3d621a4b09",
+    "pypto-kernels": "e76ec738dc21f4e3113c742fe812ee7df18a3379",
+    "pypto-framework-plugins": "9317f8929804584a39342f75dba63a652338ed37",
+    "pytorch": "cf30153c4c131c8164ee7798e5022d810682e2cb",
+    "sglang": "71de97b264b04dcd514cf904003028aefe9775c8"
+  },
+  "upstream_dirty": {
+    "pytorch": false,
+    "sglang": false
+  },
+  "not_claimed": [
+    "TensorIR vendored",
+    "project environment installed",
+    "model snapshots copied",
+    "compiler or runtime correctness"
+  ]
+}
