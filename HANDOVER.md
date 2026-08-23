@@ -41,7 +41,7 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0019.md` and evidence `EV-0005` through `EV-0031`.
+- Read `state/checkpoints/CP-0020.md` and evidence `EV-0005` through `EV-0032`.
 - `projects/pypto` has two intentional uncommitted CMake files implementing the
   single-DSO compiler object boundary. Editable build and 486 focused tests
   pass. The first full run's three failures have layered fixes and targeted
@@ -82,12 +82,12 @@ upstream checkouts and their optional/manual suites.
   yet. `install()` remains intentionally unready/registration-free.
 - `upstream/triton` is the clean exact PyTorch pin. Do not use the inherited
   external editable Triton for acceptance.
-- The packaging-time preflight was briefly green, but the latest mandatory
-  recheck returned 75 while zcode was running `zcode-vllm-tp2-v4` with TP=2
-  vLLM workers and gem5; MemAvailable also fell to 28.8 GiB below the 32 GiB
-  safety floor. No PyPTO heavy command
-  started. Wait for natural exit, rerun preflight, and never signal or clean up
-  that lane.
+- The same mandatory preflight has failed for three consecutive goal turns.
+  The latest result is 75 with seven protected `zcode-vllm-tp2-v4` TP=2
+  vLLM/gem5 processes and MemAvailable 28.5 GiB below the 32 GiB floor. The
+  goal is formally blocked on external state. No PyPTO heavy command started;
+  wait for natural exit/resource recovery, resume the goal, rerun preflight,
+  and never signal or clean up that lane.
 - After the single-DSO full-suite/fresh-wheel gate closes, the next isolated
   PyPTO commit is immutable NVIDIA target identity: explicit SM120 resource
   traits, no SM100 defaults, and no fake legacy backend instance.

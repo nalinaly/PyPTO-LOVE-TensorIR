@@ -1,8 +1,9 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0019`
+**Checkpoint:** `CP-0020`
 
-**Status:** R0 started; no compiler or model milestone accepted.
+**Status:** R0 started; execution is blocked by the protected external
+workload/resource gate; no compiler or model milestone accepted.
 
 ## Current truth
 
@@ -176,17 +177,18 @@
   evidence and the CPython 3.12 baseline environment is not built yet.
 - Prior reconnaissance did not complete a TensorIR SM120 runtime launch. Static
   target support is not runtime acceptance.
-- The packaging-time safety preflight was green, but the latest required
-  recheck is red: zcode is running `zcode-vllm-tp2-v4` with TP=2 vLLM/gem5,
-  and MemAvailable is 28.8 GiB versus the 32 GiB safety floor. No PyPTO heavy
-  action began. Protected processes remain
+- The same safety boundary has now failed for three consecutive goal turns.
+  The latest recheck still sees seven protected `zcode-vllm-tp2-v4` TP=2
+  vLLM/gem5 processes, and MemAvailable is 28.5 GiB versus the 32 GiB safety
+  floor. No PyPTO heavy action began. Protected processes remain
   untouchable; continue light work and rerun preflight after natural exit.
 
 ## Resume action
 
-Wait for the observed protected `zcode-vllm-tp2-v4` lane to exit naturally,
-then run
-`python tools/preflight.py --mode heavy`. If and only if it is green, execute
+The goal is blocked, not complete. Wait for the observed protected
+`zcode-vllm-tp2-v4` lane to exit naturally and memory to recover, then resume
+the goal and run `python tools/preflight.py --mode heavy`. If and only if it is
+green, execute
 `docs/single_dso_acceptance_gate.md`, commit only the two CMake files and
 persist evidence. Then apply and execute
 `docs/target_info_acceptance_gate.md` before any CompileRequest code.

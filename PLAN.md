@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `9`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `10`
 
 ## Current phase: R0 workspace and provenance bootstrap
 
@@ -84,6 +84,12 @@ byte-producing region identity belongs to KernelBuildSpec; both TensorIR and
 direct CUDA Tile routes produce one exact-producer-bound Artifact; loaded
 executables are process/device/CUcontext bound. This checkpoint executes none
 of those heavy or runtime gates.
+
+Checkpoint `CP-0020` records the third consecutive goal-turn failure of the
+same protected-workload gate: seven `zcode-vllm-tp2-v4` processes remain and
+MemAvailable is 28.5 GiB below the 32 GiB floor. The goal is blocked on external
+state, not complete or narrowed. Resume at the frozen single-DSO runbook only
+after a fresh heavy preflight returns zero.
 
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.

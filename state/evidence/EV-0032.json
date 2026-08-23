@@ -1,0 +1,46 @@
+{
+  "id": "EV-0032",
+  "kind": "protected_external_workload_blocked_audit",
+  "status": "blocked_external_state_goal_incomplete",
+  "observed_at": "2026-08-24T05:42:23+08:00",
+  "consecutive_goal_turns": 3,
+  "latest_preflight": {
+    "command": "python tools/preflight.py --mode heavy",
+    "exit_code": 75,
+    "protected_heavy_process_count": 7,
+    "protected_lane": "zcode-vllm-tp2-v4",
+    "protected_workload": "TP=2 vLLM plus three gem5 instances",
+    "mem_available_kib": 29837292,
+    "mem_available_gib_rounded": 28.5,
+    "memory_floor_gib": 32,
+    "gpu": "NVIDIA GeForce RTX 5090 Laptop GPU",
+    "compute_capability": "12.0",
+    "gpu_used_mib": 3500,
+    "policy": "observation-only; no external process is ever signalled"
+  },
+  "prior_turn_evidence": [
+    "CP-0018/EV-0030: protected v4 lane remained active",
+    "CP-0019/EV-0031: protected v4 lane plus 28.8 GiB memory hold",
+    "CP-0020/EV-0032: protected v4 lane plus 28.5 GiB memory hold"
+  ],
+  "workspace": {
+    "control_before_checkpoint": "3ce8a2daed819304c25e1f138a15c7d605de06ad",
+    "pypto": "f550d4c33e8fef03e7dabcbf60c3db38b0f0a215",
+    "target_info_candidate": "9939b885041b931284f7ce56ecbf888601b60b6e",
+    "pypto_kernels": "6f73857b52c86dd98e25d23fbc825a675fb25b6a",
+    "pypto_framework_plugins": "3f9d712c6bc522552426ee77e0137e0746bf27a6",
+    "pytorch": "cf30153c4c131c8164ee7798e5022d810682e2cb",
+    "sglang": "71de97b264b04dcd514cf904003028aefe9775c8",
+    "triton": "5d6048aa0a324e090ada215b609ea76620133845"
+  },
+  "actions_not_taken": [
+    "signal, kill, pause or clean external processes",
+    "native build or full test suite",
+    "wheel or exact Triton build",
+    "CUDA launch or SGLang/model execution",
+    "restart, driver, kernel or WSL change",
+    "out-of-order TargetInfo/CompileRequest/runtime implementation"
+  ],
+  "resume_condition": "protected heavy process count is zero, memory is at least 32 GiB, and a fresh heavy preflight exits zero",
+  "goal_complete": false
+}

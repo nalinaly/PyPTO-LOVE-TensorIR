@@ -1,5 +1,6 @@
 schema=1
-checkpoint=CP-0019
+checkpoint=CP-0020
+goal.status=BLOCKED_EXTERNAL
 control.head=SELF
 projects.pypto.head=f550d4c33e8fef03e7dabcbf60c3db38b0f0a215
 projects.pypto.branch=feature/nvidia-sm120

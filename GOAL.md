@@ -2,6 +2,12 @@
 
 **Goal ID:** `PYPTO-NVIDIA-QWEN35-V1`
 
+**Execution status:** blocked on an external protected-workload/resource gate
+as of `2026-08-24T05:42:23+08:00`; the full objective and acceptance criteria
+remain active and unchanged. Resume with a fresh
+`python tools/preflight.py --mode heavy` only after the protected zcode/gem5
+lane exits naturally and memory recovers. Never signal those processes.
+
 Build a usable, high-performance NVIDIA SM120 backend for the authorized PyPTO
 source; internalize NVIDIA TensorIR/CUDA Tile behind the single public `pypto`
 compiler product; provide a standalone `pypto-kernels` project for all custom
@@ -27,4 +33,3 @@ PyPTO model-forward compute coverage.
 - No system/WSL restart without explicit user approval.
 - `/home/zhaosiying/amdgpu-sim` and `/home/zhaosiying/zcode-lane` are read-only
   external scopes. Never modify their files or signal their processes.
-
