@@ -1,88 +1,394 @@
 PYPTO-NVIDIA-QWEN35-V1 IMPLEMENTATION MAP
 =========================================
 
-Status: checkout-grounded for PyPTO, PyTorch, and SGLang at CP-0001. TensorIR
-and CUDA Tile remain pinned remote evidence until their PyPTO-internal source
-checkouts are materialized.
+Generated from the local checkouts on 2026-08-23. Paths are relative to
+/home/zhaosiying/pypto-love-tensor-ir unless explicitly stated otherwise.
+This is an ownership/implementation map, not a runtime-support claim.
 
-Ownership
----------
+
+1. Frozen identities and current truth
+--------------------------------------
+
 projects/pypto
-  Owns PyPTO frontend, compiler IR/pipelines, internal TensorIR/CUDA Tile,
-  NVIDIA executable/runtime, generic fused-loop lowering and artifact cache.
+  Branch: feature/nvidia-sm120. The committed history contains the NVIDIA
+  dependency pins plus independently layered parser/test portability fixes.
+  The only intended dirty files are CMakeLists.txt and
+  python/bindings/CMakeLists.txt for the compiler-object target. That target
+  builds in editable mode and passes 486 focused tests, but its fresh-wheel and
+  rerun-full-suite gates remain open.
 
 projects/pypto-kernels
-  Owns all handwritten high-performance operator families, schedule candidates,
-  references, tests, benchmarks, tuning database and operator provenance.
+  Head: 632bf10272e3ee71e79cf71543bd46cd3f6dc27c. Contains framework-neutral
+  contracts and semantic ABI v1 for matmul, paged_attention and gdn. It has no
+  compiler emitter, CUDA kernel, reference, tuning database or performance
+  result yet.
 
 projects/pypto-framework-plugins
-  Owns pinned TorchInductor/SGLang registration, framework metadata adapters,
-  strict compile/runtime auditing and compatibility guards. Contains no kernel
-  algorithm.
+  Head: c8fba0688906b06d43c7d7d02769093dfa01d146. Contains exact-version and
+  bootstrap guards and intentionally raises BackendNotReadyError. It has no
+  Inductor dispatcher, attention/GDN implementation or coverage auditor yet.
 
-upstream/pytorch and upstream/sglang
-  Official, immutable reference checkouts. Any dirty state is an acceptance
-  failure.
+Internal NVIDIA sources in projects/pypto/3rdparty/nvidia
+  tensor-ir: 3b5a8bebc00510b46a1e8b97229d06dd0d006215
+  cuda-tile: af2417041cc939b87ef56d92cfdcf61737c5457e
+  Both are clean gitlinks. LLVM 57109befac92811d2253109242ca6fa69c961fb2
+  still needs a local gitlink. No PyPTO target links these sources yet.
 
-Known PyPTO boundaries at the locked upstream
----------------------------------------------
-- Python DSL: python/pypto/language/parser
-- Frontend IR: include/pypto/ir and src/ir
-- Current pass recipe: python/pypto/ir/pass_manager.py
-- Tensor-to-Ascend-tile boundary:
+Read-only compatibility/reference checkouts
+  upstream/pytorch: cf30153c4c131c8164ee7798e5022d810682e2cb
+  upstream/sglang:  71de97b264b04dcd514cf904003028aefe9775c8
+  upstream/triton:  5d6048aa0a324e090ada215b609ea76620133845
+  Triton tree:      448265acc1eff726c2e528813552865b33546cc9
+
+There is no NVIDIA PyPTO compile pipeline, TensorIR-to-TileIR result, SM120
+cubin, NVIDIA runtime launch, SGLang baseline or strict-coverage result yet.
+
+
+2. Ownership and dependency direction
+-------------------------------------
+
+  PyTorch / SGLang
+          |
+          v
+  pypto-framework-plugins
+          |
+          v
+  pypto-kernels
+          |
+          v
+  pypto compiler/runtime
+          |
+          +--> internal TensorIR --> internal CUDA Tile / LLVM / CUDA driver
+
+Rules:
+  - No reverse imports.
+  - PyPTO owns compiler-generic IR, target traits, codegen and runtime. It does
+    not import Torch, SGLang or named operator-family implementations.
+  - pypto-kernels owns every handwritten/high-performance algorithm, reference,
+    schedule, benchmark and tuning record. It consumes only public PyPTO APIs.
+  - pypto-kernels never imports torch, sglang, triton or flashinfer.
+  - pypto-framework-plugins alone owns framework tensors, FX/Inductor nodes,
+    SGLang metadata, custom-op registration and exact-source guards. It owns no
+    algorithm or tuning choice.
+  - Exact Triton must remain installed because pinned Scheduler.create_backend
+    calls has_triton() for GPU devices. Strict coverage means zero Triton
+    model-forward kernels, not absence of the compatibility package.
+
+
+3. projects/pypto existing boundaries to modify
+------------------------------------------------
+
+Build/DSO
+  CMakeLists.txt
+  pyproject.toml
+  python/bindings/CMakeLists.txt
+    Preserve the internal object target inside the one pypto_core DSO until
+    mutable singleton state and exported ABI are split. Raise every CMake
+    requirement from 3.15 to 3.20 when TensorIR is enabled. Compose all NVIDIA
+    dependencies statically and expose only the pypto install surface.
+
+Frontend/compile entry
+  python/pypto/language/parser/
+  include/pypto/ir/
+  src/ir/
+  python/pypto/ir/pass_manager.py
+  python/pypto/ir/compile.py
+    Preserve frontend semantics and the current Ascend OptimizationStrategy.
+    An explicit CompileRequest selects NVIDIA; NVIDIA never mutates the legacy
+    process-global BackendConfig.
+
+Ascend-only boundary (do not generalize by adding fake NVIDIA PTO hooks)
   src/ir/transforms/convert_tensor_to_tile_ops_pass.cpp
-- PTO codegen: src/codegen/pto/pto_codegen.cpp
-- Backend policy: include/pypto/backend/common
-- Existing runtime wrapper: python/pypto/ir/compiled_program.py
+  include/pypto/backend/common/backend.h
+  include/pypto/backend/common/backend_handler.h
+  include/pypto/backend/common/backend_config.h
+  src/backend/common/backend_config.cpp
+  src/codegen/pto/pto_codegen.cpp
+    BackendHandler, SoC, L0 memories, PTO operators and ptoas flags remain
+    Ascend policy. NVIDIA does not run Tensor->Tile->Block->PTO lowering.
 
-Known TensorIR boundaries
--------------------------
-- Dialect: include/tensor_ir/Dialect
-- Pipeline: lib/Compiler/CudaTile/Pipelines.cpp
-- Layout/tile analysis: lib/Transform and lib/Analysis
-- Tensor-to-CUDA-Tile: lib/Conversion/TensorToCudaTile
-- Runtime reference: lib/Runtime/CudaTileRuntimeKernel.cpp
+Bindings/runtime references
+  python/bindings/{bindings.cpp,module.h}
+  python/bindings/modules/backend.cpp
+  python/pypto/__init__.py
+  python/pypto/ir/compiled_program.py
+  python/pypto/runtime/_binary_cache.py
+    Add compiler/target/runtime bindings while retaining one import pypto.
+    CUDA artifacts need separate requested/actual kind, target fingerprint,
+    CUstream, workspace and capture-safe prewarm semantics.
 
-Known framework boundaries
---------------------------
-- Torch OOT registration: torch/_inductor/codegen/common.py
-- Torch scheduling/kernel/wrapper internals: torch/_inductor/codegen
-- Torch selector limitation: register_backend_for_device has one process-global
-  cuda slot; config.cuda_backend has no stable third-party named-backend registry
-- Torch strict limitation: CSE/backend-name logic and template choices are
-  commit-specific; the plugin must provide its own scheduling/CSE/wrapper
-- SGLang plugin loader: python/sglang/srt/plugins
-- SGLang attention registry: python/sglang/srt/layers/attention/attention_registry.py
-- SGLang GDN dispatcher: python/sglang/srt/layers/attention/linear/gdn_backend.py
-- SGLang Qwen3.5 model: python/sglang/srt/models/qwen3_5.py
-- SGLang linear backend resolver:
-  python/sglang/srt/layers/attention/linear/utils.py::resolve_linear_attn_backends
-- SGLang Inductor entry:
-  python/sglang/srt/compilation/compiler_interface.py::InductorAdaptor.compile
-- SGLang current CUDA-graph metadata contract:
-  init_forward_metadata_out_graph / init_forward_metadata_in_graph /
-  init_cuda_graph_state plus breakable-graph capture/replay hooks
 
-Current project-owned implementation surfaces
----------------------------------------------
-- projects/pypto-kernels/src/pypto_kernels/{ops,runtime,tuning,provenance}
-  define the framework-neutral, versioned invocation and artifact contracts.
-- projects/pypto-framework-plugins/src/pypto_plugins/versions.py binds runtime
-  imports to the locked CUDA PyTorch environment and clean SGLang checkout.
-- projects/pypto-framework-plugins/src/pypto_plugins/bootstrap.py verifies the
-  two installed entry points before every SGLang launch.
-- projects/pypto-framework-plugins/src/pypto_plugins/sglang_plugin.py owns the
-  pinned attention/linear-attention registration and hook compatibility layer.
+4. projects/pypto files and APIs to add
+--------------------------------------
 
-Do not modify
--------------
-- upstream/pytorch
-- upstream/sglang
-- /home/zhaosiying/amdgpu-sim
-- /home/zhaosiying/zcode-lane
+First target/request commit
+  include/pypto/backend/common/backend_type.h
+  include/pypto/compiler/target_info.h
+  include/pypto/compiler/compile_request.h
+  src/compiler/{target_info,compile_request}.cpp
+  python/bindings/modules/compiler.cpp
+  python/pypto/compiler/__init__.py
+  tests/ut/compiler/test_compile_request.py
+    BackendType::Nvidia, immutable NvidiaTargetInfo and CompileRequest. User
+    identity is nvidia:sm_120/sm_120; an arch-conditional cubin may use sm_120a.
+    Code-cache identity excludes UUID; autotune fingerprint includes it.
 
-API instability
----------------
-Torch SIMDScheduling/CSEProxy/TemplateBuffer/ChoiceCaller and SGLang hybrid/GDN
-hook targets are commit-specific. Every adapter must validate the exact commit
-and expected target signatures before registration.
+Context-owned dispatch
+  include/pypto/compiler/{compiler,pipeline_registry}.h
+  src/compiler/{compiler,pipeline_registry}.cpp
+    One request per compile. PassContext owns it, workers capture it explicitly,
+    and passes never query/change an ambient current target.
+
+NVIDIA compiler bridge
+  cmake/nvidia_tensor_ir.cmake
+  include/pypto/codegen/nvidia/{tensor_ir_codegen,cuda_tile_codegen}.h
+  src/codegen/nvidia/{tensor_ir_bridge,tensor_ir_codegen,cuda_tile_codegen}.cpp
+    Structured tensor regions lower through TensorIR. Already-fused offset
+    loops and expert tile programs lower directly to CUDA Tile. Dependency
+    headers stay private to the bridge.
+
+Generic serving semantics
+  include/pypto/ir/serving_ops.h
+  src/ir/serving_ops.cpp
+  include/pypto/codegen/nvidia/serving_lowering.h
+  src/codegen/nvidia/serving_lowering.cpp
+    Own only paged_attention, recurrent/scan and state read/write semantics.
+    Named algorithms/schedules live in pypto-kernels.
+
+NVIDIA runtime
+  include/pypto/runtime/nvidia/{artifact,executable,artifact_cache}.h
+  src/runtime/nvidia/{artifact,executable,artifact_cache,target_query}.cpp
+  python/pypto/runtime/nvidia.py
+    Wrap TensorIR IRuntimeKernel initialization, support/workspace query and
+    launch. Accept framework-neutral tensor views plus raw current CUstream.
+    Allocate/compile/load nothing during CUDA Graph capture.
+
+Tests
+  tests/ut/compiler/nvidia/
+  tests/ut/runtime/nvidia/
+  tests/st/nvidia/
+    Keep configure/link, TileIR, cubin, current-stream launch, cache,
+    concurrency and CUDA Graph claims as separate gates.
+
+
+5. Internal TensorIR/CUDA Tile boundary
+--------------------------------------
+
+Build composition inputs
+  projects/pypto/3rdparty/nvidia/tensor-ir/CMakeLists.txt
+  projects/pypto/3rdparty/nvidia/tensor-ir/cmake/TensorIRFetchContent.cmake
+  projects/pypto/3rdparty/nvidia/tensor-ir/cmake/TensorIRFetchCudaTile.cmake
+  projects/pypto/3rdparty/nvidia/tensor-ir/cmake/TensorIRLLVMUtils.cmake
+  projects/pypto/3rdparty/nvidia/tensor-ir/cmake/TensorIRDependencyPins.cmake
+    TensorIR owns exactly one CUDA Tile and LLVM sub-build. Override
+    FETCHCONTENT_SOURCE_DIR_TENSOR_IR_CUDA_TILE and
+    FETCHCONTENT_SOURCE_DIR_TENSOR_IR_LLVM_PROJECT with local gitlinks; enable
+    FETCHCONTENT_FULLY_DISCONNECTED; disable bindings/tests/public CUDA Tile
+    tools; link only NVTensorIR::Compiler through a PyPTO-owned static bridge.
+
+Tensor dialect/lowering
+  include/tensor_ir/Dialect/TensorOps.td
+  lib/Transform/{LayoutAnnotation,GraphSplitting,TileSelectionPass}.cpp
+  lib/Analysis/{TileAnalyzer,TileCandidateGenerator}.cpp
+  lib/Conversion/TensorToCudaTile/
+  lib/Compiler/CudaTile/Pipelines.cpp
+    Own structured pointwise/reduction/matmul layout propagation, graph
+    splitting, tile analysis/selection and Tensor-to-CUDA-Tile conversion.
+
+Compiler/runtime APIs consumed by PyPTO
+  include/tensor_ir/Compiler/{CompileOptions,Compiler}.h
+  include/tensor_ir/Compiler/CudaTile/{CudaTileCompiler,CudaTileFrontend,
+      KernelArgLayout,Pipelines,TileIRAssembly}.h
+  include/tensor_ir/Runtime/{IRuntimeKernel,Types}.h
+  include/tensor_ir/Runtime/CudaTile/CudaTileRuntimeKernel.h
+  lib/Runtime/CudaTileRuntimeKernel.cpp
+    Consume ICompiler::create/compile/canCompile and
+    IRuntimeKernel::{initializeRuntimeState,checkSupport,queryWorkspaceSize,
+    launch}. Do not expose nv_tensor_ir Python or TensorIR command-line tools.
+
+Known gaps
+  - PipelineOptions can carry the real 82-SM count, but
+    TileCandidateGenerator.cpp::getSmemCapacityBytes uses a representative
+    227 KiB for every cc>=100. Thread the real target shared-memory resource
+    through a separately committed TensorIR patch before trusting automatic
+    candidate legality/performance; explicit schedules may bypass it first.
+  - A requested CudaTileArtifactKind::Cubin may return TileIR when no compatible
+    assembler exists. Strict provenance inspects actual bytes/magic.
+  - tileiras comes from CUDA 13.3.73 PATH. Record its exact executable; never
+    install a second TensorIR CLI to hide its absence.
+
+Packaging gate
+  No nv_tensor_ir package, TensorIR/CUDA Tile public tool, or separate LLVM,
+  MLIR, TensorIR or CUDA Tile runtime DSO may enter the wheel. Try parent-side
+  EXCLUDE_FROM_ALL first; patch dependency install guards only if the staged
+  install audit proves leakage.
+
+
+6. projects/pypto-kernels
+------------------------
+
+Existing contracts to retain/extend
+  src/pypto_kernels/{ops,families,runtime,tuning,provenance}/
+  tests/test_dependency_boundary.py
+    These remain the canonical framework-neutral semantic, launch, target,
+    schedule, tuning and provenance types. Add public PyPTO as a dependency only
+    when the first implementation lands.
+
+Files to add after exact framework tensor inventory
+  src/pypto_kernels/ops/{matmul,paged_attention,gdn}.py
+    Concrete OperatorSpec argument order, dtype, mutation and alias semantics.
+
+  src/pypto_kernels/implementations/matmul/{tensor_ir,schedules}.py
+  src/pypto_kernels/implementations/paged_attention/{decode,prefill,schedules}.py
+  src/pypto_kernels/implementations/gdn/{decode,prefill,schedules}.py
+    Every custom high-performance algorithm is here. Matmul uses public PyPTO
+    TensorIR APIs; paged attention/GDN use public CUDA Tile builders.
+
+  src/pypto_kernels/references/{matmul,paged_attention,gdn}.py
+  src/pypto_kernels/schedules/{registry,validation}.py
+  src/pypto_kernels/runtime/{catalog,planner,compiler,launcher,workspace}.py
+  src/pypto_kernels/tuning/{database,autotuner,benchmark}.py
+  src/pypto_kernels/provenance/manifest.py
+  benchmarks/operators/
+  tests/operators/{matmul,paged_attention,gdn}/
+    Resolve typed config -> schedule -> PyPTO executable without framework
+    objects. Store CUDA-event results in a device-fingerprinted database.
+
+GDN completeness
+  Coverage includes projection split, causal convolution, q/k normalization,
+  gate/decay/beta, recurrence, request state gather/scatter and writeback.
+  Replacing only the recurrence center is not a complete provider.
+
+
+7. projects/pypto-framework-plugins
+----------------------------------
+
+Existing facades
+  src/pypto_plugins/{bootstrap,versions,torch_backend,torch_inductor,
+      sglang_plugin}.py
+    Retain exact commit/tree/entry-point validation. Replace BackendNotReady
+    only after the real dispatcher exists.
+
+Torch modules to add
+  src/pypto_plugins/torch/{context,registration,scheduling,kernel,cse,wrapper,
+      async_compile,choices,templates,custom_ops,auditor}.py
+    Install one ContextVar-controlled CUDA DeviceCodegen dispatcher. Preserve
+    the captured original backend outside PyPTO mode; inside strict mode emit
+    only PyPTO fused-loop/template/custom-op paths. C++/FX/Triton wrapper paths
+    fail rather than delegate. Inductor choices implement stable uuid().
+
+SGLang modules to add
+  src/pypto_plugins/sglang/{attention,gdn,metadata,cuda_graph,hooks,
+      qwen35_inventory}.py
+  src/pypto_plugins/torch_ops.py
+    Metadata adapters alone import frameworks and emit pypto-kernels LaunchSpec.
+    torch.library custom ops declare exact mutation and fake semantics. Model
+    files remain unchanged.
+
+Strict audit
+  Record provider, kernel, FX/Inductor node, PyPTO region, artifact id, calls
+  and GPU time. Allow pypto.generic/tensorir/matmul/attention/gdn. Reject
+  Triton, FlashInfer, CuTe, sgl-kernel, eager ATen, cuBLAS/cuBLASLt and unknown
+  model-forward compute.
+
+
+8. Pinned TorchInductor extension points and instability
+-------------------------------------------------------
+
+Read-only contracts
+  upstream/pytorch/torch/_inductor/codegen/common.py
+    device_codegens is one process-global map; register_backend_for_device
+    overwrites CUDA; init_backend_registration is cached.
+  upstream/pytorch/torch/_inductor/config.py
+    cuda_backend Literal has triton/halide/pallas, not pypto.
+    inductor_choices_class is the intended OOT choices hook.
+  upstream/pytorch/torch/_inductor/codegen/simd.py
+  upstream/pytorch/torch/_inductor/codegen/triton.py
+  upstream/pytorch/torch/_inductor/scheduler.py
+  upstream/pytorch/torch/_inductor/ir.py
+  upstream/pytorch/torch/_inductor/select_algorithm.py
+  upstream/pytorch/torch/_inductor/choices.py
+    SIMDScheduling/SIMDKernel, CSEProxy, SchedulerNode/FusedSchedulerNode,
+    TemplateBuffer/ChoiceCaller and choices signatures are commit-specific.
+    Reuse SIMD abstractions, never Triton emitters. Fingerprint all signatures.
+
+OOT strategy
+  Initialize and capture the original CUDA DeviceCodegen, replace the CUDA slot
+  with a context dispatcher, and delegate only outside PyPTO mode. Do not edit
+  config.py or any upstream Torch file.
+
+
+9. Pinned SGLang extension points and instability
+------------------------------------------------
+
+Plugin loader
+  upstream/sglang/python/sglang/srt/plugins/{__init__,hook_registry}.py
+    Formal entry point is sglang.srt.plugins. Ordinary plugin/hook exceptions
+    are logged/swallowed, so identity failure and an unready strict backend must
+    terminate through the existing fail-closed SystemExit boundary.
+
+Attention
+  upstream/sglang/python/sglang/srt/layers/attention/base_attn_backend.py
+  upstream/sglang/python/sglang/srt/layers/attention/attention_registry.py
+  upstream/sglang/python/sglang/srt/layers/attention/hybrid_attn_backend.py
+    Implement forward_extend/decode, current out/in-graph metadata,
+    init_cuda_graph_state and breakable graph capture/replay. On SM120 the
+    hybrid-GDN allowlist contains only triton/trtllm_mha/flashinfer; merely
+    registering pypto is insufficient, so a pinned hook owns this branch.
+
+GDN
+  upstream/sglang/python/sglang/srt/layers/attention/linear/utils.py
+  upstream/sglang/python/sglang/srt/layers/attention/linear/gdn_backend.py
+  upstream/sglang/python/sglang/srt/layers/attention/linear/kernels/kernel_backend.py
+    Unknown pypto maps to CUSTOM, but GDNKernelDispatcher rejects CUSTOM. The
+    plugin adapts the dispatcher and supplies a LinearAttnKernelBase-compatible
+    provider; hooking resolve_linear_attn_backends alone is insufficient.
+
+Piecewise compiler/CUDA Graph
+  upstream/sglang/python/sglang/srt/compilation/compiler_interface.py
+  upstream/sglang/python/sglang/srt/compilation/cuda_piecewise_backend.py
+  upstream/sglang/python/sglang/srt/model_executor/runner_backend/
+      tc_piecewise_cuda_graph_backend.py
+    Keep Inductor and SGLang graph infrastructure. The plugin activates PyPTO
+    mode; it does not create a second FX compiler.
+
+Qwen3.5 inventory
+  upstream/sglang/python/sglang/srt/models/qwen3_5.py
+    Inventory fused QK RMSNorm/RoPE/gate, fused GDN projections, causal conv,
+    RMSNormGated and custom linear dispatch. Replace through native expressions
+    or generic providers/hooks, never an if-pypto branch in the model file.
+
+
+10. Must not modify
+-------------------
+
+  upstream/pytorch/**
+  upstream/sglang/**
+  upstream/triton/**
+  projects/pypto/3rdparty/nvidia/cuda-tile/**
+  models/Qwen3.5-0.8B/**
+  models/Qwen3.5-9B/**
+  /home/zhaosiying/amdgpu-sim/**
+  /home/zhaosiying/zcode-lane/**
+
+TensorIR changes require a separately committed nested revision with preserved
+license/provenance, never an anonymous dirty gitlink. CUDA Tile is not forked.
+No restart, driver/kernel change or WSL shutdown is authorized.
+
+
+11. Mandatory order derived from this map
+-----------------------------------------
+
+  1. Close the object-target full-test and fresh-wheel gate.
+  2. Materialize exact LLVM and prove fully disconnected TensorIR/CUDA Tile
+     configure/link composition with no second public product.
+  3. Add immutable NvidiaTargetInfo/CompileRequest; retain Ascend behavior.
+  4. Prove pointwise/reduction/matmul -> TileIR -> SM120 current-stream launch.
+  5. Implement generic fused-loop memory lowering and structured matmul.
+  6. Freeze operator tensor ABIs, then attention and GDN decode/prefill in the
+     standalone kernel project.
+  7. Activate zero-diff TorchInductor/SGLang plugins and strict audit.
+  8. Run 0.8B strict correctness/coverage/profile, then 9B and final report.
+
+Compile-only, TileIR, cubin, runtime correctness, strict coverage and
+performance are always separate evidence classes.

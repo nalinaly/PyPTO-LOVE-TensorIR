@@ -1,0 +1,23 @@
+{
+  "id": "EV-0009",
+  "kind": "pypto_full_suite_failure_triage",
+  "status": "pass_targeted_pending_full_rerun",
+  "repository_head": "a62d90337119660234f3ef9821c6ae6c00d195a1",
+  "commits": [
+    ["2a04185", "parser class-source fallback preserves __firstlineno__"],
+    ["dfbc4ee", "MemRef printer test accepts compact signatures"],
+    ["5b702d4", "annotation typo test accepts PEP 649 parser diagnostic"],
+    ["a62d903", "symlink probe is deferred from redirecting editable installs to wheel gate"]
+  ],
+  "targeted_results": {
+    "class_source_lookup": "8 passed, 1 runtime-dependent skip",
+    "loop_carry_memref_roundtrip": "1 passed",
+    "undefined_shape_diagnostic": "1 passed",
+    "editable_symlink_probe": "1 expected skip; must run from fresh wheel install"
+  },
+  "not_claimed": [
+    "full PyPTO unit suite pass",
+    "fresh wheel pass",
+    "object-target acceptance"
+  ]
+}

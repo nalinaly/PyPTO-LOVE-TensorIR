@@ -10,7 +10,8 @@
 - [x] Vendor/pin TensorIR and CUDA Tile inside the PyPTO project.
 - [x] Clone `triton-dev` into `envs/pypto-nvidia` without mutating the source.
 - [x] Copy and hash Qwen3.5 model snapshots after the protected-workload gate.
-- [ ] Produce local-source `docs/implementation_map.txt`.
+- [x] Produce checkout-grounded `docs/implementation_map.txt` with exact
+      ownership, extension points, dependency direction and forbidden edits.
 - [ ] Run unmodified SGLang 0.8B then minimal 9B baseline.
 - [ ] Freeze R0 evidence and advance `PLAN.md` to P1.
 - [ ] Replace the inherited external editable Triton with an in-workspace build

@@ -37,9 +37,10 @@
   build-interface fix is staged but remains uncommitted until all build and
   packaging gates pass.
 - After correcting that usage requirement, the incremental editable build and
-  486 object-boundary-focused tests pass. The full suite is not green: 10,173
-  pass, 58 skip, and three source/parser/test-harness failures remain under
-  diagnosis. A fresh wheel build is also pending.
+  486 object-boundary-focused tests pass. The first full run reported 10,173
+  pass, 58 skip, and three failures. Their product/test/harness fixes are now
+  independently committed and pass targeted checks, but a full rerun and fresh
+  wheel build remain mandatory before object-target acceptance.
 - The exact PyTorch-pinned Triton source is now a clean official checkout under
   `upstream/triton`, but the environment still imports the inherited external
   editable distribution until a hermetic workspace wheel is built and
@@ -52,9 +53,9 @@
 ## Resume action
 
 Run `python tools/preflight.py --mode heavy`. If and only if it is green,
-continue the fresh PyPTO wheel build in `builds/pypto-wheel.dfB4Xk`, then inspect
-and install it into a clean target outside the checkout. Resolve or explicitly
-baseline the three full-suite failures before committing the object target.
+rerun the full PyPTO suite and continue the fresh wheel build in
+`builds/pypto-wheel.dfB4Xk`, then inspect/install it into a clean target outside
+the checkout and run the symlink probe there.
 Next build the exact Triton wheel and remove the external editable runtime. If
 protected zcode work remains active, continue only source/test work that does
 not compile, launch a model, or claim runtime acceptance.

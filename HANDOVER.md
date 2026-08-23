@@ -39,8 +39,9 @@ changed project repositories before the root checkpoint commit.
 
 - Read `state/checkpoints/CP-0004.md` and evidence `EV-0005` through `EV-0008`.
 - `projects/pypto` has two intentional uncommitted CMake files implementing the
-  single-DSO compiler object boundary. Editable build and 486 focused tests pass;
-  full tests have three recorded failures and the fresh wheel gate has not run.
+  single-DSO compiler object boundary. Editable build and 486 focused tests
+  pass. The first full run's three failures have layered fixes and targeted
+  proof at `EV-0009`; the full rerun and fresh wheel gate have not run.
 - `projects/pypto-kernels` is clean at `632bf10...` with 24 semantic-contract
   tests and an independently verified wheel import.
 - `upstream/triton` is the clean exact PyTorch pin. Do not use the inherited
