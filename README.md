@@ -24,3 +24,9 @@ It preserves the original CUDA backend outside PyPTO mode and rejects missing,
 C++-wrapper, and FX-wrapper paths inside PyPTO mode. It still performs no
 registration because real PyPTO scheduling and wrapper constructors have not
 landed; `install()` remains deliberately fail-closed.
+
+The SGLang layer freezes a source-hashed, AST-checked inventory of the Qwen3.5
+CUDA text path. Every direct fused helper and backend abstraction is assigned
+to a future strict provider (`pypto.generic`, `matmul`, `attention`, or `gdn`),
+while host-only shape arithmetic is recorded separately. This inventory is a
+coverage obligation, not a kernel implementation or model correctness claim.
