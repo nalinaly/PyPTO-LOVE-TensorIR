@@ -30,3 +30,21 @@ CUDA text path. Every direct fused helper and backend abstraction is assigned
 to a future strict provider (`pypto.generic`, `matmul`, `attention`, or `gdn`),
 while host-only shape arithmetic is recorded separately. This inventory is a
 coverage obligation, not a kernel implementation or model correctness claim.
+
+A framework-neutral coverage auditor checks adapter-supplied normalized GPU
+activities against a closed-world trace manifest and a digest-bound PyPTO
+artifact registry, then publishes deterministic, durable JSON. Strict mode
+rejects any unregistered or non-PyPTO model-forward compute event immediately;
+it also rejects incomplete, empty, zero-time, misclassified, or digest-mismatched
+evidence. The normalizer protocol revision is fixed. Each report path is held
+under an interprocess lock for the auditor lifetime, cannot overwrite an
+existing run, and only the owning instance may advance its exact partial report
+to final. Sampling and CUDA runtime memcpy/memset activities remain visible but
+are deliberately outside the model-forward compute denominator.
+
+The evidence boundary is explicit: this module does not collect GPU activity,
+prove that the adapter delivered a complete event stream, or validate the
+adapter's timing method. A `strict_policy_passed` result is therefore an exact
+policy decision over the bound normalized trace; it is not by itself model
+correctness, profiler completeness, or performance evidence. No runtime trace
+has been collected yet.
