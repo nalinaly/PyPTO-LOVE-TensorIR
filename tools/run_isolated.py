@@ -141,6 +141,12 @@ def main() -> int:
             env=environment,
             check=True,
         )
+        subprocess.run(
+            [str(python), str(ROOT / "tools" / "audit_python_environment.py")],
+            cwd=ROOT,
+            env=environment,
+            check=True,
+        )
     if args.require_framework_plugins or command_requires_plugins:
         python = ENV_PREFIX / "bin" / "python"
         if not python.is_file():
