@@ -1,0 +1,35 @@
+{
+  "id": "EV-0011",
+  "kind": "isolated_framework_launch_profiles",
+  "status": "pass_infrastructure_baseline_not_run",
+  "commits": {
+    "safety": "1c38786",
+    "baseline_launchers": "3d8c201"
+  },
+  "properties": [
+    "candidate and baseline profiles are bound to distinct project-local Python prefixes",
+    "baseline effective imports allow only the pinned SGLang source and selected environment",
+    "candidate strict/diagnostic controls use an exact allowlist and path overrides remain workspace-local",
+    "Python ABI, complete distributions, Torch tree/runtime, CUDA/HIP, SM120 and loaded DSOs are verified before framework spawn",
+    "framework launch is explicit and the child executable must be the verified prefix Python",
+    "protected ownership uses command line and /proc cwd; SGLang/vLLM/gem5 launches block heavy work",
+    "SIGINT/SIGTERM/SIGHUP cleanup signals only a start-tick/run-id/workspace-verified child group",
+    "SGLang baseline general plugins are disabled with a nonmatching whitelist"
+  ],
+  "tests": {
+    "unittest": "17 passed",
+    "compileall": "pass",
+    "bash_syntax": "pass",
+    "environment_identity_verify": "pass",
+    "selected_runtime_probe": "CUDA 13.0, HIP null, SM120, no forbidden DSO",
+    "candidate_import_audit": "expected fail only for inherited external editable Triton",
+    "owned_signal_smoke": "run pypto-20260823T143631Z-2158762-e6e2f1; child return -15, runner return 143, metadata exited",
+    "independent_reviews": "two approvals, no remaining P0/P1"
+  },
+  "not_claimed": [
+    "CPython 3.12 baseline environment built",
+    "unmodified SGLang server started",
+    "Qwen model load or generation",
+    "baseline correctness or performance"
+  ]
+}

@@ -1,12 +1,14 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `1`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `2`
 
 ## Current phase: R0 workspace and provenance bootstrap
 
-Checkpoint `CP-0004` has source/model/environment provenance and the first
-standalone semantic operator layer frozen. R0 remains open until the inherited
-editable Triton is replaced and unmodified SGLang baselines are captured. In
+Checkpoint `CP-0005` has source/model/environment provenance, the first
+standalone semantic operator layer, Torch constructor-dispatch law, and
+candidate/baseline process isolation frozen. R0 remains open until exact Triton
+wheels replace the inherited editable source, the CPython 3.12 baseline
+environment is locked, and unmodified SGLang baselines are captured. In
 parallel, the first P1 build-only object boundary is staged but is not accepted
 until its full-test and fresh-wheel gates close.
 

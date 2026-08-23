@@ -1,6 +1,6 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0004`
+**Checkpoint:** `CP-0005`
 
 **Status:** R0 started; no compiler or model milestone accepted.
 
@@ -49,6 +49,12 @@
   `upstream/triton`, but the environment still imports the inherited external
   editable distribution until a hermetic workspace wheel is built and
   installed.
+- Candidate and baseline framework runs now have separate, reviewed execution
+  profiles. Baseline cannot import PyPTO/plugin sources or load general SGLang
+  plugins; candidate framework launch cannot start until exact environment,
+  selected NVIDIA runtime, entry points and process ownership all verify.
+- Frozen baseline launch scripts exist for 0.8B and 9B, but neither is runtime
+  evidence and the CPython 3.12 baseline environment is not built yet.
 - Prior reconnaissance did not complete a TensorIR SM120 runtime launch. Static
   target support is not runtime acceptance.
 - Protected zcode work was active at R0 start. No heavy PyPTO task may begin

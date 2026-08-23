@@ -37,7 +37,7 @@ changed project repositories before the root checkpoint commit.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0004.md` and evidence `EV-0005` through `EV-0008`.
+- Read `state/checkpoints/CP-0005.md` and evidence `EV-0005` through `EV-0011`.
 - `projects/pypto` has two intentional uncommitted CMake files implementing the
   single-DSO compiler object boundary. Editable build and 486 focused tests
   pass. The first full run's three failures have layered fixes and targeted
@@ -50,5 +50,8 @@ changed project repositories before the root checkpoint commit.
 - `upstream/triton` is the clean exact PyTorch pin. Do not use the inherited
   external editable Triton for acceptance.
 - Re-run the live heavy preflight before resuming any wheel build. At this
-  checkpoint zcode is running TP=2 SGLang and gem5, so this project's heavy work
+  checkpoint zcode is running TP=2 vLLM and gem5, so this project's heavy work
   must wait without signalling or cleaning up that lane.
+- Use `--framework-launch` for every SGLang process. Baseline scripts bind the
+  missing `envs/sglang-baseline-py312` lock/profile; candidate launch is expected
+  to fail until the external editable Triton is replaced by its workspace wheel.

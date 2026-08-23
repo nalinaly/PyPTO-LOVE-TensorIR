@@ -13,6 +13,7 @@
 - [x] Produce checkout-grounded `docs/implementation_map.txt` with exact
       ownership, extension points, dependency direction and forbidden edits.
 - [ ] Run unmodified SGLang 0.8B then minimal 9B baseline.
+- [x] Freeze plugin-free, selected-prefix 0.8B/9B baseline launch commands.
 - [ ] Freeze R0 evidence and advance `PLAN.md` to P1.
 - [ ] Replace the inherited external editable Triton with an in-workspace build
       of PyTorch's exact `5d6048aa...` pin.
@@ -24,6 +25,6 @@
 ## Safety hold
 
 Heavy build/model/server work remains paused while protected zcode SGLang,
-gem5, or high-parallel gem5 builds are active. The currently observed protected
-lane is zcode's TP=2 formal SGLang/gem5 run. Observation is allowed; signals and
-cleanup are forbidden.
+vLLM, gem5, or high-parallel gem5 builds are active. The currently observed
+protected lane is zcode's TP=2 formal vLLM/gem5 run. Observation is allowed;
+signals and cleanup are forbidden.
