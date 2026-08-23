@@ -1,0 +1,35 @@
+# Frozen source candidates for R0. Each checkout is verified before promotion.
+pypto.repo=https://github.com/hw-native-sys/pypto.git
+pypto.commit=e2d0f78ae6d709c0d6ee345a48db2c3d621a4b09
+pypto.authorization=user-confirmed-separate-nvidia-grant
+
+tensor_ir.repo=https://github.com/NVIDIA/tensor-ir.git
+tensor_ir.commit=3b5a8bebc00510b46a1e8b97229d06dd0d006215
+tensor_ir.version=v0.1.0
+cuda_tile.repo=https://github.com/NVIDIA/cuda-tile.git
+cuda_tile.commit=af2417041cc939b87ef56d92cfdcf61737c5457e
+cuda_tile.version=v13.3.3
+llvm.commit=57109befac92811d2253109242ca6fa69c961fb2
+
+pytorch.repo=https://github.com/pytorch/pytorch.git
+pytorch.commit=cf30153c4c131c8164ee7798e5022d810682e2cb
+pytorch.version=v2.13.0
+sglang.repo=https://github.com/sgl-project/sglang.git
+sglang.commit=71de97b264b04dcd514cf904003028aefe9775c8
+sglang.version=v0.5.18
+transformers.version=5.12.1
+flashinfer.version=0.6.17
+
+cuda_toolkit.version=13.3.73
+cuda_toolkit.path=/usr/local/cuda-13.3
+driver.version=610.74
+target.name=NVIDIA GeForce RTX 5090 Laptop GPU
+target.compute_capability=12.0
+target.sm_count=82
+target.memory_mib=24463
+
+qwen35_0p8b.source=/home/zhaosiying/amdgpu-sim/models/Qwen3.5-0.8B
+qwen35_0p8b.commit=2fc06364715b967f1860aea9cf38778875588b17
+qwen35_9b.source=/home/zhaosiying/amdgpu-sim/models/Qwen3.5-9B
+qwen35_9b.commit=c202236235762e1c871ad0ccb60c8ee5ba337b9a
+

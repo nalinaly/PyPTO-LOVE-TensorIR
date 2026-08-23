@@ -1,0 +1,29 @@
+# DECISIONS
+
+## D-0001: Three-project implementation boundary
+
+`pypto` owns compiler/runtime infrastructure; `pypto-kernels` owns every
+custom high-performance operator; `pypto-framework-plugins` owns only pinned
+framework adaptation.
+
+## D-0002: Official framework source remains zero-diff
+
+Torch and SGLang changes are installed through OOT registration and SGLang's
+plugin/HookRegistry mechanisms. Compatibility code is exact-SHA gated and is
+not described as a stable upstream ABI.
+
+## D-0003: RTX 5090 Laptop is the final target
+
+All capacity and performance claims refer to the local 24 GB/82-SM Laptop GPU,
+not the 32 GB desktop RTX 5090.
+
+## D-0004: 9B capacity does not justify hidden scope relaxation
+
+Minimal BF16 9B failure stops the project for user direction. CPU offload,
+quantization, or external compute fallback are not automatic alternatives.
+
+## D-0005: Protected AMD/zcode scopes are never managed by this project
+
+This project observes their resource use only. It never edits their trees,
+reuses their processes, shares caches/endpoints, or signals their PIDs.
+

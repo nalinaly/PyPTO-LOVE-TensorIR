@@ -1,0 +1,15 @@
+{
+  "id": "EV-0001",
+  "kind": "workspace_bootstrap",
+  "status": "partial",
+  "claim": "The isolated control-plane skeleton and source/version decisions are recorded.",
+  "not_claimed": [
+    "source checkouts materialized",
+    "TensorIR SM120 runtime",
+    "SGLang baseline",
+    "model correctness",
+    "coverage",
+    "performance"
+  ]
+}
+

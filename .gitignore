@@ -1,0 +1,18 @@
+# Nested repositories are independently versioned; WORKSPACE.lock records heads.
+/projects/*/
+/upstream/*/
+
+# Large/local state.
+/models/*/
+!/models/MANIFEST.json
+/envs/
+/builds/
+/caches/
+/logs/
+/runs/
+/reports/data/
+*.pyc
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+

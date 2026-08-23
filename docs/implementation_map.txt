@@ -1,0 +1,66 @@
+PYPTO-NVIDIA-QWEN35-V1 IMPLEMENTATION MAP
+=========================================
+
+Status: reconnaissance-derived bootstrap map. Replace every remote-only entry
+with checkout-local paths and symbol evidence before entering P1.
+
+Ownership
+---------
+projects/pypto
+  Owns PyPTO frontend, compiler IR/pipelines, internal TensorIR/CUDA Tile,
+  NVIDIA executable/runtime, generic fused-loop lowering and artifact cache.
+
+projects/pypto-kernels
+  Owns all handwritten high-performance operator families, schedule candidates,
+  references, tests, benchmarks, tuning database and operator provenance.
+
+projects/pypto-framework-plugins
+  Owns pinned TorchInductor/SGLang registration, framework metadata adapters,
+  strict compile/runtime auditing and compatibility guards. Contains no kernel
+  algorithm.
+
+upstream/pytorch and upstream/sglang
+  Official, immutable reference checkouts. Any dirty state is an acceptance
+  failure.
+
+Known PyPTO boundaries at the locked upstream
+---------------------------------------------
+- Python DSL: python/pypto/language/parser
+- Frontend IR: include/pypto/ir and src/ir
+- Current pass recipe: python/pypto/ir/pass_manager.py
+- Tensor-to-Ascend-tile boundary:
+  src/ir/transforms/convert_tensor_to_tile_ops_pass.cpp
+- PTO codegen: src/codegen/pto/pto_codegen.cpp
+- Backend policy: include/pypto/backend/common
+- Existing runtime wrapper: python/pypto/ir/compiled_program.py
+
+Known TensorIR boundaries
+-------------------------
+- Dialect: include/tensor_ir/Dialect
+- Pipeline: lib/Compiler/CudaTile/Pipelines.cpp
+- Layout/tile analysis: lib/Transform and lib/Analysis
+- Tensor-to-CUDA-Tile: lib/Conversion/TensorToCudaTile
+- Runtime reference: lib/Runtime/CudaTileRuntimeKernel.cpp
+
+Known framework boundaries
+--------------------------
+- Torch OOT registration: torch/_inductor/codegen/common.py
+- Torch scheduling/kernel/wrapper internals: torch/_inductor/codegen
+- SGLang plugin loader: python/sglang/srt/plugins
+- SGLang attention registry: python/sglang/srt/layers/attention/attention_registry.py
+- SGLang GDN dispatcher: python/sglang/srt/layers/attention/linear/gdn_backend.py
+- SGLang Qwen3.5 model: python/sglang/srt/models/qwen3_5.py
+
+Do not modify
+-------------
+- upstream/pytorch
+- upstream/sglang
+- /home/zhaosiying/amdgpu-sim
+- /home/zhaosiying/zcode-lane
+
+API instability
+---------------
+Torch SIMDScheduling/CSEProxy/TemplateBuffer/ChoiceCaller and SGLang hybrid/GDN
+hook targets are commit-specific. Every adapter must validate the exact commit
+and expected target signatures before registration.
+

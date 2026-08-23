@@ -1,0 +1,12 @@
+schema=1
+checkpoint=CP-0000
+control.head=SELF
+projects.pypto.head=ABSENT
+projects.pypto_kernels.head=ABSENT
+projects.pypto_framework_plugins.head=ABSENT
+upstream.pytorch.head=ABSENT
+upstream.pytorch.dirty=unknown
+upstream.sglang.head=ABSENT
+upstream.sglang.dirty=unknown
+models.status=ABSENT
+environment.status=ABSENT
