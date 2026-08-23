@@ -36,6 +36,21 @@ C++-wrapper, and FX-wrapper paths inside PyPTO mode. It still performs no
 registration because real PyPTO scheduling and wrapper constructors have not
 landed; `install()` remains deliberately fail-closed.
 
+A 31-source SHA/AST inventory freezes four pinned Inductor reconnaissance lanes:
+registry/cache, scheduler/wrapper/current-stream, template/lowering/fallback,
+and upstream Triton/CuTeDSL/autotune references. A SHA manifest covers all 346
+Python files under `_inductor`; that complete tree has no TileKernel/cuTile
+backend, but it does contain CuTeDSL paths. The pinned scheduler still requires
+`has_triton()` to succeed, while exact Torch/Triton pair compatibility audit
+remains pending and strict mode will not allow Triton or CuTeDSL compute. The
+native CUDA selector is closed without `pypto`; the zero-diff route is a later
+atomic ContextVar DeviceCodegen replacement with plugin-owned scheduling,
+template, wrapper, and artifact loading. Inventory readiness remains false: the
+Python and subgraph wrappers, PyPTO CSE dtype/shape propagation, strict lowering
+choice filter, and atomic registry installation are not implemented. C++/FX
+wrappers, foreach, extern compute, multi-template, and subprocess compile are
+explicitly unsupported.
+
 The SGLang layer freezes a source-hashed, AST-checked inventory of the Qwen3.5
 CUDA text path. Every direct fused helper and backend abstraction is assigned
 to a future strict provider (`pypto.generic`, `matmul`, `attention`, or `gdn`),
