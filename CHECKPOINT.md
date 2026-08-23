@@ -1,6 +1,6 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0010`
+**Checkpoint:** `CP-0011`
 
 **Status:** R0 started; no compiler or model milestone accepted.
 
@@ -43,8 +43,11 @@
 - GDN now has a reviewed unified core ABI v1 for decode and prefill/extend,
   freezing packed layout, no-bias causal conv, FP32 gate/delta semantics,
   paired BF16-conv/FP32-recurrent state, pitched envelope views and canonical
-  metadata/output tails. State preparation/copy and numerical reference remain
-  open.
+  metadata/output tails. State preparation/copy and CUDA remain open.
+- GDN now also has a reviewed standard-library paired-state numerical reference.
+  One-shot prefill, checkpoint-segmented prefill and token decode match exactly
+  in output, BF16 conv state and FP32 recurrent state. It is not yet compared
+  against pinned Torch/SGLang.
 - The framework plugin now binds actual imports to the locked CUDA Torch tree
   and clean SGLang checkout, rejects mixed linear-attention providers, and
   fails before launch while the real PyPTO Inductor dispatcher is unavailable.

@@ -34,6 +34,9 @@ continuity gate. Independent PyTorch comparison and all CUDA work remain open.
 Checkpoint `CP-0010` freezes unified GDN core ABI v1 and the paired-state lease
 contract. Numerical GDN and all state-preparation/CUDA work remain open.
 
+Checkpoint `CP-0011` adds the GDN paired-state numerical reference and exact
+partition-continuity gate. Independent Torch comparison and CUDA remain open.
+
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.
 2. Materialize the authorized PyPTO baseline and clean official upstream

@@ -1,0 +1,42 @@
+{
+  "id": "EV-0021",
+  "kind": "gdn_paired_state_cpu_numerical_reference",
+  "status": "pass_reference_no_cuda_comparison",
+  "repository": "projects/pypto-kernels",
+  "repository_head": "1a46502e509ed970b7589b8580f4e30acec34c11",
+  "semantics": {
+    "conv": "raw BF16 QKV history, oldest-to-current depthwise weights, FP32 accumulation, SiLU, BF16 output/state storage",
+    "qk": "FP32 L2 normalization with epsilon 1e-6 and inverse-sqrt key-dim Q scale",
+    "gates": "FP32 decay and update beta from FP32-promoted BF16 inputs",
+    "recurrence": "FP32 decay, prediction, beta delta, outer update, then output from updated [V,K] state",
+    "state": "immutable paired BF16 conv plus FP32 recurrent result",
+    "inactive": "inactive inputs/states not numerically read; output tail zero",
+    "input_mutation": "none"
+  },
+  "continuity": {
+    "one_shot_prefill": "pass",
+    "segmented_prefill": "exact output and both final states equal one-shot",
+    "token_decode": "exact output and both final states equal one-shot",
+    "multi_request_slot_reorder": "pass",
+    "width_one_empty_conv_state": "pass"
+  },
+  "validation": {
+    "tests_passed": 90,
+    "subtests_passed": 61,
+    "compileall": "pass",
+    "wheel": "pass",
+    "wheel_sha256": "c9b435ddaf07035c8eca57143f0cfcd635ca0b7c99b416f02fe0cfc975a25a48",
+    "clean_wheel_import": "pass",
+    "caller_snapshot": "all tensor and metadata sequences read once before validation/consumption",
+    "independent_reviews": "three approvals, no remaining P0/P1"
+  },
+  "not_claimed": [
+    "comparison against pinned PyTorch/SGLang GDN",
+    "slot zero/copy or lease implementation",
+    "device tensor correspondence",
+    "CUDA kernel correctness",
+    "CUDA Graph",
+    "SGLang integration",
+    "performance"
+  ]
+}
