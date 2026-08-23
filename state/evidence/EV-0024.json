@@ -1,0 +1,68 @@
+{
+  "id": "EV-0024",
+  "kind": "standalone_operator_framework_adapter_identity_boundary",
+  "status": "pass_source_and_packaging_contract_no_executable_kernels",
+  "repositories": {
+    "pypto_kernels": {
+      "path": "projects/pypto-kernels",
+      "head": "ccb4999f4563410f569a5a823c45ddb594183687"
+    },
+    "pypto_framework_plugins": {
+      "path": "projects/pypto-framework-plugins",
+      "head": "92721a29ea095c8b239a77118b328a75534309a5"
+    }
+  },
+  "operator_identity": {
+    "package_version": "0.1.0.dev0",
+    "abi_schema_version": 1,
+    "abi_digest": "5a72b08f914c352885111b1a929bcb92c561b98980dede3c344227b7719a2ac4",
+    "package_tree_digest": "0d7057c62e5df2df9adc8b565e8672f6c95dec0d06db7cf4a1ab2a23f6a48400",
+    "manifest_owner": "pypto-kernels",
+    "consumer_recomputes_digest": true,
+    "runtime_binding_contracts": [
+      "symbol",
+      "constant",
+      "ordered operator catalog",
+      "complete operator spec"
+    ]
+  },
+  "installation_identity": {
+    "wheel_record_exact_source_ownership": true,
+    "pep660_direct_url_precedes_record": true,
+    "duplicate_json_keys_rejected": true,
+    "duplicate_distribution_and_provider_rejected": true,
+    "recognized_editable_metadata_pair": "one dist-info primary plus its exact same-version src/pypto_kernels.egg-info",
+    "symlink_and_path_escape_rejected": true,
+    "untracked_native_or_sourceless_import_payload_rejected": true
+  },
+  "framework_ordering": {
+    "torch": "operator identity -> local options -> executable readiness -> Torch compatibility -> strict config -> publish install -> compile_fx",
+    "torch_pre_strict_failure": "SystemExit, not suppressible as ordinary backend failure",
+    "sglang": "operator identity -> executable readiness -> Torch compatibility -> SGLang compatibility -> install -> resolve registries -> mutate registries",
+    "sglang_failure": "public register converts ordinary preflight errors to SystemExit",
+    "top_level_framework_imports": false
+  },
+  "validation": {
+    "pypto_kernels_tests": 102,
+    "pypto_kernels_subtests": 65,
+    "pypto_framework_plugins_tests": 118,
+    "root_control_tests": 17,
+    "compileall": "pass",
+    "pypto_kernels_wheel_sha256": "b0d365a3647b084d27620c361fccd94632c320f1354ac421604ebf5ba09f549b",
+    "pypto_framework_plugins_wheel_sha256": "fd8174c3f2215f044f90f7e735b74b48c13d95318a6009026b798d901fccd13e",
+    "isolated_wheel_guard": "pass at builds/operator-wheel-guard-92721a2.6SCK6y",
+    "real_pep660_editable_guard": "pass at builds/operator-editable-guard-env.pJRZsq",
+    "root_test_command": "python -m pytest -q tests",
+    "unscoped_root_pytest": "invalid invocation because it recursively collects clean upstream checkouts",
+    "independent_reviews": "three approvals, no remaining P0/P1"
+  },
+  "not_claimed": [
+    "compiled PyPTO operator executable",
+    "CUDA Tile lowering or launch",
+    "TorchInductor dispatcher registration",
+    "SGLang attention or GDN backend implementation",
+    "model correctness",
+    "runtime coverage",
+    "performance"
+  ]
+}

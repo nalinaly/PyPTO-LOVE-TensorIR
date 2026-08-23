@@ -34,3 +34,11 @@ collector protocol, closed normalized trace, immutable artifact registry,
 exact digest/provenance reconciliation, non-vacuous call and GPU-time totals,
 latched violations, and single-owner durable reports. Collector completeness,
 model correctness, and performance remain separate acceptance evidence.
+
+## D-0007: Operator ABI and payload identity are producer-owned
+
+`pypto-kernels` publishes the only framework-adapter ABI manifest. Plugins pin
+and independently recompute it, validate live bindings, and separately prove
+wheel or editable source ownership. Package version equality alone is never a
+compatibility claim. Native executable payloads stay rejected until their own
+digest-bound manifest and readiness gate exist.

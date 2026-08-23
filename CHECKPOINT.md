@@ -1,6 +1,6 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0013`
+**Checkpoint:** `CP-0014`
 
 **Status:** R0 started; no compiler or model milestone accepted.
 
@@ -30,6 +30,21 @@
 - Structured matmul now also has a reviewed standard-library BF16/FP32
   numerical reference for every transpose combination and explicit rank-3
   batching. It is not yet compared with TensorIR/CUDA.
+- The standalone operator project now publishes the only canonical
+  framework-adapter ABI manifest and digest from its real adapter types,
+  semantic configs, full specs, constants, signatures and ordered catalog.
+- Framework plugins independently recompute that ABI, validate the live
+  bindings, pin the Python source-tree digest, and bind either exact wheel
+  RECORD ownership or strict PEP-660 editable metadata. The copied partial ABI
+  schema was removed.
+- Current source-only packaging rejects untracked native extensions and
+  sourceless bytecode. Torch and SGLang adapter entry paths perform identity and
+  executable-readiness checks before framework mutation; pre-strict failures
+  cannot be swallowed as ordinary fallback exceptions.
+- The operator project has 102 tests plus 65 subtests; the plugin has 118
+  tests. Both wheel and real editable identity probes pass. No executable
+  kernel, framework registration, model correctness, coverage or performance
+  is claimed by this boundary.
 - Operator artifact provenance now exposes a canonical complete-field digest
   restricted to the explicit matmul/paged-attention/GDN ABI catalog. It is only
   a future join input: physical cache/loading stays compiler-owned and the
@@ -104,8 +119,9 @@
   evidence and the CPython 3.12 baseline environment is not built yet.
 - Prior reconnaissance did not complete a TensorIR SM120 runtime launch. Static
   target support is not runtime acceptance.
-- Protected zcode work was active at R0 start. No heavy PyPTO task may begin
-  until the live safety preflight is green.
+- The latest live safety preflight is green, but it is only an observation.
+  Protected zcode processes remain untouchable and preflight must be rerun
+  before every heavy action.
 
 ## Resume action
 

@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `3`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `4`
 
 ## Current phase: R0 workspace and provenance bootstrap
 
@@ -43,6 +43,12 @@ object-DSO validation and ordered integration remain mandatory.
 
 Checkpoint `CP-0013` adds the structured matmul numerical oracle. TensorIR/CUDA
 correctness comparison and performance remain open.
+
+Checkpoint `CP-0014` closes the source/package identity boundary between the
+standalone operator producer and both zero-diff framework adapters. It does not
+make the compiler or any operator executable. The live heavy preflight is now
+green, so the next transaction returns to the staged single-DSO full-suite and
+fresh-wheel gate before TargetInfo integration.
 
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.

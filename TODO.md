@@ -52,10 +52,14 @@
       segmented Radix checkpoints.
 - [x] Add and independently review the structured matmul BF16/FP32 numerical
       reference for all transpose and explicit-batch cases.
+- [x] Publish the producer-owned canonical framework-adapter ABI manifest from
+      `pypto-kernels`; remove the plugin's copied partial schema.
+- [x] Pin ABI/source/distribution identity for isolated wheel and real PEP-660
+      installs, and make Torch/SGLang pre-strict failure non-suppressible.
 
 ## Safety hold
 
-Heavy build/model/server work remains paused while protected zcode SGLang,
-vLLM, gem5, or high-parallel gem5 builds are active. The currently observed
-protected lane is zcode's TP=2 formal vLLM/gem5 run. Observation is allowed;
-signals and cleanup are forbidden.
+The latest heavy preflight is green and no protected heavy workload was
+observed, so the next native build gate may proceed. This is not a durable
+lease: rerun preflight before every heavy action. Protected zcode processes are
+still present; observation is allowed and signals or cleanup remain forbidden.

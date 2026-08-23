@@ -35,9 +35,13 @@ Every claim points to an `EV-*` record. Every completed transaction updates
 `CHECKPOINT.md`, `PLAN.md`, `TODO.md`, and `WORKSPACE.lock`, then commits all
 changed project repositories before the root checkpoint commit.
 
+Run root control tests as `python -m pytest -q tests`. Never run unqualified
+pytest from the workspace root because it recursively collects the clean full
+upstream checkouts and their optional/manual suites.
+
 ## Current resume point
 
-- Read `state/checkpoints/CP-0013.md` and evidence `EV-0005` through `EV-0023`.
+- Read `state/checkpoints/CP-0014.md` and evidence `EV-0005` through `EV-0025`.
 - `projects/pypto` has two intentional uncommitted CMake files implementing the
   single-DSO compiler object boundary. Editable build and 486 focused tests
   pass. The first full run's three failures have layered fixes and targeted
@@ -45,23 +49,25 @@ changed project repositories before the root checkpoint commit.
 - `projects/pypto-target-info` is a separate clean worktree at unbuilt candidate
   `9939b88`. Never treat it as main-branch or build acceptance. Apply it only
   after the object-DSO CMake commit; expect a small CMake conflict.
-- `projects/pypto-kernels` is clean at `2787e1e...` with typed semantic
+- `projects/pypto-kernels` is clean at `ccb4999...` with typed semantic
   families, canonical process-safe tuning database, matmul invocation ABI v1,
   catalog-bound canonical operator artifact provenance, paged-attention ABI v1
   and its deterministic CPU numerical reference, plus unified GDN core ABI and
-  paired-state reference, and a structured-matmul reference; 97 tests plus 65
-  subtests and a clean wheel import pass. No CUDA operator or device measurement
-  exists yet.
-- `projects/pypto-framework-plugins` is clean at `d46a58c...`; its context and
+  paired-state reference, a structured-matmul reference, and the canonical
+  framework-adapter ABI manifest; 102 tests plus 65 subtests and a clean wheel
+  import pass. No CUDA operator or device measurement exists yet.
+- `projects/pypto-framework-plugins` is clean at `92721a2...`; its context and
   constructor dispatcher, 41-site Qwen3.5 static inventory, and strict
-  trace/artifact coverage evidence contract have 68 passing tests and a clean
-  wheel. The auditor has no CUDA collector or Qwen trace yet. `install()`
-  remains intentionally unready/registration-free.
+  trace/artifact coverage evidence contract now include a full producer ABI,
+  distribution/import/source identity guard and non-suppressible Torch/SGLang
+  preflight ordering. Its 118 tests, isolated wheel guard, real PEP-660 guard,
+  and clean wheel pass. The auditor has no CUDA collector or Qwen trace yet.
+  `install()` remains intentionally unready/registration-free.
 - `upstream/triton` is the clean exact PyTorch pin. Do not use the inherited
   external editable Triton for acceptance.
-- Re-run the live heavy preflight before resuming any wheel build. At this
-  checkpoint zcode is running TP=2 vLLM and gem5, so this project's heavy work
-  must wait without signalling or cleaning up that lane.
+- The latest live heavy preflight is green, with no protected heavy process and
+  adequate memory. Rerun it immediately before each native build; protected
+  zcode processes still exist and must never be signalled or cleaned up.
 - After the single-DSO full-suite/fresh-wheel gate closes, the next isolated
   PyPTO commit is immutable NVIDIA target identity: explicit SM120 resource
   traits, no SM100 defaults, and no fake legacy backend instance.

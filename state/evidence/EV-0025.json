@@ -1,0 +1,32 @@
+{
+  "id": "EV-0025",
+  "kind": "live_heavy_work_safety_preflight",
+  "status": "pass_at_observation_time",
+  "date": "2026-08-24",
+  "workspace": "/home/zhaosiying/pypto-love-tensor-ir",
+  "gpu": {
+    "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+    "compute_capability": "12.0",
+    "driver": "610.74",
+    "memory_mib": 24463,
+    "used_mib": 3498
+  },
+  "torch": {
+    "version": "2.13.0+cu130",
+    "git_version": "cf30153c4c131c8164ee7798e5022d810682e2cb",
+    "cuda": "13.0",
+    "hip": null,
+    "device": "NVIDIA GeForce RTX 5090 Laptop GPU",
+    "forbidden_dsos": []
+  },
+  "mem_available_kib": 46910904,
+  "protected_heavy_processes": [],
+  "protected_processes_still_present": true,
+  "external_process_signals_sent": 0,
+  "policy": "observation only; rerun immediately before every heavy action",
+  "not_claimed": [
+    "future resource availability",
+    "permission to signal or clean up protected processes",
+    "compiler, model, correctness or performance acceptance"
+  ]
+}
