@@ -1,0 +1,23 @@
+{
+  "id": "EV-0017",
+  "kind": "pinned_runtime_coverage_collector_reconnaissance",
+  "status": "source_map_no_collector_runtime",
+  "pytorch_head": "cf30153c4c131c8164ee7798e5022d810682e2cb",
+  "sglang_head": "71de97b264b04dcd514cf904003028aefe9775c8",
+  "selected_path": "SGLang HookRegistry + record_function + PyTorch experimental CUPTI monitor",
+  "first_milestone": "eager-only development trace with closed_world=false",
+  "strict_blockers": [
+    "public monitor drain has no explicit completion result",
+    "artifact load-to-launch correlation is not implemented",
+    "process/rank closed interval accounting is not implemented",
+    "CUDA Graph node annotation and replay mapping are not implemented"
+  ],
+  "document": "docs/coverage_collector_map.md",
+  "not_claimed": [
+    "collector implementation",
+    "CUPTI runtime success",
+    "closed-world trace",
+    "strict coverage",
+    "model run"
+  ]
+}

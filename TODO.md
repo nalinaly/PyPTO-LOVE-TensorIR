@@ -28,6 +28,12 @@
       single-DSO object boundary, then commit only its two CMake files.
 - [ ] Add immutable `BackendType::Nvidia` and explicit SM120 TargetInfo/traits
       as the next isolated compiler commit; do not link TensorIR yet.
+- [x] Canonicalize operator-only artifact provenance without creating a second
+      compiler artifact cache in `pypto-kernels`.
+- [x] Freeze the pinned Torch/SGLang runtime coverage collector source map.
+- [ ] Implement the eager-only CUPTI-monitor development collector after the
+      compiler ArtifactCache/launch provenance contract exists; it must emit
+      `closed_world=false` initially.
 
 ## Safety hold
 

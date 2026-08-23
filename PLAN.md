@@ -19,6 +19,11 @@ report ownership. It is deliberately not runtime coverage evidence. The next
 source-only P1 transaction is immutable SM120 target identity, but it must land
 only after the staged single-DSO object-boundary commit is independently gated.
 
+Checkpoint `CP-0007` adds catalog-bound operator provenance identity and the
+pinned eager-first CUPTI collector map without moving either boundary into the
+wrong project. The collector is not implemented and cannot assert a closed
+world yet.
+
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.
 2. Materialize the authorized PyPTO baseline and clean official upstream

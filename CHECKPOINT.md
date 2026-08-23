@@ -1,6 +1,6 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0006`
+**Checkpoint:** `CP-0007`
 
 **Status:** R0 started; no compiler or model milestone accepted.
 
@@ -27,6 +27,10 @@
 - Structured matmul has a reviewed explicit ABI v1 for contiguous/aligned BF16
   rank-2 and batched rank-3 tensors, FP32 accumulation, transpose semantics and
   output non-aliasing. No lowering, schedule, launch or performance exists yet.
+- Operator artifact provenance now exposes a canonical complete-field digest
+  restricted to the explicit matmul/paged-attention/GDN ABI catalog. It is only
+  a future join input: physical cache/loading stays compiler-owned and the
+  opaque problem digest is not yet a typed launch proof.
 - The framework plugin now binds actual imports to the locked CUDA Torch tree
   and clean SGLang checkout, rejects mixed linear-attention providers, and
   fails before launch while the real PyPTO Inductor dispatcher is unavailable.
@@ -43,6 +47,10 @@
   fallback evidence, latches strict failure, and owns report publication across
   processes. Its 68 tests and clean wheel build pass. No runtime collector or
   Qwen trace has been connected, so current runtime coverage remains unclaimed.
+- Pinned-source reconnaissance selects the official SGLang HookRegistry plus
+  PyTorch's experimental CUPTI monitor for the future collector. Its first
+  eager-only trace must remain `closed_world=false`; graph replay and a proven
+  complete drain/artifact-launch binding are separate gates.
 - The cloned environment is not baseline-ready yet: its Triton distribution is
   still editable from `/home/zhaosiying/codebase/triton`. The runtime audit
   rejects this path. FlashInfer is corrected to the official 0.6.17 wheel and

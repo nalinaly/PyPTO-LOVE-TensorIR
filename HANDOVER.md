@@ -37,15 +37,16 @@ changed project repositories before the root checkpoint commit.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0006.md` and evidence `EV-0005` through `EV-0015`.
+- Read `state/checkpoints/CP-0007.md` and evidence `EV-0005` through `EV-0017`.
 - `projects/pypto` has two intentional uncommitted CMake files implementing the
   single-DSO compiler object boundary. Editable build and 486 focused tests
   pass. The first full run's three failures have layered fixes and targeted
   proof at `EV-0009`; the full rerun and fresh wheel gate have not run.
-- `projects/pypto-kernels` is clean at `88e6030...` with typed semantic
-  families, canonical process-safe tuning database, and matmul invocation ABI
-  v1; 42 tests and a clean wheel import pass. No CUDA operator or device
-  measurement exists yet.
+- `projects/pypto-kernels` is clean at `c50df67...` with typed semantic
+  families, canonical process-safe tuning database, matmul invocation ABI v1,
+  and catalog-bound canonical operator artifact provenance; 46 tests plus 15
+  subtests and a clean wheel import pass. No CUDA operator or device measurement
+  exists yet.
 - `projects/pypto-framework-plugins` is clean at `d46a58c...`; its context and
   constructor dispatcher, 41-site Qwen3.5 static inventory, and strict
   trace/artifact coverage evidence contract have 68 passing tests and a clean
@@ -59,6 +60,9 @@ changed project repositories before the root checkpoint commit.
 - After the single-DSO full-suite/fresh-wheel gate closes, the next isolated
   PyPTO commit is immutable NVIDIA target identity: explicit SM120 resource
   traits, no SM100 defaults, and no fake legacy backend instance.
+- `docs/coverage_collector_map.md` is the pinned collector implementation map.
+  Do not claim `closed_world=true` from ordinary Kineto/NVTX or from the first
+  CUPTI-monitor development trace.
 - Use `--framework-launch` for every SGLang process. Baseline scripts bind the
   missing `envs/sglang-baseline-py312` lock/profile; candidate launch is expected
   to fail until the external editable Triton is replaced by its workspace wheel.

@@ -1,12 +1,12 @@
 schema=1
-checkpoint=CP-0006
+checkpoint=CP-0007
 control.head=SELF
 projects.pypto.head=f550d4c33e8fef03e7dabcbf60c3db38b0f0a215
 projects.pypto.branch=feature/nvidia-sm120
 projects.pypto.dirty=true
 projects.pypto.tensor_ir=3b5a8bebc00510b46a1e8b97229d06dd0d006215
 projects.pypto.cuda_tile=af2417041cc939b87ef56d92cfdcf61737c5457e
-projects.pypto_kernels.head=88e6030714d1da266dd83e4d5715d78975409539
+projects.pypto_kernels.head=c50df674067e72df0c57fd6bee903414518a99dd
 projects.pypto_framework_plugins.head=d46a58c28a14526d2a00155ad95f3985e18295f1
 upstream.pytorch.head=cf30153c4c131c8164ee7798e5022d810682e2cb
 upstream.pytorch.checkout=sparse

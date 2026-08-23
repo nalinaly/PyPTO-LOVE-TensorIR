@@ -1,0 +1,36 @@
+{
+  "id": "EV-0016",
+  "kind": "operator_artifact_provenance_identity",
+  "status": "pass_contract_no_compiled_artifact",
+  "repository": "projects/pypto-kernels",
+  "repository_head": "c50df674067e72df0c57fd6bee903414518a99dd",
+  "contract": {
+    "catalog_abis": ["matmul:1", "paged_attention:1", "gdn:1"],
+    "identity": "canonical SHA-256 over every ArtifactProvenance field",
+    "rejected_owners": [
+      "generic compiler",
+      "TensorIR compiler",
+      "model-specific operator names",
+      "layer-specific operator names",
+      "unknown operator ABI"
+    ],
+    "cache_owner": "pypto compiler/runtime, not pypto-kernels"
+  },
+  "tests": {
+    "passed": 46,
+    "subtests_passed": 15,
+    "compileall": "pass",
+    "wheel": "pass",
+    "wheel_sha256": "b7d0b15ff7c381f0ec123b1da6034953a9688cb0f73cc42840334cff12014efa",
+    "clean_wheel_import": "pass",
+    "independent_reviews": "three approvals, no remaining P0/P1"
+  },
+  "not_claimed": [
+    "compiler ArtifactCache or physical artifact store",
+    "typed contents of the opaque problem digest",
+    "compiled or launched CUDA kernel",
+    "runtime correctness",
+    "coverage",
+    "performance"
+  ]
+}
