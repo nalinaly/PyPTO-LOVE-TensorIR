@@ -1,0 +1,31 @@
+{
+  "id": "EV-0012",
+  "kind": "canonical_tuning_database",
+  "status": "pass_infrastructure_no_device_measurements",
+  "repository": "projects/pypto-kernels",
+  "repository_head": "f7d623d4f5eb7f846d8bab35fcaccb330763c537",
+  "properties": [
+    "complete canonical TuningKey payload including concrete device and all compiler/toolchain revisions",
+    "one immutable CUDA-event comparison cohort per key",
+    "all schedule records retained with deterministic median/digest winner selection",
+    "record and whole-database SHA-256 integrity plus exact schema and duplicate-JSON rejection",
+    "semantic audit reconstructs each TuningRecord against its key and cohort",
+    "persistent flock, same-directory temp, file fsync, atomic replace, and parent-directory fsync",
+    "identical publication is idempotent; conflicting schedule or cohort publication fails closed",
+    "live and broken database/lock symlinks fail closed",
+    "no Torch, SGLang, Triton, FlashInfer, model name, timestamp, PID, or hostname dependency"
+  ],
+  "tests": {
+    "passed": 35,
+    "multiprocess_publishers": 4,
+    "compileall": "pass",
+    "clean_wheel_import": "pass",
+    "independent_reviews": "two approvals, no remaining P0/P1"
+  },
+  "not_claimed": [
+    "CUDA-event benchmark executed",
+    "SM120 tuning record produced",
+    "operator schedule performance",
+    "runtime online autotuning"
+  ]
+}

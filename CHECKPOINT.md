@@ -21,6 +21,9 @@
 - It also has reviewed typed semantic families for generic matmul, paged
   attention, and GDN. These deliberately stop before a concrete tensor ABI or
   kernel implementation until the exact SGLang inventory is frozen.
+- Its reviewed persistent tuning database now provides complete key/cohort
+  auditing, deterministic winner selection, multiprocess-safe atomic
+  publication and corruption rejection. It contains no device measurement yet.
 - The framework plugin now binds actual imports to the locked CUDA Torch tree
   and clean SGLang checkout, rejects mixed linear-attention providers, and
   fails before launch while the real PyPTO Inductor dispatcher is unavailable.
