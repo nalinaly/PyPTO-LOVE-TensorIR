@@ -21,6 +21,7 @@ transformers.version=5.12.1
 flashinfer.version=0.6.17
 triton.repo=https://github.com/triton-lang/triton.git
 triton.commit=5d6048aa0a324e090ada215b609ea76620133845
+triton.tree=448265acc1eff726c2e528813552865b33546cc9
 triton.version=3.7.1+git5d6048aa
 
 cuda_toolkit.version=13.3.73

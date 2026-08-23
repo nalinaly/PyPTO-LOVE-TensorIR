@@ -1,0 +1,43 @@
+{
+  "id": "EV-0006",
+  "kind": "pypto_object_target_build_and_test_gate",
+  "status": "partial",
+  "repository_head": "a5ddd2ebb3ea98915a4cfcb22b0a822ca1e445e6",
+  "repository_dirty": [
+    "CMakeLists.txt",
+    "python/bindings/CMakeLists.txt"
+  ],
+  "editable_build": {
+    "status": "pass",
+    "run_id": "pypto-20260823T133839Z-2139800-128376",
+    "parallelism": 2,
+    "wheel_sha256": "6eb58230af4df972a668d430da1bb61f4e8c14aa3d5491ac3ce829dda25541bb",
+    "usage_requirement_check": "modules/ir.cpp compile command contains projects/pypto/runtime/src/common",
+    "import_check": "Python package resolves to projects/pypto; native extension resolves inside envs/pypto-nvidia"
+  },
+  "focused_tests": {
+    "status": "pass",
+    "passed": 486,
+    "warnings": 9
+  },
+  "full_tests": {
+    "status": "fail",
+    "run_id": "pypto-20260823T134342Z-2141752-a61e6a",
+    "passed": 10173,
+    "skipped": 58,
+    "failed": 3,
+    "failures": [
+      "duplicate nested class name source selection prints an earlier `Before` program",
+      "undefined annotation shape raises ParserTypeError while the test expects NameError",
+      "editable import finder bypasses the symlink-path caller-attribution harness"
+    ]
+  },
+  "fresh_wheel_gate": "not started because the live preflight observed zcode TP=2 SGLang and gem5",
+  "not_claimed": [
+    "object-target commit accepted",
+    "fresh wheel packaging accepted",
+    "full PyPTO unit suite accepted",
+    "TensorIR or CUDA Tile build",
+    "NVIDIA runtime launch"
+  ]
+}

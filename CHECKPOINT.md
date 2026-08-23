@@ -1,6 +1,6 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0003`
+**Checkpoint:** `CP-0004`
 
 **Status:** R0 started; no compiler or model milestone accepted.
 
@@ -18,6 +18,9 @@
 - The standalone kernel project now has a reviewed, versioned, immutable ABI
   for tensor arguments, operator/problem/schedule identity, tuning records, and
   requested-versus-produced artifact provenance.
+- It also has reviewed typed semantic families for generic matmul, paged
+  attention, and GDN. These deliberately stop before a concrete tensor ABI or
+  kernel implementation until the exact SGLang inventory is frozen.
 - The framework plugin now binds actual imports to the locked CUDA Torch tree
   and clean SGLang checkout, rejects mixed linear-attention providers, and
   fails before launch while the real PyPTO Inductor dispatcher is unavailable.
@@ -28,6 +31,19 @@
 - The local target is an NVIDIA GeForce RTX 5090 Laptop GPU, SM120, 24,463 MiB.
 - CUDA Toolkit 13.3 is installed under `/usr/local/cuda-13.3`; the installed
   PyTorch is 2.13.0+cu130.
+- The first native object-target build reached Ninja edge 251/260 and failed
+  while compiling the binding consumer because the public `comm_layout.h`
+  dependency on `runtime/src/common` was declared private. The minimal PUBLIC
+  build-interface fix is staged but remains uncommitted until all build and
+  packaging gates pass.
+- After correcting that usage requirement, the incremental editable build and
+  486 object-boundary-focused tests pass. The full suite is not green: 10,173
+  pass, 58 skip, and three source/parser/test-harness failures remain under
+  diagnosis. A fresh wheel build is also pending.
+- The exact PyTorch-pinned Triton source is now a clean official checkout under
+  `upstream/triton`, but the environment still imports the inherited external
+  editable distribution until a hermetic workspace wheel is built and
+  installed.
 - Prior reconnaissance did not complete a TensorIR SM120 runtime launch. Static
   target support is not runtime acceptance.
 - Protected zcode work was active at R0 start. No heavy PyPTO task may begin
@@ -35,8 +51,10 @@
 
 ## Resume action
 
-Run `python tools/preflight.py --mode light`, inspect the protected-process
-report, then continue the pending PyPTO object-target build gate, TensorIR/CUDA
-Tile source integration, project dependency installation, and the unmodified
-SGLang baseline. Re-run the live heavy gate before every build/model/server
-step because zcode lanes can restart.
+Run `python tools/preflight.py --mode heavy`. If and only if it is green,
+continue the fresh PyPTO wheel build in `builds/pypto-wheel.dfB4Xk`, then inspect
+and install it into a clean target outside the checkout. Resolve or explicitly
+baseline the three full-suite failures before committing the object target.
+Next build the exact Triton wheel and remove the external editable runtime. If
+protected zcode work remains active, continue only source/test work that does
+not compile, launch a model, or claim runtime acceptance.

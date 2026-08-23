@@ -4,6 +4,12 @@
 
 ## Current phase: R0 workspace and provenance bootstrap
 
+Checkpoint `CP-0004` has source/model/environment provenance and the first
+standalone semantic operator layer frozen. R0 remains open until the inherited
+editable Triton is replaced and unmodified SGLang baselines are captured. In
+parallel, the first P1 build-only object boundary is staged but is not accepted
+until its full-test and fresh-wheel gates close.
+
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.
 2. Materialize the authorized PyPTO baseline and clean official upstream
@@ -34,4 +40,3 @@
 Every milestone is correctness-first, then performance, then evidence and a
 checkpoint commit. A green smoke test is never promoted to a later acceptance
 claim.
-

@@ -1,0 +1,20 @@
+{
+  "id": "EV-0008",
+  "kind": "pytorch_pinned_triton_source",
+  "status": "pass_source_only",
+  "path": "upstream/triton",
+  "origin": "https://github.com/triton-lang/triton.git",
+  "commit": "5d6048aa0a324e090ada215b609ea76620133845",
+  "tree": "448265acc1eff726c2e528813552865b33546cc9",
+  "version": "3.7.1+git5d6048aa",
+  "worktree_clean": true,
+  "git_fsck": "pass",
+  "submodules": 0,
+  "commit_signature": "present but not yet verified with a project-local keyring",
+  "not_claimed": [
+    "hermetic Triton wheel",
+    "installed runtime corrected",
+    "Triton compile smoke",
+    "SGLang baseline readiness"
+  ]
+}

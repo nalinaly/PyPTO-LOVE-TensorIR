@@ -1,0 +1,26 @@
+{
+  "id": "EV-0005",
+  "kind": "pypto_object_target_build_gate",
+  "status": "failed_actionable",
+  "run_id": "pypto-20260823T131741Z-2129212-df9dd2",
+  "repository": "projects/pypto",
+  "repository_head": "9123b81bc40da5c803492d880ebeaf4552398631",
+  "command": "python -m pip install --no-deps --no-build-isolation -e projects/pypto",
+  "parallelism": 2,
+  "progress": "251 of 260 Ninja edges completed before the first compiler error",
+  "failure": {
+    "translation_unit": "python/bindings/modules/ir.cpp",
+    "public_header": "include/pypto/codegen/distributed/comm_layout.h",
+    "missing_header": "platform_comm/comm_context.h",
+    "cause": "runtime/src/common was PRIVATE on pypto_compiler_objects and therefore absent while compiling its pypto_core consumer"
+  },
+  "pending_fix": "Expose runtime/src/common as a PUBLIC build interface of pypto_compiler_objects and rerun editable, focused-test, wheel, and isolated-import gates.",
+  "safety_hold": "The rerun is paused because the live heavy preflight observes protected zcode SGLang and gem5 work.",
+  "not_claimed": [
+    "successful PyPTO build",
+    "PyPTO import",
+    "wheel packaging",
+    "TensorIR or CUDA Tile compilation",
+    "NVIDIA runtime launch"
+  ]
+}

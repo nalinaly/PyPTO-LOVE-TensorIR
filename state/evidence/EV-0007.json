@@ -1,0 +1,32 @@
+{
+  "id": "EV-0007",
+  "kind": "typed_semantic_operator_families",
+  "status": "pass",
+  "repository": "projects/pypto-kernels",
+  "repository_head": "632bf10272e3ee71e79cf71543bd46cd3f6dc27c",
+  "families": [
+    ["gdn", 1],
+    ["matmul", 1],
+    ["paged_attention", 1]
+  ],
+  "contracts": [
+    "closed dtype and GDN semantic/layout enums",
+    "explicit ABI lookup with no implicit latest version",
+    "EXTEND canonically maps to the chunked PREFILL algorithm family",
+    "request, token, page-table, cache-index, and sequence metadata remain runtime values",
+    "no framework or alternate compute-provider imports"
+  ],
+  "tests": {
+    "passed": 24,
+    "compileall": "pass",
+    "clean_wheel_import": "pass",
+    "independent_review": "no P0 or P1 findings"
+  },
+  "not_claimed": [
+    "concrete operator tensor ABI",
+    "PyPTO IR emitter",
+    "CUDA Tile kernel",
+    "operator correctness",
+    "operator performance"
+  ]
+}

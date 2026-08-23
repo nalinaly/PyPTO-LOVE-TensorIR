@@ -15,11 +15,14 @@
 - [ ] Freeze R0 evidence and advance `PLAN.md` to P1.
 - [ ] Replace the inherited external editable Triton with an in-workspace build
       of PyTorch's exact `5d6048aa...` pin.
+- [x] Materialize and verify the exact official Triton source/tree under
+      `upstream/triton` (source-only; wheel/install gate remains open).
 - [x] Replace inherited editable FlashInfer with official `0.6.17`.
 - [x] Remove the unrelated external torch-compile-study editable package.
 
 ## Safety hold
 
 Heavy build/model/server work remains paused while protected zcode SGLang,
-gem5, or high-parallel gem5 builds are active. Observation is allowed; signals
-and cleanup are forbidden.
+gem5, or high-parallel gem5 builds are active. The currently observed protected
+lane is zcode's TP=2 formal SGLang/gem5 run. Observation is allowed; signals and
+cleanup are forbidden.

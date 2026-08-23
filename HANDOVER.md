@@ -35,3 +35,16 @@ Every claim points to an `EV-*` record. Every completed transaction updates
 `CHECKPOINT.md`, `PLAN.md`, `TODO.md`, and `WORKSPACE.lock`, then commits all
 changed project repositories before the root checkpoint commit.
 
+## Current resume point
+
+- Read `state/checkpoints/CP-0004.md` and evidence `EV-0005` through `EV-0008`.
+- `projects/pypto` has two intentional uncommitted CMake files implementing the
+  single-DSO compiler object boundary. Editable build and 486 focused tests pass;
+  full tests have three recorded failures and the fresh wheel gate has not run.
+- `projects/pypto-kernels` is clean at `632bf10...` with 24 semantic-contract
+  tests and an independently verified wheel import.
+- `upstream/triton` is the clean exact PyTorch pin. Do not use the inherited
+  external editable Triton for acceptance.
+- Re-run the live heavy preflight before resuming any wheel build. At this
+  checkpoint zcode is running TP=2 SGLang and gem5, so this project's heavy work
+  must wait without signalling or cleaning up that lane.
