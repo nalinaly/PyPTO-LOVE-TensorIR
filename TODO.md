@@ -40,18 +40,22 @@
       and decode, including KV append and host metadata reference validation.
 - [x] Implement and independently review the paged-attention ABI v1 numerical
       reference, including prefill-to-decode state continuity.
-- [ ] Cross-check the reference against an independent PyTorch implementation,
-      then implement CUDA Tile decode and prefill/extend kernels separately.
+- [x] Cross-check paged attention against an independent Torch CPU expression,
+      including shared-prefix prefill-to-decode cache continuity.
+- [ ] Implement CUDA Tile attention decode and prefill/extend kernels
+      separately after the compiler/runtime launch foundation lands.
 - [x] Define and independently review unified GDN core ABI v1 with paired-state
       lifecycle, variable-length metadata and exact numerical semantics.
 - [x] Implement and independently review the GDN paired-state CPU numerical
       reference; one-shot, segmented prefill and token decode match exactly.
-- [ ] Cross-check GDN reference against the pinned independent Torch/SGLang
-      reference once candidate framework launch provenance is hermetic.
+- [x] Cross-check GDN against a structurally independent vectorized Torch CPU
+      expression, including paired-state prefill-to-decode continuity.
 - [ ] Implement PyPTO-owned paired state zero/copy needed for new slots and
       segmented Radix checkpoints.
 - [x] Add and independently review the structured matmul BF16/FP32 numerical
       reference for all transpose and explicit-batch cases.
+- [x] Cross-check structured matmul against independent Torch CPU FP32
+      accumulation across all transpose and explicit-batch variants.
 - [x] Publish the producer-owned canonical framework-adapter ABI manifest from
       `pypto-kernels`; remove the plugin's copied partial schema.
 - [x] Pin ABI/source/distribution identity for isolated wheel and real PEP-660

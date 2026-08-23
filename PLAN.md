@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `4`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `5`
 
 ## Current phase: R0 workspace and provenance bootstrap
 
@@ -50,6 +50,11 @@ make the compiler or any operator executable. The packaging-time heavy
 preflight was green, but the action-boundary recheck is now red for a new
 protected zcode TP=2 vLLM/gem5 lane. Continue only light work until a fresh
 green result permits the single-DSO gate before TargetInfo integration.
+
+Checkpoint `CP-0015` independently cross-checks all three current scalar
+operator references against CPU Torch while keeping Torch out of the standalone
+runtime product and parent import process. CUDA correctness/performance remains
+open. The protected heavy lane still blocks the ordered single-DSO gate.
 
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.

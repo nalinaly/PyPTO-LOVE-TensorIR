@@ -1,0 +1,86 @@
+{
+  "id": "EV-0027",
+  "kind": "independent_torch_cpu_operator_reference_crosschecks",
+  "status": "pass_cpu_reference_only_no_cuda",
+  "repository": "projects/pypto-kernels",
+  "repository_head": "6afb3505d5785b20014c9865804cd7f7c49273fa",
+  "commits": [
+    ["935153c", "matmul Torch CPU cross-check"],
+    ["98ee43a", "paged-attention Torch CPU cross-check foundation"],
+    ["8b18a6b", "shared-prefix prefill-to-decode attention continuity"],
+    ["6afb350", "vectorized GDN Torch CPU cross-check"]
+  ],
+  "isolation": {
+    "torch_import_location": "child subprocess only",
+    "parent_process_torch_imported": false,
+    "cuda_visible_devices": "empty",
+    "hip_visible_devices": "empty",
+    "rocr_visible_devices": "empty",
+    "tensor_device": "cpu",
+    "production_runtime_dependency_added": false
+  },
+  "matmul": {
+    "cases": 21,
+    "coverage": [
+      "NN/NT/TN/TT",
+      "decode and prefill",
+      "rank-2",
+      "explicit batched rank-3 B=1 and B=2",
+      "BF16 inputs -> FP32 accumulation -> BF16 output"
+    ],
+    "output_tolerance": "bit exact BF16"
+  },
+  "paged_attention": {
+    "base_scenarios": 2,
+    "continuity_stages": 2,
+    "requests_checked": 7,
+    "tokens_checked": 10,
+    "coverage": [
+      "no-prefix causal prefill",
+      "cached-prefix packed extend",
+      "decode",
+      "GQA 4Q/2KV",
+      "non-contiguous page tables",
+      "two requests sharing one read-only prefix page",
+      "private writable tail pages",
+      "append-complete cache",
+      "inactive output/page preservation"
+    ],
+    "output_tolerance": "bit exact BF16",
+    "cache_tolerance": "bit exact BF16"
+  },
+  "gdn": {
+    "coverage": [
+      "width-4 oldest-history-to-current causal conv",
+      "vectorized SiLU and Q/K normalization",
+      "HK=2/HV=4 repeat-interleave head mapping",
+      "vectorized gate/decay/beta",
+      "einsum prediction, outer update and output",
+      "prefill-to-token-decode continuity",
+      "request/state-slot reorder",
+      "inactive output and state slots"
+    ],
+    "output_tolerance": "bit exact BF16",
+    "conv_state_tolerance": "bit exact BF16",
+    "recurrent_state_tolerance": {
+      "rtol": 0.000001,
+      "atol": 0.0000001,
+      "observed_max_abs": 0.000000007450580596923828
+    }
+  },
+  "validation": {
+    "full_tests_passed": 105,
+    "subtests_passed": 65,
+    "compileall": "pass",
+    "diff_check": "pass",
+    "independent_reviews": "P1 findings fixed; final reviews report no remaining P0/P1"
+  },
+  "not_claimed": [
+    "CUDA Tile implementation",
+    "device tensor metadata correspondence",
+    "SM120 correctness",
+    "Torch or SGLang runtime dependency",
+    "operator performance",
+    "model correctness or coverage"
+  ]
+}

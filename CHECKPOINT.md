@@ -1,6 +1,6 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0014`
+**Checkpoint:** `CP-0015`
 
 **Status:** R0 started; no compiler or model milestone accepted.
 
@@ -41,10 +41,17 @@
   sourceless bytecode. Torch and SGLang adapter entry paths perform identity and
   executable-readiness checks before framework mutation; pre-strict failures
   cannot be swallowed as ordinary fallback exceptions.
-- The operator project has 102 tests plus 65 subtests; the plugin has 118
+- The operator project has 105 tests plus 65 subtests; the plugin has 118
   tests. Both wheel and real editable identity probes pass. No executable
   kernel, framework registration, model correctness, coverage or performance
   is claimed by this boundary.
+- The matmul, paged-attention and GDN scalar references now have independent
+  CPU Torch cross-checks in device-hidden child processes. They add no
+  production dependency and preserve the framework-free parent import proof.
+- Attention now includes shared-prefix PREFILL→DECODE continuity with private
+  write tails; GDN uses vectorized Torch primitives and paired-state continuity
+  rather than copying the production scalar loop structure. The standalone
+  suite is now 105 tests plus 65 subtests.
 - Operator artifact provenance now exposes a canonical complete-field digest
   restricted to the explicit matmul/paged-attention/GDN ABI catalog. It is only
   a future join input: physical cache/loading stays compiler-owned and the
