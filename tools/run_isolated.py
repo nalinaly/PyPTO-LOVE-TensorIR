@@ -43,6 +43,7 @@ def isolated_environment(run_id: str, run_dir: pathlib.Path) -> dict[str, str]:
         if name not in FORBIDDEN_ENV_NAMES
         and not name.startswith(FORBIDDEN_ENV_PREFIXES)
     }
+    environment.pop("PIP_REQUIRE_VIRTUALENV", None)
     executable_path = [str(pathlib.Path("/usr/local/cuda-13.3/bin"))]
     library_path = ["/usr/lib/wsl/lib", "/usr/local/cuda-13.3/lib64"]
     if ENV_PREFIX.is_dir():
@@ -80,7 +81,6 @@ def isolated_environment(run_id: str, run_dir: pathlib.Path) -> dict[str, str]:
                     str(ROOT / "upstream" / "sglang" / "python"),
                 )
             ),
-            "PIP_REQUIRE_VIRTUALENV": "true",
             "PYPTO_ENV_PREFIX": str(ENV_PREFIX),
             "PYPTO_RUN_ID": run_id,
             "PYPTO_WORKSPACE_ROOT": str(ROOT),
