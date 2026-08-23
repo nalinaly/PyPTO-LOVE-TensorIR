@@ -21,6 +21,10 @@
 - The framework plugin now binds actual imports to the locked CUDA Torch tree
   and clean SGLang checkout, rejects mixed linear-attention providers, and
   fails before launch while the real PyPTO Inductor dispatcher is unavailable.
+- The cloned environment is not baseline-ready yet: its Triton distribution is
+  still editable from `/home/zhaosiying/codebase/triton`. The runtime audit
+  rejects this path. FlashInfer is corrected to the official 0.6.17 wheel and
+  the unrelated external study package was removed.
 - The local target is an NVIDIA GeForce RTX 5090 Laptop GPU, SM120, 24,463 MiB.
 - CUDA Toolkit 13.3 is installed under `/usr/local/cuda-13.3`; the installed
   PyTorch is 2.13.0+cu130.
