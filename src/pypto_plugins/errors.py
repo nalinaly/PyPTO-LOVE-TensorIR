@@ -8,3 +8,6 @@ class FrameworkCompatibilityError(RuntimeError):
 class BackendNotReadyError(RuntimeError):
     """The adapter exists but its compiler/operator implementation is not ready."""
 
+
+class StrictCoverageError(RuntimeError):
+    """A requested path would violate PyPTO model-forward coverage."""

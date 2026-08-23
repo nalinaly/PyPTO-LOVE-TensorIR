@@ -14,6 +14,7 @@ import threading
 from collections.abc import Iterator
 
 from .errors import BackendNotReadyError
+from .torch.context import activate_mode
 from .versions import assert_torch_compatible
 
 
@@ -82,5 +83,8 @@ def mode(*, strict: bool = True) -> Iterator[None]:
     if strict:
         inductor_patches.update(STRICT_INDUCTOR_PATCHES)
         dynamo_patches.update(STRICT_DYNAMO_PATCHES)
-    with dynamo_config.patch(dynamo_patches), inductor_config.patch(inductor_patches):
-        yield
+    with activate_mode(strict=strict):
+        with dynamo_config.patch(dynamo_patches), inductor_config.patch(
+            inductor_patches
+        ):
+            yield

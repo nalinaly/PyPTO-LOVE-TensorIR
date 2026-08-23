@@ -18,3 +18,9 @@ does not match. Support for the actual PyPTO scheduling/wrapper and SGLang
 backend classes is intentionally gated by explicit readiness flags as the
 compiler and operator projects are brought up.
 
+The current Torch layer also defines the context-local mode and constructor
+dispatch contract needed to coexist with Inductor's process-global CUDA slot.
+It preserves the original CUDA backend outside PyPTO mode and rejects missing,
+C++-wrapper, and FX-wrapper paths inside PyPTO mode. It still performs no
+registration because real PyPTO scheduling and wrapper constructors have not
+landed; `install()` remains deliberately fail-closed.
