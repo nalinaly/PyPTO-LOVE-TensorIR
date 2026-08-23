@@ -46,6 +46,8 @@ upstream checkouts and their optional/manual suites.
   single-DSO compiler object boundary. Editable build and 486 focused tests
   pass. The first full run's three failures have layered fixes and targeted
   proof at `EV-0009`; the full rerun and fresh wheel gate have not run.
+  Exact safe commands and expected counts are frozen in
+  `docs/single_dso_acceptance_gate.md`.
 - `projects/pypto-target-info` is a separate clean worktree at unbuilt candidate
   `9939b88`. Never treat it as main-branch or build acceptance. Apply it only
   after the object-DSO CMake commit; expect a small CMake conflict.
