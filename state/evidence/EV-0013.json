@@ -1,0 +1,41 @@
+{
+  "id": "EV-0013",
+  "kind": "qwen35_static_compute_inventory",
+  "status": "pass_static_obligation_not_runtime_coverage",
+  "repositories": {
+    "pypto-framework-plugins": "56313dda7c035400864d83ab3784c524c225b35a",
+    "pypto": "f550d4c33e8fef03e7dabcbf60c3db38b0f0a215"
+  },
+  "inventory": {
+    "source_fingerprints": 10,
+    "compute_sites": 41,
+    "providers": {
+      "pypto.generic": 15,
+      "pypto.matmul": 8,
+      "pypto.attention": 7,
+      "pypto.gdn": 10,
+      "host-only": 1
+    },
+    "surfaces": [
+      "Qwen3.5 model and GDN backend",
+      "dense MLP and activation",
+      "Gemma/RMS normalization",
+      "Qwen3-VL language-model-only LM-head wrapper",
+      "logits processor",
+      "Radix full/linear attention normal and breakable custom-op boundaries"
+    ]
+  },
+  "separation": "model-specific inventory exists only in framework plugin; compiler/kernel production trees reject case-insensitive qwen",
+  "tests": {
+    "passed": 37,
+    "compileall": "pass",
+    "clean_wheel_import": "pass without importing SGLang",
+    "independent_reviews": "two approvals after all P1 findings were fixed"
+  },
+  "not_claimed": [
+    "FX graph inventory captured",
+    "runtime kernel trace captured",
+    "any site implemented by PyPTO",
+    "strict model-forward coverage"
+  ]
+}

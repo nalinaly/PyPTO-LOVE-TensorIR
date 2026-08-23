@@ -45,9 +45,10 @@ changed project repositories before the root checkpoint commit.
 - `projects/pypto-kernels` is clean at `f7d623d...` with typed semantic
   families plus a canonical process-safe tuning database; 35 tests and a clean
   wheel import pass. No CUDA operator or device measurement exists yet.
-- `projects/pypto-framework-plugins` is clean at `8b8b5de...`; its context and
-  constructor dispatcher contract has 33 passing tests and clean-wheel proof,
-  but `install()` remains intentionally unready/registration-free.
+- `projects/pypto-framework-plugins` is clean at `56313dd...`; its context and
+  constructor dispatcher plus the 41-site Qwen3.5 static inventory have 37
+  passing tests and clean-wheel proof. `install()` remains intentionally
+  unready/registration-free.
 - `upstream/triton` is the clean exact PyTorch pin. Do not use the inherited
   external editable Triton for acceptance.
 - Re-run the live heavy preflight before resuming any wheel build. At this

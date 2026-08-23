@@ -31,6 +31,9 @@
   original-backend preservation outside that mode, pinned wrapper proxy
   semantics, and strict no-fallback failures inside it. It deliberately does
   not register with Torch until real scheduling/wrapper constructors exist.
+- The framework plugin also freezes 41 source-hashed Qwen3.5 text-path compute
+  obligations across generic, matmul, full-attention and GDN providers. This is
+  a static inventory only; no site is marked implemented or covered.
 - The cloned environment is not baseline-ready yet: its Triton distribution is
   still editable from `/home/zhaosiying/codebase/triton`. The runtime audit
   rejects this path. FlashInfer is corrected to the official 0.6.17 wheel and
