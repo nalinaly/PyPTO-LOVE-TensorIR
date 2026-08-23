@@ -50,7 +50,10 @@
       reference; one-shot, segmented prefill and token decode match exactly.
 - [x] Cross-check GDN against a structurally independent vectorized Torch CPU
       expression, including paired-state prefill-to-decode continuity.
-- [ ] Implement PyPTO-owned paired state zero/copy needed for new slots and
+- [x] Freeze ownership and the generic StateBundle zero/copy/checkpoint design;
+      keep it out of the GDN operator catalog.
+- [ ] After single-DSO, TargetInfo and current-stream executable gates,
+      implement generic PyPTO StateBundle zero/copy needed for new slots and
       segmented Radix checkpoints.
 - [x] Add and independently review the structured matmul BF16/FP32 numerical
       reference for all transpose and explicit-batch cases.

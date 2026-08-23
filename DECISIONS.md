@@ -42,3 +42,11 @@ and independently recompute it, validate live bindings, and separately prove
 wheel or editable source ownership. Package version equality alone is never a
 compatibility claim. Native executable payloads stay rejected until their own
 digest-bound manifest and readiness gate exist.
+
+## D-0008: Paired-state transfer is generic runtime infrastructure
+
+GDN owns the semantic fact that BF16 conv and FP32 recurrent state form one
+generation. Exact zero/copy/checkpoint, leases, generations, stream enqueue and
+completion belong to the generic PyPTO compiler/runtime. The framework plugin
+translates Radix lifecycle but does not execute copies. State transfer is not a
+GDN operator, operator artifact or operator tuning record.

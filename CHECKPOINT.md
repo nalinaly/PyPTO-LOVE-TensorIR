@@ -58,6 +58,10 @@
 - No result JSON or publisher exists, and tuning promotion is hard-disabled.
   The contract cannot be presented as performance evidence. The standalone
   suite is now 117 tests plus 71 subtests.
+- Paired GDN state zero/copy/checkpoint ownership is now frozen as generic
+  PyPTO runtime infrastructure, not an operator or framework copy kernel. The
+  detailed StateBundle ABI/lease/stream design is documentation only and is
+  ordered after single-DSO, TargetInfo and current-stream executable gates.
 - Operator artifact provenance now exposes a canonical complete-field digest
   restricted to the explicit matmul/paged-attention/GDN ABI catalog. It is only
   a future join input: physical cache/loading stays compiler-owned and the

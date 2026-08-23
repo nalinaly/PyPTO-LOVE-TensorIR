@@ -87,6 +87,9 @@ upstream checkouts and their optional/manual suites.
 - GDN state is a paired generation under an exclusive lease. The v1 core
   assumes state is prepared; zero/copy and segmented Radix checkpointing must
   be PyPTO-owned work on the same stream, never Torch/SGLang fallback kernels.
+  Ownership, ABI, stream law and ordered prerequisites are frozen in
+  `docs/state_bundle_transfer_design.md`; do not implement it before the
+  single-DSO, TargetInfo and current-stream executable gates.
 - Use `--framework-launch` for every SGLang process. Baseline scripts bind the
   missing `envs/sglang-baseline-py312` lock/profile; candidate launch is expected
   to fail until the external editable Triton is replaced by its workspace wheel.

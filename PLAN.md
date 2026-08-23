@@ -61,6 +61,10 @@ contract and its fail-closed comparison boundary. It publishes no result and
 does not advance performance acceptance. Atomic publication and tuning reuse
 remain ordered after real CUBIN and complete TargetInfo identity.
 
+Decision `D-0008` freezes generic StateBundle ownership and the post-TargetInfo,
+post-current-stream landing order. It is a design constraint, not an
+implementation milestone; no state transfer API or executor exists yet.
+
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.
 2. Materialize the authorized PyPTO baseline and clean official upstream
