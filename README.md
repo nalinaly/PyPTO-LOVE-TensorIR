@@ -7,6 +7,17 @@ SGLang installations.
 This project owns registration, framework metadata translation, strict
 fallback auditing, and version guards. It must not contain CUDA Tile kernel
 algorithms, model-specific compiler primitives, or copied framework source.
+Its declared runtime dependency is the separately versioned `pypto-kernels`
+wheel. Registration validates the operator project's producer-owned canonical
+framework-adapter ABI manifest and digest instead of copying a partial schema.
+It also pins installed-distribution ownership, import origin, and the canonical
+Python source-tree digest before touching a framework backend. ABI and source
+identity are not compiled-kernel readiness; registration remains fail-closed
+until real PyPTO executables exist.
+
+This source-only stage rejects native extension modules and sourceless bytecode
+inside the operator package. Future compiled executables must gain their own
+digest-bound payload manifest and readiness proof before this guard is widened.
 
 Supported framework baseline:
 

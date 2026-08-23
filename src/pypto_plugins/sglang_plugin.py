@@ -8,7 +8,8 @@ standalone operator ABI exists.
 from __future__ import annotations
 
 from .errors import BackendNotReadyError
-from .torch_inductor import install, prepare_process_strict
+from .operator_library import assert_operator_library_compatible
+from .torch_inductor import assert_backend_executable_ready, install
 from .versions import assert_sglang_compatible, assert_torch_compatible
 
 
@@ -63,7 +64,8 @@ def _resolve_linear_backends_around(original_fn, prefill_default=None):
 
 
 def _register_impl() -> None:
-    prepare_process_strict()
+    assert_operator_library_compatible()
+    assert_backend_executable_ready()
     assert_torch_compatible()
     assert_sglang_compatible()
     install()

@@ -21,4 +21,4 @@ def test_entry_points_are_separate() -> None:
     entry_points = config["project"]["entry-points"]
     assert entry_points["torch_dynamo_backends"]["pypto"].endswith(":compile_backend")
     assert entry_points["sglang.srt.plugins"]["pypto"].endswith(":register")
-
+    assert config["project"]["dependencies"] == ["pypto-kernels==0.1.0.dev0"]

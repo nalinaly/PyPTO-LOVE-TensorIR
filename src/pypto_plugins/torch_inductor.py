@@ -14,6 +14,7 @@ import threading
 from collections.abc import Iterator
 
 from .errors import BackendNotReadyError
+from .operator_library import assert_operator_library_compatible
 from .torch.context import activate_mode
 from .versions import assert_torch_compatible
 
@@ -56,18 +57,28 @@ def prepare_process_strict() -> None:
         )
 
 
+def assert_backend_executable_ready() -> None:
+    """Fail before importing a framework until a real dispatcher has landed."""
+
+    raise BackendNotReadyError(
+        "PyPTO Inductor scheduling/wrapper is not implemented yet; "
+        "refusing to register a fallback backend."
+    )
+
+
 def install() -> None:
     """Install the process-global CUDA dispatcher exactly once."""
     global _INSTALLED
-    prepare_process_strict()
-    assert_torch_compatible()
+    assert_operator_library_compatible()
     with _INSTALL_LOCK:
         if _INSTALLED:
             return
-        raise BackendNotReadyError(
-            "PyPTO Inductor scheduling/wrapper is not implemented yet; "
-            "refusing to register a fallback backend."
-        )
+        assert_backend_executable_ready()
+        assert_torch_compatible()
+        prepare_process_strict()
+        # A future dispatcher installation must happen here and publish
+        # _INSTALLED only after every registration succeeds.
+        _INSTALLED = True
 
 
 @contextlib.contextmanager
