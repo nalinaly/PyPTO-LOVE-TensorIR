@@ -1,0 +1,58 @@
+{
+  "id": "EV-0015",
+  "kind": "strict_runtime_coverage_evidence_contract",
+  "status": "pass_contract_no_runtime_trace",
+  "repository": "projects/pypto-framework-plugins",
+  "repository_head": "d46a58c28a14526d2a00155ad95f3985e18295f1",
+  "policy": {
+    "allowed_model_forward_providers": [
+      "pypto.generic",
+      "pypto.tensorir",
+      "pypto.matmul",
+      "pypto.attention",
+      "pypto.gdn"
+    ],
+    "excluded_scopes": [
+      "CUDA runtime memcpy/memset",
+      "recognized sampling activities"
+    ],
+    "strict_requirements": [
+      "closed and complete normalized activity stream",
+      "fixed collector name and normalizer revision",
+      "trace activity-count and SHA-256 reconciliation",
+      "manifest-bound artifact registry SHA-256 reconciliation",
+      "exact event-to-artifact provenance correlation",
+      "positive non-vacuous model-forward call and GPU-time evidence",
+      "covered calls and GPU time equal their exact denominators",
+      "no fallback, classification, duplicate, or provenance violation"
+    ]
+  },
+  "publication": {
+    "interprocess_lock": "nonblocking flock held for auditor lifetime",
+    "existing_report": "rejected",
+    "partial_to_final": "same owning instance and exact prior-byte SHA-256 only",
+    "write": "temporary file, file fsync, atomic replace, directory fsync",
+    "relative_paths": "resolved before lock acquisition and stable across chdir"
+  },
+  "tests": {
+    "passed": 68,
+    "compileall": "pass",
+    "wheel": "pass",
+    "wheel_sha256": "3b9e9331fe7df25511699fe0b08b58271510c90d25fc2ee92e7ab840c2d9e947",
+    "independent_reviews": "two approvals after all P1 fixes, no remaining P0/P1"
+  },
+  "claim_boundary": [
+    "The module audits adapter-supplied normalized events.",
+    "It does not collect GPU activity or prove collector completeness.",
+    "It does not validate the GPU timing method.",
+    "A strict policy pass is not model correctness, profiler completeness, runtime coverage evidence, or performance evidence."
+  ],
+  "not_claimed": [
+    "a trusted CUDA activity collector",
+    "any captured Qwen3.5 runtime trace",
+    "model-forward coverage above zero",
+    "model correctness",
+    "framework integration",
+    "performance"
+  ]
+}

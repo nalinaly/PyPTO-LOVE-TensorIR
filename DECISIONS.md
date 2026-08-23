@@ -27,3 +27,10 @@ quantization, or external compute fallback are not automatic alternatives.
 This project observes their resource use only. It never edits their trees,
 reuses their processes, shares caches/endpoints, or signals their PIDs.
 
+## D-0006: Runtime coverage is a manifest-bound evidence decision
+
+Provider names alone never prove coverage. A strict decision requires a fixed
+collector protocol, closed normalized trace, immutable artifact registry,
+exact digest/provenance reconciliation, non-vacuous call and GPU-time totals,
+latched violations, and single-owner durable reports. Collector completeness,
+model correctness, and performance remain separate acceptance evidence.

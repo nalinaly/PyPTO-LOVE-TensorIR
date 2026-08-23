@@ -21,6 +21,13 @@
       `upstream/triton` (source-only; wheel/install gate remains open).
 - [x] Replace inherited editable FlashInfer with official `0.6.17`.
 - [x] Remove the unrelated external torch-compile-study editable package.
+- [x] Freeze the source-hashed Qwen3.5 text compute inventory.
+- [x] Define and independently review the strict normalized-trace/artifact
+      coverage evidence contract; no runtime trace is claimed.
+- [ ] Finish full-suite and fresh-wheel validation of the staged PyPTO
+      single-DSO object boundary, then commit only its two CMake files.
+- [ ] Add immutable `BackendType::Nvidia` and explicit SM120 TargetInfo/traits
+      as the next isolated compiler commit; do not link TensorIR yet.
 
 ## Safety hold
 

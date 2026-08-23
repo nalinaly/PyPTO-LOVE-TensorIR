@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `2`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `3`
 
 ## Current phase: R0 workspace and provenance bootstrap
 
@@ -11,6 +11,13 @@ wheels replace the inherited editable source, the CPython 3.12 baseline
 environment is locked, and unmodified SGLang baselines are captured. In
 parallel, the first P1 build-only object boundary is staged but is not accepted
 until its full-test and fresh-wheel gates close.
+
+Checkpoint `CP-0006` additionally freezes the strict runtime-coverage evidence
+contract: fixed collector revision, closed trace and artifact-registry digest
+reconciliation, exact non-vacuous denominators, failure latching, and exclusive
+report ownership. It is deliberately not runtime coverage evidence. The next
+source-only P1 transaction is immutable SM120 target identity, but it must land
+only after the staged single-DSO object-boundary commit is independently gated.
 
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.

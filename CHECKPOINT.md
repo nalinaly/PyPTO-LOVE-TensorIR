@@ -1,6 +1,6 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0005`
+**Checkpoint:** `CP-0006`
 
 **Status:** R0 started; no compiler or model milestone accepted.
 
@@ -37,6 +37,12 @@
 - The framework plugin also freezes 41 source-hashed Qwen3.5 text-path compute
   obligations across generic, matmul, full-attention and GDN providers. This is
   a static inventory only; no site is marked implemented or covered.
+- The framework plugin now also has a reviewed strict runtime-coverage evidence
+  contract. It reconciles a fixed-revision closed activity trace against a
+  digest-bound artifact registry, rejects vacuous/zero-time/misclassified or
+  fallback evidence, latches strict failure, and owns report publication across
+  processes. Its 68 tests and clean wheel build pass. No runtime collector or
+  Qwen trace has been connected, so current runtime coverage remains unclaimed.
 - The cloned environment is not baseline-ready yet: its Triton distribution is
   still editable from `/home/zhaosiying/codebase/triton`. The runtime audit
   rejects this path. FlashInfer is corrected to the official 0.6.17 wheel and
@@ -77,4 +83,6 @@ rerun the full PyPTO suite and continue the fresh wheel build in
 the checkout and run the symlink probe there.
 Next build the exact Triton wheel and remove the external editable runtime. If
 protected zcode work remains active, continue only source/test work that does
-not compile, launch a model, or claim runtime acceptance.
+not compile, launch a model, or claim runtime acceptance. After the object-DSO
+gate is committed, add immutable NVIDIA SM120 target identity in a separate
+compiler commit; never inherit TensorIR's SM100 defaults.
