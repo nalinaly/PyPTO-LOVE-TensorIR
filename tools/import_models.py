@@ -18,6 +18,8 @@ import shutil
 import subprocess
 import sys
 
+from preflight import HEAVY_MARKERS, process_table
+
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MODEL_SPECS = {
@@ -46,6 +48,21 @@ EXACT_FILES = {
     "video_preprocessor_config.json",
     "vocab.json",
 }
+PROTECTED_CHECK_INTERVAL_BYTES = 512 * 1024 * 1024
+
+
+def ensure_protected_workloads_idle() -> None:
+    protected, _workspace = process_table()
+    heavy = [
+        process
+        for process in protected
+        if any(marker in process.command for marker in HEAVY_MARKERS)
+    ]
+    if heavy:
+        pids = [process.pid for process in heavy]
+        raise RuntimeError(
+            f"protected workload started during model import; aborting this copy, PIDs={pids}"
+        )
 
 
 def should_copy(path: pathlib.Path) -> bool:
@@ -57,11 +74,16 @@ def should_copy(path: pathlib.Path) -> bool:
 def copy_and_hash(source: pathlib.Path, destination: pathlib.Path) -> tuple[int, str]:
     digest = hashlib.sha256()
     size = 0
+    bytes_since_check = 0
     with source.open("rb") as source_file, destination.open("xb") as destination_file:
         while chunk := source_file.read(8 * 1024 * 1024):
             destination_file.write(chunk)
             digest.update(chunk)
             size += len(chunk)
+            bytes_since_check += len(chunk)
+            if bytes_since_check >= PROTECTED_CHECK_INTERVAL_BYTES:
+                ensure_protected_workloads_idle()
+                bytes_since_check = 0
         destination_file.flush()
         os.fsync(destination_file.fileno())
     destination.chmod(0o444)
@@ -88,6 +110,7 @@ def import_model(name: str) -> dict[str, object]:
             f"refusing to overwrite model destination or staging path: {destination}, {temporary}"
         )
     verify_revision(spec)
+    ensure_protected_workloads_idle()
     files = sorted(path for path in source.iterdir() if should_copy(path))
     if not files or not any(path.suffix == ".safetensors" for path in files):
         raise RuntimeError(f"no safetensors model files found in {source}")
@@ -160,4 +183,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

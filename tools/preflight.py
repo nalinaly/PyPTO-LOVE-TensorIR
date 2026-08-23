@@ -29,6 +29,9 @@ HEAVY_MARKERS = (
     "sglang::schedul",
     "scons",
     "ninja",
+    "run_model_lane.sh",
+    "run_engine_lane.sh",
+    "examples/sglang/qwen35_inference.py",
 )
 FORBIDDEN_ENV_PREFIXES = ("HSA_", "ROCR_", "GEMSIM_", "AMDGPU_SIM_")
 FORBIDDEN_ENV_NAMES = {

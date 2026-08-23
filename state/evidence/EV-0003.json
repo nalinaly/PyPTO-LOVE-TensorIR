@@ -1,0 +1,25 @@
+{
+  "id": "EV-0003",
+  "kind": "isolated_environment_and_model_copy",
+  "status": "pass",
+  "environment": {
+    "manifest_sha256": "8da56f54b23ea092085e0edfb1216fbc1e3567738505f44d675b62f4e6d8f379",
+    "torch_tree_sha256": "1f77cf114e19ac071bbb3e552e98bd7d1b28f58484225d8929aa077d8ddc00d9",
+    "torch_git": "cf30153c4c131c8164ee7798e5022d810682e2cb",
+    "cuda": "13.0",
+    "hip": null
+  },
+  "models": {
+    "manifest_sha256": "6347f7ea974d1d72c0effa3507f264ef2778f742e076aa56e8a853c83bf377a2",
+    "Qwen3.5-0.8B": "2fc06364715b967f1860aea9cf38778875588b17",
+    "Qwen3.5-9B": "c202236235762e1c871ad0ccb60c8ee5ba337b9a"
+  },
+  "source_policy": "read-only source; independent destination copies",
+  "not_claimed": [
+    "SGLang dependencies installed",
+    "model load",
+    "model correctness",
+    "coverage",
+    "performance"
+  ]
+}

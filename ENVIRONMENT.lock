@@ -1,6 +1,19 @@
 {
+  "cloned_at": "2026-08-23T12:56:06.716378+00:00",
+  "conda_explicit_sha256": "0680e8b51cb2384644271757a15c117ed65b2824175b4b9f204bbaa66b3d902d",
+  "cuda": "13.0",
+  "destination_prefix": "envs/pypto-nvidia",
+  "hip": null,
+  "python": "3.14.6 | packaged by conda-forge | (main, Jun 12 2026, 08:51:42) [GCC 14.3.0]",
   "schema": 1,
-  "status": "absent",
   "source_prefix": "/home/zhaosiying/miniforge3/envs/triton-dev",
-  "destination_prefix": "envs/pypto-nvidia"
+  "status": "cloned",
+  "torch": "2.13.0+cu130",
+  "torch_dist_info": "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-nvidia/lib/python3.14/site-packages/torch-2.13.0+cu130.dist-info",
+  "torch_file": "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-nvidia/lib/python3.14/site-packages/torch/__init__.py",
+  "torch_git": "cf30153c4c131c8164ee7798e5022d810682e2cb",
+  "torch_package_root": "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-nvidia/lib/python3.14/site-packages/torch",
+  "torch_tree_bytes": 1169343614,
+  "torch_tree_files": 15021,
+  "torch_tree_sha256": "1f77cf114e19ac071bbb3e552e98bd7d1b28f58484225d8929aa077d8ddc00d9"
 }

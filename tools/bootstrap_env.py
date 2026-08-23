@@ -12,6 +12,8 @@ import pathlib
 import subprocess
 import sys
 
+from environment_identity import collect_torch_identity
+
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEFAULT_SOURCE = pathlib.Path("/home/zhaosiying/miniforge3/envs/triton-dev")
@@ -38,6 +40,7 @@ def main() -> int:
         type=pathlib.Path,
         default=pathlib.Path(os.environ.get("PYPTO_SOURCE_CONDA_ENV", DEFAULT_SOURCE)),
     )
+    parser.add_argument("--lock-existing", action="store_true")
     args = parser.parse_args()
     source = args.source.resolve()
     preflight = subprocess.run(
@@ -49,24 +52,25 @@ def main() -> int:
         return preflight.returncode
     if not source.is_dir() or not (source / "bin" / "python").is_file():
         raise FileNotFoundError(f"source Conda environment is invalid: {source}")
-    if DESTINATION.exists():
+    if DESTINATION.exists() and not args.lock_existing:
         raise FileExistsError(f"refusing to overwrite environment: {DESTINATION}")
     if not CONDA.is_file():
         raise FileNotFoundError(f"Conda executable not found: {CONDA}")
 
-    subprocess.run(
-        [
-            str(CONDA),
-            "create",
-            "--yes",
-            "--prefix",
-            str(DESTINATION),
-            "--clone",
-            str(source),
-        ],
-        cwd=ROOT,
-        check=True,
-    )
+    if not DESTINATION.exists():
+        subprocess.run(
+            [
+                str(CONDA),
+                "create",
+                "--yes",
+                "--prefix",
+                str(DESTINATION),
+                "--clone",
+                str(source),
+            ],
+            cwd=ROOT,
+            check=True,
+        )
     python = DESTINATION / "bin" / "python"
     subprocess.run([str(python), "-m", "pip", "check"], check=True, cwd=ROOT)
     probe = json.loads(
@@ -101,6 +105,7 @@ def main() -> int:
             ).hexdigest(),
         }
     )
+    probe.update(collect_torch_identity(DESTINATION))
     atomic_json(ROOT / "ENVIRONMENT.lock", probe)
     print(json.dumps(probe, indent=2, sort_keys=True))
     return 0

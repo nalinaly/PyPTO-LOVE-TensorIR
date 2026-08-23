@@ -85,7 +85,7 @@ def isolated_environment(run_id: str, run_dir: pathlib.Path) -> dict[str, str]:
             "PYPTO_RUN_ID": run_id,
             "PYPTO_WORKSPACE_ROOT": str(ROOT),
             "PYPTO_SGLANG_SOURCE_ROOT": str(ROOT / "upstream" / "sglang"),
-            "SGLANG_PLUGINS": environment.get("SGLANG_PLUGINS", "pypto"),
+            "SGLANG_PLUGINS": "pypto",
         }
     )
     return environment
@@ -97,6 +97,11 @@ def main() -> int:
         "--mode",
         choices=("light", "heavy", "gpu-benchmark"),
         default="light",
+    )
+    parser.add_argument(
+        "--require-framework-plugins",
+        action="store_true",
+        help="verify installed Torch and SGLang PyPTO entry points before launch",
     )
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
@@ -119,6 +124,35 @@ def main() -> int:
     run_dir = ROOT / "runs" / run_id
     run_dir.mkdir(parents=True)
     environment = isolated_environment(run_id, run_dir)
+    command_requires_plugins = args.mode == "gpu-benchmark" or any(
+        marker in item.lower()
+        for item in command
+        for marker in ("sglang", "acceptance")
+    )
+    if args.mode == "gpu-benchmark":
+        python = ENV_PREFIX / "bin" / "python"
+        if not python.is_file():
+            raise FileNotFoundError(
+                f"project environment is missing; cannot verify runtime: {python}"
+            )
+        subprocess.run(
+            [str(python), str(ROOT / "tools" / "environment_identity.py"), "--verify"],
+            cwd=ROOT,
+            env=environment,
+            check=True,
+        )
+    if args.require_framework_plugins or command_requires_plugins:
+        python = ENV_PREFIX / "bin" / "python"
+        if not python.is_file():
+            raise FileNotFoundError(
+                f"project environment is missing; cannot verify plugins: {python}"
+            )
+        subprocess.run(
+            [str(python), "-m", "pypto_plugins.bootstrap"],
+            cwd=ROOT,
+            env=environment,
+            check=True,
+        )
 
     process = subprocess.Popen(
         command,

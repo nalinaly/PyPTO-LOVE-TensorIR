@@ -1,8 +1,9 @@
 PYPTO-NVIDIA-QWEN35-V1 IMPLEMENTATION MAP
 =========================================
 
-Status: reconnaissance-derived bootstrap map. Replace every remote-only entry
-with checkout-local paths and symbol evidence before entering P1.
+Status: checkout-grounded for PyPTO, PyTorch, and SGLang at CP-0001. TensorIR
+and CUDA Tile remain pinned remote evidence until their PyPTO-internal source
+checkouts are materialized.
 
 Ownership
 ---------
@@ -46,10 +47,32 @@ Known framework boundaries
 --------------------------
 - Torch OOT registration: torch/_inductor/codegen/common.py
 - Torch scheduling/kernel/wrapper internals: torch/_inductor/codegen
+- Torch selector limitation: register_backend_for_device has one process-global
+  cuda slot; config.cuda_backend has no stable third-party named-backend registry
+- Torch strict limitation: CSE/backend-name logic and template choices are
+  commit-specific; the plugin must provide its own scheduling/CSE/wrapper
 - SGLang plugin loader: python/sglang/srt/plugins
 - SGLang attention registry: python/sglang/srt/layers/attention/attention_registry.py
 - SGLang GDN dispatcher: python/sglang/srt/layers/attention/linear/gdn_backend.py
 - SGLang Qwen3.5 model: python/sglang/srt/models/qwen3_5.py
+- SGLang linear backend resolver:
+  python/sglang/srt/layers/attention/linear/utils.py::resolve_linear_attn_backends
+- SGLang Inductor entry:
+  python/sglang/srt/compilation/compiler_interface.py::InductorAdaptor.compile
+- SGLang current CUDA-graph metadata contract:
+  init_forward_metadata_out_graph / init_forward_metadata_in_graph /
+  init_cuda_graph_state plus breakable-graph capture/replay hooks
+
+Current project-owned implementation surfaces
+---------------------------------------------
+- projects/pypto-kernels/src/pypto_kernels/{ops,runtime,tuning,provenance}
+  define the framework-neutral, versioned invocation and artifact contracts.
+- projects/pypto-framework-plugins/src/pypto_plugins/versions.py binds runtime
+  imports to the locked CUDA PyTorch environment and clean SGLang checkout.
+- projects/pypto-framework-plugins/src/pypto_plugins/bootstrap.py verifies the
+  two installed entry points before every SGLang launch.
+- projects/pypto-framework-plugins/src/pypto_plugins/sglang_plugin.py owns the
+  pinned attention/linear-attention registration and hook compatibility layer.
 
 Do not modify
 -------------
@@ -63,4 +86,3 @@ API instability
 Torch SIMDScheduling/CSEProxy/TemplateBuffer/ChoiceCaller and SGLang hybrid/GDN
 hook targets are commit-specific. Every adapter must validate the exact commit
 and expected target signatures before registration.
-
