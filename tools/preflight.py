@@ -32,6 +32,11 @@ HEAVY_MARKERS = (
     "run_model_lane.sh",
     "run_engine_lane.sh",
     "examples/sglang/qwen35_inference.py",
+    "sglang.launch_server",
+    "python -m sglang",
+    "vllm.entrypoints",
+    "python -m vllm",
+    "qwen35_inference.py",
 )
 FORBIDDEN_ENV_PREFIXES = ("HSA_", "ROCR_", "GEMSIM_", "AMDGPU_SIM_")
 FORBIDDEN_ENV_NAMES = {
@@ -54,6 +59,21 @@ class ProcessInfo:
     pid: int
     rss_kib: int
     command: str
+    cwd: str
+
+
+def belongs_to_roots(command: str, cwd: str, roots: tuple[str, ...]) -> bool:
+    return any(
+        root in command
+        or cwd == root
+        or (cwd and pathlib.Path(root) in pathlib.Path(cwd).parents)
+        for root in roots
+    )
+
+
+def is_heavy_command(command: str) -> bool:
+    lowered = command.lower()
+    return any(marker.lower() in lowered for marker in HEAVY_MARKERS)
 
 
 def read_text(path: pathlib.Path) -> str:
@@ -78,6 +98,10 @@ def process_table() -> tuple[list[ProcessInfo], list[ProcessInfo]]:
         command = raw.replace(b"\0", b" ").decode(errors="replace").strip()
         if not command:
             continue
+        try:
+            cwd = str((entry / "cwd").resolve(strict=True))
+        except OSError:
+            cwd = ""
         rss_kib = 0
         for line in read_text(entry / "status").splitlines():
             if line.startswith("VmRSS:"):
@@ -86,10 +110,10 @@ def process_table() -> tuple[list[ProcessInfo], list[ProcessInfo]]:
                 except (IndexError, ValueError):
                     pass
                 break
-        info = ProcessInfo(pid=pid, rss_kib=rss_kib, command=command)
-        if any(root in command for root in PROTECTED_ROOTS):
+        info = ProcessInfo(pid=pid, rss_kib=rss_kib, command=command, cwd=cwd)
+        if belongs_to_roots(command, cwd, PROTECTED_ROOTS):
             protected.append(info)
-        if str(ROOT) in command:
+        if belongs_to_roots(command, cwd, (str(ROOT),)):
             workspace.append(info)
     return protected, workspace
 
@@ -159,7 +183,7 @@ def main() -> int:
 
     protected, workspace = process_table()
     protected_heavy = [
-        proc for proc in protected if any(marker in proc.command for marker in HEAVY_MARKERS)
+        proc for proc in protected if is_heavy_command(proc.command)
     ]
     available_kib = mem_available_kib()
     try:

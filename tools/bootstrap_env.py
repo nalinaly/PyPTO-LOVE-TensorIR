@@ -12,9 +12,6 @@ import pathlib
 import subprocess
 import sys
 
-from environment_identity import collect_torch_identity
-
-
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEFAULT_SOURCE = pathlib.Path("/home/zhaosiying/miniforge3/envs/triton-dev")
 DESTINATION = ROOT / "envs" / "pypto-nvidia"
@@ -77,11 +74,9 @@ def main() -> int:
         command_output(
             [
                 str(python),
-                "-c",
-                "import json,sys,torch; print(json.dumps({"
-                "'python':sys.version,'torch':torch.__version__,"
-                "'torch_git':torch.version.git_version,'cuda':torch.version.cuda,"
-                "'hip':torch.version.hip,'torch_file':torch.__file__}))",
+                str(ROOT / "tools" / "environment_identity.py"),
+                "--prefix",
+                str(DESTINATION),
             ]
         )
     )
@@ -105,7 +100,6 @@ def main() -> int:
             ).hexdigest(),
         }
     )
-    probe.update(collect_torch_identity(DESTINATION))
     atomic_json(ROOT / "ENVIRONMENT.lock", probe)
     print(json.dumps(probe, indent=2, sort_keys=True))
     return 0

@@ -51,6 +51,17 @@ def verify(metadata: dict[str, object]) -> tuple[int, int]:
     return pid, pgid
 
 
+def signal_verified(
+    metadata: dict[str, object],
+    requested_signal: signal.Signals = signal.SIGTERM,
+) -> tuple[int, int]:
+    """Verify ownership immediately before signaling the recorded group."""
+
+    pid, pgid = verify(metadata)
+    os.killpg(pgid, requested_signal)
+    return pid, pgid
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("run_id")
@@ -63,7 +74,7 @@ def main() -> int:
     print(f"verified workspace run {args.run_id}: PID={pid} PGID={pgid}")
     if args.check_only:
         return 0
-    os.killpg(pgid, signal.SIGTERM)
+    pid, _ = signal_verified(metadata)
     deadline = time.monotonic() + args.wait_seconds
     while pathlib.Path(f"/proc/{pid}").exists() and time.monotonic() < deadline:
         time.sleep(0.25)
@@ -78,4 +89,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
