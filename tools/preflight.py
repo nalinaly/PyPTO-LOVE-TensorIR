@@ -36,6 +36,7 @@ FORBIDDEN_ENV_NAMES = {
     "HIP_PATH",
     "HIP_VISIBLE_DEVICES",
     "PYTORCH_ROCM_ARCH",
+    "TORCHDYNAMO_SUPPRESS_ERRORS",
 }
 FORBIDDEN_DSO_MARKERS = (
     "libamdhip64",
@@ -202,4 +203,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

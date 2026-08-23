@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "status": "absent",
+  "source_prefix": "/home/zhaosiying/miniforge3/envs/triton-dev",
+  "destination_prefix": "envs/pypto-nvidia"
+}

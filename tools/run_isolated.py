@@ -71,7 +71,17 @@ def isolated_environment(run_id: str, run_dir: pathlib.Path) -> dict[str, str]:
             "CUDA_HOME": "/usr/local/cuda-13.3",
             "CUDA_VISIBLE_DEVICES": "0",
             "PYTHONNOUSERSITE": "1",
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONPATH": os.pathsep.join(
+                (
+                    str(ROOT / "projects" / "pypto-framework-plugins" / "src"),
+                    str(ROOT / "projects" / "pypto-kernels" / "src"),
+                    str(ROOT / "projects" / "pypto" / "python"),
+                    str(ROOT / "upstream" / "sglang" / "python"),
+                )
+            ),
             "PIP_REQUIRE_VIRTUALENV": "true",
+            "PYPTO_ENV_PREFIX": str(ENV_PREFIX),
             "PYPTO_RUN_ID": run_id,
             "PYPTO_WORKSPACE_ROOT": str(ROOT),
             "PYPTO_SGLANG_SOURCE_ROOT": str(ROOT / "upstream" / "sglang"),
