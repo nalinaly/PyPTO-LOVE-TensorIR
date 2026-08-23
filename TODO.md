@@ -97,6 +97,7 @@
 ## Safety hold
 
 The action-boundary heavy preflight is red for the observed
-`zcode-vllm-tp2-v4` TP=2 vLLM/gem5 lane. No native PyPTO action began. Continue
-only light work, wait for natural exit, and rerun preflight. Observation is
-allowed; signals and cleanup remain forbidden.
+`zcode-vllm-tp2-v4` TP=2 vLLM/gem5 lane and for MemAvailable 28.8 GiB below
+the 32 GiB safety floor. No native PyPTO action began. Continue only light
+work, wait for natural exit/resource recovery, and rerun preflight. Observation
+is allowed; signals and cleanup remain forbidden.

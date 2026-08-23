@@ -84,7 +84,8 @@ upstream checkouts and their optional/manual suites.
   external editable Triton for acceptance.
 - The packaging-time preflight was briefly green, but the latest mandatory
   recheck returned 75 while zcode was running `zcode-vllm-tp2-v4` with TP=2
-  vLLM workers and gem5. No PyPTO heavy command
+  vLLM workers and gem5; MemAvailable also fell to 28.8 GiB below the 32 GiB
+  safety floor. No PyPTO heavy command
   started. Wait for natural exit, rerun preflight, and never signal or clean up
   that lane.
 - After the single-DSO full-suite/fresh-wheel gate closes, the next isolated

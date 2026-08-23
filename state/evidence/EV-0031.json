@@ -62,7 +62,7 @@
     "control_tests_passed": 17,
     "diff_check": "pass",
     "independent_reviews": "three relevant final approvals, no remaining P0/P1",
-    "heavy_preflight": "exit 75 for protected zcode-vllm-tp2-v4"
+    "heavy_preflight": "exit 75 for protected zcode-vllm-tp2-v4 and MemAvailable 28.8 GiB below 32 GiB floor"
   },
   "not_claimed": [
     "single-DSO acceptance or CMake commit",

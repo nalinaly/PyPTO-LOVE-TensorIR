@@ -177,8 +177,9 @@
 - Prior reconnaissance did not complete a TensorIR SM120 runtime launch. Static
   target support is not runtime acceptance.
 - The packaging-time safety preflight was green, but the latest required
-  recheck is red: zcode is running `zcode-vllm-tp2-v4` with TP=2 vLLM/gem5.
-  No PyPTO heavy action began. Protected processes remain
+  recheck is red: zcode is running `zcode-vllm-tp2-v4` with TP=2 vLLM/gem5,
+  and MemAvailable is 28.8 GiB versus the 32 GiB safety floor. No PyPTO heavy
+  action began. Protected processes remain
   untouchable; continue light work and rerun preflight after natural exit.
 
 ## Resume action
