@@ -50,3 +50,16 @@ generation. Exact zero/copy/checkpoint, leases, generations, stream enqueue and
 completion belong to the generic PyPTO compiler/runtime. The framework plugin
 translates Radix lifecycle but does not execute copies. State transfer is not a
 GDN operator, operator artifact or operator tuning record.
+
+## D-0009: TensorIR runtime objects are not persistent PyPTO artifacts
+
+Pinned `ICompiler::compile()` returns an in-process `IRuntimeKernel` while the
+complete argument/grid reconstruction metadata remains inside
+`CudaTileFrontendResult` and private strategy objects. PyPTO must first create a
+deterministic bytes-plus-metadata seam, then own the artifact/cache and a
+process/device/CUcontext-bound prewarmed executable state machine.
+CompileRequest remains a pointer-free program/target policy; byte-affecting
+per-region route/schedule/specialization lives in a separately versioned
+KernelBuildSpec. Exact LLVM/tileiras producer identity enters every artifact
+key. Streams are per-capture/launch dynamic values and never part of the
+request or artifact.

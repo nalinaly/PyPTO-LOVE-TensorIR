@@ -1,0 +1,76 @@
+{
+  "id": "EV-0031",
+  "kind": "acceptance_gate_repair_and_compile_artifact_source_design",
+  "status": "pass_source_design_no_heavy_execution",
+  "repositories": {
+    "control_before_checkpoint": "78bb20258910eb1dfb02dcea6712f371926ca53b",
+    "pypto": "f550d4c33e8fef03e7dabcbf60c3db38b0f0a215",
+    "target_info_candidate": "9939b885041b931284f7ce56ecbf888601b60b6e",
+    "tensor_ir": "3b5a8bebc00510b46a1e8b97229d06dd0d006215"
+  },
+  "single_dso_gate": {
+    "source_diff_files": [
+      "projects/pypto/CMakeLists.txt",
+      "projects/pypto/python/bindings/CMakeLists.txt"
+    ],
+    "source_review": "no P0/P1",
+    "bash_blocks": 5,
+    "bash_syntax": "pass",
+    "repairs": [
+      "real target-interpreter venv wheel installation and console script",
+      "all wheel DSO and duplicate-member enumeration",
+      "fail-closed ldd status and dependency denylist",
+      "all native/binding compile-row ownership",
+      "exact two-file staged commit assertion"
+    ],
+    "executed": false
+  },
+  "target_info_gate": {
+    "candidate_paths": 34,
+    "read_only_apply_check": "pass without conflict against staged DSO diff",
+    "bash_blocks": 4,
+    "bash_syntax": "pass",
+    "native_ctest_expected": "2/2",
+    "targeted_python_expected": "31 passed",
+    "full_python_expected": "10208 passed, 58 skipped",
+    "junit_total_expected": 10266,
+    "source_review": "no P0/P1",
+    "executed": false
+  },
+  "tensor_ir_findings": {
+    "compiler_returns_persistent_artifact": false,
+    "frontend_metadata_serialized": false,
+    "runtime_initialize_synchronized": false,
+    "runtime_support_validation_implemented": false,
+    "workspace_query_implemented": false,
+    "sm120_default_sm_count": 148,
+    "required_sm_count": 82,
+    "tensor_ir_shared_memory_assumption_bytes": 232448,
+    "required_max_shared_memory_per_cta_bytes": 101376,
+    "ambient_byte_affecting_overrides_present": true
+  },
+  "decision": {
+    "id": "D-0009",
+    "compile_request": "versioned pointer-free program/target policy",
+    "kernel_build_spec": "versioned per-region route/schedule/specialization identity",
+    "artifact": "common bytes-plus-metadata schema for TensorIR and direct CUDA Tile",
+    "producer_identity": "exact compiler, TensorIR, CUDA Tile, LLVM and resolved tileiras",
+    "executable": "prewarmed process/fork/device/CUcontext-bound state machine",
+    "stream": "dynamic capture/launch value outside request and artifact"
+  },
+  "validation": {
+    "control_tests_passed": 17,
+    "diff_check": "pass",
+    "independent_reviews": "three relevant final approvals, no remaining P0/P1",
+    "heavy_preflight": "exit 75 for protected zcode-vllm-tp2-v4"
+  },
+  "not_claimed": [
+    "single-DSO acceptance or CMake commit",
+    "TargetInfo native or package acceptance",
+    "CompileRequest or KernelBuildSpec implementation",
+    "LLVM/TensorIR/CUDA Tile build composition",
+    "persistent artifact/cache or NvidiaExecutable",
+    "CUDA current-stream or graph execution",
+    "operator/model correctness, strict coverage or performance"
+  ]
+}

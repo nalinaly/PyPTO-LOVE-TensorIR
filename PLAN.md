@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `8`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `9`
 
 ## Current phase: R0 workspace and provenance bootstrap
 
@@ -76,6 +76,14 @@ registry, cache, current-stream, explicit fallback and scheduling bypass that a
 zero-diff plugin must own or reject. It does not register a backend or generate
 code; all readiness flags remain false until the ordered compiler/runtime gates
 close.
+
+Checkpoint `CP-0019` repairs the executable acceptance specifications for the
+pending single-DSO and TargetInfo transactions and freezes D-0009 from pinned
+TensorIR source. CompileRequest is a data-only program/target policy;
+byte-producing region identity belongs to KernelBuildSpec; both TensorIR and
+direct CUDA Tile routes produce one exact-producer-bound Artifact; loaded
+executables are process/device/CUcontext bound. This checkpoint executes none
+of those heavy or runtime gates.
 
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.

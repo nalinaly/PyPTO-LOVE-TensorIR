@@ -129,31 +129,56 @@ Bindings/runtime references
 4. projects/pypto files and APIs to add
 --------------------------------------
 
-First target/request commit
+First target commit
   include/pypto/backend/common/backend_type.h
   include/pypto/compiler/target_info.h
-  include/pypto/compiler/compile_request.h
-  src/compiler/{target_info,compile_request}.cpp
+  src/compiler/target_info.cpp
   python/bindings/modules/compiler.cpp
   python/pypto/compiler/__init__.py
+  tests/ut/compiler/test_target_info.py
+    BackendType::Nvidia and immutable NvidiaTargetInfo. User identity is
+    nvidia:sm_120/sm_120; an arch-conditional cubin may use sm_120a. Candidate
+    9939b88 remains source-reviewed/unbuilt until the single-DSO gate closes.
+
+Second data-only request commit
+  include/pypto/compiler/compile_request.h
+  src/compiler/compile_request.cpp
+  python/bindings/modules/compiler.cpp
+  python/pypto/compiler/__init__.py
+  python/pypto/pypto_core/compiler.pyi
   tests/ut/compiler/test_compile_request.py
-    BackendType::Nvidia, immutable NvidiaTargetInfo and CompileRequest. User
-    identity is nvidia:sm_120/sm_120; an arch-conditional cubin may use sm_120a.
-    Code-cache identity excludes UUID; autotune fingerprint includes it.
+  tests/ut/cpp/nvidia_compile_request_test.cpp
+    Immutable, pointer-free, versioned canonical serialization. Code-cache
+    identity excludes ordinal/UUID/PCI identity; device/autotune identity
+    includes it. It contains requested artifact policy, not actual bytes/kind,
+    stream/workspace/tensor pointers, region routing or schedule constants.
+    This commit does not link TensorIR, register a backend or create runtime.
+
+Per-region build identity
+  include/pypto/compiler/kernel_build_spec.h
+  src/compiler/kernel_build_spec.cpp
+    Versioned pointer-free source/IR/ABI digest, region route, resolved
+    schedule/tile/layout/options and specialization identity. CompileRequest
+    plus KernelBuildSpec plus exact LLVM/tileiras producer identity form every
+    artifact key. TensorIR and direct CUDA Tile routes emit the same Artifact.
 
 Context-owned dispatch
   include/pypto/compiler/{compiler,pipeline_registry}.h
   src/compiler/{compiler,pipeline_registry}.cpp
-    One request per compile. PassContext owns it, workers capture it explicitly,
-    and passes never query/change an ambient current target.
+    One immutable request per compile. Workers receive it explicitly and create
+    their own child PassContext; a PassContext instance is never shared across
+    threads. Passes never query/change an ambient current target.
 
 NVIDIA compiler bridge
   cmake/nvidia_tensor_ir.cmake
   include/pypto/codegen/nvidia/{tensor_ir_codegen,cuda_tile_codegen}.h
   src/codegen/nvidia/{tensor_ir_bridge,tensor_ir_codegen,cuda_tile_codegen}.cpp
     Structured tensor regions lower through TensorIR. Already-fused offset
-    loops and expert tile programs lower directly to CUDA Tile. Dependency
-    headers stay private to the bridge.
+    loops and expert tile programs lower directly to CUDA Tile. Before cache or
+    runtime work, the bridge must expose deterministic bytes plus actual kind,
+    entry names, serialized KernelArgLayout, grid policy and bytecode/compiler
+    identity, including exact LLVM and resolved tileiras path/version/SHA.
+    Dependency headers stay private to the bridge.
 
 Generic serving semantics
   include/pypto/ir/serving_ops.h
@@ -167,9 +192,15 @@ NVIDIA runtime
   include/pypto/runtime/nvidia/{artifact,executable,artifact_cache}.h
   src/runtime/nvidia/{artifact,executable,artifact_cache,target_query}.cpp
   python/pypto/runtime/nvidia.py
-    Wrap TensorIR IRuntimeKernel initialization, support/workspace query and
-    launch. Accept framework-neutral tensor views plus raw current CUstream.
-    Allocate/compile/load nothing during CUDA Graph capture.
+    Do not cache or wrap an in-process TensorIR IRuntimeKernel as an artifact.
+    Reconstruct a PyPTO-owned prewarmed executable from validated bytes plus
+    metadata, with once-only load/error latch and graph/execution leases. Accept
+    framework-neutral tensor views plus a non-null raw current CUstream, and
+    bind loaded handles to process/fork generation, target device and CUcontext.
+    Allocate/compile/load nothing during CUDA Graph capture; replay uses the
+    instantiated graph rather than re-entering kernel wrappers.
+    target_query.cpp runs only in the parent before compile/capture; workers
+    receive the value-copied target and never initialize/query CUDA.
 
 Tests
   tests/ut/compiler/nvidia/
@@ -210,16 +241,28 @@ Compiler/runtime APIs consumed by PyPTO
   include/tensor_ir/Runtime/{IRuntimeKernel,Types}.h
   include/tensor_ir/Runtime/CudaTile/CudaTileRuntimeKernel.h
   lib/Runtime/CudaTileRuntimeKernel.cpp
-    Consume ICompiler::create/compile/canCompile and
-    IRuntimeKernel::{initializeRuntimeState,checkSupport,queryWorkspaceSize,
-    launch}. Do not expose nv_tensor_ir Python or TensorIR command-line tools.
+    ICompiler::compile returns only an in-process IRuntimeKernel and is not a
+    persistent artifact API. Use or extend CudaTileFrontend/serialization to
+    obtain complete bytes-plus-metadata, then reconstruct a PyPTO-owned
+    executable. TensorIR runtime code remains a source reference/implementation
+    component, not the cache schema. Do not expose nv_tensor_ir Python or
+    TensorIR command-line tools.
 
 Known gaps
-  - PipelineOptions can carry the real 82-SM count, but
-    TileCandidateGenerator.cpp::getSmemCapacityBytes uses a representative
-    227 KiB for every cc>=100. Thread the real target shared-memory resource
-    through a separately committed TensorIR patch before trusting automatic
-    candidate legality/performance; explicit schedules may bypass it first.
+  - CudaTileCompileOptions does not propagate the real 82-SM count into
+    PipelineOptions, so SM120 can fall back to 148 SM.
+    TileCandidateGenerator.cpp::getSmemCapacityBytes also uses 227 KiB for
+    every cc>=100 while this target's opt-in CTA maximum is 101376 bytes.
+    Thread both accepted TargetTraits resources through compiler/cache identity
+    before trusting automatic candidate legality/performance; an explicit
+    schedule may use maxCandidates=0 for the first smoke only.
+  - CudaTileCompiler reads ambient TENSOR_IR strategy/candidate/debug/load
+    overrides that are absent from CompileOptions::toUniqueString(). Strict
+    compilation must reject or explicitly disable them, never mutate process
+    environment around concurrent compilation.
+  - CudaTileFrontendResult has complete entry/argument/grid metadata, but no
+    versioned serialization. CudaTileRuntimeKernel hides the strategy objects;
+    initialize is not actually synchronized and support/workspace are TODO.
   - A requested CudaTileArtifactKind::Cubin may return TileIR when no compatible
     assembler exists. Strict provenance inspects actual bytes/magic.
   - tileiras comes from CUDA 13.3.73 PATH. Record its exact executable; never
@@ -418,15 +461,19 @@ No restart, driver/kernel change or WSL shutdown is authorized.
 -----------------------------------------
 
   1. Close the object-target full-test and fresh-wheel gate.
-  2. Materialize exact LLVM and prove fully disconnected TensorIR/CUDA Tile
+  2. Integrate/build/package immutable NvidiaTargetInfo; retain Ascend behavior.
+  3. Add the pointer-free data-only CompileRequest contract.
+  4. Materialize exact LLVM and prove fully disconnected TensorIR/CUDA Tile
      configure/link composition with no second public product.
-  3. Add immutable NvidiaTargetInfo/CompileRequest; retain Ascend behavior.
-  4. Prove pointwise/reduction/matmul -> TileIR -> SM120 current-stream launch.
-  5. Implement generic fused-loop memory lowering and structured matmul.
-  6. Freeze operator tensor ABIs, then attention and GDN decode/prefill in the
-     standalone kernel project.
-  7. Activate zero-diff TorchInductor/SGLang plugins and strict audit.
-  8. Run 0.8B strict correctness/coverage/profile, then 9B and final report.
+  5. Add deterministic artifact metadata plus SM120 resource/options fixes,
+     then the PyPTO ArtifactCache and prewarmed NvidiaExecutable.
+  6. Prove pointwise/reduction/matmul -> actual SM120 Cubin -> non-default
+     current-stream launch, with TileIR and CUDA Graph as separate later gates.
+  7. Implement generic fused-loop memory lowering and structured matmul.
+  8. Implement the already-frozen operator ABIs as executable attention and
+     GDN decode/prefill providers in the standalone kernel project.
+  9. Activate zero-diff TorchInductor/SGLang plugins and strict audit.
+ 10. Run 0.8B strict correctness/coverage/profile, then 9B and final report.
 
 Compile-only, TileIR, cubin, runtime correctness, strict coverage and
 performance are always separate evidence classes.

@@ -1,6 +1,6 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0018`
+**Checkpoint:** `CP-0019`
 
 **Status:** R0 started; no compiler or model milestone accepted.
 
@@ -41,7 +41,7 @@
   sourceless bytecode. Torch and SGLang adapter entry paths perform identity and
   executable-readiness checks before framework mutation; pre-strict failures
   cannot be swallowed as ordinary fallback exceptions.
-- The operator project has 117 tests plus 71 subtests; the plugin has 122
+- The operator project has 117 tests plus 71 subtests; the plugin has 128
   tests. Both wheel and real editable identity probes pass. No executable
   kernel, framework registration, model correctness, coverage or performance
   is claimed by this boundary.
@@ -150,6 +150,24 @@
   candidate `9939b88`. It has explicit resource/toolchain/dtype identity and
   fail-closed legacy isolation, but has not been built or imported. It must be
   applied only after the single-DSO CMake transaction is accepted.
+- The single-DSO runbook has been repaired and independently approved: it now
+  performs a real venv install, audits all wheel DSOs and installed dependency
+  closure, verifies every native/binding compile row and enforces the exact
+  two-file commit boundary. It remains unexecuted while preflight is red.
+- A separate approved TargetInfo runbook freezes the conflict-free ordered
+  cherry-pick, fresh native 2/2 CTest, fresh one-DSO wheel/installed-DSO audit,
+  31 targeted tests and expected 10,208-pass/58-skip full suite. It also
+  remains unexecuted.
+- TensorIR source audit proves its `IRuntimeKernel` is not a persistent
+  artifact: complete argument/grid metadata lacks versioned serialization,
+  runtime initialization is not synchronized, and support/workspace checks are
+  TODO. Ambient overrides and wrong SM120 resource fallbacks also prevent a
+  deterministic cache/runtime shortcut.
+- Decision D-0009 now orders a data-only CompileRequest, per-region
+  KernelBuildSpec, exact LLVM/tileiras producer identity, common
+  bytes-plus-metadata Artifact, persistent cache and a process/device/CUcontext-
+  bound prewarmed executable. Streams remain per-capture/launch values; workers
+  never query CUDA or reuse module/context handles.
 - Candidate and baseline framework runs now have separate, reviewed execution
   profiles. Baseline cannot import PyPTO/plugin sources or load general SGLang
   plugins; candidate framework launch cannot start until exact environment,
@@ -167,12 +185,11 @@
 
 Wait for the observed protected `zcode-vllm-tp2-v4` lane to exit naturally,
 then run
-`python tools/preflight.py --mode heavy`. If and only if it is green, rerun the
-full PyPTO suite and continue the fresh wheel build in
-`builds/pypto-wheel.dfB4Xk`, then inspect/install it into a clean target outside
-the checkout and run the symlink probe there.
+`python tools/preflight.py --mode heavy`. If and only if it is green, execute
+`docs/single_dso_acceptance_gate.md`, commit only the two CMake files and
+persist evidence. Then apply and execute
+`docs/target_info_acceptance_gate.md` before any CompileRequest code.
 Next build the exact Triton wheel and remove the external editable runtime. If
 protected zcode work remains active, continue only source/test work that does
-not compile, launch a model, or claim runtime acceptance. After the object-DSO
-gate is committed, add immutable NVIDIA SM120 target identity in a separate
-compiler commit; never inherit TensorIR's SM100 defaults.
+not compile, launch a model, or claim runtime acceptance. Never inherit
+TensorIR's SM100 defaults.

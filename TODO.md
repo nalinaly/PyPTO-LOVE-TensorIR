@@ -26,10 +26,26 @@
       coverage evidence contract; no runtime trace is claimed.
 - [ ] Finish full-suite and fresh-wheel validation of the staged PyPTO
       single-DSO object boundary, then commit only its two CMake files.
+- [x] Repair and independently approve the single-DSO acceptance runbook:
+      real venv install, complete DSO/dependency/compile-row audit and exact
+      staged-file boundary.
 - [x] Produce a three-review-approved SM120 TargetInfo source candidate in a
       separate worktree; explicitly mark it unbuilt/unverified.
 - [ ] After object-DSO acceptance, apply candidate `9939b88`, resolve CMake,
       and pass native/Python/wheel/unchanged-Ascend validation.
+- [x] Freeze and independently approve the conflict-checked TargetInfo
+      acceptance runbook with fresh native, one-DSO wheel and exact test-count
+      gates.
+- [x] Source-audit TensorIR compiler/runtime persistence and freeze D-0009:
+      `IRuntimeKernel` is not a cache artifact; exact bytes-plus-metadata and
+      process/device/CUcontext executable ownership are required.
+- [ ] After TargetInfo acceptance, implement and independently gate only the
+      pointer-free versioned CompileRequest data contract.
+- [ ] Then implement the pointer-free per-region KernelBuildSpec before exact
+      LLVM/TensorIR/CUDA Tile composition and artifact metadata work.
+- [ ] Bind exact LLVM/tileiras producer identity, SM120 82-SM/101376-byte
+      resources and deterministic TensorIR options before ArtifactCache or
+      NvidiaExecutable implementation.
 - [x] Canonicalize operator-only artifact provenance without creating a second
       compiler artifact cache in `pypto-kernels`.
 - [x] Freeze the pinned Torch/SGLang runtime coverage collector source map.
@@ -57,8 +73,8 @@
 - [x] Freeze the pinned TorchInductor zero-diff backend surface with exact
       source/AST contracts, the full `_inductor` Python manifest, and explicit
       fail-closed CSE/extern/foreach/multi-template/GEMM obligations.
-- [ ] After single-DSO, TargetInfo, CompileRequest/current-stream artifact and
-      operator-executable gates, implement plugin-owned PyPTO scheduling,
+- [ ] After CompileRequest, KernelBuildSpec, exact artifact/current-stream
+      executable and operator gates, implement plugin-owned PyPTO scheduling,
       CSE dtype/shape propagation, Python/subgraph wrapper, strict template
       choice filtering, and an atomic reversible CUDA registry transaction.
 - [ ] After single-DSO, TargetInfo and current-stream executable gates,

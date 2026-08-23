@@ -51,6 +51,9 @@ py=$ws/envs/pypto-nvidia/bin/python
 test ! -e "$bld"
 test ! -e "$log"
 mkdir -p "$bld"
+export PYPTO_BUILD_JOBS=2
+export PYPTO_TEST_JOBS=2
+cd "$src"
 source "$src/.claude/skills/testing/load-env.sh"
 exec > >(tee "$log") 2>&1
 
@@ -67,13 +70,26 @@ cmake --build "$bld" \
   --parallel "$PYPTO_BUILD_JOBS"
 ctest --test-dir "$bld" --output-on-failure -j "$PYPTO_TEST_JOBS"
 
-"$py" - "$bld/compile_commands.json" <<'"'"'PY'"'"'
+"$py" - "$bld/compile_commands.json" "$src" <<'"'"'PY'"'"'
 import json, pathlib, sys
 rows = json.loads(pathlib.Path(sys.argv[1]).read_text())
-binding = next(x for x in rows if x["file"].endswith("python/bindings/modules/ir.cpp"))
-native = next(x for x in rows if x["file"].endswith("src/ir/core.cpp"))
-assert "/runtime/src/common" in binding["command"]
-assert "pypto_compiler_objects.dir" in native["command"]
+root = pathlib.Path(sys.argv[2]).resolve()
+native = [
+    row for row in rows
+    if pathlib.Path(row["file"]).resolve().is_relative_to(root / "src")
+]
+bindings = [
+    row for row in rows
+    if pathlib.Path(row["file"]).resolve().is_relative_to(root / "python/bindings")
+]
+assert native and bindings
+assert len({pathlib.Path(row["file"]).resolve() for row in native}) == len(native)
+assert len({pathlib.Path(row["file"]).resolve() for row in bindings}) == len(bindings)
+assert all("pypto_compiler_objects.dir" in row["command"] for row in native)
+assert all("pypto_core.dir" in row["command"] for row in bindings)
+assert all("/runtime/src/common" in row["command"] for row in bindings)
+assert any(row["file"].endswith("src/ir/core.cpp") for row in native)
+assert any(row["file"].endswith("python/bindings/modules/ir.cpp") for row in bindings)
 PY
 '
 ```
@@ -118,6 +134,9 @@ py=$ws/envs/pypto-nvidia/bin/python
 test ! -e "$skbuild"
 test ! -e "$log"
 test -z "$(find "$out" -mindepth 1 -maxdepth 1 -print -quit)"
+export PYPTO_BUILD_JOBS=2
+export PYPTO_TEST_JOBS=2
+cd "$src"
 source "$src/.claude/skills/testing/load-env.sh"
 export PIP_NO_INDEX=1
 export SKBUILD_BUILD_DIR="$skbuild"
@@ -138,16 +157,29 @@ wheel = pathlib.Path(sys.argv[1])
 with zipfile.ZipFile(wheel) as zf:
     infos = zf.infolist()
     names = [x.filename for x in infos]
+    assert len(names) == len(set(names)), "duplicate wheel members"
     assert all(not pathlib.PurePosixPath(n).is_absolute() and ".." not in pathlib.PurePosixPath(n).parts for n in names)
     assert not any(stat.S_ISLNK(x.external_attr >> 16) for x in infos)
-    native = [n for n in names if n.startswith("pypto/pypto_core") and n.endswith(".so")]
-    assert len(native) == 1, native
+    core = [n for n in names if n.startswith("pypto/pypto_core") and n.endswith(".so")]
+    dsos = [
+        n for n in names
+        if pathlib.PurePosixPath(n).name.endswith(".so")
+        or ".so." in pathlib.PurePosixPath(n).name
+    ]
+    assert len(core) == 1, core
+    assert dsos == core, dsos
 PY
 
 mapfile -t native_so < <(find "$skbuild" -type f -name "pypto_core*.so")
 test "${#native_so[@]}" -eq 1
-if ldd "${native_so[0]}" | grep -Eiq "libpypto|amdhip|hsa-runtime|gemsim"; then
-  echo "unexpected external compiler/AMD dependency" >&2
+if ! ldd_output=$(ldd "${native_so[0]}" 2>&1); then
+  printf "%s\n" "$ldd_output" >&2
+  exit 1
+fi
+if grep -Eiq \
+  "not found|libpypto|tensor.?ir|cuda.?tile|amdhip|hsa-runtime|gemsim" \
+  <<<"$ldd_output"; then
+  printf "%s\n" "$ldd_output" >&2
   exit 1
 fi
 '
@@ -172,6 +204,11 @@ py=$ws/envs/pypto-nvidia/bin/python
 
 test ! -e "$venv"
 test ! -e "$log"
+export PYPTO_BUILD_JOBS=2
+export PYPTO_TEST_JOBS=2
+export PIP_NO_INDEX=1
+export PIP_DISABLE_PIP_VERSION_CHECK=1
+cd "$src"
 source "$src/.claude/skills/testing/load-env.sh"
 exec > >(tee "$log") 2>&1
 mapfile -t wheels < <(find "$root/wheels" -maxdepth 1 -type f -name "pypto-0.1.0-*.whl")
@@ -180,10 +217,13 @@ wheel=${wheels[0]}
 
 "$py" -m venv --without-pip "$venv"
 probe_py=$venv/bin/python
-base_site=$("$py" -c "import sysconfig; print(sysconfig.get_paths()[\"purelib\"])")
 probe_site=$("$probe_py" -c "import sysconfig; print(sysconfig.get_paths()[\"purelib\"])")
+"$py" -m pip --python "$probe_py" install \
+  --no-deps --no-compile "$wheel"
+test -x "$venv/bin/pypto-ir-trace"
+
+base_site=$("$py" -c "import sysconfig; print(sysconfig.get_paths()[\"purelib\"])")
 printf "%s\n" "$base_site" > "$probe_site/base-environment-dependencies.pth"
-"$py" -m pip install --no-deps --no-compile --target "$probe_site" "$wheel"
 
 env -u PYTHONPATH PYTHONNOUSERSITE=1 "$probe_py" -I - "$probe_site" <<'"'"'PY'"'"'
 import importlib, pathlib, sys
@@ -219,3 +259,13 @@ not be `_editable_skbc_*`.
 After all four gates pass, commit only the two CMake files. Do not include
 submodule cache dirt, build outputs, logs, or the later TargetInfo candidate.
 Then update evidence/checkpoint state before cherry-picking `9939b88`.
+
+Before committing, stage and verify the exact transaction:
+
+```bash
+cd /home/zhaosiying/pypto-love-tensor-ir/projects/pypto
+git add -- CMakeLists.txt python/bindings/CMakeLists.txt
+test "$(git diff --cached --name-only)" = \
+  $'CMakeLists.txt\npython/bindings/CMakeLists.txt'
+git diff --cached --check
+```

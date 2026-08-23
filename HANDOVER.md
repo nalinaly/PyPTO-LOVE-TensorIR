@@ -41,16 +41,23 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0018.md` and evidence `EV-0005` through `EV-0030`.
+- Read `state/checkpoints/CP-0019.md` and evidence `EV-0005` through `EV-0031`.
 - `projects/pypto` has two intentional uncommitted CMake files implementing the
   single-DSO compiler object boundary. Editable build and 486 focused tests
   pass. The first full run's three failures have layered fixes and targeted
   proof at `EV-0009`; the full rerun and fresh wheel gate have not run.
   Exact safe commands and expected counts are frozen in
   `docs/single_dso_acceptance_gate.md`.
+  That runbook now uses a real target-interpreter venv install, audits every
+  wheel DSO and installed dependency, verifies all native/binding compile rows
+  and enforces the exact two-file commit boundary. Its five Bash blocks and
+  final source review pass; none has executed while the protected lane is live.
 - `projects/pypto-target-info` is a separate clean worktree at unbuilt candidate
   `9939b88`. Never treat it as main-branch or build acceptance. Apply it only
-  after the object-DSO CMake commit; expect a small CMake conflict.
+  after the object-DSO CMake commit. A 34-path read-only patch check predicts no
+  current text conflict. Execute `docs/target_info_acceptance_gate.md`; never
+  reuse the DSO wheel. It requires fresh CTest 2/2, 31 targeted tests and a
+  wheel-backed 10,208 pass/58 skip full suite.
 - `projects/pypto-kernels` is clean at `6f73857...` with typed semantic
   families, canonical process-safe tuning database, matmul invocation ABI v1,
   catalog-bound canonical operator artifact provenance, paged-attention ABI v1
@@ -83,6 +90,12 @@ upstream checkouts and their optional/manual suites.
 - After the single-DSO full-suite/fresh-wheel gate closes, the next isolated
   PyPTO commit is immutable NVIDIA target identity: explicit SM120 resource
   traits, no SM100 defaults, and no fake legacy backend instance.
+- After TargetInfo, do not jump directly to TensorIR runtime/cache. D-0009 and
+  `docs/compile_request_artifact_design.md` require data-only CompileRequest,
+  per-region KernelBuildSpec, exact LLVM/tileiras producer identity, complete
+  bytes-plus-metadata Artifact, then a process/device/CUcontext-bound prewarmed
+  executable. Parent-only target query and CUDA Graph capture/replay law are
+  part of that boundary; workers never query CUDA or carry streams/handles.
 - `docs/coverage_collector_map.md` is the pinned collector implementation map.
   Do not claim `closed_world=true` from ordinary Kineto/NVTX or from the first
   CUPTI-monitor development trace.
