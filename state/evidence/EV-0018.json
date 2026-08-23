@@ -1,0 +1,49 @@
+{
+  "id": "EV-0018",
+  "kind": "paged_attention_abi_v1",
+  "status": "pass_contract_no_cuda_kernel",
+  "repository": "projects/pypto-kernels",
+  "repository_head": "24ec7cf7c03a2f5e55ef240cde0ddddcc312aa40",
+  "contract": {
+    "operator": "paged_attention",
+    "abi_version": 1,
+    "phases": ["prefill/extend", "decode"],
+    "argument_count": 12,
+    "storage": "BF16 query/new-K/new-V/cache/output; INT32/INT64 metadata",
+    "accumulation": "FP32 semantic config",
+    "cache_mutation": "new K/V append to explicit unique physical tail slots before attention",
+    "metadata": "fixed-capacity device buffers plus [B,T,P] runtime_counts",
+    "inactive_output": "output[T:Cq] must be BF16 zero",
+    "alias": "all tensor occupied intervals and non-empty workspace are pairwise non-overlapping",
+    "address_space": "occupied half-open ranges fit unsigned 64-bit device address space",
+    "shared_pages": "cross-request sharing is allowed only for pages with no active write",
+    "causal": true
+  },
+  "validation": {
+    "descriptors": "pass",
+    "launch": "pass",
+    "host_metadata_reference": "pass",
+    "random_valid_metadata_cases": 1000,
+    "tests_passed": 61,
+    "subtests_passed": 35,
+    "compileall": "pass",
+    "wheel": "pass",
+    "wheel_sha256": "18141ce46e3c3a8f74c77dfbf299221a8366640e64b7be96d042530c66665507",
+    "clean_wheel_import": "pass",
+    "independent_reviews": "three approvals after all P1 fixes, no remaining P0/P1"
+  },
+  "claim_boundary": [
+    "The host metadata validator does not prove device tensor contents.",
+    "Framework-to-ABI metadata translation belongs to pypto-framework-plugins.",
+    "Stable-capacity buffers are a design contract, not CUDA Graph replay evidence."
+  ],
+  "not_claimed": [
+    "attention reference numerical result",
+    "CUDA Tile implementation",
+    "CUDA launch",
+    "KV cache runtime correctness",
+    "CUDA Graph capture or replay",
+    "SGLang integration",
+    "performance"
+  ]
+}

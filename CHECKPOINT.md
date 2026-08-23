@@ -1,6 +1,6 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0007`
+**Checkpoint:** `CP-0008`
 
 **Status:** R0 started; no compiler or model milestone accepted.
 
@@ -31,6 +31,11 @@
   restricted to the explicit matmul/paged-attention/GDN ABI catalog. It is only
   a future join input: physical cache/loading stays compiler-owned and the
   opaque problem digest is not yet a typed launch proof.
+- Paged attention now has one reviewed ABI v1 for prefill/extend and decode,
+  including explicit KV append/cache mutation, fixed-capacity metadata,
+  pitched split-QKV views, workspace-aware non-aliasing, host-copy metadata
+  validation, read-only shared radix pages, and zero inactive output rows. No
+  numerical reference or CUDA implementation exists yet.
 - The framework plugin now binds actual imports to the locked CUDA Torch tree
   and clean SGLang checkout, rejects mixed linear-attention providers, and
   fails before launch while the real PyPTO Inductor dispatcher is unavailable.

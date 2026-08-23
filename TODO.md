@@ -34,6 +34,10 @@
 - [ ] Implement the eager-only CUPTI-monitor development collector after the
       compiler ArtifactCache/launch provenance contract exists; it must emit
       `closed_world=false` initially.
+- [x] Define and independently review paged-attention ABI v1 for prefill/extend
+      and decode, including KV append and host metadata reference validation.
+- [ ] Implement paged-attention numerical reference over ABI v1, then its
+      CUDA Tile decode and prefill/extend kernels in separate commits.
 
 ## Safety hold
 

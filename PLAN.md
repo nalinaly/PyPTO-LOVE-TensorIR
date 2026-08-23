@@ -24,6 +24,10 @@ pinned eager-first CUPTI collector map without moving either boundary into the
 wrong project. The collector is not implemented and cannot assert a closed
 world yet.
 
+Checkpoint `CP-0008` freezes paged-attention ABI v1 and its metadata reference
+contract. This is the semantic boundary for later reference and CUDA Tile
+implementations, not an attention correctness or performance milestone.
+
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.
 2. Materialize the authorized PyPTO baseline and clean official upstream
