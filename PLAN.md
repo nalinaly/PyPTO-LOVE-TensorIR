@@ -28,6 +28,9 @@ Checkpoint `CP-0008` freezes paged-attention ABI v1 and its metadata reference
 contract. This is the semantic boundary for later reference and CUDA Tile
 implementations, not an attention correctness or performance milestone.
 
+Checkpoint `CP-0009` adds the deterministic CPU numerical reference and state
+continuity gate. Independent PyTorch comparison and all CUDA work remain open.
+
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.
 2. Materialize the authorized PyPTO baseline and clean official upstream

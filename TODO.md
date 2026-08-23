@@ -36,8 +36,10 @@
       `closed_world=false` initially.
 - [x] Define and independently review paged-attention ABI v1 for prefill/extend
       and decode, including KV append and host metadata reference validation.
-- [ ] Implement paged-attention numerical reference over ABI v1, then its
-      CUDA Tile decode and prefill/extend kernels in separate commits.
+- [x] Implement and independently review the paged-attention ABI v1 numerical
+      reference, including prefill-to-decode state continuity.
+- [ ] Cross-check the reference against an independent PyTorch implementation,
+      then implement CUDA Tile decode and prefill/extend kernels separately.
 
 ## Safety hold
 

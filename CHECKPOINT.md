@@ -1,6 +1,6 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0008`
+**Checkpoint:** `CP-0009`
 
 **Status:** R0 started; no compiler or model milestone accepted.
 
@@ -35,7 +35,11 @@
   including explicit KV append/cache mutation, fixed-capacity metadata,
   pitched split-QKV views, workspace-aware non-aliasing, host-copy metadata
   validation, read-only shared radix pages, and zero inactive output rows. No
-  numerical reference or CUDA implementation exists yet.
+  CUDA implementation exists yet.
+- Paged attention now also has a reviewed standard-library numerical reference
+  implementing BF16 storage, FP32-rounded causal GQA, append-before-attention,
+  prefill-to-decode cache continuity and inactive-output zeroing. It is not yet
+  cross-checked against a CUDA/PyTorch baseline.
 - The framework plugin now binds actual imports to the locked CUDA Torch tree
   and clean SGLang checkout, rejects mixed linear-attention providers, and
   fails before launch while the real PyPTO Inductor dispatcher is unavailable.

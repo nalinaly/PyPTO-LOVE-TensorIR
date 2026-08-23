@@ -1,0 +1,35 @@
+{
+  "id": "EV-0019",
+  "kind": "paged_attention_cpu_numerical_reference",
+  "status": "pass_reference_no_cuda_comparison",
+  "repository": "projects/pypto-kernels",
+  "repository_head": "ae68359d1c8e5a8b0203a8c29d6f9d2aae812e62",
+  "semantics": {
+    "storage": "BF16 round-to-nearest-even",
+    "accumulation": "FP32-rounded dot, scale, softmax and value accumulation steps",
+    "ordering": "append new K/V before causal attention",
+    "attention": "causal packed requests with contiguous GQA head grouping",
+    "state": "immutable append-complete cache result with active prefix canonicalized to BF16",
+    "inactive": "output tail zero; inactive query/new-K/new-V/cache values are not numerically read",
+    "input_mutation": "none"
+  },
+  "validation": {
+    "tests_passed": 71,
+    "subtests_passed": 35,
+    "compileall": "pass",
+    "wheel": "pass",
+    "wheel_sha256": "219df6de6a16c5bec22e571d9ea5019b865afba99a242be4acc8abd489d5230b",
+    "clean_wheel_import": "pass",
+    "state_continuity": "prefill cache feeds multi-step decode fixture",
+    "toctou": "all caller sequences are snapshotted once before validation/consumption",
+    "independent_reviews": "three approvals after BF16-state and TOCTOU P1 fixes"
+  },
+  "not_claimed": [
+    "comparison against PyTorch SDPA or FlashInfer",
+    "device tensor correspondence",
+    "CUDA kernel numerical correctness",
+    "CUDA Graph correctness",
+    "SGLang integration",
+    "performance"
+  ]
+}
