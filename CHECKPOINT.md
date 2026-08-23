@@ -1,6 +1,6 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0009`
+**Checkpoint:** `CP-0010`
 
 **Status:** R0 started; no compiler or model milestone accepted.
 
@@ -40,6 +40,11 @@
   implementing BF16 storage, FP32-rounded causal GQA, append-before-attention,
   prefill-to-decode cache continuity and inactive-output zeroing. It is not yet
   cross-checked against a CUDA/PyTorch baseline.
+- GDN now has a reviewed unified core ABI v1 for decode and prefill/extend,
+  freezing packed layout, no-bias causal conv, FP32 gate/delta semantics,
+  paired BF16-conv/FP32-recurrent state, pitched envelope views and canonical
+  metadata/output tails. State preparation/copy and numerical reference remain
+  open.
 - The framework plugin now binds actual imports to the locked CUDA Torch tree
   and clean SGLang checkout, rejects mixed linear-attention providers, and
   fails before launch while the real PyPTO Inductor dispatcher is unavailable.

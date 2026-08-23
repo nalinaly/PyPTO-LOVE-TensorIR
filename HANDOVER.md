@@ -37,17 +37,17 @@ changed project repositories before the root checkpoint commit.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0009.md` and evidence `EV-0005` through `EV-0019`.
+- Read `state/checkpoints/CP-0010.md` and evidence `EV-0005` through `EV-0020`.
 - `projects/pypto` has two intentional uncommitted CMake files implementing the
   single-DSO compiler object boundary. Editable build and 486 focused tests
   pass. The first full run's three failures have layered fixes and targeted
   proof at `EV-0009`; the full rerun and fresh wheel gate have not run.
-- `projects/pypto-kernels` is clean at `ae68359...` with typed semantic
+- `projects/pypto-kernels` is clean at `3c220c5...` with typed semantic
   families, canonical process-safe tuning database, matmul invocation ABI v1,
-  catalog-bound canonical operator artifact provenance, and paged-attention ABI
-  v1 and its deterministic CPU numerical reference; 71 tests plus 35 subtests
-  and a clean wheel import pass. No CUDA operator or device measurement exists
-  yet.
+  catalog-bound canonical operator artifact provenance, paged-attention ABI v1
+  and its deterministic CPU numerical reference, plus unified GDN core ABI v1;
+  82 tests plus 61 subtests and a clean wheel import pass. No CUDA operator or
+  device measurement exists yet.
 - `projects/pypto-framework-plugins` is clean at `d46a58c...`; its context and
   constructor dispatcher, 41-site Qwen3.5 static inventory, and strict
   trace/artifact coverage evidence contract have 68 passing tests and a clean
@@ -67,6 +67,9 @@ changed project repositories before the root checkpoint commit.
 - Paged-attention ABI metadata is framework-neutral. Its host validator does
   not prove device contents; SGLang translation and graph lifecycle stay in the
   plugin, while the CUDA Tile kernel stays in `pypto-kernels`.
+- GDN state is a paired generation under an exclusive lease. The v1 core
+  assumes state is prepared; zero/copy and segmented Radix checkpointing must
+  be PyPTO-owned work on the same stream, never Torch/SGLang fallback kernels.
 - Use `--framework-launch` for every SGLang process. Baseline scripts bind the
   missing `envs/sglang-baseline-py312` lock/profile; candidate launch is expected
   to fail until the external editable Triton is replaced by its workspace wheel.

@@ -1,0 +1,47 @@
+{
+  "id": "EV-0020",
+  "kind": "gdn_unified_core_abi_v1",
+  "status": "pass_contract_no_numerical_reference_or_cuda",
+  "repository": "projects/pypto-kernels",
+  "repository_head": "3c220c50532e98f6317f604199a5969f05f0f258",
+  "contract": {
+    "phases": ["prefill/extend", "decode"],
+    "argument_count": 12,
+    "core_boundary": "post projection/packing through conv and recurrent update; pre Z-gated RMSNorm/output projection",
+    "storage": "BF16 packed inputs, gates, conv weights/state, time bias and output",
+    "state": "FP32 recurrent [slot,value_head,value_dim,key_dim]",
+    "decay_log": "FP32",
+    "update_gate": "BF16 input promoted to FP32; sigmoid and beta retained FP32",
+    "conv": "depthwise SiLU, no bias, oldest history through current token",
+    "head_mapping": "contiguous value-head groups map to one key/query head",
+    "output_tail": "BF16 zero",
+    "metadata": "INT32 variable-length indptr, unique physical state slots, device B/T counts",
+    "state_pool": "inner contiguous, outer slot-pitched envelope views supported",
+    "width_one": "empty canonical conv state with zero pointer and no occupied interval"
+  },
+  "state_lifecycle": {
+    "precondition": "conv and recurrent views are one generation at one token boundary",
+    "lease": "exclusive from zero/copy preparation through stream completion",
+    "radix_checkpoint_v1": "segment GDN at boundary, copy both views with PyPTO generic/runtime, continue",
+    "failure": "the whole paired generation is invalid; no crash rollback claim"
+  },
+  "validation": {
+    "tests_passed": 82,
+    "subtests_passed": 61,
+    "random_valid_metadata_cases": 1000,
+    "compileall": "pass",
+    "wheel": "pass",
+    "wheel_sha256": "7f8f8214a02a4f1da4d0efc6111a14950715a4a4362e4ae34375d4b50377eb11",
+    "clean_wheel_import": "pass",
+    "independent_reviews": "three approvals after W=1, numerical-semantics, lease and FP32-beta fixes"
+  },
+  "not_claimed": [
+    "state zero/copy implementation",
+    "GDN numerical reference",
+    "prefill-to-decode numerical continuity",
+    "CUDA Tile kernel or launch",
+    "CUDA Graph",
+    "SGLang adapter",
+    "performance"
+  ]
+}

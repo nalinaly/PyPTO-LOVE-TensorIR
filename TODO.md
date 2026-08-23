@@ -40,6 +40,12 @@
       reference, including prefill-to-decode state continuity.
 - [ ] Cross-check the reference against an independent PyTorch implementation,
       then implement CUDA Tile decode and prefill/extend kernels separately.
+- [x] Define and independently review unified GDN core ABI v1 with paired-state
+      lifecycle, variable-length metadata and exact numerical semantics.
+- [ ] Implement GDN CPU numerical reference and prove one-shot prefill,
+      segmented prefill and token decode state equivalence.
+- [ ] Implement PyPTO-owned paired state zero/copy needed for new slots and
+      segmented Radix checkpoints.
 
 ## Safety hold
 
