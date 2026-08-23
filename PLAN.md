@@ -41,6 +41,9 @@ Checkpoint `CP-0012` records a source-reviewed but deliberately unbuilt SM120
 TargetInfo candidate in a separate worktree. It does not advance P1 acceptance;
 object-DSO validation and ordered integration remain mandatory.
 
+Checkpoint `CP-0013` adds the structured matmul numerical oracle. TensorIR/CUDA
+correctness comparison and performance remain open.
+
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.
 2. Materialize the authorized PyPTO baseline and clean official upstream

@@ -37,7 +37,7 @@ changed project repositories before the root checkpoint commit.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0012.md` and evidence `EV-0005` through `EV-0022`.
+- Read `state/checkpoints/CP-0013.md` and evidence `EV-0005` through `EV-0023`.
 - `projects/pypto` has two intentional uncommitted CMake files implementing the
   single-DSO compiler object boundary. Editable build and 486 focused tests
   pass. The first full run's three failures have layered fixes and targeted
@@ -45,12 +45,13 @@ changed project repositories before the root checkpoint commit.
 - `projects/pypto-target-info` is a separate clean worktree at unbuilt candidate
   `9939b88`. Never treat it as main-branch or build acceptance. Apply it only
   after the object-DSO CMake commit; expect a small CMake conflict.
-- `projects/pypto-kernels` is clean at `1a46502...` with typed semantic
+- `projects/pypto-kernels` is clean at `2787e1e...` with typed semantic
   families, canonical process-safe tuning database, matmul invocation ABI v1,
   catalog-bound canonical operator artifact provenance, paged-attention ABI v1
-  and its deterministic CPU numerical reference, plus unified GDN core ABI v1
-  and paired-state reference; 90 tests plus 61 subtests and a clean wheel import
-  pass. No CUDA operator or device measurement exists yet.
+  and its deterministic CPU numerical reference, plus unified GDN core ABI and
+  paired-state reference, and a structured-matmul reference; 97 tests plus 65
+  subtests and a clean wheel import pass. No CUDA operator or device measurement
+  exists yet.
 - `projects/pypto-framework-plugins` is clean at `d46a58c...`; its context and
   constructor dispatcher, 41-site Qwen3.5 static inventory, and strict
   trace/artifact coverage evidence contract have 68 passing tests and a clean

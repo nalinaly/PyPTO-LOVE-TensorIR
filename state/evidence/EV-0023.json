@@ -1,0 +1,33 @@
+{
+  "id": "EV-0023",
+  "kind": "structured_matmul_cpu_numerical_reference",
+  "status": "pass_reference_no_tensorir_or_cuda_comparison",
+  "repository": "projects/pypto-kernels",
+  "repository_head": "2787e1efbb769c8c86eb92218291ba936903ded4",
+  "coverage": {
+    "transpose": ["NN", "NT", "TN", "TT"],
+    "rank": ["rank-2", "explicit batched rank-3 including B=1"],
+    "broadcast": false,
+    "storage": "BF16 RTNE inputs and output",
+    "accumulation": "K-order FP32-rounded multiply/add",
+    "input_mutation": "none",
+    "result": "immutable tuple structure"
+  },
+  "validation": {
+    "tests_passed": 97,
+    "subtests_passed": 65,
+    "compileall": "pass",
+    "wheel": "pass",
+    "wheel_sha256": "93e49b1123e232d5dbf767df32b8c729852431a858b3a30d1a12e4aea5667f60",
+    "clean_wheel_import": "all matmul/attention/GDN references import without framework/CUDA modules",
+    "independent_reviews": "three approvals, no remaining P0/P1"
+  },
+  "not_claimed": [
+    "TensorIR lowering",
+    "CUDA Tile kernel",
+    "tiled reduction-order bitwise equality",
+    "bias or epilogue fusion",
+    "framework integration",
+    "performance"
+  ]
+}

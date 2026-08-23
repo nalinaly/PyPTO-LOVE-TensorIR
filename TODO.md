@@ -50,6 +50,8 @@
       reference once candidate framework launch provenance is hermetic.
 - [ ] Implement PyPTO-owned paired state zero/copy needed for new slots and
       segmented Radix checkpoints.
+- [x] Add and independently review the structured matmul BF16/FP32 numerical
+      reference for all transpose and explicit-batch cases.
 
 ## Safety hold
 

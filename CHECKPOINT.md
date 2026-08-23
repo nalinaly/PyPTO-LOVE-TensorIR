@@ -1,6 +1,6 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0012`
+**Checkpoint:** `CP-0013`
 
 **Status:** R0 started; no compiler or model milestone accepted.
 
@@ -27,6 +27,9 @@
 - Structured matmul has a reviewed explicit ABI v1 for contiguous/aligned BF16
   rank-2 and batched rank-3 tensors, FP32 accumulation, transpose semantics and
   output non-aliasing. No lowering, schedule, launch or performance exists yet.
+- Structured matmul now also has a reviewed standard-library BF16/FP32
+  numerical reference for every transpose combination and explicit rank-3
+  batching. It is not yet compared with TensorIR/CUDA.
 - Operator artifact provenance now exposes a canonical complete-field digest
   restricted to the explicit matmul/paged-attention/GDN ABI catalog. It is only
   a future join input: physical cache/loading stays compiler-owned and the
