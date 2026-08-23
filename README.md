@@ -42,6 +42,18 @@ to a future strict provider (`pypto.generic`, `matmul`, `attention`, or `gdn`),
 while host-only shape arithmetic is recorded separately. This inventory is a
 coverage obligation, not a kernel implementation or model correctness claim.
 
+A separate eleven-source lifecycle inventory freezes the selected
+UnifiedRadixCache/MambaComponent route (and explicitly labels legacy
+MambaRadixCache unselected), slot allocation/translation/reuse, deferred
+clear/COW, forward snapshot, tracked checkpoint/donate and Radix handoff sites.
+It is an adapter obligation for the future generic PyPTO StateBundle runtime,
+not an implementation of state transfer. An immutable scope validator keeps
+registration readiness false and orders single-DSO, TargetInfo,
+CompileRequest/current stream, StateBundle runtime, then adapter registration.
+V1 explicitly rejects speculative/MTP, ReplaySSM, int8 checkpoints, HiCache,
+disaggregation and CUDA Graph state transfer while covering the pinned
+full-precision no-buffer/extra-buffer/unified-overlap lifecycle.
+
 A framework-neutral coverage auditor checks adapter-supplied normalized GPU
 activities against a closed-world trace manifest and a digest-bound PyPTO
 artifact registry, then publishes deterministic, durable JSON. Strict mode
