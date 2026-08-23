@@ -1,6 +1,6 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0011`
+**Checkpoint:** `CP-0012`
 
 **Status:** R0 started; no compiler or model milestone accepted.
 
@@ -89,6 +89,10 @@
   `upstream/triton`, but the environment still imports the inherited external
   editable distribution until a hermetic workspace wheel is built and
   installed.
+- A separate clean worktree now contains source-reviewed SM120 TargetInfo
+  candidate `9939b88`. It has explicit resource/toolchain/dtype identity and
+  fail-closed legacy isolation, but has not been built or imported. It must be
+  applied only after the single-DSO CMake transaction is accepted.
 - Candidate and baseline framework runs now have separate, reviewed execution
   profiles. Baseline cannot import PyPTO/plugin sources or load general SGLang
   plugins; candidate framework launch cannot start until exact environment,

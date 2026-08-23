@@ -1,0 +1,48 @@
+{
+  "id": "EV-0022",
+  "kind": "nvidia_sm120_target_info_source_candidate",
+  "status": "source_reviewed_unbuilt_unverified",
+  "repository": "projects/pypto-target-info",
+  "branch": "feature/nvidia-target-info",
+  "repository_head": "9939b885041b931284f7ce56ecbf888601b60b6e",
+  "base_head": "f550d4c33e8fef03e7dabcbf60c3db38b0f0a215",
+  "contract": {
+    "backend_enum": "Nvidia appended after stable Ascend values",
+    "legacy_backend_instance": false,
+    "target": "nvidia:sm_120",
+    "architecture": "sm_120",
+    "arch_conditional_architecture": "sm_120a",
+    "traits": "explicit SM, warp, thread/block/grid, default/opt-in shared memory, register, cache and global-memory limits",
+    "toolchain_identity": "CUDA toolkit/driver plus separate TensorIR and CUDA Tile revisions",
+    "compute_dtypes_v1": ["BF16", "FP32"],
+    "immutability": "no default construction or copy/move assignment; Python properties read-only",
+    "legacy_guard": "target-only backend rejected before platform normalization, global writes, path resolution or metadata reads"
+  },
+  "tensorir_gate": {
+    "sm100_defaults": "forbidden",
+    "hardcoded_shared_memory": "future bridge must patch TensorIR candidate generation or apply independent PyPTO legality filtering",
+    "current_claim": "identity/capability data, not generated-launch legality proof"
+  },
+  "static_validation": {
+    "python_compileall": "pass",
+    "diff_check": "pass",
+    "docs_en_zh_path_parity": "pass",
+    "independent_reviews": "three approvals after all P1 fixes"
+  },
+  "not_run": [
+    "CMake configure or build",
+    "C++ target-info test",
+    "nanobind/Python target-info tests",
+    "full PyPTO tests",
+    "wheel build/import",
+    "TensorIR bridge",
+    "CUDA device query",
+    "compile or launch"
+  ],
+  "integration_order": [
+    "finish and commit single-DSO object boundary on feature/nvidia-sm120",
+    "apply/cherry-pick this candidate",
+    "resolve the expected root/binding CMake overlap",
+    "run full native, Python, wheel and unchanged-Ascend gates"
+  ]
+}

@@ -37,11 +37,14 @@ changed project repositories before the root checkpoint commit.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0011.md` and evidence `EV-0005` through `EV-0021`.
+- Read `state/checkpoints/CP-0012.md` and evidence `EV-0005` through `EV-0022`.
 - `projects/pypto` has two intentional uncommitted CMake files implementing the
   single-DSO compiler object boundary. Editable build and 486 focused tests
   pass. The first full run's three failures have layered fixes and targeted
   proof at `EV-0009`; the full rerun and fresh wheel gate have not run.
+- `projects/pypto-target-info` is a separate clean worktree at unbuilt candidate
+  `9939b88`. Never treat it as main-branch or build acceptance. Apply it only
+  after the object-DSO CMake commit; expect a small CMake conflict.
 - `projects/pypto-kernels` is clean at `1a46502...` with typed semantic
   families, canonical process-safe tuning database, matmul invocation ABI v1,
   catalog-bound canonical operator artifact provenance, paged-attention ABI v1

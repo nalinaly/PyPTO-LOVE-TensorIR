@@ -26,8 +26,10 @@
       coverage evidence contract; no runtime trace is claimed.
 - [ ] Finish full-suite and fresh-wheel validation of the staged PyPTO
       single-DSO object boundary, then commit only its two CMake files.
-- [ ] Add immutable `BackendType::Nvidia` and explicit SM120 TargetInfo/traits
-      as the next isolated compiler commit; do not link TensorIR yet.
+- [x] Produce a three-review-approved SM120 TargetInfo source candidate in a
+      separate worktree; explicitly mark it unbuilt/unverified.
+- [ ] After object-DSO acceptance, apply candidate `9939b88`, resolve CMake,
+      and pass native/Python/wheel/unchanged-Ascend validation.
 - [x] Canonicalize operator-only artifact provenance without creating a second
       compiler artifact cache in `pypto-kernels`.
 - [x] Freeze the pinned Torch/SGLang runtime coverage collector source map.
