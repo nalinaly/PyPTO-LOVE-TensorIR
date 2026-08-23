@@ -59,7 +59,7 @@
 
 ## Safety hold
 
-The latest heavy preflight is green and no protected heavy workload was
-observed, so the next native build gate may proceed. This is not a durable
-lease: rerun preflight before every heavy action. Protected zcode processes are
-still present; observation is allowed and signals or cleanup remain forbidden.
+The action-boundary heavy preflight is red for the newly observed
+`zcode-vllm-tp2-v3` TP=2 vLLM/gem5 lane. No native PyPTO action began. Continue
+only light work, wait for natural exit, and rerun preflight. Observation is
+allowed; signals and cleanup remain forbidden.

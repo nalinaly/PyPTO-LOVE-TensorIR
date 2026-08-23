@@ -119,14 +119,16 @@
   evidence and the CPython 3.12 baseline environment is not built yet.
 - Prior reconnaissance did not complete a TensorIR SM120 runtime launch. Static
   target support is not runtime acceptance.
-- The latest live safety preflight is green, but it is only an observation.
-  Protected zcode processes remain untouchable and preflight must be rerun
-  before every heavy action.
+- The packaging-time safety preflight was green, but the required recheck
+  immediately before the PyPTO full suite is now red: zcode started a new TP=2
+  vLLM/gem5 lane. No PyPTO heavy action began. Protected processes remain
+  untouchable; continue light work and rerun preflight after natural exit.
 
 ## Resume action
 
-Run `python tools/preflight.py --mode heavy`. If and only if it is green,
-rerun the full PyPTO suite and continue the fresh wheel build in
+Wait for the observed protected lane to exit naturally, then run
+`python tools/preflight.py --mode heavy`. If and only if it is green, rerun the
+full PyPTO suite and continue the fresh wheel build in
 `builds/pypto-wheel.dfB4Xk`, then inspect/install it into a clean target outside
 the checkout and run the symlink probe there.
 Next build the exact Triton wheel and remove the external editable runtime. If

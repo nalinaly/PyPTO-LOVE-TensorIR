@@ -46,9 +46,10 @@ correctness comparison and performance remain open.
 
 Checkpoint `CP-0014` closes the source/package identity boundary between the
 standalone operator producer and both zero-diff framework adapters. It does not
-make the compiler or any operator executable. The live heavy preflight is now
-green, so the next transaction returns to the staged single-DSO full-suite and
-fresh-wheel gate before TargetInfo integration.
+make the compiler or any operator executable. The packaging-time heavy
+preflight was green, but the action-boundary recheck is now red for a new
+protected zcode TP=2 vLLM/gem5 lane. Continue only light work until a fresh
+green result permits the single-DSO gate before TargetInfo integration.
 
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.

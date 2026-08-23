@@ -1,0 +1,24 @@
+{
+  "id": "EV-0026",
+  "kind": "live_heavy_work_safety_preflight",
+  "status": "hold_protected_workload_active",
+  "date": "2026-08-24",
+  "workspace": "/home/zhaosiying/pypto-love-tensor-ir",
+  "preflight_exit_code": 75,
+  "failure": "protected zcode/gem5/SGLang heavy workload is active; pause this project",
+  "observed_protected_lane": "zcode-vllm-tp2-v3",
+  "observed_components": [
+    "vLLM TP=2 worker pair",
+    "zcode model lane supervisor",
+    "three gem5 functional-fast instances"
+  ],
+  "mem_available_kib": 41191984,
+  "external_process_signals_sent": 0,
+  "pypto_heavy_action_started": false,
+  "next_action": "continue light source work and rerun preflight after the protected lane exits naturally",
+  "not_claimed": [
+    "permission to inspect protected artifacts beyond process observation",
+    "permission to signal or clean up protected processes",
+    "a permanent block or failure of the PyPTO transaction"
+  ]
+}
