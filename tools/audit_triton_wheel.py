@@ -142,6 +142,29 @@ LIBTRITON_DEPENDENT_ELF_PATHS = frozenset(
 NVIDIA_BIN_PREFIX = "triton/backends/nvidia/bin"
 NVIDIA_LIB_PREFIX = "triton/backends/nvidia/lib"
 LIBDEVICE_PATH = f"{NVIDIA_LIB_PREFIX}/libdevice.10.bc"
+VENDOR_BUILD_ID_OPTIONAL_SHA256 = {
+    f"{NVIDIA_BIN_PREFIX}/cuobjdump": (
+        "8f240516056740fee62c40eec6e1ba5d3d5ab5a309fbba4b0fe26fd54c79767d"
+    ),
+    f"{NVIDIA_BIN_PREFIX}/nvdisasm": (
+        "12153e5bcb8176cadfe15f6498c866db1a58de7bd53d660fe870428b6814049c"
+    ),
+    f"{NVIDIA_BIN_PREFIX}/ptxas": (
+        "c960a4f238b17d5c5d3c01ad2bbc1ebd2c5aecc459cb4d223bff10b45f9b8fca"
+    ),
+    f"{NVIDIA_BIN_PREFIX}/ptxas-blackwell": (
+        "cdcbf106e11a09f4cc5ff6f064a060570103d7ab123e31b1b0b75a8dbbc43119"
+    ),
+    f"{NVIDIA_LIB_PREFIX}/cupti/libnvperf_host.so": (
+        "609f54063c253daff6efba79fe49252fdd2324308ab0ffb991cc125d3e9a1eab"
+    ),
+    f"{NVIDIA_LIB_PREFIX}/cupti/libnvperf_target.so": (
+        "2f10e1109fc341a57434c28e4006b45a89247801e20f5ace135c302c173e0770"
+    ),
+    f"{NVIDIA_LIB_PREFIX}/cupti/libpcsamplingutil.so": (
+        "e6fa2783077974fb2765bfa9cbaebf980736df74eebf994c59c7596988aec83b"
+    ),
+}
 REQUIRED_HEADERS = (
     "triton/backends/nvidia/include/cuda.h",
     "triton/backends/nvidia/include/cupti.h",
@@ -164,12 +187,18 @@ class AuditExpectations:
     filecheck_source_sha256: str = FILECHECK_SOURCE_SHA256
     filecheck_output_sha256: str = FILECHECK_OUTPUT_SHA256
     filecheck_transform_sha256: str = FILECHECK_TRANSFORM_SHA256
+    vendor_build_id_optional_sha256: tuple[tuple[str, str], ...] = tuple(
+        VENDOR_BUILD_ID_OPTIONAL_SHA256.items()
+    )
     nvidia_tool_versions: tuple[tuple[str, str], ...] = tuple(
         NVIDIA_TOOL_VERSIONS.items()
     )
 
     def tool_versions(self) -> dict[str, str]:
         return dict(self.nvidia_tool_versions)
+
+    def build_id_optional_sha256(self) -> dict[str, str]:
+        return dict(self.vendor_build_id_optional_sha256)
 
 
 @dataclass(frozen=True, slots=True)
@@ -974,6 +1003,15 @@ def inspect_wheel_static(
                 raise AuditError(f"wheel-owned tool is not ELF: {path}")
     if archive_identities[LIBDEVICE_PATH]["sha256"] != expectations.libdevice_sha256:
         raise AuditError("libdevice SHA256 mismatch")
+    build_id_optional = expectations.build_id_optional_sha256()
+    if len(build_id_optional) != len(expectations.vendor_build_id_optional_sha256):
+        raise AuditError("vendor Build-ID-optional paths are duplicated")
+    for path, expected_sha256 in build_id_optional.items():
+        validate_sha256(expected_sha256, f"vendor ELF SHA256 for {path}")
+        if path not in archive_identities:
+            raise AuditError(f"vendor Build-ID-optional ELF is absent: {path}")
+        if archive_identities[path]["sha256"] != expected_sha256:
+            raise AuditError(f"vendor Build-ID-optional ELF SHA256 mismatch: {path}")
     cupti_libraries = sorted(
         name
         for name in names
@@ -1020,6 +1058,7 @@ def inspect_wheel_static(
                     }
                     for tool, version in expectations.tool_versions().items()
                 },
+                "vendor_build_id_optional_sha256": build_id_optional,
             },
             "wheel_metadata": wheel_metadata,
         },
@@ -1145,7 +1184,9 @@ def _normalize_command_output(value: str, extraction_root: Path) -> str:
     return normalized.rstrip("\n") + "\n"
 
 
-def _parse_readelf(value: str, relative_path: str) -> dict[str, object]:
+def _parse_readelf(
+    value: str, relative_path: str, *, allow_missing_build_id: bool = False
+) -> dict[str, object]:
     fields: dict[str, str] = {}
     for name in ("Class", "Data", "Type", "Machine"):
         match = re.search(rf"^\s*{name}:\s*(.+?)\s*$", value, flags=re.MULTILINE)
@@ -1153,7 +1194,7 @@ def _parse_readelf(value: str, relative_path: str) -> dict[str, object]:
             raise AuditError(f"readelf lacks {name} for {relative_path}")
         fields[name.lower()] = match.group(1)
     build_ids = sorted(set(re.findall(r"Build ID:\s*([0-9A-Fa-f]+)", value)))
-    if not build_ids:
+    if not build_ids and not allow_missing_build_id:
         raise AuditError(f"readelf lacks a Build ID for {relative_path}")
     if any(not re.fullmatch(r"[0-9A-Fa-f]{8,}", build_id) for build_id in build_ids):
         raise AuditError(f"readelf returned a malformed Build ID for {relative_path}")
@@ -1179,6 +1220,7 @@ def audit_elf_files(
     tools: AuditToolPaths,
     temp_root: Path,
     limits: AuditLimits,
+    build_id_optional_sha256: dict[str, str],
 ) -> list[dict[str, object]]:
     elf_paths: list[Path] = []
     for path in sorted(extraction_root.rglob("*")):
@@ -1193,15 +1235,32 @@ def audit_elf_files(
         raise AuditError("wheel contains no ELF-magic native files")
 
     records: list[dict[str, object]] = []
+    observed_build_id_optional: set[str] = set()
     for path in elf_paths:
         relative = path.relative_to(extraction_root).as_posix()
+        actual_sha256 = sha256_file(path)
+        expected_optional_sha256 = build_id_optional_sha256.get(relative)
+        if expected_optional_sha256 is not None:
+            validate_sha256(
+                expected_optional_sha256,
+                f"vendor Build-ID-optional ELF SHA256 for {relative}",
+            )
+            if actual_sha256 != expected_optional_sha256:
+                raise AuditError(
+                    f"vendor Build-ID-optional ELF bytes drifted: {relative}"
+                )
+            observed_build_id_optional.add(relative)
         readelf_raw = run_limited_command(
             [str(tools.readelf), "-W", "-h", "-d", "-n", str(path)],
             temp_root=temp_root,
             limits=limits,
             description=f"readelf {relative}",
         )
-        parsed = _parse_readelf(readelf_raw, relative)
+        parsed = _parse_readelf(
+            readelf_raw,
+            relative,
+            allow_missing_build_id=expected_optional_sha256 is not None,
+        )
         wheel_library_path = None
         needs_libtriton = "libtriton.so" in parsed["dt_needed"]
         if relative in LIBTRITON_DEPENDENT_ELF_PATHS:
@@ -1264,6 +1323,11 @@ def audit_elf_files(
         records.append(
             {
                 "build_ids": parsed["build_ids"],
+                "build_id_status": (
+                    "present"
+                    if parsed["build_ids"]
+                    else "absent-reviewed-vendor-bytes"
+                ),
                 "class": parsed["class"],
                 "data": parsed["data"],
                 "dt_needed": parsed["dt_needed"],
@@ -1281,10 +1345,17 @@ def audit_elf_files(
                 },
                 "rpath": parsed["rpath"],
                 "runpath": parsed["runpath"],
-                "sha256": sha256_file(path),
+                "sha256": actual_sha256,
                 "size": path.stat().st_size,
                 "type": parsed["type"],
             }
+        )
+    missing_optional = sorted(
+        set(build_id_optional_sha256) - observed_build_id_optional
+    )
+    if missing_optional:
+        raise AuditError(
+            f"vendor Build-ID-optional ELF set is incomplete: {missing_optional}"
         )
     return records
 
@@ -1993,7 +2064,11 @@ def run_audit(
                 extraction_root = Path(temporary_directory) / "fresh-extract"
                 extract_fresh(zf, infos, extraction_root)
                 native_manifest = audit_elf_files(
-                    extraction_root, tools, temp_root, limits
+                    extraction_root,
+                    tools,
+                    temp_root,
+                    limits,
+                    expectations.build_id_optional_sha256(),
                 )
                 tool_probes = probe_wheel_tools(
                     extraction_root, tools, expectations, temp_root, limits
@@ -2023,6 +2098,9 @@ def run_audit(
             "libdevice_sha256": expectations.libdevice_sha256,
             "module_version": expectations.module_version,
             "nvidia_tool_versions": expectations.tool_versions(),
+            "vendor_build_id_optional_sha256": (
+                expectations.build_id_optional_sha256()
+            ),
             "triton_commit": expectations.commit,
             "triton_llvm_commit": expectations.llvm_commit,
             "triton_tree": expectations.tree,

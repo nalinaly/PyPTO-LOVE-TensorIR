@@ -188,6 +188,7 @@ class TritonWheelAuditTest(unittest.TestCase):
             source_archive_sha256=audit.sha256_file(self.source_archive),
             filecheck_source_sha256="a" * 64,
             filecheck_output_sha256=audit.sha256_bytes(self.filecheck),
+            vendor_build_id_optional_sha256=(),
         )
 
         self.source_document = {
@@ -519,15 +520,19 @@ class TritonWheelAuditTest(unittest.TestCase):
         self,
         pattern: str,
         request: object | None = None,
+        expectations: object | None = None,
     ) -> None:
         selected = self.request if request is None else request
+        selected_expectations = (
+            self.expectations if expectations is None else expectations
+        )
         with mock.patch.object(
             audit,
             "run_limited_command",
             side_effect=AssertionError("rejected audit unexpectedly ran a command"),
         ) as command:
             with self.assertRaisesRegex(audit.AuditError, pattern):
-                audit.run_audit(selected, expectations=self.expectations)
+                audit.run_audit(selected, expectations=selected_expectations)
         command.assert_not_called()
         self.assertFalse(selected.evidence.exists())
 
@@ -684,6 +689,42 @@ class TritonWheelAuditTest(unittest.TestCase):
         with mock.patch.object(audit, "run_limited_command", side_effect=command):
             with self.assertRaisesRegex(audit.AuditError, "RPATH/RUNPATH"):
                 audit.run_audit(self.request, expectations=self.expectations)
+
+    def test_vendor_missing_build_id_requires_exact_frozen_bytes(self) -> None:
+        ptxas_path = f"{audit.NVIDIA_BIN_PREFIX}/ptxas"
+        with zipfile.ZipFile(self.wheel_path) as wheel:
+            ptxas_sha256 = audit.sha256_bytes(wheel.read(ptxas_path))
+        accepted = replace(
+            self.expectations,
+            vendor_build_id_optional_sha256=((ptxas_path, ptxas_sha256),),
+        )
+        parsed = audit._parse_readelf(
+            "ELF Header:\n"
+            "  Class: ELF64\n"
+            "  Data: 2's complement, little endian\n"
+            "  Type: EXEC (Executable file)\n"
+            "  Machine: X86-64\n",
+            ptxas_path,
+            allow_missing_build_id=True,
+        )
+        self.assertEqual(parsed["build_ids"], [])
+        with self.assertRaisesRegex(audit.AuditError, "lacks a Build ID"):
+            audit._parse_readelf(
+                "ELF Header:\n"
+                "  Class: ELF64\n"
+                "  Data: 2's complement, little endian\n"
+                "  Type: EXEC (Executable file)\n"
+                "  Machine: X86-64\n",
+                ptxas_path,
+            )
+        drifted = replace(
+            accepted,
+            vendor_build_id_optional_sha256=((ptxas_path, "0" * 64),),
+        )
+        self.assert_rejected_before_commands(
+            "vendor Build-ID-optional ELF SHA256 mismatch",
+            expectations=drifted,
+        )
 
     def test_wrong_source_anchor_is_rejected(self) -> None:
         wrong = {**self.source_document, "commit": "0" * 40}

@@ -215,6 +215,12 @@ For only those paths, the isolated `ldd` audit sets
 own ELF without reintroducing a RUNPATH or preloading libtriton into the audit
 shell. Any other libtriton-dependent ELF, unresolved dependency, or external
 resolution path is rejected.
+Seven exact NVIDIA-distributed ELF resources are intentionally stripped and
+carry no GNU Build ID: the four tool binaries plus three CUPTI/NVPerf helper
+libraries. Missing Build ID is accepted only for that closed path set and only
+when each complete-file SHA-256 equals its frozen reviewed-overlay value. Every
+other ELF still requires a syntactically valid Build ID; changing a path or a
+single byte fails before native command probes.
 After a successful build, the runner accepts only the seven expected regular
 files in generated `python/triton.egg-info`, atomically retains that whole
 directory as `generated-source-metadata`, retains the setuptools staging tree
