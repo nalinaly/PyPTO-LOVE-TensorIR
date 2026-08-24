@@ -1,15 +1,25 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `20`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `21`
 
-## Current phase: P1 strict producer bridge and Artifact v1; R0 baseline remains open
+## Current phase: P1 strict TensorIR producer bridge; R0 baseline remains open
+
+Checkpoint `CP-0030` accepts immutable canonical NVIDIA Artifact v1 at PyPTO
+`4a82f2e`. It binds exact clean PyPTO/vendor/pipeline identities, strict SM120
+TensorIR options, schedule-to-grid/uniform ABI, one canonical Cubin,
+entry/flattened CUDA parameter ABI, cache/loader projections and bounded
+canonical MessagePack. TensorIR `b25081a` performs runtime-free CUDA 13.3 ELF,
+entry, KPARAM/PARAM_CBANK, constant-bank and PT_LOAD mapping validation. The
+next transaction is the separate strict producer bridge from CompileRequest +
+KernelBuildSpec + canonical source to this Artifact. Cache, CUDA runtime,
+framework routes and model execution remain later.
 
 Checkpoint `CP-0029` accepts only the private bounded canonical MessagePack
 foundation at PyPTO `6ce1776`. It preserves CompileRequest/KernelBuildSpec wire
 identity while adding streaming aggregate allocation limits and BIN support
-needed by the future Artifact. The next transaction is canonical Artifact v1
-as an immutable PyPTO value; the strict TensorIR producer DTO/bridge follows in
-a separate commit. Cache, CUDA runtime and frameworks remain later steps.
+needed by Artifact. CP-0030 has now consumed that foundation; the strict
+TensorIR producer DTO/bridge remains the next separate commit. Cache, CUDA
+runtime and frameworks remain later steps.
 
 Checkpoint `CP-0028` accepts only the runtime-free in-memory TensorIR producer
 result. TensorIR `2677d1a` emits fully validated TileIR/Cubin bytes plus
@@ -196,6 +206,13 @@ Streaming structural limits close decoded-object amplification before the
 allocating parse; ON/OFF builds and canonical request/spec replay pass. No
 Artifact schema, producer bridge, cache, CUDA runtime or framework route is
 claimed.
+
+Checkpoint `CP-0030` accepts only persistent Artifact v1 and its strict
+runtime-free Cubin/ABI validation. The producer result remains a manually
+constructed boundary in tests; no compiler entrypoint yet consumes canonical
+source plus CompileRequest/KernelBuildSpec to create it. ArtifactCache,
+subprocess compilation, CUDA module/current-stream launch and framework/model
+work remain explicitly open.
 
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.

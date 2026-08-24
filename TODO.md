@@ -61,7 +61,7 @@
 - [x] Compose exact TensorIR/CUDA Tile/LLVM sources privately inside the one
       PyPTO DSO, bind CUDA 13.3/tileiras identity, export correct embedding
       headers, and remove all product RPATH/RUNPATH leakage.
-- [ ] Bind SM120 82-SM/101376-byte resources and deterministic TensorIR options
+- [x] Bind SM120 82-SM/101376-byte resources and deterministic TensorIR options
       into the compiled Artifact identity before ArtifactCache or
       NvidiaExecutable implementation.
 - [x] Implement and independently gate TensorIR's runtime-free in-memory
@@ -74,7 +74,7 @@
 - [ ] Implement the PyPTO strict producer bridge that consumes CompileRequest,
       KernelBuildSpec and canonical source, validates every locked producer,
       maps the complete resolved schedule, and forbids fallback/ambient policy.
-- [ ] Implement bounded canonical PyPTO Artifact v1 serialization with bytes,
+- [x] Implement bounded canonical PyPTO Artifact v1 serialization with bytes,
       ABI, request/build-spec/producer digests and malformed-input rejection.
 - [x] Isolate the TensorIR/LLVM ABI bridge, hide every non-Python DSO export,
       enforce clean gitlink revisions, and isolate native ON/OFF output paths.

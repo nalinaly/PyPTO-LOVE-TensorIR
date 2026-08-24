@@ -145,3 +145,20 @@ The accepted dependency cache is for workspace-local build and validation.
 Presence of upstream license files does not authorize publishing a combined
 wheel. NVIDIA CUDA EULA terms and the PyPTO authorization require a separate
 wheel-level licensing review before any redistribution or public fused fork.
+
+## D-0015: Strict Artifact identity joins source, schedule and loader ABI
+
+A clean toolchain revision, producer-options digest and callable-ABI digest are
+necessary but insufficient when checked independently. Artifact v1 also
+cross-checks every duplicated schedule/launch fact and statically attests the
+pinned CUDA 13.3 loader chain: unique entry, text/symbol linkage, flattened
+KPARAM widths/ranges, PARAM_CBANK section/base/extent, constant bank and
+coherent permissioned PT_LOAD file-to-VA mapping.
+
+The structured TensorIR pipeline is a source-controlled canonical JSON value
+identified by a verified Git blob, not an unexplained 40-character constant.
+PyPTO and all vendored compiler sources must be clean at configure and build
+time; no dirty-source override may mint a strict Artifact under locked commit
+names. This remains runtime-free validation. It does not replace the future
+trusted producer bridge, disassemble arbitrary SASS, load CUDA or prove kernel
+execution.

@@ -41,20 +41,26 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0029.md` and evidence `EV-0005` through `EV-0042`.
-- `projects/pypto` is tracked-clean at `6ce1776...`; only ignored/untracked
+- Read `state/checkpoints/CP-0030.md` and evidence `EV-0005` through `EV-0043`.
+- `projects/pypto` is tracked-clean at `4a82f2e...`; only ignored/untracked
   NVIDIA submodule cache dirt remains. Single-DSO and immutable SM120 TargetInfo
   are accepted, and the private TensorIR/CUDA Tile/LLVM compiler is now
-  statically composed into the same public DSO. TensorIR `2677d1a...` now also
-  exposes the accepted runtime-free in-memory compiled-result primitive.
-  PyPTO now also has one private bounded canonical MessagePack codec with a
-  streaming pre-allocation object/container/depth/BIN budget. The final ON DSO
-  SHA is `f24ec3c...6869`; it is RPATH-free, exports only the
-  Python init entry, has only five standard runtime dependencies, and passes
-  post-commit native codec/request/spec 3/3 plus exact-source compiler 123/123.
-  A fresh OFF DSO passes the same native 3/3, contains no private NVIDIA
-  compiler link input and reports `compiled=false`. EV-0042 binds this narrow
-  codec result; no PyPTO Artifact or producer bridge exists yet.
+  statically composed into the same public DSO. TensorIR `b25081a...` exposes
+  the runtime-free compiled-result primitive and validates CUDA 13.3 Cubin
+  entry, KPARAM/PARAM_CBANK, constant bank and PT_LOAD mappings.
+  PyPTO now owns immutable canonical Artifact v1 on its bounded MessagePack
+  codec. The final ON DSO SHA is `2b65764e...cd06`; it is RPATH-free, exports
+  only the Python init entry, has only five standard runtime dependencies, and
+  passes native 8/8 plus exact-source compiler 128/128. A fresh OFF DSO passes
+  native 6/6, contains no private compiler dynamic/export leakage and rejects
+  strict Artifact creation. EV-0043 binds the exact revisions, pipeline blob,
+  ON/OFF runs and independent GO reviews. The strict canonical-source producer
+  bridge, ArtifactCache and CUDA executable/runtime do not exist yet.
+- TensorIR `b25081a...` is a local committed feature revision and is fully
+  pinned by the PyPTO gitlink/build guards. It has not been published to the
+  configured NVIDIA remote; push or otherwise materialize that commit before
+  claiming fresh-clone/publication reproducibility. Do not substitute an
+  upstream revision that lacks the accepted validator.
 - CompileRequest v1 and per-region KernelBuildSpec v1 are accepted as separate
   data-only contracts. KernelBuildSpec passes native 4/4 and exact current-DSO
   Python compiler 122/122; EV-0038 binds commit/tree/source/DSO/run hashes and
@@ -122,11 +128,11 @@ upstream checkouts and their optional/manual suites.
   executable. Parent-only target query and CUDA Graph capture/replay law are
   part of that boundary; workers never query CUDA or carry streams/handles.
 - Resume by changing the compiler data boundary, not by launching a GPU kernel:
-  implement canonical PyPTO Artifact v1 on the accepted bounded codec first.
-  Then, in a separate commit, extend the private no-EH ABI bridge to consume
-  CompileRequest + KernelBuildSpec + canonical source, map every strict
-  schedule option and deep-copy a standard-only producer DTO. Keep cache, CUDA
-  library/kernel handles, device, context and stream out of both transactions.
+  extend the private no-EH ABI bridge to consume CompileRequest +
+  KernelBuildSpec + canonical source, map every strict schedule option and
+  deep-copy the standard-only producer result into accepted Artifact v1. Keep
+  cache, CUDA library/kernel handles, device, context and stream out of this
+  transaction.
 - `docs/coverage_collector_map.md` is the pinned collector implementation map.
   Do not claim `closed_world=true` from ordinary Kineto/NVTX or from the first
   CUPTI-monitor development trace.

@@ -1,12 +1,12 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0029`
+**Checkpoint:** `CP-0030`
 
-**Status:** R0 remains open. P1 now additionally accepts PyPTO's private,
-bounded canonical MessagePack codec as the serialization foundation for
-Artifact v1. It is not itself an Artifact or strict producer bridge; cache,
-runtime launch, CUDA operator, framework route and model milestones remain
-unaccepted.
+**Status:** R0 remains open. P1 now additionally accepts immutable canonical
+NVIDIA Artifact v1 and strict runtime-free Cubin entry/parameter/load mapping
+validation. The strict canonical-source TensorIR producer bridge remains
+unimplemented; cache, CUDA executable/current-stream launch, operators,
+framework routes and model milestones remain unaccepted.
 
 ## Current truth
 
@@ -247,9 +247,38 @@ unaccepted.
   codec/request/spec tests. The exact ON DSO Python compiler suite passes
   123/123. The OFF DSO reports `compiled=false`, has no TensorIR/CUDA Tile/MLIR/
   LLVM targets or link inputs, no RPATH/RUNPATH, two permitted exports and only
-  five standard runtime dependencies. EV-0042 binds these claims. Artifact v1,
-  strict schedule mapping, producer DTO, cache and runtime remain open. The
-  root control regression passes 198 tests plus 98 subtests.
+  five standard runtime dependencies. EV-0042 binds those codec-only claims;
+  Artifact v1 was still open at CP-0029. The root control regression passes
+  198 tests plus 98 subtests.
+- TensorIR `1c701ec6f7e7c547f6af02862603981f64e01091` adds bounded runtime-free
+  CUDA 13.3 Cubin entry and flattened parameter-ABI validation; follow-up
+  `b25081afbeb53c9a882c68b440d06baa9e0f6b31` binds executable/constant
+  sections to valid PT_LOAD file/VA mappings. It validates unique
+  `STO_CUDA_ENTRY`, canonical text/symbol links, KPARAM ordinals/widths,
+  PARAM_CBANK base/extent/section symbol and constant-bank coverage without a
+  CUDA call, device query, module load or filesystem access.
+- PyPTO `9894f5babdca17d27de7b89540e28fc5c3b3e199` adds immutable canonical
+  Artifact v1; `4a82f2e40ce518d16fcbeec647061649564c42af` pins the final loader-safe
+  validator. The Artifact binds clean PyPTO/TensorIR/CUDA Tile/LLVM/tileiras
+  provenance, pipeline blob `a5398054...`, strict schedule options, grid and
+  uniform ABI, entry/flattened argument ABI, complete bytes SHA-256, cache key
+  and loader projections. Unsupported, noncanonical, oversized, fallback or
+  mismatched inputs fail closed.
+- The final clean backend-ON build embeds exactly PyPTO `4a82f2e...`, TensorIR
+  `b25081a...`, CUDA Tile `af241704...` and LLVM `57109bef...`; the DSO SHA-256
+  is `2b65764e...cd06`. Native CTest passes 8/8, including real pinned
+  `tileiras` static, dynamic 12-argument and scalar Cubins. The exact source DSO
+  Python compiler suite passes 128/128.
+- A fresh backend-OFF product passes 6/6, reports strict Artifact creation as
+  fail-closed and contains no private compiler dynamic dependency/export. Both
+  ON/OFF DSOs have no RPATH/RUNPATH and only five standard runtime dependencies.
+  Configure- and build-time guards reject dirty/stale PyPTO or vendor source
+  identities. EV-0043 binds all final runs and independent GO reviews.
+- CP-0030 does not accept the strict producer bridge. No entrypoint yet consumes
+  canonical source with CompileRequest/KernelBuildSpec and returns this
+  Artifact; cache publication, subprocess compilation, CUDA module/context/
+  current-stream execution, operator/framework/model correctness and
+  performance remain open.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact
@@ -289,12 +318,12 @@ unaccepted.
 ## Resume action
 
 The goal is active, not complete. Freeze Triton as accepted reference-only
-infrastructure. Implement the PyPTO-owned canonical Artifact v1 data contract
-on the accepted bounded codec, then implement the narrow strict TensorIR
-producer DTO/bridge in a separate commit. Do not combine Artifact with cache,
-CUDA module/context/current-stream execution, framework integration or online
-autotuning. Defer the separate exclusive Triton replacement/reference-smoke
-gate until the unmodified SGLang baseline needs it.
+infrastructure. Implement the narrow strict TensorIR producer bridge that
+consumes CompileRequest, KernelBuildSpec and canonical source and returns the
+accepted Artifact v1. Do not combine that bridge with cache, CUDA module/
+context/current-stream execution, framework integration or online autotuning.
+Defer the separate exclusive Triton replacement/reference-smoke gate until the
+unmodified SGLang baseline needs it.
 Use explicit CPU-only coexistence only for non-benchmark build/test work; GPU
 smoke/benchmarks require exclusive `gpu-benchmark` preflight. Never inherit
 TensorIR's SM100 defaults.
