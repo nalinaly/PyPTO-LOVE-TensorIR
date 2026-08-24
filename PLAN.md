@@ -1,8 +1,16 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `18`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `19`
 
-## Current phase: P1 compiled-artifact seam; R0 baseline remains open
+## Current phase: P1 strict producer bridge and Artifact v1; R0 baseline remains open
+
+Checkpoint `CP-0028` accepts only the runtime-free in-memory TensorIR producer
+result. TensorIR `2677d1a` emits fully validated TileIR/Cubin bytes plus
+complete reconstruction metadata before its legacy runtime object; PyPTO
+`4789ae0` preserves one symbol-isolated DSO and a narrow LLVM ABI bridge. The
+next transaction must bind CompileRequest + KernelBuildSpec and canonically
+serialize a PyPTO-owned Artifact. Cache, CUDA runtime and frameworks remain
+later steps.
 
 Checkpoint `CP-0027` accepts the private compiler composition only. PyPTO
 `5f75568` contains TensorIR `233ab6e`, CUDA Tile `af241704`, and LLVM
@@ -172,6 +180,12 @@ TensorIR's public compiler usage requirements now support a real parent build,
 and dynamic CUDA declarations no longer leak an absolute toolkit RUNPATH. This
 does not yet prove a PyPTO lowering, a kernel artifact, CUDA execution, a wheel,
 or any Torch/SGLang route.
+
+Checkpoint `CP-0028` accepts only a process-independent in-memory producer
+value, not a persistent PyPTO Artifact. Full TileIR/Cubin structure, SM/ABI,
+argument/grid metadata, hostile environment, exact assembler bytes and legacy
+reconstruction are gated. Canonical serialization, request/build-spec digest
+binding, subprocess transfer and cache publication remain explicitly open.
 
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.

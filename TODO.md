@@ -64,9 +64,17 @@
 - [ ] Bind SM120 82-SM/101376-byte resources and deterministic TensorIR options
       into the compiled Artifact identity before ArtifactCache or
       NvidiaExecutable implementation.
-- [ ] Implement the pointer-free bytes-plus-metadata Artifact returned before
-      TensorIR runtime-kernel construction; include entry/ABI/resolved
-      shape-grid metadata and exact byte/producer digests.
+- [x] Implement and independently gate TensorIR's runtime-free in-memory
+      compiled-result primitive before runtime-kernel construction, including
+      complete entry/ABI/grid/workspace metadata, full TileIR/Cubin validation,
+      exact verified assembler bytes, deterministic Cubin and packer bounds.
+- [ ] Implement the PyPTO strict producer bridge that consumes CompileRequest,
+      KernelBuildSpec and canonical source, validates every locked producer,
+      maps the complete resolved schedule, and forbids fallback/ambient policy.
+- [ ] Implement bounded canonical PyPTO Artifact v1 serialization with bytes,
+      ABI, request/build-spec/producer digests and malformed-input rejection.
+- [x] Isolate the TensorIR/LLVM ABI bridge, hide every non-Python DSO export,
+      enforce clean gitlink revisions, and isolate native ON/OFF output paths.
 - [x] Canonicalize operator-only artifact provenance without creating a second
       compiler artifact cache in `pypto-kernels`.
 - [x] Freeze the pinned Torch/SGLang runtime coverage collector source map.

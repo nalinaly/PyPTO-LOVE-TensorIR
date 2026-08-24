@@ -1,12 +1,12 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0027`
+**Checkpoint:** `CP-0028`
 
-**Status:** R0 remains open. P1 now accepts the single-DSO boundary, immutable
-SM120 TargetInfo, CompileRequest v1, KernelBuildSpec v1, and exact private
-TensorIR/CUDA Tile/LLVM compiler composition. The exact Triton wheel remains
-uninstalled and baseline-only. No compiled Artifact, runtime launch, CUDA
-operator, framework route, or model milestone is accepted.
+**Status:** R0 remains open. P1 now additionally accepts TensorIR's in-memory,
+runtime-free compiled-result primitive and its exact strict producer controls.
+It is not yet the PyPTO Artifact: canonical serialization,
+CompileRequest/KernelBuildSpec binding, cache, runtime launch, CUDA operator,
+framework route and model milestones remain unaccepted.
 
 ## Current truth
 
@@ -221,6 +221,22 @@ operator, framework route, or model milestone is accepted.
   kernel rather than a PyPTO persistent Artifact. Kernel bytes/metadata,
   current-stream execution, cache, operators, framework registration and Qwen
   work therefore remain explicitly unaccepted.
+- TensorIR `2677d1a99ae9e4c6627872f01a26a62bf6e832c8` now emits a value-owned
+  compiled result before legacy runtime reconstruction. It contains validated
+  bytes, actual kind/target, entry names, complete argument/packing/grid and
+  workspace metadata, strict/fallback policy, exact assembler identity and no
+  CUDA/process/runtime fields.
+- The native gate covers four-CTA static grid, dynamic Flat/runtime-grid ABI,
+  exact argument counts and pack bounds, full TileIR and bounded CUDA ELF
+  structures, OSABI/ABI-specific SM decoding, two identical SM120 Cubins,
+  hostile environment rejection, wrong producer SHA and explicit fallback.
+- PyPTO `4789ae0f...` places all TensorIR types behind a no-RTTI/no-exception
+  bridge, validates clean exact gitlinks, isolates ON/OFF native outputs and
+  exports only `PyInit_pypto_core`. The final one DSO SHA is
+  `0b69023a...74a4b`; 5/5 native and 123/123 exact-DSO Python tests pass.
+- No PyPTO strict producer bridge consumes CompileRequest/KernelBuildSpec yet,
+  and no canonical persistent Artifact exists. EV-0041 binds the narrow claim
+  and all final runs.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact

@@ -1,0 +1,167 @@
+{
+  "id": "EV-0041",
+  "kind": "tensorir_runtime_free_compiled_result_primitive_acceptance",
+  "status": "accepted_in_memory_only_no_pypto_artifact_cache_or_runtime",
+  "repositories": {
+    "pypto": {
+      "commit": "4789ae0f7c5647e792b32070e6d575f6403bd24f",
+      "tree": "a004fa19826965432c288162c85ba627355a6a7d",
+      "parent": "186f84ad564c88438a5b29f8d7cab5d25dad1066",
+      "branch": "feature/nvidia-sm120",
+      "tracked_dirty": false,
+      "submodule_cache_dirty": true
+    },
+    "tensor_ir": {
+      "commit": "2677d1a99ae9e4c6627872f01a26a62bf6e832c8",
+      "tree": "6cd3b72d4950ef45ae2a82cbccaa7c08fac55c93",
+      "branch": "feature/pypto-private-build",
+      "runtime_llvm_abi_commit": "7858438",
+      "producer_result_commit": "156b8f7",
+      "layout_and_binary_hardening_commit": "151d551",
+      "full_reader_and_verified_assembler_commit": "e0998b9",
+      "bounded_cubin_structure_commit": "7a15076",
+      "abi_version_sm_decoder_commit": "2677d1a"
+    }
+  },
+  "accepted_scope": {
+    "schema_version": 1,
+    "in_memory_value_only": true,
+    "owned_device_code_bytes": true,
+    "requested_and_actual_artifact_kind": true,
+    "requested_and_attested_target": true,
+    "tileir_bytecode_version": true,
+    "runtime_and_entry_names": true,
+    "complete_kernel_argument_layout": true,
+    "argument_packing_policy": true,
+    "static_or_runtime_grid_policy": true,
+    "workspace_size_and_alignment": true,
+    "environment_and_fallback_policy": true,
+    "exact_assembler_path_version_sha256": true,
+    "compile_options_identity": true,
+    "cuda_module_context_stream_or_pointer_fields": false,
+    "canonical_serialization": false
+  },
+  "strict_producer_behavior": {
+    "environment_overrides_disabled": true,
+    "cubin_fallback_disabled": true,
+    "explicit_tileiras_required": true,
+    "canonical_tileiras_path_required": true,
+    "tileiras_version_required": "13.3.36",
+    "tileiras_sha256_required": "88737a8be5c56bf73fb885a567a950f247a8cfa1d146dbc7a65eff77e7d62bf0",
+    "verified_non_writable_copy_executed": true,
+    "tileiras_copy_hash_rechecked_after_execution": true,
+    "tileir_full_reader_validation": true,
+    "cubin_elf64_header_table_segment_section_and_text_validation": true,
+    "cubin_osabi_abi_sm_validation": true,
+    "static_grid_computed_before_layout_move": true,
+    "argument_metadata_exact_count_validation": true,
+    "runtime_packer_bounds_and_exact_count_validation": true
+  },
+  "native_test_matrix": [
+    "strict option rejection for missing or relative assembler identity",
+    "static TileIR result with four-CTA grid",
+    "legacy runtime-kernel reconstruction from the value result",
+    "dynamic-shape Flat packing and runtime-grid metadata",
+    "malformed dynamic argument-count rejection",
+    "truncated TileIR and CUDA ELF rejection",
+    "header-only TileIR and Cubin rejection",
+    "SM120 Cubin exact-byte determinism across two compilations",
+    "hostile TENSOR_IR environment ignored in strict mode",
+    "wrong tileiras SHA rejection",
+    "Cubin-to-TileIR fallback only when explicitly enabled"
+  ],
+  "product_dso": {
+    "path": "projects/pypto/python/pypto/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "sha256": "0b69023a6a1510941ff3f954940c8dfda47ca82fe6eacc030162181695074a4b",
+    "bytes": 768177888,
+    "product_dso_count": 1,
+    "rpath": null,
+    "runpath": null,
+    "dynamic_exports": [
+      "PYPTO_CORE_1",
+      "PyInit_pypto_core@@PYPTO_CORE_1"
+    ],
+    "dt_needed": [
+      "libstdc++.so.6",
+      "libm.so.6",
+      "libgcc_s.so.1",
+      "libc.so.6",
+      "ld-linux-x86-64.so.2"
+    ],
+    "llvm_dynamic_exports": 0,
+    "bridge_no_rtti_no_exceptions": true
+  },
+  "final_configuration": {
+    "run_id": "pypto-20260824T154347Z-294693-b33e82",
+    "return_code": 0,
+    "dirty_source_override": false,
+    "preflight_sha256": "9d2b017329d8f7d4f5e0946f43d1ff502454d234728491eaae7578a0dd391231",
+    "process_metadata_sha256": "847dea8077d6f9fd821b15b168fb4c6faa18467f0b3a183d00f805606351b7e7",
+    "coexistence_pauses": []
+  },
+  "final_build": {
+    "run_id": "pypto-20260824T154402Z-294893-5614be",
+    "return_code": 0,
+    "parallelism": 24,
+    "preflight_sha256": "c75df2ecc0deb375225efd822d13123946229e5b272be6e11ff0ff29882137a6",
+    "process_metadata_sha256": "1315392be1868b9ad87a98dcfda749bc034c4740ab2b8c887c13a14504fcf32a",
+    "coexistence_pauses": []
+  },
+  "native_ctest": {
+    "run_id": "pypto-20260824T154419Z-296023-8803a6",
+    "return_code": 0,
+    "tests_passed": 5,
+    "preflight_sha256": "0bf332d918f9ef2545b97b713f71be96ff260f0e88ee21173cca4c1c5aa47211",
+    "process_metadata_sha256": "76ba2e9b6259e14216c528391a35274d90fe99c9966289689a5c21cb25152c61",
+    "coexistence_pauses": []
+  },
+  "exact_dso_python_suite": {
+    "run_id": "pypto-20260824T154433Z-296152-71c8c9",
+    "return_code": 0,
+    "tests_passed": 123,
+    "preflight_sha256": "a491e0cc87151f978385d3eb1ad9cd3ab4197f2c687c679b5d12e94fffbd4b24",
+    "process_metadata_sha256": "ec86f5ab2a1633ee4ed54d3e52443902c94f42cc4649eed7fcd13cab2c685434",
+    "coexistence_pauses": []
+  },
+  "root_control_regression": {
+    "run_id": "pypto-20260824T154751Z-297247-70a2b7",
+    "return_code": 0,
+    "tests_passed": 198,
+    "subtests_passed": 98,
+    "preflight_sha256": "aabc1ebf37fb39535c19824f748ea74cd3a5c421b41f738bb25479a6f5734936",
+    "process_metadata_sha256": "193758363f1ee7702a64e9de8045007d5ce8b778278bdbac7de68b90ea7dd485",
+    "coexistence_pauses": []
+  },
+  "native_output_isolation": {
+    "on_dso_unchanged_during_off_build": true,
+    "off_dso_path": "builds/pypto-off-artifact-seam/product-isolated/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "off_dso_sha256": "5e37ad825e21cde5c04c656b8a2da2033db7b278b9c2a31d84162a394a68fd64",
+    "off_probe_run_id": "pypto-20260824T151943Z-279875-4f7028",
+    "off_probe_compiled": false
+  },
+  "review_lineage": {
+    "initial_cpp_review": "no-go with four P1 findings",
+    "initial_build_review": "no-go with ABI, symbol, output and source-pin findings",
+    "architecture_followup": "go for explicitly narrowed in-memory primitive",
+    "build_followup": "no remaining technical blocker after fixes",
+    "cpp_final_followup": "go with no remaining P0 or P1",
+    "cpp_findings_closed": [
+      "static grid under-launch",
+      "malformed ABI pack overflow",
+      "header-only TileIR and Cubin acceptance",
+      "assembler path-only identity",
+      "CUDA ELF ABI-version-dependent SM decoding"
+    ]
+  },
+  "not_claimed": [
+    "PyPTO-owned canonical Artifact serialization",
+    "CompileRequest and KernelBuildSpec strict producer bridge",
+    "cross-process or subprocess artifact transfer",
+    "ArtifactCache publication or reuse",
+    "SM120 automatic tile selection with 82-SM and 101376-byte limits",
+    "CUDA module, context, current stream, workspace or launch",
+    "private-backend wheel packaging acceptance",
+    "operator or model correctness, coverage or performance",
+    "TorchInductor or SGLang registration"
+  ]
+}

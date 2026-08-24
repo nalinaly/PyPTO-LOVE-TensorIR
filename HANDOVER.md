@@ -41,14 +41,16 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0027.md` and evidence `EV-0005` through `EV-0040`.
-- `projects/pypto` is tracked-clean at `5f75568...`; only ignored/untracked
+- Read `state/checkpoints/CP-0028.md` and evidence `EV-0005` through `EV-0041`.
+- `projects/pypto` is tracked-clean at `4789ae0...`; only ignored/untracked
   NVIDIA submodule cache dirt remains. Single-DSO and immutable SM120 TargetInfo
   are accepted, and the private TensorIR/CUDA Tile/LLVM compiler is now
-  statically composed into the same public DSO. The final DSO SHA is
-  `12b75a4e...c3def5`; it is RPATH-free, has only five standard runtime
-  dependencies, and passes the exact-source compiler suite 123/123. EV-0040
-  binds revisions, build-info, recovery findings and run hashes.
+  statically composed into the same public DSO. TensorIR `2677d1a...` now also
+  exposes the accepted runtime-free in-memory compiled-result primitive. The
+  final DSO SHA is `0b69023a...74a4b`; it is RPATH-free, exports only the
+  Python init entry, has only five standard runtime dependencies, and passes
+  native 5/5 plus exact-source compiler 123/123. EV-0041 binds this narrow
+  result and the review-recovery lineage.
 - CompileRequest v1 and per-region KernelBuildSpec v1 are accepted as separate
   data-only contracts. KernelBuildSpec passes native 4/4 and exact current-DSO
   Python compiler 122/122; EV-0038 binds commit/tree/source/DSO/run hashes and
@@ -116,10 +118,11 @@ upstream checkouts and their optional/manual suites.
   executable. Parent-only target query and CUDA Graph capture/replay law are
   part of that boundary; workers never query CUDA or carry streams/handles.
 - Resume by changing the compiler boundary, not by launching a GPU kernel:
-  adapt TensorIR's CUDA Tile frontend to expose a data-only result containing
-  exact bytes plus entry names, argument layout, resolved shape/grid policy and
-  producer/options identity before `CudaTileRuntimeKernel` is constructed.
-  Keep CUDA library/kernel handles, device, context and stream out of it.
+  extend the private ABI bridge to consume CompileRequest + KernelBuildSpec +
+  canonical source, map every strict schedule option, cross-check every exact
+  producer field, and return a bounded canonical PyPTO Artifact v1. Keep cache,
+  CUDA library/kernel handles, device, context and stream out of this next
+  transaction.
 - `docs/coverage_collector_map.md` is the pinned collector implementation map.
   Do not claim `closed_world=true` from ordinary Kineto/NVTX or from the first
   CUPTI-monitor development trace.
