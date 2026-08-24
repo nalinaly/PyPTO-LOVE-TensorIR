@@ -41,17 +41,18 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0024.md` and evidence `EV-0005` through `EV-0037`.
-- `projects/pypto` is tracked-clean at `09e014c...`; only ignored/untracked
+- Read `state/checkpoints/CP-0025.md` and evidence `EV-0005` through `EV-0038`.
+- `projects/pypto` is tracked-clean at `9b3cf71...`; only ignored/untracked
   NVIDIA submodule cache dirt remains. Single-DSO and immutable SM120 TargetInfo
   are accepted. Fresh native CTest is 2/2; wheel SHA is `dd614907...aaeb`, its
   sole DSO is `dec8082f...c458`, TargetInfo JUnit is `(31,0,0,0)`, full JUnit is
   `(10266,0,0,57)` and the independent symlink case passes. EV-0034 binds the
   three successful run IDs and the corrected source/artifact lineage audit.
-- CompileRequest v1 is accepted as a data-only contract. Native 2/2, Python
-  62/62, bounded MessagePack allocation-bomb tests and independent replay pass;
-  EV-0036 binds commit/tree/source/DSO/run hashes. KernelBuildSpec, producer
-  integration, artifacts, runtime and CUDA remain unimplemented.
+- CompileRequest v1 and per-region KernelBuildSpec v1 are accepted as separate
+  data-only contracts. KernelBuildSpec passes native 4/4 and exact current-DSO
+  Python compiler 122/122; EV-0038 binds commit/tree/source/DSO/run hashes and
+  the recovered stale editable-DSO evidence. Exact producer integration,
+  Artifact/cache, runtime and CUDA remain unimplemented.
 - `projects/pypto-kernels` is clean at `6f73857...` with typed semantic
   families, canonical process-safe tuning database, matmul invocation ABI v1,
   catalog-bound canonical operator artifact provenance, paged-attention ABI v1
@@ -84,12 +85,20 @@ upstream checkouts and their optional/manual suites.
   the external-editable audit until the final reversible transaction.
 - Those controls are committed as `0c4cc34`, `befe44c`, `640c35a`, and
   `c987811`, followed by acquisition commits `ea39ac5`, `f678fc0`, and
-  `5c75ea4`, stop-race fix `fe903fa`, and ten-archive source lock `cca595c`.
+  `5c75ea4`, stop-race fix `fe903fa`, ten-archive source lock `cca595c`, tracked
+  offline runner `712a8c2`, generated-evidence retention `8e414e7`, and the
+  RPATH-free producer/auditor contract `dd403fe`.
   EV-0035 binds the original controls; the current isolated suite is 183 tests
   plus 51 subtests. EV-0037 binds accepted materialization/promotion runs,
   manifest `29c073...`, all archive/tree/overlay hashes and the reviewed cache
-  at `caches/triton-build-deps/29c073...`. Earlier failed/stopped staging/logs
-  remain retained. No wheel build, GPU smoke, or replacement has run.
+  at `caches/triton-build-deps/29c073...`. The first wheel built but was
+  correctly rejected for three ELF RUNPATHs; its full 11 GiB tree and evidence
+  remain at `builds/triton-wheel-5d6048aa-rejected-rpath-20260824`. The fixed
+  runner retains all generated source outputs, disables CMake RPATH and overlays
+  a provenance-bound RPATH-free FileCheck without mutating the reviewed cache.
+  Corrected CPU-only build/audit/probe run
+  `pypto-20260824T111401Z-189427-e59551` is active. No GPU smoke or environment
+  replacement has run.
 - Protected CPU-only coexistence is explicit. It does not apply to GPU
   benchmarks, hides CUDA from the child, and can signal only a recorded
   workspace group. Run `pypto-20260824T075816Z-91897-64e1ea` passed live beside
@@ -98,8 +107,9 @@ upstream checkouts and their optional/manual suites.
   waiver, and no GPU/model/performance claim follows.
 - Do not jump directly to TensorIR runtime/cache. D-0009 and
   `docs/compile_request_artifact_design.md` require data-only CompileRequest,
-  then per-region KernelBuildSpec, exact LLVM/tileiras producer identity, complete
-  bytes-plus-metadata Artifact, then a process/device/CUcontext-bound prewarmed
+  then accepted per-region KernelBuildSpec, exact LLVM/tileiras producer
+  identity, complete bytes-plus-metadata Artifact, then a
+  process/device/CUcontext-bound prewarmed
   executable. Parent-only target query and CUDA Graph capture/replay law are
   part of that boundary; workers never query CUDA or carry streams/handles.
 - `docs/coverage_collector_map.md` is the pinned collector implementation map.

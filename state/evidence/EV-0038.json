@@ -1,0 +1,131 @@
+{
+  "id": "EV-0038",
+  "kind": "pypto_kernel_build_spec_v1_data_contract_acceptance",
+  "status": "pass_data_contract_no_producer_artifact_or_cuda_runtime",
+  "repository": {
+    "path": "projects/pypto",
+    "commit": "9b3cf71b6ff2a535aabdd053684a60b47450fac0",
+    "tree": "6aec25b2bd2db08d9498ec783434ad88aa5c9f31",
+    "parent": "09e014ceac2d2cac2f667d182bd7de8f0d0bd259",
+    "changed_paths": 16,
+    "insertions": 2185,
+    "deletions": 98,
+    "tracked_dirty": false,
+    "submodule_cache_dirty": true
+  },
+  "contract": {
+    "schema_version": 1,
+    "pointer_free": true,
+    "semantic_routes": [
+      "generic-direct",
+      "structured-tensorir",
+      "serving-direct"
+    ],
+    "pipeline_revision": "full lowercase 40-character revision",
+    "resolved_schedule_categories": [
+      "schedule",
+      "tile",
+      "layout",
+      "persistence",
+      "cta",
+      "warp",
+      "stage",
+      "options"
+    ],
+    "schedule_value_kinds": [
+      "boolean",
+      "signed-integer",
+      "unsigned-integer",
+      "text"
+    ],
+    "maximum_parameters_per_category": 128,
+    "maximum_payload_bytes": 1048576,
+    "bounded_messagepack_container_string_binary_ext_and_depth_limits": true,
+    "canonical_messagepack_round_trip_required": true,
+    "unknown_duplicate_missing_noncanonical_trailing_rejection": true,
+    "catalog_provenance_all_or_none": true,
+    "parent_compile_request_byte_identity_bound": true,
+    "identity_digest": "SHA-256 of complete canonical KernelBuildSpec bytes"
+  },
+  "source_sha256": {
+    "include/pypto/compiler/kernel_build_spec.h": "1a6ecfa3f90a86188cdbcd821d7d1577e9f8406b4fb823f5ef9c36ea3f29f8ff",
+    "src/compiler/kernel_build_spec.cpp": "ca4914a41c5e3a3cae03eaf5c9639ef66e106628323b6427853ed9f94d3fe1bd",
+    "src/compiler/digest.cpp": "4cb6005df6c77356c3e563b5435236994178b4f73f9f963748ff35ca350d67e1",
+    "src/compiler/digest.h": "12346ec4f7746f2aa82ac59b076197f042efb89f665f57fad9fdfc1c2f71ce78",
+    "tests/ut/compiler/test_kernel_build_spec.py": "e9a8155f10aaadeee60a8b62407cb70158695447a9d0f986cf58ae84dadf7681",
+    "tests/ut/cpp/nvidia_kernel_build_spec_test.cpp": "5c05684fdb8716fba132c372df72055d3b597fb35e2a36adfa8a3d081658f454"
+  },
+  "implementation_gate": {
+    "native_ctest": "4/4 passed",
+    "python_compiler_suite": "122/122 passed against explicitly loaded current source DSO",
+    "ruff": "pass",
+    "pyright": "0 errors, 0 warnings",
+    "cuda_visible_devices": "empty",
+    "gpu_query_or_context": false,
+    "single_dso": true,
+    "current_source_dso_sha256": "8b999de147bab8f551429a0fd7f11476432e29cb222d8ce1c3cf82650f2c9806",
+    "dso_dt_needed": [
+      "libstdc++.so.6",
+      "libm.so.6",
+      "libgcc_s.so.1",
+      "libc.so.6",
+      "ld-linux-x86-64.so.2"
+    ],
+    "cuda_triton_tensorir_hip_hsa_rocm_dependency": false,
+    "independent_review_final": "pass no remaining P0/P1/P2 blocker"
+  },
+  "independent_replay": {
+    "run_id": "pypto-20260824T112218Z-196243-e07a11",
+    "status": "exited",
+    "return_code": 0,
+    "native_executables": [
+      "pypto_nvidia_target_info_test",
+      "pypto_nvidia_compile_request_test",
+      "pypto_nvidia_kernel_build_spec_test"
+    ],
+    "python_tests_passed": 122,
+    "preflight_sha256": "738dc5014f8ed1b001fe8bd95002bb9a77bd4f9d597868f1f98c01d06fdfd38c",
+    "process_metadata_sha256": "00dc4fcaaaa5611c1bbd5e67bb34705442e07bd6ea03b249f50f2569e52789a3",
+    "log_sha256": "21a60c4e8ddda909788add1b2d8c2193b23738bab61db8d9461ec8b4e10bd2a4",
+    "verification_harness_sha256": "331486ad91672b9a801c17ead0fc862db779878cb075e616847da8196e917578",
+    "coexistence_pauses": [],
+    "coexistence_abort": null
+  },
+  "root_control_regression": {
+    "run_id": "pypto-20260824T112633Z-197902-eb96e2",
+    "status": "exited",
+    "return_code": 0,
+    "tests_passed": 197,
+    "subtests_passed": 98,
+    "preflight_sha256": "ae08cbfafbb082e656e06c1dbaa99b840fd4c1bac3087ec414117e8090ce44d6",
+    "process_metadata_sha256": "90bb7a33439fee99bc7be78f223b0da4a09737a0b0d6d1ecf83884d03b70de0f",
+    "coexistence_pauses": []
+  },
+  "review_recovered_evidence_gaps": [
+    {
+      "run_id": "pypto-20260824T111828Z-193862-5a3e75",
+      "reason": "editable finder selected a physically installed DSO older than the final digest refactor",
+      "effect": "122 tests passed but were not used as final current-source acceptance evidence"
+    },
+    {
+      "run_id": "pypto-20260824T111806Z-193661-6c1e2c",
+      "reason": "main build DSO was explicitly rebuilt after the stale-object discovery",
+      "effect": "current main build contains only the shared detail::Sha256Hex implementation"
+    },
+    {
+      "run_id": "pypto-20260824T112134Z-195937-79f56b",
+      "reason": "nested shell quoting rejected the first exact-DSO bootstrap before test execution",
+      "effect": "verification harness only; no source, DSO, environment, or test product changed"
+    }
+  ],
+  "not_claimed": [
+    "exact TensorIR or CUDA Tile producer composition",
+    "compiled kernel bytes or artifact metadata",
+    "ArtifactCache or NvidiaExecutable",
+    "CUDA context, module, current stream or launch",
+    "framework backend registration",
+    "operator or model correctness",
+    "coverage or performance",
+    "fresh PyPTO wheel packaging acceptance"
+  ]
+}

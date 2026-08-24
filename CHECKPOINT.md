@@ -1,12 +1,13 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0024`
+**Checkpoint:** `CP-0025`
 
-**Status:** R0 remains open; P1 single-DSO, immutable SM120 TargetInfo and the
-pointer-free CompileRequest v1 data contract are accepted. The exact Triton
-dependency closure is reviewed and cached for the pending offline wheel build.
-No KernelBuildSpec, TensorIR/CUDA compilation, runtime launch, CUDA operator or
-model milestone is accepted.
+**Status:** R0 remains open; P1 single-DSO, immutable SM120 TargetInfo,
+pointer-free CompileRequest v1 and pointer-free per-region KernelBuildSpec v1
+data contracts are accepted. The exact Triton dependency closure is reviewed;
+the corrected RPATH-free offline wheel rebuild is running. No exact producer
+Artifact, TensorIR/CUDA compilation, runtime launch, CUDA operator or model
+milestone is accepted.
 
 ## Current truth
 
@@ -191,6 +192,24 @@ model milestone is accepted.
   distinct byte/loader-input/device projections pass native 2/2 and Python
   62/62 CPU-only gates. EV-0036 binds the independent replay. No region,
   schedule, produced artifact or runtime state is present.
+- PyPTO `9b3cf71b6ff2a535aabdd053684a60b47450fac0` now owns immutable
+  KernelBuildSpec v1. It binds canonical region source/ABI, one generic
+  semantic route, full pipeline revision, eight explicit resolved schedule
+  categories, specialization/mutation identities, the parent CompileRequest
+  byte identity and optional all-or-none operator catalog provenance. Native
+  CTest passes 4/4; an explicit current-source DSO bootstrap runs three native
+  contracts and the Python compiler suite 122/122. EV-0038 binds the source,
+  DSO, run and recovered stale-editable evidence. No producer, Artifact, cache,
+  runtime or CUDA behavior is present.
+- The first exact Triton wheel built successfully but its native audit rejected
+  three RUNPATH-bearing ELF files, including two absolute build-tree plugin
+  paths. The entire 11 GiB candidate, wheel, log and rejection JSON are retained
+  under `builds/triton-wheel-5d6048aa-rejected-rpath-20260824`. Control commits
+  `8e414e7` and `dd403fe` retain all generated source evidence, set
+  `CMAKE_SKIP_RPATH=ON`, and provenance-bind a CMake-derived RPATH-free
+  FileCheck while leaving the reviewed dependency cache unchanged. Corrected
+  rebuild run `pypto-20260824T111401Z-189427-e59551` is in progress; no wheel
+  acceptance or environment replacement is claimed yet.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact
@@ -229,11 +248,12 @@ model milestone is accepted.
 
 ## Resume action
 
-The goal is active, not complete. Continue the source-anchored exact Triton
-offline build/wheel-audit/fresh-probe/smoke/replacement transaction while the
-pointer-free per-region KernelBuildSpec from
-`docs/compile_request_artifact_design.md` proceeds as the next isolated PyPTO
-commit.
+The goal is active, not complete. Finish corrected Triton wheel audit and fresh
+probe, then perform the separate exclusive reference-smoke/replacement gates.
+The next isolated PyPTO compiler transaction is exact LLVM/tileiras producer
+identity plus persistent bytes-and-metadata Artifact validation from
+`docs/compile_request_artifact_design.md`; do not place CUDA modules, contexts,
+streams or launch handles in that Artifact.
 Use explicit CPU-only coexistence only for non-benchmark build/test work; GPU
 smoke/benchmarks require exclusive `gpu-benchmark` preflight. Never inherit
 TensorIR's SM100 defaults.

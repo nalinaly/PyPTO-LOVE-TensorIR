@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `15`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `16`
 
 ## Current phase: R0 workspace and provenance bootstrap
 
@@ -22,6 +22,15 @@ Checkpoint `CP-0024` accepts the exact Triton dependency closure. All ten
 archive SHA/byte pairs, expanded trees and manifest `29c073...` are independently
 reviewed and source-locked; the networkless tool probe and durable reviewed
 cache publication pass. The offline wheel/build/runtime gates remain open.
+
+Checkpoint `CP-0025` accepts pointer-free per-region KernelBuildSpec v1 at
+PyPTO `9b3cf71`. Its bounded canonical identity binds source/ABI, semantic
+route, exact pipeline revision, all resolved schedule categories,
+specialization/mutation and the parent CompileRequest byte identity. Native
+CTest is 4/4 and an exact-current-DSO replay is 122/122. Exact producer,
+Artifact, cache, CUDA module/current-stream runtime and framework integration
+remain open. In parallel, the corrected RPATH-free Triton wheel rebuild is
+running under the CPU-only coexistence watchdog.
 
 Checkpoint `CP-0005` has source/model/environment provenance, the first
 standalone semantic operator layer, Torch constructor-dispatch law, and
@@ -134,6 +143,12 @@ must not be collapsed into TensorIR composition or ArtifactCache work.
 Checkpoint `CP-0024` records only reviewed compatibility inputs. It does not
 promote Triton into PyPTO coverage, prove a wheel, or relax the separate
 reference-only GPU-smoke and environment-replacement gates.
+
+Checkpoint `CP-0025` lands only the immutable per-region KernelBuildSpec data
+contract. A stale installed editable DSO was detected and explicitly excluded
+from acceptance; EV-0038 binds the exact current source DSO replay. The next
+compiler transaction is exact producer-bound bytes-plus-metadata Artifact, not
+runtime handles or framework codegen.
 
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.

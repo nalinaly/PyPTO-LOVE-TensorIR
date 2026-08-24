@@ -54,8 +54,9 @@
 - [x] Implement and independently gate pointer-free CompileRequest v1 at PyPTO
       `09e014c`: bounded canonical MessagePack, exact target/toolchain policy,
       three identity projections, native 2/2 and Python 62/62.
-- [ ] Then implement the pointer-free per-region KernelBuildSpec before exact
-      LLVM/TensorIR/CUDA Tile composition and artifact metadata work.
+- [x] Implement and independently gate pointer-free per-region KernelBuildSpec
+      v1 at PyPTO `9b3cf71`: bounded canonical MessagePack, all explicit
+      resolved schedule categories, exact current-DSO replay and native 4/4.
 - [ ] Bind exact LLVM/tileiras producer identity, SM120 82-SM/101376-byte
       resources and deterministic TensorIR options before ArtifactCache or
       NvidiaExecutable implementation.

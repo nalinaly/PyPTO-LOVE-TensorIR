@@ -2,14 +2,15 @@
 
 **Goal ID:** `PYPTO-NVIDIA-QWEN35-V1`
 
-**Execution status:** active. The single-DSO and immutable SM120 TargetInfo
-boundaries are accepted at PyPTO `042878d...`. Exact PyTorch-pinned Triton
-replacement gates and live protected CPU-only coexistence controls are now
-committed; pointer-free CompileRequest v1 is accepted at PyPTO `09e014c...`.
-The exact Triton dependency closure is reviewed/cached at manifest `29c073...`.
-The offline wheel build/audit and per-region KernelBuildSpec data contract are
-next. The full objective and acceptance criteria remain unchanged. Never signal
-protected amdgpu-sim/zcode processes.
+**Execution status:** active. The single-DSO, immutable SM120 TargetInfo,
+pointer-free CompileRequest v1 and pointer-free per-region KernelBuildSpec v1
+boundaries are accepted through PyPTO `9b3cf71...`. Exact PyTorch-pinned Triton
+replacement gates and live protected CPU-only coexistence controls are
+committed; the dependency closure is reviewed/cached at manifest `29c073...`.
+An RPATH-free offline wheel rebuild is in progress before audit/probe. Exact
+producer-bound Artifact metadata is the next compiler contract. The full
+objective and acceptance criteria remain unchanged. Never signal protected
+amdgpu-sim/zcode processes.
 
 Build a usable, high-performance NVIDIA SM120 backend for the authorized PyPTO
 source; internalize NVIDIA TensorIR/CUDA Tile behind the single public `pypto`
