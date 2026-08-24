@@ -1,0 +1,144 @@
+{
+  "id": "EV-0042",
+  "kind": "pypto_bounded_canonical_msgpack_foundation_acceptance",
+  "status": "accepted_private_codec_only_no_artifact_bridge_cache_or_runtime",
+  "repositories": {
+    "pypto": {
+      "commit": "6ce17761cb26b6593ce8a6f0f8a82cb0cf251cc9",
+      "tree": "5e5915a2057779831a5e0120cd4b6eb6173f4a98",
+      "parent": "4789ae0f7c5647e792b32070e6d575f6403bd24f",
+      "branch": "feature/nvidia-sm120",
+      "tracked_dirty": false,
+      "submodule_cache_dirty": true
+    },
+    "tensor_ir": {
+      "commit": "2677d1a99ae9e4c6627872f01a26a62bf6e832c8",
+      "changed": false
+    }
+  },
+  "accepted_scope": {
+    "private_codec": true,
+    "canonical_writer_helpers": true,
+    "strict_map_and_typed_readers": true,
+    "binary_messagepack_support": true,
+    "preallocation_streaming_parse": true,
+    "total_decoded_object_limit": true,
+    "aggregate_container_item_limit": true,
+    "nesting_depth_limit": true,
+    "nonbinary_encoded_byte_limit": true,
+    "binary_byte_and_field_limits": true,
+    "float_and_extension_rejection": true,
+    "parser_exception_conversion": true,
+    "compile_request_wire_preserved": true,
+    "kernel_build_spec_wire_preserved": true,
+    "artifact_schema": false,
+    "producer_bridge": false,
+    "cache_or_runtime_state": false
+  },
+  "post_commit_on_native_ctest": {
+    "run_id": "pypto-20260824T163330Z-322061-b0472a",
+    "return_code": 0,
+    "tests_passed": 3,
+    "preflight_sha256": "a53bb5a33e1c4ec931b4b3312dfa20bc9f89dc53486f6823f372d6263a68f7ee",
+    "process_metadata_sha256": "3fcbe06d984f80f56854c65834980f474d808ca29d44cadcfbe8b0a0fc2128fc",
+    "coexistence_pauses": []
+  },
+  "post_commit_exact_dso_python_suite": {
+    "run_id": "pypto-20260824T163356Z-322180-c5fe50",
+    "return_code": 0,
+    "tests_passed": 123,
+    "preflight_sha256": "d34965ed444876f5aa92b486004d9ffa926eb20e27cd722ab8289c98eadadd82",
+    "process_metadata_sha256": "db7eac881642b7aa144aa2e27a3d983a342867a7597d49ee7ce565866b3d3234",
+    "coexistence_pauses": []
+  },
+  "post_commit_off_native_ctest": {
+    "run_id": "pypto-20260824T163423Z-322329-fa767e",
+    "return_code": 0,
+    "tests_passed": 3,
+    "preflight_sha256": "066fce297d6619d18bc0b5f58bd0a29a2a92af5158345e2da38bfdcbcabd19f8",
+    "process_metadata_sha256": "5b405603df7ed56438cd8ab8ad4855d057b44f9b1d23c2b3899d682278a4933d",
+    "coexistence_pauses": []
+  },
+  "on_product_dso": {
+    "path": "projects/pypto/python/pypto/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "sha256": "f24ec3c7019232f16ff869b1587b505ef53a1c508aa7786b579c7fc068dd6869",
+    "bytes": 768640856,
+    "rpath": null,
+    "runpath": null,
+    "dynamic_exports": [
+      "PYPTO_CORE_1",
+      "PyInit_pypto_core@@PYPTO_CORE_1"
+    ],
+    "dt_needed": [
+      "libstdc++.so.6",
+      "libm.so.6",
+      "libgcc_s.so.1",
+      "libc.so.6",
+      "ld-linux-x86-64.so.2"
+    ]
+  },
+  "fresh_off_product": {
+    "configure_run_id": "pypto-20260824T162149Z-314478-231896",
+    "build_run_id": "pypto-20260824T162219Z-314616-e03ef1",
+    "path": "builds/pypto-canonical-msgpack-off-product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "sha256": "72e48a801afeab119c339bfc2895dd5134c57fa9d358722fb7073fe4e5c68dc2",
+    "bytes": 426893824,
+    "compiled": false,
+    "compiler_factory_available": false,
+    "nvidia_tensorir_mlir_llvm_targets": 0,
+    "nvidia_tensorir_mlir_llvm_link_inputs": 0,
+    "rpath": null,
+    "runpath": null,
+    "dynamic_exports": [
+      "PYPTO_CORE_1",
+      "PyInit_pypto_core@@PYPTO_CORE_1"
+    ],
+    "dt_needed": [
+      "libstdc++.so.6",
+      "libm.so.6",
+      "libgcc_s.so.1",
+      "libc.so.6",
+      "ld-linux-x86-64.so.2"
+    ]
+  },
+  "direct_native_matrix": [
+    "empty and binary buffers including embedded NUL and 0xff",
+    "typed reader mismatches and signed/unsigned extrema",
+    "strict missing duplicate and unknown map fields",
+    "payload array map string and binary N-1 N N+1 limits",
+    "total decoded object and aggregate array/map item limits",
+    "nesting depth and finite structural-limit enforcement",
+    "BIN body versus non-binary encoded-byte accounting",
+    "BIN field count zero one and overflow",
+    "trailing truncated and declared-length allocation bombs",
+    "float32 float64 normal EXT and exceptional EXT32 rejection"
+  ],
+  "review_lineage": {
+    "architecture_review": "decoded-object amplification finding closed by streaming preflight",
+    "build_review": "fresh OFF isolation requested and completed",
+    "cpp_review": "exceptional EXT32 parser escape closed",
+    "final_staged_review": "GO with no P0 or P1"
+  },
+  "root_control_regression": {
+    "run_id": "pypto-20260824T163710Z-322951-d53f57",
+    "return_code": 0,
+    "tests_passed": 198,
+    "subtests_passed": 98,
+    "preflight_sha256": "9b47dff91c200f42478efa49968476c00770b4bbdbd25b9ed5c7f71b0e7a551e",
+    "process_metadata_sha256": "2fa8a03310925044c6c00f78d33d63b94cb28c169cf63502b433277613c13577",
+    "coexistence_pauses": []
+  },
+  "lint_boundary": {
+    "git_diff_check": "passed",
+    "new_file_headers": "passed",
+    "full_repository_header_check": "five pre-existing failures outside this transaction"
+  },
+  "not_claimed": [
+    "PyPTO Artifact v1 schema or canonical artifact bytes",
+    "CompileRequest and KernelBuildSpec binding to a producer result",
+    "strict TensorIR schedule mapping or standard-only bridge DTO",
+    "ArtifactCache publication or cross-process transfer",
+    "CUDA module context stream workspace allocation or launch",
+    "operator framework model correctness coverage or performance"
+  ]
+}

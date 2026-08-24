@@ -68,6 +68,9 @@
       compiled-result primitive before runtime-kernel construction, including
       complete entry/ABI/grid/workspace metadata, full TileIR/Cubin validation,
       exact verified assembler bytes, deterministic Cubin and packer bounds.
+- [x] Extract and independently gate the compiler-private bounded canonical
+      MessagePack codec, including pre-allocation aggregate/object/depth/BIN
+      limits, malformed parser exception conversion and fresh ON/OFF builds.
 - [ ] Implement the PyPTO strict producer bridge that consumes CompileRequest,
       KernelBuildSpec and canonical source, validates every locked producer,
       maps the complete resolved schedule, and forbids fallback/ambient policy.

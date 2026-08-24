@@ -1,12 +1,12 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0028`
+**Checkpoint:** `CP-0029`
 
-**Status:** R0 remains open. P1 now additionally accepts TensorIR's in-memory,
-runtime-free compiled-result primitive and its exact strict producer controls.
-It is not yet the PyPTO Artifact: canonical serialization,
-CompileRequest/KernelBuildSpec binding, cache, runtime launch, CUDA operator,
-framework route and model milestones remain unaccepted.
+**Status:** R0 remains open. P1 now additionally accepts PyPTO's private,
+bounded canonical MessagePack codec as the serialization foundation for
+Artifact v1. It is not itself an Artifact or strict producer bridge; cache,
+runtime launch, CUDA operator, framework route and model milestones remain
+unaccepted.
 
 ## Current truth
 
@@ -237,6 +237,19 @@ framework route and model milestones remain unaccepted.
 - No PyPTO strict producer bridge consumes CompileRequest/KernelBuildSpec yet,
   and no canonical persistent Artifact exists. EV-0041 binds the narrow claim
   and all final runs.
+- PyPTO `6ce17761cb26b6593ce8a6f0f8a82cb0cf251cc9` extracts the duplicate
+  CompileRequest/KernelBuildSpec codec into one compiler-private implementation.
+  A streaming preflight bounds total decoded objects, aggregate container
+  items, depth, non-binary encoding, BIN size/count and malformed parser
+  exceptions before MessagePack allocates its object tree. Canonical wire bytes
+  and error compatibility remain covered by exact-DSO replay.
+- Backend-ON and a fresh isolated backend-OFF build both pass the three native
+  codec/request/spec tests. The exact ON DSO Python compiler suite passes
+  123/123. The OFF DSO reports `compiled=false`, has no TensorIR/CUDA Tile/MLIR/
+  LLVM targets or link inputs, no RPATH/RUNPATH, two permitted exports and only
+  five standard runtime dependencies. EV-0042 binds these claims. Artifact v1,
+  strict schedule mapping, producer DTO, cache and runtime remain open. The
+  root control regression passes 198 tests plus 98 subtests.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact
@@ -276,11 +289,12 @@ framework route and model milestones remain unaccepted.
 ## Resume action
 
 The goal is active, not complete. Freeze Triton as accepted reference-only
-infrastructure. Implement PyPTO's private TensorIR/CUDA Tile/exact-LLVM static
-composition and deterministic compiled-artifact seam next. Defer the separate
-exclusive Triton replacement/reference-smoke gate until the unmodified SGLang
-baseline needs it; do not place CUDA modules, contexts, streams or launch
-handles in persistent Artifact metadata.
+infrastructure. Implement the PyPTO-owned canonical Artifact v1 data contract
+on the accepted bounded codec, then implement the narrow strict TensorIR
+producer DTO/bridge in a separate commit. Do not combine Artifact with cache,
+CUDA module/context/current-stream execution, framework integration or online
+autotuning. Defer the separate exclusive Triton replacement/reference-smoke
+gate until the unmodified SGLang baseline needs it.
 Use explicit CPU-only coexistence only for non-benchmark build/test work; GPU
 smoke/benchmarks require exclusive `gpu-benchmark` preflight. Never inherit
 TensorIR's SM100 defaults.
