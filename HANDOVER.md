@@ -41,20 +41,13 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0021.md` and evidence `EV-0005` through `EV-0033`.
-- `projects/pypto` is tracked-clean at `e463bce...`; only ignored/untracked
-  NVIDIA submodule cache dirt remains. The single-DSO object boundary is
-  accepted: native CTest 1/1 and compile ownership pass, editable JUnit is
-  `(10235,0,0,59)`, the fresh wheel has exactly one DSO at SHA-256
-  `bd6d24c...f1da1`, and clean wheel JUnit is `(10235,0,0,57)` with the symlink
-  probe passing. `docs/single_dso_acceptance_gate.md` records the two recovered
-  audit-script false positives and every successful run ID.
-- `projects/pypto-target-info` is a separate clean worktree at unbuilt candidate
-  `9939b88`. Never treat it as main-branch or build acceptance. Apply it only
-  after the object-DSO CMake commit. A 34-path read-only patch check predicts no
-  current text conflict. Execute `docs/target_info_acceptance_gate.md`; never
-  reuse the DSO wheel. It requires fresh CTest 2/2, 31 targeted tests and a
-  wheel-backed 10,209 pass/57 skip full suite.
+- Read `state/checkpoints/CP-0022.md` and evidence `EV-0005` through `EV-0035`.
+- `projects/pypto` is tracked-clean at `042878d...`; only ignored/untracked
+  NVIDIA submodule cache dirt remains. Single-DSO and immutable SM120 TargetInfo
+  are accepted. Fresh native CTest is 2/2; wheel SHA is `dd614907...aaeb`, its
+  sole DSO is `dec8082f...c458`, TargetInfo JUnit is `(31,0,0,0)`, full JUnit is
+  `(10266,0,0,57)` and the independent symlink case passes. EV-0034 binds the
+  three successful run IDs and the corrected source/artifact lineage audit.
 - `projects/pypto-kernels` is clean at `6f73857...` with typed semantic
   families, canonical process-safe tuning database, matmul invocation ABI v1,
   catalog-bound canonical operator artifact provenance, paged-attention ABI v1
@@ -79,14 +72,23 @@ upstream checkouts and their optional/manual suites.
   yet. `install()` remains intentionally unready/registration-free.
 - `upstream/triton` is the clean exact PyTorch pin. Do not use the inherited
   external editable Triton for acceptance.
-- The user resumed the blocked goal and several green windows allowed the full
-  single-DSO gate to complete. The latest pre-TargetInfo recheck saw eight newly
-  launched protected zcode/SGLang processes. No TargetInfo action started;
-  wait for natural exit, rerun preflight, and never signal or clean up that
-  lane.
-- The next isolated PyPTO transaction is immutable NVIDIA target identity:
-  execute `docs/target_info_acceptance_gate.md` against candidate `9939b88`.
-- After TargetInfo, do not jump directly to TensorIR runtime/cache. D-0009 and
+- The exact Triton dependency/wheel/probe/smoke/replacement tools are present,
+  but only pybind11 is archive-pinned and the reviewed manifest remains
+  `UNREVIEWED`. Execute `docs/triton_workspace_wheel_acceptance_gate.md` in
+  order; never promote from a self-calculated manifest digest or execute a
+  downloaded tool before source review. The current environment must continue
+  to fail the external-editable audit until the final reversible transaction.
+- Those controls are committed as `0c4cc34`, `befe44c`, `640c35a`, and
+  `c987811`. EV-0035 binds tool hashes, the expected seven-finding environment
+  rejection, and the isolated 165-test/29-subtest root suite. No dependency
+  materialization, wheel build, GPU smoke, or replacement has run.
+- Protected CPU-only coexistence is explicit. It does not apply to GPU
+  benchmarks, hides CUDA from the child, and can signal only a recorded
+  workspace group. Run `pypto-20260824T075816Z-91897-64e1ea` passed live beside
+  seven protected heavy processes with no protected NVIDIA compute PID or
+  pause/abort. This accepts the control path only; TargetInfo still needed no
+  waiver, and no GPU/model/performance claim follows.
+- Do not jump directly to TensorIR runtime/cache. D-0009 and
   `docs/compile_request_artifact_design.md` require data-only CompileRequest,
   per-region KernelBuildSpec, exact LLVM/tileiras producer identity, complete
   bytes-plus-metadata Artifact, then a process/device/CUcontext-bound prewarmed

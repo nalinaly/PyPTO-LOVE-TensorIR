@@ -63,3 +63,52 @@ per-region route/schedule/specialization lives in a separately versioned
 KernelBuildSpec. Exact LLVM/tileiras producer identity enters every artifact
 key. Streams are per-capture/launch dynamic values and never part of the
 request or artifact.
+
+## D-0010: PyTorch-pinned Triton is isolated reference infrastructure
+
+The project environment must contain a non-editable wheel built from PyTorch's
+exact Triton commit and its own pinned LLVM/CUDA toolchain. TensorIR's LLVM is a
+different producer and must never be substituted. Dependency archives first
+enter a bounded `materialized-unreviewed` state; review freezes every archive
+SHA and the canonical manifest SHA in source before any downloaded executable
+is run. A source/producer/dependency-bound wheel audit and fresh probe precede
+the reversible environment replacement.
+
+Triton remains a compatibility/reference lane only. Its successful SM120 smoke
+can never count as PyPTO strict model-forward coverage or as a compute fallback.
+
+## D-0011: Protected CPU-only coexistence is explicit and reversible
+
+The user authorized non-benchmark CPU build/test work beside a protected
+zcode/gem5 lane when that lane has no active NVIDIA compute PID. Default heavy
+preflight remains fail-closed. The explicit coexistence policy retains every
+SM120, CUDA-vs-HIP, DSO and environment check, uses a 24 GiB launch floor, and
+keeps a living runner that pauses only its verified workspace-owned process
+group at 16 GiB, a disk floor, timeout, failed NVIDIA audit, or protected
+NVIDIA compute activation. The child sees no CUDA device; any owned NVIDIA
+compute PID is a terminal policy violation. It automatically resumes only
+after recoverable host-resource pressure clears.
+
+The flag is invalid for GPU benchmarks. No condition permits this project to
+signal, stop, clean or otherwise manage an amdgpu-sim/zcode process.
+
+The same explicit policy may guard read-only model copying. The importer
+rechecks memory and protected NVIDIA compute at every file EOF and immediately
+before atomic publication; default invocation still rejects protected heavy
+activity.
+
+## D-0012: Project-environment replacement is one locked transaction
+
+Every `run_isolated.py` consumer of `envs/pypto-nvidia` holds a shared flock
+from preflight through child reaping. Triton plan holds the same shared lock;
+apply/recover/rollback require the exclusive lock and an exact direct-child
+interpreter/tool/action shape. The inherited descriptor, device/inode and exact
+controller PID/start-ticks bind the child to its controller. Closing the parent
+descriptor never explicitly unlocks a still-live inherited descriptor.
+
+Replacement is stdlib/RECORD-owned and journaled, never pip-driven. The formal
+backup root becomes visible only after an initializing journal is durable and
+is published with no-replace atomic rename. Every mutation boundary performs a
+fresh prefix-user audit; signals trigger rollback, and a later recover/rollback
+is idempotent from the durable journal. Framework consumers cannot observe a
+partially replaced prefix.

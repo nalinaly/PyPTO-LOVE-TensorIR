@@ -1,10 +1,10 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0021`
+**Checkpoint:** `CP-0022`
 
-**Status:** R0 remains open; the first P1 single-DSO compiler boundary is
-accepted. TargetInfo execution waits behind the current protected-workload
-gate; no NVIDIA compiler/runtime or model milestone is accepted.
+**Status:** R0 remains open; P1 single-DSO and immutable SM120 TargetInfo are
+accepted. No TensorIR/CUDA compilation, runtime launch, CUDA operator or model
+milestone is accepted.
 
 ## Current truth
 
@@ -152,19 +152,37 @@ gate; no NVIDIA compiler/runtime or model milestone is accepted.
   `upstream/triton`, but the environment still imports the inherited external
   editable distribution until a hermetic workspace wheel is built and
   installed.
-- A separate clean worktree now contains source-reviewed SM120 TargetInfo
-  candidate `9939b88`. It has explicit resource/toolchain/dtype identity and
-  fail-closed legacy isolation, but has not been built or imported. It must be
-  applied only after the now-accepted single-DSO CMake transaction.
+- The exact-wheel transaction now has bounded unreviewed materialization,
+  source-frozen archive/manifest review, exact producer RECORD identity,
+  offline minimal-bwrap build, native/RECORD wheel audit, pip-free fresh probe,
+  reference-only SM120 smoke and reversible replacement tooling. Unit tests are
+  source/tooling evidence only: 1/10 dependency archives are currently pinned,
+  no reviewed manifest exists, and no exact Triton wheel has been built or
+  installed yet.
+- The control implementation is layered as `0c4cc34` (CPU-only isolation and
+  materialization), `befe44c` (wheel/native audit and fresh probe), `640c35a`
+  (reference-only smoke/finalization), and `c987811` (journaled replacement).
+  The isolated root suite passes 165 tests plus 29 subtests. Every Python file,
+  every runbook Bash fence and `git diff --check` also pass.
+- All project-environment consumers now hold a shared lock; plan shares it and
+  apply/recover/rollback require an exact inherited exclusive lock and direct
+  child. The replacement uses a durable initializing journal, atomic no-replace
+  backup publication, exact prefix-user audits, stdlib RECORD installation and
+  idempotent recovery/rollback. No real replacement has run.
+- The source-reviewed TargetInfo candidate `9939b88` is integrated as PyPTO
+  `042878dd6825bb65ed03f22db7b067fb96277623`. Fresh native CTest passes 2/2;
+  the wheel has 177 safe members and one DSO; 31 targeted tests, 10,209 full
+  tests with 57 unchanged skips, and the independent symlink case pass. EV-0034
+  binds the three successful run IDs, Git tree, wheel/DSO, log and JUnit hashes.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact
   two-file commit boundary. Its recovery-audit lineage and final passing run
   IDs are recorded in EV-0033.
-- A separate approved TargetInfo runbook freezes the conflict-free ordered
-  cherry-pick, fresh native 2/2 CTest, fresh one-DSO wheel/installed-DSO audit,
-  31 targeted tests and corrected 10,209-pass/57-skip full suite. It also
-  remains unexecuted.
+- A separate read-only recovery audit binds current `042878d` source/tree and
+  clean upstreams to the retained wheel/log/JUnit hashes. Its first attempt
+  failed on a copied tree-SHA typo and changed no product; the corrected run is
+  recorded in EV-0034.
 - TensorIR source audit proves its `IRuntimeKernel` is not a persistent
   artifact: complete argument/grid metadata lacks versioned serialization,
   runtime initialization is not synchronized, and support/workspace checks are
@@ -183,18 +201,21 @@ gate; no NVIDIA compiler/runtime or model milestone is accepted.
   evidence and the CPython 3.12 baseline environment is not built yet.
 - Prior reconnaissance did not complete a TensorIR SM120 runtime launch. Static
   target support is not runtime acceptance.
-- The user resumed the previously blocked goal and preflight became green long
-  enough to close the complete single-DSO gate. A later recheck before
-  TargetInfo saw eight newly launched protected zcode/SGLang processes; no
-  TargetInfo action began. Protected processes remain untouchable.
+- The user explicitly authorized non-benchmark CPU-only coexistence with a
+  protected lane. The new policy is opt-in, retains NVIDIA/environment checks,
+  uses a 24 GiB launch floor and 16 GiB owned-run pause floor, and never signals
+  external PIDs. TargetInfo itself used green windows and no waiver. A separate
+  live control run `pypto-20260824T075816Z-91897-64e1ea` passed the full root
+  suite beside seven protected heavy processes with waiver=true, no protected
+  NVIDIA compute PID, no pause/abort and no external signal. EV-0035 binds the
+  log/preflight/process hashes; this is not GPU or performance evidence.
 
 ## Resume action
 
-The goal is active, not complete. Wait for the currently observed protected
-zcode/SGLang lane to exit naturally, then run
-`python tools/preflight.py --mode heavy`. If and only if it is green, apply and
-execute `docs/target_info_acceptance_gate.md` before any CompileRequest code.
-Next build the exact Triton wheel and remove the external editable runtime. If
-protected zcode work remains active, continue only source/test work that does
-not compile, launch a model, or claim runtime acceptance. Never inherit
+The goal is active, not complete. Finish the source-anchored exact Triton
+materialize/review/build/probe/smoke/replacement transaction while the
+pointer-free CompileRequest contract from `docs/compile_request_artifact_design.md`
+proceeds as the next isolated PyPTO commit.
+Use explicit CPU-only coexistence only for non-benchmark build/test work; GPU
+smoke/benchmarks require exclusive `gpu-benchmark` preflight. Never inherit
 TensorIR's SM100 defaults.

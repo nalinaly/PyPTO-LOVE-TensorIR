@@ -3,15 +3,20 @@
 This runbook applies only after every gate in
 `docs/single_dso_acceptance_gate.md` passes, the two-file DSO transaction is
 committed, and its checkpoint/evidence is durable. Candidate
-`9939b885041b931284f7ce56ecbf888601b60b6e` remains source-reviewed and unbuilt
-until then.
+`9939b885041b931284f7ce56ecbf888601b60b6e` was integrated as
+`042878dd6825bb65ed03f22db7b067fb96277623` and this gate is retained as the
+reproducible acceptance recipe.
 
-The single-DSO prerequisite is now committed at `e463bce...`; this runbook is
-the next compiler transaction whenever a fresh heavy preflight is green.
+The single-DSO prerequisite is committed at `e463bce...`; all TargetInfo blocks
+and the lineage recovery audit pass. The user explicitly authorized CPU-only
+coexistence with the protected zcode/gem5 lane. This does not waive NVIDIA,
+environment, or DSO gates. CPU-only coexistence uses a 24 GiB launch floor and
+a 16 GiB owned-run pause floor; ordinary heavy work retains 32 GiB.
 
-Every build/test block starts through `tools/run_isolated.py --mode heavy` and
-therefore requires a fresh green protected-workload preflight. Never signal or
-clean an external zcode/gem5 process.
+Every build/test block starts through `tools/run_isolated.py --mode heavy
+--allow-protected-cpu-only-coexistence`, performs a second action-boundary
+preflight, and uses an owned-run memory watchdog. Never signal or clean an
+external zcode/gem5 process. This gate is not benchmark evidence.
 
 ## 1. Ordered integration transaction
 
@@ -26,6 +31,9 @@ ws=/home/zhaosiying/pypto-love-tensor-ir
 src=$ws/projects/pypto
 candidate=9939b885041b931284f7ce56ecbf888601b60b6e
 base=f550d4c33e8fef03e7dabcbf60c3db38b0f0a215
+
+python "$ws/tools/preflight.py" --mode heavy \
+  --allow-protected-cpu-only-coexistence >/dev/null
 
 cd "$src"
 test "$(git rev-parse "$candidate^")" = "$base"
@@ -61,7 +69,9 @@ The expected result is one clean cherry-pick commit containing the complete
 
 ```bash
 envs/pypto-nvidia/bin/python tools/run_isolated.py \
-  --mode heavy --environment pypto-nvidia --framework-profile pypto -- \
+  --mode heavy --allow-protected-cpu-only-coexistence \
+  --timeout-seconds 7200 --minimum-free-disk-gib 64 \
+  --environment pypto-nvidia --framework-profile pypto -- \
   /bin/bash -c '
 set -euo pipefail
 ws=/home/zhaosiying/pypto-love-tensor-ir
@@ -120,7 +130,9 @@ or CUDA runtime evidence.
 
 ```bash
 envs/pypto-nvidia/bin/python tools/run_isolated.py \
-  --mode heavy --environment pypto-nvidia --framework-profile pypto -- \
+  --mode heavy --allow-protected-cpu-only-coexistence \
+  --timeout-seconds 7200 --minimum-free-disk-gib 64 \
+  --environment pypto-nvidia --framework-profile pypto -- \
   /bin/bash -c '
 set -euo pipefail
 ws=/home/zhaosiying/pypto-love-tensor-ir
@@ -203,7 +215,9 @@ reused.
 
 ```bash
 envs/pypto-nvidia/bin/python tools/run_isolated.py \
-  --mode heavy --environment pypto-nvidia --framework-profile pypto -- \
+  --mode heavy --allow-protected-cpu-only-coexistence \
+  --timeout-seconds 7200 --minimum-free-disk-gib 64 \
+  --environment pypto-nvidia --framework-profile pypto -- \
   /bin/bash -c '
 set -euo pipefail
 ws=/home/zhaosiying/pypto-love-tensor-ir

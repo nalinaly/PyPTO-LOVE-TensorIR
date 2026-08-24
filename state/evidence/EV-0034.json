@@ -1,0 +1,113 @@
+{
+  "id": "EV-0034",
+  "kind": "pypto_nvidia_sm120_target_info_acceptance",
+  "status": "pass_target_identity_build_package_api_no_cuda_compile_or_launch",
+  "repository": {
+    "path": "projects/pypto",
+    "head": "042878dd6825bb65ed03f22db7b067fb96277623",
+    "tree": "e956f6d677c5098f43ae3a63da2da2099fd2d6f3",
+    "parent": "e463bce7849b2239d0457dcae78ccf41c65ffa55",
+    "candidate": "9939b885041b931284f7ce56ecbf888601b60b6e",
+    "candidate_patch_equivalent": true,
+    "changed_paths": 34,
+    "tracked_dirty": false,
+    "submodule_cache_dirty": true
+  },
+  "native_gate": {
+    "run_id": "pypto-20260824T055017Z-4954-3c74c4",
+    "build_edges": "245/245",
+    "ctest": "2/2 passed",
+    "target_info_source_rows": {
+      "pypto_compiler_objects": 1,
+      "pypto_nvidia_target_info_test": 1,
+      "pypto_core": 0
+    },
+    "compiler_binding_rows": {
+      "pypto_core": 1,
+      "runtime_common_include": true
+    },
+    "log_sha256": "2a5303815ac95bfbbde55580fcf8bec5a9cfed456b40a63c78d1e9187eb3c9d4"
+  },
+  "wheel_gate": {
+    "run_id": "pypto-20260824T055547Z-10452-95516b",
+    "filename": "pypto-0.1.0-cp314-cp314-linux_x86_64.whl",
+    "sha256": "dd614907ed7055b71e554ca869acb350773a856e8b10cc144dfc1420b179aaeb",
+    "members": 177,
+    "members_unique": true,
+    "paths_safe": true,
+    "archive_symlinks": 0,
+    "native_dso_count": 1,
+    "native_dso_sha256": "dec8082f172908d0f7bbacc016c9a9685be2ab07df0f58352400068ab2f6c458",
+    "build_installed_dso_equal": true,
+    "dt_needed": [
+      "libstdc++.so.6",
+      "libm.so.6",
+      "libgcc_s.so.1",
+      "libc.so.6",
+      "ld-linux-x86-64.so.2"
+    ],
+    "rpath_runpath_present": false,
+    "log_sha256": "e57a97de8eb922630ee804b5648557f942ca1f77113fbc0040a27f9c7d2dd940"
+  },
+  "clean_install_and_regression": {
+    "run_id": "pypto-20260824T060546Z-17012-8bdb23",
+    "target_info_junit": {
+      "tests": 31,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "82fa391c3c3ea579296f9ba03f75475728fa2d982c2f84783aab38259d334566"
+    },
+    "full_junit": {
+      "tests": 10266,
+      "passed": 10209,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 57,
+      "sha256": "73774e40a8d4606a48b99361ca5b54a3bb6bdce02cc25ea15a332307e5aeb89a"
+    },
+    "compiled_program_memory_map_subset": "115 passed",
+    "independent_symlink_case": "1 passed",
+    "log_sha256": "674ffdca714a524c81fa8ba7520d493907abb3d7d31c92ea5a05bc97b1483519"
+  },
+  "source_artifact_lineage_recovery": {
+    "run_id": "pypto-20260824T063925Z-46971-995b8c",
+    "status": "pass",
+    "log_sha256": "ffc130446b040b1ef1d3ac5a525e8ba1b33d76dfaaafe44363c7b71a9c5545fb",
+    "preflight_sha256": "b36b52da9f633f8c8372aa98e7ae154c4bd986effcac85e058f8ac41d5acdc65",
+    "failed_typo_run": "pypto-20260824T063833Z-46684-462fb9",
+    "failed_typo_log_sha256": "7d07abe5b47c80aaefe5431683e96fe7958d45a82dfcc8e6d55298d94fc07265",
+    "failed_typo_effect": "read-only audit stopped before artifact checks; no product changed"
+  },
+  "legacy_isolation": {
+    "ascend_enum_values_preserved": true,
+    "nvidia_enum_value": 2,
+    "nvidia_legacy_backend_singleton_absent": true,
+    "legacy_compile_replay_memory_map_reject_nvidia": true
+  },
+  "upstreams": {
+    "pytorch": "cf30153c4c131c8164ee7798e5022d810682e2cb clean",
+    "sglang": "71de97b264b04dcd514cf904003028aefe9775c8 clean",
+    "triton": "5d6048aa0a324e090ada215b609ea76620133845 clean"
+  },
+  "resource_incident_not_acceptance": {
+    "run_id": "pypto-20260824T020100Z-2381032-c141e8",
+    "stopped_at_edge": "106/245",
+    "reason": "MemAvailable crossed the then-16-GiB owned-run pause floor",
+    "external_signal_sent": false,
+    "resume_signal_sent": false,
+    "final_process_status": "absent before ownership-checked resume; cause not attributable after later process-namespace reset"
+  },
+  "review": {
+    "pre_execution": "three source/runbook reviews",
+    "post_execution": "independent final review accepted code and artifacts with no P0/P1"
+  },
+  "not_claimed": [
+    "live-device-derived TargetInfo construction",
+    "TensorIR/LLVM/CUDA Tile build composition",
+    "CompileRequest, KernelBuildSpec, Artifact or cache",
+    "CUBIN/PTX compile, module load, current-stream launch or CUDA Graph",
+    "CUDA operator/model correctness, strict coverage or performance",
+    "live coexistence success beside an active protected heavy lane"
+  ]
+}

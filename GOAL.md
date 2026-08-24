@@ -2,10 +2,12 @@
 
 **Goal ID:** `PYPTO-NVIDIA-QWEN35-V1`
 
-**Execution status:** active after user resume. The single-DSO boundary is
-accepted at PyPTO `e463bce...`; the next TargetInfo heavy gate waits whenever a
-protected zcode/gem5 lane is active. The full objective and acceptance criteria
-remain unchanged. Never signal those processes.
+**Execution status:** active. The single-DSO and immutable SM120 TargetInfo
+boundaries are accepted at PyPTO `042878d...`. Exact PyTorch-pinned Triton
+replacement gates and live protected CPU-only coexistence controls are now
+committed; dependency materialization/replacement and the data-only
+CompileRequest boundary are next. The full objective and acceptance criteria
+remain unchanged. Never signal protected amdgpu-sim/zcode processes.
 
 Build a usable, high-performance NVIDIA SM120 backend for the authorized PyPTO
 source; internalize NVIDIA TensorIR/CUDA Tile behind the single public `pypto`

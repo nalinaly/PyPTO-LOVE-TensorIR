@@ -17,6 +17,11 @@
 - [ ] Freeze R0 evidence and advance `PLAN.md` to P1.
 - [ ] Replace the inherited external editable Triton with an in-workspace build
       of PyTorch's exact `5d6048aa...` pin.
+- [x] Commit bounded dependency materialization, exact wheel/native audit,
+      pip-free fresh probe, finalized reference-only SM120 smoke and reversible
+      stdlib environment-replacement gates in four reviewable control commits.
+- [x] Enforce shared environment locks for every consumer and an inherited,
+      direct-child exclusive lock for replacement/recovery transactions.
 - [x] Materialize and verify the exact official Triton source/tree under
       `upstream/triton` (source-only; wheel/install gate remains open).
 - [x] Replace inherited editable FlashInfer with official `0.6.17`.
@@ -32,8 +37,9 @@
       staged-file boundary.
 - [x] Produce a three-review-approved SM120 TargetInfo source candidate in a
       separate worktree; explicitly mark it unbuilt/unverified.
-- [ ] After object-DSO acceptance, apply candidate `9939b88`, resolve CMake,
-      and pass native/Python/wheel/unchanged-Ascend validation.
+- [x] Apply candidate `9939b88` after object-DSO acceptance and pass fresh
+      native 2/2 CTest, one-DSO wheel, 31 TargetInfo cases, 10,209-pass/57-skip
+      full regression and the independent symlink probe at PyPTO `042878d`.
 - [x] Freeze and independently approve the conflict-checked TargetInfo
       acceptance runbook with fresh native, one-DSO wheel and exact test-count
       gates.
@@ -95,10 +101,14 @@
       no-replace benchmark publication under ignored artifacts and run the
       first CUDA-event measurements.
 
-## Safety hold
+## Protected coexistence
 
-The user resumed the goal and green preflight windows allowed single-DSO
-acceptance. The latest pre-TargetInfo check saw eight newly launched protected
-zcode/SGLang processes, so no TargetInfo action began. Wait for natural exit
-and rerun preflight. Observation is allowed; signals and cleanup remain
-forbidden.
+The user explicitly authorized non-benchmark CPU-only coexistence with a
+protected zcode/gem5 lane. Use only the explicit heavy coexistence flag: 24 GiB
+launch floor, living-runner 16 GiB pause floor, action-boundary and periodic
+NVIDIA PID audit, and verified signals only to this workspace's recorded PGID.
+GPU benchmarks never coexist. External signals and cleanup remain forbidden.
+The isolated root control suite has now passed live beside seven protected
+heavy processes with no protected NVIDIA compute PID, no pause/abort and no
+external signal; EV-0035 binds that run. This is control evidence only, not a
+GPU/compiler/model/performance result.

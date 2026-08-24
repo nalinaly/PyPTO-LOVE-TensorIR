@@ -1,0 +1,109 @@
+{
+  "id": "EV-0035",
+  "kind": "exact_triton_gate_and_protected_cpu_only_coexistence_control",
+  "status": "pass_tooling_and_live_cpu_only_coexistence_no_real_triton_artifact",
+  "implementation_commits": [
+    {
+      "commit": "0c4cc34ed58516875169a9dbab72a06e5fafeff7",
+      "subject": "tools: isolate protected CPU-only build work"
+    },
+    {
+      "commit": "befe44c48934a95140a19bb14f7f3d7cf56bfed8",
+      "subject": "tools: audit and probe exact Triton wheel"
+    },
+    {
+      "commit": "640c35af7947be1002fdcb9be581d1d011cdf136",
+      "subject": "tools: bind reference SM120 smoke evidence"
+    },
+    {
+      "commit": "c98781103c57e0cb372686f1f507433b3d98f1e6",
+      "subject": "tools: transact Triton environment replacement"
+    }
+  ],
+  "tool_sha256": {
+    "VERSIONS.lock": "1ec4074f93984e956d13e265cd4ba06881152fb360bfe115832d83103484f812",
+    "benchmarks/operators/triton_reference_sm120.py": "1c43223aefc4a0e63f7d45fb1ccfa60db0b1cd2e4262b675b3626a6f8940ce4b",
+    "docs/triton_workspace_wheel_acceptance_gate.md": "2072d283ca2aa5b1a55a64b56dfaf70de6d009aba35aa45aaf2f3f6df8bac637",
+    "tools/audit_python_environment.py": "005e2c4a5e5695404b9c90ebe316703475913803fc69e98c586643883b1d92b0",
+    "tools/audit_triton_wheel.py": "638019fca115e4c7a3a8866f706b4a608980785fdff8d0c6c187579a9c306efd",
+    "tools/finalize_triton_reference_smoke.py": "36a4fd85b5ee9d4be06c81d53848e5893dff78dc8dd5ff4931acfa2c60598fa8",
+    "tools/import_models.py": "00158744dcaa910b49167498d5505cdbc0334e986bbaf9166cb5901e6265621a",
+    "tools/materialize_triton_dependencies.py": "6460f032ed3099c17660aa75e75e16e133ba280197cd5069712a8047034079b2",
+    "tools/preflight.py": "71ba5ca604e65d87c70f3ff4227ab9319d3077c8a89a238520a9d06cd60b7975",
+    "tools/probe_triton_wheel.py": "159049e2fa6a0393e71330a532e4d6ca1c119fcd9b98cbe6312c412e7f2e1ee5",
+    "tools/replace_triton_environment.py": "d6df4c15cade561ca3fa628940c348c0a926763170953168676ea2452a57deba",
+    "tools/run_isolated.py": "76180f9717c58c62bb66b6a526eaad1f4033ae113740c9460dcddbafb710d763",
+    "tools/stop_run.py": "6273f550da2b98a41531ef7cc943567b0c031b86e2a2882c3d1302c4888e33ef"
+  },
+  "root_control_regression": {
+    "run_id": "pypto-20260824T075816Z-91897-64e1ea",
+    "command": "envs/pypto-nvidia/bin/python -B -m pytest -q tests",
+    "tests_passed": 165,
+    "subtests_passed": 29,
+    "return_code": 0,
+    "process_status": "exited",
+    "log_sha256": "4efd8e500a99a2bf0d64b4df4c2bc670f38c10128e0ee7566c9a76182085d805",
+    "preflight_sha256": "a39fd2d733de0a71032e883f68957b0584c68bf024f87f90c94980b8edc9a002",
+    "process_metadata_sha256": "d484dc6acab4d41bdbb124b532daea5b67402cce91ac4a3d343d901c2c50b052",
+    "python_compile_all": "pass",
+    "runbook_bash_fences": "bash -n pass",
+    "git_diff_check": "pass"
+  },
+  "live_protected_cpu_only_coexistence": {
+    "waiver_applied": true,
+    "protected_heavy_process_count": 7,
+    "protected_nvidia_compute_pids": [],
+    "launch_mem_available_kib": 49492244,
+    "launch_memory_floor_kib": 25165824,
+    "child_cuda_visible_devices": "",
+    "environment_access_lock_mode": "shared",
+    "coexistence_pauses": [],
+    "coexistence_abort": null,
+    "gpu_benchmark_abort": null,
+    "external_signal_sent": false,
+    "separate_lock_smoke": {
+      "run_id": "pypto-20260824T075132Z-88129-b9cb1d",
+      "return_code": 0,
+      "asserted_inherited_fd_readable": true,
+      "asserted_controller_is_parent": true,
+      "preflight_sha256": "be379c83b5059ad9017af2622f670c57ccb7816d2a419886511841d7aac74f17",
+      "process_metadata_sha256": "5349bdd08a311ba56e0f39da47a50082c1dc20b57dc5f4252a793ef85ed7e3da"
+    }
+  },
+  "recovered_test_harness_failure": {
+    "run_id": "pypto-20260824T075212Z-88432-6d44bc",
+    "failure": "synthetic replacement workspaces inherited the real root lock marker",
+    "effect": "12 unit failures only; no environment mutation and no external signal",
+    "fix": "replacement test fixtures remove and restore ambient lock markers, then install exact synthetic markers in inheritance tests",
+    "failed_log_sha256": "06bb7b5fad77127b4fe5ca965a1966950d66c68043c7ec6187004a1b34b27913"
+  },
+  "current_environment_expected_rejection": {
+    "return_code": 75,
+    "failure_count": 7,
+    "reason": "the inherited Triton distribution remains an external editable until the reviewed transaction runs",
+    "log_sha256": "c49dbac83eda463ce3ded907e4085c406973df10e913e962a0f4860865da4594"
+  },
+  "transaction_gate_state": {
+    "dependency_archives_source_pinned": 1,
+    "dependency_archives_total": 10,
+    "reviewed_manifest": "UNREVIEWED",
+    "dependency_materialization_executed": false,
+    "wheel_built": false,
+    "fresh_probe_executed": false,
+    "gpu_reference_smoke_executed": false,
+    "environment_replacement_executed": false
+  },
+  "review": {
+    "independent_agents": 3,
+    "remaining_p0": 0,
+    "remaining_p1": 0
+  },
+  "not_claimed": [
+    "reviewed Triton dependency bytes or manifest",
+    "Triton wheel build, fresh probe, GPU smoke or environment replacement",
+    "PyPTO CUDA compilation, module load or launch",
+    "CUDA operator or model correctness",
+    "strict model-forward coverage",
+    "operator or end-to-end performance"
+  ]
+}

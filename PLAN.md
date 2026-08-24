@@ -1,8 +1,16 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `11`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `13`
 
 ## Current phase: R0 workspace and provenance bootstrap
+
+Checkpoint `CP-0022` accepts immutable SM120 TargetInfo at PyPTO `042878d` and
+freezes the exact Triton dependency/wheel/probe/replacement machinery plus the
+shared/exclusive environment transaction law. A live CPU-only control suite
+passes beside an active protected lane without exposing CUDA or signalling it.
+R0 stays open until the source-anchored Triton wheel replaces the inherited
+editable, the CPython 3.12 baseline is locked, and unmodified SGLang baselines
+run.
 
 Checkpoint `CP-0005` has source/model/environment provenance, the first
 standalone semantic operator layer, Torch constructor-dispatch law, and
@@ -10,7 +18,8 @@ candidate/baseline process isolation frozen. R0 remains open until exact Triton
 wheels replace the inherited editable source, the CPython 3.12 baseline
 environment is locked, and unmodified SGLang baselines are captured. In
 parallel, the first P1 build-only object boundary is accepted at PyPTO
-`e463bce...`; the next ordered compiler transaction is SM120 TargetInfo.
+`042878d...`; the next compiler transaction is the pointer-free CompileRequest
+contract, while exact Triton replacement proceeds as R0 compatibility work.
 
 Checkpoint `CP-0006` additionally freezes the strict runtime-coverage evidence
 contract: fixed collector revision, closed trace and artifact-registry digest
@@ -95,7 +104,16 @@ Checkpoint `CP-0021` records user resume and accepts the single-DSO compiler
 boundary. Native ownership/CTest, editable and wheel JUnit, fresh one-DSO
 packaging, installed dependency/import/console-script and symlink gates all
 pass; two audit-script false positives are preserved with successful recovery
-run IDs. TargetInfo remains unbuilt and is now the next heavy-gated transaction.
+run IDs.
+
+Checkpoint `CP-0022` integrates the exact 34-path TargetInfo candidate as
+`042878d`. Fresh native CTest is 2/2; the new one-DSO wheel and clean install
+pass 31 targeted cases, 10,209 full-suite cases with 57 unchanged skips, and
+the independent symlink case. Source/artifact lineage is rebound by a separate
+read-only recovery audit. This accepts target identity/build/package/API only,
+not CUDA compile or launch. EV-0035 additionally accepts the exact Triton gate
+tooling and live protected CPU-only control path; it explicitly records that no
+dependency materialization, wheel, GPU smoke, or replacement has run.
 
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.
@@ -106,7 +124,9 @@ run IDs. TargetInfo remains unbuilt and is now the next heavy-gated transaction.
 4. Clone the `triton-dev` environment into a project-local prefix without
    modifying the original environment.
 5. Copy Qwen3.5 weights from the read-only AMD simulator tree into `models/`
-   only when protected zcode/gem5 workloads are idle; verify every hash.
+   after the default idle gate, or only with the explicit CPU-only coexistence
+   flag while the 24 GiB and protected-NVIDIA-compute boundary remains green;
+   recheck at each file EOF/publication boundary and verify every hash.
 6. Generate the checkout-grounded `docs/implementation_map.txt` and freeze the
    unmodified SGLang baseline before compiler changes.
 

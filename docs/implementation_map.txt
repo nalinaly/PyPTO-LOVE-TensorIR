@@ -10,11 +10,12 @@ This is an ownership/implementation map, not a runtime-support claim.
 --------------------------------------
 
 projects/pypto
-  Head: e463bce7849b2239d0457dcae78ccf41c65ffa55 on
-  feature/nvidia-sm120. The internal compiler-object/single-DSO boundary is
-  accepted: native CTest, editable 10,176/59, fresh one-DSO wheel and clean
-  wheel 10,178/57 gates pass. The only reported dirt is ignored/untracked cache
-  content inside the pinned NVIDIA submodules; tracked files are clean.
+  Head: 042878dd6825bb65ed03f22db7b067fb96277623 on
+  feature/nvidia-sm120. The compiler-object/single-DSO and immutable SM120
+  TargetInfo boundaries are accepted: native CTest 2/2, fresh one-DSO wheel,
+  31 TargetInfo tests and clean wheel 10,209/57 gates pass. The only reported
+  dirt is ignored/untracked cache content inside the pinned NVIDIA submodules;
+  tracked files are clean.
 
 projects/pypto-kernels
   Head: 6f73857b52c86dd98e25d23fbc825a675fb25b6a. Contains framework-neutral
@@ -44,6 +45,10 @@ Read-only compatibility/reference checkouts
   upstream/sglang:  71de97b264b04dcd514cf904003028aefe9775c8
   upstream/triton:  5d6048aa0a324e090ada215b609ea76620133845
   Triton tree:      448265acc1eff726c2e528813552865b33546cc9
+  Root commits 0c4cc34/befe44c/640c35a/c987811 own bounded dependency
+  materialization, wheel/native audit, pip-free probe, finalized reference-only
+  smoke and journaled environment replacement. These are committed gates; the
+  reviewed dependency manifest and real wheel transaction remain open.
 
 There is no NVIDIA PyPTO compile pipeline, TensorIR-to-TileIR result, SM120
 cubin, NVIDIA runtime launch, SGLang baseline or strict-coverage result yet.
@@ -135,9 +140,9 @@ First target commit
   python/bindings/modules/compiler.cpp
   python/pypto/compiler/__init__.py
   tests/ut/compiler/test_target_info.py
-    BackendType::Nvidia and immutable NvidiaTargetInfo. User identity is
-    nvidia:sm_120/sm_120; an arch-conditional cubin may use sm_120a. Candidate
-    9939b88 remains source-reviewed/unbuilt until the single-DSO gate closes.
+    Implemented and accepted in 042878d. BackendType::Nvidia and immutable
+    NvidiaTargetInfo expose nvidia:sm_120/sm_120; an arch-conditional cubin may
+    use sm_120a. This is target identity, not CUDA compile/runtime acceptance.
 
 Second data-only request commit
   include/pypto/compiler/compile_request.h
@@ -459,8 +464,8 @@ No restart, driver/kernel change or WSL shutdown is authorized.
 11. Mandatory order derived from this map
 -----------------------------------------
 
-  1. Close the object-target full-test and fresh-wheel gate.
-  2. Integrate/build/package immutable NvidiaTargetInfo; retain Ascend behavior.
+  1. [done] Close the object-target full-test and fresh-wheel gate.
+  2. [done] Integrate/build/package immutable NvidiaTargetInfo; retain Ascend behavior.
   3. Add the pointer-free data-only CompileRequest contract.
   4. Materialize exact LLVM and prove fully disconnected TensorIR/CUDA Tile
      configure/link composition with no second public product.
