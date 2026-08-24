@@ -131,6 +131,14 @@ WHEEL_PATH = f"{DIST_INFO}/WHEEL"
 RECORD_PATH = f"{DIST_INFO}/RECORD"
 MODULE_PATH = "triton/__init__.py"
 FILECHECK_PATH = "triton/FileCheck"
+LIBTRITON_PATH = "triton/_C/libtriton.so"
+LIBTRITON_DEPENDENT_ELF_PATHS = frozenset(
+    {
+        "triton/plugins/libMLIRDialectPlugin.so",
+        "triton/plugins/libMLIRDialectPlugin.so.23.0git",
+        "triton/plugins/libTritonPluginsTestLib.so",
+    }
+)
 NVIDIA_BIN_PREFIX = "triton/backends/nvidia/bin"
 NVIDIA_LIB_PREFIX = "triton/backends/nvidia/lib"
 LIBDEVICE_PATH = f"{NVIDIA_LIB_PREFIX}/libdevice.10.bc"
@@ -1193,12 +1201,34 @@ def audit_elf_files(
             limits=limits,
             description=f"readelf {relative}",
         )
+        parsed = _parse_readelf(readelf_raw, relative)
+        wheel_library_path = None
+        needs_libtriton = "libtriton.so" in parsed["dt_needed"]
+        if relative in LIBTRITON_DEPENDENT_ELF_PATHS:
+            if not needs_libtriton:
+                raise AuditError(
+                    f"allowlisted plugin does not depend on libtriton.so: {relative}"
+                )
+            internal_libtriton = extraction_root.joinpath(
+                *PurePosixPath(LIBTRITON_PATH).parts
+            )
+            if not internal_libtriton.is_file() or internal_libtriton.is_symlink():
+                raise AuditError("wheel-owned libtriton dependency target is absent or unsafe")
+            with internal_libtriton.open("rb") as source:
+                if source.read(4) != b"\x7fELF":
+                    raise AuditError("wheel-owned libtriton dependency target is not ELF")
+            wheel_library_path = PurePosixPath(LIBTRITON_PATH).parent.as_posix()
+        elif needs_libtriton and relative != LIBTRITON_PATH:
+            raise AuditError(
+                f"unexpected wheel ELF depends on libtriton.so: {relative}"
+            )
         ldd_raw = run_limited_command(
             _bubblewrap_ldd_argv(
                 tools.bwrap,
                 tools.ldd,
                 extraction_root,
                 relative,
+                wheel_library_path,
             ),
             temp_root=temp_root,
             limits=limits,
@@ -1207,7 +1237,6 @@ def audit_elf_files(
         if re.search(r"\bnot found\b", ldd_raw, flags=re.IGNORECASE):
             raise AuditError(f"ldd has an unresolved dependency for {relative}")
         _check_native_text(ldd_raw, f"ldd output for {relative}")
-        parsed = _parse_readelf(readelf_raw, relative)
         if parsed["rpath"] or parsed["runpath"]:
             raise AuditError(f"native ELF contains RPATH/RUNPATH: {relative}")
         for resolved_dependency in re.findall(
@@ -1241,6 +1270,7 @@ def audit_elf_files(
                 "ldd": {
                     "output": normalized_ldd,
                     "output_sha256": sha256_bytes(normalized_ldd.encode("utf-8")),
+                    "wheel_library_path": wheel_library_path,
                     "status": "resolved",
                 },
                 "machine": parsed["machine"],
@@ -1316,9 +1346,15 @@ def _bubblewrap_ldd_argv(
     ldd: Path,
     extraction_root: Path,
     relative_elf: str,
+    wheel_library_path: str | None = None,
 ) -> list[str]:
     relative = _safe_member_name(relative_elf, "ELF path")
-    return [
+    library_path = (
+        _safe_member_name(wheel_library_path, "wheel ELF library path")
+        if wheel_library_path is not None
+        else None
+    )
+    argv = [
         str(bwrap),
         "--die-with-parent",
         "--new-session",
@@ -1359,9 +1395,11 @@ def _bubblewrap_ldd_argv(
         "LANG=C",
         "LC_ALL=C",
         "PATH=/usr/bin:/bin",
-        str(ldd),
-        f"/wheel/{relative.as_posix()}",
     ]
+    if library_path is not None:
+        argv.append(f"LD_LIBRARY_PATH=/wheel/{library_path.as_posix()}")
+    argv.extend((str(ldd), f"/wheel/{relative.as_posix()}"))
+    return argv
 
 
 def probe_wheel_tools(

@@ -209,6 +209,12 @@ CMake payload plus `tools/remove_elf_rpath.cmake`. The original reviewed LLVM
 tree remains unchanged. Source provenance binds the input, transform, tool,
 and derived-output hashes, and the build sandbox overlays only that exact
 derived file. The wheel auditor still rejects every RPATH/RUNPATH entry.
+The three exact upstream example-plugin ELFs have `DT_NEEDED=libtriton.so`.
+For only those paths, the isolated `ldd` audit sets
+`LD_LIBRARY_PATH=/wheel/triton/_C` so resolution is proven against the wheel's
+own ELF without reintroducing a RUNPATH or preloading libtriton into the audit
+shell. Any other libtriton-dependent ELF, unresolved dependency, or external
+resolution path is rejected.
 After a successful build, the runner accepts only the seven expected regular
 files in generated `python/triton.egg-info`, atomically retains that whole
 directory as `generated-source-metadata`, retains the setuptools staging tree

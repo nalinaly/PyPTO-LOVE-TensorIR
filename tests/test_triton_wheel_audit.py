@@ -404,6 +404,11 @@ class TritonWheelAuditTest(unittest.TestCase):
                 0o644,
             ),
             audit.FILECHECK_PATH: (self.filecheck, 0o755),
+            audit.LIBTRITON_PATH: (b"\x7fELFsynthetic libtriton\n", 0o755),
+            "triton/plugins/libTritonPluginsTestLib.so": (
+                b"\x7fELFsynthetic Triton plugin\n",
+                0o755,
+            ),
             audit.LIBDEVICE_PATH: (self.libdevice, 0o644),
             "triton/backends/nvidia/lib/cupti/libcupti.so.13": (
                 b"\x7fELFsynthetic CUPTI\n",
@@ -461,6 +466,12 @@ class TritonWheelAuditTest(unittest.TestCase):
         self.assertIsInstance(limits, audit.AuditLimits)
         if description.startswith("readelf "):
             self.assertEqual(argv[0], str(self.readelf.resolve()))
+            needed = (
+                "libtriton.so"
+                if description.removeprefix("readelf ")
+                in audit.LIBTRITON_DEPENDENT_ELF_PATHS
+                else "libc.so.6"
+            )
             return (
                 "ELF Header:\n"
                 "  Class:                             ELF64\n"
@@ -468,7 +479,7 @@ class TritonWheelAuditTest(unittest.TestCase):
                 "  Type:                              DYN (Shared object file)\n"
                 "  Machine:                           X86-64\n"
                 "  Build ID: 0123456789abcdef\n"
-                " 0x0000000000000001 (NEEDED) Shared library: [libc.so.6]\n"
+                f" 0x0000000000000001 (NEEDED) Shared library: [{needed}]\n"
             )
         if description.startswith("ldd "):
             self.assertEqual(argv[0], str(self.bwrap.resolve()))
@@ -476,6 +487,16 @@ class TritonWheelAuditTest(unittest.TestCase):
             self.assertIn("--ro-bind", argv)
             self.assertEqual(argv[-2], str(self.ldd.resolve()))
             self.assertTrue(argv[-1].startswith("/wheel/"))
+            relative = argv[-1].removeprefix("/wheel/")
+            library_path = "LD_LIBRARY_PATH=/wheel/triton/_C"
+            if relative in audit.LIBTRITON_DEPENDENT_ELF_PATHS:
+                self.assertIn(library_path, argv)
+                return (
+                    f"libtriton.so => /wheel/{audit.LIBTRITON_PATH} "
+                    "(0x0000000000000000)\n"
+                    "libc.so.6 => /lib64/libc.so.6 (0x0000000000000000)\n"
+                )
+            self.assertNotIn(library_path, argv)
             return (
                 "linux-vdso.so.1 (0x0000000000000000)\n"
                 "libc.so.6 => /lib64/libc.so.6 (0x0000000000000000)\n"
@@ -592,6 +613,14 @@ class TritonWheelAuditTest(unittest.TestCase):
         )
         self.assertEqual(
             len(wheel["native_manifest"]), len(wheel["elf_paths"])
+        )
+        plugin_record = next(
+            record
+            for record in wheel["native_manifest"]
+            if record["path"] == "triton/plugins/libTritonPluginsTestLib.so"
+        )
+        self.assertEqual(
+            plugin_record["ldd"]["wheel_library_path"], "triton/_C"
         )
         self.assertEqual(
             command.call_count,
