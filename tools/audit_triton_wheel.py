@@ -65,6 +65,13 @@ AUDIT_TOOL_PATHS = {
 PRODUCER_CMAKE_SHA256 = (
     "576c050dab1e1418b6703b5cfb523330567683dad0c60a5ff9cc23128143812e"
 )
+PRODUCER_CMAKE_PAYLOAD = (
+    ROOT
+    / "envs/pypto-nvidia/lib/python3.14/site-packages/cmake/data/bin/cmake"
+)
+PRODUCER_CMAKE_WRAPPER_SHA256 = (
+    "aadd40ffd6b8bc9dac19f6dadc7ee0800cdbb3cf72f5b1f1b8b24e37f61e97da"
+)
 PRODUCER_NINJA_SHA256 = (
     "696f9628a79d9ce50314cf9556d7cd1a1d1ec52b8fd52828f6f9db1719565b67"
 )
@@ -85,6 +92,11 @@ PRODUCER_SITE_IDENTITY = {
 }
 PRODUCER_IDENTITY_SCHEMA = 2
 PRODUCER_IDENTITY_SCOPE = "workspace-prefix-and-selected-host-build-tools"
+
+
+def producer_cmake_wrapper(payload: Path) -> bytes:
+    return f'#!/bin/sh\nexec {payload} "$@"\n'.encode("ascii")
+
 
 NVIDIA_TOOL_VERSIONS = {
     "ptxas": "12.8.93",
@@ -1646,12 +1658,24 @@ def _validate_producer_projection(
     bin_leaves = _tree_leaf_map(producer_bin)
     if set(bin_leaves) != {"cmake", "lit", "ninja"}:
         raise AuditError("producer-bin projection has an unexpected command set")
-    for name in ("cmake", "lit", "ninja"):
+    cmake = producer_bin / "cmake"
+    if (
+        cmake.is_symlink()
+        or not cmake.is_file()
+        or not os.access(cmake, os.X_OK)
+        or cmake.read_bytes() != producer_cmake_wrapper(PRODUCER_CMAKE_PAYLOAD)
+        or not PRODUCER_CMAKE_PAYLOAD.is_file()
+        or PRODUCER_CMAKE_PAYLOAD.is_symlink()
+    ):
+        raise AuditError("producer-bin CMake is not the exact payload exec-wrapper")
+    if sha256_file(cmake) != PRODUCER_CMAKE_WRAPPER_SHA256:
+        raise AuditError("producer-bin CMake exec-wrapper hash mismatch")
+    if sha256_file(PRODUCER_CMAKE_PAYLOAD) != PRODUCER_CMAKE_SHA256:
+        raise AuditError("producer CMake payload mismatch")
+    for name in ("lit", "ninja"):
         path = producer_bin / name
         if path.is_symlink() or not path.is_file() or not os.access(path, os.X_OK):
             raise AuditError(f"producer-bin {name} is not an executable regular file")
-    if sha256_file(producer_bin / "cmake") != PRODUCER_CMAKE_SHA256:
-        raise AuditError("producer-bin CMake payload mismatch")
     if sha256_file(producer_bin / "ninja") != PRODUCER_NINJA_SHA256:
         raise AuditError("producer-bin Ninja payload mismatch")
     lit_lines = (producer_bin / "lit").read_text(

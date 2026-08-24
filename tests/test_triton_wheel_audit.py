@@ -38,6 +38,21 @@ def load_auditor():
 audit = load_auditor()
 
 
+class FrozenCMakeProducerContractTest(unittest.TestCase):
+    def test_exec_wrapper_has_one_exact_fixed_path_and_hash(self) -> None:
+        payload = (
+            ROOT
+            / "envs/pypto-nvidia/lib/python3.14/site-packages/"
+            "cmake/data/bin/cmake"
+        )
+        expected = f'#!/bin/sh\nexec {payload} "$@"\n'.encode("ascii")
+        self.assertEqual(audit.PRODUCER_CMAKE_PAYLOAD, payload)
+        self.assertEqual(audit.producer_cmake_wrapper(payload), expected)
+        self.assertEqual(
+            audit.sha256_bytes(expected), audit.PRODUCER_CMAKE_WRAPPER_SHA256
+        )
+
+
 class TritonWheelAuditTest(unittest.TestCase):
     libdevice = b"synthetic libdevice for the local wheel auditor tests\n"
 
@@ -75,13 +90,16 @@ class TritonWheelAuditTest(unittest.TestCase):
         self.producer_site.mkdir()
         self.producer_bin.mkdir()
         (self.producer_site / "selected.txt").write_text("selected producer\n")
-        for name, payload in (
-            ("cmake", b"synthetic cmake\n"),
-            ("ninja", b"synthetic ninja\n"),
-        ):
-            path = self.producer_bin / name
-            path.write_bytes(payload)
-            path.chmod(0o755)
+        self.cmake_payload = self.workspace / "cmake-data/bin/cmake"
+        self.cmake_payload.parent.mkdir(parents=True)
+        self.cmake_payload.write_bytes(b"synthetic cmake payload\n")
+        self.cmake_payload.chmod(0o755)
+        cmake = self.producer_bin / "cmake"
+        cmake.write_bytes(audit.producer_cmake_wrapper(self.cmake_payload))
+        cmake.chmod(0o755)
+        ninja = self.producer_bin / "ninja"
+        ninja.write_bytes(b"synthetic ninja\n")
+        ninja.chmod(0o755)
         lit = self.producer_bin / "lit"
         lit.write_text(
             f"#!{self.workspace}/build-venv/bin/python\n"
@@ -95,6 +113,14 @@ class TritonWheelAuditTest(unittest.TestCase):
         cmake_patch = mock.patch.object(
             audit,
             "PRODUCER_CMAKE_SHA256",
+            audit.sha256_file(self.cmake_payload),
+        )
+        cmake_path_patch = mock.patch.object(
+            audit, "PRODUCER_CMAKE_PAYLOAD", self.cmake_payload
+        )
+        cmake_wrapper_sha_patch = mock.patch.object(
+            audit,
+            "PRODUCER_CMAKE_WRAPPER_SHA256",
             audit.sha256_file(self.producer_bin / "cmake"),
         )
         ninja_patch = mock.patch.object(
@@ -103,8 +129,12 @@ class TritonWheelAuditTest(unittest.TestCase):
             audit.sha256_file(self.producer_bin / "ninja"),
         )
         cmake_patch.start()
+        cmake_path_patch.start()
+        cmake_wrapper_sha_patch.start()
         ninja_patch.start()
         self.addCleanup(cmake_patch.stop)
+        self.addCleanup(cmake_path_patch.stop)
+        self.addCleanup(cmake_wrapper_sha_patch.stop)
         self.addCleanup(ninja_patch.stop)
         self.producer_site_document = {
             **audit.tree_identity(self.producer_site),
@@ -457,6 +487,16 @@ class TritonWheelAuditTest(unittest.TestCase):
                 audit.run_audit(selected, expectations=self.expectations)
         command.assert_not_called()
         self.assertFalse(selected.evidence.exists())
+
+    def test_producer_cmake_must_be_exact_payload_exec_wrapper(self) -> None:
+        cmake = self.producer_bin / "cmake"
+        cmake.write_bytes(self.cmake_payload.read_bytes())
+        cmake.chmod(0o755)
+        self.assert_rejected_before_commands("exact payload exec-wrapper")
+
+    def test_producer_cmake_payload_bytes_are_rechecked(self) -> None:
+        self.cmake_payload.write_bytes(b"drifted CMake payload\n")
+        self.assert_rejected_before_commands("producer CMake payload mismatch")
 
     def test_success_runs_static_native_probe_and_no_replace_publish(self) -> None:
         self.assertEqual(self.dependency_path.parent.name, self.dependency_sha256)
