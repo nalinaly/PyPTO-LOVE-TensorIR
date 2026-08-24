@@ -1,10 +1,12 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0022`
+**Checkpoint:** `CP-0024`
 
-**Status:** R0 remains open; P1 single-DSO and immutable SM120 TargetInfo are
-accepted. No TensorIR/CUDA compilation, runtime launch, CUDA operator or model
-milestone is accepted.
+**Status:** R0 remains open; P1 single-DSO, immutable SM120 TargetInfo and the
+pointer-free CompileRequest v1 data contract are accepted. The exact Triton
+dependency closure is reviewed and cached for the pending offline wheel build.
+No KernelBuildSpec, TensorIR/CUDA compilation, runtime launch, CUDA operator or
+model milestone is accepted.
 
 ## Current truth
 
@@ -156,24 +158,39 @@ milestone is accepted.
   source-frozen archive/manifest review, exact producer RECORD identity,
   offline minimal-bwrap build, native/RECORD wheel audit, pip-free fresh probe,
   reference-only SM120 smoke and reversible replacement tooling. Unit tests are
-  source/tooling evidence only: 1/10 dependency archives are currently pinned,
-  no reviewed manifest exists, and no exact Triton wheel has been built or
-  installed yet.
+  source/tooling evidence plus a reviewed dependency closure: all 10 archive
+  SHA/byte pairs and manifest `29c073...` are source-locked; no exact Triton
+  wheel has been built or installed yet.
 - The control implementation is layered as `0c4cc34` (CPU-only isolation and
   materialization), `befe44c` (wheel/native audit and fresh probe), `640c35a`
   (reference-only smoke/finalization), and `c987811` (journaled replacement).
-  The isolated root suite passes 165 tests plus 29 subtests. Every Python file,
-  every runbook Bash fence and `git diff --check` also pass.
+  Follow-up commits `ea39ac5`, `f678fc0`, `5c75ea4`, `fe903fa`, and `cca595c`
+  bind LLVM seed bytes, strict Content-Length/strong-ETag Range resume, durable
+  no-replace cache publication, stop-race closure and all ten reviewed locks.
+  The isolated root suite passes 183 tests plus 51 subtests. Every
+  Python file, every runbook Bash fence and `git diff --check` also pass.
 - All project-environment consumers now hold a shared lock; plan shares it and
   apply/recover/rollback require an exact inherited exclusive lock and direct
   child. The replacement uses a durable initializing journal, atomic no-replace
   backup publication, exact prefix-user audits, stdlib RECORD installation and
   idempotent recovery/rollback. No real replacement has run.
+- Materialization/promotion runs `pypto-20260824T093330Z-135732-e907f1` and
+  `pypto-20260824T100412Z-150285-bbfebd` pass. Independent reviews audited all
+  6,503 archive members, 5,853 expanded files and 31 symlinks; seven NVIDIA
+  archive hashes match official redistribution manifests. The reviewed cache
+  is `caches/triton-build-deps/29c073...`; networkless tool-version probes and
+  final require-reviewed verification pass. EV-0037 binds this closure.
 - The source-reviewed TargetInfo candidate `9939b88` is integrated as PyPTO
   `042878dd6825bb65ed03f22db7b067fb96277623`. Fresh native CTest passes 2/2;
   the wheel has 177 safe members and one DSO; 31 targeted tests, 10,209 full
   tests with 57 unchanged skips, and the independent symlink case pass. EV-0034
   binds the three successful run IDs, Git tree, wheel/DSO, log and JUnit hashes.
+- PyPTO `09e014ceac2d2cac2f667d182bd7de8f0d0bd259` now owns immutable
+  CompileRequest v1. It value-copies NvidiaTargetInfo, exact toolchain and
+  deterministic Cubin/verification policy; bounded canonical MessagePack and
+  distinct byte/loader-input/device projections pass native 2/2 and Python
+  62/62 CPU-only gates. EV-0036 binds the independent replay. No region,
+  schedule, produced artifact or runtime state is present.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact
@@ -212,10 +229,11 @@ milestone is accepted.
 
 ## Resume action
 
-The goal is active, not complete. Finish the source-anchored exact Triton
-materialize/review/build/probe/smoke/replacement transaction while the
-pointer-free CompileRequest contract from `docs/compile_request_artifact_design.md`
-proceeds as the next isolated PyPTO commit.
+The goal is active, not complete. Continue the source-anchored exact Triton
+offline build/wheel-audit/fresh-probe/smoke/replacement transaction while the
+pointer-free per-region KernelBuildSpec from
+`docs/compile_request_artifact_design.md` proceeds as the next isolated PyPTO
+commit.
 Use explicit CPU-only coexistence only for non-benchmark build/test work; GPU
 smoke/benchmarks require exclusive `gpu-benchmark` preflight. Never inherit
 TensorIR's SM100 defaults.

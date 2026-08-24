@@ -10,12 +10,14 @@ This is an ownership/implementation map, not a runtime-support claim.
 --------------------------------------
 
 projects/pypto
-  Head: 042878dd6825bb65ed03f22db7b067fb96277623 on
+  Head: 09e014ceac2d2cac2f667d182bd7de8f0d0bd259 on
   feature/nvidia-sm120. The compiler-object/single-DSO and immutable SM120
   TargetInfo boundaries are accepted: native CTest 2/2, fresh one-DSO wheel,
   31 TargetInfo tests and clean wheel 10,209/57 gates pass. The only reported
   dirt is ignored/untracked cache content inside the pinned NVIDIA submodules;
-  tracked files are clean.
+  tracked files are clean. Pointer-free CompileRequest v1 is accepted as a
+  canonical data contract; no region build spec, producer, artifact or runtime
+  implementation is implied.
 
 projects/pypto-kernels
   Head: 6f73857b52c86dd98e25d23fbc825a675fb25b6a. Contains framework-neutral
@@ -47,8 +49,9 @@ Read-only compatibility/reference checkouts
   Triton tree:      448265acc1eff726c2e528813552865b33546cc9
   Root commits 0c4cc34/befe44c/640c35a/c987811 own bounded dependency
   materialization, wheel/native audit, pip-free probe, finalized reference-only
-  smoke and journaled environment replacement. These are committed gates; the
-  reviewed dependency manifest and real wheel transaction remain open.
+  smoke and journaled environment replacement. Follow-ups ea39ac5/f678fc0/
+  5c75ea4/fe903fa/cca595c accept exact acquisition and source-lock manifest
+  29c073... in a reviewed cache. The real wheel transaction remains open.
 
 There is no NVIDIA PyPTO compile pipeline, TensorIR-to-TileIR result, SM120
 cubin, NVIDIA runtime launch, SGLang baseline or strict-coverage result yet.
@@ -152,7 +155,8 @@ Second data-only request commit
   python/pypto/pypto_core/compiler.pyi
   tests/ut/compiler/test_compile_request.py
   tests/ut/cpp/nvidia_compile_request_test.cpp
-    Immutable, pointer-free, versioned canonical serialization. Code-cache
+    Implemented and accepted in 09e014c. Immutable, pointer-free, versioned
+    canonical serialization. Code-cache
     identity excludes ordinal/UUID/PCI identity; device/autotune identity
     includes it. It contains requested artifact policy, not actual bytes/kind,
     stream/workspace/tensor pointers, region routing or schedule constants.
@@ -466,18 +470,19 @@ No restart, driver/kernel change or WSL shutdown is authorized.
 
   1. [done] Close the object-target full-test and fresh-wheel gate.
   2. [done] Integrate/build/package immutable NvidiaTargetInfo; retain Ascend behavior.
-  3. Add the pointer-free data-only CompileRequest contract.
-  4. Materialize exact LLVM and prove fully disconnected TensorIR/CUDA Tile
+  3. [done] Add the pointer-free data-only CompileRequest contract.
+  4. Add the pointer-free per-region KernelBuildSpec contract.
+  5. Materialize exact LLVM and prove fully disconnected TensorIR/CUDA Tile
      configure/link composition with no second public product.
-  5. Add deterministic artifact metadata plus SM120 resource/options fixes,
+  6. Add deterministic artifact metadata plus SM120 resource/options fixes,
      then the PyPTO ArtifactCache and prewarmed NvidiaExecutable.
-  6. Prove pointwise/reduction/matmul -> actual SM120 Cubin -> non-default
+  7. Prove pointwise/reduction/matmul -> actual SM120 Cubin -> non-default
      current-stream launch, with TileIR and CUDA Graph as separate later gates.
-  7. Implement generic fused-loop memory lowering and structured matmul.
-  8. Implement the already-frozen operator ABIs as executable attention and
+  8. Implement generic fused-loop memory lowering and structured matmul.
+  9. Implement the already-frozen operator ABIs as executable attention and
      GDN decode/prefill providers in the standalone kernel project.
-  9. Activate zero-diff TorchInductor/SGLang plugins and strict audit.
- 10. Run 0.8B strict correctness/coverage/profile, then 9B and final report.
+ 10. Activate zero-diff TorchInductor/SGLang plugins and strict audit.
+ 11. Run 0.8B strict correctness/coverage/profile, then 9B and final report.
 
 Compile-only, TileIR, cubin, runtime correctness, strict coverage and
 performance are always separate evidence classes.

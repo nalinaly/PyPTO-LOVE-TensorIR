@@ -22,6 +22,11 @@
       stdlib environment-replacement gates in four reviewable control commits.
 - [x] Enforce shared environment locks for every consumer and an inherited,
       direct-child exclusive lock for replacement/recovery transactions.
+- [x] Materialize, independently review and source-lock all ten exact Triton
+      dependency archives; promote manifest `29c073...`, pass networkless
+      tool-version probes and durably publish the reviewed cache.
+- [ ] Build the exact pinned Triton wheel from the reviewed cache, then pass
+      complete wheel/native audit and pip-free fresh probe before GPU smoke.
 - [x] Materialize and verify the exact official Triton source/tree under
       `upstream/triton` (source-only; wheel/install gate remains open).
 - [x] Replace inherited editable FlashInfer with official `0.6.17`.
@@ -46,8 +51,9 @@
 - [x] Source-audit TensorIR compiler/runtime persistence and freeze D-0009:
       `IRuntimeKernel` is not a cache artifact; exact bytes-plus-metadata and
       process/device/CUcontext executable ownership are required.
-- [ ] After TargetInfo acceptance, implement and independently gate only the
-      pointer-free versioned CompileRequest data contract.
+- [x] Implement and independently gate pointer-free CompileRequest v1 at PyPTO
+      `09e014c`: bounded canonical MessagePack, exact target/toolchain policy,
+      three identity projections, native 2/2 and Python 62/62.
 - [ ] Then implement the pointer-free per-region KernelBuildSpec before exact
       LLVM/TensorIR/CUDA Tile composition and artifact metadata work.
 - [ ] Bind exact LLVM/tileiras producer identity, SM120 82-SM/101376-byte

@@ -105,6 +105,9 @@ apply/recover/rollback require the exclusive lock and an exact direct-child
 interpreter/tool/action shape. The inherited descriptor, device/inode and exact
 controller PID/start-ticks bind the child to its controller. Closing the parent
 descriptor never explicitly unlocks a still-live inherited descriptor.
+After a verified TERM, a failed CONT/STOP revalidation is treated as complete
+only when the kernel proves the exact recorded PGID is empty; survivors or
+ambiguous enumeration return 75 without another signal.
 
 Replacement is stdlib/RECORD-owned and journaled, never pip-driven. The formal
 backup root becomes visible only after an initializing journal is durable and
@@ -112,3 +115,33 @@ is published with no-replace atomic rename. Every mutation boundary performs a
 fresh prefix-user audit; signals trigger rollback, and a later recover/rollback
 is idempotent from the durable journal. Framework consumers cannot observe a
 partially replaced prefix.
+
+## D-0013: CompileRequest is bounded policy data, not a kernel identity
+
+CompileRequest v1 value-owns immutable NvidiaTargetInfo and exact compiler
+toolchain/policy. Its canonical decoder applies payload, container, string and
+depth limits before schema conversion; malformed bytes must become a bounded
+PyPTO `ValueError`, never ambient allocation pressure. Byte identity excludes
+physical device/driver/capacity fields while including codegen-relevant
+resources and exact producer inputs. Loader compatibility remains an input
+projection until an actual artifact supplies kind/target/runtime requirements.
+
+No region IR, semantic route, schedule, specialization, tensor/workspace
+pointer, CUDA stream/handle or produced byte belongs in CompileRequest. Those
+byte-affecting per-region fields are mandatory in the separately versioned
+KernelBuildSpec before any producer or artifact-cache implementation.
+
+## D-0014: Download provenance is representation-bound and locally licensed
+
+Every network archive records a strong ETag and effective HTTPS URL. A resumed
+download sends `Range` plus `If-Range` and accepts bytes only from the identical
+strong ETag/effective URL/total/offset contract. Source-locked workspace seeds
+must be independent, safely permissioned files and are copied plus rehashed
+before extraction. Archive, manifest, review and cache publication are
+no-replace and directory-fsynced; extracted trees normalize to deterministic
+0755 directories and 0644/0755 files across umasks.
+
+The accepted dependency cache is for workspace-local build and validation.
+Presence of upstream license files does not authorize publishing a combined
+wheel. NVIDIA CUDA EULA terms and the PyPTO authorization require a separate
+wheel-level licensing review before any redistribution or public fused fork.

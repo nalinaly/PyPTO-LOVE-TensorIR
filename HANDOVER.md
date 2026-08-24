@@ -41,13 +41,17 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0022.md` and evidence `EV-0005` through `EV-0035`.
-- `projects/pypto` is tracked-clean at `042878d...`; only ignored/untracked
+- Read `state/checkpoints/CP-0024.md` and evidence `EV-0005` through `EV-0037`.
+- `projects/pypto` is tracked-clean at `09e014c...`; only ignored/untracked
   NVIDIA submodule cache dirt remains. Single-DSO and immutable SM120 TargetInfo
   are accepted. Fresh native CTest is 2/2; wheel SHA is `dd614907...aaeb`, its
   sole DSO is `dec8082f...c458`, TargetInfo JUnit is `(31,0,0,0)`, full JUnit is
   `(10266,0,0,57)` and the independent symlink case passes. EV-0034 binds the
   three successful run IDs and the corrected source/artifact lineage audit.
+- CompileRequest v1 is accepted as a data-only contract. Native 2/2, Python
+  62/62, bounded MessagePack allocation-bomb tests and independent replay pass;
+  EV-0036 binds commit/tree/source/DSO/run hashes. KernelBuildSpec, producer
+  integration, artifacts, runtime and CUDA remain unimplemented.
 - `projects/pypto-kernels` is clean at `6f73857...` with typed semantic
   families, canonical process-safe tuning database, matmul invocation ABI v1,
   catalog-bound canonical operator artifact provenance, paged-attention ABI v1
@@ -73,15 +77,19 @@ upstream checkouts and their optional/manual suites.
 - `upstream/triton` is the clean exact PyTorch pin. Do not use the inherited
   external editable Triton for acceptance.
 - The exact Triton dependency/wheel/probe/smoke/replacement tools are present,
-  but only pybind11 is archive-pinned and the reviewed manifest remains
-  `UNREVIEWED`. Execute `docs/triton_workspace_wheel_acceptance_gate.md` in
-  order; never promote from a self-calculated manifest digest or execute a
-  downloaded tool before source review. The current environment must continue
-  to fail the external-editable audit until the final reversible transaction.
+  and all ten dependency archive SHA/byte pairs plus manifest `29c073...` are
+  source-pinned, reviewed, probed and cached. Resume at section 3 of
+  `docs/triton_workspace_wheel_acceptance_gate.md`; never replace its cache
+  path with an ambient download. The current environment must continue to fail
+  the external-editable audit until the final reversible transaction.
 - Those controls are committed as `0c4cc34`, `befe44c`, `640c35a`, and
-  `c987811`. EV-0035 binds tool hashes, the expected seven-finding environment
-  rejection, and the isolated 165-test/29-subtest root suite. No dependency
-  materialization, wheel build, GPU smoke, or replacement has run.
+  `c987811`, followed by acquisition commits `ea39ac5`, `f678fc0`, and
+  `5c75ea4`, stop-race fix `fe903fa`, and ten-archive source lock `cca595c`.
+  EV-0035 binds the original controls; the current isolated suite is 183 tests
+  plus 51 subtests. EV-0037 binds accepted materialization/promotion runs,
+  manifest `29c073...`, all archive/tree/overlay hashes and the reviewed cache
+  at `caches/triton-build-deps/29c073...`. Earlier failed/stopped staging/logs
+  remain retained. No wheel build, GPU smoke, or replacement has run.
 - Protected CPU-only coexistence is explicit. It does not apply to GPU
   benchmarks, hides CUDA from the child, and can signal only a recorded
   workspace group. Run `pypto-20260824T075816Z-91897-64e1ea` passed live beside
@@ -90,7 +98,7 @@ upstream checkouts and their optional/manual suites.
   waiver, and no GPU/model/performance claim follows.
 - Do not jump directly to TensorIR runtime/cache. D-0009 and
   `docs/compile_request_artifact_design.md` require data-only CompileRequest,
-  per-region KernelBuildSpec, exact LLVM/tileiras producer identity, complete
+  then per-region KernelBuildSpec, exact LLVM/tileiras producer identity, complete
   bytes-plus-metadata Artifact, then a process/device/CUcontext-bound prewarmed
   executable. Parent-only target query and CUDA Graph capture/replay law are
   part of that boundary; workers never query CUDA or carry streams/handles.

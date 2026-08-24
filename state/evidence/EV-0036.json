@@ -1,0 +1,96 @@
+{
+  "id": "EV-0036",
+  "kind": "pypto_compile_request_v1_data_contract_acceptance",
+  "status": "pass_data_contract_no_compile_artifact_or_cuda_runtime",
+  "repository": {
+    "path": "projects/pypto",
+    "commit": "09e014ceac2d2cac2f667d182bd7de8f0d0bd259",
+    "tree": "277add7e5ddc07399f8372d64e0e38c8034fedf1",
+    "parent": "042878dd6825bb65ed03f22db7b067fb96277623",
+    "changed_paths": 13,
+    "insertions": 1886,
+    "deletions": 4,
+    "tracked_dirty": false,
+    "submodule_cache_dirty": true
+  },
+  "contract": {
+    "schema_version": 1,
+    "compiler_abi_version": 1,
+    "requested_artifact_policy": "cubin-only",
+    "compiler_policy": "deterministic-strict",
+    "verification_policy": "strict",
+    "pointer_free": true,
+    "value_owns_nvidia_target_info": true,
+    "canonical_messagepack": true,
+    "canonical_unknown_duplicate_trailing_rejection": true,
+    "maximum_payload_bytes": 1048576,
+    "bounded_messagepack_container_and_depth_limits": true,
+    "byte_compile_identity_excludes": [
+      "device ordinal",
+      "device name",
+      "device UUID",
+      "PCI identity",
+      "CUDA driver",
+      "total global-memory capacity"
+    ],
+    "device_autotune_identity_includes_physical_resources": true,
+    "loader_projection_is_input_only": true
+  },
+  "source_sha256": {
+    "include/pypto/compiler/compile_request.h": "6ff38d929607400f548fd15e0260636842320d849f0c618058c62a72ec846b4d",
+    "src/compiler/compile_request.cpp": "f2535a5c1b4bb6e5fb43e3261405b898e9ab35ff9f474331a62b9edb35ebe26e",
+    "tests/ut/compiler/test_compile_request.py": "9b1cec9cc1ba085da5edf1b5a9edbf3ebd31d65fcc82c720884479732b027298",
+    "tests/ut/cpp/nvidia_compile_request_test.cpp": "0f16e488859a5996d750e66b23713c88011367e4af238a46370dbbf696d72e49"
+  },
+  "implementation_gate": {
+    "native_ctest": "2/2 passed",
+    "python_target_and_request": "62/62 passed",
+    "cpp_warning_flags": "-Wall -Wextra -Wpedantic syntax-only pass",
+    "cuda_visible_devices": "-1",
+    "gpu_query_or_context": false,
+    "independent_review_initial_p1": "default msgpack allocation limits",
+    "independent_review_fix": "explicit schema-sized array/map/string/bin/ext/depth limits and allocation-bomb regressions",
+    "independent_review_final": "pass no remaining P0/P1/P2 blocker"
+  },
+  "independent_replay": {
+    "run_id": "pypto-20260824T090355Z-125028-c129ab",
+    "status": "exited",
+    "return_code": 0,
+    "native_executables": [
+      "pypto_nvidia_target_info_test",
+      "pypto_nvidia_compile_request_test"
+    ],
+    "python_tests_passed": 62,
+    "preflight_sha256": "b509c8b5018f6e70f9a603209c4eb9f38df9b9e477d116e3d0d779c49e4d723a",
+    "process_metadata_sha256": "a23f7999e2a610c408da94abc7749482cd7b262a78a2df98b8198ec85d022b09",
+    "log_sha256": "433f970dd7a8d13023ea6d2c5822009b358c409ed7d6776dec83fdfe1d2c5c91",
+    "native_dso_sha256": "b27ea846be57af9956cf2e5ec12426ad3cd60f58862f2c21040d2060f0496e7d",
+    "coexistence_pauses": [],
+    "coexistence_abort": null
+  },
+  "recovered_replay_harness_errors": [
+    {
+      "run_id": "pypto-20260824T090147Z-124361-114011",
+      "reason": "automatic package search loaded the extension without its nanobind compiler submodule route",
+      "effect": "verification bootstrap only; source and retained binary unchanged",
+      "log_sha256": "ae1b7fcf26dff8d764cba7480e03fc5373d129fefb19aa66d8409e58defbe33a"
+    },
+    {
+      "run_id": "pypto-20260824T090328Z-124838-56cdc9",
+      "reason": "bootstrap glob also selected two intentionally retained pre-final DSOs",
+      "effect": "verification selector only; source and retained binaries unchanged",
+      "log_sha256": "1f18716beb36ebcda5d591940ea28fdbbab5a66f68ec33c10834b54c6c779a2f"
+    }
+  ],
+  "not_claimed": [
+    "KernelBuildSpec",
+    "TensorIR or CUDA Tile linkage",
+    "kernel compilation or produced bytes",
+    "artifact cache or executable reconstruction",
+    "CUDA context, module, stream or launch",
+    "framework plugin registration",
+    "operator or model correctness",
+    "coverage or performance",
+    "fresh wheel packaging acceptance"
+  ]
+}

@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `13`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `15`
 
 ## Current phase: R0 workspace and provenance bootstrap
 
@@ -11,6 +11,17 @@ passes beside an active protected lane without exposing CUDA or signalling it.
 R0 stays open until the source-anchored Triton wheel replaces the inherited
 editable, the CPython 3.12 baseline is locked, and unmodified SGLang baselines
 run.
+
+Checkpoint `CP-0023` accepts pointer-free CompileRequest v1 at PyPTO `09e014c`.
+Canonical bounded MessagePack, exact toolchain/target policy and the separate
+byte/loader-input/device identity projections pass native 2/2 and Python 62/62
+CPU-only gates. KernelBuildSpec and every producer/artifact/runtime layer remain
+open.
+
+Checkpoint `CP-0024` accepts the exact Triton dependency closure. All ten
+archive SHA/byte pairs, expanded trees and manifest `29c073...` are independently
+reviewed and source-locked; the networkless tool probe and durable reviewed
+cache publication pass. The offline wheel/build/runtime gates remain open.
 
 Checkpoint `CP-0005` has source/model/environment provenance, the first
 standalone semantic operator layer, Torch constructor-dispatch law, and
@@ -114,6 +125,15 @@ read-only recovery audit. This accepts target identity/build/package/API only,
 not CUDA compile or launch. EV-0035 additionally accepts the exact Triton gate
 tooling and live protected CPU-only control path; it explicitly records that no
 dependency materialization, wheel, GPU smoke, or replacement has run.
+
+Checkpoint `CP-0023` lands only the immutable program/target CompileRequest
+data contract. Independent review forced explicit MessagePack allocation limits
+before acceptance. The next compiler commit is per-region KernelBuildSpec; it
+must not be collapsed into TensorIR composition or ArtifactCache work.
+
+Checkpoint `CP-0024` records only reviewed compatibility inputs. It does not
+promote Triton into PyPTO coverage, prove a wheel, or relax the separate
+reference-only GPU-smoke and environment-replacement gates.
 
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.

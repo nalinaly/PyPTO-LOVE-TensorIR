@@ -1,0 +1,168 @@
+{
+  "id": "EV-0037",
+  "kind": "reviewed_exact_triton_dependency_closure",
+  "status": "pass_reviewed_cached_dependencies_no_wheel_build_or_gpu",
+  "source_lock": {
+    "commit": "cca595c8f064058f0d72f160122f68a1d6577934",
+    "tree": "61c338820a63f7fc2ed2a5cca97cfed9a43880a3",
+    "materializer_sha256": "771d69e0bd12c181de487d7986160858872c0eab1bbebe5389b0a33f5494b9cc",
+    "versions_lock_sha256": "5462926b79742d62fda04b4b33816c9d15ef2f07208ec5de2ff14f1b90618074",
+    "manifest_anchor": "29c0736211ba0b286acd562ba097d7f1dea989671003c63a7b988de5afb0fe7d",
+    "all_ten_sha_and_size_pairs_frozen": true,
+    "deterministic_mode_normalization": "directories 0755; regular files 0755 iff executable else 0644; symlinks unchanged",
+    "cross_umask_regression": "0022 and 0077 byte-identical manifests and tree identities"
+  },
+  "materialization": {
+    "run_id": "pypto-20260824T093330Z-135732-e907f1",
+    "status": "exited",
+    "return_code": 0,
+    "run_id_file_sha256": "5f016161fe2c464eceb77a073d016e9e47075eb0db4988104868dec4080f7c69",
+    "preflight_sha256": "9de856f9def8de2ba8a2620f7b50d1015078ad3da8b6dc0a738c78573c33b5c1",
+    "process_metadata_sha256": "a78cc40220fdd553303c2ff13937eed168ee0fcb1fceafc591394cbdb8a6b307",
+    "log_sha256": "1b67f9edc1d1127f136f4056b41ba0e33f3228e81334c32cc73a432ed6372a38",
+    "manifest_sha256": "29c0736211ba0b286acd562ba097d7f1dea989671003c63a7b988de5afb0fe7d",
+    "manifest_bytes": 14653,
+    "network_requests": 9,
+    "network_range_resumes": 0,
+    "llvm_acquisition": "source-locked independent workspace seed copy",
+    "protected_cpu_only_waiver": true,
+    "protected_nvidia_compute_pids": [],
+    "coexistence_pauses": [],
+    "coexistence_abort": null,
+    "downloaded_tools_executed": false
+  },
+  "packages": {
+    "pybind11": {
+      "archive_sha256": "aa8f0aa6e0a94d3b64adfc38f560f33f15e589be2175e103c0a33c6bce55ee89",
+      "archive_bytes": 293611,
+      "expanded_tree_sha256": "acd4cf189108183d42d1698618493a89aa24c16cc516df246a5067b8cf49d277"
+    },
+    "llvm": {
+      "archive_sha256": "11a11a5a90da7e4b53ef4cf0f259143d14633cae8543a95cb2d99e4af6b902f8",
+      "archive_bytes": 1309519196,
+      "expanded_tree_sha256": "615fa343042dbfb077043fc095491b642bdc6b0f24b7802a9c5477be4bf5b2bc"
+    },
+    "json": {
+      "archive_sha256": "a22461d13119ac5c78f205d3df1db13403e58ce1bb1794edc9313677313f4a9d",
+      "archive_bytes": 299825,
+      "expanded_tree_sha256": "52c75462373964538bae8097f49738b9bddba97fa65a042f2aa94f2fd11bb7c3"
+    },
+    "ptxas": {
+      "archive_sha256": "9961b3484b6b71314063709a4f9529654f96782ad39e72bf1e00f070db8210d3",
+      "archive_bytes": 79015464,
+      "expanded_tree_sha256": "0ad66c2bc23156085263c0ad76ba88eec0b0ce577dd2ccf709bf589e4ce3b882"
+    },
+    "ptxas_blackwell": {
+      "archive_sha256": "5ed3b7cfe7f12557199773e7769445357ee048958ff51e623e15f36d3393ca8b",
+      "archive_bytes": 30014972,
+      "expanded_tree_sha256": "f5b9a54f68b3ea35e2d3962453d49069479b5f4919943da74c8599322fba3b72"
+    },
+    "cuobjdump": {
+      "archive_sha256": "3de0169fd8d00e8bdd5ec91a6eb89a78229d82e478cb85554f89748107ba928c",
+      "archive_bytes": 263548,
+      "expanded_tree_sha256": "79d68da14d00a67d36a248569dbe959472cdd81af903997534c041908c4b63e3"
+    },
+    "nvdisasm": {
+      "archive_sha256": "b169c329bda674e6f9ae5db9845ea09d40f593c96faf11b7f8d4c0a8a2576f17",
+      "archive_bytes": 4153976,
+      "expanded_tree_sha256": "c94f87cdbe409dce2eb90ad37d777e16c7d91f989dbfab72100f7ab18fb2b023"
+    },
+    "cudacrt": {
+      "archive_sha256": "0e7c365d3301a1b486dbee600b833f6bc771b1a7cc660abca0923269023355ed",
+      "archive_bytes": 79624,
+      "expanded_tree_sha256": "3595fa25f3fd677a7a17d55938edfa116eef626f6bac5726c76cccc76887737a"
+    },
+    "cudart": {
+      "archive_sha256": "b626f4790f46bc9324a1047f2fbcc9a42bc4a722b053056e61cc00da54ad6f32",
+      "archive_bytes": 1549648,
+      "expanded_tree_sha256": "fd2c2c05332b9252b7cdab4c448b18f855e080abf05b329edb21aae293c4cd34"
+    },
+    "cupti": {
+      "archive_sha256": "7bf5db86cb82f26a6a3cb9e2fa4dc2a131d25885f59fdbc647938929924405db",
+      "archive_bytes": 15383056,
+      "expanded_tree_sha256": "9274b555b12cf091bae5c2af9ccf66e5f27076cfeaf667f30e290b4ca9ba8911"
+    }
+  },
+  "overlay": {
+    "sha256": "34a521de439dc676d5dca417864f79c6f5e96968c3df7da167f614cb517d1bda",
+    "bytes": 203602253,
+    "files": 165,
+    "directories": 9,
+    "symlinks": 2,
+    "exact_derivation": true
+  },
+  "official_nvidia_crosscheck": {
+    "redistrib_12_8_1_sha256": "249e28a83008d711d5f72880541c8be6253f6d61608461de4fcb715554a6cf17",
+    "redistrib_13_1_0_sha256": "55304d9d831bb095d9594aab276f96d2f0e30919f4cc1b3f6ca78cdb5f643e11",
+    "matching_archive_hashes": 7,
+    "mismatches": 0
+  },
+  "promotion": {
+    "run_id": "pypto-20260824T100412Z-150285-bbfebd",
+    "status": "exited",
+    "return_code": 0,
+    "run_id_file_sha256": "512c50203b74a79e038d59f5bbd151addd1fe4bb89eb28aa9773746d20da9ab8",
+    "preflight_sha256": "5994fa13cc31fc154ee472cb433f5d1820e17fbeed6aebe0f53fb2b32e54f088",
+    "process_metadata_sha256": "20a57e51278192a0eee2e3fd07b673f76bb563cc011171ccc81a98038f3db61d",
+    "log_sha256": "56db92156168d09ab1ad7886f46524bb38e57f8b347a846cc485abf1f37a20f2",
+    "review_json_sha256": "1ced34cfe2e4f26a122a949426673a59ff70b8159f710a1cb9dde25fec4d8ab6",
+    "networkless_tool_version_probe": "pass",
+    "cache_publication": "cross-parent renameat2 RENAME_NOREPLACE with both-parent fsync and final require-reviewed verify",
+    "cache_path": "caches/triton-build-deps/29c0736211ba0b286acd562ba097d7f1dea989671003c63a7b988de5afb0fe7d",
+    "coexistence_pauses": [],
+    "coexistence_abort": null
+  },
+  "controlled_failed_or_stopped_attempts": [
+    {
+      "run_id": "pypto-20260824T080634Z-95062-e1debd",
+      "return_code": 1,
+      "reason": "proxy returned a truncated 1015410-byte LLVM stream; archive EOF rejected it"
+    },
+    {
+      "run_id": "pypto-20260824T091012Z-127892-3e30fb",
+      "return_code": -15,
+      "reason": "verified owned stop after diagnosing slow proxy transport"
+    },
+    {
+      "run_id": "pypto-20260824T091943Z-130325-951fab",
+      "return_code": -15,
+      "reason": "verified owned stop after direct GitHub TLS stalled"
+    },
+    {
+      "run_id": "pypto-20260824T092154Z-130995-2af9f3",
+      "return_code": -15,
+      "reason": "verified owned stop after NVIDIA .com redirected to .cn through proxy"
+    }
+  ],
+  "review": {
+    "archive_members_reviewed": 6503,
+    "expanded_files_compared": 5853,
+    "expanded_bytes_compared": 5693007907,
+    "symlinks_reviewed": 31,
+    "independent_reviewers": 2,
+    "remaining_p0": 0,
+    "remaining_p1": 0,
+    "remaining_p2": 0
+  },
+  "root_control_regression": {
+    "run_id": "pypto-20260824T101138Z-153011-04afc7",
+    "status": "exited",
+    "return_code": 0,
+    "tests_passed": 183,
+    "subtests_passed": 51,
+    "preflight_sha256": "84f7efaa77240d5e273363acc7bb63b18c6d23eec86b19784d71e2541b9fff4c",
+    "process_metadata_sha256": "9b6d5059070cb9e9a31f6c136b18f8aa9857be3fdc9629b5cc287700f2f1e8c4",
+    "log_sha256": "148d30bdadec0fc48b2034706e84ed4543ca1971be20de7e553009a8c47fdf45",
+    "coexistence_pauses": [],
+    "coexistence_abort": null
+  },
+  "license_boundary": "workspace-local review/build only; publishing or redistributing a wheel requires separate wheel-level license review",
+  "not_claimed": [
+    "Triton wheel build or wheel audit",
+    "fresh wheel probe",
+    "SM120 GPU reference smoke",
+    "project-environment replacement",
+    "PyPTO CUDA compilation or runtime",
+    "operator/model correctness, coverage or performance"
+  ]
+}
