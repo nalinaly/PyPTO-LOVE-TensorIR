@@ -41,7 +41,7 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0025.md` and evidence `EV-0005` through `EV-0038`.
+- Read `state/checkpoints/CP-0026.md` and evidence `EV-0005` through `EV-0039`.
 - `projects/pypto` is tracked-clean at `9b3cf71...`; only ignored/untracked
   NVIDIA submodule cache dirt remains. Single-DSO and immutable SM120 TargetInfo
   are accepted. Fresh native CTest is 2/2; wheel SHA is `dd614907...aaeb`, its
@@ -79,26 +79,28 @@ upstream checkouts and their optional/manual suites.
   external editable Triton for acceptance.
 - The exact Triton dependency/wheel/probe/smoke/replacement tools are present,
   and all ten dependency archive SHA/byte pairs plus manifest `29c073...` are
-  source-pinned, reviewed, probed and cached. Resume at section 3 of
-  `docs/triton_workspace_wheel_acceptance_gate.md`; never replace its cache
-  path with an ambient download. The current environment must continue to fail
-  the external-editable audit until the final reversible transaction.
+  source-pinned, reviewed, probed and cached. The exact wheel is accepted and
+  frozen; never replace its cache path with an ambient download. The current
+  environment must continue to fail the external-editable audit until the
+  deferred reversible baseline transaction.
 - Those controls are committed as `0c4cc34`, `befe44c`, `640c35a`, and
   `c987811`, followed by acquisition commits `ea39ac5`, `f678fc0`, and
   `5c75ea4`, stop-race fix `fe903fa`, ten-archive source lock `cca595c`, tracked
   offline runner `712a8c2`, generated-evidence retention `8e414e7`, and the
-  RPATH-free producer/auditor contract `dd403fe`.
-  EV-0035 binds the original controls; the current isolated suite is 183 tests
-  plus 51 subtests. EV-0037 binds accepted materialization/promotion runs,
+  RPATH-free producer/auditor contract `dd403fe`, internal plugin closure audit
+  `234c76f`, and stripped-vendor-ELF identity gate `759a93d`.
+  EV-0035 binds the original controls; the current isolated suite is 198 tests
+  plus 98 subtests. EV-0037 binds accepted materialization/promotion runs,
   manifest `29c073...`, all archive/tree/overlay hashes and the reviewed cache
   at `caches/triton-build-deps/29c073...`. The first wheel built but was
   correctly rejected for three ELF RUNPATHs; its full 11 GiB tree and evidence
   remain at `builds/triton-wheel-5d6048aa-rejected-rpath-20260824`. The fixed
   runner retains all generated source outputs, disables CMake RPATH and overlays
   a provenance-bound RPATH-free FileCheck without mutating the reviewed cache.
-  Corrected CPU-only build/audit/probe run
-  `pypto-20260824T111401Z-189427-e59551` is active. No GPU smoke or environment
-  replacement has run.
+  Corrected wheel SHA `1d58d830...6227a` passes complete audit and pip-free
+  fresh probe; EV-0039 binds all hashes and recovery runs. It remains
+  uninstalled/reference-only. No GPU smoke or environment replacement has run,
+  and no further Triton feature work belongs on the candidate path.
 - Protected CPU-only coexistence is explicit. It does not apply to GPU
   benchmarks, hides CUDA from the child, and can signal only a recorded
   workspace group. Run `pypto-20260824T075816Z-91897-64e1ea` passed live beside

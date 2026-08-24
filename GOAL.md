@@ -7,8 +7,10 @@ pointer-free CompileRequest v1 and pointer-free per-region KernelBuildSpec v1
 boundaries are accepted through PyPTO `9b3cf71...`. Exact PyTorch-pinned Triton
 replacement gates and live protected CPU-only coexistence controls are
 committed; the dependency closure is reviewed/cached at manifest `29c073...`.
-An RPATH-free offline wheel rebuild is in progress before audit/probe. Exact
-producer-bound Artifact metadata is the next compiler contract. The full
+The exact Triton reference wheel is audited and fresh-probed but deliberately
+not installed; it is now frozen as baseline-only infrastructure. Private
+TensorIR/CUDA Tile/exact-LLVM static composition and exact producer-bound
+Artifact metadata are the active compiler work. The full
 objective and acceptance criteria remain unchanged. Never signal protected
 amdgpu-sim/zcode processes.
 

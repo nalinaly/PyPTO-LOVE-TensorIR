@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `16`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `17`
 
 ## Current phase: R0 workspace and provenance bootstrap
 
@@ -31,6 +31,11 @@ CTest is 4/4 and an exact-current-DSO replay is 122/122. Exact producer,
 Artifact, cache, CUDA module/current-stream runtime and framework integration
 remain open. In parallel, the corrected RPATH-free Triton wheel rebuild is
 running under the CPU-only coexistence watchdog.
+
+Checkpoint `CP-0026` freezes the exact PyTorch-pinned Triton reference wheel.
+Its complete audit and pip-free fresh probe pass; it remains uninstalled and
+cannot satisfy PyPTO strict coverage. The active implementation lane now moves
+to the private TensorIR/CUDA Tile/exact-LLVM static build and artifact seam.
 
 Checkpoint `CP-0005` has source/model/environment provenance, the first
 standalone semantic operator layer, Torch constructor-dispatch law, and
@@ -149,6 +154,11 @@ contract. A stale installed editable DSO was detected and explicitly excluded
 from acceptance; EV-0038 binds the exact current source DSO replay. The next
 compiler transaction is exact producer-bound bytes-plus-metadata Artifact, not
 runtime handles or framework codegen.
+
+Checkpoint `CP-0026` closes only the reproducible Triton reference-wheel
+boundary. Environment replacement and reference GPU smoke are deferred until
+the unmodified SGLang baseline requires them. No further Triton feature work is
+on the candidate backend path.
 
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.

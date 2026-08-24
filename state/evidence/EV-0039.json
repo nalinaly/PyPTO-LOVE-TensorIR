@@ -1,0 +1,77 @@
+{
+  "id": "EV-0039",
+  "kind": "pytorch_pinned_triton_reference_wheel_acceptance",
+  "status": "accepted_audited_probed_reference_only_not_installed",
+  "source": {
+    "repository": "upstream/triton",
+    "commit": "5d6048aa0a324e090ada215b609ea76620133845",
+    "tree": "448265acc1eff726c2e528813552865b33546cc9",
+    "llvm_commit": "ac5dc54d509169d387fcfd495d71853d81c46484",
+    "reviewed_dependency_manifest_sha256": "29c0736211ba0b286acd562ba097d7f1dea989671003c63a7b988de5afb0fe7d"
+  },
+  "wheel": {
+    "path": "builds/triton-wheel-5d6048aa/wheels/triton-3.7.1+git5d6048aa-cp314-cp314-linux_x86_64.whl",
+    "sha256": "1d58d83062af3b3073411d85f2000c8fb1eb994cc20c937a03e2d6a803d6227a",
+    "bytes": 200145149,
+    "archive_members": 359,
+    "native_elfs": 18,
+    "native_elfs_without_rpath_or_runpath": 18,
+    "derived_filecheck_sha256": "7e5825f91eda03a6690dccf9eb15d72b8b36079965a182987f48b1662c03756a",
+    "vendor_elfs_without_build_id_exact_sha_bound": 7,
+    "plugins_resolved_to_internal_libtriton": 3
+  },
+  "build_recovery_lineage": {
+    "run_id": "pypto-20260824T111401Z-189427-e59551",
+    "return_code": 1,
+    "wheel_build": "succeeded",
+    "post_build_failure": "old auditor required GNU Build ID from stripped NVIDIA cuobjdump",
+    "product_mutated_after_build": false,
+    "preflight_sha256": "56f4491a484601e001f90987c9761e2ae54bac61903e27db332a12e4683d6eb9",
+    "process_metadata_sha256": "9cbc4ec82da04e4848c8417e9646102d8ffab114436032a8cf4cb8f17b2b2613",
+    "build_log_sha256": "014b18355ba103d7c7b37769f758e2aba10b46b9059f32c9683de2601b56d224",
+    "coexistence_pauses": []
+  },
+  "audit": {
+    "run_id": "pypto-20260824T134836Z-217013-12ae6e",
+    "return_code": 0,
+    "evidence_path": "builds/triton-wheel-5d6048aa/triton-wheel-audit.json",
+    "evidence_sha256": "ef7d355217a3b4fcc69686100d1050795d30c9e4f7fdddf0c77ba33efc806848",
+    "preflight_sha256": "44e995a1b6515470afa7625e345c9a50b9cae6c51ddfc025ea8bfb28e5061b70",
+    "process_metadata_sha256": "5123a7a67dc7a918c2cf98addec3ccf35929660dad873dc56a0974dbe7dff4e7",
+    "coexistence_pauses": []
+  },
+  "fresh_probe": {
+    "run_id": "pypto-20260824T134906Z-217357-e68fd4",
+    "return_code": 0,
+    "evidence_path": "builds/triton-wheel-5d6048aa/triton-wheel-probe.json",
+    "evidence_sha256": "312cc7b5576fdff20877c3cbd01ea36b9c7001b447be3ef4459f4f49b984f2fa",
+    "preflight_sha256": "c4cf8249cdea3552a2539f2444ea4d9d614697564bd6d13e8bd33622d22aee04",
+    "process_metadata_sha256": "b12af86a5addc631f5f998a96c17c500854ce9a379c43a734dc6d4cbc36b61c1",
+    "pip_used": false,
+    "base_torch_tree_sha256": "1f77cf114e19ac071bbb3e552e98bd7d1b28f58484225d8929aa077d8ddc00d9",
+    "coexistence_pauses": []
+  },
+  "root_control_regression": {
+    "run_id": "pypto-20260824T134953Z-217740-b49450",
+    "return_code": 0,
+    "tests_passed": 198,
+    "subtests_passed": 98,
+    "preflight_sha256": "7496525b45e534bd92d0282846661320a5bdaedc814ced4f7dc28abae2d2c1c0",
+    "process_metadata_sha256": "a0ce7bfa2bf86192217b29534d787fd2e3e2f910cc955fbc43d9890817a33c16",
+    "coexistence_pauses": []
+  },
+  "control_commits": [
+    "8e414e74b839be3dfd96a13e5eead5e5099ebfe2",
+    "dd403fe742aad66797855148274a837e73b1362b",
+    "234c76fecb871d8c1b127ee44d9603f3d71cdaef",
+    "759a93d72df89e872c3ec1c3421f76d26bd2f54b"
+  ],
+  "not_claimed": [
+    "Triton is part of the PyPTO final compute backend",
+    "environment replacement or rollback",
+    "SM120 GPU smoke",
+    "SGLang baseline completion",
+    "TensorIR or CUDA Tile build",
+    "PyPTO kernel compilation, framework coverage or performance"
+  ]
+}

@@ -1,13 +1,13 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0025`
+**Checkpoint:** `CP-0026`
 
 **Status:** R0 remains open; P1 single-DSO, immutable SM120 TargetInfo,
 pointer-free CompileRequest v1 and pointer-free per-region KernelBuildSpec v1
-data contracts are accepted. The exact Triton dependency closure is reviewed;
-the corrected RPATH-free offline wheel rebuild is running. No exact producer
-Artifact, TensorIR/CUDA compilation, runtime launch, CUDA operator or model
-milestone is accepted.
+data contracts are accepted. The exact Triton reference wheel is audited and
+fresh-probed but remains uninstalled and baseline-only. No exact TensorIR/CUDA
+Tile static composition, producer Artifact, runtime launch, CUDA operator or
+model milestone is accepted.
 
 ## Current truth
 
@@ -153,22 +153,22 @@ milestone is accepted.
   passes. Three independent final reviews report no remaining P0/P1.
 - The exact PyTorch-pinned Triton source is now a clean official checkout under
   `upstream/triton`, but the environment still imports the inherited external
-  editable distribution until a hermetic workspace wheel is built and
-  installed.
+  editable distribution until the accepted hermetic workspace wheel is
+  transactionally installed for baseline work.
 - The exact-wheel transaction now has bounded unreviewed materialization,
   source-frozen archive/manifest review, exact producer RECORD identity,
   offline minimal-bwrap build, native/RECORD wheel audit, pip-free fresh probe,
   reference-only SM120 smoke and reversible replacement tooling. Unit tests are
   source/tooling evidence plus a reviewed dependency closure: all 10 archive
-  SHA/byte pairs and manifest `29c073...` are source-locked; no exact Triton
-  wheel has been built or installed yet.
+  SHA/byte pairs and manifest `29c073...` are source-locked. The exact wheel is
+  now built/audited/probed but deliberately not installed.
 - The control implementation is layered as `0c4cc34` (CPU-only isolation and
   materialization), `befe44c` (wheel/native audit and fresh probe), `640c35a`
   (reference-only smoke/finalization), and `c987811` (journaled replacement).
   Follow-up commits `ea39ac5`, `f678fc0`, `5c75ea4`, `fe903fa`, and `cca595c`
   bind LLVM seed bytes, strict Content-Length/strong-ETag Range resume, durable
   no-replace cache publication, stop-race closure and all ten reviewed locks.
-  The isolated root suite passes 183 tests plus 51 subtests. Every
+  The isolated root suite now passes 198 tests plus 98 subtests. Every
   Python file, every runbook Bash fence and `git diff --check` also pass.
 - All project-environment consumers now hold a shared lock; plan shares it and
   apply/recover/rollback require an exact inherited exclusive lock and direct
@@ -201,15 +201,14 @@ milestone is accepted.
   contracts and the Python compiler suite 122/122. EV-0038 binds the source,
   DSO, run and recovered stale-editable evidence. No producer, Artifact, cache,
   runtime or CUDA behavior is present.
-- The first exact Triton wheel built successfully but its native audit rejected
-  three RUNPATH-bearing ELF files, including two absolute build-tree plugin
-  paths. The entire 11 GiB candidate, wheel, log and rejection JSON are retained
-  under `builds/triton-wheel-5d6048aa-rejected-rpath-20260824`. Control commits
-  `8e414e7` and `dd403fe` retain all generated source evidence, set
-  `CMAKE_SKIP_RPATH=ON`, and provenance-bind a CMake-derived RPATH-free
-  FileCheck while leaving the reviewed dependency cache unchanged. Corrected
-  rebuild run `pypto-20260824T111401Z-189427-e59551` is in progress; no wheel
-  acceptance or environment replacement is claimed yet.
+- The exact Triton reference wheel SHA is `1d58d830...6227a`. Complete
+  source/dependency/producer/RECORD/native audit and pip-free fresh probe pass
+  in runs `pypto-20260824T134836Z-217013-12ae6e` and
+  `pypto-20260824T134906Z-217357-e68fd4`. All 18 ELF files are RPATH-free;
+  seven stripped NVIDIA vendor files are bound by exact path/SHA and three
+  plugins resolve only to wheel-internal libtriton. EV-0039 binds the recovery
+  lineage and evidence. The wheel is deliberately not installed and is not a
+  candidate compute dependency.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact
@@ -248,12 +247,12 @@ milestone is accepted.
 
 ## Resume action
 
-The goal is active, not complete. Finish corrected Triton wheel audit and fresh
-probe, then perform the separate exclusive reference-smoke/replacement gates.
-The next isolated PyPTO compiler transaction is exact LLVM/tileiras producer
-identity plus persistent bytes-and-metadata Artifact validation from
-`docs/compile_request_artifact_design.md`; do not place CUDA modules, contexts,
-streams or launch handles in that Artifact.
+The goal is active, not complete. Freeze Triton as accepted reference-only
+infrastructure. Implement PyPTO's private TensorIR/CUDA Tile/exact-LLVM static
+composition and deterministic compiled-artifact seam next. Defer the separate
+exclusive Triton replacement/reference-smoke gate until the unmodified SGLang
+baseline needs it; do not place CUDA modules, contexts, streams or launch
+handles in persistent Artifact metadata.
 Use explicit CPU-only coexistence only for non-benchmark build/test work; GPU
 smoke/benchmarks require exclusive `gpu-benchmark` preflight. Never inherit
 TensorIR's SM100 defaults.

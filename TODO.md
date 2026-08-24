@@ -25,10 +25,11 @@
 - [x] Materialize, independently review and source-lock all ten exact Triton
       dependency archives; promote manifest `29c073...`, pass networkless
       tool-version probes and durably publish the reviewed cache.
-- [ ] Build the exact pinned Triton wheel from the reviewed cache, then pass
-      complete wheel/native audit and pip-free fresh probe before GPU smoke.
+- [x] Build the exact pinned Triton reference wheel from the reviewed cache and
+      pass complete wheel/native audit plus pip-free fresh probe; keep it
+      uninstalled until the baseline replacement gate.
 - [x] Materialize and verify the exact official Triton source/tree under
-      `upstream/triton` (source-only; wheel/install gate remains open).
+      `upstream/triton` (wheel accepted; environment install gate remains open).
 - [x] Replace inherited editable FlashInfer with official `0.6.17`.
 - [x] Remove the unrelated external torch-compile-study editable package.
 - [x] Freeze the source-hashed Qwen3.5 text compute inventory.
