@@ -70,10 +70,11 @@ history or trusted GitHub signing chain.
 The upstream downloader checks URLs/versions but not content hashes. This
 workspace materializer requires an exact `Content-Length` on the initial HTTP
 200 response. A premature EOF is retried a bounded number of times with a
-`Range` request; a resumed response is accepted only when HTTP 206,
-`Content-Range`, `Content-Length`, the resume offset and the original total all
-agree exactly. The partial file is size/hash verified and fsynced before it is
-published inside the private materialization staging tree.
+`Range` plus `If-Range`; a resumed response is accepted only when HTTP 206,
+`Content-Range`, `Content-Length`, the resume offset, original total, strong
+ETag and effective URL all agree exactly. The strong ETag and effective URL are
+recorded in acquisition provenance. The partial file is size/hash verified and
+fsynced before it is published inside the private materialization staging tree.
 
 An optional seed directory can avoid downloading an already source-locked
 archive. It must be an absolute canonical, user-owned directory below this
@@ -160,7 +161,11 @@ envs/pypto-nvidia/bin/python tools/materialize_triton_dependencies.py \
   --output "$src" --probe-reviewed-tools \
   --expected-manifest-sha256 "$manifest_sha" >/dev/null
 mkdir -p "$ws/caches/triton-build-deps"
-mv "$src" "$dst"
+envs/pypto-nvidia/bin/python tools/materialize_triton_dependencies.py \
+  --output "$src" --publish-reviewed-cache \
+  --expected-manifest-sha256 "$manifest_sha" >/dev/null
+test ! -e "$src"
+test -d "$dst"
 envs/pypto-nvidia/bin/python tools/materialize_triton_dependencies.py \
   --output "$dst" --verify --require-reviewed \
   --expected-manifest-sha256 "$manifest_sha" >/dev/null

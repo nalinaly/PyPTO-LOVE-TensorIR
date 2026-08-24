@@ -23,6 +23,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import urllib.parse
 import urllib.request
 import zipfile
 
@@ -150,6 +151,7 @@ DOWNLOAD_MAX_REQUESTS = 4
 DOWNLOAD_TIMEOUT_SECONDS = 300
 DOWNLOAD_USER_AGENT = "pypto-triton-dependency-materializer/2"
 CONTENT_RANGE_PATTERN = re.compile(r"bytes ([0-9]+)-([0-9]+)/([0-9]+)")
+STRONG_ETAG_PATTERN = re.compile(r'"[!#-~]*"')
 
 
 class DownloadContractError(RuntimeError):
@@ -1209,6 +1211,8 @@ def validate_acquisition_provenance(
     if method == "network-download":
         expected_keys = {
             "declared_bytes",
+            "etag",
+            "effective_url",
             "method",
             "range_request_count",
             "request_count",
@@ -1220,6 +1224,18 @@ def validate_acquisition_provenance(
         range_requests = acquisition["range_request_count"]
         if acquisition["source_url"] != spec.url:
             raise RuntimeError(f"acquisition URL mismatch: {spec.name}")
+        effective_url = acquisition["effective_url"]
+        if not isinstance(effective_url, str):
+            raise RuntimeError(f"acquisition effective URL is invalid: {spec.name}")
+        parsed_effective_url = urllib.parse.urlsplit(effective_url)
+        if (
+            parsed_effective_url.scheme != "https"
+            or not parsed_effective_url.netloc
+            or parsed_effective_url.fragment
+        ):
+            raise RuntimeError(f"acquisition effective URL is invalid: {spec.name}")
+        if not is_strong_etag(acquisition["etag"]):
+            raise RuntimeError(f"acquisition ETag is not strong: {spec.name}")
         if (
             not _exact_nonnegative_int(acquisition["declared_bytes"])
             or acquisition["declared_bytes"] != archive_bytes
@@ -1569,7 +1585,12 @@ def _create_private_partial(destination: Path) -> Path:
     return partial
 
 
-def _rename_no_replace(source: Path, destination: Path) -> None:
+def _rename_no_replace(
+    source: Path,
+    destination: Path,
+    *,
+    require_same_parent: bool = True,
+) -> None:
     """Atomically rename a file or directory only when destination is absent."""
 
     if not source.is_absolute() or not destination.is_absolute():
@@ -1584,8 +1605,12 @@ def _rename_no_replace(source: Path, destination: Path) -> None:
         or destination != destination_lexical
         or source_resolved != source_lexical
         or destination_resolved != destination_lexical
-        or source.parent != destination.parent
+        or (require_same_parent and source.parent != destination.parent)
         or (source.parent != workspace and workspace not in source.parent.parents)
+        or (
+            destination.parent != workspace
+            and workspace not in destination.parent.parents
+        )
         or source.is_symlink()
     ):
         raise ValueError(
@@ -1705,6 +1730,33 @@ def _decimal_header(response: object, name: str) -> int:
     return int(value)
 
 
+def is_strong_etag(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and value == value.strip()
+        and STRONG_ETAG_PATTERN.fullmatch(value) is not None
+    )
+
+
+def _strong_response_etag(response: object) -> str:
+    headers = getattr(response, "headers", None)
+    value = None if headers is None else headers.get("ETag")
+    if not is_strong_etag(value):
+        raise DownloadContractError("response lacks a valid strong ETag")
+    return value
+
+
+def _effective_response_url(response: object) -> str:
+    geturl = getattr(response, "geturl", None)
+    value = None if geturl is None else geturl()
+    if not isinstance(value, str):
+        raise DownloadContractError("response lacks an effective URL")
+    parsed = urllib.parse.urlsplit(value)
+    if parsed.scheme != "https" or not parsed.netloc or parsed.fragment:
+        raise DownloadContractError("response effective URL is not canonical HTTPS")
+    return value
+
+
 def _response_status(response: object) -> int:
     status = getattr(response, "status", None)
     if status is None:
@@ -1720,9 +1772,11 @@ def _download_response_contract(
     *,
     offset: int,
     expected_total: int | None,
+    expected_etag: str | None,
+    expected_effective_url: str | None,
     locked_total: int | None,
     max_bytes: int,
-) -> tuple[int, int]:
+) -> tuple[int, int, str, str]:
     headers = getattr(response, "headers", None)
     content_encoding = None if headers is None else headers.get("Content-Encoding")
     if content_encoding is not None and (
@@ -1744,6 +1798,17 @@ def _download_response_contract(
             raise DownloadContractError("download declares an empty archive")
         if expected_total is not None and total != expected_total:
             raise DownloadContractError("retried initial response changed its total")
+        etag = _strong_response_etag(response)
+        if expected_etag is not None and etag != expected_etag:
+            raise DownloadContractError("retried initial response changed its ETag")
+        effective_url = _effective_response_url(response)
+        if (
+            expected_effective_url is not None
+            and effective_url != expected_effective_url
+        ):
+            raise DownloadContractError(
+                "retried initial response changed its effective URL"
+            )
     else:
         if status != 206:
             raise DownloadContractError(
@@ -1768,13 +1833,19 @@ def _download_response_contract(
             raise DownloadContractError(
                 "range Content-Length disagrees with Content-Range"
             )
+        etag = _strong_response_etag(response)
+        if expected_etag is None or etag != expected_etag:
+            raise DownloadContractError("range response ETag changed or is missing")
+        effective_url = _effective_response_url(response)
+        if expected_effective_url is None or effective_url != expected_effective_url:
+            raise DownloadContractError("range response effective URL changed")
     if total > max_bytes:
         raise ValueError("download exceeds archive-byte limit")
     if locked_total is not None and total != locked_total:
         raise DownloadContractError(
             f"download size differs from source lock: expected {locked_total}, got {total}"
         )
-    return total, content_length
+    return total, content_length, etag, effective_url
 
 
 def _append_download_response(
@@ -1831,6 +1902,8 @@ def download(
 ) -> dict[str, object]:
     partial = _create_private_partial(destination)
     expected_total: int | None = None
+    expected_etag: str | None = None
+    expected_effective_url: str | None = None
     request_count = 0
     range_request_count = 0
     last_retryable: BaseException | None = None
@@ -1847,7 +1920,10 @@ def download(
         if offset:
             if expected_total is None:
                 raise DownloadContractError("download partial lacks an established total")
+            if expected_etag is None:
+                raise DownloadContractError("download partial lacks a strong ETag")
             headers["Range"] = f"bytes={offset}-"
+            headers["If-Range"] = expected_etag
             range_request_count += 1
         request = urllib.request.Request(url, headers=headers)
         request_count += 1
@@ -1861,14 +1937,20 @@ def download(
             continue
         try:
             with response:
-                total, declared_bytes = _download_response_contract(
-                    response,
-                    offset=offset,
-                    expected_total=expected_total,
-                    locked_total=expected_bytes,
-                    max_bytes=max_bytes,
+                total, declared_bytes, etag, effective_url = (
+                    _download_response_contract(
+                        response,
+                        offset=offset,
+                        expected_total=expected_total,
+                        expected_etag=expected_etag,
+                        expected_effective_url=expected_effective_url,
+                        locked_total=expected_bytes,
+                        max_bytes=max_bytes,
+                    )
                 )
                 expected_total = total
+                expected_etag = etag
+                expected_effective_url = effective_url
                 _append_download_response(
                     response,
                     partial,
@@ -1877,7 +1959,12 @@ def download(
         except RetryableDownloadError as error:
             last_retryable = error
             continue
-    if expected_total is None or partial.stat().st_size != expected_total:
+    if (
+        expected_total is None
+        or expected_etag is None
+        or expected_effective_url is None
+        or partial.stat().st_size != expected_total
+    ):
         message = (
             f"download incomplete after {request_count} requests: "
             f"received {partial.stat().st_size} of "
@@ -1893,6 +1980,8 @@ def download(
     return {
         "method": "network-download",
         "source_url": url,
+        "effective_url": expected_effective_url,
+        "etag": expected_etag,
         "declared_bytes": expected_total,
         "request_count": request_count,
         "range_request_count": range_request_count,
@@ -2624,6 +2713,42 @@ def promote_reviewed(output: Path, expected_manifest_sha256: str) -> dict[str, o
         destination.flush()
         os.fsync(destination.fileno())
     _rename_no_replace(temporary, review_path)
+    _fsync_directory(output)
+    return manifest
+
+
+def publish_reviewed_cache(
+    output: Path,
+    expected_manifest_sha256: str,
+) -> dict[str, object]:
+    output = require_materialization_output(output)
+    manifest = verify(
+        output,
+        expected_manifest_sha256=expected_manifest_sha256,
+        require_reviewed=True,
+    )
+    cache_parent_path = ROOT / "caches/triton-build-deps"
+    require_real_directory(cache_parent_path, "reviewed dependency cache parent")
+    cache_parent = cache_parent_path.resolve(strict=True)
+    if cache_parent != cache_parent_path:
+        raise RuntimeError("reviewed dependency cache parent is not canonical")
+    destination = cache_parent / expected_manifest_sha256
+    if destination.exists() or destination.is_symlink():
+        raise FileExistsError(f"reviewed dependency cache already exists: {destination}")
+    _fsync_directory(output)
+    _rename_no_replace(
+        output,
+        destination,
+        require_same_parent=False,
+    )
+    _fsync_directory(cache_parent)
+    _fsync_directory(output.parent)
+    if verify(
+        destination,
+        expected_manifest_sha256=expected_manifest_sha256,
+        require_reviewed=True,
+    ) != manifest:
+        raise RuntimeError("published dependency cache verification changed its value")
     return manifest
 
 
@@ -2633,6 +2758,7 @@ def main() -> int:
     parser.add_argument("--seed-download-dir", type=Path)
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--promote-reviewed", action="store_true")
+    parser.add_argument("--publish-reviewed-cache", action="store_true")
     parser.add_argument("--probe-reviewed-tools", action="store_true")
     parser.add_argument("--expected-manifest-sha256")
     parser.add_argument("--require-reviewed", action="store_true")
@@ -2645,11 +2771,15 @@ def main() -> int:
         for value in (
             args.verify,
             args.promote_reviewed,
+            args.publish_reviewed_cache,
             args.probe_reviewed_tools,
         )
     )
     if modes > 1:
-        parser.error("verification/promotion/probe modes are mutually exclusive")
+        parser.error(
+            "verification/promotion/cache-publication/probe modes are "
+            "mutually exclusive"
+        )
     if modes != 0 and args.seed_download_dir is not None:
         parser.error("--seed-download-dir is valid only during materialization")
     if modes == 0 and (
@@ -2660,6 +2790,12 @@ def main() -> int:
         parser.error("--promote-reviewed requires --expected-manifest-sha256")
     if args.promote_reviewed and args.require_reviewed:
         parser.error("--require-reviewed is invalid during promotion")
+    if args.publish_reviewed_cache and args.expected_manifest_sha256 is None:
+        parser.error(
+            "--publish-reviewed-cache requires --expected-manifest-sha256"
+        )
+    if args.publish_reviewed_cache and args.require_reviewed:
+        parser.error("cache publication already requires reviewed verification")
     if args.probe_reviewed_tools and args.require_reviewed:
         parser.error("tool probe implies reviewed verification")
     if args.probe_reviewed_tools and args.expected_manifest_sha256 is None:
@@ -2686,7 +2822,12 @@ def main() -> int:
         )
         if preflight.returncode != 0:
             return preflight.returncode
-    if args.probe_reviewed_tools:
+    if args.publish_reviewed_cache:
+        manifest = publish_reviewed_cache(
+            args.output,
+            args.expected_manifest_sha256,
+        )
+    elif args.probe_reviewed_tools:
         probe_reviewed_tools(args.output, args.expected_manifest_sha256)
         manifest = verify(
             args.output,

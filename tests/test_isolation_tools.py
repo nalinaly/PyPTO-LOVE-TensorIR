@@ -1040,11 +1040,13 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
             status: int,
             headers: dict[str, str],
             payload: bytes,
+            effective_url: str = "https://cdn.example.invalid/archive.tar",
         ) -> None:
             self.status = status
             self.headers = headers
             self._payload = io.BytesIO(payload)
             self.bytes_read = 0
+            self.effective_url = effective_url
 
         def __enter__(self):
             return self
@@ -1056,6 +1058,9 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
             value = self._payload.read(size)
             self.bytes_read += len(value)
             return value
+
+        def geturl(self) -> str:
+            return self.effective_url
 
     @staticmethod
     def make_tar_archive(
@@ -1122,7 +1127,7 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
     def test_download_rejects_premature_eof_before_archive_publish(self) -> None:
         response = self.FakeHTTPResponse(
             200,
-            {"Content-Length": "6"},
+            {"Content-Length": "6", "ETag": '"fixture-v1"'},
             b"abc",
         )
         with tempfile.TemporaryDirectory(dir=ROOT / "builds") as directory:
@@ -1153,7 +1158,7 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
         responses = (
             self.FakeHTTPResponse(
                 200,
-                {"Content-Length": "6"},
+                {"Content-Length": "6", "ETag": '"fixture-v1"'},
                 b"abc",
             ),
             self.FakeHTTPResponse(
@@ -1161,6 +1166,7 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
                 {
                     "Content-Length": "3",
                     "Content-Range": "bytes 3-5/6",
+                    "ETag": '"fixture-v1"',
                 },
                 b"def",
             ),
@@ -1187,10 +1193,16 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
                 "bytes=3-",
             )
             self.assertEqual(
+                urlopen.call_args_list[1].args[0].get_header("If-range"),
+                '"fixture-v1"',
+            )
+            self.assertEqual(
                 acquisition,
                 {
                     "method": "network-download",
                     "source_url": "https://example.invalid/archive.tar",
+                    "effective_url": "https://cdn.example.invalid/archive.tar",
+                    "etag": '"fixture-v1"',
                     "declared_bytes": 6,
                     "request_count": 2,
                     "range_request_count": 1,
@@ -1198,7 +1210,10 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
             )
 
     def test_download_requires_an_exact_declared_content_length(self) -> None:
-        invalid_headers = ({}, {"Content-Length": "06"})
+        invalid_headers = (
+            {"ETag": '"fixture-v1"'},
+            {"Content-Length": "06", "ETag": '"fixture-v1"'},
+        )
         for headers in invalid_headers:
             with self.subTest(headers=headers), tempfile.TemporaryDirectory(
                 dir=ROOT / "builds"
@@ -1226,12 +1241,111 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
                 )
                 self.assertEqual(response.bytes_read, 0)
 
+    def test_download_rejects_missing_or_weak_initial_etag(self) -> None:
+        for etag in (None, 'W/"fixture-v1"'):
+            with self.subTest(etag=etag), tempfile.TemporaryDirectory(
+                dir=ROOT / "builds"
+            ) as directory:
+                headers = {"Content-Length": "6"}
+                if etag is not None:
+                    headers["ETag"] = etag
+                response = self.FakeHTTPResponse(200, headers, b"abcdef")
+                destination = pathlib.Path(directory) / "archive.tar"
+                with mock.patch.object(
+                    triton_dependencies.urllib.request,
+                    "urlopen",
+                    return_value=response,
+                ):
+                    with self.assertRaisesRegex(
+                        triton_dependencies.DownloadContractError,
+                        "strong ETag",
+                    ):
+                        triton_dependencies.download(
+                            "https://example.invalid/archive.tar",
+                            destination,
+                            max_bytes=64,
+                        )
+                self.assertFalse(destination.exists())
+                self.assertEqual(
+                    destination.with_suffix(".tar.partial").read_bytes(),
+                    b"",
+                )
+                self.assertEqual(response.bytes_read, 0)
+
+    def test_range_response_requires_same_validator_and_effective_url(self) -> None:
+        invalid_responses = (
+            (None, "strong ETag", "https://cdn.example.invalid/archive.tar"),
+            (
+                'W/"fixture-v1"',
+                "strong ETag",
+                "https://cdn.example.invalid/archive.tar",
+            ),
+            (
+                '"fixture-v2"',
+                "ETag changed",
+                "https://cdn.example.invalid/archive.tar",
+            ),
+            (
+                '"fixture-v1"',
+                "effective URL changed",
+                "https://other.example.invalid/archive.tar",
+            ),
+        )
+        for etag, message, effective_url in invalid_responses:
+            with self.subTest(etag=etag), tempfile.TemporaryDirectory(
+                dir=ROOT / "builds"
+            ) as directory:
+                initial = self.FakeHTTPResponse(
+                    200,
+                    {"Content-Length": "6", "ETag": '"fixture-v1"'},
+                    b"abc",
+                )
+                range_headers = {
+                    "Content-Length": "3",
+                    "Content-Range": "bytes 3-5/6",
+                }
+                if etag is not None:
+                    range_headers["ETag"] = etag
+                resumed = self.FakeHTTPResponse(
+                    206,
+                    range_headers,
+                    b"def",
+                    effective_url=effective_url,
+                )
+                destination = pathlib.Path(directory) / "archive.tar"
+                with mock.patch.object(
+                    triton_dependencies.urllib.request,
+                    "urlopen",
+                    side_effect=(initial, resumed),
+                ) as urlopen:
+                    with self.assertRaisesRegex(
+                        triton_dependencies.DownloadContractError,
+                        message,
+                    ):
+                        triton_dependencies.download(
+                            "https://example.invalid/archive.tar",
+                            destination,
+                            max_bytes=64,
+                        )
+                request = urlopen.call_args_list[1].args[0]
+                self.assertEqual(request.get_header("Range"), "bytes=3-")
+                self.assertEqual(
+                    request.get_header("If-range"),
+                    '"fixture-v1"',
+                )
+                self.assertFalse(destination.exists())
+                self.assertEqual(
+                    destination.with_suffix(".tar.partial").read_bytes(),
+                    b"abc",
+                )
+                self.assertEqual(resumed.bytes_read, 0)
+
     def test_download_never_appends_ignored_or_malformed_ranges(self) -> None:
         invalid_responses = (
             (
                 self.FakeHTTPResponse(
                     200,
-                    {"Content-Length": "3"},
+                    {"Content-Length": "3", "ETag": '"fixture-v1"'},
                     b"def",
                 ),
                 "ignored Range",
@@ -1242,6 +1356,7 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
                     {
                         "Content-Length": "3",
                         "Content-Range": "bytes malformed",
+                        "ETag": '"fixture-v1"',
                     },
                     b"def",
                 ),
@@ -1253,6 +1368,7 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
                     {
                         "Content-Length": "3",
                         "Content-Range": "bytes 2-4/6",
+                        "ETag": '"fixture-v1"',
                     },
                     b"def",
                 ),
@@ -1264,6 +1380,7 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
                     {
                         "Content-Length": "2",
                         "Content-Range": "bytes 3-5/6",
+                        "ETag": '"fixture-v1"',
                     },
                     b"def",
                 ),
@@ -1276,7 +1393,7 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
             ) as directory:
                 initial = self.FakeHTTPResponse(
                     200,
-                    {"Content-Length": "6"},
+                    {"Content-Length": "6", "ETag": '"fixture-v1"'},
                     b"abc",
                 )
                 destination = pathlib.Path(directory) / "archive.tar"
@@ -2150,6 +2267,11 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
                 return {
                     "method": "network-download",
                     "source_url": url,
+                    "effective_url": (
+                        "https://fixtures.invalid/"
+                        f"{pathlib.PurePosixPath(url).name}"
+                    ),
+                    "etag": '"fixture-v1"',
                     "declared_bytes": len(payload),
                     "request_count": 1,
                     "range_request_count": 0,
@@ -2159,7 +2281,12 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
             real_publish = triton_dependencies._rename_no_replace
             atomic_publications = []
 
-            def recorded_publish(source, destination) -> None:
+            def recorded_publish(
+                source,
+                destination,
+                *,
+                require_same_parent: bool = True,
+            ) -> None:
                 source_path = pathlib.Path(source)
                 destination_path = pathlib.Path(destination)
                 if destination_path == output:
@@ -2167,7 +2294,11 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
                     self.assertTrue(source_path.is_dir())
                     self.assertFalse(output.exists())
                     atomic_publications.append((source_path, destination_path))
-                real_publish(source_path, destination_path)
+                real_publish(
+                    source_path,
+                    destination_path,
+                    require_same_parent=require_same_parent,
+                )
 
             patches = (
                 mock.patch.object(triton_dependencies, "ROOT", fake_root),
@@ -2262,7 +2393,14 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
                         manifest,
                     )
                     cache = cache_parent / manifest_sha
-                    output.rename(cache)
+                    self.assertEqual(
+                        triton_dependencies.publish_reviewed_cache(
+                            output,
+                            manifest_sha,
+                        ),
+                        manifest,
+                    )
+                    self.assertFalse(output.exists())
                     self.assertEqual(
                         triton_dependencies.verify(
                             cache,
@@ -2288,6 +2426,170 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
                             require_reviewed=True,
                         )
                 urlopen.assert_not_called()
+
+    def test_review_publication_fsync_failure_is_not_reported_as_success(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT / "builds") as directory:
+            fake_root = pathlib.Path(directory) / "workspace"
+            output = fake_root / "builds/triton-deps-materialize-review"
+            output.mkdir(parents=True)
+            manifest = {"fixture": "verified"}
+            expected_sha256 = "a" * 64
+            with mock.patch.object(
+                triton_dependencies,
+                "ROOT",
+                fake_root,
+            ), mock.patch.object(
+                triton_dependencies,
+                "validate_reviewed_manifest_anchor",
+            ), mock.patch.object(
+                triton_dependencies,
+                "verify",
+                return_value=manifest,
+            ), mock.patch.object(
+                triton_dependencies,
+                "dependencies_are_fully_pinned",
+                return_value=True,
+            ), mock.patch.object(
+                triton_dependencies,
+                "_fsync_directory",
+                side_effect=OSError("directory fsync failed"),
+            ):
+                with self.assertRaisesRegex(OSError, "directory fsync failed"):
+                    triton_dependencies.promote_reviewed(
+                        output,
+                        expected_sha256,
+                    )
+            self.assertTrue((output / "review.json").is_file())
+
+    def test_reviewed_cache_publish_is_durable_and_postverified(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT / "builds") as directory:
+            fake_root = pathlib.Path(directory) / "workspace"
+            builds = fake_root / "builds"
+            cache_parent = fake_root / "caches/triton-build-deps"
+            output = builds / "triton-deps-materialize-cache"
+            output.mkdir(parents=True)
+            cache_parent.mkdir(parents=True)
+            expected_sha256 = "b" * 64
+            destination = cache_parent / expected_sha256
+            manifest = {"fixture": "reviewed"}
+            events: list[tuple[str, pathlib.Path, object]] = []
+            real_fsync = triton_dependencies._fsync_directory
+            real_rename = triton_dependencies._rename_no_replace
+
+            def record_verify(path, **kwargs):
+                events.append(("verify", pathlib.Path(path), kwargs))
+                return manifest
+
+            def record_fsync(path) -> None:
+                path = pathlib.Path(path)
+                events.append(("fsync", path, None))
+                real_fsync(path)
+
+            def record_rename(
+                source,
+                target,
+                *,
+                require_same_parent: bool = True,
+            ) -> None:
+                events.append(
+                    (
+                        "rename",
+                        pathlib.Path(source),
+                        (pathlib.Path(target), require_same_parent),
+                    )
+                )
+                real_rename(
+                    pathlib.Path(source),
+                    pathlib.Path(target),
+                    require_same_parent=require_same_parent,
+                )
+
+            with mock.patch.object(
+                triton_dependencies,
+                "ROOT",
+                fake_root,
+            ), mock.patch.object(
+                triton_dependencies,
+                "verify",
+                side_effect=record_verify,
+            ), mock.patch.object(
+                triton_dependencies,
+                "_fsync_directory",
+                side_effect=record_fsync,
+            ), mock.patch.object(
+                triton_dependencies,
+                "_rename_no_replace",
+                side_effect=record_rename,
+            ):
+                self.assertEqual(
+                    triton_dependencies.publish_reviewed_cache(
+                        output,
+                        expected_sha256,
+                    ),
+                    manifest,
+                )
+            self.assertFalse(output.exists())
+            self.assertTrue(destination.is_dir())
+            self.assertEqual(
+                [event[:2] for event in events],
+                [
+                    ("verify", output),
+                    ("fsync", output),
+                    ("rename", output),
+                    ("fsync", cache_parent),
+                    ("fsync", builds),
+                    ("verify", destination),
+                ],
+            )
+            self.assertEqual(events[2][2], (destination, False))
+
+    def test_reviewed_cache_publish_cannot_replace_a_competitor(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT / "builds") as directory:
+            fake_root = pathlib.Path(directory) / "workspace"
+            builds = fake_root / "builds"
+            cache_parent = fake_root / "caches/triton-build-deps"
+            output = builds / "triton-deps-materialize-cache-race"
+            output.mkdir(parents=True)
+            cache_parent.mkdir(parents=True)
+            expected_sha256 = "c" * 64
+            destination = cache_parent / expected_sha256
+            real_rename = triton_dependencies._rename_no_replace
+
+            def create_competitor_then_rename(
+                source,
+                target,
+                *,
+                require_same_parent: bool = True,
+            ) -> None:
+                target = pathlib.Path(target)
+                target.mkdir()
+                (target / "payload").write_bytes(b"competing")
+                real_rename(
+                    pathlib.Path(source),
+                    target,
+                    require_same_parent=require_same_parent,
+                )
+
+            with mock.patch.object(
+                triton_dependencies,
+                "ROOT",
+                fake_root,
+            ), mock.patch.object(
+                triton_dependencies,
+                "verify",
+                return_value={"fixture": "reviewed"},
+            ), mock.patch.object(
+                triton_dependencies,
+                "_rename_no_replace",
+                side_effect=create_competitor_then_rename,
+            ):
+                with self.assertRaises(FileExistsError):
+                    triton_dependencies.publish_reviewed_cache(
+                        output,
+                        expected_sha256,
+                    )
+            self.assertTrue(output.is_dir())
+            self.assertEqual((destination / "payload").read_bytes(), b"competing")
 
     def test_failed_materialization_never_publishes_final_output(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT / "builds") as directory:
