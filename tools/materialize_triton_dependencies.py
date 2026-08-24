@@ -5,8 +5,11 @@ from __future__ import annotations
 
 import argparse
 import base64
+import ctypes
 from dataclasses import dataclass
+import errno
 import hashlib
+import http.client
 import importlib.metadata
 import json
 import os
@@ -40,6 +43,7 @@ class PackageSpec:
     archive_kind: str
     expected_root: str | None = None
     expected_sha256: str | None = None
+    expected_bytes: int | None = None
 
 
 PACKAGE_SPECS = (
@@ -59,6 +63,10 @@ PACKAGE_SPECS = (
         "llvm-ac5dc54d-ubuntu-x64.tar.gz",
         "tar",
         "llvm-ac5dc54d-ubuntu-x64",
+        expected_sha256=(
+            "11a11a5a90da7e4b53ef4cf0f259143d14633cae8543a95cb2d99e4af6b902f8"
+        ),
+        expected_bytes=1_309_519_196,
     ),
     PackageSpec(
         "json",
@@ -136,6 +144,20 @@ PACKAGE_RESOURCE_LIMITS = {
 MATERIALIZATION_HEADROOM_BYTES = 8 << 30
 MAX_ARCHIVE_PATH_BYTES = 4096
 MAX_ARCHIVE_COMPONENT_BYTES = 255
+DOWNLOAD_CHUNK_BYTES = 64 << 10
+DOWNLOAD_FSYNC_INTERVAL_BYTES = 64 << 20
+DOWNLOAD_MAX_REQUESTS = 4
+DOWNLOAD_TIMEOUT_SECONDS = 300
+DOWNLOAD_USER_AGENT = "pypto-triton-dependency-materializer/2"
+CONTENT_RANGE_PATTERN = re.compile(r"bytes ([0-9]+)-([0-9]+)/([0-9]+)")
+
+
+class DownloadContractError(RuntimeError):
+    """The peer response cannot be safely interpreted as archive bytes."""
+
+
+class RetryableDownloadError(RuntimeError):
+    """The current response ended before all of its declared bytes arrived."""
 
 
 LOCK_EXPECTATIONS = {
@@ -160,7 +182,10 @@ LOCK_EXPECTATIONS = {
     "triton.dependencies.archive.pybind11.sha256": (
         "aa8f0aa6e0a94d3b64adfc38f560f33f15e589be2175e103c0a33c6bce55ee89"
     ),
-    "triton.dependencies.archive.llvm.sha256": UNREVIEWED,
+    "triton.dependencies.archive.llvm.sha256": (
+        "11a11a5a90da7e4b53ef4cf0f259143d14633cae8543a95cb2d99e4af6b902f8"
+    ),
+    "triton.dependencies.archive.llvm.bytes": "1309519196",
     "triton.dependencies.archive.json.sha256": UNREVIEWED,
     "triton.dependencies.archive.ptxas.sha256": UNREVIEWED,
     "triton.dependencies.archive.ptxas_blackwell.sha256": UNREVIEWED,
@@ -546,6 +571,20 @@ def validate_versions_lock(path: Path = ROOT / "VERSIONS.lock") -> None:
     if mismatches:
         raise RuntimeError(f"Triton VERSIONS.lock mismatch: {mismatches}")
     for spec in PACKAGE_SPECS:
+        if spec.expected_sha256 is not None and re.fullmatch(
+            r"[0-9a-f]{64}", spec.expected_sha256
+        ) is None:
+            raise RuntimeError(
+                f"Triton dependency archive SHA-256 is malformed: {spec.name}"
+            )
+        if spec.expected_bytes is not None and (
+            not _exact_nonnegative_int(spec.expected_bytes)
+            or spec.expected_bytes == 0
+            or spec.expected_bytes > PACKAGE_RESOURCE_LIMITS[spec.name][0]
+        ):
+            raise RuntimeError(
+                f"Triton dependency archive size is invalid: {spec.name}"
+            )
         locked_digest = observed.get(
             f"triton.dependencies.archive.{spec.name}.sha256"
         )
@@ -553,6 +592,12 @@ def validate_versions_lock(path: Path = ROOT / "VERSIONS.lock") -> None:
         if locked_digest != expected_digest:
             raise RuntimeError(
                 f"Triton dependency archive lock mismatch: {spec.name}"
+            )
+        if spec.expected_bytes is not None and observed.get(
+            f"triton.dependencies.archive.{spec.name}.bytes"
+        ) != str(spec.expected_bytes):
+            raise RuntimeError(
+                f"Triton dependency archive size lock mismatch: {spec.name}"
             )
     locked_manifest = observed.get(
         "triton.dependencies.reviewed_manifest_sha256"
@@ -1009,6 +1054,29 @@ def require_materialization_output(path: Path) -> Path:
     return resolved
 
 
+def require_seed_download_directory(path: Path) -> Path:
+    if not path.is_absolute():
+        raise ValueError("seed download directory must be an absolute canonical path")
+    lexical = Path(os.path.abspath(os.fspath(path)))
+    try:
+        resolved = path.resolve(strict=True)
+        metadata = path.lstat()
+    except OSError as error:
+        raise ValueError(f"seed download directory is absent: {path}") from error
+    workspace = ROOT.resolve(strict=True)
+    if path != lexical or resolved != lexical:
+        raise ValueError("seed download directory must be an absolute canonical path")
+    if resolved == workspace or workspace not in resolved.parents:
+        raise ValueError("seed download directory must be below the workspace")
+    if path.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
+        raise ValueError("seed download directory must be a real directory")
+    if metadata.st_uid != os.getuid():
+        raise ValueError("seed download directory must be owned by the current user")
+    if stat.S_IMODE(metadata.st_mode) & 0o022:
+        raise ValueError("seed download directory must not be group/other-writable")
+    return resolved
+
+
 def manifest_path(output: Path, value: object, field: str) -> Path:
     if not isinstance(value, str) or not value:
         raise RuntimeError(f"manifest {field} must be a non-empty relative path")
@@ -1080,12 +1148,124 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def validate_reviewed_archive_size(spec: PackageSpec, actual_bytes: int) -> None:
+    if spec.expected_bytes is not None and actual_bytes != spec.expected_bytes:
+        raise RuntimeError(
+            f"archive differs from reviewed size for {spec.name}: "
+            f"expected {spec.expected_bytes}, got {actual_bytes}"
+        )
+
+
 def validate_reviewed_archive_digest(spec: PackageSpec, actual_sha256: str) -> None:
     if spec.expected_sha256 and actual_sha256 != spec.expected_sha256:
         raise RuntimeError(
             f"archive differs from reviewed digest for {spec.name}: "
             f"expected {spec.expected_sha256}, got {actual_sha256}"
         )
+
+
+def archive_filename(spec: PackageSpec) -> str:
+    filename = spec.url.rsplit("/", 1)[-1]
+    if (
+        not filename
+        or PurePosixPath(filename).name != filename
+        or filename in {".", ".."}
+    ):
+        raise RuntimeError(f"dependency URL lacks a safe filename: {spec.name}")
+    return filename
+
+
+def _canonical_workspace_relative(value: object, description: str) -> PurePosixPath:
+    if not isinstance(value, str) or not value or "\\" in value:
+        raise RuntimeError(f"{description} must be a canonical workspace-relative path")
+    relative = PurePosixPath(value)
+    if (
+        relative.is_absolute()
+        or relative.as_posix() != value
+        or any(part in ("", ".", "..") for part in relative.parts)
+    ):
+        raise RuntimeError(f"{description} must be a canonical workspace-relative path")
+    return relative
+
+
+def _exact_nonnegative_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def validate_acquisition_provenance(
+    spec: PackageSpec,
+    acquisition: object,
+    *,
+    archive_bytes: int,
+    archive_sha256: str,
+) -> None:
+    if not _exact_nonnegative_int(archive_bytes):
+        raise RuntimeError(f"acquisition archive size is invalid: {spec.name}")
+    if re.fullmatch(r"[0-9a-f]{64}", archive_sha256) is None:
+        raise RuntimeError(f"acquisition archive digest is invalid: {spec.name}")
+    if not isinstance(acquisition, dict):
+        raise RuntimeError(f"acquisition provenance is malformed: {spec.name}")
+    method = acquisition.get("method")
+    if method == "network-download":
+        expected_keys = {
+            "declared_bytes",
+            "method",
+            "range_request_count",
+            "request_count",
+            "source_url",
+        }
+        if set(acquisition) != expected_keys:
+            raise RuntimeError(f"acquisition keys mismatch: {spec.name}")
+        requests = acquisition["request_count"]
+        range_requests = acquisition["range_request_count"]
+        if acquisition["source_url"] != spec.url:
+            raise RuntimeError(f"acquisition URL mismatch: {spec.name}")
+        if (
+            not _exact_nonnegative_int(acquisition["declared_bytes"])
+            or acquisition["declared_bytes"] != archive_bytes
+        ):
+            raise RuntimeError(f"acquisition size mismatch: {spec.name}")
+        if (
+            not _exact_nonnegative_int(requests)
+            or requests < 1
+            or requests > DOWNLOAD_MAX_REQUESTS
+            or not _exact_nonnegative_int(range_requests)
+            or range_requests > requests - 1
+        ):
+            raise RuntimeError(f"acquisition request counts are invalid: {spec.name}")
+    elif method == "workspace-seed-copy":
+        expected_keys = {
+            "copied_bytes",
+            "copied_sha256",
+            "method",
+            "source_bytes",
+            "source_path",
+            "source_sha256",
+        }
+        if set(acquisition) != expected_keys:
+            raise RuntimeError(f"acquisition keys mismatch: {spec.name}")
+        if spec.expected_sha256 is None:
+            raise RuntimeError(f"unpinned dependency used a seed: {spec.name}")
+        source_path = _canonical_workspace_relative(
+            acquisition["source_path"],
+            f"seed source for {spec.name}",
+        )
+        if source_path.name != archive_filename(spec):
+            raise RuntimeError(f"seed source filename mismatch: {spec.name}")
+        if any(
+            not _exact_nonnegative_int(acquisition[key])
+            or acquisition[key] != archive_bytes
+            for key in ("source_bytes", "copied_bytes")
+        ):
+            raise RuntimeError(f"seed acquisition size mismatch: {spec.name}")
+        if (
+            acquisition["source_sha256"] != archive_sha256
+            or acquisition["copied_sha256"] != archive_sha256
+            or archive_sha256 != spec.expected_sha256
+        ):
+            raise RuntimeError(f"seed acquisition digest mismatch: {spec.name}")
+    else:
+        raise RuntimeError(f"unknown acquisition method: {spec.name}")
 
 
 def dependencies_are_fully_pinned(specs: tuple[PackageSpec, ...]) -> bool:
@@ -1317,27 +1497,575 @@ def extract_archive(
     return inventory
 
 
-def download(url: str, destination: Path, *, max_bytes: int) -> None:
-    partial = destination.with_suffix(destination.suffix + ".partial")
-    request = urllib.request.Request(
-        url,
-        headers={"User-Agent": "pypto-triton-dependency-materializer/1"},
+def _fsync_directory(path: Path) -> None:
+    descriptor = os.open(
+        path,
+        os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_CLOEXEC", 0),
     )
-    with urllib.request.urlopen(request, timeout=300) as response, partial.open(
-        "xb"
-    ) as output:
-        content_length = response.headers.get("Content-Length")
-        if content_length is not None and int(content_length) > max_bytes:
-            raise ValueError("download exceeds archive-byte limit")
-        byte_count = 0
-        while chunk := response.read(8 * 1024 * 1024):
-            byte_count += len(chunk)
-            if byte_count > max_bytes:
-                raise ValueError("download exceeds archive-byte limit")
-            output.write(chunk)
-        output.flush()
-        os.fsync(output.fileno())
-    os.replace(partial, destination)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _require_independent_regular_file(
+    opened: os.stat_result,
+    named: os.stat_result,
+    path: Path,
+) -> None:
+    if (
+        not stat.S_ISREG(opened.st_mode)
+        or opened.st_dev != named.st_dev
+        or opened.st_ino != named.st_ino
+        or opened.st_uid != os.getuid()
+        or opened.st_nlink != 1
+        or stat.S_IMODE(opened.st_mode) & 0o022
+    ):
+        raise RuntimeError(
+            f"file is not an independent safely-permissioned user-owned "
+            f"regular file: {path}"
+        )
+
+
+def _open_private_file(path: Path, flags: int) -> int:
+    descriptor = os.open(
+        path,
+        flags | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+    )
+    try:
+        _require_independent_regular_file(
+            os.fstat(descriptor),
+            path.lstat(),
+            path,
+        )
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
+def _create_private_partial(destination: Path) -> Path:
+    partial = destination.with_suffix(destination.suffix + ".partial")
+    if destination.exists() or destination.is_symlink():
+        raise FileExistsError(f"download destination already exists: {destination}")
+    if partial.exists() or partial.is_symlink():
+        raise FileExistsError(f"download partial already exists: {partial}")
+    descriptor = os.open(
+        partial,
+        os.O_WRONLY
+        | os.O_CREAT
+        | os.O_EXCL
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0),
+        0o600,
+    )
+    try:
+        opened = os.fstat(descriptor)
+        _require_independent_regular_file(opened, partial.lstat(), partial)
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    _fsync_directory(partial.parent)
+    return partial
+
+
+def _rename_no_replace(source: Path, destination: Path) -> None:
+    """Atomically rename a file or directory only when destination is absent."""
+
+    if not source.is_absolute() or not destination.is_absolute():
+        raise ValueError("no-replace publication paths must be absolute")
+    source_lexical = Path(os.path.abspath(os.fspath(source)))
+    destination_lexical = Path(os.path.abspath(os.fspath(destination)))
+    source_resolved = source.resolve(strict=True)
+    destination_resolved = destination.resolve(strict=False)
+    workspace = ROOT.resolve(strict=True)
+    if (
+        source != source_lexical
+        or destination != destination_lexical
+        or source_resolved != source_lexical
+        or destination_resolved != destination_lexical
+        or source.parent != destination.parent
+        or (source.parent != workspace and workspace not in source.parent.parents)
+        or source.is_symlink()
+    ):
+        raise ValueError(
+            "no-replace publication requires canonical workspace paths "
+            "under the same parent"
+        )
+    libc = ctypes.CDLL(None, use_errno=True)
+    renameat2 = getattr(libc, "renameat2", None)
+    if renameat2 is None:
+        raise RuntimeError("renameat2(RENAME_NOREPLACE) is unavailable")
+    renameat2.argtypes = (
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    )
+    renameat2.restype = ctypes.c_int
+    result = renameat2(
+        -100,  # AT_FDCWD
+        os.fsencode(source),
+        -100,
+        os.fsencode(destination),
+        1,  # RENAME_NOREPLACE
+    )
+    if result == 0:
+        return
+    error_number = ctypes.get_errno()
+    if error_number == errno.EEXIST:
+        raise FileExistsError(
+            error_number,
+            "publication destination already exists",
+            destination,
+        )
+    raise OSError(
+        error_number,
+        f"renameat2(RENAME_NOREPLACE) failed: {os.strerror(error_number)}",
+        destination,
+    )
+
+
+def _sha256_descriptor(descriptor: int) -> str:
+    digest = hashlib.sha256()
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    while chunk := os.read(descriptor, 8 * 1024 * 1024):
+        digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _verified_file_identity(path: Path) -> tuple[int, str, os.stat_result]:
+    descriptor = _open_private_file(path, os.O_RDONLY)
+    try:
+        metadata = os.fstat(descriptor)
+        digest = _sha256_descriptor(descriptor)
+        final_metadata = os.fstat(descriptor)
+        if (
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_size,
+            metadata.st_mtime_ns,
+            metadata.st_ctime_ns,
+        ) != (
+            final_metadata.st_dev,
+            final_metadata.st_ino,
+            final_metadata.st_size,
+            final_metadata.st_mtime_ns,
+            final_metadata.st_ctime_ns,
+        ):
+            raise RuntimeError(f"file changed while hashing: {path}")
+        _require_independent_regular_file(final_metadata, path.lstat(), path)
+        return final_metadata.st_size, digest, final_metadata
+    finally:
+        os.close(descriptor)
+
+
+def _publish_verified_partial(
+    partial: Path,
+    destination: Path,
+    *,
+    expected_bytes: int,
+    expected_sha256: str | None,
+) -> str:
+    actual_bytes, actual_sha256, partial_metadata = _verified_file_identity(partial)
+    if actual_bytes != expected_bytes:
+        raise RuntimeError(
+            f"archive size changed before publication: expected {expected_bytes}, "
+            f"got {actual_bytes}"
+        )
+    if expected_sha256 is not None and actual_sha256 != expected_sha256:
+        raise RuntimeError(
+            "archive digest changed before publication: "
+            f"expected {expected_sha256}, got {actual_sha256}"
+        )
+    if destination.exists() or destination.is_symlink():
+        raise FileExistsError(f"download destination already exists: {destination}")
+    _rename_no_replace(partial, destination)
+    published = destination.lstat()
+    if (
+        published.st_dev != partial_metadata.st_dev
+        or published.st_ino != partial_metadata.st_ino
+        or published.st_size != actual_bytes
+        or published.st_nlink != 1
+    ):
+        raise RuntimeError(f"archive identity changed during publication: {destination}")
+    _fsync_directory(destination.parent)
+    return actual_sha256
+
+
+def _decimal_header(response: object, name: str) -> int:
+    headers = getattr(response, "headers", None)
+    raw_value = None if headers is None else headers.get(name)
+    if not isinstance(raw_value, str):
+        raise DownloadContractError(f"response lacks required {name}")
+    value = raw_value.strip()
+    if re.fullmatch(r"[0-9]+", value) is None or str(int(value)) != value:
+        raise DownloadContractError(f"response has malformed {name}: {raw_value!r}")
+    return int(value)
+
+
+def _response_status(response: object) -> int:
+    status = getattr(response, "status", None)
+    if status is None:
+        getcode = getattr(response, "getcode", None)
+        status = None if getcode is None else getcode()
+    if not isinstance(status, int) or isinstance(status, bool):
+        raise DownloadContractError("response lacks an exact HTTP status")
+    return status
+
+
+def _download_response_contract(
+    response: object,
+    *,
+    offset: int,
+    expected_total: int | None,
+    locked_total: int | None,
+    max_bytes: int,
+) -> tuple[int, int]:
+    headers = getattr(response, "headers", None)
+    content_encoding = None if headers is None else headers.get("Content-Encoding")
+    if content_encoding is not None and (
+        not isinstance(content_encoding, str)
+        or content_encoding.strip().lower() != "identity"
+    ):
+        raise DownloadContractError("download response uses content encoding")
+    status = _response_status(response)
+    content_length = _decimal_header(response, "Content-Length")
+    if offset == 0:
+        if status != 200:
+            raise DownloadContractError(
+                f"initial download requires HTTP 200, got {status}"
+            )
+        if headers is not None and headers.get("Content-Range") is not None:
+            raise DownloadContractError("initial HTTP 200 response has Content-Range")
+        total = content_length
+        if total <= 0:
+            raise DownloadContractError("download declares an empty archive")
+        if expected_total is not None and total != expected_total:
+            raise DownloadContractError("retried initial response changed its total")
+    else:
+        if status != 206:
+            raise DownloadContractError(
+                f"server ignored Range request at offset {offset}: HTTP {status}"
+            )
+        raw_content_range = None if headers is None else headers.get("Content-Range")
+        if not isinstance(raw_content_range, str):
+            raise DownloadContractError("range response lacks Content-Range")
+        match = CONTENT_RANGE_PATTERN.fullmatch(raw_content_range.strip())
+        if match is None:
+            raise DownloadContractError(
+                f"range response has malformed Content-Range: {raw_content_range!r}"
+            )
+        start, end, total = (int(value) for value in match.groups())
+        if expected_total is None:
+            raise DownloadContractError("range response lacks an established total")
+        if start != offset or total != expected_total or end != total - 1:
+            raise DownloadContractError(
+                "range response does not exactly match the requested offset/total"
+            )
+        if content_length != end - start + 1:
+            raise DownloadContractError(
+                "range Content-Length disagrees with Content-Range"
+            )
+    if total > max_bytes:
+        raise ValueError("download exceeds archive-byte limit")
+    if locked_total is not None and total != locked_total:
+        raise DownloadContractError(
+            f"download size differs from source lock: expected {locked_total}, got {total}"
+        )
+    return total, content_length
+
+
+def _append_download_response(
+    response: object,
+    partial: Path,
+    *,
+    declared_bytes: int,
+) -> None:
+    descriptor = _open_private_file(partial, os.O_WRONLY | os.O_APPEND)
+    received = 0
+    bytes_since_fsync = 0
+    with os.fdopen(descriptor, "ab") as output:
+        try:
+            while received < declared_bytes:
+                try:
+                    chunk = response.read(
+                        min(DOWNLOAD_CHUNK_BYTES, declared_bytes - received)
+                    )
+                except (OSError, EOFError, http.client.HTTPException) as error:
+                    raise RetryableDownloadError(
+                        f"download read failed after {received} of "
+                        f"{declared_bytes} declared bytes"
+                    ) from error
+                if not isinstance(chunk, bytes):
+                    raise DownloadContractError("download response returned non-byte data")
+                if not chunk:
+                    raise RetryableDownloadError(
+                        f"premature EOF after {received} of "
+                        f"{declared_bytes} declared bytes"
+                    )
+                if len(chunk) > declared_bytes - received:
+                    raise DownloadContractError("download exceeded declared Content-Length")
+                written = output.write(chunk)
+                if written != len(chunk):
+                    raise OSError("short write while storing dependency archive")
+                received += written
+                bytes_since_fsync += written
+                if bytes_since_fsync >= DOWNLOAD_FSYNC_INTERVAL_BYTES:
+                    output.flush()
+                    os.fsync(output.fileno())
+                    bytes_since_fsync = 0
+        finally:
+            output.flush()
+            os.fsync(output.fileno())
+
+
+def download(
+    url: str,
+    destination: Path,
+    *,
+    max_bytes: int,
+    expected_sha256: str | None = None,
+    expected_bytes: int | None = None,
+) -> dict[str, object]:
+    partial = _create_private_partial(destination)
+    expected_total: int | None = None
+    request_count = 0
+    range_request_count = 0
+    last_retryable: BaseException | None = None
+    while request_count < DOWNLOAD_MAX_REQUESTS:
+        offset = partial.stat().st_size
+        if expected_total is not None and offset == expected_total:
+            break
+        if expected_total is not None and offset > expected_total:
+            raise DownloadContractError("download partial exceeds declared total")
+        headers = {
+            "Accept-Encoding": "identity",
+            "User-Agent": DOWNLOAD_USER_AGENT,
+        }
+        if offset:
+            if expected_total is None:
+                raise DownloadContractError("download partial lacks an established total")
+            headers["Range"] = f"bytes={offset}-"
+            range_request_count += 1
+        request = urllib.request.Request(url, headers=headers)
+        request_count += 1
+        try:
+            response = urllib.request.urlopen(
+                request,
+                timeout=DOWNLOAD_TIMEOUT_SECONDS,
+            )
+        except (OSError, EOFError, http.client.HTTPException) as error:
+            last_retryable = error
+            continue
+        try:
+            with response:
+                total, declared_bytes = _download_response_contract(
+                    response,
+                    offset=offset,
+                    expected_total=expected_total,
+                    locked_total=expected_bytes,
+                    max_bytes=max_bytes,
+                )
+                expected_total = total
+                _append_download_response(
+                    response,
+                    partial,
+                    declared_bytes=declared_bytes,
+                )
+        except RetryableDownloadError as error:
+            last_retryable = error
+            continue
+    if expected_total is None or partial.stat().st_size != expected_total:
+        message = (
+            f"download incomplete after {request_count} requests: "
+            f"received {partial.stat().st_size} of "
+            f"{expected_total if expected_total is not None else 'unknown'} bytes"
+        )
+        raise RuntimeError(message) from last_retryable
+    _publish_verified_partial(
+        partial,
+        destination,
+        expected_bytes=expected_total,
+        expected_sha256=expected_sha256,
+    )
+    return {
+        "method": "network-download",
+        "source_url": url,
+        "declared_bytes": expected_total,
+        "request_count": request_count,
+        "range_request_count": range_request_count,
+    }
+
+
+def _same_file_state(left: os.stat_result, right: os.stat_result) -> bool:
+    return (
+        left.st_dev,
+        left.st_ino,
+        left.st_mode,
+        left.st_uid,
+        left.st_nlink,
+        left.st_size,
+        left.st_mtime_ns,
+        left.st_ctime_ns,
+    ) == (
+        right.st_dev,
+        right.st_ino,
+        right.st_mode,
+        right.st_uid,
+        right.st_nlink,
+        right.st_size,
+        right.st_mtime_ns,
+        right.st_ctime_ns,
+    )
+
+
+def copy_seed_archive(
+    spec: PackageSpec,
+    seed_download_dir: Path,
+    destination: Path,
+    *,
+    max_bytes: int,
+) -> dict[str, object] | None:
+    seed_download_dir = require_seed_download_directory(seed_download_dir)
+    filename = archive_filename(spec)
+    directory_descriptor = os.open(
+        seed_download_dir,
+        os.O_RDONLY
+        | os.O_DIRECTORY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0),
+    )
+    source_descriptor: int | None = None
+    try:
+        opened_directory = os.fstat(directory_descriptor)
+        named_directory = seed_download_dir.lstat()
+        if (
+            not stat.S_ISDIR(opened_directory.st_mode)
+            or opened_directory.st_dev != named_directory.st_dev
+            or opened_directory.st_ino != named_directory.st_ino
+            or opened_directory.st_uid != os.getuid()
+            or stat.S_IMODE(opened_directory.st_mode) & 0o022
+        ):
+            raise RuntimeError("seed download directory identity changed")
+        try:
+            named_source = os.stat(
+                filename,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            return None
+        source_path = seed_download_dir / filename
+        _require_independent_regular_file(
+            named_source,
+            named_source,
+            source_path,
+        )
+        if spec.expected_sha256 is None:
+            raise RuntimeError(
+                f"seed archive is forbidden for unpinned dependency: {spec.name}"
+            )
+        source_descriptor = os.open(
+            filename,
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=directory_descriptor,
+        )
+        source_before = os.fstat(source_descriptor)
+        _require_independent_regular_file(
+            source_before,
+            named_source,
+            source_path,
+        )
+        if source_before.st_size > max_bytes:
+            raise ValueError("seed archive exceeds archive-byte limit")
+        validate_reviewed_archive_size(spec, source_before.st_size)
+        source_sha256 = _sha256_descriptor(source_descriptor)
+        source_after_hash = os.fstat(source_descriptor)
+        if not _same_file_state(source_before, source_after_hash):
+            raise RuntimeError(f"seed archive changed while hashing: {source_path}")
+        validate_reviewed_archive_digest(spec, source_sha256)
+
+        partial = _create_private_partial(destination)
+        output_descriptor = _open_private_file(partial, os.O_WRONLY)
+        copied_bytes = 0
+        copied_digest = hashlib.sha256()
+        os.lseek(source_descriptor, 0, os.SEEK_SET)
+        with os.fdopen(output_descriptor, "wb") as output:
+            while chunk := os.read(source_descriptor, 8 * 1024 * 1024):
+                copied_bytes += len(chunk)
+                if copied_bytes > source_before.st_size:
+                    raise RuntimeError("seed copy exceeds its pre-copy size")
+                written = output.write(chunk)
+                if written != len(chunk):
+                    raise OSError("short write while copying seed archive")
+                copied_digest.update(chunk)
+            output.flush()
+            os.fsync(output.fileno())
+        source_after_copy = os.fstat(source_descriptor)
+        named_source_after = os.stat(
+            filename,
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            not _same_file_state(source_before, source_after_copy)
+            or not _same_file_state(source_before, named_source_after)
+        ):
+            raise RuntimeError(f"seed archive changed while copying: {source_path}")
+        if copied_bytes != source_before.st_size:
+            raise RuntimeError("seed copy size differs from its pre-copy size")
+        if copied_digest.hexdigest() != source_sha256:
+            raise RuntimeError("seed copy digest differs from its pre-copy digest")
+        copied_size, copied_sha256, _ = _verified_file_identity(partial)
+        if copied_size != source_before.st_size or copied_sha256 != source_sha256:
+            raise RuntimeError("seed copy failed post-copy size/digest verification")
+        _publish_verified_partial(
+            partial,
+            destination,
+            expected_bytes=source_before.st_size,
+            expected_sha256=source_sha256,
+        )
+        return {
+            "method": "workspace-seed-copy",
+            "source_path": source_path.relative_to(ROOT.resolve(strict=True)).as_posix(),
+            "source_bytes": source_before.st_size,
+            "source_sha256": source_sha256,
+            "copied_bytes": copied_size,
+            "copied_sha256": copied_sha256,
+        }
+    finally:
+        if source_descriptor is not None:
+            os.close(source_descriptor)
+        os.close(directory_descriptor)
+
+
+def acquire_archive(
+    spec: PackageSpec,
+    destination: Path,
+    *,
+    max_bytes: int,
+    seed_download_dir: Path | None,
+) -> dict[str, object]:
+    if seed_download_dir is not None:
+        seeded = copy_seed_archive(
+            spec,
+            seed_download_dir,
+            destination,
+            max_bytes=max_bytes,
+        )
+        if seeded is not None:
+            return seeded
+    return download(
+        spec.url,
+        destination,
+        max_bytes=max_bytes,
+        expected_sha256=spec.expected_sha256,
+        expected_bytes=spec.expected_bytes,
+    )
 
 
 def _single_root(expanded: Path, expected_name: str | None) -> Path:
@@ -1527,7 +2255,11 @@ def validate_overlay_tool_versions_sandboxed(overlay: Path) -> None:
             raise RuntimeError(f"Triton NVIDIA tool version mismatch: {name}")
 
 
-def _materialize_into(output: Path) -> dict[str, object]:
+def _materialize_into(
+    output: Path,
+    *,
+    seed_download_dir: Path | None = None,
+) -> dict[str, object]:
     output.mkdir()
     downloads = output / "downloads"
     expanded = output / "expanded"
@@ -1547,14 +2279,27 @@ def _materialize_into(output: Path) -> dict[str, object]:
     package_records: list[dict[str, object]] = []
     expanded_roots: dict[str, Path] = {}
     for spec in PACKAGE_SPECS:
-        filename = spec.url.rsplit("/", 1)[-1]
+        filename = archive_filename(spec)
         archive = downloads / filename
         max_archive_bytes, max_expanded_bytes, max_members = PACKAGE_RESOURCE_LIMITS[
             spec.name
         ]
-        download(spec.url, archive, max_bytes=max_archive_bytes)
+        acquisition = acquire_archive(
+            spec,
+            archive,
+            max_bytes=max_archive_bytes,
+            seed_download_dir=seed_download_dir,
+        )
         archive_sha256 = sha256_file(archive)
+        archive_bytes = archive.stat().st_size
+        validate_reviewed_archive_size(spec, archive_bytes)
         validate_reviewed_archive_digest(spec, archive_sha256)
+        validate_acquisition_provenance(
+            spec,
+            acquisition,
+            archive_bytes=archive_bytes,
+            archive_sha256=archive_sha256,
+        )
         destination = expanded / spec.name
         archive_inventory = extract_archive(
             archive,
@@ -1579,9 +2324,10 @@ def _materialize_into(output: Path) -> dict[str, object]:
             {
                 "name": spec.name,
                 "url": spec.url,
+                "acquisition": acquisition,
                 "archive": archive.relative_to(output).as_posix(),
                 "archive_sha256": archive_sha256,
-                "archive_bytes": archive.stat().st_size,
+                "archive_bytes": archive_bytes,
                 "archive_inventory": archive_inventory,
                 "expanded_root": package_root.relative_to(output).as_posix(),
                 "expanded_tree": expanded_identity,
@@ -1615,20 +2361,37 @@ def _materialize_into(output: Path) -> dict[str, object]:
     }
     encoded = canonical_json(manifest)
     temporary = output / f"manifest.{os.getpid()}.tmp"
-    temporary.write_text(encoded)
-    os.replace(temporary, output / "manifest.json")
+    with temporary.open("xb") as destination:
+        destination.write(encoded.encode("ascii"))
+        destination.flush()
+        os.fsync(destination.fileno())
+    _rename_no_replace(temporary, output / "manifest.json")
+    _fsync_directory(output)
     return manifest
 
 
-def materialize(output: Path) -> dict[str, object]:
+def materialize(
+    output: Path,
+    *,
+    seed_download_dir: Path | None = None,
+) -> dict[str, object]:
     output = require_materialization_output(output)
+    if seed_download_dir is not None:
+        seed_download_dir = require_seed_download_directory(seed_download_dir)
     if output.exists() or output.is_symlink():
         raise FileExistsError(f"output already exists: {output}")
     staging = output.parent / f".{output.name}.{os.getpid()}.partial"
     if staging.exists() or staging.is_symlink():
         raise FileExistsError(f"staging output already exists: {staging}")
-    manifest = _materialize_into(staging)
-    os.replace(staging, output)
+    manifest = _materialize_into(
+        staging,
+        seed_download_dir=seed_download_dir,
+    )
+    if verify(staging) != manifest:
+        raise RuntimeError("staged dependency manifest verification changed its value")
+    _fsync_directory(staging)
+    _rename_no_replace(staging, output)
+    _fsync_directory(output.parent)
     return manifest
 
 
@@ -1673,6 +2436,7 @@ def verify(
     by_name: dict[str, dict[str, object]] = {}
     expanded_roots: dict[str, Path] = {}
     record_keys = {
+        "acquisition",
         "name",
         "url",
         "archive",
@@ -1695,7 +2459,7 @@ def verify(
             record.get("expanded_root"),
             f"{spec.name}.expanded_root",
         )
-        expected_archive = (output / "downloads" / spec.url.rsplit("/", 1)[-1]).resolve()
+        expected_archive = (output / "downloads" / archive_filename(spec)).resolve()
         expected_expanded = (output / "expanded" / spec.name).resolve()
         if spec.expected_root is not None:
             expected_expanded /= spec.expected_root
@@ -1705,11 +2469,19 @@ def verify(
             raise RuntimeError(f"expanded path mismatch: {spec.name}")
         require_regular_file(archive, f"dependency archive {spec.name}")
         require_real_directory(expanded_root, f"expanded package {spec.name}")
-        if sha256_file(archive) != record["archive_sha256"]:
+        actual_archive_sha256 = sha256_file(archive)
+        if actual_archive_sha256 != record["archive_sha256"]:
             raise RuntimeError(f"archive digest mismatch: {spec.name}")
         validate_reviewed_archive_digest(spec, record["archive_sha256"])
         if archive.stat().st_size != record["archive_bytes"]:
             raise RuntimeError(f"archive size mismatch: {spec.name}")
+        validate_reviewed_archive_size(spec, record["archive_bytes"])
+        validate_acquisition_provenance(
+            spec,
+            record["acquisition"],
+            archive_bytes=record["archive_bytes"],
+            archive_sha256=actual_archive_sha256,
+        )
         max_archive_bytes, max_expanded_bytes, max_members = (
             PACKAGE_RESOURCE_LIMITS[spec.name]
         )
@@ -1847,14 +2619,18 @@ def promote_reviewed(output: Path, expected_manifest_sha256: str) -> dict[str, o
     if review_path.exists() or review_path.is_symlink():
         raise FileExistsError(f"review record already exists: {review_path}")
     temporary = output / f"review.{os.getpid()}.tmp"
-    temporary.write_text(canonical_json(review))
-    os.replace(temporary, review_path)
+    with temporary.open("xb") as destination:
+        destination.write(canonical_json(review).encode("ascii"))
+        destination.flush()
+        os.fsync(destination.fileno())
+    _rename_no_replace(temporary, review_path)
     return manifest
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--seed-download-dir", type=Path)
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--promote-reviewed", action="store_true")
     parser.add_argument("--probe-reviewed-tools", action="store_true")
@@ -1874,6 +2650,8 @@ def main() -> int:
     )
     if modes > 1:
         parser.error("verification/promotion/probe modes are mutually exclusive")
+    if modes != 0 and args.seed_download_dir is not None:
+        parser.error("--seed-download-dir is valid only during materialization")
     if modes == 0 and (
         args.expected_manifest_sha256 is not None or args.require_reviewed
     ):
@@ -1926,7 +2704,10 @@ def main() -> int:
             else (
                 promote_reviewed(args.output, args.expected_manifest_sha256)
                 if args.promote_reviewed
-                else materialize(args.output)
+                else materialize(
+                    args.output,
+                    seed_download_dir=args.seed_download_dir,
+                )
             )
         )
     print(json.dumps(manifest, indent=2, sort_keys=True))

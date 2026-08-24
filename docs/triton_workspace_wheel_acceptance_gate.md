@@ -67,8 +67,32 @@ history or trusted GitHub signing chain.
 
 ## 2. Online dependency materialization
 
-The upstream downloader checks URLs/versions but not content hashes. Download
-and expand each dependency first, without compiling anything:
+The upstream downloader checks URLs/versions but not content hashes. This
+workspace materializer requires an exact `Content-Length` on the initial HTTP
+200 response. A premature EOF is retried a bounded number of times with a
+`Range` request; a resumed response is accepted only when HTTP 206,
+`Content-Range`, `Content-Length`, the resume offset and the original total all
+agree exactly. The partial file is size/hash verified and fsynced before it is
+published inside the private materialization staging tree.
+
+An optional seed directory can avoid downloading an already source-locked
+archive. It must be an absolute canonical, user-owned directory below this
+workspace. A matching URL-basename file is accepted only when it is a regular
+non-symlink file with one hard link and its digest (and source-locked size, when
+present) matches `PACKAGE_SPECS`. The materializer makes an independent private
+copy, checks the source and copy size/digest, and records exact acquisition
+provenance. Missing seed files use the normal network path; an existing seed for
+an archive without a source-locked SHA-256 fails closed.
+
+The LLVM archive is source-locked at 1,309,519,196 bytes and SHA-256
+`11a11a5a90da7e4b53ef4cf0f259143d14633cae8543a95cb2d99e4af6b902f8`.
+That identity is backed by an independent complete-archive inspection. Four
+live official-URL range samples (start, two interior offsets and near-end)
+matched the inspected bytes; that is spot evidence, not a complete live
+official-URL re-download. The materialized manifest and expanded contents still
+require the independent review below.
+
+Download/copy and expand each dependency first, without compiling anything:
 
 ```bash
 envs/pypto-nvidia/bin/python tools/run_isolated.py \
@@ -81,10 +105,13 @@ ws=/home/zhaosiying/pypto-love-tensor-ir
 out=$ws/builds/triton-deps-materialize-5d6048aa
 log=$ws/logs/triton-dependency-materialization.log
 py=$ws/envs/pypto-nvidia/bin/python
+seed=$ws/caches/triton-download-seeds
 test ! -e "$out"
 test ! -e "$log"
+test -d "$seed"
 exec > >(tee "$log") 2>&1
-"$py" "$ws/tools/materialize_triton_dependencies.py" --output "$out"
+"$py" "$ws/tools/materialize_triton_dependencies.py" \
+  --output "$out" --seed-download-dir "$seed"
 "$py" "$ws/tools/materialize_triton_dependencies.py" \
   --output "$out" --verify >/dev/null
 sha256sum "$out/manifest.json"
@@ -92,9 +119,9 @@ sha256sum "$out/manifest.json"
 ```
 
 This creates an explicitly `materialized-unreviewed` manifest. Stop here.
-Independently review every URL, archive SHA/size, expanded tree digest, overlay
-contents/symlinks and tool version. Then add every approved archive SHA-256 to
-the version-controlled `PACKAGE_SPECS` in
+Independently review every URL, acquisition record, archive SHA/size, expanded
+tree digest, overlay contents/symlinks and tool version. Then add every newly
+approved archive SHA-256 to the version-controlled `PACKAGE_SPECS` in
 `tools/materialize_triton_dependencies.py` and the corresponding
 `triton.dependencies.archive.*` fields in `VERSIONS.lock`. Freeze the reviewed
 candidate manifest SHA-256 in both `REVIEWED_MANIFEST_SHA256` and
