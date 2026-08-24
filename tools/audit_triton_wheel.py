@@ -52,6 +52,15 @@ LIBDEVICE_SHA256 = (
 SOURCE_ARCHIVE_SHA256 = (
     "2ebfd3f7e98dee2e8524b9b210716fbe1f07759b6d89307280a9b10ae359b43e"
 )
+FILECHECK_SOURCE_SHA256 = (
+    "004629e311bc7e2b86ff5e64b4ec9867f60313e91d8ff61288fdb259d6ef4f17"
+)
+FILECHECK_OUTPUT_SHA256 = (
+    "7e5825f91eda03a6690dccf9eb15d72b8b36079965a182987f48b1662c03756a"
+)
+FILECHECK_TRANSFORM_SHA256 = (
+    "f30127db70db16a111316b55e258b7b2df4cbd07a2b08d4aa86cbe87b259ea8e"
+)
 AUDIT_TOOL_SHA256 = {
     "bwrap": "0abea81db798ebf6b4742ac0664802d97521547a353c2a0dbdc21d76cbbfd2c0",
     "ldd": "b6c9a28572ea3920442c2f5b1ea11b0999adc407913ffdd7f92e530dfc051894",
@@ -144,6 +153,9 @@ class AuditExpectations:
     llvm_commit: str = TRITON_LLVM_COMMIT
     libdevice_sha256: str = LIBDEVICE_SHA256
     source_archive_sha256: str = SOURCE_ARCHIVE_SHA256
+    filecheck_source_sha256: str = FILECHECK_SOURCE_SHA256
+    filecheck_output_sha256: str = FILECHECK_OUTPUT_SHA256
+    filecheck_transform_sha256: str = FILECHECK_TRANSFORM_SHA256
     nvidia_tool_versions: tuple[tuple[str, str], ...] = tuple(
         NVIDIA_TOOL_VERSIONS.items()
     )
@@ -1536,6 +1548,23 @@ def _validate_source_provenance(
         if not isinstance(value, str):
             raise AuditError(f"source provenance {field} is absent")
         validate_sha256(value, f"source provenance {field}")
+    expected_filecheck = {
+        "kind": "cmake-rpath-remove",
+        "output_rpath": [],
+        "output_sha256": expectations.filecheck_output_sha256,
+        "source_rpath": ["$ORIGIN/../lib"],
+        "source_sha256": expectations.filecheck_source_sha256,
+        "tool": {
+            "name": "cmake",
+            "sha256": PRODUCER_CMAKE_SHA256,
+        },
+        "transform": {
+            "path": "tools/remove_elf_rpath.cmake",
+            "sha256": expectations.filecheck_transform_sha256,
+        },
+    }
+    if document.get("derived_filecheck") != expected_filecheck:
+        raise AuditError("source provenance derived FileCheck mismatch")
     archive_sha256 = sha256_file(source_archive)
     if (
         archive_sha256 != expectations.source_archive_sha256
@@ -1576,6 +1605,26 @@ def _validate_source_provenance(
         "size": len(raw),
         "source_input_tree": source_input_identity,
     }
+
+
+def _validate_wheel_filecheck_derivation(
+    static_evidence: dict[str, object], expectations: AuditExpectations
+) -> None:
+    archive = static_evidence.get("archive")
+    if not isinstance(archive, dict):
+        raise AuditError("wheel archive evidence is absent")
+    members = archive.get("members")
+    if not isinstance(members, list):
+        raise AuditError("wheel archive member evidence is absent")
+    matches = [
+        member
+        for member in members
+        if isinstance(member, dict) and member.get("path") == FILECHECK_PATH
+    ]
+    if len(matches) != 1:
+        raise AuditError("wheel derived FileCheck member is not unique")
+    if matches[0].get("sha256") != expectations.filecheck_output_sha256:
+        raise AuditError("wheel FileCheck differs from the derived provenance")
 
 
 def _validate_producer_provenance(
@@ -1899,6 +1948,7 @@ def run_audit(
             static_evidence, infos = inspect_wheel_static(
                 zf, wheel_path.name, expectations, limits
             )
+            _validate_wheel_filecheck_derivation(static_evidence, expectations)
             with tempfile.TemporaryDirectory(
                 prefix="triton-wheel-audit-", dir=temp_root
             ) as temporary_directory:

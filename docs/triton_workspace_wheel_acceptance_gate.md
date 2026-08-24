@@ -202,6 +202,13 @@ The producer CMake command is an exact two-line exec-wrapper for the hash-pinned
 payload in the read-only environment, so CMake resolves its adjacent reviewed
 `share/cmake-3.31` data closure without loading the base Python environment;
 copying the ELF payload alone is forbidden.
+The build sets `CMAKE_SKIP_RPATH=ON`. The reviewed LLVM `FileCheck` input has
+an otherwise unnecessary `$ORIGIN/../lib` RUNPATH, so the runner copies it to
+`derived-llvm-tools/FileCheck` and removes that tag with the same hash-pinned
+CMake payload plus `tools/remove_elf_rpath.cmake`. The original reviewed LLVM
+tree remains unchanged. Source provenance binds the input, transform, tool,
+and derived-output hashes, and the build sandbox overlays only that exact
+derived file. The wheel auditor still rejects every RPATH/RUNPATH entry.
 After a successful build, the runner accepts only the seven expected regular
 files in generated `python/triton.egg-info`, atomically retains that whole
 directory as `generated-source-metadata`, retains the setuptools staging tree

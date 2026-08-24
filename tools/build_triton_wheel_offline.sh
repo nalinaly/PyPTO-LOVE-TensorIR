@@ -201,8 +201,50 @@ PY
   local producer_site_sha producer_bin_sha
   producer_site_sha=$(tree_sha "$producer_site")
   producer_bin_sha=$(tree_sha "$producer_bin")
+
+  local llvm_rel json_rel
+  llvm_rel=$("$base_py" -I -B -c \
+    'import json, sys; print(json.load(open(sys.argv[1]))["build_inputs"]["llvm_syspath"])' \
+    "$snapshot/manifest.json")
+  json_rel=$("$base_py" -I -B -c \
+    'import json, sys; print(json.load(open(sys.argv[1]))["build_inputs"]["json_syspath"])' \
+    "$snapshot/manifest.json")
+  local llvm=$snapshot/$llvm_rel
+  local json_root=$snapshot/$json_rel
+
+  # The frozen LLVM FileCheck is self-contained but carries an unnecessary
+  # $ORIGIN RUNPATH. Derive one immutable, provenance-bound copy with CMake's
+  # own ELF editor; the reviewed dependency snapshot remains byte-for-byte
+  # unchanged and is overlaid only inside the networkless build sandbox.
+  local source_filecheck=$llvm/bin/FileCheck
+  local derived_llvm_tools=$root/derived-llvm-tools
+  local derived_filecheck=$derived_llvm_tools/FileCheck
+  local filecheck_transform=$ws/tools/remove_elf_rpath.cmake
+  mkdir "$derived_llvm_tools"
+  test "$(sha256sum "$source_filecheck" | cut -d " " -f 1)" = \
+    004629e311bc7e2b86ff5e64b4ec9867f60313e91d8ff61288fdb259d6ef4f17
+  test "$(/usr/bin/readelf -W -d "$source_filecheck" | sed -n \
+    's/.*(RUNPATH).*\[\(.*\)\].*/\1/p')" = '$ORIGIN/../lib'
+  test -z "$(/usr/bin/readelf -W -d "$source_filecheck" | sed -n \
+    's/.*(RPATH).*\[\(.*\)\].*/\1/p')"
+  test "$(sha256sum "$filecheck_transform" | cut -d " " -f 1)" = \
+    f30127db70db16a111316b55e258b7b2df4cbd07a2b08d4aa86cbe87b259ea8e
+  cp --reflink=auto "$source_filecheck" "$derived_filecheck"
+  "$producer_bin/cmake" -DPYPTO_ELF_PATH="$derived_filecheck" \
+    -P "$filecheck_transform"
+  test "$(sha256sum "$derived_filecheck" | cut -d " " -f 1)" = \
+    7e5825f91eda03a6690dccf9eb15d72b8b36079965a182987f48b1662c03756a
+  test -z "$(/usr/bin/readelf -W -d "$derived_filecheck" | sed -n \
+    '/(RPATH)\|(RUNPATH)/p')"
+  test "$("$derived_filecheck" --version | sed -n '2p')" = \
+    "  LLVM version 23.0.0git"
+  local derived_filecheck_sha filecheck_transform_sha
+  derived_filecheck_sha=$(sha256sum "$derived_filecheck" | cut -d " " -f 1)
+  filecheck_transform_sha=$(sha256sum "$filecheck_transform" | cut -d " " -f 1)
+
   "$base_py" -I -B - "$source_provenance" "$source_tar" \
-    "$source_input_sha" "$build_input_sha" <<'PY'
+    "$source_input_sha" "$build_input_sha" "$derived_filecheck_sha" \
+    "$filecheck_transform_sha" <<'PY'
 import hashlib
 import json
 import pathlib
@@ -213,6 +255,25 @@ digest = hashlib.sha256(archive.read_bytes()).hexdigest()
 document = {
     "archive_sha256": digest,
     "commit": "5d6048aa0a324e090ada215b609ea76620133845",
+    "derived_filecheck": {
+        "kind": "cmake-rpath-remove",
+        "output_rpath": [],
+        "output_sha256": sys.argv[5],
+        "source_rpath": ["$ORIGIN/../lib"],
+        "source_sha256": (
+            "004629e311bc7e2b86ff5e64b4ec9867f60313e91d8ff61288fdb259d6ef4f17"
+        ),
+        "tool": {
+            "name": "cmake",
+            "sha256": (
+                "576c050dab1e1418b6703b5cfb523330567683dad0c60a5ff9cc23128143812e"
+            ),
+        },
+        "transform": {
+            "path": "tools/remove_elf_rpath.cmake",
+            "sha256": sys.argv[6],
+        },
+    },
     "extracted_tree_sha256": sys.argv[3],
     "build_input_tree_sha256": sys.argv[4],
     "kind": "triton-git-archive",
@@ -313,15 +374,6 @@ PY
   test "$(PATH="$producer_path" command -v strip)" = /usr/bin/strip
   test "$(PATH="$producer_path" command -v objcopy)" = /usr/bin/objcopy
 
-  local llvm_rel json_rel
-  llvm_rel=$("$base_py" -I -B -c \
-    'import json, sys; print(json.load(open(sys.argv[1]))["build_inputs"]["llvm_syspath"])' \
-    "$snapshot/manifest.json")
-  json_rel=$("$base_py" -I -B -c \
-    'import json, sys; print(json.load(open(sys.argv[1]))["build_inputs"]["json_syspath"])' \
-    "$snapshot/manifest.json")
-  local llvm=$snapshot/$llvm_rel
-  local json_root=$snapshot/$json_rel
   local pybind_root
   pybind_root=$("$build_py" -I -B -c \
     'import pathlib, pybind11; print(pathlib.Path(pybind11.get_include()).parent)')
@@ -355,6 +407,7 @@ PY
       --bind "$wheel_dir" "$wheel_dir" --bind "$root/home" "$root/home" \
       --bind "$root/triton-home" "$root/triton-home" \
       --ro-bind "$snapshot" "$snapshot" \
+      --ro-bind "$derived_filecheck" "$source_filecheck" \
       --ro-bind "$source_overlay/bin" "$source_overlay/bin" \
       --ro-bind "$source_overlay/include" "$source_overlay/include" \
       --ro-bind "$source_overlay/lib/cupti" "$source_overlay/lib/cupti" \
@@ -378,7 +431,7 @@ PY
         PYBIND11_SYSPATH="$pybind_root" \
         TRITON_CUPTI_INCLUDE_PATH="$src/third_party/nvidia/backend/include" \
         TRITON_CUPTI_LIB_PATH="$src/third_party/nvidia/backend/lib/cupti" \
-        TRITON_APPEND_CMAKE_ARGS=-DTRITON_OFFLINE_BUILD=ON \
+        'TRITON_APPEND_CMAKE_ARGS=-DTRITON_OFFLINE_BUILD=ON -DCMAKE_SKIP_RPATH=ON' \
         "$build_py" -I -B -m build --wheel --no-isolation \
           --skip-dependency-check \
           --outdir "$wheel_dir" "$src"
@@ -623,6 +676,12 @@ PY
   test "$(tree_sha "$source_overlay/lib/cupti")" = "$overlay_cupti_sha"
   test "$(tree_sha "$producer_site")" = "$producer_site_sha"
   test "$(tree_sha "$producer_bin")" = "$producer_bin_sha"
+  test "$(sha256sum "$source_filecheck" | cut -d " " -f 1)" = \
+    004629e311bc7e2b86ff5e64b4ec9867f60313e91d8ff61288fdb259d6ef4f17
+  test "$(sha256sum "$derived_filecheck" | cut -d " " -f 1)" = \
+    "$derived_filecheck_sha"
+  test -z "$(/usr/bin/readelf -W -d "$derived_filecheck" | sed -n \
+    '/(RPATH)\|(RUNPATH)/p')"
   test "$(tree_sha "$retained_source_metadata")" = \
     "$retained_source_metadata_sha"
   test "$(tree_sha "$retained_source_build")" = \

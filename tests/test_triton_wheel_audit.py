@@ -52,9 +52,14 @@ class FrozenCMakeProducerContractTest(unittest.TestCase):
             audit.sha256_bytes(expected), audit.PRODUCER_CMAKE_WRAPPER_SHA256
         )
 
+    def test_filecheck_transform_is_hash_pinned(self) -> None:
+        transform = ROOT / "tools" / "remove_elf_rpath.cmake"
+        self.assertEqual(audit.sha256_file(transform), audit.FILECHECK_TRANSFORM_SHA256)
+
 
 class TritonWheelAuditTest(unittest.TestCase):
     libdevice = b"synthetic libdevice for the local wheel auditor tests\n"
+    filecheck = b"\x7fELFsynthetic FileCheck\n"
 
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory(
@@ -181,6 +186,8 @@ class TritonWheelAuditTest(unittest.TestCase):
         self.expectations = audit.AuditExpectations(
             libdevice_sha256=audit.sha256_bytes(self.libdevice),
             source_archive_sha256=audit.sha256_file(self.source_archive),
+            filecheck_source_sha256="a" * 64,
+            filecheck_output_sha256=audit.sha256_bytes(self.filecheck),
         )
 
         self.source_document = {
@@ -189,6 +196,21 @@ class TritonWheelAuditTest(unittest.TestCase):
                 "sha256"
             ],
             "commit": self.expectations.commit,
+            "derived_filecheck": {
+                "kind": "cmake-rpath-remove",
+                "output_rpath": [],
+                "output_sha256": self.expectations.filecheck_output_sha256,
+                "source_rpath": ["$ORIGIN/../lib"],
+                "source_sha256": self.expectations.filecheck_source_sha256,
+                "tool": {
+                    "name": "cmake",
+                    "sha256": audit.PRODUCER_CMAKE_SHA256,
+                },
+                "transform": {
+                    "path": "tools/remove_elf_rpath.cmake",
+                    "sha256": self.expectations.filecheck_transform_sha256,
+                },
+            },
             "extracted_tree_sha256": audit.tree_identity(self.source_input)[
                 "sha256"
             ],
@@ -381,7 +403,7 @@ class TritonWheelAuditTest(unittest.TestCase):
                 ),
                 0o644,
             ),
-            audit.FILECHECK_PATH: (b"\x7fELFsynthetic FileCheck\n", 0o755),
+            audit.FILECHECK_PATH: (self.filecheck, 0o755),
             audit.LIBDEVICE_PATH: (self.libdevice, 0o644),
             "triton/backends/nvidia/lib/cupti/libcupti.so.13": (
                 b"\x7fELFsynthetic CUPTI\n",
@@ -638,6 +660,32 @@ class TritonWheelAuditTest(unittest.TestCase):
         wrong = {**self.source_document, "commit": "0" * 40}
         self.write_json(self.source_path, wrong)
         self.assert_rejected_before_commands("source provenance commit mismatch")
+
+    def test_derived_filecheck_provenance_is_exact(self) -> None:
+        wrong = copy.deepcopy(self.source_document)
+        wrong["derived_filecheck"]["output_sha256"] = "0" * 64
+        self.write_json(self.source_path, wrong)
+        self.assert_rejected_before_commands(
+            "source provenance derived FileCheck mismatch"
+        )
+
+    def test_wheel_filecheck_must_match_derived_output(self) -> None:
+        static_evidence = {
+            "archive": {
+                "members": [
+                    {
+                        "path": audit.FILECHECK_PATH,
+                        "sha256": "0" * 64,
+                    }
+                ]
+            }
+        }
+        with self.assertRaisesRegex(
+            audit.AuditError, "wheel FileCheck differs from the derived provenance"
+        ):
+            audit._validate_wheel_filecheck_derivation(
+                static_evidence, self.expectations
+            )
 
     def test_source_archive_and_extracted_tree_are_rederived(self) -> None:
         self.source_archive.write_bytes(b"not the frozen archive")
