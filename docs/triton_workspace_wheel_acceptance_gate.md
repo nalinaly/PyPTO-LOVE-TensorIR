@@ -204,8 +204,12 @@ payload in the read-only environment, so CMake resolves its adjacent reviewed
 copying the ELF payload alone is forbidden.
 After a successful build, the runner accepts only the seven expected regular
 files in generated `python/triton.egg-info`, atomically retains that whole
-directory as `generated-source-metadata`, and requires the remaining built
-source to equal the reviewed build input exactly before wheel audit.
+directory as `generated-source-metadata`, retains the setuptools staging tree
+as `generated-source-build`, and retains the exact generated compilation-
+database symlink as `generated-compile-commands.json`. It then requires the
+remaining built source to equal the reviewed build input exactly before wheel
+audit. These generated paths remain build evidence; they are never silently
+deleted to satisfy the source-tree gate.
 
 Invoke the file directly through `run_isolated.py`; do not copy its body into
 `bash -c` or another quoting layer:

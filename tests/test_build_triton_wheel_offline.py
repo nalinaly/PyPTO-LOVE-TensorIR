@@ -104,6 +104,8 @@ class OfflineTritonWheelRunnerTest(unittest.TestCase):
             "--skip-dependency-check",
             "ulimit -S -v $((24 * 1024 * 1024))",
             "generated-source-metadata",
+            "generated-source-build",
+            "generated-compile-commands.json",
             '"PKG-INFO"',
             '"SOURCES.txt"',
             '"dependency_links.txt"',
@@ -112,6 +114,7 @@ class OfflineTritonWheelRunnerTest(unittest.TestCase):
             '"requires.txt"',
             '"top_level.txt"',
             "_rename_no_replace(source, destination, require_same_parent=False)",
+            "renameat2(RENAME_NOREPLACE)",
             "verify_reference_tree_exact",
             "audit_triton_wheel.py",
             "--expected-producer-identity-sha256",
@@ -211,6 +214,91 @@ class OfflineTritonWheelRunnerTest(unittest.TestCase):
             self.assertIn("member set drift", result.stderr)
             self.assertTrue((rejected_source / "arbitrary-extra").is_file())
             self.assertFalse(rejected_destination.exists())
+
+    def test_generated_build_and_compile_commands_are_atomically_retained(self) -> None:
+        invocation = self.script.index(
+            '"$base_py" -I -B - "$ws/tools" "$generated_source_build"'
+        )
+        body_start = self.script.index("<<'PY'\n", invocation) + len("<<'PY'\n")
+        body_end = self.script.index("\nPY", body_start)
+        program = self.script[body_start:body_end]
+
+        with tempfile.TemporaryDirectory(dir=ROOT / "runs") as directory:
+            run_root = pathlib.Path(directory)
+            build_input = run_root / "build-input"
+            build_input.mkdir()
+            source_build = run_root / "source" / "build"
+            source_build.mkdir(parents=True)
+            source_build.chmod(0o755)
+            (source_build / "retained-output").write_text(
+                "build evidence\n", encoding="utf-8"
+            )
+            retained_build = run_root / "generated-source-build"
+            expected_commands = run_root / "cmake" / "compile_commands.json"
+            expected_commands.parent.mkdir()
+            expected_commands.write_text("[]\n", encoding="utf-8")
+            expected_commands.chmod(0o644)
+            source_commands = run_root / "source" / "compile_commands.json"
+            source_commands.symlink_to(expected_commands)
+            retained_commands = run_root / "generated-compile-commands.json"
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    "-I",
+                    "-B",
+                    "-",
+                    str(ROOT / "tools"),
+                    str(source_build),
+                    str(retained_build),
+                    str(source_commands),
+                    str(retained_commands),
+                    str(expected_commands),
+                    str(build_input),
+                ],
+                input=program,
+                text=True,
+                check=True,
+            )
+            self.assertFalse(source_build.exists())
+            self.assertEqual(
+                (retained_build / "retained-output").read_text(encoding="utf-8"),
+                "build evidence\n",
+            )
+            self.assertFalse(source_commands.exists())
+            self.assertTrue(retained_commands.is_symlink())
+            self.assertEqual(retained_commands.readlink(), expected_commands)
+
+            rejected_build = run_root / "rejected-source" / "build"
+            rejected_build.mkdir(parents=True)
+            rejected_build.chmod(0o755)
+            rejected_commands = (
+                run_root / "rejected-source" / "compile_commands.json"
+            )
+            rejected_commands.symlink_to(run_root / "unexpected.json")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-I",
+                    "-B",
+                    "-",
+                    str(ROOT / "tools"),
+                    str(rejected_build),
+                    str(run_root / "rejected-retained-build"),
+                    str(rejected_commands),
+                    str(run_root / "rejected-retained-commands.json"),
+                    str(expected_commands),
+                    str(build_input),
+                ],
+                input=program,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("target drift", result.stderr)
+            self.assertTrue(rejected_build.is_dir())
+            self.assertTrue(rejected_commands.is_symlink())
 
     def test_lit_wrapper_heredoc_preserves_required_single_quotes(self) -> None:
         match = re.search(

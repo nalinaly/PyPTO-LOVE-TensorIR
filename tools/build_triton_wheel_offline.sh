@@ -453,6 +453,155 @@ PY
   retained_source_metadata_sha=$(tree_sha "$retained_source_metadata")
   printf 'GENERATED_SOURCE_METADATA_SHA256=%s\n' "$retained_source_metadata_sha"
 
+  # setuptools also leaves its build staging directory and Triton's generated
+  # compile_commands symlink in the source tree. Retain both as immutable
+  # evidence before enforcing exact equality with the reviewed build input.
+  local generated_source_build=$src/build
+  local retained_source_build=$root/generated-source-build
+  local generated_compile_commands=$src/compile_commands.json
+  local retained_compile_commands=$root/generated-compile-commands.json
+  local expected_compile_commands=$root/cmake/compile_commands.json
+  "$base_py" -I -B - "$ws/tools" "$generated_source_build" \
+    "$retained_source_build" "$generated_compile_commands" \
+    "$retained_compile_commands" "$expected_compile_commands" \
+    "$build_input" <<'PY'
+import ctypes
+import errno
+import os
+import pathlib
+import stat
+import sys
+
+sys.path.insert(0, sys.argv[1])
+from materialize_triton_dependencies import _fsync_directory, _rename_no_replace
+
+source_build = pathlib.Path(os.path.abspath(sys.argv[2]))
+retained_build = pathlib.Path(os.path.abspath(sys.argv[3]))
+source_commands = pathlib.Path(os.path.abspath(sys.argv[4]))
+retained_commands = pathlib.Path(os.path.abspath(sys.argv[5]))
+expected_commands = pathlib.Path(os.path.abspath(sys.argv[6]))
+build_input = pathlib.Path(os.path.abspath(sys.argv[7]))
+if (
+    source_commands.parent != source_build.parent
+    or retained_commands.parent != retained_build.parent
+    or source_commands.parent.resolve(strict=True) != source_commands.parent
+    or retained_commands.parent.resolve(strict=True) != retained_commands.parent
+):
+    raise RuntimeError("generated evidence paths do not have canonical paired parents")
+
+build_metadata = source_build.lstat()
+if (
+    source_build.resolve(strict=True) != source_build
+    or not stat.S_ISDIR(build_metadata.st_mode)
+    or stat.S_IMODE(build_metadata.st_mode) != 0o755
+    or build_metadata.st_nlink < 2
+):
+    raise RuntimeError("generated Triton source build is not an independent directory")
+if retained_build.exists() or retained_build.is_symlink():
+    raise FileExistsError(f"retained source build already exists: {retained_build}")
+if build_metadata.st_dev != retained_build.parent.stat().st_dev:
+    raise RuntimeError("generated source build cannot be atomically retained")
+reviewed_build = build_input / "build"
+if reviewed_build.exists() or reviewed_build.is_symlink():
+    raise RuntimeError("generated source build is not independent of build input")
+
+commands_metadata = source_commands.lstat()
+if (
+    not stat.S_ISLNK(commands_metadata.st_mode)
+    or stat.S_IMODE(commands_metadata.st_mode) != 0o777
+    or commands_metadata.st_nlink != 1
+):
+    raise RuntimeError("generated compile_commands path is not an independent symlink")
+if os.readlink(source_commands) != str(expected_commands):
+    raise RuntimeError("generated compile_commands target drift")
+expected_metadata = expected_commands.lstat()
+if (
+    expected_commands.resolve(strict=True) != expected_commands
+    or not stat.S_ISREG(expected_metadata.st_mode)
+    or stat.S_IMODE(expected_metadata.st_mode) != 0o644
+    or expected_metadata.st_nlink != 1
+):
+    raise RuntimeError("generated compile_commands target is unsafe")
+if retained_commands.exists() or retained_commands.is_symlink():
+    raise FileExistsError(
+        f"retained compile_commands evidence already exists: {retained_commands}"
+    )
+reviewed_commands = build_input / "compile_commands.json"
+if reviewed_commands.exists() or reviewed_commands.is_symlink():
+    raise RuntimeError("generated compile_commands is not independent of build input")
+
+build_identity = (build_metadata.st_dev, build_metadata.st_ino)
+commands_identity = (commands_metadata.st_dev, commands_metadata.st_ino)
+_rename_no_replace(source_build, retained_build, require_same_parent=False)
+_fsync_directory(source_build.parent)
+if retained_build.parent != source_build.parent:
+    _fsync_directory(retained_build.parent)
+
+# _rename_no_replace deliberately rejects symlink sources. Use the same Linux
+# no-replace primitive only after validating the exact symlink and both
+# canonical parents above; never follow the link while moving it.
+libc = ctypes.CDLL(None, use_errno=True)
+renameat2 = getattr(libc, "renameat2", None)
+if renameat2 is None:
+    raise RuntimeError("renameat2(RENAME_NOREPLACE) is unavailable")
+renameat2.argtypes = (
+    ctypes.c_int,
+    ctypes.c_char_p,
+    ctypes.c_int,
+    ctypes.c_char_p,
+    ctypes.c_uint,
+)
+renameat2.restype = ctypes.c_int
+result = renameat2(
+    -100,
+    os.fsencode(source_commands),
+    -100,
+    os.fsencode(retained_commands),
+    1,
+)
+if result != 0:
+    error_number = ctypes.get_errno()
+    if error_number == errno.EEXIST:
+        raise FileExistsError(
+            error_number,
+            "retained compile_commands evidence already exists",
+            retained_commands,
+        )
+    raise OSError(
+        error_number,
+        f"renameat2(RENAME_NOREPLACE) failed: {os.strerror(error_number)}",
+        retained_commands,
+    )
+_fsync_directory(source_commands.parent)
+if retained_commands.parent != source_commands.parent:
+    _fsync_directory(retained_commands.parent)
+
+retained_build_metadata = retained_build.lstat()
+retained_commands_metadata = retained_commands.lstat()
+if source_build.exists() or source_build.is_symlink():
+    raise RuntimeError("generated source build move left the source behind")
+if source_commands.exists() or source_commands.is_symlink():
+    raise RuntimeError("generated compile_commands move left the source behind")
+if (
+    not stat.S_ISDIR(retained_build_metadata.st_mode)
+    or (retained_build_metadata.st_dev, retained_build_metadata.st_ino)
+    != build_identity
+):
+    raise RuntimeError("generated source build was not atomically retained")
+if (
+    not stat.S_ISLNK(retained_commands_metadata.st_mode)
+    or (retained_commands_metadata.st_dev, retained_commands_metadata.st_ino)
+    != commands_identity
+    or os.readlink(retained_commands) != str(expected_commands)
+):
+    raise RuntimeError("generated compile_commands was not atomically retained")
+PY
+  local retained_source_build_sha
+  retained_source_build_sha=$(tree_sha "$retained_source_build")
+  printf 'GENERATED_SOURCE_BUILD_SHA256=%s\n' "$retained_source_build_sha"
+  printf 'GENERATED_COMPILE_COMMANDS_TARGET=%s\n' \
+    "$(readlink "$retained_compile_commands")"
+
   "$base_py" -I -B - "$ws/tools" "$build_input" "$src" <<'PY'
 import pathlib
 import sys
@@ -476,6 +625,10 @@ PY
   test "$(tree_sha "$producer_bin")" = "$producer_bin_sha"
   test "$(tree_sha "$retained_source_metadata")" = \
     "$retained_source_metadata_sha"
+  test "$(tree_sha "$retained_source_build")" = \
+    "$retained_source_build_sha"
+  test "$(readlink "$retained_compile_commands")" = \
+    "$expected_compile_commands"
   test "$(tree_sha "$source_input")" = "$source_input_sha"
   test "$(tree_sha "$build_input")" = "$build_input_sha"
   verify_source_input
