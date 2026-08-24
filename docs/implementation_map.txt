@@ -10,12 +10,11 @@ This is an ownership/implementation map, not a runtime-support claim.
 --------------------------------------
 
 projects/pypto
-  Branch: feature/nvidia-sm120. The committed history contains the NVIDIA
-  dependency pins plus independently layered parser/test portability fixes.
-  The only intended dirty files are CMakeLists.txt and
-  python/bindings/CMakeLists.txt for the compiler-object target. That target
-  builds in editable mode and passes 486 focused tests, but its fresh-wheel and
-  rerun-full-suite gates remain open.
+  Head: e463bce7849b2239d0457dcae78ccf41c65ffa55 on
+  feature/nvidia-sm120. The internal compiler-object/single-DSO boundary is
+  accepted: native CTest, editable 10,176/59, fresh one-DSO wheel and clean
+  wheel 10,178/57 gates pass. The only reported dirt is ignored/untracked cache
+  content inside the pinned NVIDIA submodules; tracked files are clean.
 
 projects/pypto-kernels
   Head: 6f73857b52c86dd98e25d23fbc825a675fb25b6a. Contains framework-neutral

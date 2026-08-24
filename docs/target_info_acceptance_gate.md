@@ -6,6 +6,9 @@ committed, and its checkpoint/evidence is durable. Candidate
 `9939b885041b931284f7ce56ecbf888601b60b6e` remains source-reviewed and unbuilt
 until then.
 
+The single-DSO prerequisite is now committed at `e463bce...`; this runbook is
+the next compiler transaction whenever a fresh heavy preflight is green.
+
 Every build/test block starts through `tools/run_isolated.py --mode heavy` and
 therefore requires a fresh green protected-workload preflight. Never signal or
 clean an external zcode/gem5 process.
@@ -177,10 +180,17 @@ if ! ldd_output=$(ldd "${native_so[0]}" 2>&1); then
   printf "%s\n" "$ldd_output" >&2
   exit 1
 fi
-if grep -Eiq \
-  "not found|libpypto|tensor.?ir|cuda.?tile|amdhip|hsa-runtime|gemsim" \
-  <<<"$ldd_output"; then
+if grep -Eiq "not found" <<<"$ldd_output"; then
   printf "%s\n" "$ldd_output" >&2
+  exit 1
+fi
+if ! dynamic_output=$(readelf -d "${native_so[0]}" 2>&1); then
+  printf "%s\n" "$dynamic_output" >&2
+  exit 1
+fi
+needed=$(sed -n "s/.*Shared library: \[\([^]]*\)\].*/\1/p" <<<"$dynamic_output")
+if grep -Eiq "libpypto|tensor.?ir|cuda.?tile|amdhip|hsa-runtime|gemsim" <<<"$needed"; then
+  printf "forbidden DT_NEEDED entry:\n%s\n" "$needed" >&2
   exit 1
 fi
 '
@@ -227,10 +237,17 @@ if ! ldd_output=$(ldd "${installed_so[0]}" 2>&1); then
   printf "%s\n" "$ldd_output" >&2
   exit 1
 fi
-if grep -Eiq \
-  "not found|libpypto|tensor.?ir|cuda.?tile|amdhip|hsa-runtime|gemsim" \
-  <<<"$ldd_output"; then
+if grep -Eiq "not found" <<<"$ldd_output"; then
   printf "%s\n" "$ldd_output" >&2
+  exit 1
+fi
+if ! dynamic_output=$(readelf -d "${installed_so[0]}" 2>&1); then
+  printf "%s\n" "$dynamic_output" >&2
+  exit 1
+fi
+needed=$(sed -n "s/.*Shared library: \[\([^]]*\)\].*/\1/p" <<<"$dynamic_output")
+if grep -Eiq "libpypto|tensor.?ir|cuda.?tile|amdhip|hsa-runtime|gemsim" <<<"$needed"; then
+  printf "forbidden DT_NEEDED entry:\n%s\n" "$needed" >&2
   exit 1
 fi
 base_site=$("$py" -c "import sysconfig; print(sysconfig.get_paths()[\"purelib\"])")
@@ -280,7 +297,7 @@ def counts(path):
     return tuple(int(suite.attrib[name]) for name in ("tests", "failures", "errors", "skipped"))
 
 assert counts(sys.argv[1]) == (31, 0, 0, 0), counts(sys.argv[1])
-assert counts(sys.argv[2]) == (10266, 0, 0, 58), counts(sys.argv[2])
+assert counts(sys.argv[2]) == (10266, 0, 0, 57), counts(sys.argv[2])
 PY
 env -u PYTHONPATH PYTHONNOUSERSITE=1 \
   "$probe_py" -m pytest \
@@ -290,8 +307,8 @@ env -u PYTHONPATH PYTHONNOUSERSITE=1 \
 ```
 
 Expected TargetInfo unit result is 31 passed. Based on the accepted DSO wheel
-count plus those 31 new cases, the expected full wheel result is 10,208 passed
-and 58 skipped; any collection/count drift must be explained before acceptance.
+count plus those 31 new cases, the expected full wheel result is 10,209 passed
+and 57 skipped; any collection/count drift must be explained before acceptance.
 The independent symlink case passes, not skips.
 
 ## Acceptance boundary

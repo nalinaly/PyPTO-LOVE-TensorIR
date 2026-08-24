@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `10`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `11`
 
 ## Current phase: R0 workspace and provenance bootstrap
 
@@ -9,8 +9,8 @@ standalone semantic operator layer, Torch constructor-dispatch law, and
 candidate/baseline process isolation frozen. R0 remains open until exact Triton
 wheels replace the inherited editable source, the CPython 3.12 baseline
 environment is locked, and unmodified SGLang baselines are captured. In
-parallel, the first P1 build-only object boundary is staged but is not accepted
-until its full-test and fresh-wheel gates close.
+parallel, the first P1 build-only object boundary is accepted at PyPTO
+`e463bce...`; the next ordered compiler transaction is SM120 TargetInfo.
 
 Checkpoint `CP-0006` additionally freezes the strict runtime-coverage evidence
 contract: fixed collector revision, closed trace and artifact-registry digest
@@ -90,6 +90,12 @@ same protected-workload gate: seven `zcode-vllm-tp2-v4` processes remain and
 MemAvailable is 28.5 GiB below the 32 GiB floor. The goal is blocked on external
 state, not complete or narrowed. Resume at the frozen single-DSO runbook only
 after a fresh heavy preflight returns zero.
+
+Checkpoint `CP-0021` records user resume and accepts the single-DSO compiler
+boundary. Native ownership/CTest, editable and wheel JUnit, fresh one-DSO
+packaging, installed dependency/import/console-script and symlink gates all
+pass; two audit-script false positives are preserved with successful recovery
+run IDs. TargetInfo remains unbuilt and is now the next heavy-gated transaction.
 
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.

@@ -41,23 +41,20 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0020.md` and evidence `EV-0005` through `EV-0032`.
-- `projects/pypto` has two intentional uncommitted CMake files implementing the
-  single-DSO compiler object boundary. Editable build and 486 focused tests
-  pass. The first full run's three failures have layered fixes and targeted
-  proof at `EV-0009`; the full rerun and fresh wheel gate have not run.
-  Exact safe commands and expected counts are frozen in
-  `docs/single_dso_acceptance_gate.md`.
-  That runbook now uses a real target-interpreter venv install, audits every
-  wheel DSO and installed dependency, verifies all native/binding compile rows
-  and enforces the exact two-file commit boundary. Its five Bash blocks and
-  final source review pass; none has executed while the protected lane is live.
+- Read `state/checkpoints/CP-0021.md` and evidence `EV-0005` through `EV-0033`.
+- `projects/pypto` is tracked-clean at `e463bce...`; only ignored/untracked
+  NVIDIA submodule cache dirt remains. The single-DSO object boundary is
+  accepted: native CTest 1/1 and compile ownership pass, editable JUnit is
+  `(10235,0,0,59)`, the fresh wheel has exactly one DSO at SHA-256
+  `bd6d24c...f1da1`, and clean wheel JUnit is `(10235,0,0,57)` with the symlink
+  probe passing. `docs/single_dso_acceptance_gate.md` records the two recovered
+  audit-script false positives and every successful run ID.
 - `projects/pypto-target-info` is a separate clean worktree at unbuilt candidate
   `9939b88`. Never treat it as main-branch or build acceptance. Apply it only
   after the object-DSO CMake commit. A 34-path read-only patch check predicts no
   current text conflict. Execute `docs/target_info_acceptance_gate.md`; never
   reuse the DSO wheel. It requires fresh CTest 2/2, 31 targeted tests and a
-  wheel-backed 10,208 pass/58 skip full suite.
+  wheel-backed 10,209 pass/57 skip full suite.
 - `projects/pypto-kernels` is clean at `6f73857...` with typed semantic
   families, canonical process-safe tuning database, matmul invocation ABI v1,
   catalog-bound canonical operator artifact provenance, paged-attention ABI v1
@@ -82,15 +79,13 @@ upstream checkouts and their optional/manual suites.
   yet. `install()` remains intentionally unready/registration-free.
 - `upstream/triton` is the clean exact PyTorch pin. Do not use the inherited
   external editable Triton for acceptance.
-- The same mandatory preflight has failed for three consecutive goal turns.
-  The latest result is 75 with seven protected `zcode-vllm-tp2-v4` TP=2
-  vLLM/gem5 processes and MemAvailable 28.5 GiB below the 32 GiB floor. The
-  goal is formally blocked on external state. No PyPTO heavy command started;
-  wait for natural exit/resource recovery, resume the goal, rerun preflight,
-  and never signal or clean up that lane.
-- After the single-DSO full-suite/fresh-wheel gate closes, the next isolated
-  PyPTO commit is immutable NVIDIA target identity: explicit SM120 resource
-  traits, no SM100 defaults, and no fake legacy backend instance.
+- The user resumed the blocked goal and several green windows allowed the full
+  single-DSO gate to complete. The latest pre-TargetInfo recheck saw eight newly
+  launched protected zcode/SGLang processes. No TargetInfo action started;
+  wait for natural exit, rerun preflight, and never signal or clean up that
+  lane.
+- The next isolated PyPTO transaction is immutable NVIDIA target identity:
+  execute `docs/target_info_acceptance_gate.md` against candidate `9939b88`.
 - After TargetInfo, do not jump directly to TensorIR runtime/cache. D-0009 and
   `docs/compile_request_artifact_design.md` require data-only CompileRequest,
   per-region KernelBuildSpec, exact LLVM/tileiras producer identity, complete

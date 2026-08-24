@@ -1,9 +1,10 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0020`
+**Checkpoint:** `CP-0021`
 
-**Status:** R0 started; execution is blocked by the protected external
-workload/resource gate; no compiler or model milestone accepted.
+**Status:** R0 remains open; the first P1 single-DSO compiler boundary is
+accepted. TargetInfo execution waits behind the current protected-workload
+gate; no NVIDIA compiler/runtime or model milestone is accepted.
 
 ## Current truth
 
@@ -133,16 +134,20 @@ workload/resource gate; no compiler or model milestone accepted.
 - The local target is an NVIDIA GeForce RTX 5090 Laptop GPU, SM120, 24,463 MiB.
 - CUDA Toolkit 13.3 is installed under `/usr/local/cuda-13.3`; the installed
   PyTorch is 2.13.0+cu130.
-- The first native object-target build reached Ninja edge 251/260 and failed
-  while compiling the binding consumer because the public `comm_layout.h`
-  dependency on `runtime/src/common` was declared private. The minimal PUBLIC
-  build-interface fix is staged but remains uncommitted until all build and
-  packaging gates pass.
-- After correcting that usage requirement, the incremental editable build and
-  486 object-boundary-focused tests pass. The first full run reported 10,173
-  pass, 58 skip, and three failures. Their product/test/harness fixes are now
-  independently committed and pass targeted checks, but a full rerun and fresh
-  wheel build remain mandatory before object-target acceptance.
+- The single-DSO compiler object boundary is committed in PyPTO
+  `e463bce7849b2239d0457dcae78ccf41c65ffa55`. All 228 production native
+  compile rows belong uniquely to `pypto_compiler_objects`; 12 binding rows
+  belong to `pypto_core`; the one extra native row is the intentional C++ test
+  compile. Native CTest passes 1/1.
+- The post-fix editable suite passes 10,176 with 59 skips and exact JUnit
+  `(10235, 0 failures, 0 errors, 59 skipped)`. The fresh wheel SHA-256 is
+  `bd6d24c9857a409df9d48c604bd329d10808cde354803ee10765680d252f1da1`.
+  It has 174 unique safe members and exactly one DSO.
+- A real clean-venv install owns both imports and `pypto-ir-trace`; the
+  installed DSO has only the five standard runtime `DT_NEEDED` entries. The
+  wheel suite passes 10,178 with 57 skips and exact JUnit
+  `(10235, 0 failures, 0 errors, 57 skipped)`; the independent symlink probe
+  passes. Three independent final reviews report no remaining P0/P1.
 - The exact PyTorch-pinned Triton source is now a clean official checkout under
   `upstream/triton`, but the environment still imports the inherited external
   editable distribution until a hermetic workspace wheel is built and
@@ -150,14 +155,15 @@ workload/resource gate; no compiler or model milestone accepted.
 - A separate clean worktree now contains source-reviewed SM120 TargetInfo
   candidate `9939b88`. It has explicit resource/toolchain/dtype identity and
   fail-closed legacy isolation, but has not been built or imported. It must be
-  applied only after the single-DSO CMake transaction is accepted.
+  applied only after the now-accepted single-DSO CMake transaction.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact
-  two-file commit boundary. It remains unexecuted while preflight is red.
+  two-file commit boundary. Its recovery-audit lineage and final passing run
+  IDs are recorded in EV-0033.
 - A separate approved TargetInfo runbook freezes the conflict-free ordered
   cherry-pick, fresh native 2/2 CTest, fresh one-DSO wheel/installed-DSO audit,
-  31 targeted tests and expected 10,208-pass/58-skip full suite. It also
+  31 targeted tests and corrected 10,209-pass/57-skip full suite. It also
   remains unexecuted.
 - TensorIR source audit proves its `IRuntimeKernel` is not a persistent
   artifact: complete argument/grid metadata lacks versioned serialization,
@@ -177,21 +183,17 @@ workload/resource gate; no compiler or model milestone accepted.
   evidence and the CPython 3.12 baseline environment is not built yet.
 - Prior reconnaissance did not complete a TensorIR SM120 runtime launch. Static
   target support is not runtime acceptance.
-- The same safety boundary has now failed for three consecutive goal turns.
-  The latest recheck still sees seven protected `zcode-vllm-tp2-v4` TP=2
-  vLLM/gem5 processes, and MemAvailable is 28.5 GiB versus the 32 GiB safety
-  floor. No PyPTO heavy action began. Protected processes remain
-  untouchable; continue light work and rerun preflight after natural exit.
+- The user resumed the previously blocked goal and preflight became green long
+  enough to close the complete single-DSO gate. A later recheck before
+  TargetInfo saw eight newly launched protected zcode/SGLang processes; no
+  TargetInfo action began. Protected processes remain untouchable.
 
 ## Resume action
 
-The goal is blocked, not complete. Wait for the observed protected
-`zcode-vllm-tp2-v4` lane to exit naturally and memory to recover, then resume
-the goal and run `python tools/preflight.py --mode heavy`. If and only if it is
-green, execute
-`docs/single_dso_acceptance_gate.md`, commit only the two CMake files and
-persist evidence. Then apply and execute
-`docs/target_info_acceptance_gate.md` before any CompileRequest code.
+The goal is active, not complete. Wait for the currently observed protected
+zcode/SGLang lane to exit naturally, then run
+`python tools/preflight.py --mode heavy`. If and only if it is green, apply and
+execute `docs/target_info_acceptance_gate.md` before any CompileRequest code.
 Next build the exact Triton wheel and remove the external editable runtime. If
 protected zcode work remains active, continue only source/test work that does
 not compile, launch a model, or claim runtime acceptance. Never inherit

@@ -6,15 +6,31 @@ This is the zero-context runbook for the staged two-file transaction in
 
 ## Current status
 
-The transaction is **not accepted**. Historical support is an editable build,
-486 focused tests, and one old full run with 10,173 passed, 58 skipped, and 3
-failed. Targeted fixes exist, but there is no post-fix full rerun or fresh
-wheel. `builds/pypto-wheel.dfB4Xk/wheels` is empty.
+The two-file source transaction passed all four gates and was committed as
+PyPTO `e463bce7849b2239d0457dcae78ccf41c65ffa55`. Evidence is:
 
-The current heavy preflight is red for protected zcode TP=2 vLLM/gem5 work.
-Do not run any command below until that lane exits naturally and a fresh
-`./tools/preflight.py --mode heavy` returns zero. Never signal or clean up the
-protected lane.
+- native object build plus CTest 1/1, with corrected compile-database audit in
+  run `pypto-20260823T233300Z-2314004-d79f10`;
+- editable full suite: 10,176 passed and 59 skipped in
+  `pypto-20260823T235818Z-2325491-f8dd3c`;
+- fresh wheel SHA-256
+  `bd6d24c9857a409df9d48c604bd329d10808cde354803ee10765680d252f1da1`,
+  with corrected archive/DT_NEEDED audit in
+  `pypto-20260823T234623Z-2320208-c9dba2`;
+- clean install/import plus first full suite and symlink pass in
+  `pypto-20260823T234644Z-2320294-5cf53c`; installed-DSO/JUnit
+  `(10235, 0 failures, 0 errors, 57 skipped)` re-audit in
+  `pypto-20260823T235200Z-2322804-e42ab7`.
+
+The original native and wheel blocks completed their fresh build products but
+returned nonzero because the old audit scripts respectively treated one
+intentional C++ test compile as a duplicate product source and matched the
+workspace directory name `tensor-ir` in an `ldd` path. The corrected audits
+reuse those unchanged fresh artifacts and return zero; this recovery lineage is
+intentional and must remain visible in evidence.
+
+Every future invocation still requires a fresh heavy preflight. Never signal or
+clean up a protected external lane.
 
 ## Frozen invariants
 
@@ -74,9 +90,17 @@ ctest --test-dir "$bld" --output-on-failure -j "$PYPTO_TEST_JOBS"
 import json, pathlib, sys
 rows = json.loads(pathlib.Path(sys.argv[1]).read_text())
 root = pathlib.Path(sys.argv[2]).resolve()
-native = [
+native_rows = [
     row for row in rows
     if pathlib.Path(row["file"]).resolve().is_relative_to(root / "src")
+]
+native = [
+    row for row in native_rows
+    if "pypto_compiler_objects.dir" in row["command"]
+]
+native_test_rows = [
+    row for row in native_rows
+    if "pypto_compiler_objects.dir" not in row["command"]
 ]
 bindings = [
     row for row in rows
@@ -84,6 +108,10 @@ bindings = [
 ]
 assert native and bindings
 assert len({pathlib.Path(row["file"]).resolve() for row in native}) == len(native)
+assert {pathlib.Path(row["file"]).resolve() for row in native_rows} == {
+    pathlib.Path(row["file"]).resolve() for row in native
+}
+assert all("tests/ut/cpp/CMakeFiles/" in row["command"] for row in native_test_rows)
 assert len({pathlib.Path(row["file"]).resolve() for row in bindings}) == len(bindings)
 assert all("pypto_compiler_objects.dir" in row["command"] for row in native)
 assert all("pypto_core.dir" in row["command"] for row in bindings)
@@ -101,19 +129,43 @@ Expected: native CTest 1/1 passes. This build directory must not preexist.
 ```bash
 envs/pypto-nvidia/bin/python tools/run_isolated.py \
   --mode heavy --environment pypto-nvidia --framework-profile pypto -- \
-  /usr/bin/env \
-    PYPTO_BUILD_JOBS=2 \
-    PYPTO_TEST_JOBS=2 \
-    PYTEST_XDIST_AUTO_NUM_WORKERS=2 \
-    PYTHONPATH=/home/zhaosiying/pypto-love-tensor-ir/projects/pypto/python \
-    /home/zhaosiying/pypto-love-tensor-ir/envs/pypto-nvidia/bin/python \
-    -m pytest \
-    /home/zhaosiying/pypto-love-tensor-ir/projects/pypto/tests/ut \
-    -n 2 -q
+  /bin/bash -c '
+set -euo pipefail
+ws=/home/zhaosiying/pypto-love-tensor-ir
+src=$ws/projects/pypto
+xml=$ws/builds/pypto-single-dso-native/editable-full-suite.junit.xml
+log=$ws/logs/pypto-single-dso-editable-junit.log
+py=$ws/envs/pypto-nvidia/bin/python
+test ! -e "$xml"
+test ! -e "$log"
+exec > >(tee "$log") 2>&1
+/usr/bin/env \
+  PYPTO_BUILD_JOBS=2 \
+  PYPTO_TEST_JOBS=2 \
+  PYTEST_XDIST_AUTO_NUM_WORKERS=2 \
+  PYTHONPATH="$src/python" \
+  "$py" -m pytest "$src/tests/ut" -n 2 --junitxml="$xml" -q
+"$py" - "$xml" <<'"'"'PY'"'"'
+import pathlib, sys, xml.etree.ElementTree as ET
+
+root = ET.parse(pathlib.Path(sys.argv[1])).getroot()
+if root.tag == "testsuite":
+    suite = root
+else:
+    assert root.tag == "testsuites", root.tag
+    suites = root.findall("testsuite")
+    assert len(suites) == 1, len(suites)
+    suite = suites[0]
+counts = tuple(int(suite.attrib[name]) for name in ("tests", "failures", "errors", "skipped"))
+assert counts == (10235, 0, 0, 59), counts
+print("editable_junit_counts", counts)
+PY
+'
 ```
 
-Expected editable result is 10,176 passed and 59 skipped; the symlink caller
-probe is the expected editable-only skip. This rerun closes the historical
+Expected editable result is 10,176 passed and 59 skipped. The installed
+console-script and symlink caller cases are the two expected editable-only
+skips that become passes in the wheel gate. This rerun closes the historical
 three failures but does not replace the wheel gate.
 
 ## 3. Fresh wheel and DSO audit
@@ -176,10 +228,17 @@ if ! ldd_output=$(ldd "${native_so[0]}" 2>&1); then
   printf "%s\n" "$ldd_output" >&2
   exit 1
 fi
-if grep -Eiq \
-  "not found|libpypto|tensor.?ir|cuda.?tile|amdhip|hsa-runtime|gemsim" \
-  <<<"$ldd_output"; then
+if grep -Eiq "not found" <<<"$ldd_output"; then
   printf "%s\n" "$ldd_output" >&2
+  exit 1
+fi
+if ! dynamic_output=$(readelf -d "${native_so[0]}" 2>&1); then
+  printf "%s\n" "$dynamic_output" >&2
+  exit 1
+fi
+needed=$(sed -n "s/.*Shared library: \[\([^]]*\)\].*/\1/p" <<<"$dynamic_output")
+if grep -Eiq "libpypto|tensor.?ir|cuda.?tile|amdhip|hsa-runtime|gemsim" <<<"$needed"; then
+  printf "forbidden DT_NEEDED entry:\n%s\n" "$needed" >&2
   exit 1
 fi
 '
@@ -221,6 +280,25 @@ probe_site=$("$probe_py" -c "import sysconfig; print(sysconfig.get_paths()[\"pur
 "$py" -m pip --python "$probe_py" install \
   --no-deps --no-compile "$wheel"
 test -x "$venv/bin/pypto-ir-trace"
+mapfile -t installed_so < <(find "$probe_site/pypto" -maxdepth 1 -type f -name "pypto_core*.so")
+test "${#installed_so[@]}" -eq 1
+if ! ldd_output=$(ldd "${installed_so[0]}" 2>&1); then
+  printf "%s\n" "$ldd_output" >&2
+  exit 1
+fi
+if grep -Eiq "not found" <<<"$ldd_output"; then
+  printf "%s\n" "$ldd_output" >&2
+  exit 1
+fi
+if ! dynamic_output=$(readelf -d "${installed_so[0]}" 2>&1); then
+  printf "%s\n" "$dynamic_output" >&2
+  exit 1
+fi
+needed=$(sed -n "s/.*Shared library: \[\([^]]*\)\].*/\1/p" <<<"$dynamic_output")
+if grep -Eiq "libpypto|tensor.?ir|cuda.?tile|amdhip|hsa-runtime|gemsim" <<<"$needed"; then
+  printf "forbidden DT_NEEDED entry:\n%s\n" "$needed" >&2
+  exit 1
+fi
 
 base_site=$("$py" -c "import sysconfig; print(sysconfig.get_paths()[\"purelib\"])")
 printf "%s\n" "$base_site" > "$probe_site/base-environment-dependencies.pth"
@@ -240,8 +318,25 @@ print(core.__file__)
 PY
 
 cd "$src"
+full_xml=$root/full-suite.junit.xml
+test ! -e "$full_xml"
 env -u PYTHONPATH PYTHONNOUSERSITE=1 \
-  "$probe_py" -m pytest tests/ut -n "$PYPTO_TEST_JOBS" -q
+  "$probe_py" -m pytest tests/ut -n "$PYPTO_TEST_JOBS" \
+    --junitxml="$full_xml" -q
+"$probe_py" - "$full_xml" <<'"'"'PY'"'"'
+import pathlib, sys, xml.etree.ElementTree as ET
+
+root = ET.parse(pathlib.Path(sys.argv[1])).getroot()
+if root.tag == "testsuite":
+    suite = root
+else:
+    assert root.tag == "testsuites", root.tag
+    suites = root.findall("testsuite")
+    assert len(suites) == 1, len(suites)
+    suite = suites[0]
+counts = tuple(int(suite.attrib[name]) for name in ("tests", "failures", "errors", "skipped"))
+assert counts == (10235, 0, 0, 57), counts
+PY
 env -u PYTHONPATH PYTHONNOUSERSITE=1 \
   "$probe_py" -m pytest \
   tests/ut/language/test_unified_ops.py::TestUnifiedSlicePadValue::test_symlinked_import_path_still_names_the_caller \
@@ -249,8 +344,10 @@ env -u PYTHONPATH PYTHONNOUSERSITE=1 \
 '
 ```
 
-Expected wheel-backed full result: 10,177 passed, 58 skipped, zero failed.
-The independent symlink probe must pass, not skip. Both `pypto.__file__` and
+Expected wheel-backed full result: 10,178 passed, 57 skipped, zero failed.
+Compared with editable mode, the installed console-script and symlink caller
+cases both change from intentional skip to pass. The independent symlink probe
+must pass, not skip. Both `pypto.__file__` and
 `pypto.pypto_core.__file__` must resolve beneath `probe-venv`; the loader must
 not be `_editable_skbc_*`.
 

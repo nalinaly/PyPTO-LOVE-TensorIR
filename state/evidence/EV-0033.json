@@ -1,0 +1,92 @@
+{
+  "id": "EV-0033",
+  "kind": "pypto_single_dso_compiler_object_acceptance",
+  "status": "pass_build_package_boundary_no_nvidia_runtime",
+  "repository": {
+    "path": "projects/pypto",
+    "head": "e463bce7849b2239d0457dcae78ccf41c65ffa55",
+    "parent": "f550d4c33e8fef03e7dabcbf60c3db38b0f0a215",
+    "committed_files": [
+      "CMakeLists.txt",
+      "python/bindings/CMakeLists.txt"
+    ],
+    "precommit_patch_sha256": "4a0a8dcb13d51483d427ae9c3d9d7e1ff988a1f0a718ec280b4f02676f4679ac",
+    "tracked_dirty_after_commit": false,
+    "submodule_cache_dirty": true
+  },
+  "native_gate": {
+    "fresh_build_edges": "239/239",
+    "ctest": "1/1 passed",
+    "production_native_rows": 228,
+    "intentional_cpp_test_native_rows": 1,
+    "binding_rows": 12,
+    "fresh_run_with_old_audit": "pypto-20260823T232255Z-2308892-e99e3f",
+    "corrected_audit_run": "pypto-20260823T233300Z-2314004-d79f10",
+    "persisted_recheck_run": "pypto-20260823T235515Z-2324872-e79f13"
+  },
+  "editable_gate": {
+    "passed": 10176,
+    "skipped": 59,
+    "junit": {
+      "tests": 10235,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 59
+    },
+    "first_full_run": "pypto-20260823T233312Z-2314073-7a0ca0",
+    "junit_run": "pypto-20260823T235818Z-2325491-f8dd3c"
+  },
+  "wheel_gate": {
+    "filename": "pypto-0.1.0-cp314-cp314-linux_x86_64.whl",
+    "sha256": "bd6d24c9857a409df9d48c604bd329d10808cde354803ee10765680d252f1da1",
+    "archive_members": 174,
+    "archive_members_unique": true,
+    "archive_paths_safe": true,
+    "archive_symlinks": 0,
+    "native_dso_count": 1,
+    "native_dso_sha256": "4974b4ecc95812833f6be723789f44bdac5463156a4fa066279e4866c0eb4f35",
+    "dt_needed": [
+      "libstdc++.so.6",
+      "libm.so.6",
+      "libgcc_s.so.1",
+      "libc.so.6",
+      "ld-linux-x86-64.so.2"
+    ],
+    "rpath_runpath_present": false,
+    "fresh_build_with_old_audit": "pypto-20260823T233535Z-2314812-be5632",
+    "corrected_audit_run": "pypto-20260823T234623Z-2320208-c9dba2"
+  },
+  "clean_install_gate": {
+    "install_and_first_full_run": "pypto-20260823T234644Z-2320294-5cf53c",
+    "installed_dso_junit_run": "pypto-20260823T235200Z-2322804-e42ab7",
+    "imports_below_probe_venv": true,
+    "editable_loader": false,
+    "console_script_present": true,
+    "passed": 10178,
+    "skipped": 57,
+    "junit": {
+      "tests": 10235,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 57
+    },
+    "independent_symlink_probe": "1 passed"
+  },
+  "skip_delta": [
+    "tests/ut/tools/test_ir_trace.py::test_installed_distribution_provides_the_console_script",
+    "tests/ut/language/test_unified_ops.py::TestUnifiedSlicePadValue::test_symlinked_import_path_still_names_the_caller"
+  ],
+  "validation": {
+    "control_tests_passed": 17,
+    "bash_syntax": "pass",
+    "diff_check": "pass",
+    "independent_reviews": "three final approvals, no remaining P0/P1"
+  },
+  "not_claimed": [
+    "NvidiaTargetInfo build/package acceptance",
+    "TensorIR/LLVM/CUDA Tile build composition",
+    "CompileRequest, KernelBuildSpec, artifact cache or executable",
+    "CUDA compilation/current-stream launch or graph capture",
+    "operator/model correctness, strict coverage or performance"
+  ]
+}

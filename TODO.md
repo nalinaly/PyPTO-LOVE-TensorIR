@@ -24,8 +24,9 @@
 - [x] Freeze the source-hashed Qwen3.5 text compute inventory.
 - [x] Define and independently review the strict normalized-trace/artifact
       coverage evidence contract; no runtime trace is claimed.
-- [ ] Finish full-suite and fresh-wheel validation of the staged PyPTO
-      single-DSO object boundary, then commit only its two CMake files.
+- [x] Finish native/editable/fresh-wheel/clean-install validation of the PyPTO
+      single-DSO object boundary and commit only its two CMake files as
+      `e463bce`.
 - [x] Repair and independently approve the single-DSO acceptance runbook:
       real venv install, complete DSO/dependency/compile-row audit and exact
       staged-file boundary.
@@ -96,10 +97,8 @@
 
 ## Safety hold
 
-The action-boundary heavy preflight is red for the observed
-`zcode-vllm-tp2-v4` TP=2 vLLM/gem5 lane and for MemAvailable 28.5 GiB below
-the 32 GiB safety floor. This same blocker has repeated for three consecutive
-goal turns, so the goal is formally blocked until external state changes. No
-native PyPTO action began. Wait for natural exit/resource recovery, resume the
-goal and rerun preflight. Observation is allowed; signals and cleanup remain
+The user resumed the goal and green preflight windows allowed single-DSO
+acceptance. The latest pre-TargetInfo check saw eight newly launched protected
+zcode/SGLang processes, so no TargetInfo action began. Wait for natural exit
+and rerun preflight. Observation is allowed; signals and cleanup remain
 forbidden.
