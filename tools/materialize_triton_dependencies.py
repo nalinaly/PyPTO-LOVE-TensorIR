@@ -34,7 +34,9 @@ TRITON_COMMIT = "5d6048aa0a324e090ada215b609ea76620133845"
 TRITON_TREE = "448265acc1eff726c2e528813552865b33546cc9"
 TRITON_LLVM_COMMIT = "ac5dc54d509169d387fcfd495d71853d81c46484"
 UNREVIEWED = "UNREVIEWED"
-REVIEWED_MANIFEST_SHA256: str | None = None
+REVIEWED_MANIFEST_SHA256: str | None = (
+    "29c0736211ba0b286acd562ba097d7f1dea989671003c63a7b988de5afb0fe7d"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +59,7 @@ PACKAGE_SPECS = (
         expected_sha256=(
             "aa8f0aa6e0a94d3b64adfc38f560f33f15e589be2175e103c0a33c6bce55ee89"
         ),
+        expected_bytes=293_611,
     ),
     PackageSpec(
         "llvm",
@@ -73,6 +76,10 @@ PACKAGE_SPECS = (
         "json",
         "https://github.com/nlohmann/json/releases/download/v3.11.3/include.zip",
         "zip",
+        expected_sha256=(
+            "a22461d13119ac5c78f205d3df1db13403e58ce1bb1794edc9313677313f4a9d"
+        ),
+        expected_bytes=299_825,
     ),
     PackageSpec(
         "ptxas",
@@ -80,6 +87,10 @@ PACKAGE_SPECS = (
         "linux-x86_64/cuda_nvcc-linux-x86_64-12.8.93-archive.tar.xz",
         "tar",
         "cuda_nvcc-linux-x86_64-12.8.93-archive",
+        expected_sha256=(
+            "9961b3484b6b71314063709a4f9529654f96782ad39e72bf1e00f070db8210d3"
+        ),
+        expected_bytes=79_015_464,
     ),
     PackageSpec(
         "ptxas_blackwell",
@@ -87,6 +98,10 @@ PACKAGE_SPECS = (
         "linux-x86_64/cuda_nvcc-linux-x86_64-13.1.80-archive.tar.xz",
         "tar",
         "cuda_nvcc-linux-x86_64-13.1.80-archive",
+        expected_sha256=(
+            "5ed3b7cfe7f12557199773e7769445357ee048958ff51e623e15f36d3393ca8b"
+        ),
+        expected_bytes=30_014_972,
     ),
     PackageSpec(
         "cuobjdump",
@@ -95,6 +110,10 @@ PACKAGE_SPECS = (
         "cuda_cuobjdump-linux-x86_64-13.1.80-archive.tar.xz",
         "tar",
         "cuda_cuobjdump-linux-x86_64-13.1.80-archive",
+        expected_sha256=(
+            "3de0169fd8d00e8bdd5ec91a6eb89a78229d82e478cb85554f89748107ba928c"
+        ),
+        expected_bytes=263_548,
     ),
     PackageSpec(
         "nvdisasm",
@@ -103,6 +122,10 @@ PACKAGE_SPECS = (
         "cuda_nvdisasm-linux-x86_64-13.1.80-archive.tar.xz",
         "tar",
         "cuda_nvdisasm-linux-x86_64-13.1.80-archive",
+        expected_sha256=(
+            "b169c329bda674e6f9ae5db9845ea09d40f593c96faf11b7f8d4c0a8a2576f17"
+        ),
+        expected_bytes=4_153_976,
     ),
     PackageSpec(
         "cudacrt",
@@ -110,6 +133,10 @@ PACKAGE_SPECS = (
         "linux-x86_64/cuda_crt-linux-x86_64-13.1.80-archive.tar.xz",
         "tar",
         "cuda_crt-linux-x86_64-13.1.80-archive",
+        expected_sha256=(
+            "0e7c365d3301a1b486dbee600b833f6bc771b1a7cc660abca0923269023355ed"
+        ),
+        expected_bytes=79_624,
     ),
     PackageSpec(
         "cudart",
@@ -117,6 +144,10 @@ PACKAGE_SPECS = (
         "linux-x86_64/cuda_cudart-linux-x86_64-13.1.80-archive.tar.xz",
         "tar",
         "cuda_cudart-linux-x86_64-13.1.80-archive",
+        expected_sha256=(
+            "b626f4790f46bc9324a1047f2fbcc9a42bc4a722b053056e61cc00da54ad6f32"
+        ),
+        expected_bytes=1_549_648,
     ),
     PackageSpec(
         "cupti",
@@ -124,6 +155,10 @@ PACKAGE_SPECS = (
         "linux-x86_64/cuda_cupti-linux-x86_64-12.8.90-archive.tar.xz",
         "tar",
         "cuda_cupti-linux-x86_64-12.8.90-archive",
+        expected_sha256=(
+            "7bf5db86cb82f26a6a3cb9e2fa4dc2a131d25885f59fdbc647938929924405db"
+        ),
+        expected_bytes=15_383_056,
     ),
 )
 
@@ -180,22 +215,47 @@ LOCK_EXPECTATIONS = {
     "triton.libdevice_sha256": (
         "5c2fae37c86e68c3a38605a95f512d7d12d5f3db986310be47f57304aa72a5ee"
     ),
-    "triton.dependencies.reviewed_manifest_sha256": UNREVIEWED,
+    "triton.dependencies.reviewed_manifest_sha256": REVIEWED_MANIFEST_SHA256,
     "triton.dependencies.archive.pybind11.sha256": (
         "aa8f0aa6e0a94d3b64adfc38f560f33f15e589be2175e103c0a33c6bce55ee89"
     ),
+    "triton.dependencies.archive.pybind11.bytes": "293611",
     "triton.dependencies.archive.llvm.sha256": (
         "11a11a5a90da7e4b53ef4cf0f259143d14633cae8543a95cb2d99e4af6b902f8"
     ),
     "triton.dependencies.archive.llvm.bytes": "1309519196",
-    "triton.dependencies.archive.json.sha256": UNREVIEWED,
-    "triton.dependencies.archive.ptxas.sha256": UNREVIEWED,
-    "triton.dependencies.archive.ptxas_blackwell.sha256": UNREVIEWED,
-    "triton.dependencies.archive.cuobjdump.sha256": UNREVIEWED,
-    "triton.dependencies.archive.nvdisasm.sha256": UNREVIEWED,
-    "triton.dependencies.archive.cudacrt.sha256": UNREVIEWED,
-    "triton.dependencies.archive.cudart.sha256": UNREVIEWED,
-    "triton.dependencies.archive.cupti.sha256": UNREVIEWED,
+    "triton.dependencies.archive.json.sha256": (
+        "a22461d13119ac5c78f205d3df1db13403e58ce1bb1794edc9313677313f4a9d"
+    ),
+    "triton.dependencies.archive.json.bytes": "299825",
+    "triton.dependencies.archive.ptxas.sha256": (
+        "9961b3484b6b71314063709a4f9529654f96782ad39e72bf1e00f070db8210d3"
+    ),
+    "triton.dependencies.archive.ptxas.bytes": "79015464",
+    "triton.dependencies.archive.ptxas_blackwell.sha256": (
+        "5ed3b7cfe7f12557199773e7769445357ee048958ff51e623e15f36d3393ca8b"
+    ),
+    "triton.dependencies.archive.ptxas_blackwell.bytes": "30014972",
+    "triton.dependencies.archive.cuobjdump.sha256": (
+        "3de0169fd8d00e8bdd5ec91a6eb89a78229d82e478cb85554f89748107ba928c"
+    ),
+    "triton.dependencies.archive.cuobjdump.bytes": "263548",
+    "triton.dependencies.archive.nvdisasm.sha256": (
+        "b169c329bda674e6f9ae5db9845ea09d40f593c96faf11b7f8d4c0a8a2576f17"
+    ),
+    "triton.dependencies.archive.nvdisasm.bytes": "4153976",
+    "triton.dependencies.archive.cudacrt.sha256": (
+        "0e7c365d3301a1b486dbee600b833f6bc771b1a7cc660abca0923269023355ed"
+    ),
+    "triton.dependencies.archive.cudacrt.bytes": "79624",
+    "triton.dependencies.archive.cudart.sha256": (
+        "b626f4790f46bc9324a1047f2fbcc9a42bc4a722b053056e61cc00da54ad6f32"
+    ),
+    "triton.dependencies.archive.cudart.bytes": "1549648",
+    "triton.dependencies.archive.cupti.sha256": (
+        "7bf5db86cb82f26a6a3cb9e2fa4dc2a131d25885f59fdbc647938929924405db"
+    ),
+    "triton.dependencies.archive.cupti.bytes": "15383056",
     "triton.toolchain.ptxas": "12.8.93",
     "triton.toolchain.ptxas_blackwell": "13.1.80",
     "triton.toolchain.cuobjdump": "13.1.80",
@@ -1420,6 +1480,33 @@ def _validate_extracted_symlinks(root: Path) -> None:
             raise ValueError(f"archive symlink escapes extraction root: {path}")
 
 
+def _canonical_regular_mode(mode: int) -> int:
+    return 0o755 if mode & 0o111 else 0o644
+
+
+def normalize_materialized_tree_modes(
+    root: Path,
+    *,
+    archived_executables: frozenset[str] = frozenset(),
+) -> None:
+    require_real_directory(root, "materialized tree")
+    root.chmod(0o755)
+    for path in sorted(root.rglob("*")):
+        if path.is_symlink():
+            continue
+        if path.is_dir():
+            path.chmod(0o755)
+            continue
+        if not path.is_file():
+            raise RuntimeError(f"unsupported materialized tree entry: {path}")
+        relative = path.relative_to(root).as_posix()
+        extracted_mode = stat.S_IMODE(path.lstat().st_mode)
+        executable = relative in archived_executables or bool(
+            extracted_mode & 0o111
+        )
+        path.chmod(0o755 if executable else 0o644)
+
+
 def inspect_archive(
     archive: Path,
     archive_kind: str,
@@ -1501,14 +1588,24 @@ def extract_archive(
         max_members=max_members,
     )
     destination.mkdir(parents=True)
+    archived_executables: frozenset[str] = frozenset()
     if archive_kind == "zip":
         with zipfile.ZipFile(archive) as source:
+            archived_executables = frozenset(
+                _safe_member_name(info.filename.rstrip("/"))
+                for info in source.infolist()
+                if not info.is_dir() and (info.external_attr >> 16) & 0o111
+            )
             source.extractall(destination)
     elif archive_kind == "tar":
         with tarfile.open(archive, mode="r:*") as source:
             source.extractall(destination, filter="data")
     else:  # guarded by inspect_archive
         raise AssertionError("unreachable archive kind")
+    normalize_materialized_tree_modes(
+        destination,
+        archived_executables=archived_executables,
+    )
     _validate_extracted_symlinks(destination)
     return inventory
 
@@ -2200,6 +2297,7 @@ def assemble_overlay(expanded_roots: dict[str, Path], destination: Path) -> None
     for name in ("cudacrt", "cudart", "cupti"):
         _merge_tree(expanded_roots[name] / "include", destination / "include")
     _merge_tree(expanded_roots["cupti"] / "lib", destination / "lib/cupti")
+    normalize_materialized_tree_modes(destination)
     _validate_extracted_symlinks(destination)
 
 
@@ -2212,6 +2310,13 @@ def leaf_identity(path: Path) -> tuple[object, ...]:
     return ("file", mode, path.stat().st_size, sha256_file(path))
 
 
+def normalized_overlay_leaf_identity(path: Path) -> tuple[object, ...]:
+    identity = leaf_identity(path)
+    if identity[0] != "file":
+        return identity
+    return (identity[0], _canonical_regular_mode(identity[1]), *identity[2:])
+
+
 def _merge_expected_leaves(
     expected: dict[str, tuple[object, ...]], source: Path, prefix: str
 ) -> None:
@@ -2219,19 +2324,21 @@ def _merge_expected_leaves(
         if not (path.is_file() or path.is_symlink()):
             continue
         relative = path.relative_to(source).as_posix()
-        expected[f"{prefix}/{relative}"] = leaf_identity(path)
+        expected[f"{prefix}/{relative}"] = normalized_overlay_leaf_identity(path)
 
 
 def expected_overlay_leaves(expanded_roots: dict[str, Path]) -> dict[str, tuple[object, ...]]:
     expected = {
-        "bin/ptxas": leaf_identity(expanded_roots["ptxas"] / "bin/ptxas"),
-        "bin/ptxas-blackwell": leaf_identity(
+        "bin/ptxas": normalized_overlay_leaf_identity(
+            expanded_roots["ptxas"] / "bin/ptxas"
+        ),
+        "bin/ptxas-blackwell": normalized_overlay_leaf_identity(
             expanded_roots["ptxas_blackwell"] / "bin/ptxas"
         ),
-        "bin/cuobjdump": leaf_identity(
+        "bin/cuobjdump": normalized_overlay_leaf_identity(
             expanded_roots["cuobjdump"] / "bin/cuobjdump"
         ),
-        "bin/nvdisasm": leaf_identity(
+        "bin/nvdisasm": normalized_overlay_leaf_identity(
             expanded_roots["nvdisasm"] / "bin/nvdisasm"
         ),
     }

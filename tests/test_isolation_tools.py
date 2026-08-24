@@ -5,6 +5,7 @@ import hashlib
 import io
 import importlib.util
 import json
+import os
 import pathlib
 import shutil
 import signal
@@ -1164,6 +1165,18 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
                 archive.addfile(info, io.BytesIO(payload))
 
     @staticmethod
+    def make_zip_archive(
+        path: pathlib.Path,
+        files: dict[str, tuple[bytes, int]],
+    ) -> None:
+        with zipfile.ZipFile(path, "w") as archive:
+            for name, (payload, mode) in sorted(files.items()):
+                info = zipfile.ZipInfo(name)
+                info.create_system = 3
+                info.external_attr = (0o100000 | mode) << 16
+                archive.writestr(info, payload)
+
+    @staticmethod
     def fake_package_path(
         value: str,
         *,
@@ -2184,18 +2197,84 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
         self.assertTrue(
             triton_dependencies.dependencies_are_fully_pinned((pinned,))
         )
+        self.assertTrue(
+            triton_dependencies.dependencies_are_fully_pinned(
+                triton_dependencies.PACKAGE_SPECS
+            )
+        )
+
+    def test_reviewed_dependency_source_lock_is_exact(self) -> None:
+        expected_manifest_sha256 = (
+            "29c0736211ba0b286acd562ba097d7f1dea989671003c63a7b988de5afb0fe7d"
+        )
+        expected_archives = {
+            "pybind11": (
+                "aa8f0aa6e0a94d3b64adfc38f560f33f15e589be2175e103c0a33c6bce55ee89",
+                293_611,
+            ),
+            "llvm": (
+                "11a11a5a90da7e4b53ef4cf0f259143d14633cae8543a95cb2d99e4af6b902f8",
+                1_309_519_196,
+            ),
+            "json": (
+                "a22461d13119ac5c78f205d3df1db13403e58ce1bb1794edc9313677313f4a9d",
+                299_825,
+            ),
+            "ptxas": (
+                "9961b3484b6b71314063709a4f9529654f96782ad39e72bf1e00f070db8210d3",
+                79_015_464,
+            ),
+            "ptxas_blackwell": (
+                "5ed3b7cfe7f12557199773e7769445357ee048958ff51e623e15f36d3393ca8b",
+                30_014_972,
+            ),
+            "cuobjdump": (
+                "3de0169fd8d00e8bdd5ec91a6eb89a78229d82e478cb85554f89748107ba928c",
+                263_548,
+            ),
+            "nvdisasm": (
+                "b169c329bda674e6f9ae5db9845ea09d40f593c96faf11b7f8d4c0a8a2576f17",
+                4_153_976,
+            ),
+            "cudacrt": (
+                "0e7c365d3301a1b486dbee600b833f6bc771b1a7cc660abca0923269023355ed",
+                79_624,
+            ),
+            "cudart": (
+                "b626f4790f46bc9324a1047f2fbcc9a42bc4a722b053056e61cc00da54ad6f32",
+                1_549_648,
+            ),
+            "cupti": (
+                "7bf5db86cb82f26a6a3cb9e2fa4dc2a131d25885f59fdbc647938929924405db",
+                15_383_056,
+            ),
+        }
+        self.assertEqual(
+            triton_dependencies.REVIEWED_MANIFEST_SHA256,
+            expected_manifest_sha256,
+        )
+        self.assertEqual(
+            {
+                spec.name: (spec.expected_sha256, spec.expected_bytes)
+                for spec in triton_dependencies.PACKAGE_SPECS
+            },
+            expected_archives,
+        )
+        self.assertEqual(len(triton_dependencies.PACKAGE_SPECS), 10)
 
     def test_reviewed_manifest_requires_version_controlled_source_anchor(self) -> None:
-        with self.assertRaisesRegex(RuntimeError, "not frozen"):
-            triton_dependencies.validate_reviewed_manifest_anchor("0" * 64)
         with mock.patch.object(
             triton_dependencies,
             "REVIEWED_MANIFEST_SHA256",
-            "1" * 64,
+            None,
         ):
-            with self.assertRaisesRegex(RuntimeError, "source anchor"):
+            with self.assertRaisesRegex(RuntimeError, "not frozen"):
                 triton_dependencies.validate_reviewed_manifest_anchor("0" * 64)
-            triton_dependencies.validate_reviewed_manifest_anchor("1" * 64)
+        triton_dependencies.validate_reviewed_manifest_anchor(
+            "29c0736211ba0b286acd562ba097d7f1dea989671003c63a7b988de5afb0fe7d"
+        )
+        with self.assertRaisesRegex(RuntimeError, "source anchor"):
+            triton_dependencies.validate_reviewed_manifest_anchor("0" * 64)
 
     def test_materializer_constants_match_versions_lock(self) -> None:
         triton_dependencies.validate_versions_lock()
@@ -2221,18 +2300,29 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
             self.assertFalse((destination / "pip").exists())
             self.assertFalse((destination / "triton").exists())
 
-    def test_review_transition_keeps_actual_and_expected_digest_separate(self) -> None:
-        pinned = triton_dependencies.PACKAGE_SPECS[0]
-        self.assertIsNotNone(pinned.expected_sha256)
-        triton_dependencies.validate_reviewed_archive_digest(
-            pinned,
-            pinned.expected_sha256,
-        )
-        with self.assertRaisesRegex(RuntimeError, "reviewed digest"):
-            triton_dependencies.validate_reviewed_archive_digest(
-                pinned,
-                "0" * 64,
-            )
+    def test_review_transition_rejects_digest_and_size_mismatches(self) -> None:
+        for pinned in triton_dependencies.PACKAGE_SPECS:
+            with self.subTest(package=pinned.name):
+                self.assertIsNotNone(pinned.expected_sha256)
+                self.assertIsNotNone(pinned.expected_bytes)
+                triton_dependencies.validate_reviewed_archive_digest(
+                    pinned,
+                    pinned.expected_sha256,
+                )
+                triton_dependencies.validate_reviewed_archive_size(
+                    pinned,
+                    pinned.expected_bytes,
+                )
+                with self.assertRaisesRegex(RuntimeError, "reviewed digest"):
+                    triton_dependencies.validate_reviewed_archive_digest(
+                        pinned,
+                        "0" * 64,
+                    )
+                with self.assertRaisesRegex(RuntimeError, "reviewed size"):
+                    triton_dependencies.validate_reviewed_archive_size(
+                        pinned,
+                        pinned.expected_bytes + 1,
+                    )
         unpinned = triton_dependencies.PackageSpec(
             "probe",
             "https://example.invalid/probe.tar",
@@ -2242,6 +2332,7 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
             unpinned,
             "0" * 64,
         )
+        triton_dependencies.validate_reviewed_archive_size(unpinned, 1)
 
     def test_canonical_manifest_rejects_duplicate_keys(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT / "builds") as directory:
@@ -2280,7 +2371,10 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
             cache_parent.mkdir(parents=True)
             seed_downloads.mkdir()
             package_files = {
-                "pybind11": {"marker": (b"pybind11", 0o644)},
+                "pybind11": {
+                    "marker": (b"pybind11", 0o644),
+                    "helper": (b"helper", 0o755),
+                },
                 "llvm": {
                     "bin/FileCheck": (b"filecheck", 0o755),
                     "lib/cmake/llvm/LLVMConfig.cmake": (b"llvm", 0o644),
@@ -2313,15 +2407,19 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
             specs = []
             limits = {}
             for name, files in package_files.items():
-                archive = fixtures / f"{name}.tar"
-                self.make_tar_archive(archive, files)
+                archive_kind = "zip" if name in {"pybind11", "json"} else "tar"
+                archive = fixtures / f"{name}.{archive_kind}"
+                if archive_kind == "zip":
+                    self.make_zip_archive(archive, files)
+                else:
+                    self.make_tar_archive(archive, files)
                 url = f"fixture:///{archive.name}"
                 archives[url] = archive
                 specs.append(
                     triton_dependencies.PackageSpec(
                         name,
                         url,
-                        "tar",
+                        archive_kind,
                         expected_sha256=triton_dependencies.sha256_file(archive),
                     )
                 )
@@ -2366,6 +2464,7 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
                 }
 
             output = builds / "triton-deps-materialize-fixture"
+            alternate_output = builds / "triton-deps-materialize-fixture-umask"
             real_publish = triton_dependencies._rename_no_replace
             atomic_publications = []
 
@@ -2377,10 +2476,12 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
             ) -> None:
                 source_path = pathlib.Path(source)
                 destination_path = pathlib.Path(destination)
-                if destination_path == output:
-                    self.assertTrue(source_path.name.startswith(f".{output.name}."))
+                if destination_path in {output, alternate_output}:
+                    self.assertTrue(
+                        source_path.name.startswith(f".{destination_path.name}.")
+                    )
                     self.assertTrue(source_path.is_dir())
-                    self.assertFalse(output.exists())
+                    self.assertFalse(destination_path.exists())
                     atomic_publications.append((source_path, destination_path))
                 real_publish(
                     source_path,
@@ -2416,14 +2517,90 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
             with patches[0], patches[1], patches[2], patches[3], patches[4], patches[
                 5
             ], patches[6] as urlopen:
-                manifest = triton_dependencies.materialize(
-                    output,
-                    seed_download_dir=seed_downloads,
+                previous_umask = os.umask(0o022)
+                try:
+                    manifest = triton_dependencies.materialize(
+                        output,
+                        seed_download_dir=seed_downloads,
+                    )
+                finally:
+                    os.umask(previous_umask)
+                previous_umask = os.umask(0o077)
+                try:
+                    alternate_manifest = triton_dependencies.materialize(
+                        alternate_output,
+                        seed_download_dir=seed_downloads,
+                    )
+                finally:
+                    os.umask(previous_umask)
+                for record, alternate_record in zip(
+                    manifest["packages"],
+                    alternate_manifest["packages"],
+                    strict=True,
+                ):
+                    self.assertEqual(
+                        record["expanded_tree"],
+                        alternate_record["expanded_tree"],
+                        record["name"],
+                    )
+                self.assertEqual(manifest, alternate_manifest)
+                self.assertEqual(
+                    (output / "manifest.json").read_bytes(),
+                    (alternate_output / "manifest.json").read_bytes(),
                 )
-                self.assertEqual(len(atomic_publications), 1)
-                self.assertFalse(atomic_publications[0][0].exists())
+                for materialized in (output, alternate_output):
+                    for tree in (
+                        materialized / "expanded/pybind11",
+                        materialized / "expanded/json",
+                        materialized / "nvidia-backend-overlay",
+                    ):
+                        self.assertTrue(
+                            all(
+                                (path.lstat().st_mode & 0o777) == 0o755
+                                for path in tree.rglob("*")
+                                if path.is_dir() and not path.is_symlink()
+                            )
+                        )
+                    self.assertEqual(
+                        (
+                            materialized / "expanded/pybind11/marker"
+                        ).lstat().st_mode
+                        & 0o777,
+                        0o644,
+                    )
+                    self.assertEqual(
+                        (
+                            materialized / "expanded/pybind11/helper"
+                        ).lstat().st_mode
+                        & 0o777,
+                        0o755,
+                    )
+                    self.assertEqual(
+                        (
+                            materialized
+                            / "expanded/json/include/nlohmann/json.hpp"
+                        ).lstat().st_mode
+                        & 0o777,
+                        0o644,
+                    )
+                    for name in triton_dependencies.OVERLAY_TOOL_VERSIONS:
+                        self.assertEqual(
+                            (
+                                materialized / f"nvidia-backend-overlay/bin/{name}"
+                            ).lstat().st_mode
+                            & 0o777,
+                            0o755,
+                        )
+                self.assertEqual(len(atomic_publications), 2)
+                self.assertTrue(
+                    all(not source.exists() for source, _ in atomic_publications)
+                )
                 self.assertEqual(
                     triton_dependencies.verify(output),
+                    manifest,
+                )
+                self.assertEqual(
+                    triton_dependencies.verify(alternate_output),
                     manifest,
                 )
                 by_name = {
@@ -2435,7 +2612,7 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
                 )
                 self.assertEqual(
                     by_name["pybind11"]["acquisition"]["source_path"],
-                    "caches/triton-download-seeds/pybind11.tar",
+                    "caches/triton-download-seeds/pybind11.zip",
                 )
                 self.assertTrue(
                     all(
@@ -2466,6 +2643,15 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
                     "REVIEWED_MANIFEST_SHA256",
                     manifest_sha,
                 ):
+                    with self.assertRaisesRegex(
+                        RuntimeError,
+                        "canonical JSON must be a regular non-symlink file",
+                    ):
+                        triton_dependencies.verify(
+                            output,
+                            expected_manifest_sha256=manifest_sha,
+                            require_reviewed=True,
+                        )
                     self.assertEqual(
                         triton_dependencies.promote_reviewed(
                             output, manifest_sha
