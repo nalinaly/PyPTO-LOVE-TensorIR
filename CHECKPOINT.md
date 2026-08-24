@@ -1,13 +1,12 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0026`
+**Checkpoint:** `CP-0027`
 
-**Status:** R0 remains open; P1 single-DSO, immutable SM120 TargetInfo,
-pointer-free CompileRequest v1 and pointer-free per-region KernelBuildSpec v1
-data contracts are accepted. The exact Triton reference wheel is audited and
-fresh-probed but remains uninstalled and baseline-only. No exact TensorIR/CUDA
-Tile static composition, producer Artifact, runtime launch, CUDA operator or
-model milestone is accepted.
+**Status:** R0 remains open. P1 now accepts the single-DSO boundary, immutable
+SM120 TargetInfo, CompileRequest v1, KernelBuildSpec v1, and exact private
+TensorIR/CUDA Tile/LLVM compiler composition. The exact Triton wheel remains
+uninstalled and baseline-only. No compiled Artifact, runtime launch, CUDA
+operator, framework route, or model milestone is accepted.
 
 ## Current truth
 
@@ -209,6 +208,19 @@ model milestone is accepted.
   plugins resolve only to wheel-internal libtriton. EV-0039 binds the recovery
   lineage and evidence. The wheel is deliberately not installed and is not a
   candidate compute dependency.
+- PyPTO `5f755687674bd23a513e913cd6f2f20e8b6397ef` now embeds private
+  TensorIR `233ab6ed...`, CUDA Tile `af241704...`, and LLVM `57109bef...` in
+  the sole `pypto_core` product DSO. TensorIR and CUDA Tile Python/CAPI/CLI
+  products are disabled; only build-time `cuda-tile-tblgen` remains.
+- The final private compiler DSO SHA is `12b75a4e...c3def5`, has no
+  RPATH/RUNPATH and only the five standard runtime `DT_NEEDED` entries. Its
+  exact-source compiler suite passes 123/123 and its device-hidden build-info
+  probe proves `sm_120a`, compiler-factory availability and every locked
+  source/tool identity. EV-0040 binds the commits, DSO and four final runs.
+- This compiler composition still returns TensorIR's process-oriented runtime
+  kernel rather than a PyPTO persistent Artifact. Kernel bytes/metadata,
+  current-stream execution, cache, operators, framework registration and Qwen
+  work therefore remain explicitly unaccepted.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact

@@ -41,13 +41,14 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0026.md` and evidence `EV-0005` through `EV-0039`.
-- `projects/pypto` is tracked-clean at `9b3cf71...`; only ignored/untracked
+- Read `state/checkpoints/CP-0027.md` and evidence `EV-0005` through `EV-0040`.
+- `projects/pypto` is tracked-clean at `5f75568...`; only ignored/untracked
   NVIDIA submodule cache dirt remains. Single-DSO and immutable SM120 TargetInfo
-  are accepted. Fresh native CTest is 2/2; wheel SHA is `dd614907...aaeb`, its
-  sole DSO is `dec8082f...c458`, TargetInfo JUnit is `(31,0,0,0)`, full JUnit is
-  `(10266,0,0,57)` and the independent symlink case passes. EV-0034 binds the
-  three successful run IDs and the corrected source/artifact lineage audit.
+  are accepted, and the private TensorIR/CUDA Tile/LLVM compiler is now
+  statically composed into the same public DSO. The final DSO SHA is
+  `12b75a4e...c3def5`; it is RPATH-free, has only five standard runtime
+  dependencies, and passes the exact-source compiler suite 123/123. EV-0040
+  binds revisions, build-info, recovery findings and run hashes.
 - CompileRequest v1 and per-region KernelBuildSpec v1 are accepted as separate
   data-only contracts. KernelBuildSpec passes native 4/4 and exact current-DSO
   Python compiler 122/122; EV-0038 binds commit/tree/source/DSO/run hashes and
@@ -114,6 +115,11 @@ upstream checkouts and their optional/manual suites.
   process/device/CUcontext-bound prewarmed
   executable. Parent-only target query and CUDA Graph capture/replay law are
   part of that boundary; workers never query CUDA or carry streams/handles.
+- Resume by changing the compiler boundary, not by launching a GPU kernel:
+  adapt TensorIR's CUDA Tile frontend to expose a data-only result containing
+  exact bytes plus entry names, argument layout, resolved shape/grid policy and
+  producer/options identity before `CudaTileRuntimeKernel` is constructed.
+  Keep CUDA library/kernel handles, device, context and stream out of it.
 - `docs/coverage_collector_map.md` is the pinned collector implementation map.
   Do not claim `closed_world=true` from ordinary Kineto/NVTX or from the first
   CUPTI-monitor development trace.

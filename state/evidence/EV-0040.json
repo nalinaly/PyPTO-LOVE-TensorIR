@@ -1,0 +1,140 @@
+{
+  "id": "EV-0040",
+  "kind": "pypto_private_tensorir_cuda_tile_single_dso_composition_acceptance",
+  "status": "accepted_build_only_no_kernel_artifact_or_cuda_runtime",
+  "repositories": {
+    "pypto": {
+      "commit": "5f755687674bd23a513e913cd6f2f20e8b6397ef",
+      "tree": "bc4a969d45fd13ce66ce2eba4bd65654dab908ee",
+      "parent": "9307646232a3362b482f6dbb3763a6fc1ec2eacc",
+      "branch": "feature/nvidia-sm120",
+      "tracked_dirty": false,
+      "submodule_cache_dirty": true
+    },
+    "tensor_ir": {
+      "commit": "233ab6ed25f0ae9c6c4b122072bd31079f8fa185",
+      "tree": "aeeeda2aca3bd8041823888810f0627d657cf898",
+      "branch": "feature/pypto-private-build",
+      "private_build_commit": "ca8640e71cd5a95a041f60d8e18672c806f38e42",
+      "public_header_usage_commit": "f2270c6cebae9edcb6558c0c1f7afb21f1028737",
+      "runpath_fix_commit": "233ab6ed25f0ae9c6c4b122072bd31079f8fa185"
+    },
+    "cuda_tile": {
+      "commit": "af2417041cc939b87ef56d92cfdcf61737c5457e",
+      "tree": "b0a6c166d92280b62426e13230f49891949018ef"
+    },
+    "llvm": {
+      "commit": "57109befac92811d2253109242ca6fa69c961fb2",
+      "tree": "e90694a578acabc5b321268938b28077c3026b0e"
+    }
+  },
+  "composition": {
+    "public_python_package": "pypto",
+    "product_dso": "projects/pypto/python/pypto/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "product_dso_count": 1,
+    "tensor_ir_python_binding": false,
+    "tensor_ir_tests": false,
+    "tensor_ir_tools": false,
+    "tensor_ir_install": false,
+    "cuda_tile_capi": false,
+    "cuda_tile_python_binding": false,
+    "cuda_tile_tools": false,
+    "mandatory_build_tool": "cuda-tile-tblgen",
+    "forbidden_standalone_targets_found": [],
+    "compiler_factory_symbol_present": true,
+    "cuda_tile_compiler_symbol_present": true
+  },
+  "exact_build_identity": {
+    "compiled": true,
+    "compiler_factory_available": true,
+    "target": "sm_120a",
+    "cuda_toolkit_root": "/usr/local/cuda-13.3",
+    "cuda_toolkit_version": "13.3.73",
+    "tileiras_real_path": "/usr/local/cuda-13.3/bin/tileiras",
+    "tileiras_version": "13.3.36",
+    "tileiras_sha256": "88737a8be5c56bf73fb885a567a950f247a8cfa1d146dbc7a65eff77e7d62bf0"
+  },
+  "final_dso": {
+    "sha256": "12b75a4e71002d48453874a6ac14bb049e0c22937610dbdce09d20933ac3def5",
+    "bytes": 761853008,
+    "rpath": null,
+    "runpath": null,
+    "dt_needed": [
+      "libstdc++.so.6",
+      "libm.so.6",
+      "libgcc_s.so.1",
+      "libc.so.6",
+      "ld-linux-x86-64.so.2"
+    ]
+  },
+  "final_configuration": {
+    "run_id": "pypto-20260824T142447Z-245949-c1cc3b",
+    "return_code": 0,
+    "preflight_sha256": "89de186c932c536839d833f057468ae397e2cfa4e26f8ecf11ada61e9aabc373",
+    "process_metadata_sha256": "5da0201a15d7c99aee3e7a81d9ff9e541cf33d0b81ac09bb2372cf46b237fb42",
+    "coexistence_pauses": []
+  },
+  "final_build": {
+    "run_id": "pypto-20260824T142510Z-246175-79e91f",
+    "return_code": 0,
+    "parallelism": 24,
+    "target": "pypto_core",
+    "preflight_sha256": "faee685f194c06fad9bbb45715ffc433610ab87e5b25f6baa8df73df0fc2f7cb",
+    "process_metadata_sha256": "00e29310357644de0c0e6444abfc97ebc2da08463ec87ece36046df0b92664f9",
+    "coexistence_pauses": []
+  },
+  "exact_dso_test": {
+    "run_id": "pypto-20260824T142538Z-247378-a1f074",
+    "return_code": 0,
+    "python_compiler_tests_passed": 123,
+    "preflight_sha256": "b7f85fb5ca738741f7af532b621c9c8af76c95848d6e2f48ae81bc9fe84b819e",
+    "process_metadata_sha256": "6f49938a3ca870b782b3150bb9e40901ac2eea4c55ce0dee3852481cc460b87d",
+    "coexistence_pauses": []
+  },
+  "build_info_probe": {
+    "run_id": "pypto-20260824T142719Z-248275-ae2bfa",
+    "return_code": 0,
+    "preflight_sha256": "c1d5c111ae5c892d3f82230775ab849a3305585673b4fa19c3b0ea9825c02d02",
+    "process_metadata_sha256": "62e222ff24753de375ef0bfb7e912b0414a5d8da0fc3f5e12937fd31d57de76b",
+    "cuda_visible_devices": "",
+    "cuda_query_or_context": false,
+    "coexistence_pauses": []
+  },
+  "root_control_regression": {
+    "run_id": "pypto-20260824T143046Z-249256-f772be",
+    "return_code": 0,
+    "tests_passed": 198,
+    "subtests_passed": 98,
+    "preflight_sha256": "0287a12316ccf23d27c8a618384dcd2814c063893afbc465b252f86f99b56d7d",
+    "process_metadata_sha256": "abaec440a8d40b033f69c7d8f1e5dd100c5f191a0a69c8dc7718e695b9ba9cbc",
+    "coexistence_pauses": []
+  },
+  "recovered_findings": [
+    {
+      "run_id": "pypto-20260824T141317Z-233620-b2a4ed",
+      "reason": "TensorIR public Compiler.h required MLIR headers that its static target did not export to an embedding parent",
+      "resolution": "TensorIR f2270c6 exports LLVM and MLIR build-interface usage requirements"
+    },
+    {
+      "rejected_dso_sha256": "cca695935bcb95c47113a5af167a739cebdd3508a3a82efc3c4409f8f02c6ef7",
+      "reason": "CUDA::toolkit propagated an absolute toolkit RUNPATH despite no CUDA DT_NEEDED dependency",
+      "resolution": "TensorIR 233ab6e exports CUDA headers only and leaves dynamic loading to CudaApi"
+    },
+    {
+      "run_id": "pypto-20260824T142703Z-248142-7dd3ac",
+      "reason": "the diagnostic probe combined isolated Python mode with PYTHONPATH, which isolated mode intentionally ignores",
+      "effect": "probe harness only; source, DSO and environment were unchanged"
+    }
+  ],
+  "not_claimed": [
+    "PyPTO HIR to TensorIR lowering",
+    "TensorIR or direct CUDA Tile compiled kernel bytes",
+    "producer-bound Artifact or ArtifactCache",
+    "CUDA module, context, current stream or kernel launch",
+    "SM120 device-resource-driven tile selection",
+    "PyPTO wheel packaging acceptance with the private backend enabled",
+    "standalone operator CUDA correctness or performance",
+    "TorchInductor or SGLang backend registration",
+    "Qwen3.5 correctness, strict coverage or performance"
+  ]
+}

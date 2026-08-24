@@ -58,9 +58,15 @@
 - [x] Implement and independently gate pointer-free per-region KernelBuildSpec
       v1 at PyPTO `9b3cf71`: bounded canonical MessagePack, all explicit
       resolved schedule categories, exact current-DSO replay and native 4/4.
-- [ ] Bind exact LLVM/tileiras producer identity, SM120 82-SM/101376-byte
-      resources and deterministic TensorIR options before ArtifactCache or
+- [x] Compose exact TensorIR/CUDA Tile/LLVM sources privately inside the one
+      PyPTO DSO, bind CUDA 13.3/tileiras identity, export correct embedding
+      headers, and remove all product RPATH/RUNPATH leakage.
+- [ ] Bind SM120 82-SM/101376-byte resources and deterministic TensorIR options
+      into the compiled Artifact identity before ArtifactCache or
       NvidiaExecutable implementation.
+- [ ] Implement the pointer-free bytes-plus-metadata Artifact returned before
+      TensorIR runtime-kernel construction; include entry/ABI/resolved
+      shape-grid metadata and exact byte/producer digests.
 - [x] Canonicalize operator-only artifact provenance without creating a second
       compiler artifact cache in `pypto-kernels`.
 - [x] Freeze the pinned Torch/SGLang runtime coverage collector source map.

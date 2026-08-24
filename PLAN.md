@@ -1,8 +1,15 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `17`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `18`
 
-## Current phase: R0 workspace and provenance bootstrap
+## Current phase: P1 compiled-artifact seam; R0 baseline remains open
+
+Checkpoint `CP-0027` accepts the private compiler composition only. PyPTO
+`5f75568` contains TensorIR `233ab6e`, CUDA Tile `af241704`, and LLVM
+`57109bef` in one RPATH-free `pypto_core` DSO; the exact-source compiler suite
+passes 123/123. The next transaction is a pointer-free bytes-plus-metadata
+Artifact emitted before any runtime-kernel construction. CUDA module/context,
+current stream, launch, framework registration and model claims remain open.
 
 Checkpoint `CP-0022` accepts immutable SM120 TargetInfo at PyPTO `042878d` and
 freezes the exact Triton dependency/wheel/probe/replacement machinery plus the
@@ -159,6 +166,12 @@ Checkpoint `CP-0026` closes only the reproducible Triton reference-wheel
 boundary. Environment replacement and reference GPU smoke are deferred until
 the unmodified SGLang baseline requires them. No further Triton feature work is
 on the candidate backend path.
+
+Checkpoint `CP-0027` closes only the unified private compiler build boundary.
+TensorIR's public compiler usage requirements now support a real parent build,
+and dynamic CUDA declarations no longer leak an absolute toolkit RUNPATH. This
+does not yet prove a PyPTO lowering, a kernel artifact, CUDA execution, a wheel,
+or any Torch/SGLang route.
 
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.
