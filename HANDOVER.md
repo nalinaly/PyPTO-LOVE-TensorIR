@@ -41,23 +41,25 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0031.md` and evidence `EV-0005` through `EV-0044`.
-- `projects/pypto` is clean at `f3bcaac...`. Single-DSO, immutable SM120
-  TargetInfo, Artifact v1 and the strict canonical-source producer bridge are
-  accepted. Exact source bytes plus CompileRequest/KernelBuildSpec now traverse
-  the private TensorIR/CUDA Tile/pinned-tileiras route and return a validated
-  Cubin Artifact without vendor types in the public API. TensorIR
-  `1dcb38c...` owns the bounded exact-assembler process boundary.
-  The final ON DSO SHA is `3438f76a...0a134`; it is RPATH-free, exports only
+- Read `state/checkpoints/CP-0032.md` and evidence `EV-0005` through `EV-0045`.
+- `projects/pypto` is clean at `c087170...`. Single-DSO, immutable SM120
+  TargetInfo, Artifact v1, the strict canonical-source producer bridge and the
+  compiler-owned persistent ArtifactCache v1 are accepted. Exact source bytes
+  plus CompileRequest/KernelBuildSpec traverse the private TensorIR/CUDA Tile/
+  pinned-tileiras route and return a validated Cubin Artifact without vendor
+  types in the public API; cache lookup/publication then uses only the accepted
+  precompile projection under an owner-private descriptor-relative namespace.
+  TensorIR `1dcb38c...` owns the bounded exact-assembler process boundary.
+  The final ON DSO SHA is `d6c9729d...df0c7b`; it is RPATH-free, exports only
   the version node/Python init entry, has only five standard dependencies, and
-  passes native 8/8 plus exact-product compiler 132 passed/1 skipped. A fresh
-  OFF DSO SHA `b3524cb9...3da3e` passes native 6/6 and exact-product compiler
-  128 passed/5 skipped, contains no private bridge/dynamic leakage and reports
-  `compiled=false`. EV-0044 binds the exact revisions, pipeline blob
-  `46610e...`, ON/OFF products, seven-source provenance negatives and final GO
-  review. The strict guard covers the clean PyPTO parent plus TensorIR, CUDA
-  Tile, LLVM, msgpack-c, libbacktrace and runtime at configure and build time.
-  ArtifactCache and CUDA executable/runtime do not exist yet.
+  passes native 8/8 plus exact-product compiler 137 passed/1 skipped. A fresh
+  OFF DSO SHA `7edab542...7e1` passes native 6/6 and exact-product compiler 130
+  passed/8 skipped, contains no private bridge/dynamic leakage and reports
+  `compiled=false`. EV-0045 binds the exact revisions, pipeline blob
+  `46610e...`, cache contract, ON/OFF products, seven-source provenance
+  negatives and final GO review. The strict guard covers the clean PyPTO parent
+  plus TensorIR, CUDA Tile, LLVM, msgpack-c, libbacktrace and runtime at
+  configure and build time. `NvidiaExecutable` and CUDA launch do not exist yet.
 - TensorIR `1dcb38c...` is a local committed feature revision and is fully
   pinned by the PyPTO gitlink/build guards. It has not been published to the
   configured NVIDIA remote; push or otherwise materialize that commit before
@@ -67,8 +69,8 @@ upstream checkouts and their optional/manual suites.
   data-only contracts. KernelBuildSpec passes native 4/4 and exact current-DSO
   Python compiler 122/122; EV-0038 binds commit/tree/source/DSO/run hashes and
   the recovered stale editable-DSO evidence. Producer integration and Artifact
-  v1 are now accepted by CP-0031; cache, runtime and CUDA launch remain
-  unimplemented.
+  v1 plus strict production are accepted by CP-0031, and ArtifactCache v1 is
+  accepted by CP-0032; executable/runtime and CUDA launch remain unimplemented.
 - `projects/pypto-kernels` is clean at `6f73857...` with typed semantic
   families, canonical process-safe tuning database, matmul invocation ABI v1,
   catalog-bound canonical operator artifact provenance, paged-attention ABI v1
@@ -131,11 +133,13 @@ upstream checkouts and their optional/manual suites.
   process/device/CUcontext-bound prewarmed
   executable. Parent-only target query and CUDA Graph capture/replay law are
   part of that boundary; workers never query CUDA or carry streams/handles.
-- Resume by implementing only the compiler-owned persistent ArtifactCache.
-  Key it from accepted projections, publish atomically without replacement,
-  revalidate bounded trusted-local bytes and exact provenance on read, and keep
-  CUDA library/kernel handles, device, context, stream, online tuning and
-  framework state out of this transaction.
+- Resume by implementing only the process/device/CUcontext-bound
+  `NvidiaExecutable`. Load an already validated Artifact, prove the exact entry
+  plus loader/resource/argument/grid/workspace ABI, prewarm before graph
+  capture, latch failures, own unload and graph leases, and accept a non-null
+  current stream only on each launch. Keep frontend lowering, operator
+  algorithms, framework registration, online tuning and model work out of this
+  transaction.
 - `docs/coverage_collector_map.md` is the pinned collector implementation map.
   Do not claim `closed_world=true` from ordinary Kineto/NVTX or from the first
   CUPTI-monitor development trace.

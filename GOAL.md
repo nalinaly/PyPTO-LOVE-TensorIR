@@ -2,12 +2,14 @@
 
 **Goal ID:** `PYPTO-NVIDIA-QWEN35-V1`
 
-**Execution status:** active. CP-0031 accepts the single-DSO SM120 compiler data
-path through strict source-to-Cubin Artifact v1 production at PyPTO
-`f3bcaac...` and private TensorIR `1dcb38c...`. CompileRequest,
-KernelBuildSpec, exact producer provenance, runtime-free Cubin ABI validation
-and the bounded pinned-tileiras process boundary are accepted; ArtifactCache,
-frontend-HIR lowering and CUDA current-stream execution remain next. The exact
+**Execution status:** active. CP-0032 accepts the compiler-owned persistent
+ArtifactCache v1 at PyPTO `c087170...`, layered over the already accepted
+strict source-to-Cubin Artifact producer and private TensorIR `1dcb38c...`.
+CompileRequest, KernelBuildSpec, exact producer provenance, runtime-free Cubin
+ABI validation, bounded pinned-tileiras production and trusted-local atomic
+cache publication/readback are accepted. The next narrow transaction is the
+process/device/CUcontext-bound `NvidiaExecutable`; frontend-HIR lowering,
+operators, framework routes and model execution remain later. The exact
 PyTorch-pinned Triton reference wheel stays audited/frozen and deliberately
 uninstalled as baseline-only infrastructure. The full objective and acceptance
 criteria remain unchanged. Never signal protected amdgpu-sim/zcode processes.

@@ -1,8 +1,19 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `22`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `23`
 
-## Current phase: P1 compiler-owned ArtifactCache; R0 baseline remains open
+## Current phase: P2 compiler-owned NvidiaExecutable; R0 baseline remains open
+
+Checkpoint `CP-0032` accepts the persistent ArtifactCache v1 at PyPTO
+`c087170`. Cache identity is derived only from the accepted precompile
+projection; owner-private descriptor-relative reads fully revalidate canonical
+Artifact bytes, and same-shard no-replace publication is durable and
+concurrency-safe. Fresh backend-ON/OFF builds, exact-product Python suites, DSO
+audits, seven-source provenance negatives and independent API/security/final
+reviews pass. No CUDA state, compile-on-miss, eviction, repair, framework or
+model behavior is present. The next narrow transaction is a process/device/
+CUcontext-bound `NvidiaExecutable` that consumes only a validated Artifact and
+accepts the non-null current stream only at launch.
 
 Checkpoint `CP-0031` accepts the strict canonical-source producer bridge at
 PyPTO `f3bcaac` and TensorIR `1dcb38c`. Exact source bytes plus
@@ -12,9 +23,9 @@ ambient override or vendor type in the public API. Fresh ON/OFF products,
 source-isolated Python suites, DSO audits, provenance negatives and the root
 control regression pass. Provenance covers the clean PyPTO parent plus all six
 compiled direct submodules, including msgpack-c, libbacktrace and runtime. The
-next narrow transaction is the compiler-owned persistent ArtifactCache. CUDA
-handles/current-stream launch, frontend-HIR lowering, operators, frameworks
-and models remain later gates.
+then-next narrow transaction, the compiler-owned persistent ArtifactCache, is
+now accepted by CP-0032. CUDA handles/current-stream launch, frontend-HIR
+lowering, operators, frameworks and models remain later gates.
 
 Checkpoint `CP-0030` accepts immutable canonical NVIDIA Artifact v1 at PyPTO
 `4a82f2e`. It binds exact clean PyPTO/vendor/pipeline identities, strict SM120
@@ -228,6 +239,11 @@ Checkpoint `CP-0031` accepts only the strict in-process source-to-Cubin
 producer bridge and its bounded exact-assembler process boundary. It does not
 accept cache publication, CUDA loading/launch, PyPTO frontend-HIR lowering,
 generic codegen, operators, TorchInductor, SGLang or Qwen execution.
+
+Checkpoint `CP-0032` accepts only trusted-local persistent Artifact storage.
+It does not accept CUDA device/context/module/function state, resource or
+workspace legality, current-stream launch, CUDA Graph, frontend-HIR lowering,
+operators, TorchInductor, SGLang, Qwen correctness/coverage or performance.
 
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.

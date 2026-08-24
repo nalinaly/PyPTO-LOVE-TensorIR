@@ -1,12 +1,12 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0031`
+**Checkpoint:** `CP-0032`
 
-**Status:** R0 remains open. P1 now additionally accepts the strict
-canonical-source TensorIR/CUDA Tile producer bridge to immutable SM120 Cubin
-Artifact v1. ArtifactCache, PyPTO frontend-HIR lowering, CUDA executable/
-current-stream launch, operators, framework routes and model milestones remain
-unaccepted.
+**Status:** R0 remains open. P1 now additionally accepts the compiler-owned
+persistent ArtifactCache v1 over the strict canonical-source TensorIR/CUDA Tile
+producer and immutable SM120 Cubin Artifact v1. PyPTO frontend-HIR lowering,
+CUDA executable/current-stream launch, operators, framework routes and model
+milestones remain unaccepted.
 
 ## Current truth
 
@@ -308,6 +308,52 @@ unaccepted.
   loading or launch, workspace/runtime allocation, frontend-HIR lowering,
   generic codegen, operators, frameworks, Qwen correctness/coverage or
   performance.
+- PyPTO `c087170444270cbe00f83e1fbf127ddcf3e33926` now exposes the
+  compiler-owned ArtifactCache v1. `lookup(request, build_spec)` returns only a
+  fully revalidated immutable Artifact or an exact `ENOENT` miss;
+  `publish(artifact, request, build_spec)` stages, syncs, validates and
+  atomically publishes without replacement, returning `Published` or
+  `AlreadyPresent`.
+- The fixed trusted-local namespace is
+  `pypto-nvidia-artifacts/v1/sha256/<prefix>/<digest>.artifact` beneath a
+  caller-created absolute canonical non-root owner directory with exact mode
+  `0700`. Descriptor-relative no-follow traversal rejects unsafe writable
+  ancestors, symlinks and wrong file ownership/type/mode/link count.
+- Lookup bounds file size before allocation, detects read/metadata races and
+  fully deserializes canonical Artifact v1 before checking exact request,
+  build-spec, producer and path-key identity. Corruption is an error; ordinary
+  lookup never deletes, repairs, quarantines or recompiles.
+- Publication uses a same-shard exclusive temporary file, full write/fsync/
+  readback, exact mode `0400`, `renameat2(RENAME_NOREPLACE)` and shard fsync.
+  An `EEXIST` winner must independently pass full validation and canonical byte
+  equality. Created directories are permission-fixed and synced before their
+  parent directory entry is acknowledged.
+- Cache handles are non-copyable/non-movable and creator-PID-bound; an inherited
+  post-fork handle fails closed and each process opens its own handle. V1 has no
+  CUDA state, compile-on-miss, interprocess compile lock, eviction, repair,
+  remote cache, signature or quota. `ENOSPC` remains an explicit availability
+  error and the owner-private boundary is not origin authentication.
+- The fresh backend-ON product passes native 8/8 and exact-DSO Python 137
+  passed/1 skipped. Its DSO SHA-256 is
+  `d6c9729dff380335b9a9f0e3b581dc9f026b888b9cbf5b869a89888fe9df0c7b`.
+  The fresh backend-OFF product passes native 6/6 and exact-DSO Python 130
+  passed/8 skipped; its SHA-256 is
+  `7edab542960eaa12d0354a169130724c558f8135c1fee4dd4302af5ff614c7e1`.
+  Both are RPATH-free, depend on only five standard runtimes and leak no private
+  compiler/CUDA dynamic symbol.
+- Exact current provenance covers clean PyPTO plus TensorIR, CUDA Tile, LLVM,
+  msgpack-c, libbacktrace and runtime, rejecting every wrong revision and
+  representative tracked/untracked/ignored drift. Ruff, source/stub Pyright,
+  1,133 header checks, 168 EN/ZH doc pairs/navigation and 1,324 English-only
+  checks pass. The isolated root control suite passes 198 tests plus 98
+  subtests with CUDA hidden. Independent API, security and final audits report
+  no P0/P1. EV-0045 binds the exact runs, products, logs and acceptance
+  boundary.
+- CP-0032 accepts persistent Artifact storage only. It does not accept CUDA
+  device/context/module/function state, support/resource legality, workspace
+  allocation, current-stream launch, CUDA Graph, frontend-HIR lowering,
+  operators, TorchInductor, SGLang, Qwen correctness/coverage, profiling or
+  performance.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact
@@ -347,10 +393,13 @@ unaccepted.
 ## Resume action
 
 The goal is active, not complete. Freeze Triton as accepted reference-only
-infrastructure. Implement the compiler-owned persistent ArtifactCache as a
-separate transaction over accepted Artifact v1 bytes and projections. Do not
-combine cache publication with CUDA module/context/current-stream execution,
-framework integration or online autotuning.
+infrastructure. Implement a process/device/CUcontext-bound `NvidiaExecutable`
+as a separate P2 transaction over an already validated Artifact. It must
+resolve and validate the exact entry, loader/resource/argument/grid/workspace
+ABI, latch prewarm failure, own explicit module unload and CUDA Graph leases,
+and accept a non-null raw current stream only at launch. Do not combine this
+first loader transaction with frontend lowering, framework registration,
+operator codegen, online autotuning or model execution.
 Defer the separate exclusive Triton replacement/reference-smoke gate until the
 unmodified SGLang baseline needs it.
 Use explicit CPU-only coexistence only for non-benchmark build/test work; GPU

@@ -75,9 +75,14 @@
       consumes CompileRequest, KernelBuildSpec and canonical source, validates
       every locked producer, maps the complete resolved schedule, and forbids
       fallback/ambient policy.
-- [ ] Implement the compiler-owned persistent ArtifactCache with bounded
+- [x] Implement the compiler-owned persistent ArtifactCache with bounded
       trusted-local reads, exact cache-key/provenance validation, atomic
       no-replace publication and no CUDA/runtime/framework state.
+- [ ] Implement and independently gate a process/device/CUcontext-bound
+      `NvidiaExecutable` that loads only a validated Artifact, validates exact
+      entry/resource/argument/grid/workspace ABI, prewarms outside graph
+      capture, latches failure, owns graph leases, and accepts a non-null raw
+      current stream only at launch.
 - [x] Implement bounded canonical PyPTO Artifact v1 serialization with bytes,
       ABI, request/build-spec/producer digests and malformed-input rejection.
 - [x] Isolate the TensorIR/LLVM ABI bridge, hide every non-Python DSO export,

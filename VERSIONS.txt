@@ -1,8 +1,11 @@
-PyPTO NVIDIA implementation: f3bcaaccdfb169080628d56e461653b0ba3e0ad5
+PyPTO NVIDIA implementation: c087170444270cbe00f83e1fbf127ddcf3e33926
 TensorIR private implementation: 1dcb38c20e53d07c97d3781cae538e33901bae30
 CUDA Tile: af2417041cc939b87ef56d92cfdcf61737c5457e (v13.3.3)
 LLVM/MLIR: 57109befac92811d2253109242ca6fa69c961fb2
 Structured TensorIR pipeline blob: 46610e0415598d010981e4bd07d0660c592401ac
+PyPTO backend-ON DSO: d6c9729dff380335b9a9f0e3b581dc9f026b888b9cbf5b869a89888fe9df0c7b
+PyPTO backend-OFF DSO: 7edab542960eaa12d0354a169130724c558f8135c1fee4dd4302af5ff614c7e1
+PyPTO ArtifactCache: accepted trusted-local persistent v1
 msgpack-c: 919908742b4fdbc575e77fe1a8657e70c9573c44
 libbacktrace: 6f8310e238fc3ce68f42f391cbe93fd156bb2c23
 PyPTO runtime headers: 93adc3865e65fd72655f571f2e4165cf5ac02616
