@@ -1,0 +1,19 @@
+PyPTO NVIDIA implementation: f3bcaaccdfb169080628d56e461653b0ba3e0ad5
+TensorIR private implementation: 1dcb38c20e53d07c97d3781cae538e33901bae30
+CUDA Tile: af2417041cc939b87ef56d92cfdcf61737c5457e (v13.3.3)
+LLVM/MLIR: 57109befac92811d2253109242ca6fa69c961fb2
+Structured TensorIR pipeline blob: 46610e0415598d010981e4bd07d0660c592401ac
+msgpack-c: 919908742b4fdbc575e77fe1a8657e70c9573c44
+libbacktrace: 6f8310e238fc3ce68f42f391cbe93fd156bb2c23
+PyPTO runtime headers: 93adc3865e65fd72655f571f2e4165cf5ac02616
+CUDA Toolkit: 13.3.73 (/usr/local/cuda-13.3)
+tileiras: 13.3.36, SHA-256 88737a8be5c56bf73fb885a567a950f247a8cfa1d146dbc7a65eff77e7d62bf0
+PyTorch: cf30153c4c131c8164ee7798e5022d810682e2cb (2.13.0+cu130)
+SGLang: 71de97b264b04dcd514cf904003028aefe9775c8 (v0.5.18)
+Torch-pinned Triton reference: 5d6048aa0a324e090ada215b609ea76620133845
+Target: NVIDIA GeForce RTX 5090 Laptop GPU, SM120, 82 SMs
+Qwen3.5-0.8B snapshot: 2fc06364715b967f1860aea9cf38778875588b17
+Qwen3.5-9B snapshot: c202236235762e1c871ad0ccb60c8ee5ba337b9a
+
+VERSIONS.lock is the exhaustive machine-readable source, tool, dependency and
+environment lock. This file is the human-readable accepted checkpoint view.

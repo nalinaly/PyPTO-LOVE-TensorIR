@@ -71,9 +71,13 @@
 - [x] Extract and independently gate the compiler-private bounded canonical
       MessagePack codec, including pre-allocation aggregate/object/depth/BIN
       limits, malformed parser exception conversion and fresh ON/OFF builds.
-- [ ] Implement the PyPTO strict producer bridge that consumes CompileRequest,
-      KernelBuildSpec and canonical source, validates every locked producer,
-      maps the complete resolved schedule, and forbids fallback/ambient policy.
+- [x] Implement and independently gate the PyPTO strict producer bridge that
+      consumes CompileRequest, KernelBuildSpec and canonical source, validates
+      every locked producer, maps the complete resolved schedule, and forbids
+      fallback/ambient policy.
+- [ ] Implement the compiler-owned persistent ArtifactCache with bounded
+      trusted-local reads, exact cache-key/provenance validation, atomic
+      no-replace publication and no CUDA/runtime/framework state.
 - [x] Implement bounded canonical PyPTO Artifact v1 serialization with bytes,
       ABI, request/build-spec/producer digests and malformed-input rejection.
 - [x] Isolate the TensorIR/LLVM ABI bridge, hide every non-Python DSO export,

@@ -1,25 +1,35 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `21`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `22`
 
-## Current phase: P1 strict TensorIR producer bridge; R0 baseline remains open
+## Current phase: P1 compiler-owned ArtifactCache; R0 baseline remains open
+
+Checkpoint `CP-0031` accepts the strict canonical-source producer bridge at
+PyPTO `f3bcaac` and TensorIR `1dcb38c`. Exact source bytes plus
+CompileRequest/KernelBuildSpec now produce an immutable SM120 Cubin Artifact v1
+through the private TensorIR/CUDA Tile/pinned-tileiras route, with no fallback,
+ambient override or vendor type in the public API. Fresh ON/OFF products,
+source-isolated Python suites, DSO audits, provenance negatives and the root
+control regression pass. Provenance covers the clean PyPTO parent plus all six
+compiled direct submodules, including msgpack-c, libbacktrace and runtime. The
+next narrow transaction is the compiler-owned persistent ArtifactCache. CUDA
+handles/current-stream launch, frontend-HIR lowering, operators, frameworks
+and models remain later gates.
 
 Checkpoint `CP-0030` accepts immutable canonical NVIDIA Artifact v1 at PyPTO
 `4a82f2e`. It binds exact clean PyPTO/vendor/pipeline identities, strict SM120
 TensorIR options, schedule-to-grid/uniform ABI, one canonical Cubin,
 entry/flattened CUDA parameter ABI, cache/loader projections and bounded
 canonical MessagePack. TensorIR `b25081a` performs runtime-free CUDA 13.3 ELF,
-entry, KPARAM/PARAM_CBANK, constant-bank and PT_LOAD mapping validation. The
-next transaction is the separate strict producer bridge from CompileRequest +
-KernelBuildSpec + canonical source to this Artifact. Cache, CUDA runtime,
-framework routes and model execution remain later.
+entry, KPARAM/PARAM_CBANK, constant-bank and PT_LOAD mapping validation. Its
+then-next strict producer transaction is now accepted by CP-0031. Cache, CUDA
+runtime, framework routes and model execution remain later.
 
 Checkpoint `CP-0029` accepts only the private bounded canonical MessagePack
 foundation at PyPTO `6ce1776`. It preserves CompileRequest/KernelBuildSpec wire
 identity while adding streaming aggregate allocation limits and BIN support
-needed by Artifact. CP-0030 has now consumed that foundation; the strict
-TensorIR producer DTO/bridge remains the next separate commit. Cache, CUDA
-runtime and frameworks remain later steps.
+needed by Artifact. CP-0030 and CP-0031 have now consumed that foundation;
+cache, CUDA runtime and frameworks remain later steps.
 
 Checkpoint `CP-0028` accepts only the runtime-free in-memory TensorIR producer
 result. TensorIR `2677d1a` emits fully validated TileIR/Cubin bytes plus
@@ -213,6 +223,11 @@ constructed boundary in tests; no compiler entrypoint yet consumes canonical
 source plus CompileRequest/KernelBuildSpec to create it. ArtifactCache,
 subprocess compilation, CUDA module/current-stream launch and framework/model
 work remain explicitly open.
+
+Checkpoint `CP-0031` accepts only the strict in-process source-to-Cubin
+producer bridge and its bounded exact-assembler process boundary. It does not
+accept cache publication, CUDA loading/launch, PyPTO frontend-HIR lowering,
+generic codegen, operators, TorchInductor, SGLang or Qwen execution.
 
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.

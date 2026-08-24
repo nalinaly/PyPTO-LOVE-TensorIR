@@ -1,0 +1,250 @@
+{
+  "id": "EV-0044",
+  "kind": "pypto_strict_tensorir_producer_acceptance",
+  "status": "accepted_source_to_sm120_cubin_artifact_v1_no_cache_runtime_or_launch",
+  "repositories": {
+    "pypto": {
+      "head": "f3bcaaccdfb169080628d56e461653b0ba3e0ad5",
+      "tree": "888db2953abbee4fa54be1621dbbbadd6ae358d4",
+      "parent": "54aa9afb9b6afb9b7b5d82805c9be332f94bcfe6",
+      "branch": "feature/nvidia-sm120",
+      "tracked_dirty": false,
+      "untracked_or_ignored_build_inputs": false
+    },
+    "tensor_ir": {
+      "head": "1dcb38c20e53d07c97d3781cae538e33901bae30",
+      "tree": "10362d3feade0bcb59f6615373678299a7c97614",
+      "parent": "b06b0b3fb9a61eda733b57c9caae99303d72ce44",
+      "branch": "feature/pypto-private-build",
+      "tracked_dirty": false,
+      "untracked_or_ignored_files": false,
+      "published_to_configured_remote": false
+    },
+    "cuda_tile": "af2417041cc939b87ef56d92cfdcf61737c5457e",
+    "llvm": "57109befac92811d2253109242ca6fa69c961fb2",
+    "msgpack_c": "919908742b4fdbc575e77fe1a8657e70c9573c44",
+    "libbacktrace": "6f8310e238fc3ce68f42f391cbe93fd156bb2c23",
+    "pypto_runtime": "93adc3865e65fd72655f571f2e4165cf5ac02616"
+  },
+  "accepted_scope": {
+    "public_entrypoint": "Artifact.compile_strict(canonical_source_bytes, compile_request, kernel_build_spec)",
+    "source_is_exact_nonempty_nul_free_bytes": true,
+    "source_digest_verified_before_tensorir": true,
+    "public_vendor_types": 0,
+    "private_standard_only_producer_dto": true,
+    "private_bridge_no_exceptions_no_rtti": true,
+    "exception_enabled_artifact_coordinator": true,
+    "semantic_route": "structured-tensorir",
+    "requested_and_actual_artifact": "cubin",
+    "target": "sm_120a",
+    "tile_ir_bytecode_version": "13.3.0",
+    "pipeline_spec_git_blob": "46610e0415598d010981e4bd07d0660c592401ac",
+    "clean_exact_pypto_plus_six_compiled_gitlinks": true,
+    "ambient_environment_overrides": false,
+    "artifact_fallback": false,
+    "online_candidate_search": false,
+    "exact_verified_tileiras_copy": true,
+    "sanitized_exact_toolkit_environment": true,
+    "bounded_timeout_memory_files_scratch_and_diagnostics": true,
+    "closed_stdio_descriptor_reservation": true,
+    "fail_closed_close_range": true,
+    "fd_relative_no_follow_scratch_scan": true,
+    "bounded_live_enoent_only_retry": true,
+    "post_exit_scan_errors_rejected": true,
+    "fork_after_first_producer_use_rejected": true,
+    "artifact_cache": false,
+    "cuda_runtime_or_launch": false
+  },
+  "targeted_scratch_regression": {
+    "supplemental_pre_source_closure_fix": true,
+    "run_id": "pypto-20260824T211337Z-502194-cfc77a",
+    "return_code": 0,
+    "tests_passed": 2,
+    "log": "logs/pypto-scratch-quota-targeted-54aa9af.log",
+    "log_sha256": "c94e1665738616dfecae700fb633844bb71daa9b07226b1c403d26cc5ba43307",
+    "preflight_sha256": "792b8818eaaf563801d3698359f2b681551427fb7a67eca292f7b802ad243c59",
+    "process_metadata_sha256": "475ca837e368d0cae507d39ce3c43fceeff4ecf649e88df76662ee58c669dca1"
+  },
+  "final_backend_on": {
+    "run_id": "pypto-20260824T214703Z-531132-f1b86b",
+    "return_code": 0,
+    "fresh_build_directory": "builds/pypto-strict-producer-on-f3bcaac-v2-final",
+    "native_tests_passed": 8,
+    "native_tests_failed": 0,
+    "real_producer_cases": [
+      "static source to SM120 Cubin",
+      "dynamic source to flat 12-argument Cubin ABI",
+      "tensor plus f32 scalar to Cubin",
+      "closed inherited stdin stdout stderr",
+      "bounded ENOENT churn recovery",
+      "permission and I/O scan rejection"
+    ],
+    "log": "logs/pypto-strict-producer-on-f3bcaac-v2-final.log",
+    "log_sha256": "46b2c8d0317d8dc35035bab24e90b1d2c0fbe4d9da1ab649dcab4b9633da898b",
+    "preflight_sha256": "3226de49315f184351b389751aff80b9f1e016fcc57202591761e8c1ffcd73e8",
+    "process_metadata_sha256": "fc035dbe8cb58087813284e4b27ba38029f05e3733e2857e7e39163368bb1102"
+  },
+  "final_backend_on_exact_dso_python": {
+    "run_id": "pypto-20260824T215520Z-545405-44554a",
+    "return_code": 0,
+    "tests_passed": 132,
+    "tests_skipped": 1,
+    "python_flags": "-I -B",
+    "editable_finder_used": false,
+    "exact_product_dso_preloaded": true,
+    "compiled_pypto_revision": "f3bcaaccdfb169080628d56e461653b0ba3e0ad5",
+    "compiled_tensor_ir_revision": "1dcb38c20e53d07c97d3781cae538e33901bae30",
+    "compiled_pipeline_revision": "46610e0415598d010981e4bd07d0660c592401ac",
+    "log": "logs/pypto-strict-producer-on-f3bcaac-v2-python.log",
+    "log_sha256": "68d1b2bda446eb0003fb759870d8092f1bb7844c70c95bcb2d9d1dcd0aa8460c",
+    "preflight_sha256": "0be42a6ad272c1d3f2634d26a8ea46bc346bc580fccac4652924062671159c90",
+    "process_metadata_sha256": "6290ac1a4eb88843936cf1e13626f785b8895d1db9dff6c11726668b57f88948"
+  },
+  "backend_on_product_dso": {
+    "run_id": "pypto-20260824T215556Z-545669-4189af",
+    "path": "builds/pypto-strict-producer-on-f3bcaac-v2-final/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "bytes": 776272704,
+    "sha256": "3438f76a65f8021987b187e49ffaba25355a2f8e7920cf251b2c422fea50a134",
+    "rpath": null,
+    "runpath": null,
+    "dt_needed": [
+      "libstdc++.so.6",
+      "libm.so.6",
+      "libgcc_s.so.1",
+      "libc.so.6",
+      "ld-linux-x86-64.so.2"
+    ],
+    "dynamic_definitions": [
+      "PYPTO_CORE_1",
+      "PyInit_pypto_core@@PYPTO_CORE_1"
+    ],
+    "private_compiler_dynamic_symbols": 0,
+    "bridge_no_eh_no_rtti": true,
+    "coordinator_exceptions_enabled": true,
+    "log": "logs/pypto-strict-producer-on-f3bcaac-v2-dso-audit.log",
+    "log_sha256": "072432a46e67e93c6499f0b6ba8d024bc8e8b1c41bbbe363866ba1b031bf0943",
+    "preflight_sha256": "00cc630234591bdb39580e6c7e0132e765287c8739d5863e752437810acd0c9d",
+    "process_metadata_sha256": "ba27da10a8d77816f34ea9b5b0792178df729af60de9104070291a94eb3dcb36"
+  },
+  "final_backend_off": {
+    "run_id": "pypto-20260824T215618Z-545828-670409",
+    "return_code": 0,
+    "fresh_build_directory": "builds/pypto-strict-producer-off-f3bcaac-v2-final",
+    "native_tests_passed": 6,
+    "native_tests_failed": 0,
+    "log": "logs/pypto-strict-producer-off-f3bcaac-v2-final.log",
+    "log_sha256": "b111be06333bd90935ce5ef0c6c2590ea473e80b1aaa44a1b044f49d2ebe322d",
+    "preflight_sha256": "b262c8ae0ca356cbf5b6111d7f6507c9a57a3a9395450891bf9d9e03a751f8e8",
+    "process_metadata_sha256": "3939a46c3cb82ef8c402ba05aa56a45012874f580d303042eff930f9745cf0dd"
+  },
+  "final_backend_off_exact_dso_python": {
+    "run_id": "pypto-20260824T220001Z-550881-a82ed8",
+    "return_code": 0,
+    "tests_passed": 128,
+    "tests_skipped": 5,
+    "compiled": false,
+    "compiler_factory_available": false,
+    "strict_compile": "fail_closed",
+    "log": "logs/pypto-strict-producer-off-f3bcaac-v2-python.log",
+    "log_sha256": "e4024a2d3b06681dc16e15a9bfe2a5f14e7ec4f5a7a39b90396384a2c572ee95",
+    "preflight_sha256": "925174e52f519bd9d410061b4783bd60e0e3c379b848cdf9ca2dcd89c993dcfe",
+    "process_metadata_sha256": "f89e11a0fa21d9d69a0a4082f12353f0f0788e7ece3add074f4530f931136200"
+  },
+  "backend_off_product_dso": {
+    "run_id": "pypto-20260824T220032Z-551133-97ae5d",
+    "path": "builds/pypto-strict-producer-off-f3bcaac-v2-final/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "bytes": 431151512,
+    "sha256": "b3524cb94e2c845e401dac6d5fac123472d66e8869cb00b4e5feb0e98643da3e",
+    "rpath": null,
+    "runpath": null,
+    "private_bridge_compile_rows": 0,
+    "private_compiler_dynamic_symbols": 0,
+    "dt_needed": [
+      "libstdc++.so.6",
+      "libm.so.6",
+      "libgcc_s.so.1",
+      "libc.so.6",
+      "ld-linux-x86-64.so.2"
+    ],
+    "dynamic_definitions": [
+      "PYPTO_CORE_1",
+      "PyInit_pypto_core@@PYPTO_CORE_1"
+    ],
+    "log": "logs/pypto-strict-producer-off-f3bcaac-v2-dso-audit.log",
+    "log_sha256": "6b93fece3debf93b7504326b34d3cd1f0d061d02318d4c3365b2b095bdf1d756",
+    "preflight_sha256": "72072f1c8795a4a2c5c737d65b7f53646fdda97476a0eb284545217ec3975ed3",
+    "process_metadata_sha256": "0c18727bf7bf02565f883041378ae364ca9d2b4714b620a27fc30c4febbbd191"
+  },
+  "source_provenance_matrix": {
+    "run_id": "pypto-20260824T220215Z-552092-fc407d",
+    "return_code": 0,
+    "actual_clean": "passed",
+    "wrong_revision_rejections": [
+      "PyPTO",
+      "TensorIR",
+      "CUDA Tile",
+      "LLVM",
+      "msgpack-c",
+      "libbacktrace",
+      "PyPTO runtime"
+    ],
+    "source_change_rejections": [
+      "tracked msgpack-c",
+      "untracked libbacktrace",
+      "ignored PyPTO runtime",
+      "untracked TensorIR",
+      "ignored CUDA Tile",
+      "ignored PyPTO build input"
+    ],
+    "synthetic_recovered_clean": "passed",
+    "log": "logs/pypto-strict-producer-f3bcaac-v4-provenance.log",
+    "log_sha256": "8643c36b04f047ef5c1a11ec56948cf6629f040635765e9309d45f8410356a80",
+    "preflight_sha256": "c8ff33987dcb92f29fa117795de7cae96fef46b6523b36f7cd113ab5c976c043",
+    "process_metadata_sha256": "b1ab970b185b8cbda282f13811ca2b1637edfe0917ecdd67748201527c8e678d"
+  },
+  "diagnostic_nonacceptance": {
+    "run_id": "pypto-20260824T214620Z-530684-e49448",
+    "initial_incomplete_source_closure_run": "logs/pypto-strict-producer-on-f3bcaac-final.log",
+    "initial_incomplete_source_closure_log_sha256": "515007197700e30ee5c96aa4d21663993863c54beb54183e0eb5d5b4d7a3af61",
+    "cause": "new guard correctly rejected four ignored runtime bytecode cache files; exact files moved to recoverable /tmp backup before the fresh accepted build",
+    "preflight_sha256": "4969c9585deb635bf509082be2947cf48b789428daf9576c69ead34e1b17fff6",
+    "process_metadata_sha256": "a8aa7d75b2cc64900eb7f3a24cb4c827b4a0b5d37f17574467a491b6c0c033c7",
+    "provenance_v3_harness_log": "logs/pypto-strict-producer-f3bcaac-v3-provenance.log",
+    "provenance_v3_harness_log_sha256": "da938c2a6cfbdf1bca6b3be6652bfedc976c7d9e9598b5b176aa678e388d5155",
+    "provenance_v3_harness_cause": "quote-sensitive tracked-file marker assertion after the guard correctly rejected the dirty fixture",
+    "product_or_source_change": false
+  },
+  "root_control_regression": {
+    "run_id": "pypto-20260824T220615Z-553831-449f11",
+    "return_code": 0,
+    "tests_passed": 198,
+    "subtests_passed": 98,
+    "post_test_six_submodule_source_closure_clean": true,
+    "log": "logs/pypto-strict-producer-f3bcaac-root-control.log",
+    "log_sha256": "b2f4fe4321c2964c8837b3960854e4ab9839a15a4efbbac0dde7a15b05142fd9",
+    "preflight_sha256": "c49c671f3a53c3fad8f5139c3bf014d4da29ef2a9d1eaec8f9155f7551ecc2b6",
+    "process_metadata_sha256": "aa9e2c50787c152beaf57d66540dd932317784e489bf10112d2e0d545479509b"
+  },
+  "review_lineage": {
+    "scratch_boundary_source_rereview": "GO with no remaining P0 or P1 at exact final heads",
+    "first_final_evidence_audit": "NO-GO on incomplete msgpack-c libbacktrace and runtime provenance closure",
+    "final_evidence_audit": "GO with no remaining P0 or P1 at PyPTO f3bcaac, TensorIR 1dcb38c and pipeline 46610e"
+  },
+  "coexistence": {
+    "all_accepted_runs_cpu_only": true,
+    "nvidia_compute_pids_observed": 0,
+    "external_signals": 0,
+    "owned_watchdog_pauses": "observed transient protected-runtime audit pause and resumed only the owned build"
+  },
+  "not_claimed": [
+    "remote publication or fresh-clone reachability of local PyPTO and TensorIR feature commits",
+    "ArtifactCache persistence or subprocess DTO transport",
+    "CUDA module function context stream workspace allocation or launch",
+    "CUDA Graph capture or replay",
+    "PyPTO frontend HIR to TensorIR lowering",
+    "generic fused loop or structured matmul code generation",
+    "paged attention or GDN CUDA kernels",
+    "TorchInductor or SGLang registration",
+    "Qwen3.5 correctness strict coverage profiling or performance"
+  ]
+}

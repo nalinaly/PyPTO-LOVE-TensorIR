@@ -1,12 +1,12 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0030`
+**Checkpoint:** `CP-0031`
 
-**Status:** R0 remains open. P1 now additionally accepts immutable canonical
-NVIDIA Artifact v1 and strict runtime-free Cubin entry/parameter/load mapping
-validation. The strict canonical-source TensorIR producer bridge remains
-unimplemented; cache, CUDA executable/current-stream launch, operators,
-framework routes and model milestones remain unaccepted.
+**Status:** R0 remains open. P1 now additionally accepts the strict
+canonical-source TensorIR/CUDA Tile producer bridge to immutable SM120 Cubin
+Artifact v1. ArtifactCache, PyPTO frontend-HIR lowering, CUDA executable/
+current-stream launch, operators, framework routes and model milestones remain
+unaccepted.
 
 ## Current truth
 
@@ -279,6 +279,35 @@ framework routes and model milestones remain unaccepted.
   Artifact; cache publication, subprocess compilation, CUDA module/context/
   current-stream execution, operator/framework/model correctness and
   performance remain open.
+- PyPTO `f3bcaaccdfb169080628d56e461653b0ba3e0ad5` now exposes the
+  bytes-only strict producer entrypoint. It verifies canonical source against
+  KernelBuildSpec, maps the accepted schedule/target/toolchain contract through
+  a private standard-only DTO, invokes concrete TensorIR compilation and builds
+  the already accepted Artifact v1 without exposing a TensorIR public product.
+- TensorIR `1dcb38c20e53d07c97d3781cae538e33901bae30` executes a private
+  byte-verified copy of pinned `tileiras` with exact toolkit environment,
+  bounded diagnostics/time/memory/files and fail-closed descriptor-relative
+  scratch monitoring. Closed host stdio and post-fork compiler reuse are
+  explicit regression cases.
+- Pipeline blob `46610e0415598d010981e4bd07d0660c592401ac` binds the exact
+  process/resource policy. A fresh backend-ON product passes native 8/8 and the
+  exact product DSO compiler suite 132 passed/1 skipped. Its SHA-256 is
+  `3438f76a65f8021987b187e49ffaba25355a2f8e7920cf251b2c422fea50a134`.
+- A fresh backend-OFF product passes native 6/6 and the exact product DSO suite
+  128 passed/5 skipped. Its SHA-256 is
+  `b3524cb94e2c845e401dac6d5fac123472d66e8869cb00b4e5feb0e98643da3e`.
+  Both products are RPATH-free, depend only on five standard runtimes, expose
+  only the version node/Python init entry and leak no private compiler dynamic
+  symbols.
+- Exact clean provenance covers PyPTO plus all six compiled direct submodules:
+  TensorIR, CUDA Tile, LLVM, msgpack-c, libbacktrace and runtime. Wrong
+  revisions and tracked/untracked/ignored synthetic source changes are
+  rejected. The root control suite passes 198 tests plus 98 subtests. EV-0044
+  binds the exact runs, logs, products and final GO review.
+- CP-0031 does not accept ArtifactCache, CUDA module/function/context/stream
+  loading or launch, workspace/runtime allocation, frontend-HIR lowering,
+  generic codegen, operators, frameworks, Qwen correctness/coverage or
+  performance.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact
@@ -318,10 +347,10 @@ framework routes and model milestones remain unaccepted.
 ## Resume action
 
 The goal is active, not complete. Freeze Triton as accepted reference-only
-infrastructure. Implement the narrow strict TensorIR producer bridge that
-consumes CompileRequest, KernelBuildSpec and canonical source and returns the
-accepted Artifact v1. Do not combine that bridge with cache, CUDA module/
-context/current-stream execution, framework integration or online autotuning.
+infrastructure. Implement the compiler-owned persistent ArtifactCache as a
+separate transaction over accepted Artifact v1 bytes and projections. Do not
+combine cache publication with CUDA module/context/current-stream execution,
+framework integration or online autotuning.
 Defer the separate exclusive Triton replacement/reference-smoke gate until the
 unmodified SGLang baseline needs it.
 Use explicit CPU-only coexistence only for non-benchmark build/test work; GPU
