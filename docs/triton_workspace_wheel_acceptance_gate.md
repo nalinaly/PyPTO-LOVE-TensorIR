@@ -160,7 +160,6 @@ envs/pypto-nvidia/bin/python tools/materialize_triton_dependencies.py \
 envs/pypto-nvidia/bin/python tools/materialize_triton_dependencies.py \
   --output "$src" --probe-reviewed-tools \
   --expected-manifest-sha256 "$manifest_sha" >/dev/null
-mkdir -p "$ws/caches/triton-build-deps"
 envs/pypto-nvidia/bin/python tools/materialize_triton_dependencies.py \
   --output "$src" --publish-reviewed-cache \
   --expected-manifest-sha256 "$manifest_sha" >/dev/null

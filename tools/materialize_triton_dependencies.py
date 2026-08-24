@@ -2717,6 +2717,52 @@ def promote_reviewed(output: Path, expected_manifest_sha256: str) -> dict[str, o
     return manifest
 
 
+def _require_canonical_owned_cache_directory(
+    path: Path,
+    description: str,
+) -> Path:
+    if not path.is_absolute():
+        raise RuntimeError(f"{description} must be absolute")
+    lexical = Path(os.path.abspath(os.fspath(path)))
+    try:
+        resolved = path.resolve(strict=True)
+        metadata = path.lstat()
+    except OSError as error:
+        raise RuntimeError(f"{description} is absent") from error
+    workspace = ROOT.resolve(strict=True)
+    if (
+        path != lexical
+        or resolved != lexical
+        or resolved == workspace
+        or workspace not in resolved.parents
+        or path.is_symlink()
+        or not stat.S_ISDIR(metadata.st_mode)
+        or metadata.st_uid != os.getuid()
+        or stat.S_IMODE(metadata.st_mode) & 0o022
+    ):
+        raise RuntimeError(f"{description} is not a safe canonical directory")
+    return resolved
+
+
+def prepare_reviewed_cache_parent() -> Path:
+    caches_root = _require_canonical_owned_cache_directory(
+        ROOT / "caches",
+        "workspace cache root",
+    )
+    cache_parent_path = caches_root / "triton-build-deps"
+    try:
+        os.mkdir(cache_parent_path, mode=0o700)
+    except FileExistsError:
+        pass
+    cache_parent = _require_canonical_owned_cache_directory(
+        cache_parent_path,
+        "reviewed dependency cache parent",
+    )
+    _fsync_directory(cache_parent)
+    _fsync_directory(caches_root)
+    return cache_parent
+
+
 def publish_reviewed_cache(
     output: Path,
     expected_manifest_sha256: str,
@@ -2727,11 +2773,7 @@ def publish_reviewed_cache(
         expected_manifest_sha256=expected_manifest_sha256,
         require_reviewed=True,
     )
-    cache_parent_path = ROOT / "caches/triton-build-deps"
-    require_real_directory(cache_parent_path, "reviewed dependency cache parent")
-    cache_parent = cache_parent_path.resolve(strict=True)
-    if cache_parent != cache_parent_path:
-        raise RuntimeError("reviewed dependency cache parent is not canonical")
+    cache_parent = prepare_reviewed_cache_parent()
     destination = cache_parent / expected_manifest_sha256
     if destination.exists() or destination.is_symlink():
         raise FileExistsError(f"reviewed dependency cache already exists: {destination}")

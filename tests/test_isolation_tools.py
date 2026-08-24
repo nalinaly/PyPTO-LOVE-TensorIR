@@ -2465,10 +2465,11 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=ROOT / "builds") as directory:
             fake_root = pathlib.Path(directory) / "workspace"
             builds = fake_root / "builds"
+            caches_root = fake_root / "caches"
             cache_parent = fake_root / "caches/triton-build-deps"
             output = builds / "triton-deps-materialize-cache"
             output.mkdir(parents=True)
-            cache_parent.mkdir(parents=True)
+            caches_root.mkdir()
             expected_sha256 = "b" * 64
             destination = cache_parent / expected_sha256
             manifest = {"fixture": "reviewed"}
@@ -2531,9 +2532,15 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
             self.assertFalse(output.exists())
             self.assertTrue(destination.is_dir())
             self.assertEqual(
+                cache_parent.stat().st_mode & 0o777,
+                0o700,
+            )
+            self.assertEqual(
                 [event[:2] for event in events],
                 [
                     ("verify", output),
+                    ("fsync", cache_parent),
+                    ("fsync", caches_root),
                     ("fsync", output),
                     ("rename", output),
                     ("fsync", cache_parent),
@@ -2541,7 +2548,7 @@ class TritonDependencyMaterializerTest(unittest.TestCase):
                     ("verify", destination),
                 ],
             )
-            self.assertEqual(events[2][2], (destination, False))
+            self.assertEqual(events[4][2], (destination, False))
 
     def test_reviewed_cache_publish_cannot_replace_a_competitor(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT / "builds") as directory:
