@@ -15,6 +15,14 @@ import time
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
+class GroupRevalidationError(RuntimeError):
+    """A follow-up signal could not safely revalidate the recorded group."""
+
+    def __init__(self, message: str, members: list[int] | None = None):
+        super().__init__(message)
+        self.members = members
+
+
 def process_stat(pid: int) -> tuple[int, int]:
     tail = pathlib.Path(f"/proc/{pid}/stat").read_text().rpartition(")")[2].split()
     if len(tail) <= 19:
@@ -39,6 +47,27 @@ def process_group_members(pgid: int) -> list[int]:
         if observed_pgid == pgid:
             members.append(pid)
     return sorted(members)
+
+
+def exact_process_group_members(pgid: int) -> list[int]:
+    """Return members, or prove through the kernel that the exact PGID is gone."""
+
+    members = process_group_members(pgid)
+    if members:
+        return members
+    try:
+        # Signal zero has no process effect. It distinguishes a genuinely empty
+        # group from a /proc scan that could not enumerate an existing member.
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return []
+    except OSError as error:
+        raise RuntimeError(
+            f"could not establish whether recorded PGID {pgid} is empty"
+        ) from error
+    raise RuntimeError(
+        f"recorded PGID {pgid} still exists but its members could not be enumerated"
+    )
 
 
 def owned_group_members(metadata: dict[str, object]) -> list[int]:
@@ -107,6 +136,46 @@ def signal_verified(
     return pid, pgid
 
 
+def signal_verified_followup(
+    metadata: dict[str, object],
+    requested_signal: signal.Signals,
+    verified_pgid: int,
+) -> bool:
+    """Revalidate a follow-up signal after one signal was already verified.
+
+    Return false only when the exact previously verified PGID is now empty.
+    A surviving or uninspectable group is left untouched and reported as an
+    ownership ambiguity.
+    """
+
+    pgid = int(metadata["pgid"])
+    if pgid != verified_pgid:
+        raise GroupRevalidationError(
+            f"recorded PGID changed from {verified_pgid} to {pgid}; "
+            f"refusing {requested_signal.name}"
+        )
+    try:
+        signal_verified(metadata, requested_signal)
+    except (OSError, RuntimeError) as verification_error:
+        try:
+            members = exact_process_group_members(pgid)
+        except (OSError, RuntimeError) as inspection_error:
+            raise GroupRevalidationError(
+                f"could not revalidate recorded PGID {pgid} for "
+                f"{requested_signal.name}, and group emptiness is ambiguous; "
+                "refusing to signal"
+            ) from inspection_error
+        if not members:
+            return False
+        raise GroupRevalidationError(
+            f"could not revalidate recorded PGID {pgid} for "
+            f"{requested_signal.name}; members remain {members}; "
+            "refusing to signal",
+            members,
+        ) from verification_error
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("run_id")
@@ -128,17 +197,24 @@ def main() -> int:
     print(f"verified workspace run {args.run_id}: {verification} PGID={pgid}")
     if args.check_only:
         return 0
-    pid, _ = signal_verified(metadata)
+    signal_verified(metadata)
     try:
-        signal_verified(metadata, signal.SIGCONT)
-    except ProcessLookupError:
+        continued = signal_verified_followup(metadata, signal.SIGCONT, pgid)
+    except GroupRevalidationError as error:
+        print(f"run {args.run_id} stop aborted: {error}", file=sys.stderr)
+        return 75
+    if not continued:
         return 0
     deadline = time.monotonic() + args.wait_seconds
     pgid = int(metadata["pgid"])
     while process_group_members(pgid) and time.monotonic() < deadline:
         time.sleep(0.25)
     if process_group_members(pgid):
-        signal_verified(metadata, signal.SIGSTOP)
+        try:
+            signal_verified_followup(metadata, signal.SIGSTOP, pgid)
+        except GroupRevalidationError as error:
+            print(f"run {args.run_id} stop aborted: {error}", file=sys.stderr)
+            return 75
         print(
             f"run {args.run_id} group did not exit after SIGTERM; "
             "no kill escalation was performed",

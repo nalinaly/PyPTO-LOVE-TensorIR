@@ -293,10 +293,16 @@ def terminate_owned_process(
         stop_run.signal_verified(metadata, signal.SIGTERM)
         # SIGTERM remains pending for a stopped group. SIGCONT is harmless for
         # a running group and closes the STOP-before-metadata race.
-        stop_run.signal_verified(metadata, signal.SIGCONT)
+        stop_run.signal_verified_followup(metadata, signal.SIGCONT, pgid)
     except ProcessLookupError:
         # The child won the poll/verify race and needs only to be reaped.
         return process.wait() if process.poll() is None else process.returncode
+    except stop_run.GroupRevalidationError as error:
+        metadata["status"] = "group-ownership-ambiguous"
+        metadata["termination_error"] = f"{type(error).__name__}: {error}"
+        if error.members is not None:
+            metadata["termination_surviving_group_pids"] = error.members
+        return 75
     deadline = time.monotonic() + wait_seconds
     try:
         if process.poll() is None:
@@ -307,7 +313,14 @@ def terminate_owned_process(
         time.sleep(0.1)
     survivors = stop_run.process_group_members(pgid)
     if survivors:
-        stop_run.signal_verified(metadata, signal.SIGSTOP)
+        try:
+            stop_run.signal_verified_followup(metadata, signal.SIGSTOP, pgid)
+        except stop_run.GroupRevalidationError as error:
+            metadata["status"] = "group-ownership-ambiguous"
+            metadata["termination_error"] = f"{type(error).__name__}: {error}"
+            if error.members is not None:
+                metadata["termination_surviving_group_pids"] = error.members
+            return 75
         metadata["status"] = "paused"
         metadata["termination_surviving_group_pids"] = survivors
         # No kill escalation: only the verified group was touched.

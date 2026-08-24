@@ -891,6 +891,37 @@ class CoexistenceWatchdogTest(unittest.TestCase):
             ],
         )
 
+    def test_revalidation_permission_race_with_empty_group_is_reaped(self) -> None:
+        process = mock.Mock()
+        process.poll.side_effect = (None, -15)
+        process.returncode = -15
+        metadata: dict[str, object] = {"pgid": 999}
+        with mock.patch.object(
+            run_isolated.stop_run,
+            "signal_verified",
+            side_effect=(None, PermissionError("leader exited")),
+        ) as signal_verified, mock.patch.object(
+            run_isolated.stop_run,
+            "exact_process_group_members",
+            return_value=[],
+        ), mock.patch.object(
+            run_isolated.stop_run,
+            "process_group_members",
+            return_value=[],
+        ):
+            result = run_isolated.terminate_owned_process(
+                process, metadata, wait_seconds=5
+            )
+        self.assertEqual(result, -15)
+        self.assertEqual(
+            signal_verified.call_args_list,
+            [
+                mock.call(metadata, signal.SIGTERM),
+                mock.call(metadata, signal.SIGCONT),
+            ],
+        )
+        self.assertNotIn("termination_error", metadata)
+
 
 class StopRunVerificationTest(unittest.TestCase):
     def test_signal_verified_rechecks_before_killpg(self) -> None:
@@ -904,6 +935,63 @@ class StopRunVerificationTest(unittest.TestCase):
             )
         verify.assert_called_once_with(metadata)
         killpg.assert_called_once_with(456, stop_run.signal.SIGTERM)
+
+    def test_followup_leader_disappears_with_empty_group_is_complete(self) -> None:
+        metadata = {"run_id": "test", "pgid": 456}
+        with mock.patch.object(
+            stop_run,
+            "signal_verified",
+            side_effect=ProcessLookupError("leader exited"),
+        ) as signal_verified, mock.patch.object(
+            stop_run,
+            "exact_process_group_members",
+            return_value=[],
+        ) as members:
+            self.assertFalse(
+                stop_run.signal_verified_followup(
+                    metadata, stop_run.signal.SIGCONT, 456
+                )
+            )
+        signal_verified.assert_called_once_with(metadata, stop_run.signal.SIGCONT)
+        members.assert_called_once_with(456)
+
+    def test_followup_permission_denied_with_empty_group_is_complete(self) -> None:
+        metadata = {"run_id": "test", "pgid": 456}
+        with mock.patch.object(
+            stop_run,
+            "signal_verified",
+            side_effect=PermissionError("leader exited during environ read"),
+        ), mock.patch.object(
+            stop_run,
+            "exact_process_group_members",
+            return_value=[],
+        ):
+            self.assertFalse(
+                stop_run.signal_verified_followup(
+                    metadata, stop_run.signal.SIGCONT, 456
+                )
+            )
+
+    def test_followup_permission_denied_with_survivors_fails_closed(self) -> None:
+        metadata = {"run_id": "test", "pgid": 456}
+        with mock.patch.object(
+            stop_run,
+            "verify",
+            side_effect=PermissionError("cannot read leader environ"),
+        ), mock.patch.object(
+            stop_run,
+            "exact_process_group_members",
+            return_value=[789],
+        ), mock.patch.object(stop_run.os, "killpg") as killpg:
+            with self.assertRaisesRegex(
+                stop_run.GroupRevalidationError,
+                r"members remain \[789\].*refusing to signal",
+            ) as raised:
+                stop_run.signal_verified_followup(
+                    metadata, stop_run.signal.SIGCONT, 456
+                )
+        self.assertEqual(raised.exception.members, [789])
+        killpg.assert_not_called()
 
 
 class PythonImportAuditTest(unittest.TestCase):
