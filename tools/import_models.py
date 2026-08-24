@@ -18,7 +18,13 @@ import shutil
 import subprocess
 import sys
 
-from preflight import HEAVY_MARKERS, process_table
+from preflight import (
+    COEXISTENCE_MEMORY_FLOOR_KIB,
+    is_heavy_command,
+    mem_available_kib,
+    nvidia_compute_pids,
+    process_table,
+)
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -51,17 +57,37 @@ EXACT_FILES = {
 PROTECTED_CHECK_INTERVAL_BYTES = 512 * 1024 * 1024
 
 
-def ensure_protected_workloads_idle() -> None:
-    protected, _workspace = process_table()
+def ensure_model_copy_boundary_safe(
+    *,
+    allow_protected_cpu_only_coexistence: bool = False,
+) -> None:
+    _all_processes, protected, _workspace = process_table()
     heavy = [
         process
         for process in protected
-        if any(marker in process.command for marker in HEAVY_MARKERS)
+        if is_heavy_command(process.command)
     ]
-    if heavy:
+    if heavy and not allow_protected_cpu_only_coexistence:
         pids = [process.pid for process in heavy]
         raise RuntimeError(
             f"protected workload started during model import; aborting this copy, PIDs={pids}"
+        )
+    if not allow_protected_cpu_only_coexistence:
+        return
+    available_kib = mem_available_kib()
+    if available_kib < COEXISTENCE_MEMORY_FLOOR_KIB:
+        raise RuntimeError(
+            "model-import coexistence memory floor was crossed: "
+            f"available_kib={available_kib}, "
+            f"floor_kib={COEXISTENCE_MEMORY_FLOOR_KIB}"
+        )
+    compute_pids = nvidia_compute_pids()
+    protected_pids = {process.pid for process in protected}
+    protected_compute = sorted(compute_pids & protected_pids)
+    if protected_compute:
+        raise RuntimeError(
+            "protected NVIDIA compute became active during model import; "
+            f"aborting this copy, PIDs={protected_compute}"
         )
 
 
@@ -71,7 +97,12 @@ def should_copy(path: pathlib.Path) -> bool:
     )
 
 
-def copy_and_hash(source: pathlib.Path, destination: pathlib.Path) -> tuple[int, str]:
+def copy_and_hash(
+    source: pathlib.Path,
+    destination: pathlib.Path,
+    *,
+    allow_protected_cpu_only_coexistence: bool = False,
+) -> tuple[int, str]:
     digest = hashlib.sha256()
     size = 0
     bytes_since_check = 0
@@ -82,8 +113,19 @@ def copy_and_hash(source: pathlib.Path, destination: pathlib.Path) -> tuple[int,
             size += len(chunk)
             bytes_since_check += len(chunk)
             if bytes_since_check >= PROTECTED_CHECK_INTERVAL_BYTES:
-                ensure_protected_workloads_idle()
+                ensure_model_copy_boundary_safe(
+                    allow_protected_cpu_only_coexistence=(
+                        allow_protected_cpu_only_coexistence
+                    )
+                )
                 bytes_since_check = 0
+        # Close the gap for short files and for state changes after the last
+        # interval sample but before this file becomes publishable staging.
+        ensure_model_copy_boundary_safe(
+            allow_protected_cpu_only_coexistence=(
+                allow_protected_cpu_only_coexistence
+            )
+        )
         destination_file.flush()
         os.fsync(destination_file.fileno())
     destination.chmod(0o444)
@@ -100,7 +142,11 @@ def verify_revision(spec: dict[str, object]) -> None:
         )
 
 
-def import_model(name: str) -> dict[str, object]:
+def import_model(
+    name: str,
+    *,
+    allow_protected_cpu_only_coexistence: bool = False,
+) -> dict[str, object]:
     spec = MODEL_SPECS[name]
     source = pathlib.Path(spec["source"])
     destination = ROOT / "models" / name
@@ -110,7 +156,11 @@ def import_model(name: str) -> dict[str, object]:
             f"refusing to overwrite model destination or staging path: {destination}, {temporary}"
         )
     verify_revision(spec)
-    ensure_protected_workloads_idle()
+    ensure_model_copy_boundary_safe(
+        allow_protected_cpu_only_coexistence=(
+            allow_protected_cpu_only_coexistence
+        )
+    )
     files = sorted(path for path in source.iterdir() if should_copy(path))
     if not files or not any(path.suffix == ".safetensors" for path in files):
         raise RuntimeError(f"no safetensors model files found in {source}")
@@ -125,8 +175,22 @@ def import_model(name: str) -> dict[str, object]:
     records: dict[str, dict[str, object]] = {}
     try:
         for source_file in files:
-            size, digest = copy_and_hash(source_file, temporary / source_file.name)
+            size, digest = copy_and_hash(
+                source_file,
+                temporary / source_file.name,
+                allow_protected_cpu_only_coexistence=(
+                    allow_protected_cpu_only_coexistence
+                ),
+            )
             records[source_file.name] = {"bytes": size, "sha256": digest}
+        # Revalidate both the immutable model revision and coexistence policy at
+        # the atomic publication boundary.  A late failure removes staging.
+        verify_revision(spec)
+        ensure_model_copy_boundary_safe(
+            allow_protected_cpu_only_coexistence=(
+                allow_protected_cpu_only_coexistence
+            )
+        )
         temporary.chmod(0o555)
         os.replace(temporary, destination)
     except BaseException:
@@ -145,12 +209,19 @@ def import_model(name: str) -> dict[str, object]:
     }
 
 
-def write_manifest(imported: dict[str, dict[str, object]]) -> None:
+def write_manifest(
+    imported: dict[str, dict[str, object]],
+    *,
+    allow_protected_cpu_only_coexistence: bool = False,
+) -> None:
     manifest_path = ROOT / "models" / "MANIFEST.json"
     manifest = {
         "schema": 1,
         "status": "complete",
         "copy_policy": "ordinary independent copy; never symlink or hardlink",
+        "protected_cpu_only_coexistence_authorized": (
+            allow_protected_cpu_only_coexistence
+        ),
         "imported_at": datetime.datetime.now(datetime.UTC).isoformat(),
         "models": imported,
     }
@@ -167,16 +238,45 @@ def main() -> int:
         choices=tuple(MODEL_SPECS),
         default=list(MODEL_SPECS),
     )
+    parser.add_argument(
+        "--allow-protected-cpu-only-coexistence",
+        action="store_true",
+        help=(
+            "permit read-only model copying beside a protected CPU-only lane; "
+            "memory and protected NVIDIA-compute gates remain mandatory"
+        ),
+    )
     args = parser.parse_args()
+    preflight_command = [
+        sys.executable,
+        str(ROOT / "tools" / "preflight.py"),
+        "--mode",
+        "heavy",
+    ]
+    if args.allow_protected_cpu_only_coexistence:
+        preflight_command.append("--allow-protected-cpu-only-coexistence")
     preflight = subprocess.run(
-        [sys.executable, str(ROOT / "tools" / "preflight.py"), "--mode", "heavy"],
+        preflight_command,
         cwd=ROOT,
         check=False,
     )
     if preflight.returncode != 0:
         return preflight.returncode
-    imported = {name: import_model(name) for name in args.models}
-    write_manifest(imported)
+    imported = {
+        name: import_model(
+            name,
+            allow_protected_cpu_only_coexistence=(
+                args.allow_protected_cpu_only_coexistence
+            ),
+        )
+        for name in args.models
+    }
+    write_manifest(
+        imported,
+        allow_protected_cpu_only_coexistence=(
+            args.allow_protected_cpu_only_coexistence
+        ),
+    )
     print(json.dumps(imported, indent=2, sort_keys=True))
     return 0
 

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import argparse
-import ast
+from collections.abc import Iterable
 import importlib.metadata
 import json
 import pathlib
@@ -57,31 +57,6 @@ def is_allowed_import_path(
     )
 
 
-def is_strict_editable_install_line(text: str, package_prefix: str) -> bool:
-    """Accept only ``import finder; finder.install()`` with no other code."""
-
-    tree = ast.parse(text)
-    if len(tree.body) != 2:
-        return False
-    import_node, call_node = tree.body
-    if not isinstance(import_node, ast.Import) or len(import_node.names) != 1:
-        return False
-    alias = import_node.names[0]
-    if alias.asname is not None or not alias.name.startswith(package_prefix):
-        return False
-    if not isinstance(call_node, ast.Expr) or not isinstance(call_node.value, ast.Call):
-        return False
-    call = call_node.value
-    return (
-        not call.args
-        and not call.keywords
-        and isinstance(call.func, ast.Attribute)
-        and call.func.attr == "install"
-        and isinstance(call.func.value, ast.Name)
-        and call.func.value.id == alias.name
-    )
-
-
 def executable_pth_is_allowed(path: pathlib.Path, text: str, profile: str) -> bool:
     name = path.name
     normalized = text.strip()
@@ -91,12 +66,47 @@ def executable_pth_is_allowed(path: pathlib.Path, text: str, profile: str) -> bo
         return normalized == CUTLASS_DSL_PACKAGES_PTH
     if profile == "pypto" and name == "_editable_skbc_pypto.pth":
         return normalized == "import _editable_skbc_pypto"
-    if name.startswith("__editable__.sglang-"):
-        return is_strict_editable_install_line(
-            normalized,
-            "__editable___sglang_",
-        )
     return False
+
+
+def editable_finder_modules(finder: object) -> tuple[str, ...]:
+    """Return every module identity exposed by an instance or class finder."""
+
+    values = {
+        value
+        for value in (
+            getattr(finder, "__module__", None),
+            getattr(type(finder), "__module__", None),
+        )
+        if isinstance(value, str) and value
+    }
+    return tuple(sorted(values))
+
+
+def editable_module_is_allowed(name: str, profile: str) -> bool:
+    return profile == "pypto" and name == "_editable_skbc_pypto"
+
+
+def external_editable_modules(
+    values: Iterable[object], profile: str
+) -> tuple[str, ...]:
+    modules = {
+        name
+        for value in values
+        for name in editable_finder_modules(value)
+        if name.startswith(("_editable", "__editable"))
+        and not editable_module_is_allowed(name, profile)
+    }
+    return tuple(sorted(modules))
+
+
+def editable_source_from_direct_url(direct_url: object) -> pathlib.Path:
+    if not isinstance(direct_url, str) or not direct_url:
+        raise ValueError("editable direct URL must be a non-empty string")
+    parsed = urllib.parse.urlparse(direct_url)
+    if parsed.scheme != "file" or parsed.netloc:
+        raise ValueError("editable direct URL must be a local file URL")
+    return pathlib.Path(urllib.parse.unquote(parsed.path))
 
 
 def main() -> int:
@@ -191,10 +201,17 @@ def main() -> int:
         if not direct_url_record.get("dir_info", {}).get("editable", False):
             continue
         direct_url = direct_url_record.get("url", "")
-        parsed = urllib.parse.urlparse(direct_url)
-        if parsed.scheme != "file":
+        try:
+            source = editable_source_from_direct_url(direct_url)
+        except ValueError:
+            failures.append(
+                {
+                    "kind": "invalid-editable-direct-url",
+                    "distribution": distribution.metadata.get("Name", "unknown"),
+                    "value": direct_url,
+                }
+            )
             continue
-        source = pathlib.Path(urllib.parse.unquote(parsed.path))
         if not is_allowed_source(source, args.profile):
             failures.append(
                 {
@@ -204,21 +221,36 @@ def main() -> int:
                 }
             )
 
-    for finder in sys.meta_path:
-        module_name = type(finder).__module__
-        if not module_name.startswith(("_editable", "__editable")):
-            continue
-        allowed = (
-            (args.profile == "pypto" and module_name == "_editable_skbc_pypto")
-            or module_name.startswith("__editable___sglang_")
-        )
-        if not allowed:
+    importer_carriers = (
+        ("editable-meta-path-finder", sys.meta_path),
+        ("editable-path-hook", sys.path_hooks),
+        ("editable-importer-cache", sys.path_importer_cache.values()),
+    )
+    for kind, values in importer_carriers:
+        external_modules = external_editable_modules(values, args.profile)
+        if external_modules:
             failures.append(
                 {
-                    "kind": "editable-meta-path-finder",
-                    "value": module_name,
+                    "kind": kind,
+                    "value": ",".join(external_modules),
                 }
             )
+
+    loaded_editable_modules = tuple(
+        sorted(
+            name
+            for name in sys.modules
+            if name.startswith(("_editable", "__editable"))
+            and not editable_module_is_allowed(name, args.profile)
+        )
+    )
+    if loaded_editable_modules:
+        failures.append(
+            {
+                "kind": "editable-loaded-module",
+                "value": ",".join(loaded_editable_modules),
+            }
+        )
 
     report = {
         "status": "pass" if not failures else "fail",
