@@ -115,6 +115,8 @@
 - [x] Refactor one strict producer transaction to return final BuildSpec plus
       Artifact and bind the immutable result under `pypto.compiler` at PyPTO
       `642ff5b`.
+- [x] Implement, independently review and manifest-bind the separate frontend
+      FP32/BF16 SM120 correctness-smoke controller/finalizer at root `47a0c15`.
 - [ ] Execute separately versioned HIR-authored FP32/BF16 vector add through the
       returned Artifact on real SM120 and finalize it in a CPU-only replay.
 - [ ] Extend the accepted frontend path to fused pointwise, row reduction and

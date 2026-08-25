@@ -2,7 +2,7 @@ PYPTO-NVIDIA-QWEN35-V1 IMPLEMENTATION MAP
 =========================================
 
 Generated from the local checkouts on 2026-08-24 and refreshed through
-CP-0042 on 2026-08-25. Paths are relative to
+CP-0043 on 2026-08-25. Paths are relative to
 /home/zhaosiying/pypto-love-tensor-ir unless explicitly stated otherwise.
 This is an ownership/implementation map, not a runtime-support claim.
 
@@ -21,8 +21,9 @@ projects/pypto
   source-206447c real-SM120 runtime smoke. CP-0040 accepts standalone schedule
   identity; CP-0041 accepts compile-free frontend projections and final
   BuildSpec construction from a producer-shaped ABI. CP-0042 accepts the public
-  one-producer joined BuildSpec/Artifact facade. HIR-authored GPU execution
-  remains open.
+  one-producer joined BuildSpec/Artifact facade. CP-0043 accepts the separate
+  manifest-bound frontend FP32/BF16 smoke controls and CPU replay finalizer.
+  HIR-authored GPU execution remains open.
 
 projects/pypto-kernels
   Head: 6f73857b52c86dd98e25d23fbc825a675fb25b6a. Contains framework-neutral
@@ -489,9 +490,10 @@ No restart, driver/kernel change or WSL shutdown is authorized.
   6. [done] Add deterministic Artifact metadata plus SM120 resource/options
      fixes, ArtifactCache, prewarmed NvidiaExecutable and minimal real-SM120
      current-stream correctness.
-  7. [current] Canonical ABI/specialization projections and the one-producer
-     frontend compile facade are done. Prove HIR-authored vector add -> Artifact
-     -> actual SM120 Cubin -> non-default current-stream launch.
+  7. [current] Canonical ABI/specialization projections, the one-producer
+     frontend compile facade and the separately versioned smoke controls are
+     done. Execute and finalize HIR-authored vector add -> Artifact -> actual
+     SM120 Cubin -> non-default current-stream launch.
   8. Extend the accepted frontend path to fused pointwise, row reduction and
      structured matmul, then implement generic fused-loop memory lowering.
   9. Implement the already-frozen operator ABIs as executable attention and

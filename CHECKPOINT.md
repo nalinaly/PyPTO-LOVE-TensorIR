@@ -1,6 +1,6 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0042`
+**Checkpoint:** `CP-0043`
 
 **Status:** R0 remains open. P2 accepts finalized minimal real-SM120
 `NvidiaExecutable` correctness v1: exact PyPTO/TensorIR/CUDA Tile Artifacts load,
@@ -10,9 +10,10 @@ static `tensor.add` HIR-to-TensorIR emission at PyPTO `07ab9ea`, and now the
 standalone bounded schedule identity at `fa85e5a`, and CP-0041 accepts private
 compile-free frontend specialization/ABI projections and final BuildSpec
 construction. CP-0042 now accepts the public one-producer joined BuildSpec/
-Artifact transaction at PyPTO `642ff5b`. Frontend GPU correctness,
-operator-family, framework, model, CUDA Graph, coverage and performance
-milestones remain open.
+Artifact transaction at PyPTO `642ff5b`. CP-0043 accepts the separately
+versioned frontend FP32/BF16 correctness-smoke controls and CPU-only exact-DSO
+replay boundary at root `47a0c15`. Frontend GPU correctness, operator-family,
+framework, model, CUDA Graph, coverage and performance milestones remain open.
 
 ## Current truth
 
@@ -538,6 +539,16 @@ milestones remain open.
   7/7 and full Python 175/9 pass. The retained ON/OFF build-directory names are
   stale, so EV-0055 binds exact paths, DSO hashes and the ON embedded revision.
   No CUDA launch through frontend HIR is accepted by this checkpoint.
+- Root implementation `1d1fce4d63320beb3f29a265dd126891f37fb559` plus
+  manifest-only `47a0c15de510fbdea1eb029ff4e5f0cc9cdc5b77` adds the
+  separate frontend FP32/BF16 SM120 smoke family. Manifest SHA
+  `f16c4fba...d8eed` binds five new controls and the three exact unchanged v4
+  isolation primitives, while also pinning the complete v4 parent manifest.
+  The first review returned NO-GO and prevented publication of a real
+  ArtifactTarget API defect, weakened finalizer checks and insufficient tests.
+  The amended implementation passes final GO with P0/P1/P2 zero, a 21-test/
+  13-subtest family suite, exact-DSO runner and replay-child CPU gates, and a
+  clean 246-test/126-subtest root suite. No GPU launch is accepted here.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact
@@ -581,10 +592,10 @@ infrastructure. CP-0038 closes the minimal real-SM120 compiler/runtime launch
 gate. Preserve its v4 controls and final report; do not rerun it merely to
 change evidence. CP-0039 through CP-0041 close compile-free HIR emission,
 standalone schedule identity and final frontend BuildSpec identity. CP-0042
-closes the one-producer joined BuildSpec/Artifact facade. Next implement and
-finalize a separate frontend smoke that compiles and executes HIR-authored FP32
-and BF16 vector add on real SM120. Fused pointwise, row reduction and structured
-matmul follow.
+closes the one-producer joined BuildSpec/Artifact facade. CP-0043 closes the
+separate fixed frontend smoke control and CPU-finalizer boundary. Next run and
+finalize its HIR-authored FP32 and BF16 vector add on real SM120. Fused
+pointwise, row reduction and structured matmul follow.
 Defer the separate exclusive Triton replacement/reference-smoke gate until the
 unmodified SGLang baseline needs it.
 Use explicit CPU-only coexistence only for non-GPU build/test work. The single

@@ -9,6 +9,7 @@ PyPTO HIR-to-TensorIR emitter: accepted compile-free v1 at 07ab9ea; Artifact int
 PyPTO CanonicalSchedule: accepted standalone bounded identity v1 at fa85e5a
 PyPTO structured frontend identity: accepted compile-free projections/final BuildSpec v1 at c4cf755
 PyPTO structured compile facade: accepted one-producer joined BuildSpec/Artifact v1 at 642ff5b; frontend SM120 execution pending
+PyPTO frontend SM120 smoke controls: accepted reviewed v1 at root 1d1fce4 + manifest 47a0c15, SHA-256 f16c4fbac14f4ec4d2a26fef9df3c4e7d1d3c412fbaf3c48f200a61a118d8eed; GPU execution pending
 PyPTO ArtifactCache: accepted trusted-local persistent v1
 PyPTO NvidiaExecutable: accepted minimal real SM120 correctness v1 at run pypto-20260825T080254Z-910620-c669d9
 PyPTO NvidiaRuntimeObservation: accepted real provider/context in finalized minimal SM120 runtime result

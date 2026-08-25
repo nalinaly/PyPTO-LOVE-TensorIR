@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `34`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `35`
 
 ## Current phase: P2 frontend-HIR SM120 execution; R0 baseline remains open
 
@@ -12,8 +12,11 @@ producer once, seals source/request/options identity, finalizes the real
 callable ABI, constructs one Artifact from that same move-only result and
 returns only the joined immutable pair. Backend-ON passes native 7/7 and Python
 182/2; backend-OFF passes native 5/5, functional Python 7/7 and full Python
-175/9. The current transaction is a separately versioned HIR-authored FP32/BF16
-SM120 vector-add execution and CPU-only evidence finalization gate.
+175/9. CP-0043 accepts a separately versioned, two-layer manifest-bound
+HIR-authored FP32/BF16 SM120 smoke controller and CPU-only replay finalizer.
+Its source, exact-DSO and complete synthetic finalization gates pass with no GPU
+claim. The current transaction is its fixed GPU child followed by independent
+CPU-only evidence finalization.
 
 Checkpoint `CP-0038` accepts the finalized minimal real-SM120
 `NvidiaExecutable` correctness v1 report from run `080254`, SHA

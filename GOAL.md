@@ -9,8 +9,10 @@ frontend specialization/ABI identity. CP-0042 advances PyPTO to `642ff5b` with
 the public one-producer `compile_structured_strict` transaction: one concrete
 private producer call returns a joined final `KernelBuildSpec` and immutable
 `Artifact`. Exact backend-ON and backend-OFF native/Python gates pass. This
-still does not prove CUDA execution from frontend-authored HIR; the next gate
-is separately versioned real-SM120 FP32/BF16 vector-add correctness.
+still does not prove CUDA execution from frontend-authored HIR. CP-0043 accepts
+the separately versioned, manifest-bound FP32/BF16 frontend correctness-smoke
+controls and exact CPU replay gates; the next transaction is their fixed
+real-SM120 run and independent finalization.
 Generic operators, framework routes and model execution remain later. The exact
 PyTorch-pinned Triton reference wheel stays audited/frozen and deliberately
 uninstalled as baseline-only infrastructure. The full objective and acceptance

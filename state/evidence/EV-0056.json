@@ -1,0 +1,153 @@
+{
+  "id": "EV-0056",
+  "kind": "frontend_vector_add_sm120_smoke_controls_v1",
+  "status": "accepted_control_and_cpu_replay_gpu_execution_pending",
+  "root": {
+    "implementation_commit": "1d1fce4d63320beb3f29a265dd126891f37fb559",
+    "implementation_tree": "9abfbe232859db5aeca50ffd951009355c249fca",
+    "implementation_parent": "62b945424b4e8877e2ed86fb734394335a32bc27",
+    "manifest_commit": "47a0c15de510fbdea1eb029ff4e5f0cc9cdc5b77",
+    "manifest_tree": "88996b8352452c51d8f82c27fa9aa582a3c41fc1",
+    "manifest_parent": "1d1fce4d63320beb3f29a265dd126891f37fb559",
+    "branch": "main",
+    "clean": true
+  },
+  "manifest": {
+    "path": "state/contracts/pypto_frontend_vector_add_sm120_v1.json",
+    "bytes": 1776,
+    "sha256": "f16c4fbac14f4ec4d2a26fef9df3c4e7d1d3c412fbaf3c48f200a61a118d8eed",
+    "implementation_commit": "1d1fce4d63320beb3f29a265dd126891f37fb559",
+    "implementation_tree": "9abfbe232859db5aeca50ffd951009355c249fca",
+    "self_cycle": false,
+    "parent_v4_path": "state/contracts/pypto_nvidia_executable_sm120_v4.json",
+    "parent_v4_bytes": 1569,
+    "parent_v4_sha256": "a079c4d252aa346bb19a64a6ad3947867b76e7c778f7234125078fb16b2598bf"
+  },
+  "files": {
+    "runner": {
+      "path": "benchmarks/operators/pypto_frontend_vector_add_sm120.py",
+      "bytes": 42117,
+      "sha256": "13504395c8c639bb22aac4d0820e7fe2f953591d0206a8ff357b2eb48a27a73b"
+    },
+    "contract": {
+      "path": "tools/_pypto_frontend_vector_add_sm120_contract.py",
+      "bytes": 6758,
+      "sha256": "2917ae8e4b9bfb0d31fa370ee8ddf9b04a1165772910b429e3eebad12afadff1"
+    },
+    "manifest_validator": {
+      "path": "tools/_pypto_frontend_sm120_control_manifest.py",
+      "bytes": 10400,
+      "sha256": "5b4b265835299a890b3b6b131a6e208a71f229e0cda06ce7ec932c3ba197ea89"
+    },
+    "controller": {
+      "path": "tools/run_pypto_frontend_sm120_isolated.py",
+      "bytes": 3932,
+      "sha256": "3185b64f96dd9e129bf076e0c472bc36f5b1fdf15dcc34689c686fa7b76c91c8"
+    },
+    "finalizer": {
+      "path": "tools/finalize_pypto_frontend_vector_add_sm120.py",
+      "bytes": 69268,
+      "sha256": "35df19359aa6d96c5dc38045510b11061c78fb9fd49b8147c01bf8155c5e673b"
+    },
+    "documentation": {
+      "path": "docs/pypto_frontend_vector_add_sm120_smoke.md",
+      "bytes": 6113,
+      "sha256": "39566a9c7f7feff928f3742e0896dd7b74c425e1d5bfc8564b444a8eaa0c7090"
+    },
+    "tests": {
+      "path": "tests/test_pypto_frontend_vector_add_sm120.py",
+      "bytes": 56201,
+      "sha256": "35653c55c19572a4835df2cd74eda37f0eeeee9e86710630b0b8bcda2c802598"
+    }
+  },
+  "product": {
+    "pypto_commit": "642ff5bd79ee96b9e5a279a2bc945ad7a78362b7",
+    "pypto_tree": "77d8078d8df84dd7cf8544350918e25b8282976d",
+    "dso_path": "builds/pypto-structured-build-spec-on-c4cf755/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "dso_bytes": 595300112,
+    "dso_sha256": "4b796b1e1c53386356217f9ea6368468f885e68fb98fa715f90a081031ecc6fb",
+    "directory_label_is_stale": true
+  },
+  "cases": {
+    "fp32_8x8": {
+      "hir_bytes": 2077,
+      "hir_sha256": "2a4bf1b74adb2e160ba9a1f6c1596238095d73a1572fd911417f43465b6fced5",
+      "source_ir_digest": "0e5fbaf1cd70dffa0c81d43a1d2cad454f97cbf9a57ae5247da1cb27f6a049d3",
+      "static_specialization_digest": "0bad0b86c36c86808f12b908692925e6493b4c78027da334d612b57bac5459aa",
+      "symbolic_specialization_digest": "1a2d6d32c956e86f41c0dc50dbafe53d33e3f63bd58bd683e78a06595b6ff58c",
+      "argument_abi_digest": "2bf59cefa95a2e95ac4e4647a654118b6d8c6fbfaa91a294621a9160d68dbd9b",
+      "result_abi_digest": "5a786136731e5c62c80597edbb57551cd010d344bfeab14456a9f6b263e99ea5",
+      "mutation_abi_digest": "4adb7fa8fdbdee33582778c543686a6c63953852be40079649e4d2d6f07c766d",
+      "callable_abi_digest": "4eee741cbe0c7322f938b83b01b34844c5f12fb1b01da52c2029e6687e24c640",
+      "device_code_bytes": 13784,
+      "device_code_sha256": "dcc529fc856a508642c8b5a98c6fc4e223e10a49cc9f8a200b8984f92b6483ab"
+    },
+    "bf16_128": {
+      "hir_bytes": 1922,
+      "hir_sha256": "cc470968297ff4430fdcf43f25bf6cb4b9054e6ba4d67ddd0177040101044baa",
+      "source_ir_digest": "c22f2459ad794e89f88de1bbd427f17876c6059b9fd222be706dd5ce300a0a7f",
+      "static_specialization_digest": "146fbdd823eb18c77190894a272a39d1298b557acf8d3156226d44d5ce7a6051",
+      "symbolic_specialization_digest": "1a2d6d32c956e86f41c0dc50dbafe53d33e3f63bd58bd683e78a06595b6ff58c",
+      "argument_abi_digest": "5408cc8d6adb1f52d11d850c745a33dbe6a43c470fa907a238b71371f4bf04c1",
+      "result_abi_digest": "e8111628d00263e8f568dc8844a2e0fe5d08576bf77d81682b338dbeb977460a",
+      "mutation_abi_digest": "4adb7fa8fdbdee33582778c543686a6c63953852be40079649e4d2d6f07c766d",
+      "callable_abi_digest": "e3d31183b4ba5b2f09f01ef777043b9f51818e33d6bdbf18333257211d57c0e8",
+      "device_code_bytes": 13784,
+      "device_code_sha256": "83afb2df234ad90167351d608052d44f86e26a8ca73959369992cd139943bc13"
+    }
+  },
+  "validation": {
+    "test_count_observation_tier": "session output plus static test enumeration; no JUnit was requested",
+    "compiler_output_observation_tier": "asserting command and return code are retained in process sidecars; stdout is session-only",
+    "exact_runner_run_id": "pypto-20260825T142856Z-1117946-7a5803",
+    "exact_runner_preflight_sha256": "b0924cfad0c83d2eaa99c755682ab9099269ed41e4b5c722eced6421d5839129",
+    "exact_runner_process_sha256": "731d4e4db3687d27553b0124c2e5d151bd29912cc067cb1a178f0bdd3fe2093a",
+    "exact_runner": "both cases validated through final runner; CUDA uninitialized",
+    "exact_replay_run_id": "pypto-20260825T143154Z-1120524-9f721b",
+    "exact_replay_preflight_sha256": "046137cfd7de09983c6cdbbce7e0f948f57f063d3b69bb0e043a8028c78f04b9",
+    "exact_replay_process_sha256": "bf2322262d2aba538db226ba626c57f3777c6eab3af4ff65f5f6a1c482974551",
+    "exact_replay": "exact DSO request HIR BuildSpec Artifact and embedded replay child; CUDA uninitialized",
+    "new_family_run_id": "pypto-20260825T142443Z-1114357-40b810",
+    "new_family_preflight_sha256": "f3f4c0229eaa3b35e594329a23c257f3c1718625053dda332ce011d608f563da",
+    "new_family_process_sha256": "6cce33405d57ab49e2bc5cbb4d6458766e2874ead970e3d890ead9740314bf26",
+    "new_family": "21 passed 13 subtests passed",
+    "full_root_run_id": "pypto-20260825T143449Z-1123546-233a92",
+    "full_root_preflight_sha256": "af781cff40c1a9c023882260c2abd5b93d42dd79ac7cedc7cab4133c1e2f0fbd",
+    "full_root_process_sha256": "8e2a5ec949221a1b9fd5d2ac2fc2de49907584d9942e200ecdbbde7ab9b18b2c",
+    "full_root": "246 passed 126 subtests passed"
+  },
+  "reviews": [
+    {
+      "reviewer": "/root/frontend_smoke_v1_review",
+      "decision": "NO-GO superseded before publication",
+      "p0": 0,
+      "p1": 3,
+      "p2": 2,
+      "report_path": "logs/cp43-frontend-sm120-control-first-review.md",
+      "report_sha256": "c25f8fcf1630b313807ee2f4a2e1121424848dc991c52ff56a10695ad2bec81e"
+    },
+    {
+      "reviewer": "/root/frontend_smoke_v1_review",
+      "decision": "GO",
+      "p0": 0,
+      "p1": 0,
+      "p2": 0,
+      "report_path": "logs/cp43-frontend-sm120-control-final-review.md",
+      "report_sha256": "b864575e493441290f02626cc91f254beb645ac23e390dba65055def740d62e3"
+    }
+  ],
+  "accepted_scope": [
+    "separately versioned fixed frontend vector-add SM120 child and controller",
+    "exact parent-v4 isolation primitive reuse and manifest identity",
+    "FP32 and BF16 HIR projection callable and deterministic Cubin anchors",
+    "four-lifetime non-default-stream correctness evidence contract",
+    "CPU-only exact replay finalizer and no-replace publication contract",
+    "complete synthetic finalizer and malformed transaction tests"
+  ],
+  "not_claimed": [
+    "real CUDA launch through frontend HIR",
+    "frontend vector-add GPU numerical correctness",
+    "generic pointwise reduction indexing or structured matmul coverage",
+    "TorchInductor SGLang Qwen CUDA Graph strict coverage or performance"
+  ]
+}
