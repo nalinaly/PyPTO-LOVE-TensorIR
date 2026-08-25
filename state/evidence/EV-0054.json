@@ -1,0 +1,146 @@
+{
+  "id": "EV-0054",
+  "kind": "compile_free_structured_frontend_build_identity_v1",
+  "status": "accepted_compile_free_identity_one_producer_artifact_facade_pending",
+  "pypto": {
+    "commit": "c4cf755b7ef2998cdfb7499a76b80b280bafdf2d",
+    "tree": "1be79708bffd09c4541f3f06c4a59b13ff0e1166",
+    "parent": "fa85e5a2c917af78ef94576073eb91c0891c4384",
+    "branch": "feature/nvidia-sm120",
+    "clean": true,
+    "changed_files": [
+      "CMakeLists.txt",
+      "docs/en/dev/backend/01-nvidia-target-info.md",
+      "docs/zh/dev/backend/01-nvidia-target-info.md",
+      "src/compiler/strict_tensor_ir_options.cpp",
+      "src/compiler/strict_tensor_ir_options.h",
+      "src/compiler/structured_tensor_ir_build_spec.cpp",
+      "src/compiler/structured_tensor_ir_build_spec.h",
+      "tests/ut/cpp/CMakeLists.txt",
+      "tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp"
+    ],
+    "source_sha256": {
+      "cmake": "73f67612f38d5fd43d251cd23b85760c861bb38ef2ef0438bb9277dab6a50575",
+      "english_docs": "390a014de8d88c0f07ee3a528753e35f43f31dfdfa98ac4bdf314a438fcfd0e3",
+      "chinese_docs": "11314970858b0638d7f8b0be040ac31b4a7336c7e184087ba3c76226dded292c",
+      "strict_options_implementation": "7bad03d43588fbf657b3e4613e7ca0a87d546c960bd470ff66a24773168153de",
+      "strict_options_header": "73daf998a14d6dee4568237bdb5c02e6ca1d4dd72e0fce24311173644253470c",
+      "frontend_identity_implementation": "8a4f129559cb7e6ffc89135e6556c0a8594dab21e9415ea59a1a045436e88a5d",
+      "frontend_identity_header": "b99235b14efc9af8887ba9d0ce7b6fe834e1c83b61dbf43849b14f2e0dbb6190",
+      "test_cmake": "8b98cab4bc67d7bb83c97dcae819189d1587ed45cf533920d87a3b2f2b8b1e7e",
+      "native_test": "7f8465ad25b0bb6226aa815838ba8edb93737e4c24460328e174f0b3e683805e"
+    }
+  },
+  "contracts": {
+    "raw_source_identity": "sha256 exact canonical TensorIR bytes",
+    "static_specialization": "pypto.frontend.static_specialization.v1",
+    "symbolic_specialization": "pypto.frontend.symbolic_specialization.v1",
+    "argument_abi": "pypto.frontend.argument_abi.v1",
+    "result_abi": "pypto.frontend.result_abi.v1",
+    "mutation_abi": "pypto.frontend.mutation_abi.v1",
+    "callable_abi": "pypto.nvidia.artifact.kernel_abi.v1",
+    "maximum_projection_bytes": 1048576,
+    "prepared_is_final_build_spec": false,
+    "prepared_is_cache_key": false,
+    "placeholder_callable_digest_allowed": false,
+    "producer_invocations_in_this_commit": 0
+  },
+  "goldens": {
+    "fp32_8x8_tile16_grid4": {
+      "source_ir_digest": "0e5fbaf1cd70dffa0c81d43a1d2cad454f97cbf9a57ae5247da1cb27f6a049d3",
+      "static_specialization_digest": "0bad0b86c36c86808f12b908692925e6493b4c78027da334d612b57bac5459aa",
+      "symbolic_specialization_digest": "1a2d6d32c956e86f41c0dc50dbafe53d33e3f63bd58bd683e78a06595b6ff58c",
+      "argument_abi_digest": "2bf59cefa95a2e95ac4e4647a654118b6d8c6fbfaa91a294621a9160d68dbd9b",
+      "result_abi_digest": "5a786136731e5c62c80597edbb57551cd010d344bfeab14456a9f6b263e99ea5",
+      "mutation_abi_digest": "4adb7fa8fdbdee33582778c543686a6c63953852be40079649e4d2d6f07c766d",
+      "callable_abi_digest": "4eee741cbe0c7322f938b83b01b34844c5f12fb1b01da52c2029e6687e24c640",
+      "kernel_build_spec_digest": "2151a869507e57a997732d928194509422c1e037ee7ef2fc91d87dd46a8a0afa"
+    },
+    "bf16_128_tile16_grid8": {
+      "source_ir_digest": "c22f2459ad794e89f88de1bbd427f17876c6059b9fd222be706dd5ce300a0a7f",
+      "static_specialization_digest": "146fbdd823eb18c77190894a272a39d1298b557acf8d3156226d44d5ce7a6051",
+      "symbolic_specialization_digest": "1a2d6d32c956e86f41c0dc50dbafe53d33e3f63bd58bd683e78a06595b6ff58c",
+      "argument_abi_digest": "5408cc8d6adb1f52d11d850c745a33dbe6a43c470fa907a238b71371f4bf04c1",
+      "result_abi_digest": "e8111628d00263e8f568dc8844a2e0fe5d08576bf77d81682b338dbeb977460a",
+      "mutation_abi_digest": "4adb7fa8fdbdee33582778c543686a6c63953852be40079649e4d2d6f07c766d",
+      "callable_abi_digest": "e3d31183b4ba5b2f09f01ef777043b9f51818e33d6bdbf18333257211d57c0e8",
+      "kernel_build_spec_digest": "062171a9db8cba61f522d99b464d5405732eecef2c72b0ef25b18c2f8d555a53"
+    }
+  },
+  "backend_off": {
+    "build_directory_fresh_for_final_source": false,
+    "build_directory_provenance": "created before the last reviewed fixture corrections and rebuilt incrementally at the exact final source",
+    "native_run_id": "pypto-20260825T111912Z-1014730-1175bc",
+    "native_preflight_sha256": "32978349df44b91cd9bff1323b935b0f69c3f1f3821e45a6b3cc8885e24f1ad9",
+    "native_process_sha256": "f8ef7c3cf6a7c95726e6281aeab890113f8e8e31e3fa52d65bd5a7d939192f5f",
+    "native": "4/4",
+    "native_junit_sha256": "7e8cca86b0e78bdd16198a3d0827f122e69bd91316e11f05bc9a6284368be6d0",
+    "core_build_run_id": "pypto-20260825T113532Z-1030011-cff334",
+    "core_build_preflight_sha256": "b5c350e2916fffc93be39e96accd2e99a51654cbc9db0bf494c36d23e5ae6e55",
+    "core_build_process_sha256": "8fd0a0fa66b8c662a58ec2d2bbcff52769b43e5843a15556ca7e7ab3de2ff8a9",
+    "dso_sha256": "c8f9db3d1a80ae632dd6c1ab8ffb718afd2ff736072aa712bbc9f57b1069f00a",
+    "python_run_id": "pypto-20260825T113645Z-1030789-41cab9",
+    "python_preflight_sha256": "5cb80603e6fd1e36639412915e682d48cf7df24ea6a2b2ab4baecce6093dd7a8",
+    "python_process_sha256": "46f954da121f0529998127dde7ffd35d76de5c83d52a6308ef6e10c9b40d4182",
+    "python": "173 passed 9 skipped",
+    "python_junit_sha256": "1cff4a5cc32ffdab6fddb108f6fa8ec7d50a377869da7eea39321aae60bc3f4d"
+  },
+  "backend_on": {
+    "fresh_build": true,
+    "fresh_native_run_id": "pypto-20260825T112102Z-1015847-81df24",
+    "fresh_native_preflight_sha256": "012985d066700dfd59d93fa92660610761e92dc16fa65b6f5f0a3d2662041384",
+    "fresh_native_process_sha256": "110da49c1dbcf2f43e3e0093ce9b40479564b76d189497154186af9171046b6f",
+    "fresh_native": "4/4",
+    "fresh_native_junit_sha256": "5795e62e149595870ab3f5019f252abdf3c0ecc48a01f5595210394384a2ffee",
+    "expanded_native_run_id": "pypto-20260825T113804Z-1031261-1787a4",
+    "expanded_native_preflight_sha256": "575349e1682120ab8b824190796944b950582a2449b032e06961ae24cb1086a4",
+    "expanded_native_process_sha256": "b23ad07b5c3d9aad4d155cdaef67657fd32f10b576cf1303bdde6874d34b7998",
+    "expanded_native": "6/6",
+    "expanded_native_junit_sha256": "5e8aec94afd0ed70bd0c38636d1cae590cdbb43a035c45d7c43a3576ca2e365a",
+    "core_build_run_id": "pypto-20260825T113532Z-1030009-b9a2e3",
+    "core_build_preflight_sha256": "1b8e5d4bf32b6f9f7da52061cabeef799ce3eeccda84d00e7987df058c2a41c0",
+    "core_build_process_sha256": "3ca37e7c2f68365f34bba61aca4cb4c712a0c09e0e640e6d92c56f23bcc35271",
+    "dso_sha256": "2db98dc4b9c25f7d8dcc5c5fb257ace25f25a1c617a909f19ad11d124a378d1e",
+    "embedded_pypto_revision": "c4cf755b7ef2998cdfb7499a76b80b280bafdf2d",
+    "python_run_id": "pypto-20260825T113645Z-1030786-34924c",
+    "python_preflight_sha256": "3f97bfd8784612b8810a339ae34bbb375762f5c5ed900f0def94ee85522e6df1",
+    "python_process_sha256": "149ee660c108defa2ddda4f6709dfd63a0dff03445b5d55e358a76a52fb65cdc",
+    "python": "180 passed 2 skipped",
+    "python_junit_sha256": "82acbf5d97b01c8a4ff496bed4a86b4d9f0daf8f0cf9f86cded3fcd4ec60abd8"
+  },
+  "reviews": [
+    {
+      "reviewer": "/root/frontend_identity_design",
+      "decision": "GO",
+      "p0": 0,
+      "p1": 0,
+      "p2": 0,
+      "report_path": "logs/cp41-structured-build-spec-code-review.md",
+      "report_sha256": "a8ce75e68df5036b8605604a8189246d7eebe532b98c34c4f5fd792e35f02920"
+    },
+    {
+      "reviewer": "/root/tensorir_abi_map",
+      "decision": "GO",
+      "p0": 0,
+      "p1": 0,
+      "p2": 0,
+      "report_path": "logs/cp41-structured-build-spec-tensorir-review.md",
+      "report_sha256": "d9cf0a4422dc1ff2ecfdb0f13bd302abf223de08a9bf49e9d588ec17e2bcdb51"
+    }
+  ],
+  "accepted_scope": [
+    "private compile-free preparation from HIR request and canonical schedule",
+    "five versioned canonical frontend identity projections plus raw source digest",
+    "field-level validation of one producer-shaped ArtifactKernelAbi",
+    "final KernelBuildSpec construction with no placeholder callable digest",
+    "pre-producer strict schedule resolution overload",
+    "backend-ON and backend-OFF build and regression integration"
+  ],
+  "not_claimed": [
+    "frontend invocation of the private TensorIR producer",
+    "Artifact construction or cache lookup publication from frontend HIR",
+    "public C++ or Python structured compile API",
+    "real SM120 frontend vector-add execution",
+    "generic fused-loop matmul operator framework model coverage or performance"
+  ]
+}

@@ -109,9 +109,12 @@
       `07ab9ea`, including deterministic metadata and clean ON/OFF tests.
 - [x] Version and independently gate standalone bounded canonical schedule
       identity at PyPTO `fa85e5a` without changing nested KernelBuildSpec bytes.
-- [ ] Add compiler-owned final ABI/specialization preparation, strict Artifact
-      compilation and Python binding, then execute HIR-authored vector add on
-      real SM120.
+- [x] Add and independently gate compiler-owned canonical frontend
+      specialization/ABI preparation and final BuildSpec construction from a
+      producer-shaped callable ABI at PyPTO `c4cf755`.
+- [ ] Refactor one strict producer transaction to return final BuildSpec plus
+      Artifact, bind it under `pypto.compiler`, then execute HIR-authored vector
+      add on real SM120.
 - [ ] Extend the accepted frontend path to fused pointwise, row reduction and
       simple structured matmul before Inductor integration.
 - [x] Implement bounded canonical PyPTO Artifact v1 serialization with bytes,

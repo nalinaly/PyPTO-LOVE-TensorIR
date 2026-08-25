@@ -1,20 +1,19 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `32`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `33`
 
 ## Current phase: P2 frontend-HIR SM120 execution; R0 baseline remains open
 
-Checkpoint `CP-0039` accepts the compile-free internal HIR-to-TensorIR emitter
-at PyPTO `07ab9ea`. Checkpoint `CP-0040` advances to `fa85e5a` and accepts the
-standalone `pypto.canonical_schedule.v1` identity with bounded deserialization
-and unchanged nested `KernelBuildSpec` wire bytes. Reconfigured/rebuilt
-exact-head backend-ON/OFF native tests pass 2/2 and exact-DSO Python contract
-suites pass 98/98. The current
-transaction is compiler-owned preparation: versioned specialization and ABI
-projections, one exact schedule, final callable ABI, `KernelBuildSpec` and
-strict `Artifact` without publishing a placeholder identity or calling the
-producer twice. Python binding, TensorIR compile and real frontend vector-add
-execution follow that contract.
+CP-0039 accepts compile-free HIR-to-TensorIR emission and CP-0040 accepts the
+standalone canonical schedule. CP-0041 advances PyPTO to `c4cf755`: preparation
+now owns request/schedule/source/metadata, derives five canonical frontend
+projections, validates a producer-shaped real `ArtifactKernelAbi`, and creates
+the final `KernelBuildSpec` with no placeholder callable. Fresh backend-ON
+native gates pass 6/6 and exact-DSO Python passes 180/2; backend-OFF passes 4/4
+and 173/9. The current transaction is the one-producer strict compile facade:
+prepare, invoke once, normalize the real ABI, finalize the spec, construct the
+Artifact, then expose the immutable result under `pypto.compiler`. HIR-authored
+SM120 vector-add execution follows that facade.
 
 Checkpoint `CP-0038` accepts the finalized minimal real-SM120
 `NvidiaExecutable` correctness v1 report from run `080254`, SHA
@@ -23,9 +22,9 @@ complete twice on the caller's non-default stream with reference equality,
 external synchronization and explicit unload. Matching v4 finalization joins
 all controls, sidecars, serialized compiler inputs, Artifacts, Cubins and live
 TargetInfo with no fallback. This closes only the low-level compiler/runtime
-launch gate. The current transaction is frontend HIR -> private TensorIR ->
-CUDA Tile -> Artifact -> real SM120 correctness for vector add, fused
-pointwise, row reduction and structured matmul.
+launch gate. The current transaction is the one-producer frontend Artifact
+facade; HIR-authored vector-add correctness follows, then fused pointwise, row
+reduction and structured matmul.
 
 Checkpoint `CP-0037` records, but does not accept, v3 run
 `pypto-20260825T073624Z-900485-7df250`. Its real GPU child completed six
