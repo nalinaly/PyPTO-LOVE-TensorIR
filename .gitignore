@@ -1,6 +1,7 @@
 # Nested repositories are independently versioned; WORKSPACE.lock records heads.
 /projects/*/
 /upstream/*/
+/worktrees/
 
 # Large/local state.
 /models/*/
