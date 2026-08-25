@@ -1,0 +1,694 @@
+{
+  "finalizer": {
+    "path": "tools/finalize_pypto_nvidia_executable_sm120.py",
+    "sha256": "aad7faf215e2aef0dc626553c1f917e443df0f7ffce4d22425c8276ed23e2f55"
+  },
+  "inputs": {
+    "control_manifest": {
+      "current_head": "37c16b3902192a8da59a1d912d2ff3e06bec02fb",
+      "current_tree": "cc90c7d8ec7a58ccd0952c4af8756be89a69507e",
+      "files": [
+        {
+          "bytes": 43947,
+          "mode": 420,
+          "path": "benchmarks/operators/pypto_nvidia_executable_sm120.py",
+          "sha256": "f22befff45d87097ae42b5725cf33a5e296ed74ff177cd84c2b772be5939abdd"
+        },
+        {
+          "bytes": 4783,
+          "mode": 420,
+          "path": "tools/_pypto_nvidia_executable_sm120_contract.py",
+          "sha256": "fa477d91933df765e9163bf3081ed6d41f323bb49285106dcdbd4bee554113bf"
+        },
+        {
+          "bytes": 7491,
+          "mode": 420,
+          "path": "tools/_pypto_nvidia_sm120_control_manifest.py",
+          "sha256": "bfa0e5c66ffad9435c0c31dc82ed7581d6bee608f1487e3fb2932cabbb2b597a"
+        },
+        {
+          "bytes": 58922,
+          "mode": 420,
+          "path": "tools/finalize_pypto_nvidia_executable_sm120.py",
+          "sha256": "aad7faf215e2aef0dc626553c1f917e443df0f7ffce4d22425c8276ed23e2f55"
+        },
+        {
+          "bytes": 27684,
+          "mode": 493,
+          "path": "tools/preflight.py",
+          "sha256": "0b9884f8dbd34337a85f62c351b1e19dda3a8b84ec9a88c835d8701af053e3d1"
+        },
+        {
+          "bytes": 76558,
+          "mode": 493,
+          "path": "tools/run_isolated.py",
+          "sha256": "978686ac09743a98233c9616d23b04e57d3a257bd643d5db3b8a71eaac7465c8"
+        },
+        {
+          "bytes": 7885,
+          "mode": 493,
+          "path": "tools/stop_run.py",
+          "sha256": "879a2e3863671531a548c71d788d56298500eab989bd1420d2c7ae01717ddfe4"
+        }
+      ],
+      "implementation_commit": "5564008fddeaaf0a9861ee5c38c895558f577600",
+      "implementation_tree": "b1676a118604c22eebaec787987806f3cf1aeebb",
+      "manifest_bytes": 1569,
+      "manifest_path": "state/contracts/pypto_nvidia_executable_sm120_v4.json",
+      "manifest_sha256": "a079c4d252aa346bb19a64a6ad3947867b76e7c778f7234125078fb16b2598bf",
+      "root_clean": true
+    },
+    "cuda_tile_head": "af2417041cc939b87ef56d92cfdcf61737c5457e",
+    "environment_lock_sha256": "29800d50f635e7188e55a6d6f43bfb4b8ac9ab16c4a21687db2960f18941932a",
+    "exact_files": {
+      "cuda_runtime": {
+        "bytes": 704288,
+        "path": "envs/pypto-nvidia/lib/python3.14/site-packages/nvidia/cu13/lib/libcudart.so.13",
+        "sha256": "96c42e418cec19054186b9429c321603cc190bf26a18104e19408117a2a817b0"
+      },
+      "pypto_dso": {
+        "bytes": 780535416,
+        "path": "builds/pypto-executable-abi-on-206447c-final/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+        "sha256": "15675c471f507b97190b0a770bb16e821c5e99353b65bbbc019988490f59018c"
+      },
+      "python": {
+        "bytes": 35989864,
+        "path": "envs/pypto-nvidia/bin/python3.14",
+        "sha256": "aa85b78409de29d21c7db9a6ea0479fd73a4e245a733ea325f5ecf21772d030f"
+      },
+      "runner": {
+        "bytes": 43947,
+        "path": "benchmarks/operators/pypto_nvidia_executable_sm120.py",
+        "sha256": "f22befff45d87097ae42b5725cf33a5e296ed74ff177cd84c2b772be5939abdd"
+      }
+    },
+    "llvm_head": "57109befac92811d2253109242ca6fa69c961fb2",
+    "pypto": {
+      "clean": true,
+      "head": "206447cf8c68b9cff1b86e01f0b40bfd689cd7a7",
+      "tree": "e0357daaefa74dbf676550015e60701996c400fb"
+    },
+    "replay_files": [
+      {
+        "bytes": 1583,
+        "path": "runs/pypto-20260825T080254Z-910620-c669d9/pypto-nvidia-executable-sm120/compile-request.msgpack",
+        "sha256": "13c319b832c51188678b51a32b155253a6f896bfd1395044832611df0843adda"
+      },
+      {
+        "bytes": 1416,
+        "path": "runs/pypto-20260825T080254Z-910620-c669d9/pypto-nvidia-executable-sm120/static.build-spec.msgpack",
+        "sha256": "726ec78502813e816acb01ba64effcf3abbcb53b1e8a7cc59d43fc1928fb003b"
+      },
+      {
+        "bytes": 16690,
+        "path": "runs/pypto-20260825T080254Z-910620-c669d9/pypto-nvidia-executable-sm120/static.artifact.msgpack",
+        "sha256": "411f87920e7a9d9f97f66c865a5695b6b5016ec7983009c47df5c6a3c07b88e9"
+      },
+      {
+        "bytes": 1459,
+        "path": "runs/pypto-20260825T080254Z-910620-c669d9/pypto-nvidia-executable-sm120/dynamic.build-spec.msgpack",
+        "sha256": "a97ad54f3e31ee1067aa27cf1495792b6742fecd13f2bd8abc0e56476d23b244"
+      },
+      {
+        "bytes": 20483,
+        "path": "runs/pypto-20260825T080254Z-910620-c669d9/pypto-nvidia-executable-sm120/dynamic.artifact.msgpack",
+        "sha256": "6914638d762ce5aaa963e4845d5c5fc473cf2c102b719de3260c7b27619711f5"
+      },
+      {
+        "bytes": 1416,
+        "path": "runs/pypto-20260825T080254Z-910620-c669d9/pypto-nvidia-executable-sm120/scalar.build-spec.msgpack",
+        "sha256": "15c09132c572c298f08ee2228e91c9fa7cba59e39e2e40f7e2e3c17ff5370ea6"
+      },
+      {
+        "bytes": 16808,
+        "path": "runs/pypto-20260825T080254Z-910620-c669d9/pypto-nvidia-executable-sm120/scalar.artifact.msgpack",
+        "sha256": "28bf2001d40cfd49c641f5280f4c52cbad2c656377c70acf40ad8bb78e273a3f"
+      }
+    ],
+    "replay_semantics": {
+      "cases": [
+        {
+          "artifact_identity_digest": "411f87920e7a9d9f97f66c865a5695b6b5016ec7983009c47df5c6a3c07b88e9",
+          "build_spec_identity_digest": "726ec78502813e816acb01ba64effcf3abbcb53b1e8a7cc59d43fc1928fb003b",
+          "cache_key_digest": "90e0b7f5f554a93d88335e9f60adea42e79555341f82e69bc874a09b3c697669",
+          "case": "static",
+          "device_code_bytes": 13624,
+          "device_code_sha256": "6dc121d2574537753229ed537efc5d2558eee26bfac0ad9d21826b5f33632b82",
+          "entry_function_name": "add_op_simple",
+          "fallback_used": false,
+          "kernel_abi_identity_digest": "bd48d9dc7a216679fdb247c8e368b9432e7b7c913cc89f842e1fb49beebfeb0c",
+          "loader_compatibility_digest": "aa846ef55a849b47305dc67be4bae5103027028db62d3e1435ca0090754e6fc1",
+          "source_sha256": "c88f50c55d288200b7b7f01432fcb7f20bcbb05baafb09089b6877091eedb9f3"
+        },
+        {
+          "artifact_identity_digest": "6914638d762ce5aaa963e4845d5c5fc473cf2c102b719de3260c7b27619711f5",
+          "build_spec_identity_digest": "a97ad54f3e31ee1067aa27cf1495792b6742fecd13f2bd8abc0e56476d23b244",
+          "cache_key_digest": "729dfd078a944e4f2d81f4d1fcbea2120914c8aadf74cee03047ff5cfa88ac92",
+          "case": "dynamic",
+          "device_code_bytes": 17408,
+          "device_code_sha256": "eabdc1377c66f2879a8cf77e43b3f705e4d725b71f6c8b30244521e97d72ed60",
+          "entry_function_name": "add_dynamic_shape",
+          "fallback_used": false,
+          "kernel_abi_identity_digest": "17b835a94cee861d52582ca0d015fa91632c85a7d09a8319e1e77499311be87e",
+          "loader_compatibility_digest": "aa846ef55a849b47305dc67be4bae5103027028db62d3e1435ca0090754e6fc1",
+          "source_sha256": "e4aacd1a4296a656d37812687fb0a152441c7582fe806645bc2affe9a8c66e9d"
+        },
+        {
+          "artifact_identity_digest": "28bf2001d40cfd49c641f5280f4c52cbad2c656377c70acf40ad8bb78e273a3f",
+          "build_spec_identity_digest": "15c09132c572c298f08ee2228e91c9fa7cba59e39e2e40f7e2e3c17ff5370ea6",
+          "cache_key_digest": "5d57d83bea09453bd4d10611eafd9f9b142c7e05e0f0c0dd509d7a0296cf54c0",
+          "case": "scalar",
+          "device_code_bytes": 13744,
+          "device_code_sha256": "fff77b041e032eaae3804105578f49b22fd26cd5d9cb0d483f3170c2bc1a4735",
+          "entry_function_name": "add_tensor_scalar",
+          "fallback_used": false,
+          "kernel_abi_identity_digest": "695ae5c4299ca004426cb8df70e87d55af0dd07c80c2f84a2cdaa9d9141129d9",
+          "loader_compatibility_digest": "aa846ef55a849b47305dc67be4bae5103027028db62d3e1435ca0090754e6fc1",
+          "source_sha256": "e133cde40b926d7e76b575d2517dd36e74a85d0c95600b60ef4847e0cd21ba46"
+        }
+      ],
+      "command_sha256": "ca892e64d69c6bddb1cbe0c02b305b1e17d43c0149c4c29b19ebdaa66e1f88fc",
+      "compile_request": {
+        "byte_identity_digest": "d61242b699233192c07159481db8773e01c1e41a95e63350e270e998ab2e6fce",
+        "device_autotune_identity_digest": "618ee9f63c750ab084c65836d1f6d08e6cab7c6cd8ad35368c74b0d4789b301e",
+        "loader_compatibility_input_digest": "c1397051b8fff67ea69e94a0c452ea1f8253a400d32036e15f4f3817591b7eb5"
+      },
+      "stdout_sha256": "b2698fa85b8acebcd71150ea239b2908b988c9f675f010c3082071493d66d816",
+      "target_info": {
+        "cuda_driver_version": "610.74",
+        "cuda_tile_revision": "af2417041cc939b87ef56d92cfdcf61737c5457e",
+        "cuda_toolkit_version": "13.3.73",
+        "device_name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+        "device_ordinal": 0,
+        "device_uuid": "GPU-64aae36b-ef77-b0d4-b1c7-f7ab17a729f1",
+        "pci_device_id": "0000:02:00.0",
+        "supported_compute_dtypes": [
+          "FP32",
+          "BF16"
+        ],
+        "tensor_ir_revision": "1dcb38c20e53d07c97d3781cae538e33901bae30",
+        "traits": {
+          "compute_capability": 120,
+          "default_shared_memory_per_cta_bytes": 49152,
+          "l1_cache_line_bytes": 128,
+          "l2_cache_size_bytes": 67108864,
+          "max_block_dim_x": 1024,
+          "max_block_dim_y": 1024,
+          "max_block_dim_z": 64,
+          "max_blocks_per_multiprocessor": 24,
+          "max_grid_dim_x": 2147483647,
+          "max_grid_dim_y": 65535,
+          "max_grid_dim_z": 65535,
+          "max_registers_per_thread": 255,
+          "max_shared_memory_per_cta_bytes": 101376,
+          "max_threads_per_block": 1024,
+          "max_threads_per_multiprocessor": 1536,
+          "multiprocessor_count": 82,
+          "registers_per_cta": 65536,
+          "registers_per_multiprocessor": 65536,
+          "shared_memory_per_multiprocessor_bytes": 102400,
+          "total_global_memory_bytes": 25650855936,
+          "warp_size": 32
+        }
+      }
+    },
+    "tensor_ir_head": "1dcb38c20e53d07c97d3781cae538e33901bae30"
+  },
+  "not_claimed": [
+    "performance",
+    "CUDA Graph correctness",
+    "frontend HIR lowering",
+    "TorchInductor or SGLang integration",
+    "Qwen3.5 correctness or strict coverage"
+  ],
+  "result": {
+    "artifacts": [
+      {
+        "artifact_identity_digest": "411f87920e7a9d9f97f66c865a5695b6b5016ec7983009c47df5c6a3c07b88e9",
+        "build_spec_identity_digest": "726ec78502813e816acb01ba64effcf3abbcb53b1e8a7cc59d43fc1928fb003b",
+        "cache_key_digest": "90e0b7f5f554a93d88335e9f60adea42e79555341f82e69bc874a09b3c697669",
+        "case": "static",
+        "device_code_bytes": 13624,
+        "device_code_sha256": "6dc121d2574537753229ed537efc5d2558eee26bfac0ad9d21826b5f33632b82",
+        "entry_function_name": "add_op_simple",
+        "expected_device_code_bytes": 13624,
+        "expected_device_code_sha256": "6dc121d2574537753229ed537efc5d2558eee26bfac0ad9d21826b5f33632b82",
+        "expected_grid": [
+          4,
+          1,
+          1
+        ],
+        "expected_kernel_arguments": 3,
+        "fallback_used": false,
+        "kernel_abi_identity_digest": "bd48d9dc7a216679fdb247c8e368b9432e7b7c913cc89f842e1fb49beebfeb0c",
+        "loader_compatibility_digest": "aa846ef55a849b47305dc67be4bae5103027028db62d3e1435ca0090754e6fc1",
+        "source_sha256": "c88f50c55d288200b7b7f01432fcb7f20bcbb05baafb09089b6877091eedb9f3"
+      },
+      {
+        "artifact_identity_digest": "6914638d762ce5aaa963e4845d5c5fc473cf2c102b719de3260c7b27619711f5",
+        "build_spec_identity_digest": "a97ad54f3e31ee1067aa27cf1495792b6742fecd13f2bd8abc0e56476d23b244",
+        "cache_key_digest": "729dfd078a944e4f2d81f4d1fcbea2120914c8aadf74cee03047ff5cfa88ac92",
+        "case": "dynamic",
+        "device_code_bytes": 17408,
+        "device_code_sha256": "eabdc1377c66f2879a8cf77e43b3f705e4d725b71f6c8b30244521e97d72ed60",
+        "entry_function_name": "add_dynamic_shape",
+        "expected_device_code_bytes": 17408,
+        "expected_device_code_sha256": "eabdc1377c66f2879a8cf77e43b3f705e4d725b71f6c8b30244521e97d72ed60",
+        "expected_grid": [
+          6,
+          1,
+          1
+        ],
+        "expected_kernel_arguments": 12,
+        "fallback_used": false,
+        "kernel_abi_identity_digest": "17b835a94cee861d52582ca0d015fa91632c85a7d09a8319e1e77499311be87e",
+        "loader_compatibility_digest": "aa846ef55a849b47305dc67be4bae5103027028db62d3e1435ca0090754e6fc1",
+        "source_sha256": "e4aacd1a4296a656d37812687fb0a152441c7582fe806645bc2affe9a8c66e9d"
+      },
+      {
+        "artifact_identity_digest": "28bf2001d40cfd49c641f5280f4c52cbad2c656377c70acf40ad8bb78e273a3f",
+        "build_spec_identity_digest": "15c09132c572c298f08ee2228e91c9fa7cba59e39e2e40f7e2e3c17ff5370ea6",
+        "cache_key_digest": "5d57d83bea09453bd4d10611eafd9f9b142c7e05e0f0c0dd509d7a0296cf54c0",
+        "case": "scalar",
+        "device_code_bytes": 13744,
+        "device_code_sha256": "fff77b041e032eaae3804105578f49b22fd26cd5d9cb0d483f3170c2bc1a4735",
+        "entry_function_name": "add_tensor_scalar",
+        "expected_device_code_bytes": 13744,
+        "expected_device_code_sha256": "fff77b041e032eaae3804105578f49b22fd26cd5d9cb0d483f3170c2bc1a4735",
+        "expected_grid": [
+          4,
+          1,
+          1
+        ],
+        "expected_kernel_arguments": 3,
+        "fallback_used": false,
+        "kernel_abi_identity_digest": "695ae5c4299ca004426cb8df70e87d55af0dd07c80c2f84a2cdaa9d9141129d9",
+        "loader_compatibility_digest": "aa846ef55a849b47305dc67be4bae5103027028db62d3e1435ca0090754e6fc1",
+        "source_sha256": "e133cde40b926d7e76b575d2517dd36e74a85d0c95600b60ef4847e0cd21ba46"
+      }
+    ],
+    "case_order": [
+      "static",
+      "dynamic",
+      "scalar"
+    ],
+    "child_pre_cuda_gate": {
+      "control_manifest": {
+        "current_head": "37c16b3902192a8da59a1d912d2ff3e06bec02fb",
+        "current_tree": "cc90c7d8ec7a58ccd0952c4af8756be89a69507e",
+        "files": [
+          {
+            "bytes": 43947,
+            "mode": 420,
+            "path": "benchmarks/operators/pypto_nvidia_executable_sm120.py",
+            "sha256": "f22befff45d87097ae42b5725cf33a5e296ed74ff177cd84c2b772be5939abdd"
+          },
+          {
+            "bytes": 4783,
+            "mode": 420,
+            "path": "tools/_pypto_nvidia_executable_sm120_contract.py",
+            "sha256": "fa477d91933df765e9163bf3081ed6d41f323bb49285106dcdbd4bee554113bf"
+          },
+          {
+            "bytes": 7491,
+            "mode": 420,
+            "path": "tools/_pypto_nvidia_sm120_control_manifest.py",
+            "sha256": "bfa0e5c66ffad9435c0c31dc82ed7581d6bee608f1487e3fb2932cabbb2b597a"
+          },
+          {
+            "bytes": 58922,
+            "mode": 420,
+            "path": "tools/finalize_pypto_nvidia_executable_sm120.py",
+            "sha256": "aad7faf215e2aef0dc626553c1f917e443df0f7ffce4d22425c8276ed23e2f55"
+          },
+          {
+            "bytes": 27684,
+            "mode": 493,
+            "path": "tools/preflight.py",
+            "sha256": "0b9884f8dbd34337a85f62c351b1e19dda3a8b84ec9a88c835d8701af053e3d1"
+          },
+          {
+            "bytes": 76558,
+            "mode": 493,
+            "path": "tools/run_isolated.py",
+            "sha256": "978686ac09743a98233c9616d23b04e57d3a257bd643d5db3b8a71eaac7465c8"
+          },
+          {
+            "bytes": 7885,
+            "mode": 493,
+            "path": "tools/stop_run.py",
+            "sha256": "879a2e3863671531a548c71d788d56298500eab989bd1420d2c7ae01717ddfe4"
+          }
+        ],
+        "implementation_commit": "5564008fddeaaf0a9861ee5c38c895558f577600",
+        "implementation_tree": "b1676a118604c22eebaec787987806f3cf1aeebb",
+        "manifest_bytes": 1569,
+        "manifest_path": "state/contracts/pypto_nvidia_executable_sm120_v4.json",
+        "manifest_sha256": "a079c4d252aa346bb19a64a6ad3947867b76e7c778f7234125078fb16b2598bf",
+        "root_clean": true
+      },
+      "free_memory_mib": 20980,
+      "gpu": {
+        "compute_capability": "12.0",
+        "driver": "610.74",
+        "memory_mib": "24463",
+        "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+        "used_mib": "3483"
+      },
+      "nvidia_compute_pids": [],
+      "protected_heavy_pids": [],
+      "protected_runtime_pids": [],
+      "static_identity": {
+        "cuda": "13.0",
+        "cuda_initialized": false,
+        "environment_lock_sha256": "29800d50f635e7188e55a6d6f43bfb4b8ac9ab16c4a21687db2960f18941932a",
+        "forbidden_dsos": [],
+        "git_version": "cf30153c4c131c8164ee7798e5022d810682e2cb",
+        "hip": null,
+        "libcudart_path": "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-nvidia/lib/python3.14/site-packages/nvidia/cu13/lib/libcudart.so.13",
+        "libcudart_record_owned": true,
+        "libcudart_sha256": "96c42e418cec19054186b9429c321603cc190bf26a18104e19408117a2a817b0",
+        "libcudart_size": 704288,
+        "nvidia_runtime_mappings": [],
+        "python_executable": "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-nvidia/bin/python3.14",
+        "source": "static ENVIRONMENT.lock and selected-prefix file audit",
+        "version": "2.13.0+cu130"
+      },
+      "unreadable_protected_maps": []
+    },
+    "compile_request": {
+      "byte_identity_digest": "d61242b699233192c07159481db8773e01c1e41a95e63350e270e998ab2e6fce",
+      "device_autotune_identity_digest": "618ee9f63c750ab084c65836d1f6d08e6cab7c6cd8ad35368c74b0d4789b301e",
+      "loader_compatibility_input_digest": "c1397051b8fff67ea69e94a0c452ea1f8253a400d32036e15f4f3817591b7eb5"
+    },
+    "executions": [
+      {
+        "actual_logical_bytes_sha256": "866734bdeb1c286f7a08783e2350e7b53961991e1fc99205b75d8717ff3b207c",
+        "artifact_identity_digest": "411f87920e7a9d9f97f66c865a5695b6b5016ec7983009c47df5c6a3c07b88e9",
+        "bound_context_after_unload": 0,
+        "bound_context_before_unload": 109459200361584,
+        "bound_context_id_before_unload": 1,
+        "case": "static",
+        "dtype": "float32",
+        "expected_logical_bytes_sha256": "866734bdeb1c286f7a08783e2350e7b53961991e1fc99205b75d8717ff3b207c",
+        "explicit_unload": true,
+        "external_stream_synchronized": true,
+        "grid": [
+          4,
+          1,
+          1
+        ],
+        "input_bytes_sha256": "26044ff105b7dfbc5569669481b0ae3257e19e58dedad22cbad0effeece5d22f",
+        "input_unchanged": true,
+        "kernel_argument_count": 3,
+        "non_default_stream": true,
+        "packet_released_after_synchronization": true,
+        "padding_unchanged": true,
+        "raw_current_stream": 109459232792160,
+        "repetition": 0,
+        "shape": [
+          8,
+          8
+        ],
+        "strides": [
+          8,
+          1
+        ],
+        "terminal_state": "Unloaded",
+        "torch_equal": true
+      },
+      {
+        "actual_logical_bytes_sha256": "866734bdeb1c286f7a08783e2350e7b53961991e1fc99205b75d8717ff3b207c",
+        "artifact_identity_digest": "411f87920e7a9d9f97f66c865a5695b6b5016ec7983009c47df5c6a3c07b88e9",
+        "bound_context_after_unload": 0,
+        "bound_context_before_unload": 109459200361584,
+        "bound_context_id_before_unload": 1,
+        "case": "static",
+        "dtype": "float32",
+        "expected_logical_bytes_sha256": "866734bdeb1c286f7a08783e2350e7b53961991e1fc99205b75d8717ff3b207c",
+        "explicit_unload": true,
+        "external_stream_synchronized": true,
+        "grid": [
+          4,
+          1,
+          1
+        ],
+        "input_bytes_sha256": "26044ff105b7dfbc5569669481b0ae3257e19e58dedad22cbad0effeece5d22f",
+        "input_unchanged": true,
+        "kernel_argument_count": 3,
+        "non_default_stream": true,
+        "packet_released_after_synchronization": true,
+        "padding_unchanged": true,
+        "raw_current_stream": 109459232792160,
+        "repetition": 1,
+        "shape": [
+          8,
+          8
+        ],
+        "strides": [
+          8,
+          1
+        ],
+        "terminal_state": "Unloaded",
+        "torch_equal": true
+      },
+      {
+        "actual_logical_bytes_sha256": "98f2270fa9656f025dfabfda29c8ca20035b98dcf93562b5b46d24a91dde24e6",
+        "artifact_identity_digest": "6914638d762ce5aaa963e4845d5c5fc473cf2c102b719de3260c7b27619711f5",
+        "bound_context_after_unload": 0,
+        "bound_context_before_unload": 109459200361584,
+        "bound_context_id_before_unload": 1,
+        "case": "dynamic",
+        "dtype": "float32",
+        "expected_logical_bytes_sha256": "98f2270fa9656f025dfabfda29c8ca20035b98dcf93562b5b46d24a91dde24e6",
+        "explicit_unload": true,
+        "external_stream_synchronized": true,
+        "grid": [
+          6,
+          1,
+          1
+        ],
+        "input_bytes_sha256": "2918d67b390b225fa05c0c8156396a404f1fc1fd0a18ec471ae629e0c88695f0",
+        "input_unchanged": true,
+        "kernel_argument_count": 12,
+        "non_default_stream": true,
+        "packet_released_after_synchronization": true,
+        "padding_unchanged": true,
+        "raw_current_stream": 109459232792160,
+        "repetition": 0,
+        "shape": [
+          17,
+          9
+        ],
+        "strides": [
+          18,
+          1
+        ],
+        "terminal_state": "Unloaded",
+        "torch_equal": true
+      },
+      {
+        "actual_logical_bytes_sha256": "98f2270fa9656f025dfabfda29c8ca20035b98dcf93562b5b46d24a91dde24e6",
+        "artifact_identity_digest": "6914638d762ce5aaa963e4845d5c5fc473cf2c102b719de3260c7b27619711f5",
+        "bound_context_after_unload": 0,
+        "bound_context_before_unload": 109459200361584,
+        "bound_context_id_before_unload": 1,
+        "case": "dynamic",
+        "dtype": "float32",
+        "expected_logical_bytes_sha256": "98f2270fa9656f025dfabfda29c8ca20035b98dcf93562b5b46d24a91dde24e6",
+        "explicit_unload": true,
+        "external_stream_synchronized": true,
+        "grid": [
+          6,
+          1,
+          1
+        ],
+        "input_bytes_sha256": "2918d67b390b225fa05c0c8156396a404f1fc1fd0a18ec471ae629e0c88695f0",
+        "input_unchanged": true,
+        "kernel_argument_count": 12,
+        "non_default_stream": true,
+        "packet_released_after_synchronization": true,
+        "padding_unchanged": true,
+        "raw_current_stream": 109459232792160,
+        "repetition": 1,
+        "shape": [
+          17,
+          9
+        ],
+        "strides": [
+          18,
+          1
+        ],
+        "terminal_state": "Unloaded",
+        "torch_equal": true
+      },
+      {
+        "actual_logical_bytes_sha256": "f11f9b04a58e9f148d364b14f8fa0f4e3630a1845dcb18fc4d55b7e1b0ddc6c0",
+        "artifact_identity_digest": "28bf2001d40cfd49c641f5280f4c52cbad2c656377c70acf40ad8bb78e273a3f",
+        "bound_context_after_unload": 0,
+        "bound_context_before_unload": 109459200361584,
+        "bound_context_id_before_unload": 1,
+        "case": "scalar",
+        "dtype": "float16",
+        "expected_logical_bytes_sha256": "f11f9b04a58e9f148d364b14f8fa0f4e3630a1845dcb18fc4d55b7e1b0ddc6c0",
+        "explicit_unload": true,
+        "external_stream_synchronized": true,
+        "grid": [
+          4,
+          1,
+          1
+        ],
+        "input_bytes_sha256": "4e1d4bb0d4efb699602f4c78e9e2c7208ebc9dce6532616cea249ec77b933bf7",
+        "input_unchanged": true,
+        "kernel_argument_count": 3,
+        "non_default_stream": true,
+        "packet_released_after_synchronization": true,
+        "padding_unchanged": true,
+        "raw_current_stream": 109459232792160,
+        "repetition": 0,
+        "shape": [
+          4,
+          4,
+          4
+        ],
+        "strides": [
+          16,
+          4,
+          1
+        ],
+        "terminal_state": "Unloaded",
+        "torch_equal": true
+      },
+      {
+        "actual_logical_bytes_sha256": "f11f9b04a58e9f148d364b14f8fa0f4e3630a1845dcb18fc4d55b7e1b0ddc6c0",
+        "artifact_identity_digest": "28bf2001d40cfd49c641f5280f4c52cbad2c656377c70acf40ad8bb78e273a3f",
+        "bound_context_after_unload": 0,
+        "bound_context_before_unload": 109459200361584,
+        "bound_context_id_before_unload": 1,
+        "case": "scalar",
+        "dtype": "float16",
+        "expected_logical_bytes_sha256": "f11f9b04a58e9f148d364b14f8fa0f4e3630a1845dcb18fc4d55b7e1b0ddc6c0",
+        "explicit_unload": true,
+        "external_stream_synchronized": true,
+        "grid": [
+          4,
+          1,
+          1
+        ],
+        "input_bytes_sha256": "4e1d4bb0d4efb699602f4c78e9e2c7208ebc9dce6532616cea249ec77b933bf7",
+        "input_unchanged": true,
+        "kernel_argument_count": 3,
+        "non_default_stream": true,
+        "packet_released_after_synchronization": true,
+        "padding_unchanged": true,
+        "raw_current_stream": 109459232792160,
+        "repetition": 1,
+        "shape": [
+          4,
+          4,
+          4
+        ],
+        "strides": [
+          16,
+          4,
+          1
+        ],
+        "terminal_state": "Unloaded",
+        "torch_equal": true
+      }
+    ],
+    "explicit_unloads": 6,
+    "external_synchronization": true,
+    "fallback_used": false,
+    "forbidden_provider_imports": [],
+    "libcudart_paths": [
+      "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-nvidia/lib/python3.14/site-packages/nvidia/cu13/lib/libcudart.so.13"
+    ],
+    "module_lifetimes": 6,
+    "non_default_current_stream": true,
+    "observation": {
+      "context_address": 109459200361584,
+      "context_id": 1,
+      "cuda_driver_api_version": 13030,
+      "cuda_driver_release_provenance": "610.74",
+      "cuda_driver_version": "610.74",
+      "cuda_runtime_api_version": 13000,
+      "cuda_runtime_library_path": "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-nvidia/lib/python3.14/site-packages/nvidia/cu13/lib/libcudart.so.13",
+      "cuda_tile_revision": "af2417041cc939b87ef56d92cfdcf61737c5457e",
+      "cuda_toolkit_version": "13.3.73",
+      "device_name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+      "device_ordinal": 0,
+      "device_uuid": "GPU-64aae36b-ef77-b0d4-b1c7-f7ab17a729f1",
+      "pci_device_id": "0000:02:00.0",
+      "supported_compute_dtypes": [
+        "FP32",
+        "BF16"
+      ],
+      "tensor_ir_revision": "1dcb38c20e53d07c97d3781cae538e33901bae30",
+      "traits": {
+        "compute_capability": 120,
+        "default_shared_memory_per_cta_bytes": 49152,
+        "l1_cache_line_bytes": 128,
+        "l2_cache_size_bytes": 67108864,
+        "max_block_dim_x": 1024,
+        "max_block_dim_y": 1024,
+        "max_block_dim_z": 64,
+        "max_blocks_per_multiprocessor": 24,
+        "max_grid_dim_x": 2147483647,
+        "max_grid_dim_y": 65535,
+        "max_grid_dim_z": 65535,
+        "max_registers_per_thread": 255,
+        "max_shared_memory_per_cta_bytes": 101376,
+        "max_threads_per_block": 1024,
+        "max_threads_per_multiprocessor": 1536,
+        "multiprocessor_count": 82,
+        "registers_per_cta": 65536,
+        "registers_per_multiprocessor": 65536,
+        "shared_memory_per_multiprocessor_bytes": 102400,
+        "total_global_memory_bytes": 25650855936,
+        "warp_size": 32
+      }
+    },
+    "repetitions_per_case": 2,
+    "torch": {
+      "cuda": "13.0",
+      "git_version": "cf30153c4c131c8164ee7798e5022d810682e2cb",
+      "hip": null,
+      "module_path": "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-nvidia/lib/python3.14/site-packages/torch/__init__.py",
+      "version": "2.13.0+cu130"
+    }
+  },
+  "run": {
+    "command": [
+      "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-nvidia/bin/python",
+      "-I",
+      "-B",
+      "-S",
+      "/home/zhaosiying/pypto-love-tensor-ir/benchmarks/operators/pypto_nvidia_executable_sm120.py"
+    ],
+    "gate_path": "runs/pypto-20260825T080254Z-910620-c669d9/gpu-smoke-gate.json",
+    "gate_sha256": "be92af0d23965ccc7c7917529149047f108973a084f4bd8d23dbcc1b1cd43883",
+    "preflight_path": "runs/pypto-20260825T080254Z-910620-c669d9/preflight.json",
+    "preflight_sha256": "4c788dbd6ee0b6d68277fc8fd66663f88a70d915b66ee1e7042cc263de0964f3",
+    "process_path": "runs/pypto-20260825T080254Z-910620-c669d9/process.json",
+    "process_sha256": "153f9c69b113c36f4e59c7fd272aea3ff281c70776e6a843ad12578621dddbff",
+    "provisional_path": "runs/pypto-20260825T080254Z-910620-c669d9/pypto-nvidia-executable-sm120/provisional.json",
+    "provisional_sha256": "954a266ed5d592698649ad1947fe1879e75dce2f3d9ebad9e16c74034076221f",
+    "run_id": "pypto-20260825T080254Z-910620-c669d9",
+    "start_barrier_path": "runs/pypto-20260825T080254Z-910620-c669d9/gpu-smoke-start-barrier.json",
+    "start_barrier_sha256": "d510ef38bdfb757f3ca0c6be2ed6c5300d7313cb3dfe9448c141766a41cd1cfe",
+    "zero_nvidia_interference": true
+  },
+  "schema_version": 1,
+  "scope": {
+    "cuda_graph_result": false,
+    "model_forward": false,
+    "operator_correctness": true,
+    "performance_result": false,
+    "provider": "pypto.tensorir",
+    "runtime_object": "NvidiaExecutable",
+    "strict_coverage_result": false
+  },
+  "smoke": "pypto-nvidia-executable-sm120",
+  "status": "accepted-real-sm120-correctness-smoke"
+}
