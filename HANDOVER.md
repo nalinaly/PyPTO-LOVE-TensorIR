@@ -41,16 +41,20 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0035.md` and evidence `EV-0005` through `EV-0048`.
-- Root `394b75a` plus manifest-only `2b53f0a` now owns the fixed
-  correctness-only SM120 smoke. The manifest SHA is `c609e97a...aa09` and
+- Read `state/checkpoints/CP-0036.md` and evidence `EV-0005` through `EV-0049`.
+- Root `c71f32b` plus manifest-only `3de4cf7` owns the repaired v3
+  correctness-only SM120 smoke. The manifest SHA is `978e8737...b6e3` and
   binds seven exact control blobs to the Layer-A commit/tree. Controller and
   finalizer require `-E -B -S`; the child and semantic replay use
-  `-I -B -S`. The post-manifest root suite passes 224 tests plus 106 subtests,
-  and the exact-DSO CPU replay reconstructs complete TargetInfo, three
-  BuildSpecs/Artifacts, ABI and deterministic Cubins. This is control/replay
-  evidence only: no real CUDA call or result has run.
-- `projects/pypto` is clean at `6361f11...`. Single-DSO, immutable SM120
+  `-I -B -S`. Clean run `pypto-20260825T071601Z-892819-67acee` passes 224
+  tests plus 106 subtests; exact-DSO compiler/runtime suites pass, and CPU-only
+  run `pypto-20260825T070649Z-890066-2a1ae2` preserves the wrapper markers and
+  recompiles all three deterministic Cubins through the v3-selected DSO with
+  device count zero and CUDA uninitialized. A serialized v3 smoke replay does
+  not exist yet. The retained
+  first real run reached module/function prewarm but failed before packet
+  preparation or launch.
+- `projects/pypto` is clean at `206447c...`. Single-DSO, immutable SM120
   TargetInfo, Artifact v1, strict canonical-source production, ArtifactCache
   v1, the CPU/fake-driver NvidiaExecutable v1 and the parent runtime-observation
   value are accepted. The observation queries every live TargetInfo field via
@@ -62,11 +66,10 @@ upstream checkouts and their optional/manual suites.
   validation, allocation-free prepared launch packets and graph/module leases.
   TensorIR `1dcb38c...` remains private and owns the bounded assembler boundary.
   Final ON/OFF products remain RPATH-free with five standard dependencies/two
-  definitions. ON SHA `72ef7549...935664` passes native 9/9 plus exact-DSO
-  Python 142/2; OFF SHA `b88edbd2...61499f` passes native 7/7 plus Python
-  135/9. EV-0047 binds their exact hashes, revisions, compile rows, JUnit,
-  static gate and reviews. No production observation, real libcuda
-  module/current-stream launch or CUDA numerical result has run.
+  definitions. ON SHA `15675c47...018c` passes native 9/9 plus exact-DSO
+  Python 142/2; OFF SHA `32c2dea0...4109` passes native 7/7 plus Python
+  135/9. EV-0049 binds their exact hashes, revisions, compile rows, JUnit and
+  product audit. No PyPTO kernel launch or CUDA numerical result is accepted.
 - TensorIR `1dcb38c...` is a local committed feature revision and is fully
   pinned by the PyPTO gitlink/build guards. It has not been published to the
   configured NVIDIA remote; push or otherwise materialize that commit before
@@ -78,8 +81,8 @@ upstream checkouts and their optional/manual suites.
   the recovered stale editable-DSO evidence. Producer integration and Artifact
   v1 plus strict production are accepted by CP-0031, ArtifactCache v1 by
   CP-0032, modeled NvidiaExecutable lifecycle by CP-0033 and parent observation
-  value by CP-0034; real CUDA module load/current-stream launch remains
-  unverified.
+  value by CP-0034. Real module/function load was reached diagnostically in the
+  failed first smoke; current-stream launch remains unverified.
 - `projects/pypto-kernels` is clean at `6f73857...` with typed semantic
   families, canonical process-safe tuning database, matmul invocation ABI v1,
   catalog-bound canonical operator artifact provenance, paged-attention ABI v1
@@ -140,12 +143,14 @@ upstream checkouts and their optional/manual suites.
   cache, and a process/device/CUcontext-bound prewarmed executable before any
   real CUDA smoke. Those prerequisites are now accepted through the CP-0034
   observation gate. Workers never query CUDA or carry streams/handles.
-- The fixed-command payload/finalizer is complete and manifest-bound by
-  CP-0035. Next run exactly the command in
+- The fixed-command payload/finalizer is repaired and v3-manifest-bound by
+  CP-0036. Next run exactly the command in
   `docs/pypto_nvidia_executable_sm120_smoke.md` under a fresh green
   `gpu-smoke` admission. Do not edit any of the seven manifest-bound controls.
   Capture the printed provisional SHA, wait for the controller to exit, then
   invoke the no-site finalizer. Retain a failed/aborted run as diagnostic only.
+  If prewarm next fails at occupancy, investigate a tile-aware physical
+  residency check; never change CUDA Tile's logical host block to 128.
   Keep frontend lowering, operator algorithms, framework registration, online
   tuning and model work after this real-runtime gate.
 - `docs/coverage_collector_map.md` is the pinned collector implementation map.

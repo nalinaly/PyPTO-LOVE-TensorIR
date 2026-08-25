@@ -1,16 +1,16 @@
-PyPTO NVIDIA implementation: 6361f110660a77f9a8dc542265575d8f7260b343
+PyPTO NVIDIA implementation: 206447cf8c68b9cff1b86e01f0b40bfd689cd7a7
 TensorIR private implementation: 1dcb38c20e53d07c97d3781cae538e33901bae30
 CUDA Tile: af2417041cc939b87ef56d92cfdcf61737c5457e (v13.3.3)
 LLVM/MLIR: 57109befac92811d2253109242ca6fa69c961fb2
 Structured TensorIR pipeline blob: 46610e0415598d010981e4bd07d0660c592401ac
-PyPTO backend-ON DSO: 72ef7549a3da47d495e2c213de6ca15968713e2594c5f94d1181173bce935664
-PyPTO backend-OFF DSO: b88edbd2ff0a744c417e775a5bbe393ee9b897a2801c33b5bed4b840f461499f
+PyPTO backend-ON DSO: 15675c471f507b97190b0a770bb16e821c5e99353b65bbbc019988490f59018c
+PyPTO backend-OFF DSO: 32c2dea03e13ea49937df239ed1e7bc2b8a931594c41dcfc0cc6de8375464109
 PyPTO ArtifactCache: accepted trusted-local persistent v1
-PyPTO NvidiaExecutable: accepted CPU/fake-driver v1; real SM120 launch pending fresh authorized gpu-smoke gate
-PyPTO NvidiaRuntimeObservation: accepted CPU/value v1; real provider/context observation pending GPU smoke
-PyPTO SM120 smoke controls: 394b75adbc7babe1000d93938e6fa84493a4277d
-PyPTO SM120 smoke manifest: 2b53f0a6cdeffa89b38ad75515b9ea1d1019748a, SHA-256 c609e97a2f3e379e332137916d041d14931c0e415cd2f2e769c82eab1650aa09
-PyPTO SM120 smoke status: accepted CPU-only control/replay path; real CUDA unexecuted
+PyPTO NvidiaExecutable: accepted CPU/fake-driver v1 plus enumeration-safe CUDA parameter-ABI repair; real SM120 launch pending fresh v3 gpu-smoke
+PyPTO NvidiaRuntimeObservation: accepted CPU/value v1; real provider/context recorded in failed prewarm diagnostic, current-stream launch pending v3 smoke
+PyPTO SM120 smoke controls: c71f32bd415a973a2a7756ecc9b1ae59f30df219
+PyPTO SM120 smoke manifest: 3de4cf702662cbaf948c6429acf269fee16a491e, SHA-256 978e873788eb7f3aaeba6473a9b7f8a1bcd827fe201d89cb781927f538c9b6e3
+PyPTO SM120 smoke status: first real prewarm failed closed before launch; repaired v3 control accepted CPU-only
 msgpack-c: 919908742b4fdbc575e77fe1a8657e70c9573c44
 libbacktrace: 6f8310e238fc3ce68f42f391cbe93fd156bb2c23
 PyPTO runtime headers: 93adc3865e65fd72655f571f2e4165cf5ac02616

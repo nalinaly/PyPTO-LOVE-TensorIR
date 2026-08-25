@@ -1,0 +1,305 @@
+{
+  "id": "EV-0049",
+  "kind": "pypto_nvidia_executable_parameter_abi_enumeration_repair_and_sm120_control_v3",
+  "status": "records_first_real_prewarm_diagnostic_accepts_cpu_fix_and_control_gpu_launch_pending",
+  "failed_gpu_diagnostic": {
+    "run_id": "pypto-20260825T052038Z-800777-8e8e83",
+    "root": "4f2d50089f02dd46836f6c794bba502456ab01e9",
+    "pypto": "6361f110660a77f9a8dc542265575d8f7260b343",
+    "return_code": 1,
+    "accepted_as_gpu_correctness": false,
+    "session_observation_tier": "observed_in_inherited_terminal_not_persisted_as_child_stderr",
+    "last_reached": "static repetition zero NvidiaExecutable prewarm after real Runtime observation and module/function load",
+    "not_reached": [
+      "prepare_launch",
+      "NvidiaExecutable Launch",
+      "provisional publication",
+      "CUDA numerical comparison",
+      "final report"
+    ],
+    "observed_session_error": "NvidiaExecutable prewarm failed: loaded CUDA function parameter ABI differs from Artifact",
+    "stderr_persisted": false,
+    "safety": {
+      "pre_release_external_compute_and_protected_compute_runtime_unreadable_sets_empty": true,
+      "last_external_compute_and_protected_compute_runtime_unreadable_sets_empty": true,
+      "post_exit_external_compute_and_protected_compute_runtime_unreadable_sets_empty": true,
+      "owned_pgid": 800865,
+      "owned_pgid_survivors": 0,
+      "external_signal_evidence": false
+    },
+    "files": {
+      "preflight_sha256": "5c88ffd0d77e7a42fe674ec6423ac3376f4809ea782a6074225157e8320dc208",
+      "gate_sha256": "e78e20217a10df8b332568688fd01026267dd8f305a622b24037790d78cea911",
+      "barrier_sha256": "e0849f9f2f511d54014da29c68bdc91fc1a8aee44ce899373551ac8a1437537f",
+      "process_sha256": "9085c010791b3d5e8639b12a0e7110105c14bb6c4f331c0fab11255f08c86525",
+      "compile_request_sha256": "70c2c507fb8f41ed75a0350e58e898a7a30a403a4d66935dad81f0f7f5a4f565",
+      "static_build_spec_sha256": "6a3c3e8cdf6c1e32edfdfc5d6c21812d273d9edd03e17613cf5adfe622249afb",
+      "static_artifact_sha256": "4138ed3dd5760c61766ca290f077a6fa9d0d3a2c89cf78c84f969ea1e4be903b",
+      "dynamic_build_spec_sha256": "2bd8c35b4e3a185a4bcb625680dd999aebcd5c1c6acffa35fdf0c11f5bd995ea",
+      "dynamic_artifact_sha256": "08114202105ea6bda39e99b33963fe690152fcad1c4dfa063f158893fc20bfd4",
+      "scalar_build_spec_sha256": "a06fa972d865830cbf2e0e5ad3fe3cb382516745fa240f0d20da8f9ee55e0050",
+      "scalar_artifact_sha256": "2823bcc561c30744d3d2ebcdad7acdf30df519f3eb3132118bc7177c406d19c3",
+      "diagnostic_cubin_sha256": "6dc121d2574537753229ed537efc5d2558eee26bfac0ad9d21826b5f33632b82",
+      "post_run_cuobjdump_sha256": "40270a5a26c51fcd5b1309ffe1a9781a5d863b7b0cf6607219444c67cfd6b90a"
+    }
+  },
+  "repair": {
+    "pypto_commit": "206447cf8c68b9cff1b86e01f0b40bfd689cd7a7",
+    "pypto_tree": "e0357daaefa74dbf676550015e60701996c400fb",
+    "tensor_ir_commit": "1dcb38c20e53d07c97d3781cae538e33901bae30",
+    "changed_files": [
+      "docs/en/dev/backend/02-nvidia-executable.md",
+      "docs/zh/dev/backend/02-nvidia-executable.md",
+      "src/compiler/nvidia_artifact_compiler.cpp",
+      "src/runtime/nvidia/executable.cpp",
+      "tests/ut/cpp/nvidia_executable_test.cpp"
+    ],
+    "parameter_contract": {
+      "cubin_kparam_ordinal_signature_authority": true,
+      "driver_enumeration_independent_width_multiset_check": true,
+      "driver_offset_range_validation": true,
+      "signature_order_launch_pointer_array": true,
+      "offset_order_assumption": false,
+      "sorted_non_overlap_check": true,
+      "bounded_artifact_frame_check": true,
+      "pointer_width_bytes": 8,
+      "dynamic_size_stride_width_bytes": 4,
+      "dynamic_size_range": "1..INT32_MAX",
+      "dynamic_stride_range": "0..INT32_MAX",
+      "stable_zeroed_slot_bytes": 8,
+      "maximum_latched_error_bytes": 4096
+    },
+    "cuda_tile_launch_contract": {
+      "host_grid": "Tile Grid dimensions",
+      "host_block_dimensions": [1, 1, 1],
+      "host_dynamic_shared_memory_bytes": 0,
+      "cubin_reqntid": [128, 1, 1],
+      "reqntid_semantics": "compiler-selected physical metadata consistent with four worker warps, not host block dimensions; exact mapping inferred",
+      "experimental_wrong_change_reverted": true,
+      "tensor_ir_clean_after_revert": true
+    },
+    "schema_or_cubin_change": {
+      "artifact_schema_changed": false,
+      "pipeline_revision_changed": false,
+      "cubin_bytes_expected_changed": false
+    }
+  },
+  "focused_fix_validation": {
+    "final_build_run_id": "pypto-20260825T064851Z-866863-27412e",
+    "final_build_return_code": 0,
+    "final_build_preflight_sha256": "ca9cd09af1a959a00fa49d8efe7c316e74cfc8fe8888ec92d4725dd2a8c0695c",
+    "final_build_process_sha256": "f98745a57506d69bb89c564858ad58d9abb81ea07fa64854494df25b05baa610",
+    "final_test_run_id": "pypto-20260825T064934Z-868286-7d9f71",
+    "final_test_return_code": 0,
+    "final_test_preflight_sha256": "835034300d46a355feb585f246ffeee3b3d25f6190f82a515f0757dd60e9c9a6",
+    "final_test_process_sha256": "bd64d99d44640163d53d86761881630d7dbff1e042c68ec0724366cd1f5e79d2",
+    "predecessor_stale_assertion_runs": [
+      {
+        "run_id": "pypto-20260825T064708Z-866011-6f914b",
+        "return_code": 8,
+        "accepted": false
+      },
+      {
+        "run_id": "pypto-20260825T064727Z-866242-93f9ba",
+        "return_code": 211,
+        "accepted": false
+      }
+    ]
+  },
+  "fresh_products": {
+    "backend_on": {
+      "configure_run_id": "pypto-20260825T065002Z-868546-526995",
+      "configure_return_code": 0,
+      "configure_preflight_sha256": "04f70c956510390d34fce26f52c4715cf289e7483862bc5e156af0a6ffa7c750",
+      "configure_process_sha256": "b7069ff4e2c139e693054fb3821586a5ff61036b59c3f87ad2ae3d4d083f6147",
+      "build_run_id": "pypto-20260825T065050Z-869893-badb83",
+      "build_return_code": 0,
+      "build_preflight_sha256": "e9c2c52405d673e787230170a6e941eaf0509efb309ccc4a380eadf005bdb0a5",
+      "build_process_sha256": "620f1528d03990a39cdab903ea20c0041d5935d27ed9a1eca0ff48568ce4fc64",
+      "ninja_log_records": 2797,
+      "ninja_log_unique_outputs": 2797,
+      "ninja_log_sha256": "10658966ed898c4159493109d2471fa379b8ccc5c5385f6f56d85bd25dfc46f9",
+      "compile_commands_sha256": "350bf133cec3173bae03c5db48a4c0689d4b2309b49615a13bf1c160bb7b6b7d",
+      "ctest_run_id": "pypto-20260825T065932Z-883420-3d116c",
+      "ctest": "9/9",
+      "ctest_junit_sha256": "347bb1eddb9ae2aa0a6937c19bc85c54074fcf7a3399ffd8ee65cd17b7ffed68",
+      "ctest_preflight_sha256": "3e4958798325a3f63083775fc054eff6eb22e1dd5202239654da1358cee8327a",
+      "ctest_process_sha256": "418972012f6cdf84dcae66345e17864b2486dc7a960ce9b01cbd54cb54297d39",
+      "python_run_id": "pypto-20260825T070443Z-889280-424570",
+      "python": "142 passed, 2 skipped",
+      "python_junit_sha256": "62dd5dbc2c30c4d58028735a35829212bd5bfbebe30931c3efb96a9d83704065",
+      "python_preflight_sha256": "343ba6a877f55d852edf6d4a195efa6db9285a6bc48a0206f37bfa94acdeb0ab",
+      "python_process_sha256": "f84e1386caa9e4266076019e5ce488d0c8028af62ecfcde958e484fb5b1f7d3c",
+      "dso_bytes": 780535416,
+      "dso_sha256": "15675c471f507b97190b0a770bb16e821c5e99353b65bbbc019988490f59018c"
+    },
+    "backend_off": {
+      "configure_run_id": "pypto-20260825T065955Z-883614-5098e2",
+      "configure_return_code": 0,
+      "configure_preflight_sha256": "319caca9bd5b45baba161b5db221c4fd6c1271aa6392f757730a2b9c6c500f04",
+      "configure_process_sha256": "c1a3853ad3cdb6dea252e3a0b3e3dad23d848dd32d66ce22793c282820458a1d",
+      "build_run_id": "pypto-20260825T070007Z-883835-7cb6d3",
+      "build_return_code": 0,
+      "build_preflight_sha256": "a4220b685bb748752cf8adacea141284434d101895fb5b743498c5768b1cc347",
+      "build_process_sha256": "f8acd90cdd76772501d77fdd05d39a34ab8729578847efab54850f4a45bd75de",
+      "ninja_log_records": 327,
+      "ninja_log_unique_outputs": 327,
+      "ninja_log_sha256": "c818484ff257e43481c6fdf25770ecd2f1631ede263114dee5733005d484b7c7",
+      "compile_commands_sha256": "fdd60e06f9ca8afd3c8a230e3f5122b2659affc76c28ba9d09831bf7c170fab4",
+      "ctest_run_id": "pypto-20260825T070412Z-889089-b986bd",
+      "ctest": "7/7",
+      "ctest_junit_sha256": "27460bd6e97507c17a6b8381a430d86e1a918af98f4a9b8c8ad0744979d8aa60",
+      "ctest_preflight_sha256": "d8a63eed87892331c51799a3644e7ba3d6dc6a3a84d8c261a4a08b119595cb21",
+      "ctest_process_sha256": "233542a7825d9863b435c9928053ba4d3c10a8c57e556ebdf7b849c70a42fb45",
+      "python_run_id": "pypto-20260825T070508Z-889497-469338",
+      "python": "135 passed, 9 skipped",
+      "python_junit_sha256": "2fcee961c432ef2112c84549e70dbf468471ee20c0c70d3df768e77376a1c789",
+      "python_preflight_sha256": "4a53d16e8a286bb4137678347379dadb4d42636418dba83ba56432d67257e8ac",
+      "python_process_sha256": "3d8b004100d3d29ba9c4e1043b9088a6408df6fc288650fe2e137619f6509186",
+      "dso_bytes": 434646736,
+      "dso_sha256": "32c2dea03e13ea49937df239ed1e7bc2b8a931594c41dcfc0cc6de8375464109"
+    },
+    "product_audit": {
+      "run_id": "pypto-20260825T070539Z-889610-55d705",
+      "return_code": 0,
+      "preflight_sha256": "c33925e80e7ee1e3c092efcd2076c82a6bcf14859bdb72363d09c65d37d1bdb8",
+      "process_sha256": "813309c1738da3135d140bcceba23731611781dffc4269f7e7d40413b122a598",
+      "rpath_or_runpath": false,
+      "needed_count": 5,
+      "dynamic_definition_count": 2,
+      "cuda_tensorir_executable_symbol_leakage": 0,
+      "mutually_exclusive_compile_rows": true
+    },
+    "deterministic_cpu_compile": {
+      "run_id": "pypto-20260825T070649Z-890066-2a1ae2",
+      "return_code": 0,
+      "preflight_sha256": "e454fb2d149cce7e7ff49870fb5cf5f6e08b60c1b101935d9cfc610db08b3230",
+      "process_sha256": "7b24f6e286ed08122da099992bc055c64f0fb0e8ad9b5e08af17af3040411452",
+      "exact_dso_pypto_revision": "206447cf8c68b9cff1b86e01f0b40bfd689cd7a7",
+      "all_expected_cubin_hashes_match": true,
+      "cuda_visible_devices_empty": true,
+      "workspace_ownership_markers_preserved": true,
+      "torch_device_count": 0,
+      "torch_loaded": true,
+      "torch_cuda_initialized": false,
+      "triton_sglang_flashinfer_loaded": false,
+      "predecessor_diagnostics": [
+        {
+          "run_id": "pypto-20260825T062710Z-846619-e8ece1",
+          "return_code": 1,
+          "boundary": "intermediate v2 product reached all Cubin assertions but used an inner env reset and then rejected the Torch package surface",
+          "accepted": false
+        },
+        {
+          "run_id": "pypto-20260825T062751Z-846944-1e7e2b",
+          "return_code": 0,
+          "boundary": "intermediate v2 product reproduced Cubins but the inner env reset did not preserve the wrapper-owned visibility and ownership markers",
+          "accepted": false
+        },
+        {
+          "run_id": "pypto-20260825T070611Z-889892-da2135",
+          "return_code": 1,
+          "preflight_sha256": "b83cd4a1799a0d239f78f0fbba24da3c7eae479fe0a98685d5f5270c67f03354",
+          "process_sha256": "ebfb9c99646336c56ee300177c56957b191c5e3fa542ca0f5142863aa28fb62c",
+          "boundary": "final product compiled no kernel because the diagnostic asserted the obsolete PYPTO_WORKSPACE marker",
+          "accepted": false
+        }
+      ]
+    }
+  },
+  "predecessor_root_control_v2": {
+    "implementation_commit": "817673176002f711ee0e77c3504b4e9b94bcaac3",
+    "implementation_tree": "25becd78ca579eb40f86c768cbde98acb5b88bd4",
+    "manifest_commit": "1cb563862de95ff93a86a5a8b55e98cc690623bb",
+    "manifest_tree": "e9cc38eb4d80234b5138a81d0539fb100d60cdf6",
+    "manifest_path": "state/contracts/pypto_nvidia_executable_sm120_v2.json",
+    "manifest_bytes": 1569,
+    "manifest_sha256": "63687352ee22b96019ca0a0850aae9a80feac65cfd9e182a9505b706d9e07cd5",
+    "v1_unchanged": true,
+    "runner_sha256": "f22befff45d87097ae42b5725cf33a5e296ed74ff177cd84c2b772be5939abdd",
+    "post_manifest_run_id": "pypto-20260825T061554Z-839257-34a98f",
+    "post_manifest_tests": "224 passed, 106 subtests passed",
+    "post_manifest_junit_sha256": "607eab54c72810ea98316b039ff0a627af3d0c6caabe9b36d054e6c7fcff5ed9",
+    "post_manifest_preflight_sha256": "14d87bf5b701714a13cff6d2f92055edd17b15a42c1b198105ecd1da17a4a095",
+    "post_manifest_process_sha256": "caf1af7daea9f59ef229de8916427d6bd1b6531cf49c63f40a95556c26d1fb9b",
+    "accepted_for_next_gpu_smoke": false,
+    "superseded_by": "root_control_v3"
+  },
+  "root_control_v3": {
+    "implementation_commit": "c71f32bd415a973a2a7756ecc9b1ae59f30df219",
+    "implementation_tree": "89dc321ff8f6913b826f70f09c07d5c045a67790",
+    "manifest_commit": "3de4cf702662cbaf948c6429acf269fee16a491e",
+    "manifest_tree": "c72970aa075e5769aad945599947b1764440f2c6",
+    "manifest_path": "state/contracts/pypto_nvidia_executable_sm120_v3.json",
+    "manifest_bytes": 1569,
+    "manifest_sha256": "978e873788eb7f3aaeba6473a9b7f8a1bcd827fe201d89cb781927f538c9b6e3",
+    "v1_and_v2_unchanged": true,
+    "runner_sha256": "f22befff45d87097ae42b5725cf33a5e296ed74ff177cd84c2b772be5939abdd",
+    "post_manifest_run_id": "pypto-20260825T071601Z-892819-67acee",
+    "post_manifest_tests": "224 passed, 106 subtests passed",
+    "post_manifest_junit_sha256": "cbc276bd9a9869f8afb6345e3c3f1ebfa8c3501070a2401ecf5a101bdab7b213",
+    "post_manifest_preflight_sha256": "ef376b8825d6c026bf67f6bbffe4ac08086265986a25c9f2f72c871c7b4213dd",
+    "post_manifest_process_sha256": "983cdda7538c4a3d0b98bb45d91e5dca48621d4109525d52ac49af96aa4ea223",
+    "protected_heavy_process_count": 6,
+    "protected_nvidia_compute_pids": [],
+    "coexistence_pauses": [],
+    "external_signal_evidence": false
+  },
+  "recorded_only_not_accepted": [
+    "first real-runtime diagnostic boundary and safety record"
+  ],
+  "review_lineage": {
+    "reviewed_subjects": {
+      "checkpoint_sha256": "e36c475f8d3a97a0721e0b169833ea13895ae7868c3c7699331655877c513ce9",
+      "evidence_pre_lineage_sha256": "54d6a82ed69272a6621ab65750a11784ef4ac0b92b8d0bd61a832e92e4168384",
+      "bitlesson_0053_sha256": "b5eab0d65c749448458aab9a3eec8f9364426a960bd495d31a130da11de21fdd",
+      "bitlesson_0054_sha256": "a56b7597747d5eeb59410eb0ab06214a147030c4f66b4b78a99bebe11755bc66"
+    },
+    "reviews": [
+      {
+        "reviewer": "/root/abi_fix_evidence_review",
+        "decision": "GO_CP0036_NOT_GPU_CORRECTNESS",
+        "p0": 0,
+        "p1": 0,
+        "p2": 0,
+        "report_path": "logs/pypto-nvidia-executable-206447c-final-evidence-review.md",
+        "report_bytes": 12171,
+        "report_sha256": "bd11b87eab0d4af3d852fba6c296a831036fd438997961fb86f700730feaa119"
+      },
+      {
+        "reviewer": "/root/cuda_tile_semantics_review",
+        "decision": "GO_CP0036_NO_GO_GPU_CORRECTNESS",
+        "p0": 0,
+        "p1": 0,
+        "p2": 2,
+        "report_path": "logs/pypto-cuda-tile-sm120-launch-semantics-final-review.md",
+        "report_bytes": 11166,
+        "report_sha256": "6adffab239ba48f9dfbabb9b39a4775ad45cba645b7f2cd17b04064b0db9af43"
+      },
+      {
+        "reviewer": "/root/cp36_persistence_review",
+        "decision": "GO_CP0036_NOT_GPU_CORRECTNESS",
+        "p0": 0,
+        "p1": 0,
+        "p2": 0,
+        "report_path": "logs/cp36-v3-final-persistence-review.md",
+        "report_bytes": 12008,
+        "report_sha256": "38b8cef48cd6951d5c70a1adf14a1d463472b14319351a57898f1f7ee2e77819"
+      }
+    ]
+  },
+  "accepted_scope": [
+    "generic CUDA parameter width range packing and enumeration-order-independent validation repair",
+    "CUDA Tile logical host launch block semantics",
+    "fresh backend-ON and backend-OFF products",
+    "exact-DSO CPU tests and complete product isolation",
+    "externally anchored root control manifest v3"
+  ],
+  "not_claimed": [
+    "successful PyPTO CUDA kernel launch",
+    "CUDA numerical correctness or CUDA Graph",
+    "frontend HIR lowering or executable custom operators",
+    "TorchInductor or SGLang backend registration",
+    "Qwen3.5 correctness strict coverage profiling or performance"
+  ]
+}

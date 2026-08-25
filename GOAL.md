@@ -2,16 +2,22 @@
 
 **Goal ID:** `PYPTO-NVIDIA-QWEN35-V1`
 
-**Execution status:** active. CP-0035 accepts the committed correctness-only
-SM120 smoke harness and its externally anchored root-control manifest at
-`394b75a` plus `2b53f0a`. It binds the CP-0034 live observation seam, CP-0033
-NvidiaExecutable and strict private TensorIR/CUDA Tile producer into one exact
-`-E/-I -B -S` parent/child/finalizer route, with protected-lane NVIDIA mapping
-and compute-PID audits, a pre-release barrier, six module lifetimes, semantic
-Artifact replay and no performance/model claim. All control and replay gates
-pass CPU-only; no production observation, libcuda module load, kernel launch or
-CUDA numerical result has run. The next transaction is the exact authorized
-RTX 5090 static/dynamic/scalar non-default-current-stream correctness smoke.
+**Execution status:** active. CP-0036 preserves the fail-closed first real-SM120
+diagnostic and accepts the generic CUDA parameter-ABI/enumeration repair at
+PyPTO `206447c`, plus the externally anchored v3 smoke controls at root
+`c71f32b` and `3de4cf7`.
+The first run reached real PyTorch Runtime observation and libcuda
+module/function prewarm, then stopped in static parameter-ABI validation before
+`prepare_launch`. The exact failed predicate was not persisted; source/Cubin
+audit found a four-byte dynamic-metadata defect and a separate live Driver
+enumeration-order assumption. The final repair validates bounded offset ranges
+and the width multiset independent of enumeration order, keeps launch pointers
+in signature order, and packs dynamic size/stride as four-byte `int32`. Fresh
+ON/OFF products, exact-DSO suites and all root controls pass CPU-only. CUDA Tile
+host block remains the required logical `[1,1,1]`; Cubin `REQNTID` is internal
+worker metadata. No PyPTO kernel launch or CUDA numerical result is accepted
+yet. The next transaction is the exact v3
+authorized RTX 5090 static/dynamic/scalar non-default-current-stream smoke.
 Frontend-HIR lowering, operators, framework routes and model execution remain
 later. The exact PyTorch-pinned Triton reference wheel stays audited/frozen and
 deliberately uninstalled as baseline-only infrastructure. The full objective

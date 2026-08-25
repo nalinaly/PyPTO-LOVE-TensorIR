@@ -1,8 +1,24 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `26`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `28`
 
 ## Current phase: P2 exact SM120 NvidiaExecutable correctness smoke; R0 baseline remains open
+
+Checkpoint `CP-0036` records a fail-closed real-runtime diagnostic and accepts
+the resulting generic ABI repair, not GPU correctness. Run
+`pypto-20260825T052038Z-800777-8e8e83` passed every isolation
+gate, observed the real RTX 5090/Runtime/context, compiled all three Cubins and
+loaded the first module/function, then failed in static repetition zero during
+`prewarm` before packet preparation or launch. PyPTO `206447c` restores the
+four-byte dynamic size/stride ABI, validates the live Driver width multiset and
+bounded ranges independent of enumeration order, retains signature-ordered
+launch pointers, bounds error text, and preserves CUDA Tile's required logical
+host block `[1,1,1]`. Fresh ON/OFF builds pass CTest 9/9 and 7/7, exact-DSO
+Python 142/2 and 135/9, and the complete product audit. Root `c71f32b` plus
+manifest-only `3de4cf7` bind the final DSO through immutable control manifest
+v3; post-manifest run `pypto-20260825T071601Z-892819-67acee` passes 224 tests
+plus 106 subtests. The next narrow transaction is the exact v3 GPU smoke and
+CPU finalizer.
 
 Checkpoint `CP-0035` accepts the fixed correctness-only SM120 smoke control
 path, not a GPU result. Root implementation `394b75a` and manifest-only commit
@@ -13,9 +29,9 @@ protected lane has no NVIDIA mapping/compute PID before Torch import, and the
 owned watchdog identifies compute only through PID start-tick, descendant and
 PGID. Static/dynamic/scalar Cubins compile deterministically CPU-only; replay
 through the exact DSO reconstructs full TargetInfo, BuildSpecs, ABI and Cubin.
-The post-manifest root suite passes 224 tests plus 106 subtests. No CUDA context,
-module or kernel was used. The next narrow transaction is to execute this exact
-route under a fresh green `gpu-smoke` gate and finalize its correctness evidence.
+The post-manifest root suite passes 224 tests plus 106 subtests. At CP-0035 no
+CUDA context, module or kernel had been used. Its scheduled live transaction is
+now preserved as the CP-0036 failed diagnostic; only the v3 route is current.
 
 Checkpoint `CP-0034` accepts only the parent-process NVIDIA runtime observation
 value at PyPTO `6361f11`. It reuses the private Driver boundary to produce every
@@ -24,9 +40,8 @@ Runtime-provider path and diagnostic regular-context identity without retaining
 handles or loading Cubin. `dlsym(RTLD_DEFAULT)` plus `dladdr` and canonical
 expected-path equality never opens libcudart. Distinct-sentinel, provider,
 fork-latch and backend-OFF tests pass; fresh ON/OFF products and exact-DSO gates
-remain single-DSO and isolated. No production observation or real CUDA call has
-run. CP-0035 now provides the fixed smoke payload/finalizer, but execution still
-requires a fresh authorized GPU-smoke gate.
+remain single-DSO and isolated. CP-0034 itself accepted no production
+observation; CP-0036 later records the failed diagnostic.
 
 Checkpoint `CP-0033` accepts only the CPU/fake-driver NvidiaExecutable v1
 contract at PyPTO `2842a1c`. It adds a separate internal runtime object target,

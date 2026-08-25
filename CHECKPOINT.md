@@ -1,13 +1,15 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0035`
+**Checkpoint:** `CP-0036`
 
-**Status:** R0 remains open. P2 now accepts the CPU/fake-driver
-NvidiaExecutable v1, parent-process live-target/Runtime observation value, and
-the exact correctness-only SM120 smoke controller/runner/finalizer plus its
-external control manifest. Real Runtime provider/context observation, SM120
-module load/current-stream execution, frontend-HIR lowering, operators,
-framework routes and model milestones remain unaccepted.
+**Status:** R0 remains open. P2 records the first fail-closed real-runtime
+diagnostic and accepts only the generic CUDA parameter-ABI/enumeration repair,
+fresh supporting CPU validation, CUDA Tile logical-host semantics, and the
+correctness-only SM120 smoke controller/runner/finalizer rebound through
+external manifest v3. Real module/function load inside prewarm was reached, but
+prewarm did not complete; no PyPTO kernel launch, CUDA
+numerical result, frontend-HIR lowering, operator,
+framework or model milestone is accepted.
 
 ## Current truth
 
@@ -440,6 +442,43 @@ framework routes and model milestones remain unaccepted.
   `pypto-20260825T045248Z-788969-a1b6bc` returns zero and leaves no ignored
   PyPTO package shadow. No CUDA context, module, stream launch, device result or
   performance measurement is accepted by CP-0035.
+- First real run `pypto-20260825T052038Z-800777-8e8e83` passed its admission,
+  release and child isolation barriers with empty external compute-PID sets and
+  empty protected compute-PID/runtime-mapping/unreadable-map sets. It observed
+  the real PyTorch Runtime, RTX 5090 context/device and
+  loaded the first static Cubin/function, then failed in repetition zero during
+  `prewarm` with a parameter-ABI mismatch. The exact failed predicate was not
+  persisted; the reversed-offset diagnosis is source/Cubin inference. It did
+  not reach `prepare_launch`,
+  `Launch`, provisional publication or numerical comparison. The owned PGID
+  exited with no survivor and no external signal.
+- PyPTO `206447cf8c68b9cff1b86e01f0b40bfd689cd7a7` fixes the generic defects.
+  Cubin `KPARAM` ordinals define signature order. Driver-enumerated parameter
+  widths are compared as a multiset and offsets only as bounded, non-overlapping
+  ranges, independent of enumeration order; launch pointers remain in signature
+  order. Dynamic sizes and strides are bounded and packed as four-byte `int32`
+  values in stable zeroed slots. Diagnostics are bounded and invalid later
+  dense dimensions are rejected before unsigned stride reconstruction.
+- CUDA Tile's documented host block is logical `[1,1,1]`; physical worker
+  warps and Cubin `EIATTR_REQNTID=128,1,1` are compiler-selected physical
+  metadata whose exact mapping remains an inference. They are not host block
+  dimensions. The attempted conventional-CUDA reinterpretation was fully reverted and TensorIR
+  remains clean at `1dcb38c`.
+- Fresh ON product SHA `15675c47...018c` passes CTest 9/9 and exact-DSO Python
+  142/2; fresh OFF SHA `32c2dea0...4109` passes CTest 7/7 and Python 135/9.
+  Both remain RPATH-free with five standard dependencies and two definitions;
+  the complete DSO/compile-row audit passes.
+- CPU-only run `pypto-20260825T070649Z-890066-2a1ae2` preserves empty device
+  visibility and wrapper ownership markers, observes Torch device count zero
+  with CUDA uninitialized, and recompiles all three expected Cubin size/SHA and
+  ABI pairs through the exact final DSO. Earlier `062710`, `062751` and `070611`
+  runs remain diagnostics and are not acceptance evidence.
+- Root control commit `c71f32bd415a973a2a7756ecc9b1ae59f30df219` and
+  manifest-only `3de4cf702662cbaf948c6429acf269fee16a491e` bind the final product
+  through immutable v3 manifest SHA
+  `978e873788eb7f3aaeba6473a9b7f8a1bcd827fe201d89cb781927f538c9b6e3`.
+  Versions 1 and 2 remain unchanged. Clean post-v3 run
+  `pypto-20260825T071601Z-892819-67acee` passes 224 tests plus 106 subtests.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact
@@ -479,8 +518,9 @@ framework routes and model milestones remain unaccepted.
 ## Resume action
 
 The goal is active, not complete. Freeze Triton as accepted reference-only
-infrastructure. The fixed-command payload/finalizer is accepted by CP-0035.
-Next, only under a fresh green `gpu-smoke` admission, run that exact-product
+infrastructure. The repaired fixed-command payload/finalizer is accepted by
+CP-0036 and manifest v3. Next, only under a fresh green `gpu-smoke` admission,
+run that exact-product
 RTX 5090 static/dynamic/scalar non-default-current-stream smoke and finalize its
 replay evidence. Do not edit the seven manifest-bound controls before the run.
 Do not infer real CUDA behavior from CPU evidence or advance frontend lowering
