@@ -117,8 +117,9 @@
       `642ff5b`.
 - [x] Implement, independently review and manifest-bind the separate frontend
       FP32/BF16 SM120 correctness-smoke controller/finalizer at root `47a0c15`.
-- [ ] Execute separately versioned HIR-authored FP32/BF16 vector add through the
-      returned Artifact on real SM120 and finalize it in a CPU-only replay.
+- [x] Execute separately versioned HIR-authored FP32/BF16 vector add through the
+      returned Artifact on real SM120 and finalize it in a CPU-only replay at
+      run `pypto-20260825T145519Z-1142938-70ac73`.
 - [ ] Extend the accepted frontend path to fused pointwise, row reduction and
       simple structured matmul before Inductor integration.
 - [x] Implement bounded canonical PyPTO Artifact v1 serialization with bytes,

@@ -5,11 +5,12 @@ LLVM/MLIR: 57109befac92811d2253109242ca6fa69c961fb2
 Structured TensorIR pipeline blob: 46610e0415598d010981e4bd07d0660c592401ac
 PyPTO accepted runtime-v1 backend-ON DSO (source 206447c): 15675c471f507b97190b0a770bb16e821c5e99353b65bbbc019988490f59018c
 PyPTO accepted runtime-v1 backend-OFF DSO (source 206447c): 32c2dea03e13ea49937df239ed1e7bc2b8a931594c41dcfc0cc6de8375464109
-PyPTO HIR-to-TensorIR emitter: accepted compile-free v1 at 07ab9ea; Artifact integration accepted through structured facade 642ff5b; frontend GPU execution pending
+PyPTO HIR-to-TensorIR emitter: accepted compile-free v1 at 07ab9ea; Artifact integration accepted through structured facade 642ff5b; two-fixture GPU correctness accepted separately below
 PyPTO CanonicalSchedule: accepted standalone bounded identity v1 at fa85e5a
 PyPTO structured frontend identity: accepted compile-free projections/final BuildSpec v1 at c4cf755
-PyPTO structured compile facade: accepted one-producer joined BuildSpec/Artifact v1 at 642ff5b; frontend SM120 execution pending
-PyPTO frontend SM120 smoke controls: accepted reviewed v1 at root 1d1fce4 + manifest 47a0c15, SHA-256 f16c4fbac14f4ec4d2a26fef9df3c4e7d1d3c412fbaf3c48f200a61a118d8eed; GPU execution pending
+PyPTO structured compile facade: accepted one-producer joined BuildSpec/Artifact v1 at 642ff5b; two-fixture SM120 correctness accepted separately below
+PyPTO frontend SM120 smoke controls: accepted reviewed v1 at root 1d1fce4 + manifest 47a0c15, SHA-256 f16c4fbac14f4ec4d2a26fef9df3c4e7d1d3c412fbaf3c48f200a61a118d8eed
+PyPTO frontend SM120 vector-add: accepted finalized FP32/BF16 correctness v1 at run pypto-20260825T145519Z-1142938-70ac73, report SHA-256 8dbbfbf3ed791cc38d552fbd8f37e34f60d1d0262e9626195ab084b530f228e8
 PyPTO ArtifactCache: accepted trusted-local persistent v1
 PyPTO NvidiaExecutable: accepted minimal real SM120 correctness v1 at run pypto-20260825T080254Z-910620-c669d9
 PyPTO NvidiaRuntimeObservation: accepted real provider/context in finalized minimal SM120 runtime result

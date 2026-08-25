@@ -1,0 +1,165 @@
+{
+  "id": "EV-0057",
+  "kind": "frontend_hir_vector_add_real_sm120_correctness_v1",
+  "status": "accepted_two_fixture_frontend_gpu_correctness",
+  "source": {
+    "root_run_commit": "b8dae3669866ceffbdda8fd391615fcc625dcc98",
+    "root_run_tree": "44e1f5be8832c176e0a93433106c5ff26cb8c7f7",
+    "evidence_commit": "bf40c119a43bfdf9718056895ade75129cdb0802",
+    "evidence_tree": "3e42482eeea42de735680bf4a76934fa0fa48229",
+    "pypto_commit": "642ff5bd79ee96b9e5a279a2bc945ad7a78362b7",
+    "pypto_tree": "77d8078d8df84dd7cf8544350918e25b8282976d",
+    "tensor_ir_commit": "1dcb38c20e53d07c97d3781cae538e33901bae30",
+    "cuda_tile_commit": "af2417041cc939b87ef56d92cfdcf61737c5457e",
+    "llvm_commit": "57109befac92811d2253109242ca6fa69c961fb2",
+    "dso_sha256": "4b796b1e1c53386356217f9ea6368468f885e68fb98fa715f90a081031ecc6fb",
+    "control_manifest_sha256": "f16c4fbac14f4ec4d2a26fef9df3c4e7d1d3c412fbaf3c48f200a61a118d8eed"
+  },
+  "run": {
+    "id": "pypto-20260825T145519Z-1142938-70ac73",
+    "mode": "gpu-smoke",
+    "return_code": 0,
+    "preflight_sha256": "ec3cd964b56715f24b8c9212f0404fe8f94946a5a8b2cc34d3f76fefcbef8e80",
+    "process_sha256": "7140a54c0e22391ae12fb1d739d1131c3fb57b23f916acd384fa8feb2b83a54c",
+    "gate_sha256": "a6567eae8886b81a69b3e12f5404b84d11910497a8a10a66307c947b2b166013",
+    "start_barrier_sha256": "82e1041aff5f69ff6460c70e853ac89e517c9448caf47249ee67ac8a1cfc67bc",
+    "provisional_sha256": "88db54f9ffd32f9601cad6decbe62fb3a1689e27f7162cbdc24694b9a1ba667b",
+    "protected_zero_nvidia_policy_requested": true,
+    "protected_zero_nvidia_policy_applied": true,
+    "external_nvidia_compute_pids": [],
+    "protected_nvidia_compute_pids": [],
+    "protected_nvidia_runtime_mapping_pids": [],
+    "unreadable_protected_maps": [],
+    "owned_nvidia_compute_pids_after_exit": []
+  },
+  "admission_wait_diagnostic": {
+    "run_id": "pypto-20260825T145034Z-1136244-f9d808",
+    "mode": "light observation only, not a GPU-smoke admission",
+    "return_code": 0,
+    "preflight_sha256": "dc943ed77b8efc0f6c2582737ac0185d6f4343272aecf2448ff44f487a7e38f2",
+    "process_sha256": "5d84d86910b83521b2c06eb0b40d601218d7eadd710911dad0e614188d9d31fe",
+    "gpu_used_mib": 23861,
+    "gpu_total_mib": 24463,
+    "nvidia_compute_pids": [],
+    "protected_nvidia_compute_pids": [],
+    "protected_nvidia_runtime_mapping_pids": [],
+    "unreadable_protected_maps": [],
+    "observation_tier": "sidecars prove the light command and GPU/process state; the decision to wait without cleanup is session-derived",
+    "action": "no GPU launch, process signal, device reset or restart; waited for a fresh green fixed admission"
+  },
+  "report": {
+    "path": "reports/data/pypto-frontend-vector-add-sm120-pypto-20260825T145519Z-1142938-70ac73.json",
+    "bytes": 32676,
+    "mode": 292,
+    "sha256": "8dbbfbf3ed791cc38d552fbd8f37e34f60d1d0262e9626195ab084b530f228e8",
+    "status": "accepted-real-sm120-frontend-vector-add-correctness-smoke",
+    "canonical": true,
+    "reconstructed_byte_equal": true
+  },
+  "compile_request": {
+    "bytes": 1583,
+    "sha256": "97fc6504326930e38fbc50e47663bb3904ab00add78f58e7a91c61f94b131a12",
+    "byte_identity_digest": "e83c2c3ad8050b3b6e2a781dc6ac3ac8d4f8b3750c9cb94cb708af05091ec287",
+    "loader_compatibility_input_digest": "c1397051b8fff67ea69e94a0c452ea1f8253a400d32036e15f4f3817591b7eb5",
+    "device_autotune_identity_digest": "e9caef4f459faa97d20eaf41432a802618224573762114acb87b7ea1763677cd"
+  },
+  "cases": [
+    {
+      "name": "fp32_8x8",
+      "dtype": "FP32",
+      "shape": [8, 8],
+      "grid": [4, 1, 1],
+      "hir_sha256": "2a4bf1b74adb2e160ba9a1f6c1596238095d73a1572fd911417f43465b6fced5",
+      "build_spec_digest": "e3d8ccb2f34247018ef9563d34a271c09361ea7a708221f03df7fee5bc837512",
+      "artifact_digest": "5b749fe20b0bd5665d37ff69ab22e2e9a35edb73d1447d208b4f031b737778cc",
+      "cubin_bytes": 13784,
+      "cubin_sha256": "dcc529fc856a508642c8b5a98c6fc4e223e10a49cc9f8a200b8984f92b6483ab",
+      "reference_hashes": [
+        "866734bdeb1c286f7a08783e2350e7b53961991e1fc99205b75d8717ff3b207c",
+        "bf5591117fce93b0551fb97d51684bc68c4c9e573f49080e5f0aae3ad72194ce"
+      ],
+      "input_hashes": [
+        "26044ff105b7dfbc5569669481b0ae3257e19e58dedad22cbad0effeece5d22f",
+        "565f9d8fcaeb7f413f3e12ff7ffe03c2a6f104748b1a58adda453c0a1d806482"
+      ]
+    },
+    {
+      "name": "bf16_128",
+      "dtype": "BF16",
+      "shape": [128],
+      "grid": [8, 1, 1],
+      "hir_sha256": "cc470968297ff4430fdcf43f25bf6cb4b9054e6ba4d67ddd0177040101044baa",
+      "build_spec_digest": "cb3a7595ff6208e1a45d534ee80eed4650db3334832a7d378711a8b0d7201637",
+      "artifact_digest": "a4009cb4a7e3ed4d6bff3114ba3250f9b51a7442801573b3ddab407763ce80b5",
+      "cubin_bytes": 13784,
+      "cubin_sha256": "83afb2df234ad90167351d608052d44f86e26a8ca73959369992cd139943bc13",
+      "reference_semantics": "BF16 inputs converted to FP32, FP32 add, round once to BF16",
+      "reference_hashes": [
+        "c038c60748752a4d6c277fc4e01412f5449725f17bf4956b5cb9e22bc93bc1d9",
+        "c038c60748752a4d6c277fc4e01412f5449725f17bf4956b5cb9e22bc93bc1d9"
+      ],
+      "input_hashes": [
+        "64bc76bb2aa241d7e407343cbca33a520f233d2d0831e8f1c996160427e49b4d",
+        "2280315221c5301585ac8c7cd00b677126a7f48f36798d00201bd3365f739502"
+      ]
+    }
+  ],
+  "execution": {
+    "compile_structured_strict_calls": 2,
+    "producer_calls_per_case": 1,
+    "fresh_executable_lifetimes": 4,
+    "raw_non_default_stream": 109935239359632,
+    "capture_free_before": true,
+    "capture_free_at_launch": true,
+    "external_synchronizations": 4,
+    "input_unchanged": true,
+    "references_match": true,
+    "packet_releases": 4,
+    "explicit_unloads": 4,
+    "terminal_state": "Unloaded",
+    "fallback_used": false,
+    "forbidden_provider_imports": []
+  },
+  "finalization": {
+    "wrapper_run_id": "pypto-20260825T145616Z-1144687-7c4546",
+    "wrapper_preflight_sha256": "c3ad118e3755c6f4b3638331dbf5be8980a125457f1c1941e7bef2c08093abb1",
+    "wrapper_process_sha256": "83b38a14021fe3733cdd82312aa3c97250beacee1ddefc854da8694eb621c2ab",
+    "cpu_only_deserialization": true,
+    "torch_cuda_initialized": false,
+    "replay_stdout_sha256": "8fffeaa846cbe51ecdb34c67449538ae7526955e6ba58ce0422cb7a34902a39d",
+    "no_replace_retry_run_id": "pypto-20260825T150256Z-1150149-c874d6",
+    "no_replace_retry_return_code": 1,
+    "no_replace_retry_preflight_sha256": "f1aec1f6b32819d7e1bae6e0403f0cdcb785934444b4d7f1cfc4033f9a8217ff",
+    "no_replace_retry_process_sha256": "817dea216e8eb0a23380231ac4b9fb3b538e97a69f226ede612c13c6ec8a3f3b",
+    "report_unchanged_after_retry": true
+  },
+  "reference_reconstruction": {
+    "run_id": "pypto-20260825T145939Z-1148489-09e753",
+    "preflight_sha256": "642bb2c418601935c65ed7ffdadd0353de6e136e8689f61eebbb8d1efa74bc3f",
+    "process_sha256": "e2a3a4df246cd7e216f2db9a1ff8cb84d74eb2fc8456aeaa24fad1fdd475113b",
+    "cuda_initialized": false,
+    "all_input_and_output_hashes_match": true
+  },
+  "review": {
+    "reviewer": "/root/frontend_gpu_evidence_review",
+    "decision": "GO_FRONTEND_SM120_VECTOR_ADD_V1",
+    "p0": 0,
+    "p1": 0,
+    "p2": 0,
+    "report_path": "logs/cp44-frontend-sm120-gpu-evidence-review.md",
+    "report_sha256": "0433e4327954382f41bd8c916a3615bdc6f67f0e85cf60142ecffa413f7dbbda"
+  },
+  "accepted_scope": [
+    "FP32 [8,8] and BF16 [128] static contiguous tensor.add HIR fixtures",
+    "one strict facade producer call per fixture",
+    "joined final BuildSpec Artifact and deterministic SM120 Cubin",
+    "four non-default-stream NvidiaExecutable correctness lifetimes",
+    "CPU-only exact replay finalization and immutable no-replace report"
+  ],
+  "not_claimed": [
+    "general vector-add or BF16 correctness",
+    "fused pointwise reduction indexing or matmul",
+    "CUDA Graph correctness or performance",
+    "TorchInductor SGLang Qwen model-forward correctness or strict coverage"
+  ]
+}

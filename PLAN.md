@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `35`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `36`
 
 ## Current phase: P2 frontend-HIR SM120 execution; R0 baseline remains open
 
@@ -14,9 +14,12 @@ returns only the joined immutable pair. Backend-ON passes native 7/7 and Python
 182/2; backend-OFF passes native 5/5, functional Python 7/7 and full Python
 175/9. CP-0043 accepts a separately versioned, two-layer manifest-bound
 HIR-authored FP32/BF16 SM120 smoke controller and CPU-only replay finalizer.
-Its source, exact-DSO and complete synthetic finalization gates pass with no GPU
-claim. The current transaction is its fixed GPU child followed by independent
-CPU-only evidence finalization.
+Its source, exact-DSO and complete synthetic finalization gates pass. CP-0044
+accepts the finalized real-SM120 run: two one-producer frontend compilations and
+four fresh non-default-stream lifetimes are numerically correct with no
+fallback. The current transaction generalizes the add-only emitter and frontend
+identity boundary to a bounded fused-pointwise chain while preserving every
+accepted vector-add byte and control.
 
 Checkpoint `CP-0038` accepts the finalized minimal real-SM120
 `NvidiaExecutable` correctness v1 report from run `080254`, SHA
@@ -25,9 +28,10 @@ complete twice on the caller's non-default stream with reference equality,
 external synchronization and explicit unload. Matching v4 finalization joins
 all controls, sidecars, serialized compiler inputs, Artifacts, Cubins and live
 TargetInfo with no fallback. This closes only the low-level compiler/runtime
-launch gate. CP-0042 now closes the one-producer frontend Artifact facade;
-HIR-authored vector-add correctness is current, followed by fused pointwise,
-row reduction and structured matmul.
+launch gate. CP-0042 closes the one-producer frontend Artifact facade, CP-0043
+closes its separate smoke controls, and CP-0044 closes HIR-authored vector-add
+real-SM120 correctness. Fused pointwise is current, followed by row reduction
+and structured matmul.
 
 Checkpoint `CP-0037` records, but does not accept, v3 run
 `pypto-20260825T073624Z-900485-7df250`. Its real GPU child completed six

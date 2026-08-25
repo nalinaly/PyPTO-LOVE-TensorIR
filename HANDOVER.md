@@ -41,7 +41,7 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0043.md` and evidence `EV-0005` through `EV-0056`.
+- Read `state/checkpoints/CP-0044.md` and evidence `EV-0005` through `EV-0057`.
 - Root `5564008` plus manifest-only `7639d82` owns the current v4
   correctness-only SM120 smoke. The manifest SHA is `a079c4d2...98bf` and
   binds seven exact control blobs to the Layer-A commit/tree. Controller and
@@ -95,15 +95,24 @@ upstream checkouts and their optional/manual suites.
   compile-twice discovery or cache publication exists. Backend-ON native 7/7
   and exact-DSO Python 182/2 pass; backend-OFF native 5/5, functional Python
   7/7 and full Python 175/9 pass. The ON/OFF build-directory names are stale;
-  EV-0055 binds the exact DSO paths/hashes and ON embedded revision. Resume at
-  the separate HIR-authored real-SM120 vector-add smoke, not framework work.
+  EV-0055 binds the exact DSO paths/hashes and ON embedded revision. CP-0042's
+  next step was the separate HIR-authored real-SM120 vector-add smoke, not
+  framework work.
 - CP-0043/EV-0056 accepts that separate frontend smoke's control boundary:
   implementation `1d1fce4`, manifest-only `47a0c15`, canonical manifest SHA
   `f16c4fba...d8eed`, exact parent-v4 primitive reuse, two pinned HIR/Cubin
   cases, strict non-default-stream lifecycle evidence, and a CPU-only no-replace
   finalizer. The initial NO-GO findings were fixed before publication. Exact
   DSO runner/replay gates pass with CUDA uninitialized; clean root passes
-  246 tests plus 126 subtests. No frontend GPU result exists yet.
+  246 tests plus 126 subtests. CP-0043 itself accepted no frontend GPU result.
+- CP-0044/EV-0057 accepts finalized run
+  `pypto-20260825T145519Z-1142938-70ac73`. Two exact HIR programs call the
+  one-producer facade once each and four fresh non-default-stream executable
+  lifetimes match FP32/BF16 CPU references, preserve inputs, release packets and
+  unload terminally with no fallback or protected/external NVIDIA activity.
+  Final report SHA is `8dbbfbf3...28e8`; independent reconstruction and
+  expected no-replace retry rejection are confirmed. This is only two-fixture
+  vector-add correctness.
 - TensorIR `1dcb38c...` is a local committed feature revision and is fully
   pinned by the PyPTO gitlink/build guards. It has not been published to the
   configured NVIDIA remote; push or otherwise materialize that commit before
@@ -181,11 +190,12 @@ upstream checkouts and their optional/manual suites.
 - The v4 fixed-command payload/finalizer gate is closed by CP-0038. Preserve its
   controls and final report; do not rerun it merely to change evidence. CP-0042
   closes the single-call frontend Artifact transaction under `pypto.compiler`.
-  CP-0043 accepts the separately versioned frontend controller/finalizer. Run
-  and independently finalize its HIR-authored FP32/BF16 vector add on SM120.
-  Fused pointwise, row reduction and structured matmul follow. Operator
-  algorithms, framework registration, online tuning and model work remain after
-  this frontend gate.
+  CP-0043 accepts the separately versioned frontend controller/finalizer and
+  CP-0044 accepts its HIR-authored FP32/BF16 SM120 result. Generalize the
+  emitter/preparation boundary to bounded fused pointwise next; preserve the
+  accepted add controls and report byte-for-byte. Row reduction and structured
+  matmul follow. Operator algorithms, framework registration, online tuning and
+  model work remain after these compiler gates.
 - `docs/coverage_collector_map.md` is the pinned collector implementation map.
   Do not claim `closed_world=true` from ordinary Kineto/NVTX or from the first
   CUPTI-monitor development trace.
