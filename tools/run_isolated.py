@@ -19,6 +19,8 @@ import subprocess
 import sys
 import time
 
+import _pypto_nvidia_executable_sm120_contract as nvidia_smoke_contract
+import _pypto_nvidia_sm120_control_manifest as nvidia_smoke_control
 import preflight as preflight_tool
 import stop_run
 
@@ -36,9 +38,7 @@ ENVIRONMENT_LOCKS = {
 }
 ENVIRONMENT_TRANSACTION_LOCKS = {
     "pypto-nvidia": ROOT / "runs" / "environment-pypto-nvidia.lock",
-    "sglang-baseline-py312": (
-        ROOT / "runs" / "environment-sglang-baseline-py312.lock"
-    ),
+    "sglang-baseline-py312": (ROOT / "runs" / "environment-sglang-baseline-py312.lock"),
 }
 PROFILE_ENVIRONMENTS = {
     "pypto": "pypto-nvidia",
@@ -93,6 +93,7 @@ COEXISTENCE_ABORT_MEMORY_KIB = 16 * 1024 * 1024
 COEXISTENCE_RESUME_MEMORY_KIB = 24 * 1024 * 1024
 COEXISTENCE_POLL_SECONDS = 5
 GPU_BENCHMARK_POLL_SECONDS = 1
+GPU_SMOKE_POLL_SECONDS = 1
 
 
 class EnvironmentLockBusy(RuntimeError):
@@ -162,7 +163,9 @@ def acquire_environment_lock(
     runs_root.mkdir(parents=True, exist_ok=True)
     runs_lstat = runs_root.lstat()
     if runs_root.is_symlink() or not stat.S_ISDIR(runs_lstat.st_mode):
-        raise RuntimeError(f"workspace runs root is not an independent directory: {runs_root}")
+        raise RuntimeError(
+            f"workspace runs root is not an independent directory: {runs_root}"
+        )
     path.parent.mkdir(parents=True, exist_ok=True)
     parent = path.parent.resolve(strict=True)
     if parent != runs_root.resolve(strict=True):
@@ -254,8 +257,32 @@ def process_start_ticks(pid: int) -> int:
 
 def atomic_json(path: pathlib.Path, value: dict[str, object]) -> None:
     temporary = path.with_suffix(f".{os.getpid()}.tmp")
-    temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
-    os.replace(temporary, path)
+    encoded = canonical_json_bytes(value)
+    descriptor = os.open(
+        temporary,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+        0o600,
+    )
+    try:
+        with os.fdopen(descriptor, "wb") as output:
+            output.write(encoded)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def canonical_json_bytes(value: object) -> bytes:
+    return (json.dumps(value, indent=2, sort_keys=True) + "\n").encode("ascii")
 
 
 def sha256_file(path: pathlib.Path) -> str:
@@ -264,6 +291,147 @@ def sha256_file(path: pathlib.Path) -> str:
         while chunk := source.read(8 * 1024 * 1024):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def validate_exact_nvidia_smoke_command(command: list[str]) -> None:
+    expected = nvidia_smoke_contract.fixed_child_command(ROOT)
+    if command != expected:
+        raise ValueError(
+            "exact PyPTO NVIDIA smoke requires the fixed direct child command: "
+            f"expected {expected!r}, got {command!r}"
+        )
+
+
+def _require_exact_regular_file(
+    path: pathlib.Path,
+    *,
+    expected_size: int,
+    expected_sha256: str,
+    description: str,
+) -> None:
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"{description} must be a regular non-symlink file: {path}")
+    if path.stat().st_size != expected_size:
+        raise ValueError(f"{description} size differs from the fixed smoke contract")
+    if sha256_file(path) != expected_sha256:
+        raise ValueError(f"{description} SHA-256 differs from the fixed smoke contract")
+
+
+def validate_exact_nvidia_smoke_inputs() -> dict[str, object]:
+    """Fail before child creation unless every large immutable input is exact."""
+
+    runner = ROOT / nvidia_smoke_contract.RUNNER_RELATIVE_PATH
+    _require_exact_regular_file(
+        runner,
+        expected_size=nvidia_smoke_contract.RUNNER_SIZE,
+        expected_sha256=nvidia_smoke_contract.RUNNER_SHA256,
+        description="PyPTO NVIDIA smoke runner",
+    )
+    _require_exact_regular_file(
+        ROOT / nvidia_smoke_contract.PYTHON_REAL_RELATIVE_PATH,
+        expected_size=nvidia_smoke_contract.PYTHON_SIZE,
+        expected_sha256=nvidia_smoke_contract.PYTHON_SHA256,
+        description="selected Python interpreter",
+    )
+    environment_lock = ROOT / "ENVIRONMENT.lock"
+    if environment_lock.is_symlink() or not environment_lock.is_file():
+        raise ValueError("ENVIRONMENT.lock must be a regular non-symlink file")
+    if sha256_file(environment_lock) != (nvidia_smoke_contract.ENVIRONMENT_LOCK_SHA256):
+        raise ValueError("ENVIRONMENT.lock differs from the fixed smoke contract")
+    _require_exact_regular_file(
+        ROOT / nvidia_smoke_contract.PYPTO_DSO_RELATIVE_PATH,
+        expected_size=nvidia_smoke_contract.PYPTO_DSO_SIZE,
+        expected_sha256=nvidia_smoke_contract.PYPTO_DSO_SHA256,
+        description="PyPTO NVIDIA product DSO",
+    )
+    _require_exact_regular_file(
+        ROOT / nvidia_smoke_contract.CUDA_RUNTIME_RELATIVE_PATH,
+        expected_size=nvidia_smoke_contract.CUDA_RUNTIME_SIZE,
+        expected_sha256=nvidia_smoke_contract.CUDA_RUNTIME_SHA256,
+        description="selected Torch CUDA Runtime provider",
+    )
+    pypto = ROOT / "projects" / "pypto"
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=pypto,
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout.strip()
+    tree = subprocess.run(
+        ["git", "rev-parse", "HEAD^{tree}"],
+        cwd=pypto,
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout.strip()
+    dirty = subprocess.run(
+        ["git", "status", "--porcelain=v1"],
+        cwd=pypto,
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout
+    if (
+        head != nvidia_smoke_contract.PYPTO_HEAD
+        or tree != nvidia_smoke_contract.PYPTO_TREE
+        or dirty
+    ):
+        raise ValueError("PyPTO source identity differs from the fixed smoke contract")
+    ignored_python = subprocess.run(
+        [
+            "git",
+            "ls-files",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "--",
+            "python/pypto",
+        ],
+        cwd=pypto,
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout
+    if ignored_python:
+        raise ValueError("PyPTO Python source contains ignored shadow files")
+    nested = (
+        (
+            pypto / "3rdparty" / "nvidia" / "tensor-ir",
+            nvidia_smoke_contract.TENSOR_IR_HEAD,
+            "TensorIR",
+        ),
+        (
+            pypto / "3rdparty" / "nvidia" / "cuda-tile",
+            nvidia_smoke_contract.CUDA_TILE_HEAD,
+            "CUDA Tile",
+        ),
+        (
+            pypto / "3rdparty" / "nvidia" / "llvm-project",
+            nvidia_smoke_contract.LLVM_HEAD,
+            "LLVM",
+        ),
+    )
+    for repository, expected_head, description in nested:
+        actual_head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repository,
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout.strip()
+        actual_dirty = subprocess.run(
+            ["git", "status", "--porcelain=v1"],
+            cwd=repository,
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout
+        if actual_head != expected_head or actual_dirty:
+            raise ValueError(
+                f"{description} source identity differs from the fixed smoke contract"
+            )
+    return nvidia_smoke_control.validate_control_manifest(ROOT)
 
 
 class RunInterrupted(Exception):
@@ -340,6 +508,10 @@ def build_run_metadata(
     timestamp: str,
     protected_cpu_only_coexistence_requested: bool = False,
     protected_activity_waiver_applied: bool = False,
+    protected_zero_nvidia_gpu_smoke_requested: bool = False,
+    protected_gpu_smoke_waiver_applied: bool = False,
+    gpu_smoke_start_barrier_path: str | None = None,
+    gpu_smoke_gate_path: str | None = None,
     preflight_report_sha256: str | None = None,
     preflight_report_path: str | None = None,
     preflight_report: dict[str, object] | None = None,
@@ -350,7 +522,7 @@ def build_run_metadata(
     """Capture the ownership fields required by stop_run.verify."""
 
     return {
-        "schema": 2,
+        "schema": 3 if mode == "gpu-smoke" else 2,
         "run_id": run_id,
         "workspace": str(ROOT),
         "environment": str(environment_prefix),
@@ -378,6 +550,48 @@ def build_run_metadata(
                 else preflight_report.get("protected_nvidia_compute_pids", [])
             ),
         },
+        "gpu_smoke": {
+            "policy_version": preflight_tool.GPU_SMOKE_POLICY_VERSION,
+            "requested": protected_zero_nvidia_gpu_smoke_requested,
+            "waiver_applied": protected_gpu_smoke_waiver_applied,
+            "authorization": (
+                nvidia_smoke_contract.GPU_SMOKE_AUTHORIZATION
+                if protected_zero_nvidia_gpu_smoke_requested
+                else None
+            ),
+            "start_barrier_path": gpu_smoke_start_barrier_path,
+            "gate_path": gpu_smoke_gate_path,
+            "memory_floor_kib": (
+                None
+                if preflight_report is None
+                else preflight_report.get("memory_floor_kib")
+            ),
+            "gpu_free_memory_floor_mib": (
+                None
+                if preflight_report is None
+                else preflight_report.get("gpu_smoke_free_memory_floor_mib")
+            ),
+            "protected_heavy_processes": (
+                []
+                if preflight_report is None
+                else preflight_report.get("protected_heavy_processes", [])
+            ),
+            "protected_nvidia_compute_pids": (
+                []
+                if preflight_report is None
+                else preflight_report.get("protected_nvidia_compute_pids", [])
+            ),
+            "protected_nvidia_runtime_mapping_pids": (
+                []
+                if preflight_report is None
+                else preflight_report.get("protected_nvidia_runtime_mapping_pids", [])
+            ),
+            "unreadable_protected_maps": (
+                []
+                if preflight_report is None
+                else preflight_report.get("unreadable_protected_maps", [])
+            ),
+        },
         "preflight": {
             "path": preflight_report_path,
             "sha256": preflight_report_sha256,
@@ -387,7 +601,11 @@ def build_run_metadata(
             "minimum_free_disk_bytes": minimum_free_disk_bytes,
             "owned_run_pause_memory_kib": (
                 COEXISTENCE_ABORT_MEMORY_KIB
-                if protected_cpu_only_coexistence_requested
+                if (
+                    protected_cpu_only_coexistence_requested
+                    or protected_zero_nvidia_gpu_smoke_requested
+                    or mode == "gpu-smoke"
+                )
                 else None
             ),
         },
@@ -407,6 +625,8 @@ def isolated_environment(
     environment_prefix: pathlib.Path,
     framework_profile: str,
     protected_cpu_only_coexistence_requested: bool = False,
+    protected_zero_nvidia_gpu_smoke_requested: bool = False,
+    exact_nvidia_smoke: bool = False,
 ) -> dict[str, str]:
     if framework_profile not in PROFILE_ENVIRONMENTS:
         raise ValueError(f"unknown framework profile: {framework_profile!r}")
@@ -421,7 +641,7 @@ def isolated_environment(
         for name, value in os.environ.items()
         if name in PASSTHROUGH_ENV_NAMES
     }
-    if framework_profile == "pypto":
+    if framework_profile == "pypto" and not exact_nvidia_smoke:
         environment.update(
             {
                 name: os.environ[name]
@@ -466,7 +686,10 @@ def isolated_environment(
 
     environment.update({name: str(path) for name, path in paths.items()})
     common_python_paths = (str(ROOT / "upstream" / "sglang" / "python"),)
-    if framework_profile == "pypto":
+    if exact_nvidia_smoke:
+        python_paths: tuple[str, ...] = ()
+        sglang_plugins = "__pypto_exact_nvidia_smoke_no_plugins__"
+    elif framework_profile == "pypto":
         python_paths = (
             str(ROOT / "projects" / "pypto-framework-plugins" / "src"),
             str(ROOT / "projects" / "pypto-kernels" / "src"),
@@ -512,10 +735,16 @@ def isolated_environment(
             }
         )
     if protected_cpu_only_coexistence_requested:
-        environment[
-            "PYPTO_PROTECTED_CPU_ONLY_COEXISTENCE_REQUESTED"
-        ] = "1"
+        environment["PYPTO_PROTECTED_CPU_ONLY_COEXISTENCE_REQUESTED"] = "1"
         environment["CUDA_VISIBLE_DEVICES"] = ""
+    if protected_zero_nvidia_gpu_smoke_requested:
+        environment["PYPTO_PROTECTED_ZERO_NVIDIA_GPU_SMOKE_REQUESTED"] = "1"
+        environment["PYPTO_GPU_SMOKE_AUTHORIZATION"] = (
+            nvidia_smoke_contract.GPU_SMOKE_AUTHORIZATION
+        )
+    if exact_nvidia_smoke:
+        environment["PYPTO_ALLOW_FALLBACK"] = "0"
+        environment["PYPTO_STRICT_COVERAGE"] = "1"
     return environment
 
 
@@ -527,9 +756,7 @@ def wait_with_coexistence_watchdog(
     minimum_free_disk_bytes: int = 0,
     metadata_path: pathlib.Path | None = None,
 ) -> tuple[int, bool]:
-    deadline = (
-        None if timeout_seconds == 0 else time.monotonic() + timeout_seconds
-    )
+    deadline = None if timeout_seconds == 0 else time.monotonic() + timeout_seconds
     pauses = metadata.setdefault("coexistence_pauses", [])
     if not isinstance(pauses, list):
         raise RuntimeError("run metadata coexistence_pauses must be a list")
@@ -569,13 +796,10 @@ def wait_with_coexistence_watchdog(
                         preflight_tool.process_table()
                     )
                     protected_compute_pids = sorted(
-                        compute_pids
-                        & {candidate.pid for candidate in protected}
+                        compute_pids & {candidate.pid for candidate in protected}
                     )
-                    owned_compute_pids, _external_compute_pids = (
-                        partition_compute_pids(
-                            compute_pids, metadata, all_processes
-                        )
+                    owned_compute_pids, _external_compute_pids = partition_compute_pids(
+                        compute_pids, metadata, all_processes
                     )
                 except Exception as error:
                     abort_record = {
@@ -602,9 +826,7 @@ def wait_with_coexistence_watchdog(
                     return_code = terminate_owned_process(
                         process, metadata, wait_seconds=5
                     )
-                    survivors = stop_run.process_group_members(
-                        int(metadata["pgid"])
-                    )
+                    survivors = stop_run.process_group_members(int(metadata["pgid"]))
                     if survivors:
                         if metadata.get("status") != "paused":
                             stop_run.signal_verified(metadata, signal.SIGSTOP)
@@ -614,9 +836,7 @@ def wait_with_coexistence_watchdog(
                             "verified-sigterm-sigcont-timeout-then-sigstop"
                         )
                     else:
-                        abort_record["owned_run_action"] = (
-                            "verified-sigterm-sigcont"
-                        )
+                        abort_record["owned_run_action"] = "verified-sigterm-sigcont"
                     if metadata_path is not None:
                         atomic_json(metadata_path, metadata)
                     return return_code, True
@@ -636,10 +856,8 @@ def wait_with_coexistence_watchdog(
                     return process.wait(), False
                 paused = False
                 metadata["status"] = "running"
-                pauses[-1]["resumed_at"] = (
-                    datetime.datetime.now(datetime.UTC).strftime(
-                        "%Y%m%dT%H%M%SZ"
-                    )
+                pauses[-1]["resumed_at"] = datetime.datetime.now(datetime.UTC).strftime(
+                    "%Y%m%dT%H%M%SZ"
                 )
                 if metadata_path is not None:
                     atomic_json(metadata_path, metadata)
@@ -653,9 +871,7 @@ def wait_with_coexistence_watchdog(
                 continue
             if abort_record["reason"] == "owned-nvidia-compute-became-active":
                 metadata["coexistence_abort"] = abort_record
-                return_code = terminate_owned_process(
-                    process, metadata, wait_seconds=5
-                )
+                return_code = terminate_owned_process(process, metadata, wait_seconds=5)
                 survivors = stop_run.process_group_members(int(metadata["pgid"]))
                 if survivors:
                     if metadata.get("status") != "paused":
@@ -710,27 +926,27 @@ def partition_compute_pids(
         ),
         None,
     )
+    if root_process is not None and root_process.start_ticks != int(
+        metadata["start_ticks"]
+    ):
+        root_process = None
     descendants = (
         []
         if root_process is None
-        else preflight_tool.process_descendant_closure(
-            all_processes, [root_process]
-        )
+        else preflight_tool.process_descendant_closure(all_processes, [root_process])
     )
-    owned_lineage_pids = {candidate.pid for candidate in descendants}
+    expected_pgid = int(metadata["pgid"])
+    owned_lineage_pids: set[int] = set()
+    for candidate in descendants:
+        try:
+            candidate_pgid = os.getpgid(candidate.pid)
+        except (OSError, ProcessLookupError):
+            continue
+        if candidate_pgid == expected_pgid:
+            owned_lineage_pids.add(candidate.pid)
     owned: set[int] = set()
     for compute_pid in compute_pids:
         if compute_pid in owned_lineage_pids:
-            owned.add(compute_pid)
-            continue
-        try:
-            environment = stop_run.process_environment(compute_pid)
-        except (OSError, ProcessLookupError):
-            continue
-        if (
-            environment.get("PYPTO_RUN_ID") == metadata.get("run_id")
-            and environment.get("PYPTO_WORKSPACE_ROOT") == str(ROOT)
-        ):
             owned.add(compute_pid)
     return sorted(owned), sorted(compute_pids - owned)
 
@@ -743,9 +959,7 @@ def wait_with_gpu_benchmark_watchdog(
     minimum_free_disk_bytes: int = 0,
     metadata_path: pathlib.Path | None = None,
 ) -> tuple[int, bool]:
-    deadline = (
-        None if timeout_seconds == 0 else time.monotonic() + timeout_seconds
-    )
+    deadline = None if timeout_seconds == 0 else time.monotonic() + timeout_seconds
     while True:
         try:
             return process.wait(timeout=GPU_BENCHMARK_POLL_SECONDS), False
@@ -798,9 +1012,136 @@ def wait_with_gpu_benchmark_watchdog(
             if violation is None:
                 continue
             metadata["gpu_benchmark_abort"] = violation
-            return_code = terminate_owned_process(
-                process, metadata, wait_seconds=5
-            )
+            return_code = terminate_owned_process(process, metadata, wait_seconds=5)
+            survivors = stop_run.process_group_members(int(metadata["pgid"]))
+            if survivors:
+                if metadata.get("status") != "paused":
+                    stop_run.signal_verified(metadata, signal.SIGSTOP)
+                violation["surviving_group_pids"] = survivors
+                violation["owned_run_action"] = (
+                    "verified-sigterm-sigcont-timeout-then-sigstop"
+                )
+                metadata["status"] = "paused"
+            else:
+                violation["owned_run_action"] = "verified-sigterm-sigcont"
+            if metadata_path is not None:
+                atomic_json(metadata_path, metadata)
+            return return_code, True
+
+
+def audit_gpu_smoke_runtime_state(
+    metadata: dict[str, object],
+) -> tuple[dict[str, object] | None, dict[str, object] | None]:
+    """Return a complete live isolation snapshot or one fail-closed violation."""
+
+    try:
+        gpu = preflight_tool.nvidia_identity()
+        if gpu.get("compute_capability") != "12.0":
+            raise RuntimeError(f"unexpected NVIDIA identity: {gpu}")
+        free_memory_mib = int(gpu["memory_mib"]) - int(gpu["used_mib"])
+        compute_pids = preflight_tool.nvidia_compute_pids()
+        all_processes, protected, _workspace = preflight_tool.process_table()
+        owned, external = partition_compute_pids(compute_pids, metadata, all_processes)
+        protected_runtime, unreadable_maps = (
+            preflight_tool.protected_nvidia_runtime_mappings(protected)
+        )
+    except Exception as error:
+        return None, {
+            "reason": "gpu-smoke-nvidia-audit-failed",
+            "error": f"{type(error).__name__}: {error}",
+        }
+    protected_pid_set = {candidate.pid for candidate in protected}
+    protected_compute = sorted(compute_pids & protected_pid_set)
+    protected_heavy = [
+        candidate
+        for candidate in protected
+        if preflight_tool.is_heavy_command(candidate.command)
+    ]
+    gpu_smoke = metadata.get("gpu_smoke")
+    authorization_requested = bool(
+        isinstance(gpu_smoke, dict) and gpu_smoke.get("requested") is True
+    )
+    violation: dict[str, object] | None = None
+    if unreadable_maps:
+        violation = {
+            "reason": "gpu-smoke-protected-maps-unreadable",
+            "pids": unreadable_maps,
+        }
+    elif protected_runtime:
+        violation = {
+            "reason": "protected-nvidia-runtime-became-active",
+            "pids": protected_runtime,
+        }
+    elif protected_compute:
+        violation = {
+            "reason": "protected-nvidia-compute-became-active",
+            "pids": protected_compute,
+        }
+    elif external:
+        violation = {
+            "reason": "external-nvidia-compute-became-active",
+            "pids": external,
+        }
+    elif protected_heavy and not authorization_requested:
+        violation = {
+            "reason": "unauthorized-protected-heavy-became-active",
+            "pids": [candidate.pid for candidate in protected_heavy],
+        }
+    elif free_memory_mib < preflight_tool.GPU_SMOKE_FREE_MEMORY_FLOOR_MIB:
+        violation = {
+            "reason": "gpu-smoke-device-memory-floor",
+            "free_memory_mib": free_memory_mib,
+        }
+    snapshot = {
+        "owned_nvidia_compute_pids": owned,
+        "external_nvidia_compute_pids": external,
+        "protected_nvidia_compute_pids": protected_compute,
+        "protected_nvidia_runtime_mapping_pids": protected_runtime,
+        "unreadable_protected_maps": unreadable_maps,
+        "protected_heavy_pids": [candidate.pid for candidate in protected_heavy],
+        "protected_cpu_lane_authorized": authorization_requested,
+        "free_memory_mib": free_memory_mib,
+        "gpu": gpu,
+    }
+    return snapshot, violation
+
+
+def wait_with_gpu_smoke_watchdog(
+    process: subprocess.Popen[bytes] | subprocess.Popen[str],
+    metadata: dict[str, object],
+    *,
+    timeout_seconds: int = 0,
+    minimum_free_disk_bytes: int = 0,
+    metadata_path: pathlib.Path | None = None,
+) -> tuple[int, bool]:
+    """Allow protected CPU work while terminating only this run on GPU drift."""
+
+    deadline = None if timeout_seconds == 0 else time.monotonic() + timeout_seconds
+    while True:
+        try:
+            return process.wait(timeout=GPU_SMOKE_POLL_SECONDS), False
+        except subprocess.TimeoutExpired:
+            violation: dict[str, object] | None = None
+            if deadline is not None and time.monotonic() >= deadline:
+                violation = {
+                    "reason": "gpu-smoke-timeout",
+                    "timeout_seconds": timeout_seconds,
+                }
+            elif preflight_tool.mem_available_kib() < COEXISTENCE_ABORT_MEMORY_KIB:
+                violation = {"reason": "gpu-smoke-host-memory-floor"}
+            elif (
+                minimum_free_disk_bytes > 0
+                and shutil.disk_usage(ROOT).free < minimum_free_disk_bytes
+            ):
+                violation = {"reason": "gpu-smoke-disk-floor"}
+            else:
+                snapshot, violation = audit_gpu_smoke_runtime_state(metadata)
+                if snapshot is not None:
+                    metadata["gpu_smoke_last_audit"] = snapshot
+            if violation is None:
+                continue
+            metadata["gpu_smoke_abort"] = violation
+            return_code = terminate_owned_process(process, metadata, wait_seconds=5)
             survivors = stop_run.process_group_members(int(metadata["pgid"]))
             if survivors:
                 if metadata.get("status") != "paused":
@@ -823,7 +1164,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--mode",
-        choices=("light", "heavy", "gpu-benchmark"),
+        choices=("light", "heavy", "gpu-smoke", "gpu-benchmark"),
         default="light",
     )
     parser.add_argument(
@@ -854,6 +1195,19 @@ def main() -> int:
             "owned-run memory watchdog"
         ),
     )
+    parser.add_argument(
+        "--allow-protected-zero-nvidia-gpu-smoke",
+        action="store_true",
+        help=(
+            "use the correctness-only GPU-smoke policy beside a protected "
+            "CPU lane with zero NVIDIA mappings and compute PIDs"
+        ),
+    )
+    parser.add_argument(
+        "--exact-pypto-nvidia-smoke",
+        action="store_true",
+        help="require the fixed PyPTO NvidiaExecutable SM120 direct child",
+    )
     parser.add_argument("--timeout-seconds", type=int, default=0)
     parser.add_argument("--minimum-free-disk-gib", type=int, default=0)
     parser.add_argument("--run-id-file", type=pathlib.Path)
@@ -873,15 +1227,56 @@ def main() -> int:
         command = command[1:]
     if not command:
         parser.error("a command is required after --")
+    fixed_smoke_runner = str(ROOT / nvidia_smoke_contract.RUNNER_RELATIVE_PATH)
+    if not args.exact_pypto_nvidia_smoke and any(
+        fixed_smoke_runner in token for token in command
+    ):
+        parser.error(
+            "the PyPTO NVIDIA correctness runner is forbidden outside its "
+            "exact gpu-smoke mode"
+        )
     if args.require_framework_plugins and args.framework_profile != "pypto":
         parser.error("--require-framework-plugins requires --framework-profile pypto")
     if args.allow_protected_cpu_only_coexistence and args.mode != "heavy":
+        parser.error("--allow-protected-cpu-only-coexistence requires --mode heavy")
+    if args.allow_protected_zero_nvidia_gpu_smoke and args.mode != "gpu-smoke":
         parser.error(
-            "--allow-protected-cpu-only-coexistence requires --mode heavy"
+            "--allow-protected-zero-nvidia-gpu-smoke requires --mode gpu-smoke"
         )
+    if args.mode == "gpu-smoke" and not args.exact_pypto_nvidia_smoke:
+        parser.error("--mode gpu-smoke requires --exact-pypto-nvidia-smoke")
+    if args.exact_pypto_nvidia_smoke and args.mode != "gpu-smoke":
+        parser.error("--exact-pypto-nvidia-smoke requires --mode gpu-smoke")
+    if (
+        args.allow_protected_cpu_only_coexistence
+        and args.allow_protected_zero_nvidia_gpu_smoke
+    ):
+        parser.error("protected coexistence policies are mutually exclusive")
     if args.allow_protected_cpu_only_coexistence and args.framework_launch:
+        parser.error("protected CPU-only coexistence cannot launch a GPU framework")
+    if args.mode == "gpu-smoke" and (
+        args.framework_launch or args.require_framework_plugins
+    ):
+        parser.error("exact GPU smoke cannot bootstrap framework plugins")
+    if args.mode == "gpu-smoke" and not (
+        sys.flags.ignore_environment
+        and sys.flags.no_site
+        and sys.flags.dont_write_bytecode
+    ):
+        parser.error("exact GPU smoke controller requires Python -E -B -S")
+    if args.exact_pypto_nvidia_smoke and (
+        args.environment != "pypto-nvidia"
+        or args.framework_profile != "pypto"
+        or args.environment_lock_mode != "shared"
+        or args.timeout_seconds != nvidia_smoke_contract.GPU_SMOKE_TIMEOUT_SECONDS
+        or args.minimum_free_disk_gib
+        != nvidia_smoke_contract.GPU_SMOKE_MINIMUM_FREE_DISK_GIB
+    ):
         parser.error(
-            "protected CPU-only coexistence cannot launch a GPU framework"
+            "exact GPU smoke requires pypto-nvidia/pypto, a shared environment "
+            f"lock, timeout {nvidia_smoke_contract.GPU_SMOKE_TIMEOUT_SECONDS}, "
+            "and minimum free disk "
+            f"{nvidia_smoke_contract.GPU_SMOKE_MINIMUM_FREE_DISK_GIB} GiB"
         )
     if args.environment_lock_mode == "exclusive":
         if args.environment != "pypto-nvidia" or args.mode != "heavy":
@@ -895,15 +1290,15 @@ def main() -> int:
             )
     if args.timeout_seconds < 0 or args.minimum_free_disk_gib < 0:
         parser.error("timeout and disk floor must be non-negative")
-    if (
-        (args.timeout_seconds or args.minimum_free_disk_gib)
-        and not (
-            args.allow_protected_cpu_only_coexistence
-            or args.mode == "gpu-benchmark"
-        )
+    if (args.timeout_seconds or args.minimum_free_disk_gib) and not (
+        args.allow_protected_cpu_only_coexistence
+        or args.allow_protected_zero_nvidia_gpu_smoke
+        or args.mode == "gpu-smoke"
+        or args.mode == "gpu-benchmark"
     ):
         parser.error(
-            "timeout/disk watchdog controls require protected CPU-only coexistence"
+            "timeout/disk watchdog controls require a watched heavy, GPU-smoke, "
+            "or GPU-benchmark mode"
         )
     expected_environment = PROFILE_ENVIRONMENTS[args.framework_profile]
     if args.environment != expected_environment:
@@ -927,11 +1322,18 @@ def main() -> int:
                 "--framework-launch requires the selected environment Python: "
                 f"expected {expected_python}, got {command_python}"
             )
+    if args.exact_pypto_nvidia_smoke:
+        if pathlib.Path(sys.executable).resolve() != (
+            environment_prefix / "bin/python3.14"
+        ).resolve(strict=True):
+            parser.error("exact GPU smoke controller uses the wrong Python")
+        try:
+            validate_exact_nvidia_smoke_command(command)
+        except ValueError as error:
+            parser.error(str(error))
 
     registration_signals = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
-    registration_mask = signal.pthread_sigmask(
-        signal.SIG_BLOCK, registration_signals
-    )
+    registration_mask = signal.pthread_sigmask(signal.SIG_BLOCK, registration_signals)
     try:
         try:
             environment_access = acquire_environment_lock(
@@ -945,31 +1347,58 @@ def main() -> int:
     finally:
         signal.pthread_sigmask(signal.SIG_SETMASK, registration_mask)
 
-    preflight_command = [
-        sys.executable,
-        str(ROOT / "tools" / "preflight.py"),
-        "--mode",
-        args.mode,
-        "--json",
-    ]
+    preflight_command = [sys.executable]
+    if args.mode == "gpu-smoke":
+        preflight_command.extend(["-E", "-B", "-S"])
+    preflight_command.extend(
+        [
+            str(ROOT / "tools" / "preflight.py"),
+            "--mode",
+            args.mode,
+            "--json",
+        ]
+    )
+    preflight_environment = None
+    if args.mode == "gpu-smoke":
+        preflight_environment = {
+            "PATH": (
+                f"{environment_prefix}/bin:/usr/local/cuda-13.3/bin:"
+                f"{SYSTEM_EXECUTABLE_PATH}"
+            ),
+            "PYTHONNOUSERSITE": "1",
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "LANG": os.environ.get("LANG", "C.UTF-8"),
+        }
     if args.allow_protected_cpu_only_coexistence:
         preflight_command.append("--allow-protected-cpu-only-coexistence")
+    if args.allow_protected_zero_nvidia_gpu_smoke:
+        preflight_command.append("--allow-protected-zero-nvidia-gpu-smoke")
     preflight_result = subprocess.run(
         preflight_command,
         cwd=ROOT,
+        env=preflight_environment,
         check=False,
     )
     if preflight_result.returncode != 0:
         return preflight_result.returncode
+    if args.exact_pypto_nvidia_smoke:
+        try:
+            validate_exact_nvidia_smoke_inputs()
+        except (
+            OSError,
+            RuntimeError,
+            subprocess.SubprocessError,
+            ValueError,
+        ) as error:
+            print(str(error), file=sys.stderr)
+            return 75
 
     timestamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
     run_id = f"pypto-{timestamp}-{os.getpid()}-{secrets.token_hex(3)}"
     run_dir = ROOT / "runs" / run_id
     run_dir.mkdir(parents=True)
     if args.run_id_file is not None:
-        run_id_file = pathlib.Path(
-            os.path.abspath(os.fspath(args.run_id_file))
-        )
+        run_id_file = pathlib.Path(os.path.abspath(os.fspath(args.run_id_file)))
         parent = run_id_file.parent.resolve(strict=True)
         if ROOT not in parent.parents and parent != ROOT:
             parser.error("--run-id-file must be below the workspace")
@@ -984,6 +1413,10 @@ def main() -> int:
         protected_cpu_only_coexistence_requested=(
             args.allow_protected_cpu_only_coexistence
         ),
+        protected_zero_nvidia_gpu_smoke_requested=(
+            args.allow_protected_zero_nvidia_gpu_smoke
+        ),
+        exact_nvidia_smoke=args.exact_pypto_nvidia_smoke,
     )
     environment.update(environment_lock_markers(environment_access))
     command_requires_identity = (
@@ -1046,9 +1479,8 @@ def main() -> int:
             env=environment,
             check=True,
         )
-    command_requires_plugins = (
-        args.require_framework_plugins
-        or (args.framework_profile == "pypto" and args.framework_launch)
+    command_requires_plugins = args.require_framework_plugins or (
+        args.framework_profile == "pypto" and args.framework_launch
     )
     if command_requires_plugins:
         python = environment_prefix / "bin" / "python"
@@ -1066,6 +1498,7 @@ def main() -> int:
     action_preflight = subprocess.run(
         preflight_command,
         cwd=ROOT,
+        env=preflight_environment,
         check=False,
         text=True,
         capture_output=True,
@@ -1080,12 +1513,31 @@ def main() -> int:
     if not isinstance(action_preflight_report, dict):
         raise RuntimeError("action-boundary preflight report must be an object")
     expected_requested = args.allow_protected_cpu_only_coexistence
+    expected_gpu_smoke_requested = args.allow_protected_zero_nvidia_gpu_smoke
     if action_preflight_report.get("mode") != args.mode:
         raise RuntimeError("action-boundary preflight mode mismatch")
-    if action_preflight_report.get(
-        "protected_cpu_only_coexistence_requested"
-    ) is not expected_requested:
+    if (
+        action_preflight_report.get("protected_cpu_only_coexistence_requested")
+        is not expected_requested
+    ):
         raise RuntimeError("action-boundary coexistence request mismatch")
+    if (
+        action_preflight_report.get("protected_zero_nvidia_gpu_smoke_requested")
+        is not expected_gpu_smoke_requested
+    ):
+        raise RuntimeError("action-boundary GPU-smoke coexistence request mismatch")
+    if args.mode == "gpu-smoke":
+        if action_preflight_report.get("nvidia_compute_audit_ok") is not True:
+            raise RuntimeError("action-boundary NVIDIA compute audit is indeterminate")
+        protected_at_boundary = action_preflight_report.get("protected_processes")
+        if (
+            expected_gpu_smoke_requested
+            and isinstance(protected_at_boundary, list)
+            and protected_at_boundary
+            and action_preflight_report.get("protected_gpu_smoke_waiver_applied")
+            is not True
+        ):
+            raise RuntimeError("action-boundary GPU-smoke waiver was not applied")
     preflight_report_path = run_dir / "preflight.json"
     atomic_json(preflight_report_path, action_preflight_report)
     preflight_report_sha256 = sha256_file(preflight_report_path)
@@ -1107,13 +1559,29 @@ def main() -> int:
     waiver_applied = bool(
         action_preflight_report.get("protected_activity_waiver_applied")
     )
+    gpu_smoke_waiver_applied = bool(
+        action_preflight_report.get("protected_gpu_smoke_waiver_applied")
+    )
+    gpu_smoke_start_barrier = (
+        run_dir / "gpu-smoke-start-barrier.json" if args.mode == "gpu-smoke" else None
+    )
+    gpu_smoke_gate = (
+        run_dir / "gpu-smoke-gate.json" if args.mode == "gpu-smoke" else None
+    )
     environment.update(
         {
             "PYPTO_PROTECTED_CPU_ONLY_COEXISTENCE_REQUESTED": (
                 "1" if expected_requested else "0"
             ),
-            "PYPTO_PROTECTED_ACTIVITY_WAIVER_APPLIED": (
-                "1" if waiver_applied else "0"
+            "PYPTO_PROTECTED_ACTIVITY_WAIVER_APPLIED": ("1" if waiver_applied else "0"),
+            "PYPTO_PROTECTED_ZERO_NVIDIA_GPU_SMOKE_REQUESTED": (
+                "1" if expected_gpu_smoke_requested else "0"
+            ),
+            "PYPTO_PROTECTED_GPU_SMOKE_WAIVER_APPLIED": (
+                "1" if gpu_smoke_waiver_applied else "0"
+            ),
+            "PYPTO_GPU_SMOKE_START_BARRIER": (
+                "" if gpu_smoke_start_barrier is None else str(gpu_smoke_start_barrier)
             ),
             "PYPTO_PREFLIGHT_REPORT_PATH": str(preflight_report_path),
             "PYPTO_PREFLIGHT_REPORT_SHA256": preflight_report_sha256,
@@ -1123,6 +1591,14 @@ def main() -> int:
     metadata_context = {
         "protected_cpu_only_coexistence_requested": expected_requested,
         "protected_activity_waiver_applied": waiver_applied,
+        "protected_zero_nvidia_gpu_smoke_requested": (expected_gpu_smoke_requested),
+        "protected_gpu_smoke_waiver_applied": gpu_smoke_waiver_applied,
+        "gpu_smoke_start_barrier_path": (
+            None if gpu_smoke_start_barrier is None else str(gpu_smoke_start_barrier)
+        ),
+        "gpu_smoke_gate_path": (
+            None if gpu_smoke_gate is None else str(gpu_smoke_gate)
+        ),
         "preflight_report_sha256": preflight_report_sha256,
         "preflight_report_path": str(preflight_report_path),
         "preflight_report": action_preflight_report,
@@ -1141,10 +1617,9 @@ def main() -> int:
     metadata: dict[str, object] | None = None
     parent_return_code: int | None = None
     child_return_code: int | None = None
+    gpu_smoke_admission_failed = False
     handled_signals = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
-    previous_handlers = {
-        signum: signal.getsignal(signum) for signum in handled_signals
-    }
+    previous_handlers = {signum: signal.getsignal(signum) for signum in handled_signals}
     for signum in handled_signals:
         signal.signal(signum, interrupt_parent)
     try:
@@ -1153,6 +1628,7 @@ def main() -> int:
         # soon as the old mask is restored, when verified cleanup is possible.
         previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, handled_signals)
         try:
+
             def restore_child_signal_mask() -> None:
                 # The child inherits the parent's temporary block mask across
                 # fork. Restore the pre-block mask before exec so verified
@@ -1179,13 +1655,108 @@ def main() -> int:
                 **metadata_context,
             )
             atomic_json(metadata_path, metadata)
+            if gpu_smoke_start_barrier is not None:
+                if (
+                    gpu_smoke_start_barrier.exists()
+                    or gpu_smoke_start_barrier.is_symlink()
+                    or gpu_smoke_gate is None
+                    or gpu_smoke_gate.exists()
+                    or gpu_smoke_gate.is_symlink()
+                ):
+                    raise RuntimeError("GPU-smoke gate or start barrier already exists")
+                pre_release_snapshot: dict[str, object] | None = None
+                pre_release_violation: dict[str, object] | None = None
+                static_identity: dict[str, object] | None = None
+                control_identity: dict[str, object] | None = None
+                try:
+                    control_identity = validate_exact_nvidia_smoke_inputs()
+                    static_identity = preflight_tool.static_torch_identity()
+                    if static_identity.get("static_identity_error"):
+                        raise RuntimeError(
+                            str(static_identity["static_identity_error"])
+                        )
+                    if process.poll() is not None:
+                        raise RuntimeError("GPU-smoke child exited before gate release")
+                    stop_run.verify(metadata)
+                    pre_release_snapshot, pre_release_violation = (
+                        audit_gpu_smoke_runtime_state(metadata)
+                    )
+                    if (
+                        pre_release_violation is None
+                        and pre_release_snapshot is not None
+                        and pre_release_snapshot.get("owned_nvidia_compute_pids")
+                    ):
+                        pre_release_violation = {
+                            "reason": "owned-nvidia-compute-before-gate-release",
+                            "pids": pre_release_snapshot["owned_nvidia_compute_pids"],
+                        }
+                except Exception as error:
+                    pre_release_violation = {
+                        "reason": "gpu-smoke-pre-release-audit-failed",
+                        "error": f"{type(error).__name__}: {error}",
+                    }
+                if pre_release_snapshot is not None:
+                    metadata["gpu_smoke_pre_release_audit"] = pre_release_snapshot
+                if pre_release_violation is not None:
+                    metadata["gpu_smoke_abort"] = pre_release_violation
+                    atomic_json(metadata_path, metadata)
+                    child_return_code = terminate_owned_process(
+                        process, metadata, wait_seconds=5
+                    )
+                    parent_return_code = 75
+                    gpu_smoke_admission_failed = True
+                else:
+                    assert pre_release_snapshot is not None
+                    assert static_identity is not None
+                    assert control_identity is not None
+                    gate_document = {
+                        "schema": nvidia_smoke_contract.GPU_SMOKE_POLICY_VERSION,
+                        "run_id": run_id,
+                        "pid": process.pid,
+                        "pgid": metadata["pgid"],
+                        "start_ticks": metadata["start_ticks"],
+                        "command": command,
+                        "preflight": metadata["preflight"],
+                        "static_identity": static_identity,
+                        "control_manifest": control_identity,
+                        "runtime_isolation": pre_release_snapshot,
+                    }
+                    atomic_json(gpu_smoke_gate, gate_document)
+                    gate_sha256 = sha256_file(gpu_smoke_gate)
+                    barrier_document = {
+                        "schema": nvidia_smoke_contract.GPU_SMOKE_POLICY_VERSION,
+                        "run_id": run_id,
+                        "pid": process.pid,
+                        "pgid": metadata["pgid"],
+                        "start_ticks": metadata["start_ticks"],
+                        "gate_path": str(gpu_smoke_gate),
+                        "gate_sha256": gate_sha256,
+                    }
+                    barrier_sha256 = hashlib.sha256(
+                        canonical_json_bytes(barrier_document)
+                    ).hexdigest()
+                    gpu_smoke_metadata = metadata["gpu_smoke"]
+                    assert isinstance(gpu_smoke_metadata, dict)
+                    gpu_smoke_metadata.update(
+                        {
+                            "gate_sha256": gate_sha256,
+                            "start_barrier_sha256": barrier_sha256,
+                            "release_authorized_at": datetime.datetime.now(
+                                datetime.UTC
+                            ).strftime("%Y%m%dT%H%M%SZ"),
+                        }
+                    )
+                    atomic_json(metadata_path, metadata)
+                    atomic_json(gpu_smoke_start_barrier, barrier_document)
         finally:
             signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
         print(
             f"PYPTO_RUN_ID={run_id} PID={process.pid} PGID={metadata['pgid']}",
             flush=True,
         )
-        if args.allow_protected_cpu_only_coexistence:
+        if gpu_smoke_admission_failed:
+            pass
+        elif args.allow_protected_cpu_only_coexistence:
             child_return_code, watchdog_aborted = wait_with_coexistence_watchdog(
                 process,
                 metadata,
@@ -1194,15 +1765,30 @@ def main() -> int:
                 metadata_path=metadata_path,
             )
             parent_return_code = 75 if watchdog_aborted else child_return_code
+        elif args.mode == "gpu-smoke":
+            child_return_code, smoke_aborted = wait_with_gpu_smoke_watchdog(
+                process,
+                metadata,
+                timeout_seconds=args.timeout_seconds,
+                minimum_free_disk_bytes=minimum_free_disk_bytes,
+                metadata_path=metadata_path,
+            )
+            parent_return_code = 75 if smoke_aborted else child_return_code
+            post_exit_snapshot, post_exit_violation = audit_gpu_smoke_runtime_state(
+                metadata
+            )
+            if post_exit_snapshot is not None:
+                metadata["gpu_smoke_post_exit_audit"] = post_exit_snapshot
+            if post_exit_violation is not None:
+                metadata["gpu_smoke_abort"] = post_exit_violation
+                parent_return_code = 75
         elif args.mode == "gpu-benchmark":
-            child_return_code, benchmark_aborted = (
-                wait_with_gpu_benchmark_watchdog(
-                    process,
-                    metadata,
-                    timeout_seconds=args.timeout_seconds,
-                    minimum_free_disk_bytes=minimum_free_disk_bytes,
-                    metadata_path=metadata_path,
-                )
+            child_return_code, benchmark_aborted = wait_with_gpu_benchmark_watchdog(
+                process,
+                metadata,
+                timeout_seconds=args.timeout_seconds,
+                minimum_free_disk_bytes=minimum_free_disk_bytes,
+                metadata_path=metadata_path,
             )
             parent_return_code = 75 if benchmark_aborted else child_return_code
         else:

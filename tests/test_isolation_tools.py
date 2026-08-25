@@ -34,6 +34,10 @@ def load_tool(name: str):
 
 stop_run = load_tool("stop_run")
 sys.modules["stop_run"] = stop_run
+nvidia_smoke_contract = load_tool("_pypto_nvidia_executable_sm120_contract")
+sys.modules["_pypto_nvidia_executable_sm120_contract"] = nvidia_smoke_contract
+nvidia_smoke_control = load_tool("_pypto_nvidia_sm120_control_manifest")
+sys.modules["_pypto_nvidia_sm120_control_manifest"] = nvidia_smoke_control
 preflight = load_tool("preflight")
 sys.modules["preflight"] = preflight
 run_isolated = load_tool("run_isolated")
@@ -168,6 +172,56 @@ class IsolationEnvironmentTest(unittest.TestCase):
             authorized["PYPTO_PROTECTED_CPU_ONLY_COEXISTENCE_REQUESTED"], "1"
         )
         self.assertEqual(authorized["CUDA_VISIBLE_DEVICES"], "")
+
+    def test_gpu_smoke_coexistence_keeps_only_explicit_nvidia_device(self) -> None:
+        marker = "PYPTO_PROTECTED_ZERO_NVIDIA_GPU_SMOKE_REQUESTED"
+        authorization = "PYPTO_GPU_SMOKE_AUTHORIZATION"
+        original_marker = run_isolated.os.environ.get(marker)
+        original_authorization = run_isolated.os.environ.get(authorization)
+        try:
+            run_isolated.os.environ[marker] = "ambient-must-not-pass"
+            run_isolated.os.environ[authorization] = "ambient-must-not-pass"
+            default = self.make_environment("pypto", "pypto-nvidia")
+            with tempfile.TemporaryDirectory(dir=ROOT / "runs") as directory:
+                authorized = run_isolated.isolated_environment(
+                    "test-run",
+                    pathlib.Path(directory),
+                    environment_prefix=run_isolated.ENVIRONMENTS[
+                        "pypto-nvidia"
+                    ],
+                    framework_profile="pypto",
+                    protected_zero_nvidia_gpu_smoke_requested=True,
+                )
+        finally:
+            if original_marker is None:
+                run_isolated.os.environ.pop(marker, None)
+            else:
+                run_isolated.os.environ[marker] = original_marker
+            if original_authorization is None:
+                run_isolated.os.environ.pop(authorization, None)
+            else:
+                run_isolated.os.environ[authorization] = original_authorization
+        self.assertNotIn(marker, default)
+        self.assertNotIn(authorization, default)
+        self.assertEqual(authorized[marker], "1")
+        self.assertEqual(
+            authorized[authorization],
+            nvidia_smoke_contract.GPU_SMOKE_AUTHORIZATION,
+        )
+        self.assertEqual(authorized["CUDA_VISIBLE_DEVICES"], "0")
+
+    def test_gpu_smoke_command_is_exact_and_has_no_shell_wrapper(self) -> None:
+        expected = nvidia_smoke_contract.fixed_child_command(ROOT)
+        run_isolated.validate_exact_nvidia_smoke_command(expected)
+        self.assertEqual(expected[1:3], ["-I", "-B"])
+        self.assertNotIn("bash", expected)
+        for changed in (
+            expected[:-1],
+            [*expected, "--extra"],
+            [expected[0], "-B", expected[-1]],
+        ):
+            with self.assertRaisesRegex(ValueError, "fixed direct child"):
+                run_isolated.validate_exact_nvidia_smoke_command(changed)
 
     def test_candidate_controls_are_exact_and_baseline_discards_them(self) -> None:
         controls = {
@@ -482,6 +536,48 @@ class ProtectedProcessClassificationTest(unittest.TestCase):
         self.assertTrue(any("NVIDIA" in value for value in failures))
         self.assertTrue(any("24 GiB safety floor" in value for value in failures))
 
+    def test_gpu_smoke_waives_cpu_lane_only_when_nvidia_is_absent(self) -> None:
+        protected = [self.process(10, 1, "gem5.opt")]
+        failures = preflight.heavy_policy_failures(
+            mode="gpu-smoke",
+            coexistence_authorized=False,
+            gpu_smoke_coexistence_authorized=True,
+            protected_heavy=protected,
+            available_kib=40 * 1024 * 1024,
+            protected_nvidia_compute_pids=[],
+            protected_nvidia_runtime_pids=[],
+            unreadable_protected_maps=[],
+        )
+        self.assertEqual(failures, [])
+
+    def test_gpu_smoke_rejects_mapping_compute_unreadable_and_low_memory(self) -> None:
+        protected = [self.process(10, 1, "gem5.opt")]
+        failures = preflight.heavy_policy_failures(
+            mode="gpu-smoke",
+            coexistence_authorized=False,
+            gpu_smoke_coexistence_authorized=True,
+            protected_heavy=protected,
+            available_kib=23 * 1024 * 1024,
+            protected_nvidia_compute_pids=[10],
+            protected_nvidia_runtime_pids=[11],
+            unreadable_protected_maps=[12],
+        )
+        self.assertTrue(any("compute" in value for value in failures))
+        self.assertTrue(any("runtime mappings" in value for value in failures))
+        self.assertTrue(any("cannot prove" in value for value in failures))
+        self.assertTrue(any("24 GiB safety floor" in value for value in failures))
+
+    def test_gpu_smoke_without_authorization_remains_exclusive(self) -> None:
+        protected = [self.process(10, 1, "gem5.opt")]
+        failures = preflight.heavy_policy_failures(
+            mode="gpu-smoke",
+            coexistence_authorized=False,
+            protected_heavy=protected,
+            available_kib=40 * 1024 * 1024,
+            protected_nvidia_compute_pids=[],
+        )
+        self.assertTrue(any("protected zcode" in value for value in failures))
+
     def test_protected_lane_closure_includes_descendants_not_unrelated(self) -> None:
         supervisor = self.process(10, 1, "run_model_lane.sh")
         child = self.process(11, 10, "python worker.py")
@@ -648,6 +744,7 @@ class CoexistenceWatchdogTest(unittest.TestCase):
             "run_id": "fixture",
             "pid": 99,
             "pgid": 999,
+            "start_ticks": 990,
         }
         with mock.patch.object(
             run_isolated.preflight_tool,
@@ -696,6 +793,7 @@ class CoexistenceWatchdogTest(unittest.TestCase):
             "run_id": "fixture",
             "pid": 99,
             "pgid": 999,
+            "start_ticks": 990,
         }
         protected = preflight.ProcessInfo(
             pid=10,
@@ -791,6 +889,7 @@ class CoexistenceWatchdogTest(unittest.TestCase):
             "run_id": "fixture",
             "pid": 99,
             "pgid": 999,
+            "start_ticks": 990,
         }
         owned_root = preflight.ProcessInfo(
             pid=99,
@@ -837,6 +936,121 @@ class CoexistenceWatchdogTest(unittest.TestCase):
         self.assertEqual(
             metadata["gpu_benchmark_abort"]["reason"],
             "external-nvidia-compute-became-active",
+        )
+
+    def test_gpu_smoke_allows_protected_cpu_lane_without_nvidia(self) -> None:
+        process = mock.Mock()
+        process.wait.side_effect = (subprocess.TimeoutExpired("fixture", 1), 0)
+        metadata: dict[str, object] = {
+            "run_id": "fixture",
+            "pid": 99,
+            "pgid": 999,
+            "gpu_smoke": {"requested": True},
+        }
+        protected = preflight.ProcessInfo(
+            pid=10,
+            ppid=1,
+            start_ticks=100,
+            rss_kib=1,
+            command="gem5.opt",
+            cwd="/home/zhaosiying/zcode-lane",
+        )
+        with mock.patch.object(
+            run_isolated.preflight_tool,
+            "mem_available_kib",
+            return_value=40 * 1024 * 1024,
+        ), mock.patch.object(
+            run_isolated.preflight_tool,
+            "nvidia_identity",
+            return_value={
+                "compute_capability": "12.0",
+                "memory_mib": "24563",
+                "used_mib": "1024",
+            },
+        ), mock.patch.object(
+            run_isolated.preflight_tool,
+            "nvidia_compute_pids",
+            return_value=set(),
+        ), mock.patch.object(
+            run_isolated.preflight_tool,
+            "process_table",
+            return_value=([protected], [protected], []),
+        ), mock.patch.object(
+            run_isolated.preflight_tool,
+            "protected_nvidia_runtime_mappings",
+            return_value=([], []),
+        ):
+            result = run_isolated.wait_with_gpu_smoke_watchdog(
+                process, metadata
+            )
+        self.assertEqual(result, (0, False))
+        self.assertNotIn("gpu_smoke_abort", metadata)
+        self.assertEqual(
+            metadata["gpu_smoke_last_audit"][
+                "protected_nvidia_runtime_mapping_pids"
+            ],
+            [],
+        )
+
+    def test_gpu_smoke_stops_only_owned_run_for_protected_mapping(self) -> None:
+        process = mock.Mock()
+        process.wait.side_effect = subprocess.TimeoutExpired("fixture", 1)
+        process.poll.return_value = 0
+        metadata: dict[str, object] = {
+            "run_id": "fixture",
+            "pid": 99,
+            "pgid": 999,
+            "gpu_smoke": {"requested": True},
+        }
+        protected = preflight.ProcessInfo(
+            pid=10,
+            ppid=1,
+            start_ticks=100,
+            rss_kib=1,
+            command="sglang::scheduler_TP0",
+            cwd="/home/zhaosiying/zcode-lane",
+        )
+        with mock.patch.object(
+            run_isolated.preflight_tool,
+            "mem_available_kib",
+            return_value=40 * 1024 * 1024,
+        ), mock.patch.object(
+            run_isolated.preflight_tool,
+            "nvidia_identity",
+            return_value={
+                "compute_capability": "12.0",
+                "memory_mib": "24563",
+                "used_mib": "1024",
+            },
+        ), mock.patch.object(
+            run_isolated.preflight_tool,
+            "nvidia_compute_pids",
+            return_value=set(),
+        ), mock.patch.object(
+            run_isolated.preflight_tool,
+            "process_table",
+            return_value=([protected], [protected], []),
+        ), mock.patch.object(
+            run_isolated.preflight_tool,
+            "protected_nvidia_runtime_mappings",
+            return_value=([10], []),
+        ), mock.patch.object(
+            run_isolated,
+            "terminate_owned_process",
+            return_value=-15,
+        ) as terminate, mock.patch.object(
+            run_isolated.stop_run,
+            "process_group_members",
+            return_value=[],
+        ):
+            result = run_isolated.wait_with_gpu_smoke_watchdog(
+                process, metadata
+            )
+        self.assertEqual(result, (-15, True))
+        terminate.assert_called_once_with(process, metadata, wait_seconds=5)
+        self.assertEqual(
+            metadata["gpu_smoke_abort"]["reason"],
+            "protected-nvidia-runtime-became-active",
         )
 
     def test_terminating_paused_owned_run_continues_pending_sigterm(self) -> None:
