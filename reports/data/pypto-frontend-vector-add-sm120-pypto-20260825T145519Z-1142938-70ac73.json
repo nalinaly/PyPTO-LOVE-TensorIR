@@ -1,0 +1,757 @@
+{
+  "finalizer": {
+    "cpu_only_deserialization": true,
+    "path": "tools/finalize_pypto_frontend_vector_add_sm120.py",
+    "sha256": "35df19359aa6d96c5dc38045510b11061c78fb9fd49b8147c01bf8155c5e673b",
+    "source_audit_compiler_entrypoints_absent": true,
+    "torch_cuda_initialized": false
+  },
+  "inputs": {
+    "control_manifest": {
+      "current_head": "b8dae3669866ceffbdda8fd391615fcc625dcc98",
+      "current_tree": "44e1f5be8832c176e0a93433106c5ff26cb8c7f7",
+      "files": [
+        {
+          "bytes": 42117,
+          "mode": 420,
+          "path": "benchmarks/operators/pypto_frontend_vector_add_sm120.py",
+          "sha256": "13504395c8c639bb22aac4d0820e7fe2f953591d0206a8ff357b2eb48a27a73b"
+        },
+        {
+          "bytes": 6758,
+          "mode": 420,
+          "path": "tools/_pypto_frontend_vector_add_sm120_contract.py",
+          "sha256": "2917ae8e4b9bfb0d31fa370ee8ddf9b04a1165772910b429e3eebad12afadff1"
+        },
+        {
+          "bytes": 10400,
+          "mode": 420,
+          "path": "tools/_pypto_frontend_sm120_control_manifest.py",
+          "sha256": "5b4b265835299a890b3b6b131a6e208a71f229e0cda06ce7ec932c3ba197ea89"
+        },
+        {
+          "bytes": 3932,
+          "mode": 420,
+          "path": "tools/run_pypto_frontend_sm120_isolated.py",
+          "sha256": "3185b64f96dd9e129bf076e0c472bc36f5b1fdf15dcc34689c686fa7b76c91c8"
+        },
+        {
+          "bytes": 69268,
+          "mode": 420,
+          "path": "tools/finalize_pypto_frontend_vector_add_sm120.py",
+          "sha256": "35df19359aa6d96c5dc38045510b11061c78fb9fd49b8147c01bf8155c5e673b"
+        },
+        {
+          "bytes": 27684,
+          "mode": 493,
+          "path": "tools/preflight.py",
+          "sha256": "0b9884f8dbd34337a85f62c351b1e19dda3a8b84ec9a88c835d8701af053e3d1"
+        },
+        {
+          "bytes": 76558,
+          "mode": 493,
+          "path": "tools/run_isolated.py",
+          "sha256": "978686ac09743a98233c9616d23b04e57d3a257bd643d5db3b8a71eaac7465c8"
+        },
+        {
+          "bytes": 7885,
+          "mode": 493,
+          "path": "tools/stop_run.py",
+          "sha256": "879a2e3863671531a548c71d788d56298500eab989bd1420d2c7ae01717ddfe4"
+        }
+      ],
+      "implementation_commit": "1d1fce4d63320beb3f29a265dd126891f37fb559",
+      "implementation_tree": "9abfbe232859db5aeca50ffd951009355c249fca",
+      "manifest_bytes": 1776,
+      "manifest_path": "state/contracts/pypto_frontend_vector_add_sm120_v1.json",
+      "manifest_sha256": "f16c4fbac14f4ec4d2a26fef9df3c4e7d1d3c412fbaf3c48f200a61a118d8eed",
+      "parent_control_manifest": {
+        "bytes": 1569,
+        "implementation_commit": "5564008fddeaaf0a9861ee5c38c895558f577600",
+        "implementation_tree": "b1676a118604c22eebaec787987806f3cf1aeebb",
+        "kind": "pypto-nvidia-executable-sm120-controls-v4",
+        "path": "state/contracts/pypto_nvidia_executable_sm120_v4.json",
+        "primitive_files": [
+          {
+            "bytes": 27684,
+            "mode": 493,
+            "path": "tools/preflight.py",
+            "sha256": "0b9884f8dbd34337a85f62c351b1e19dda3a8b84ec9a88c835d8701af053e3d1"
+          },
+          {
+            "bytes": 76558,
+            "mode": 493,
+            "path": "tools/run_isolated.py",
+            "sha256": "978686ac09743a98233c9616d23b04e57d3a257bd643d5db3b8a71eaac7465c8"
+          },
+          {
+            "bytes": 7885,
+            "mode": 493,
+            "path": "tools/stop_run.py",
+            "sha256": "879a2e3863671531a548c71d788d56298500eab989bd1420d2c7ae01717ddfe4"
+          }
+        ],
+        "schema_version": 4,
+        "sha256": "a079c4d252aa346bb19a64a6ad3947867b76e7c778f7234125078fb16b2598bf"
+      },
+      "root_clean": true
+    },
+    "cuda_tile_head": "af2417041cc939b87ef56d92cfdcf61737c5457e",
+    "environment_lock_sha256": "29800d50f635e7188e55a6d6f43bfb4b8ac9ab16c4a21687db2960f18941932a",
+    "exact_files": {
+      "cuda_runtime": {
+        "bytes": 704288,
+        "path": "envs/pypto-nvidia/lib/python3.14/site-packages/nvidia/cu13/lib/libcudart.so.13",
+        "sha256": "96c42e418cec19054186b9429c321603cc190bf26a18104e19408117a2a817b0"
+      },
+      "pypto_dso": {
+        "bytes": 595300112,
+        "path": "builds/pypto-structured-build-spec-on-c4cf755/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+        "sha256": "4b796b1e1c53386356217f9ea6368468f885e68fb98fa715f90a081031ecc6fb"
+      },
+      "python": {
+        "bytes": 35989864,
+        "path": "envs/pypto-nvidia/bin/python3.14",
+        "sha256": "aa85b78409de29d21c7db9a6ea0479fd73a4e245a733ea325f5ecf21772d030f"
+      },
+      "runner": {
+        "bytes": 42117,
+        "path": "benchmarks/operators/pypto_frontend_vector_add_sm120.py",
+        "sha256": "13504395c8c639bb22aac4d0820e7fe2f953591d0206a8ff357b2eb48a27a73b"
+      }
+    },
+    "llvm_head": "57109befac92811d2253109242ca6fa69c961fb2",
+    "pypto": {
+      "clean": true,
+      "head": "642ff5bd79ee96b9e5a279a2bc945ad7a78362b7",
+      "tree": "77d8078d8df84dd7cf8544350918e25b8282976d"
+    },
+    "replay_files": [
+      {
+        "bytes": 1583,
+        "path": "runs/pypto-20260825T145519Z-1142938-70ac73/pypto-frontend-vector-add-sm120/compile-request.msgpack",
+        "sha256": "97fc6504326930e38fbc50e47663bb3904ab00add78f58e7a91c61f94b131a12"
+      },
+      {
+        "bytes": 2077,
+        "path": "runs/pypto-20260825T145519Z-1142938-70ac73/pypto-frontend-vector-add-sm120/fp32_8x8.hir.msgpack",
+        "sha256": "2a4bf1b74adb2e160ba9a1f6c1596238095d73a1572fd911417f43465b6fced5"
+      },
+      {
+        "bytes": 1416,
+        "path": "runs/pypto-20260825T145519Z-1142938-70ac73/pypto-frontend-vector-add-sm120/fp32_8x8.build-spec.msgpack",
+        "sha256": "e3d8ccb2f34247018ef9563d34a271c09361ea7a708221f03df7fee5bc837512"
+      },
+      {
+        "bytes": 16853,
+        "path": "runs/pypto-20260825T145519Z-1142938-70ac73/pypto-frontend-vector-add-sm120/fp32_8x8.artifact.msgpack",
+        "sha256": "5b749fe20b0bd5665d37ff69ab22e2e9a35edb73d1447d208b4f031b737778cc"
+      },
+      {
+        "bytes": 1922,
+        "path": "runs/pypto-20260825T145519Z-1142938-70ac73/pypto-frontend-vector-add-sm120/bf16_128.hir.msgpack",
+        "sha256": "cc470968297ff4430fdcf43f25bf6cb4b9054e6ba4d67ddd0177040101044baa"
+      },
+      {
+        "bytes": 1416,
+        "path": "runs/pypto-20260825T145519Z-1142938-70ac73/pypto-frontend-vector-add-sm120/bf16_128.build-spec.msgpack",
+        "sha256": "cb3a7595ff6208e1a45d534ee80eed4650db3334832a7d378711a8b0d7201637"
+      },
+      {
+        "bytes": 16847,
+        "path": "runs/pypto-20260825T145519Z-1142938-70ac73/pypto-frontend-vector-add-sm120/bf16_128.artifact.msgpack",
+        "sha256": "a4009cb4a7e3ed4d6bff3114ba3250f9b51a7442801573b3ddab407763ce80b5"
+      }
+    ],
+    "replay_semantics": {
+      "artifacts": [
+        {
+          "argument_abi_digest": "2bf59cefa95a2e95ac4e4647a654118b6d8c6fbfaa91a294621a9160d68dbd9b",
+          "artifact_identity_digest": "5b749fe20b0bd5665d37ff69ab22e2e9a35edb73d1447d208b4f031b737778cc",
+          "build_spec_identity_digest": "e3d8ccb2f34247018ef9563d34a271c09361ea7a708221f03df7fee5bc837512",
+          "cache_key_digest": "52d8dcb27246cd7890bf794ddfa6645690c3e7f085cb6243453a829ecfb80264",
+          "callable_abi_digest": "4eee741cbe0c7322f938b83b01b34844c5f12fb1b01da52c2029e6687e24c640",
+          "case": "fp32_8x8",
+          "device_code_bytes": 13784,
+          "device_code_sha256": "dcc529fc856a508642c8b5a98c6fc4e223e10a49cc9f8a200b8984f92b6483ab",
+          "entry_function_name": "pypto_vector_add",
+          "fallback_used": false,
+          "kernel_abi_identity_digest": "4eee741cbe0c7322f938b83b01b34844c5f12fb1b01da52c2029e6687e24c640",
+          "loader_compatibility_digest": "aa846ef55a849b47305dc67be4bae5103027028db62d3e1435ca0090754e6fc1",
+          "mutation_abi_digest": "4adb7fa8fdbdee33582778c543686a6c63953852be40079649e4d2d6f07c766d",
+          "result_abi_digest": "5a786136731e5c62c80597edbb57551cd010d344bfeab14456a9f6b263e99ea5",
+          "source_ir_digest": "0e5fbaf1cd70dffa0c81d43a1d2cad454f97cbf9a57ae5247da1cb27f6a049d3",
+          "static_specialization_digest": "0bad0b86c36c86808f12b908692925e6493b4c78027da334d612b57bac5459aa",
+          "symbolic_specialization_digest": "1a2d6d32c956e86f41c0dc50dbafe53d33e3f63bd58bd683e78a06595b6ff58c"
+        },
+        {
+          "argument_abi_digest": "5408cc8d6adb1f52d11d850c745a33dbe6a43c470fa907a238b71371f4bf04c1",
+          "artifact_identity_digest": "a4009cb4a7e3ed4d6bff3114ba3250f9b51a7442801573b3ddab407763ce80b5",
+          "build_spec_identity_digest": "cb3a7595ff6208e1a45d534ee80eed4650db3334832a7d378711a8b0d7201637",
+          "cache_key_digest": "c90777761881bc7bbed4ca3ebf6406de46b24f19c36fe193212940695f19bce1",
+          "callable_abi_digest": "e3d31183b4ba5b2f09f01ef777043b9f51818e33d6bdbf18333257211d57c0e8",
+          "case": "bf16_128",
+          "device_code_bytes": 13784,
+          "device_code_sha256": "83afb2df234ad90167351d608052d44f86e26a8ca73959369992cd139943bc13",
+          "entry_function_name": "pypto_vector_add",
+          "fallback_used": false,
+          "kernel_abi_identity_digest": "e3d31183b4ba5b2f09f01ef777043b9f51818e33d6bdbf18333257211d57c0e8",
+          "loader_compatibility_digest": "aa846ef55a849b47305dc67be4bae5103027028db62d3e1435ca0090754e6fc1",
+          "mutation_abi_digest": "4adb7fa8fdbdee33582778c543686a6c63953852be40079649e4d2d6f07c766d",
+          "result_abi_digest": "e8111628d00263e8f568dc8844a2e0fe5d08576bf77d81682b338dbeb977460a",
+          "source_ir_digest": "c22f2459ad794e89f88de1bbd427f17876c6059b9fd222be706dd5ce300a0a7f",
+          "static_specialization_digest": "146fbdd823eb18c77190894a272a39d1298b557acf8d3156226d44d5ce7a6051",
+          "symbolic_specialization_digest": "1a2d6d32c956e86f41c0dc50dbafe53d33e3f63bd58bd683e78a06595b6ff58c"
+        }
+      ],
+      "command_sha256": "18f0917f83ffdca37c27765da407f425463cc1eba40ae32e106b4c1bcbb55e74",
+      "compile_request": {
+        "byte_identity_digest": "e83c2c3ad8050b3b6e2a781dc6ac3ac8d4f8b3750c9cb94cb708af05091ec287",
+        "device_autotune_identity_digest": "e9caef4f459faa97d20eaf41432a802618224573762114acb87b7ea1763677cd",
+        "loader_compatibility_input_digest": "c1397051b8fff67ea69e94a0c452ea1f8253a400d32036e15f4f3817591b7eb5"
+      },
+      "hir_programs": [
+        {
+          "bytes": 2077,
+          "canonical_reserialization_equal": true,
+          "case": "fp32_8x8",
+          "parameter_directions": [
+            "In",
+            "In"
+          ],
+          "sha256": "2a4bf1b74adb2e160ba9a1f6c1596238095d73a1572fd911417f43465b6fced5"
+        },
+        {
+          "bytes": 1922,
+          "canonical_reserialization_equal": true,
+          "case": "bf16_128",
+          "parameter_directions": [
+            "In",
+            "In"
+          ],
+          "sha256": "cc470968297ff4430fdcf43f25bf6cb4b9054e6ba4d67ddd0177040101044baa"
+        }
+      ],
+      "stdout_sha256": "8fffeaa846cbe51ecdb34c67449538ae7526955e6ba58ce0422cb7a34902a39d",
+      "target_info": {
+        "cuda_driver_version": "610.74",
+        "cuda_tile_revision": "af2417041cc939b87ef56d92cfdcf61737c5457e",
+        "cuda_toolkit_version": "13.3.73",
+        "device_name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+        "device_ordinal": 0,
+        "device_uuid": "GPU-64aae36b-ef77-b0d4-b1c7-f7ab17a729f1",
+        "pci_device_id": "0000:02:00.0",
+        "supported_compute_dtypes": [
+          "FP32",
+          "BF16"
+        ],
+        "tensor_ir_revision": "1dcb38c20e53d07c97d3781cae538e33901bae30",
+        "traits": {
+          "compute_capability": 120,
+          "default_shared_memory_per_cta_bytes": 49152,
+          "l1_cache_line_bytes": 128,
+          "l2_cache_size_bytes": 67108864,
+          "max_block_dim_x": 1024,
+          "max_block_dim_y": 1024,
+          "max_block_dim_z": 64,
+          "max_blocks_per_multiprocessor": 24,
+          "max_grid_dim_x": 2147483647,
+          "max_grid_dim_y": 65535,
+          "max_grid_dim_z": 65535,
+          "max_registers_per_thread": 255,
+          "max_shared_memory_per_cta_bytes": 101376,
+          "max_threads_per_block": 1024,
+          "max_threads_per_multiprocessor": 1536,
+          "multiprocessor_count": 82,
+          "registers_per_cta": 65536,
+          "registers_per_multiprocessor": 65536,
+          "shared_memory_per_multiprocessor_bytes": 102400,
+          "total_global_memory_bytes": 25650855936,
+          "warp_size": 32
+        }
+      }
+    },
+    "tensor_ir_head": "1dcb38c20e53d07c97d3781cae538e33901bae30"
+  },
+  "not_claimed": [
+    "performance",
+    "CUDA Graph correctness",
+    "operator families beyond the two vector-add fixtures",
+    "TorchInductor or SGLang integration",
+    "Qwen3.5 correctness or strict coverage"
+  ],
+  "result": {
+    "artifacts": [
+      {
+        "argument_abi_digest": "2bf59cefa95a2e95ac4e4647a654118b6d8c6fbfaa91a294621a9160d68dbd9b",
+        "artifact_identity_digest": "5b749fe20b0bd5665d37ff69ab22e2e9a35edb73d1447d208b4f031b737778cc",
+        "build_spec_identity_digest": "e3d8ccb2f34247018ef9563d34a271c09361ea7a708221f03df7fee5bc837512",
+        "cache_key_digest": "52d8dcb27246cd7890bf794ddfa6645690c3e7f085cb6243453a829ecfb80264",
+        "callable_abi_digest": "4eee741cbe0c7322f938b83b01b34844c5f12fb1b01da52c2029e6687e24c640",
+        "case": "fp32_8x8",
+        "compile_api": "pypto.compiler.compile_structured_strict",
+        "compiler_invocations": 1,
+        "device_code_bytes": 13784,
+        "device_code_sha256": "dcc529fc856a508642c8b5a98c6fc4e223e10a49cc9f8a200b8984f92b6483ab",
+        "entry_function_name": "pypto_vector_add",
+        "expected_device_code_bytes": 13784,
+        "expected_device_code_sha256": "dcc529fc856a508642c8b5a98c6fc4e223e10a49cc9f8a200b8984f92b6483ab",
+        "expected_grid": [
+          4,
+          1,
+          1
+        ],
+        "expected_kernel_arguments": 3,
+        "fallback_used": false,
+        "hir_bytes": 2077,
+        "hir_roundtrip_exact": true,
+        "hir_sha256": "2a4bf1b74adb2e160ba9a1f6c1596238095d73a1572fd911417f43465b6fced5",
+        "kernel_abi_identity_digest": "4eee741cbe0c7322f938b83b01b34844c5f12fb1b01da52c2029e6687e24c640",
+        "loader_compatibility_digest": "aa846ef55a849b47305dc67be4bae5103027028db62d3e1435ca0090754e6fc1",
+        "mutation_abi_digest": "4adb7fa8fdbdee33582778c543686a6c63953852be40079649e4d2d6f07c766d",
+        "result_abi_digest": "5a786136731e5c62c80597edbb57551cd010d344bfeab14456a9f6b263e99ea5",
+        "source_ir_digest": "0e5fbaf1cd70dffa0c81d43a1d2cad454f97cbf9a57ae5247da1cb27f6a049d3",
+        "static_specialization_digest": "0bad0b86c36c86808f12b908692925e6493b4c78027da334d612b57bac5459aa",
+        "symbolic_specialization_digest": "1a2d6d32c956e86f41c0dc50dbafe53d33e3f63bd58bd683e78a06595b6ff58c"
+      },
+      {
+        "argument_abi_digest": "5408cc8d6adb1f52d11d850c745a33dbe6a43c470fa907a238b71371f4bf04c1",
+        "artifact_identity_digest": "a4009cb4a7e3ed4d6bff3114ba3250f9b51a7442801573b3ddab407763ce80b5",
+        "build_spec_identity_digest": "cb3a7595ff6208e1a45d534ee80eed4650db3334832a7d378711a8b0d7201637",
+        "cache_key_digest": "c90777761881bc7bbed4ca3ebf6406de46b24f19c36fe193212940695f19bce1",
+        "callable_abi_digest": "e3d31183b4ba5b2f09f01ef777043b9f51818e33d6bdbf18333257211d57c0e8",
+        "case": "bf16_128",
+        "compile_api": "pypto.compiler.compile_structured_strict",
+        "compiler_invocations": 1,
+        "device_code_bytes": 13784,
+        "device_code_sha256": "83afb2df234ad90167351d608052d44f86e26a8ca73959369992cd139943bc13",
+        "entry_function_name": "pypto_vector_add",
+        "expected_device_code_bytes": 13784,
+        "expected_device_code_sha256": "83afb2df234ad90167351d608052d44f86e26a8ca73959369992cd139943bc13",
+        "expected_grid": [
+          8,
+          1,
+          1
+        ],
+        "expected_kernel_arguments": 3,
+        "fallback_used": false,
+        "hir_bytes": 1922,
+        "hir_roundtrip_exact": true,
+        "hir_sha256": "cc470968297ff4430fdcf43f25bf6cb4b9054e6ba4d67ddd0177040101044baa",
+        "kernel_abi_identity_digest": "e3d31183b4ba5b2f09f01ef777043b9f51818e33d6bdbf18333257211d57c0e8",
+        "loader_compatibility_digest": "aa846ef55a849b47305dc67be4bae5103027028db62d3e1435ca0090754e6fc1",
+        "mutation_abi_digest": "4adb7fa8fdbdee33582778c543686a6c63953852be40079649e4d2d6f07c766d",
+        "result_abi_digest": "e8111628d00263e8f568dc8844a2e0fe5d08576bf77d81682b338dbeb977460a",
+        "source_ir_digest": "c22f2459ad794e89f88de1bbd427f17876c6059b9fd222be706dd5ce300a0a7f",
+        "static_specialization_digest": "146fbdd823eb18c77190894a272a39d1298b557acf8d3156226d44d5ce7a6051",
+        "symbolic_specialization_digest": "1a2d6d32c956e86f41c0dc50dbafe53d33e3f63bd58bd683e78a06595b6ff58c"
+      }
+    ],
+    "case_order": [
+      "fp32_8x8",
+      "bf16_128"
+    ],
+    "child_pre_cuda_gate": {
+      "control_manifest": {
+        "current_head": "b8dae3669866ceffbdda8fd391615fcc625dcc98",
+        "current_tree": "44e1f5be8832c176e0a93433106c5ff26cb8c7f7",
+        "files": [
+          {
+            "bytes": 42117,
+            "mode": 420,
+            "path": "benchmarks/operators/pypto_frontend_vector_add_sm120.py",
+            "sha256": "13504395c8c639bb22aac4d0820e7fe2f953591d0206a8ff357b2eb48a27a73b"
+          },
+          {
+            "bytes": 6758,
+            "mode": 420,
+            "path": "tools/_pypto_frontend_vector_add_sm120_contract.py",
+            "sha256": "2917ae8e4b9bfb0d31fa370ee8ddf9b04a1165772910b429e3eebad12afadff1"
+          },
+          {
+            "bytes": 10400,
+            "mode": 420,
+            "path": "tools/_pypto_frontend_sm120_control_manifest.py",
+            "sha256": "5b4b265835299a890b3b6b131a6e208a71f229e0cda06ce7ec932c3ba197ea89"
+          },
+          {
+            "bytes": 3932,
+            "mode": 420,
+            "path": "tools/run_pypto_frontend_sm120_isolated.py",
+            "sha256": "3185b64f96dd9e129bf076e0c472bc36f5b1fdf15dcc34689c686fa7b76c91c8"
+          },
+          {
+            "bytes": 69268,
+            "mode": 420,
+            "path": "tools/finalize_pypto_frontend_vector_add_sm120.py",
+            "sha256": "35df19359aa6d96c5dc38045510b11061c78fb9fd49b8147c01bf8155c5e673b"
+          },
+          {
+            "bytes": 27684,
+            "mode": 493,
+            "path": "tools/preflight.py",
+            "sha256": "0b9884f8dbd34337a85f62c351b1e19dda3a8b84ec9a88c835d8701af053e3d1"
+          },
+          {
+            "bytes": 76558,
+            "mode": 493,
+            "path": "tools/run_isolated.py",
+            "sha256": "978686ac09743a98233c9616d23b04e57d3a257bd643d5db3b8a71eaac7465c8"
+          },
+          {
+            "bytes": 7885,
+            "mode": 493,
+            "path": "tools/stop_run.py",
+            "sha256": "879a2e3863671531a548c71d788d56298500eab989bd1420d2c7ae01717ddfe4"
+          }
+        ],
+        "implementation_commit": "1d1fce4d63320beb3f29a265dd126891f37fb559",
+        "implementation_tree": "9abfbe232859db5aeca50ffd951009355c249fca",
+        "manifest_bytes": 1776,
+        "manifest_path": "state/contracts/pypto_frontend_vector_add_sm120_v1.json",
+        "manifest_sha256": "f16c4fbac14f4ec4d2a26fef9df3c4e7d1d3c412fbaf3c48f200a61a118d8eed",
+        "parent_control_manifest": {
+          "bytes": 1569,
+          "implementation_commit": "5564008fddeaaf0a9861ee5c38c895558f577600",
+          "implementation_tree": "b1676a118604c22eebaec787987806f3cf1aeebb",
+          "kind": "pypto-nvidia-executable-sm120-controls-v4",
+          "path": "state/contracts/pypto_nvidia_executable_sm120_v4.json",
+          "primitive_files": [
+            {
+              "bytes": 27684,
+              "mode": 493,
+              "path": "tools/preflight.py",
+              "sha256": "0b9884f8dbd34337a85f62c351b1e19dda3a8b84ec9a88c835d8701af053e3d1"
+            },
+            {
+              "bytes": 76558,
+              "mode": 493,
+              "path": "tools/run_isolated.py",
+              "sha256": "978686ac09743a98233c9616d23b04e57d3a257bd643d5db3b8a71eaac7465c8"
+            },
+            {
+              "bytes": 7885,
+              "mode": 493,
+              "path": "tools/stop_run.py",
+              "sha256": "879a2e3863671531a548c71d788d56298500eab989bd1420d2c7ae01717ddfe4"
+            }
+          ],
+          "schema_version": 4,
+          "sha256": "a079c4d252aa346bb19a64a6ad3947867b76e7c778f7234125078fb16b2598bf"
+        },
+        "root_clean": true
+      },
+      "free_memory_mib": 21769,
+      "gpu": {
+        "compute_capability": "12.0",
+        "driver": "610.74",
+        "memory_mib": "24463",
+        "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+        "used_mib": "2694"
+      },
+      "nvidia_compute_pids": [],
+      "protected_heavy_pids": [],
+      "protected_runtime_pids": [],
+      "static_identity": {
+        "cuda": "13.0",
+        "cuda_initialized": false,
+        "environment_lock_sha256": "29800d50f635e7188e55a6d6f43bfb4b8ac9ab16c4a21687db2960f18941932a",
+        "forbidden_dsos": [],
+        "git_version": "cf30153c4c131c8164ee7798e5022d810682e2cb",
+        "hip": null,
+        "libcudart_path": "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-nvidia/lib/python3.14/site-packages/nvidia/cu13/lib/libcudart.so.13",
+        "libcudart_record_owned": true,
+        "libcudart_sha256": "96c42e418cec19054186b9429c321603cc190bf26a18104e19408117a2a817b0",
+        "libcudart_size": 704288,
+        "nvidia_runtime_mappings": [],
+        "python_executable": "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-nvidia/bin/python3.14",
+        "source": "static ENVIRONMENT.lock and selected-prefix file audit",
+        "version": "2.13.0+cu130"
+      },
+      "unreadable_protected_maps": []
+    },
+    "compile_invocations_per_case": 1,
+    "compile_request": {
+      "byte_identity_digest": "e83c2c3ad8050b3b6e2a781dc6ac3ac8d4f8b3750c9cb94cb708af05091ec287",
+      "device_autotune_identity_digest": "e9caef4f459faa97d20eaf41432a802618224573762114acb87b7ea1763677cd",
+      "loader_compatibility_input_digest": "c1397051b8fff67ea69e94a0c452ea1f8253a400d32036e15f4f3817591b7eb5"
+    },
+    "executions": [
+      {
+        "actual_logical_bytes_sha256": "866734bdeb1c286f7a08783e2350e7b53961991e1fc99205b75d8717ff3b207c",
+        "artifact_identity_digest": "5b749fe20b0bd5665d37ff69ab22e2e9a35edb73d1447d208b4f031b737778cc",
+        "bound_context_after_unload": 0,
+        "bound_context_before_unload": 109935203991200,
+        "bound_context_id_after_unload": 0,
+        "bound_context_id_before_unload": 1,
+        "capture_free_at_launch": true,
+        "capture_free_before": true,
+        "case": "fp32_8x8",
+        "dtype": "float32",
+        "expected_logical_bytes_sha256": "866734bdeb1c286f7a08783e2350e7b53961991e1fc99205b75d8717ff3b207c",
+        "explicit_unload": true,
+        "external_stream_synchronized": true,
+        "fresh_executable": true,
+        "grid": [
+          4,
+          1,
+          1
+        ],
+        "input_bytes_sha256": "26044ff105b7dfbc5569669481b0ae3257e19e58dedad22cbad0effeece5d22f",
+        "input_unchanged": true,
+        "kernel_argument_count": 3,
+        "lifetime_ordinal": 0,
+        "non_default_stream": true,
+        "packet_released_after_synchronization": true,
+        "raw_current_stream": 109935239359632,
+        "repetition": 0,
+        "shape": [
+          8,
+          8
+        ],
+        "strides": [
+          8,
+          1
+        ],
+        "terminal_state": "Unloaded",
+        "torch_equal": true
+      },
+      {
+        "actual_logical_bytes_sha256": "bf5591117fce93b0551fb97d51684bc68c4c9e573f49080e5f0aae3ad72194ce",
+        "artifact_identity_digest": "5b749fe20b0bd5665d37ff69ab22e2e9a35edb73d1447d208b4f031b737778cc",
+        "bound_context_after_unload": 0,
+        "bound_context_before_unload": 109935203991200,
+        "bound_context_id_after_unload": 0,
+        "bound_context_id_before_unload": 1,
+        "capture_free_at_launch": true,
+        "capture_free_before": true,
+        "case": "fp32_8x8",
+        "dtype": "float32",
+        "expected_logical_bytes_sha256": "bf5591117fce93b0551fb97d51684bc68c4c9e573f49080e5f0aae3ad72194ce",
+        "explicit_unload": true,
+        "external_stream_synchronized": true,
+        "fresh_executable": true,
+        "grid": [
+          4,
+          1,
+          1
+        ],
+        "input_bytes_sha256": "565f9d8fcaeb7f413f3e12ff7ffe03c2a6f104748b1a58adda453c0a1d806482",
+        "input_unchanged": true,
+        "kernel_argument_count": 3,
+        "lifetime_ordinal": 1,
+        "non_default_stream": true,
+        "packet_released_after_synchronization": true,
+        "raw_current_stream": 109935239359632,
+        "repetition": 1,
+        "shape": [
+          8,
+          8
+        ],
+        "strides": [
+          8,
+          1
+        ],
+        "terminal_state": "Unloaded",
+        "torch_equal": true
+      },
+      {
+        "actual_logical_bytes_sha256": "c038c60748752a4d6c277fc4e01412f5449725f17bf4956b5cb9e22bc93bc1d9",
+        "artifact_identity_digest": "a4009cb4a7e3ed4d6bff3114ba3250f9b51a7442801573b3ddab407763ce80b5",
+        "bound_context_after_unload": 0,
+        "bound_context_before_unload": 109935203991200,
+        "bound_context_id_after_unload": 0,
+        "bound_context_id_before_unload": 1,
+        "capture_free_at_launch": true,
+        "capture_free_before": true,
+        "case": "bf16_128",
+        "dtype": "bfloat16",
+        "expected_logical_bytes_sha256": "c038c60748752a4d6c277fc4e01412f5449725f17bf4956b5cb9e22bc93bc1d9",
+        "explicit_unload": true,
+        "external_stream_synchronized": true,
+        "fresh_executable": true,
+        "grid": [
+          8,
+          1,
+          1
+        ],
+        "input_bytes_sha256": "64bc76bb2aa241d7e407343cbca33a520f233d2d0831e8f1c996160427e49b4d",
+        "input_unchanged": true,
+        "kernel_argument_count": 3,
+        "lifetime_ordinal": 0,
+        "non_default_stream": true,
+        "packet_released_after_synchronization": true,
+        "raw_current_stream": 109935239359632,
+        "repetition": 0,
+        "shape": [
+          128
+        ],
+        "strides": [
+          1
+        ],
+        "terminal_state": "Unloaded",
+        "torch_equal": true
+      },
+      {
+        "actual_logical_bytes_sha256": "c038c60748752a4d6c277fc4e01412f5449725f17bf4956b5cb9e22bc93bc1d9",
+        "artifact_identity_digest": "a4009cb4a7e3ed4d6bff3114ba3250f9b51a7442801573b3ddab407763ce80b5",
+        "bound_context_after_unload": 0,
+        "bound_context_before_unload": 109935203991200,
+        "bound_context_id_after_unload": 0,
+        "bound_context_id_before_unload": 1,
+        "capture_free_at_launch": true,
+        "capture_free_before": true,
+        "case": "bf16_128",
+        "dtype": "bfloat16",
+        "expected_logical_bytes_sha256": "c038c60748752a4d6c277fc4e01412f5449725f17bf4956b5cb9e22bc93bc1d9",
+        "explicit_unload": true,
+        "external_stream_synchronized": true,
+        "fresh_executable": true,
+        "grid": [
+          8,
+          1,
+          1
+        ],
+        "input_bytes_sha256": "2280315221c5301585ac8c7cd00b677126a7f48f36798d00201bd3365f739502",
+        "input_unchanged": true,
+        "kernel_argument_count": 3,
+        "lifetime_ordinal": 1,
+        "non_default_stream": true,
+        "packet_released_after_synchronization": true,
+        "raw_current_stream": 109935239359632,
+        "repetition": 1,
+        "shape": [
+          128
+        ],
+        "strides": [
+          1
+        ],
+        "terminal_state": "Unloaded",
+        "torch_equal": true
+      }
+    ],
+    "explicit_packet_releases": 4,
+    "explicit_unloads": 4,
+    "external_synchronization": true,
+    "fallback_used": false,
+    "forbidden_provider_imports": [],
+    "hir_programs": [
+      {
+        "bytes": 2077,
+        "canonical_reserialization_equal": true,
+        "case": "fp32_8x8",
+        "deserialized_before_compile": true,
+        "parameter_directions": [
+          "In",
+          "In"
+        ],
+        "serialized_once": true,
+        "sha256": "2a4bf1b74adb2e160ba9a1f6c1596238095d73a1572fd911417f43465b6fced5",
+        "structural_equal": true
+      },
+      {
+        "bytes": 1922,
+        "canonical_reserialization_equal": true,
+        "case": "bf16_128",
+        "deserialized_before_compile": true,
+        "parameter_directions": [
+          "In",
+          "In"
+        ],
+        "serialized_once": true,
+        "sha256": "cc470968297ff4430fdcf43f25bf6cb4b9054e6ba4d67ddd0177040101044baa",
+        "structural_equal": true
+      }
+    ],
+    "libcudart_paths": [
+      "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-nvidia/lib/python3.14/site-packages/nvidia/cu13/lib/libcudart.so.13"
+    ],
+    "module_lifetimes": 4,
+    "non_default_current_stream": true,
+    "observation": {
+      "context_address": 109935203991200,
+      "context_id": 1,
+      "cuda_driver_api_version": 13030,
+      "cuda_driver_release_provenance": "610.74",
+      "cuda_driver_version": "610.74",
+      "cuda_runtime_api_version": 13000,
+      "cuda_runtime_library_path": "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-nvidia/lib/python3.14/site-packages/nvidia/cu13/lib/libcudart.so.13",
+      "cuda_tile_revision": "af2417041cc939b87ef56d92cfdcf61737c5457e",
+      "cuda_toolkit_version": "13.3.73",
+      "device_name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+      "device_ordinal": 0,
+      "device_uuid": "GPU-64aae36b-ef77-b0d4-b1c7-f7ab17a729f1",
+      "pci_device_id": "0000:02:00.0",
+      "supported_compute_dtypes": [
+        "FP32",
+        "BF16"
+      ],
+      "tensor_ir_revision": "1dcb38c20e53d07c97d3781cae538e33901bae30",
+      "traits": {
+        "compute_capability": 120,
+        "default_shared_memory_per_cta_bytes": 49152,
+        "l1_cache_line_bytes": 128,
+        "l2_cache_size_bytes": 67108864,
+        "max_block_dim_x": 1024,
+        "max_block_dim_y": 1024,
+        "max_block_dim_z": 64,
+        "max_blocks_per_multiprocessor": 24,
+        "max_grid_dim_x": 2147483647,
+        "max_grid_dim_y": 65535,
+        "max_grid_dim_z": 65535,
+        "max_registers_per_thread": 255,
+        "max_shared_memory_per_cta_bytes": 101376,
+        "max_threads_per_block": 1024,
+        "max_threads_per_multiprocessor": 1536,
+        "multiprocessor_count": 82,
+        "registers_per_cta": 65536,
+        "registers_per_multiprocessor": 65536,
+        "shared_memory_per_multiprocessor_bytes": 102400,
+        "total_global_memory_bytes": 25650855936,
+        "warp_size": 32
+      }
+    },
+    "repetitions_per_case": 2,
+    "torch": {
+      "cuda": "13.0",
+      "git_version": "cf30153c4c131c8164ee7798e5022d810682e2cb",
+      "hip": null,
+      "module_path": "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-nvidia/lib/python3.14/site-packages/torch/__init__.py",
+      "version": "2.13.0+cu130"
+    }
+  },
+  "run": {
+    "command": [
+      "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-nvidia/bin/python",
+      "-I",
+      "-B",
+      "-S",
+      "/home/zhaosiying/pypto-love-tensor-ir/benchmarks/operators/pypto_frontend_vector_add_sm120.py"
+    ],
+    "gate_path": "runs/pypto-20260825T145519Z-1142938-70ac73/gpu-smoke-gate.json",
+    "gate_sha256": "a6567eae8886b81a69b3e12f5404b84d11910497a8a10a66307c947b2b166013",
+    "preflight_path": "runs/pypto-20260825T145519Z-1142938-70ac73/preflight.json",
+    "preflight_sha256": "ec3cd964b56715f24b8c9212f0404fe8f94946a5a8b2cc34d3f76fefcbef8e80",
+    "process_path": "runs/pypto-20260825T145519Z-1142938-70ac73/process.json",
+    "process_sha256": "7140a54c0e22391ae12fb1d739d1131c3fb57b23f916acd384fa8feb2b83a54c",
+    "provisional_path": "runs/pypto-20260825T145519Z-1142938-70ac73/pypto-frontend-vector-add-sm120/provisional.json",
+    "provisional_sha256": "88db54f9ffd32f9601cad6decbe62fb3a1689e27f7162cbdc24694b9a1ba667b",
+    "run_id": "pypto-20260825T145519Z-1142938-70ac73",
+    "start_barrier_path": "runs/pypto-20260825T145519Z-1142938-70ac73/gpu-smoke-start-barrier.json",
+    "start_barrier_sha256": "82e1041aff5f69ff6460c70e853ac89e517c9448caf47249ee67ac8a1cfc67bc",
+    "zero_nvidia_interference": true
+  },
+  "schema_version": 1,
+  "scope": {
+    "cuda_graph_result": false,
+    "frontend_hir": true,
+    "model_forward": false,
+    "operator_correctness": true,
+    "performance_result": false,
+    "provider": "pypto.tensorir",
+    "runtime_object": "NvidiaExecutable",
+    "strict_coverage_result": false
+  },
+  "smoke": "pypto-frontend-vector-add-sm120",
+  "status": "accepted-real-sm120-frontend-vector-add-correctness-smoke"
+}
