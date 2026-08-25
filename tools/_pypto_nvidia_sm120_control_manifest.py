@@ -11,9 +11,9 @@ import subprocess
 from pathlib import Path
 
 
-MANIFEST_SCHEMA_VERSION = 3
-MANIFEST_KIND = "pypto-nvidia-executable-sm120-controls-v3"
-MANIFEST_RELATIVE_PATH = Path("state/contracts/pypto_nvidia_executable_sm120_v3.json")
+MANIFEST_SCHEMA_VERSION = 4
+MANIFEST_KIND = "pypto-nvidia-executable-sm120-controls-v4"
+MANIFEST_RELATIVE_PATH = Path("state/contracts/pypto_nvidia_executable_sm120_v4.json")
 CONTROL_PATHS = (
     "benchmarks/operators/pypto_nvidia_executable_sm120.py",
     "tools/_pypto_nvidia_executable_sm120_contract.py",

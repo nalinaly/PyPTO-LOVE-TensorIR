@@ -875,7 +875,9 @@ class SmokeFinalizerFullFixtureTest(unittest.TestCase):
                     "cuda_driver_version": contract.EXPECTED_DRIVER_RELEASE,
                     "tensor_ir_revision": contract.TENSOR_IR_HEAD,
                     "cuda_tile_revision": contract.CUDA_TILE_HEAD,
-                    "supported_compute_dtypes": ["BF16", "FP32"],
+                    "supported_compute_dtypes": list(
+                        contract.EXPECTED_SUPPORTED_COMPUTE_DTYPES
+                    ),
                     "cuda_driver_release_provenance": contract.EXPECTED_DRIVER_RELEASE,
                     "cuda_driver_api_version": 13000,
                     "cuda_runtime_api_version": 13000,
@@ -948,6 +950,37 @@ class SmokeFinalizerFullFixtureTest(unittest.TestCase):
                     run_id=self.run_id,
                     expected_provisional_sha256=tampered_sha,
                 )
+
+    def test_runtime_identity_requires_canonical_compute_dtype_order(self) -> None:
+        provisional, _sha, _semantic_audit = self.build_fixture()
+        preflight, _preflight_raw = finalizer.load_canonical(
+            self.preflight_path, ROOT, "synthetic preflight"
+        )
+        gate, _gate_raw = finalizer.load_canonical(
+            self.gate_path, ROOT, "synthetic gate"
+        )
+        finalizer.validate_runtime_identity(
+            provisional, ROOT, preflight, gate, self.control_identity
+        )
+        invalid_values = (
+            ["BF16", "FP32"],
+            ["FP32"],
+            ["FP32", "FP32"],
+            ["FP32", "BF16", "FP16"],
+            [52, 64],
+            "FP32,BF16",
+        )
+        for value in invalid_values:
+            with self.subTest(value=value):
+                candidate = copy.deepcopy(provisional)
+                candidate["runtime"]["observation"]["supported_compute_dtypes"] = value
+                with self.assertRaisesRegex(
+                    finalizer.FinalizeError,
+                    "live PyPTO runtime observation differs",
+                ):
+                    finalizer.validate_runtime_identity(
+                        candidate, ROOT, preflight, gate, self.control_identity
+                    )
 
     def test_execution_artifact_stream_and_context_mutations_are_rejected(self) -> None:
         provisional, _sha, _semantic = self.build_fixture()
@@ -1048,6 +1081,7 @@ class SmokeFinalizerFullFixtureTest(unittest.TestCase):
                 ("device_uuid", "GPU-ffffffff-ffff-ffff-ffff-ffffffffffff"),
                 ("pci_device_id", "0000:02:00.0"),
                 ("traits", {**target["traits"], "max_threads_per_block": 512}),
+                ("supported_compute_dtypes", ["BF16", "FP32"]),
             ):
                 with self.subTest(field=mutation[0]):
                     candidate = copy.deepcopy(provisional)

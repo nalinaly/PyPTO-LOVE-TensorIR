@@ -761,7 +761,8 @@ def validate_runtime_identity(
         or observation.get("cuda_driver_version") != contract.EXPECTED_DRIVER_RELEASE
         or observation.get("tensor_ir_revision") != contract.TENSOR_IR_HEAD
         or observation.get("cuda_tile_revision") != contract.CUDA_TILE_HEAD
-        or observation.get("supported_compute_dtypes") != ["BF16", "FP32"]
+        or observation.get("supported_compute_dtypes")
+        != list(contract.EXPECTED_SUPPORTED_COMPUTE_DTYPES)
         or observation.get("cuda_driver_release_provenance")
         != contract.EXPECTED_DRIVER_RELEASE
         or require_int(

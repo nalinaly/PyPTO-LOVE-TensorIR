@@ -26,9 +26,9 @@ SGLang, FlashInfer, or the framework plugin project.
 
 The runner, contract, preflight, controller, stop tool and finalizer must equal
 the exact blobs in
-`state/contracts/pypto_nvidia_executable_sm120_v3.json`. Versions 1 and 2 remain
-immutable records of the pre-ABI-fix and pre-enumeration-fix control
-transactions. The root repository
+`state/contracts/pypto_nvidia_executable_sm120_v4.json`. Versions 1 through 3
+remain immutable records of the pre-ABI-fix, pre-enumeration-fix, and
+pre-canonical-dtype-finalizer control transactions. The root repository
 must be clean and the manifest's implementation commit must be an ancestor of
 the current checkpoint. Before that manifest is published, launch fails closed.
 
@@ -68,7 +68,7 @@ envs/pypto-nvidia/bin/python -E -B -S tools/run_isolated.py \
   --environment pypto-nvidia \
   --framework-profile pypto \
   --environment-lock-mode shared \
-  --run-id-file runs/next-pypto-sm120-smoke.json \
+  --run-id-file runs/next-pypto-sm120-smoke-v4.json \
   -- \
   /home/zhaosiying/pypto-love-tensor-ir/envs/pypto-nvidia/bin/python \
   -I -B -S \
