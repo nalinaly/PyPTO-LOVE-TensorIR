@@ -85,6 +85,10 @@
       entry/resource/argument/grid/workspace ABI, prewarms outside graph
       capture, latches failure, owns graph leases, and accepts a non-null raw
       current stream only at launch.
+- [x] Implement and independently gate the parent-only live NVIDIA runtime
+      observation value at PyPTO `6361f11`: complete TargetInfo propagation,
+      authenticated already-loaded Runtime provider, real private-Driver fork
+      latch, no handle retention and backend-OFF fail-closed behavior.
 - [ ] Under a green exclusive `gpu-benchmark` gate, run the exact-product real
       SM120 static/dynamic/scalar non-default-current-stream correctness and
       explicit unload smoke; do not advance frontend lowering from fake-driver

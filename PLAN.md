@@ -1,8 +1,19 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `24`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `25`
 
 ## Current phase: P2 exclusive SM120 NvidiaExecutable smoke; R0 baseline remains open
+
+Checkpoint `CP-0034` accepts only the parent-process NVIDIA runtime observation
+value at PyPTO `6361f11`. It reuses the private Driver boundary to produce every
+live TargetInfo field, numeric Driver/Runtime API versions, authenticated
+Runtime-provider path and diagnostic regular-context identity without retaining
+handles or loading Cubin. `dlsym(RTLD_DEFAULT)` plus `dladdr` and canonical
+expected-path equality never opens libcudart. Distinct-sentinel, provider,
+fork-latch and backend-OFF tests pass; fresh ON/OFF products and exact-DSO gates
+remain single-DSO and isolated. No production observation or real CUDA call has
+run. The next narrow transaction is a fixed-command root smoke payload and
+post-run finalizer; execution still requires a fresh authorized GPU-smoke gate.
 
 Checkpoint `CP-0033` accepts only the CPU/fake-driver NvidiaExecutable v1
 contract at PyPTO `2842a1c`. It adds a separate internal runtime object target,

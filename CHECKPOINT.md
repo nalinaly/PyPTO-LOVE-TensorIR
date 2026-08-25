@@ -1,10 +1,11 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0033`
+**Checkpoint:** `CP-0034`
 
 **Status:** R0 remains open. P2 now accepts the CPU/fake-driver
-NvidiaExecutable v1 lifecycle, prepared-launch and product-isolation contract
-over the accepted compiler Artifact/Cache. Real SM120 module load/current-stream
+NvidiaExecutable v1 plus the parent-process live-target/Runtime observation
+value and product-isolation contracts over the accepted compiler Artifact/Cache.
+Real Runtime provider/context observation, SM120 module load/current-stream
 execution, frontend-HIR lowering, operators, framework routes and model
 milestones remain unaccepted.
 
@@ -392,6 +393,30 @@ milestones remain unaccepted.
   used. CP-0033 therefore does not accept real libcuda resolution, Cubin load,
   current-stream execution, numerical correctness, CUDA Graph, frontend
   lowering, operators, frameworks, Qwen coverage or performance.
+- PyPTO `6361f110660a77f9a8dc542265575d8f7260b343` now owns the
+  public immutable `NvidiaRuntimeObservation`. Parent code supplies a Driver
+  release provenance string and an audited expected CUDA Runtime library path;
+  PyPTO returns the complete live `NvidiaTargetInfo`, numeric Driver/Runtime API
+  versions, authenticated canonical provider path and diagnostic regular-
+  context address/ID without retaining a CUDA handle.
+- Runtime version discovery uses only `dlsym(RTLD_DEFAULT)` followed by
+  `dladdr`; actual and expected paths must canonicalize to the same regular
+  file. The observation seam never opens libcudart. Environment ownership of
+  the expected file remains the caller's proof obligation.
+- Observation reuses the private Driver's pre-mutex PID latch. Distinct-value
+  tests cover all 21 TargetTraits fields, identity/revision/dtype propagation,
+  provider mismatch/status/version rejection and parent-observation to
+  fork-child rejection. Backend-OFF public observation fails before dynamic
+  loading. Fork children must use spawn/exec because the latch cannot detect
+  arbitrary CUDA initialization performed by other libraries.
+- Fresh ON/OFF builds and exact-DSO gates pass CTest 9/9 plus Python 142/2,
+  and CTest 7/7 plus Python 135/9 respectively. Both remain one RPATH-free DSO
+  with only five standard dependencies/two definitions and no CUDA/TensorIR/
+  executable/observation dynamic-symbol leakage. EV-0047 binds the exact final
+  products, run metadata, JUnit, compile rows and static gate.
+- CP-0034 accepts only the CPU/value observation and product boundary. No
+  production dlsym/dladdr, real context/device query, Cubin load, CUDA launch,
+  numerical result, graph, framework, model coverage or performance is claimed.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact
@@ -431,11 +456,12 @@ milestones remain unaccepted.
 ## Resume action
 
 The goal is active, not complete. Freeze Triton as accepted reference-only
-infrastructure. Wait for a green exclusive `gpu-benchmark` preflight, then run
-the exact-product RTX 5090 static/dynamic/scalar non-default-current-stream
-smoke described by CP-0033. Synchronize and compare outside PyPTO, retain
-packets through asynchronous completion, release graph leases and explicitly
-unload. Do not infer real CUDA behavior from the fake-driver gate or advance
+infrastructure. First implement the fixed-command root smoke payload/finalizer
+using CP-0034 observation plus the CP-0033 executable. Then, only under a fresh
+authorized GPU-smoke policy, run the exact-product RTX 5090 static/dynamic/
+scalar non-default-current-stream smoke. Synchronize and compare outside PyPTO,
+retain packets through asynchronous completion, release graph leases and
+explicitly unload. Do not infer real CUDA behavior from CPU evidence or advance
 frontend lowering before this runtime evidence closes.
 Defer the separate exclusive Triton replacement/reference-smoke gate until the
 unmodified SGLang baseline needs it.

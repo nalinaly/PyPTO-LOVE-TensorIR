@@ -41,21 +41,24 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0033.md` and evidence `EV-0005` through `EV-0046`.
-- `projects/pypto` is clean at `2842a1c...`. Single-DSO, immutable SM120
+- Read `state/checkpoints/CP-0034.md` and evidence `EV-0005` through `EV-0047`.
+- `projects/pypto` is clean at `6361f11...`. Single-DSO, immutable SM120
   TargetInfo, Artifact v1, strict canonical-source production, ArtifactCache
-  v1 and the CPU/fake-driver NvidiaExecutable v1 contract are accepted. The
+  v1, the CPU/fake-driver NvidiaExecutable v1 and the parent runtime-observation
+  value are accepted. The observation queries every live TargetInfo field via
+  the private Driver, authenticates an already-loaded Runtime symbol provider
+  against a caller-audited canonical path, reuses the pre-mutex PID latch and
+  retains no handle. The
   executable has its own internal runtime object target, process/device/regular
   CUcontext lifetime, typed lazy Driver resolver, forced-function/resource ABI
   validation, allocation-free prepared launch packets and graph/module leases.
   TensorIR `1dcb38c...` remains private and owns the bounded assembler boundary.
-  The final ON DSO SHA is `ef60b6a9...e4727`; it is RPATH-free, has only five
-  standard dependencies/two definitions and passes native 9/9 plus exact-DSO
-  Python 142 passed/1 skipped. The OFF DSO SHA `9ffd2291...cee7a` passes native
-  7/7 plus Python 134 passed/9 skipped and compiles only the fail-closed Driver
-  stub. EV-0046 binds revisions, products, compile rows, seven-source negatives,
-  root regression and three GO reviews. No real libcuda/module/current-stream
-  launch has run: the exclusive gate is red for the protected lane.
+  Final ON/OFF products remain RPATH-free with five standard dependencies/two
+  definitions. ON SHA `72ef7549...935664` passes native 9/9 plus exact-DSO
+  Python 142/2; OFF SHA `b88edbd2...61499f` passes native 7/7 plus Python
+  135/9. EV-0047 binds their exact hashes, revisions, compile rows, JUnit,
+  static gate and reviews. No production observation, real libcuda
+  module/current-stream launch or CUDA numerical result has run.
 - TensorIR `1dcb38c...` is a local committed feature revision and is fully
   pinned by the PyPTO gitlink/build guards. It has not been published to the
   configured NVIDIA remote; push or otherwise materialize that commit before
@@ -66,8 +69,9 @@ upstream checkouts and their optional/manual suites.
   Python compiler 122/122; EV-0038 binds commit/tree/source/DSO/run hashes and
   the recovered stale editable-DSO evidence. Producer integration and Artifact
   v1 plus strict production are accepted by CP-0031, ArtifactCache v1 by
-  CP-0032 and modeled NvidiaExecutable lifecycle by CP-0033; real CUDA module
-  load/current-stream launch remains unverified.
+  CP-0032, modeled NvidiaExecutable lifecycle by CP-0033 and parent observation
+  value by CP-0034; real CUDA module load/current-stream launch remains
+  unverified.
 - `projects/pypto-kernels` is clean at `6f73857...` with typed semantic
   families, canonical process-safe tuning database, matmul invocation ABI v1,
   catalog-bound canonical operator artifact provenance, paged-attention ABI v1
@@ -126,16 +130,15 @@ upstream checkouts and their optional/manual suites.
   CompileRequest, per-region KernelBuildSpec, exact LLVM/tileiras producer
   identity, complete bytes-plus-metadata Artifact, compiler-owned persistent
   cache, and a process/device/CUcontext-bound prewarmed executable before any
-  real CUDA smoke. Those prerequisites are now accepted through the CP-0033
-  CPU/fake-driver gate. Parent-only target query and CUDA Graph capture/replay
-  law remain part of the boundary; workers never query CUDA or carry
-  streams/handles.
-- Resume only after `python -B tools/preflight.py --mode gpu-benchmark --json`
-  returns green. Use the exact ON DSO from EV-0046 in a PyTorch-owned SM120
-  context, query the already-loaded CUDA Runtime version, create a real
-  non-default stream, and run static/dynamic/scalar Cubin correctness plus
-  explicit unload. Retain packets until stream completion and do not use stream
-  handles 0/1/2. Keep frontend lowering, operator algorithms, framework
+  real CUDA smoke. Those prerequisites are now accepted through the CP-0034
+  observation gate. Workers never query CUDA or carry streams/handles.
+- Next implement the fixed-command root smoke payload/finalizer. It must audit
+  the selected Torch libcudart mapping before passing its canonical path to
+  CP-0034 observation, bootstrap the exact ON DSO from EV-0047, and use the
+  PyTorch-owned current non-default stream. Execute only under a fresh
+  authorized GPU-smoke policy. Retain packets until external stream completion,
+  reject handles 0/1/2, compare CPU references, repeat module lifetime and
+  explicitly unload. Keep frontend lowering, operator algorithms, framework
   registration, online tuning and model work after this real-runtime gate.
 - `docs/coverage_collector_map.md` is the pinned collector implementation map.
   Do not claim `closed_world=true` from ordinary Kineto/NVTX or from the first

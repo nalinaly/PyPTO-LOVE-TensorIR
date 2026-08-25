@@ -2,18 +2,19 @@
 
 **Goal ID:** `PYPTO-NVIDIA-QWEN35-V1`
 
-**Execution status:** active. CP-0033 accepts the CPU/fake-driver
-`NvidiaExecutable` v1 lifecycle, prepared launch packet and product-isolation
-contract at PyPTO `2842a1c...`, layered over CP-0032 ArtifactCache and the
-strict private TensorIR/CUDA Tile SM120 Cubin producer. Real libcuda module
-load and non-default current-stream execution remain unaccepted because the
-exclusive GPU gate is red for the protected ZCode/gem5/SGLang lane. The next
-narrow transaction is that exact-product RTX 5090 smoke when the gate is green;
-frontend-HIR lowering, operators, framework routes and model execution remain
-later. The exact
-PyTorch-pinned Triton reference wheel stays audited/frozen and deliberately
-uninstalled as baseline-only infrastructure. The full objective and acceptance
-criteria remain unchanged. Never signal protected amdgpu-sim/zcode processes.
+**Execution status:** active. CP-0034 accepts the CPU/value-only parent NVIDIA
+runtime observation seam at PyPTO `6361f11...`, layered over the CP-0033
+NvidiaExecutable, CP-0032 ArtifactCache and strict private TensorIR/CUDA Tile
+SM120 Cubin producer. It provides a complete live TargetInfo value plus
+authenticated already-loaded Runtime provider path without retaining handles
+or opening libcudart. Real provider/context observation, libcuda module load
+and non-default current-stream execution remain unaccepted and require a fresh
+authorized GPU-smoke gate. The next transaction is the fixed-command root smoke
+payload/finalizer; frontend-HIR lowering, operators, framework routes and model
+execution remain later. The exact PyTorch-pinned Triton reference wheel stays
+audited/frozen and deliberately uninstalled as baseline-only infrastructure.
+The full objective and acceptance criteria remain unchanged. Never signal
+protected amdgpu-sim/zcode processes.
 
 Build a usable, high-performance NVIDIA SM120 backend for the authorized PyPTO
 source; internalize NVIDIA TensorIR/CUDA Tile behind the single public `pypto`
