@@ -1,7 +1,8 @@
 PYPTO-NVIDIA-QWEN35-V1 IMPLEMENTATION MAP
 =========================================
 
-Generated from the local checkouts on 2026-08-24. Paths are relative to
+Generated from the local checkouts on 2026-08-24 and refreshed through
+CP-0040 on 2026-08-25. Paths are relative to
 /home/zhaosiying/pypto-love-tensor-ir unless explicitly stated otherwise.
 This is an ownership/implementation map, not a runtime-support claim.
 
@@ -10,14 +11,16 @@ This is an ownership/implementation map, not a runtime-support claim.
 --------------------------------------
 
 projects/pypto
-  Head: 09e014ceac2d2cac2f667d182bd7de8f0d0bd259 on
-  feature/nvidia-sm120. The compiler-object/single-DSO and immutable SM120
-  TargetInfo boundaries are accepted: native CTest 2/2, fresh one-DSO wheel,
-  31 TargetInfo tests and clean wheel 10,209/57 gates pass. The only reported
-  dirt is ignored/untracked cache content inside the pinned NVIDIA submodules;
-  tracked files are clean. Pointer-free CompileRequest v1 is accepted as a
-  canonical data contract; no region build spec, producer, artifact or runtime
-  implementation is implied.
+  Head: fa85e5a2c917af78ef94576073eb91c0891c4384 on
+  feature/nvidia-sm120. In addition to the accepted single-DSO/SM120 TargetInfo
+  boundary, it now owns canonical CompileRequest, KernelBuildSpec,
+  CanonicalSchedule and Artifact contracts; the private TensorIR/CUDA Tile
+  producer; persistent ArtifactCache; process/device/context-bound
+  NvidiaExecutable; live runtime observation; and the first compile-free
+  static-add HIR-to-TensorIR emitter. CP-0038 accepts only the earlier exact
+  source-206447c real-SM120 runtime smoke. CP-0040 accepts the standalone
+  schedule identity at the current head. Frontend Artifact preparation and
+  HIR-authored GPU execution remain open.
 
 projects/pypto-kernels
   Head: 6f73857b52c86dd98e25d23fbc825a675fb25b6a. Contains framework-neutral
@@ -37,10 +40,12 @@ projects/pypto-framework-plugins
   scheduling/wrapper, activity collector or attention/GDN adapter yet.
 
 Internal NVIDIA sources in projects/pypto/3rdparty/nvidia
-  tensor-ir: 3b5a8bebc00510b46a1e8b97229d06dd0d006215
+  tensor-ir: 1dcb38c20e53d07c97d3781cae538e33901bae30
   cuda-tile: af2417041cc939b87ef56d92cfdcf61737c5457e
-  Both are clean gitlinks. LLVM 57109befac92811d2253109242ca6fa69c961fb2
-  still needs a local gitlink. No PyPTO target links these sources yet.
+  Both are clean private gitlinks. LLVM
+  57109befac92811d2253109242ca6fa69c961fb2 is also pinned and the exact
+  TensorIR/CUDA Tile/LLVM sources compose into the one PyPTO DSO without
+  product RPATH/RUNPATH leakage.
 
 Read-only compatibility/reference checkouts
   upstream/pytorch: cf30153c4c131c8164ee7798e5022d810682e2cb
@@ -51,10 +56,14 @@ Read-only compatibility/reference checkouts
   materialization, wheel/native audit, pip-free probe, finalized reference-only
   smoke and journaled environment replacement. Follow-ups ea39ac5/f678fc0/
   5c75ea4/fe903fa/cca595c accept exact acquisition and source-lock manifest
-  29c073... in a reviewed cache. The real wheel transaction remains open.
+  29c073... in a reviewed cache. The exact RPATH-free wheel is accepted and
+  frozen reference-only; reversible environment replacement and unmodified
+  SGLang baselines remain open.
 
-There is no NVIDIA PyPTO compile pipeline, TensorIR-to-TileIR result, SM120
-cubin, NVIDIA runtime launch, SGLang baseline or strict-coverage result yet.
+The standalone source-to-Cubin producer and minimal current-stream SM120 launch
+are accepted. There is still no frontend-HIR-produced Artifact/GPU result,
+custom CUDA operator, TorchInductor backend, SGLang baseline, Qwen execution,
+strict-coverage result or performance result.
 
 
 2. Ownership and dependency direction
@@ -471,14 +480,17 @@ No restart, driver/kernel change or WSL shutdown is authorized.
   1. [done] Close the object-target full-test and fresh-wheel gate.
   2. [done] Integrate/build/package immutable NvidiaTargetInfo; retain Ascend behavior.
   3. [done] Add the pointer-free data-only CompileRequest contract.
-  4. Add the pointer-free per-region KernelBuildSpec contract.
-  5. Materialize exact LLVM and prove fully disconnected TensorIR/CUDA Tile
-     configure/link composition with no second public product.
-  6. Add deterministic artifact metadata plus SM120 resource/options fixes,
-     then the PyPTO ArtifactCache and prewarmed NvidiaExecutable.
-  7. Prove pointwise/reduction/matmul -> actual SM120 Cubin -> non-default
-     current-stream launch, with TileIR and CUDA Graph as separate later gates.
-  8. Implement generic fused-loop memory lowering and structured matmul.
+  4. [done] Add the pointer-free per-region KernelBuildSpec contract.
+  5. [done] Materialize exact LLVM and prove fully disconnected TensorIR/CUDA
+     Tile configure/link composition with no second public product.
+  6. [done] Add deterministic Artifact metadata plus SM120 resource/options
+     fixes, ArtifactCache, prewarmed NvidiaExecutable and minimal real-SM120
+     current-stream correctness.
+  7. [current] Add canonical ABI/specialization projections and a one-producer
+     frontend compile facade, then prove HIR-authored vector add -> Artifact ->
+     actual SM120 Cubin -> non-default current-stream launch.
+  8. Extend the accepted frontend path to fused pointwise, row reduction and
+     structured matmul, then implement generic fused-loop memory lowering.
   9. Implement the already-frozen operator ABIs as executable attention and
      GDN decode/prefill providers in the standalone kernel project.
  10. Activate zero-diff TorchInductor/SGLang plugins and strict audit.

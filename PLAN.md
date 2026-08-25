@@ -1,17 +1,20 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `31`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `32`
 
 ## Current phase: P2 frontend-HIR SM120 execution; R0 baseline remains open
 
 Checkpoint `CP-0039` accepts the compile-free internal HIR-to-TensorIR emitter
-at PyPTO `07ab9ea`. The exact single-function static FP32/BF16 `tensor.add`
-normal form produces canonical source/metadata independent of cosmetic names,
-locale, process identity or backend build. Fresh ON/OFF native tests pass 1/1.
-The current transaction is compiler-owned preparation: versioned specialization
-and ABI projections, one exact schedule, final callable ABI, `KernelBuildSpec`
-and strict `Artifact` without publishing a placeholder identity. Python binding,
-TensorIR compile and real frontend vector-add execution follow that contract.
+at PyPTO `07ab9ea`. Checkpoint `CP-0040` advances to `fa85e5a` and accepts the
+standalone `pypto.canonical_schedule.v1` identity with bounded deserialization
+and unchanged nested `KernelBuildSpec` wire bytes. Reconfigured/rebuilt
+exact-head backend-ON/OFF native tests pass 2/2 and exact-DSO Python contract
+suites pass 98/98. The current
+transaction is compiler-owned preparation: versioned specialization and ABI
+projections, one exact schedule, final callable ABI, `KernelBuildSpec` and
+strict `Artifact` without publishing a placeholder identity or calling the
+producer twice. Python binding, TensorIR compile and real frontend vector-add
+execution follow that contract.
 
 Checkpoint `CP-0038` accepts the finalized minimal real-SM120
 `NvidiaExecutable` correctness v1 report from run `080254`, SHA

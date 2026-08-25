@@ -107,6 +107,8 @@
 - [x] Implement and independently gate the compile-free internal HIR-to-TensorIR
       emitter for strict static contiguous FP32/BF16 `tensor.add` at PyPTO
       `07ab9ea`, including deterministic metadata and clean ON/OFF tests.
+- [x] Version and independently gate standalone bounded canonical schedule
+      identity at PyPTO `fa85e5a` without changing nested KernelBuildSpec bytes.
 - [ ] Add compiler-owned final ABI/specialization preparation, strict Artifact
       compilation and Python binding, then execute HIR-authored vector add on
       real SM120.

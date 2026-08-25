@@ -3,15 +3,16 @@
 **Goal ID:** `PYPTO-NVIDIA-QWEN35-V1`
 
 **Execution status:** active. CP-0038 accepts the finalized minimal real-SM120
-`NvidiaExecutable` correctness v1 result. CP-0039 then adds the first
-compile-free frontend link at PyPTO `07ab9ea`: one strict static contiguous
-FP32/BF16 `tensor.add` HIR form emits deterministic canonical TensorIR text and
-input/result metadata with compiler-owned names, locale-independent bytes and a
-broad fail-closed matrix. Clean backend-ON and backend-OFF builds/tests pass.
-This still does not prove TensorIR parsing, callable-ABI preparation, Artifact
-or frontend GPU execution. The next transaction is a compiler-owned preparation
-API that creates the final `KernelBuildSpec` and strict `Artifact` without
-placeholder identities, followed by real SM120 vector-add correctness.
+`NvidiaExecutable` correctness v1 result. CP-0039 adds the first compile-free
+frontend link at PyPTO `07ab9ea`. CP-0040 advances PyPTO to `fa85e5a` with a
+standalone, versioned and bounded `CanonicalSchedule` identity while preserving
+the existing nested `KernelBuildSpec` bytes; exact-head reconfigured/rebuilt
+backend-ON/OFF native and Python contract suites pass. This still does not
+prove TensorIR parsing,
+callable-ABI preparation, Artifact production from HIR or frontend GPU
+execution. The next transaction is compiler-owned canonical ABI and
+specialization preparation followed by a one-producer strict compile facade
+and real SM120 vector-add correctness.
 Frontend-HIR lowering, operators, framework routes and model execution remain
 later. The exact PyTorch-pinned Triton reference wheel stays audited/frozen and
 deliberately uninstalled as baseline-only infrastructure. The full objective

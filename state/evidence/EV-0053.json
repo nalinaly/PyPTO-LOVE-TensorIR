@@ -1,0 +1,147 @@
+{
+  "id": "EV-0053",
+  "kind": "standalone_canonical_schedule_identity_v1",
+  "status": "accepted_data_contract_frontend_artifact_preparation_pending",
+  "pypto": {
+    "commit": "fa85e5a2c917af78ef94576073eb91c0891c4384",
+    "tree": "a39ddc2631b9717d288fefd74dd195864eb4e03c",
+    "parent": "07ab9ea1feb5f5cc5557c7b7c67e7ad33d15974e",
+    "branch": "feature/nvidia-sm120",
+    "clean": true,
+    "changed_files": [
+      "docs/en/dev/backend/01-nvidia-target-info.md",
+      "docs/zh/dev/backend/01-nvidia-target-info.md",
+      "include/pypto/compiler/kernel_build_spec.h",
+      "python/bindings/modules/compiler.cpp",
+      "python/pypto/pypto_core/compiler.pyi",
+      "src/compiler/kernel_build_spec.cpp",
+      "tests/ut/compiler/test_canonical_schedule.py",
+      "tests/ut/cpp/CMakeLists.txt",
+      "tests/ut/cpp/canonical_schedule_test.cpp"
+    ],
+    "source_sha256": {
+      "header": "56807ed14f105fc01a6f31fd1395e720d846fac1308bf99c60978d2f5ed2ed4a",
+      "implementation": "8de0c73cbb6ced192413a203d778076eeb0fad7b42e0faf15d785018b03283a0",
+      "binding": "53f2bc1296eb69b371d8b295f56fccbee1cee6cd6feec14c756e69f9bf36b76c",
+      "stub": "46802916aa93a847d7e33437195f79a7cde9cc1f8506bf5db5841a11204cbd48",
+      "native_test": "685285cd5b3f679cf596bae11b678811f574f86cedd40b4131a8ef3b470c1d8c",
+      "python_test": "f90ff21dfc93a7ee23085fad4426bc2010cf953ec7dc30ecdb4ba43a033f43c1"
+    }
+  },
+  "contract": {
+    "name": "pypto.canonical_schedule.v1",
+    "schema_version": 1,
+    "top_level_keys": [
+      "canonical_schedule_schema_version",
+      "contract",
+      "resolved_schedule"
+    ],
+    "maximum_bytes": 1048576,
+    "maximum_objects": 7191,
+    "maximum_aggregate_items": 7190,
+    "maximum_map_items": 8,
+    "maximum_array_items": 128,
+    "maximum_string_bytes": 4096,
+    "maximum_depth": 4,
+    "binary_values_allowed": false,
+    "empty_kernel_build_spec_bytes": 986,
+    "empty_kernel_build_spec_sha256": "224db1389b70934afd871ba19ff4fa72bb2efce260602266a039e5c99c425345",
+    "representative_kernel_build_spec_identity_digest": "93cab0033e5eb53ca87468c52348ffbfe5e17cd5d611080b2b8087af67fa93f6",
+    "nested_kernel_build_spec_wire_changed": false
+  },
+  "backend_off": {
+    "build_directory_fresh": false,
+    "build_directory_provenance": "CP-0039 directory reconfigured and rebuilt in place at exact head fa85e5a",
+    "configure_run_id": "pypto-20260825T100145Z-983525-8ee142",
+    "configure_preflight_sha256": "7718f86c9f755a45b5778d5ac2a543ef92f9b8153763005904a32b8a649a15fd",
+    "configure_process_sha256": "b2c166382f46da04e2e327155524609721bd1a5f3dd25cd26dab280fac3ba397",
+    "build_run_id": "pypto-20260825T100207Z-983868-3a8700",
+    "build_preflight_sha256": "b30fa0ece1950b2e3ddfed824f28a1d3593f61a3676761ec76baeb1ad41f80a3",
+    "build_process_sha256": "1b9d9c4ebca7d20a681fd2484f78fbf336ae4931becd6b0864e148e947af2683",
+    "ctest_run_id": "pypto-20260825T100427Z-986062-c4d2e8",
+    "ctest_preflight_sha256": "18c16b97933c2c4a6970a5f6e63d518aff2def1503f862554902e9cefc9bf94c",
+    "ctest_process_sha256": "341cb8722558465e8f1c4a00cd0fbdc076e5f7873f6c03bf1647fe6a1e1a1d98",
+    "ctest": "2/2",
+    "python_run_id": "pypto-20260825T100549Z-986617-75a97b",
+    "python_preflight_sha256": "5f013d159608b13a2a8e243bdbb94a0205f91e125dbc42c884d27413705521d2",
+    "python_process_sha256": "7185ab97c37703212ab851f427bc101aab40c0ab9701d7fa935e08a29528e147",
+    "python": "98/98",
+    "compiled": false,
+    "pypto_revision_field": "",
+    "dso_sha256": "8074695041f917a1be12d5e1bc6599ad005c444d8fa76c11e85760241dceda5e",
+    "ctest_junit_sha256": "e8ecb730256a2017ce2e94cf0ae7234dc7481b012bfb581002b76112b1513c40",
+    "pytest_junit_sha256": "0ae06f87d906eae1cb080d6bbbba7a896bfa250cb6a123b8239dd9d307f682b9",
+    "compile_commands_sha256": "6824a3fcbe61d869382104b62173c67661c0909e2fc2ab9f883cc181d98b012e"
+  },
+  "backend_on": {
+    "build_directory_fresh": false,
+    "build_directory_provenance": "CP-0039 directory reconfigured and rebuilt in place at exact head fa85e5a",
+    "configure_run_id": "pypto-20260825T100145Z-983527-73e289",
+    "configure_preflight_sha256": "7718f86c9f755a45b5778d5ac2a543ef92f9b8153763005904a32b8a649a15fd",
+    "configure_process_sha256": "e4da3c7b553add429505d6316b20836d8234cf46d21a0554167a24975ef36732",
+    "build_run_id": "pypto-20260825T100207Z-983870-b54223",
+    "build_preflight_sha256": "8221cf3a99377fa6700a648ecefb7770e78b45029c7904eb51d929c06483f1b2",
+    "build_process_sha256": "dbbe5fa818cbd17be50627ef55efc911a84d93fbf0cac06ccf9a778b4e080300",
+    "ctest_run_id": "pypto-20260825T100427Z-986065-32c284",
+    "ctest_preflight_sha256": "18c16b97933c2c4a6970a5f6e63d518aff2def1503f862554902e9cefc9bf94c",
+    "ctest_process_sha256": "8e5ca6d87ec1e087cd99c5a32481f8065607e3330b7fa992c764d8ca0a515e40",
+    "ctest": "2/2",
+    "python_run_id": "pypto-20260825T100516Z-986381-297932",
+    "python_preflight_sha256": "4845aee79a1ed815556b9b40c87afc85424bcb2346b0317a79979c254915cb20",
+    "python_process_sha256": "feaf2a9611e5ed6f24909c0d0c5b3f823a61f4e9c2baae401a1db47896c39457",
+    "python": "98/98",
+    "compiled": true,
+    "embedded_pypto_revision": "fa85e5a2c917af78ef94576073eb91c0891c4384",
+    "dso_sha256": "55b824d7d83ea086ced52b0efdcf789894fb27d99c7e27c74a0d6d4ceeadada6",
+    "ctest_junit_sha256": "f6c68255e9735320823508eb1248b2f9796a97aa14f0c093c06f53d23de4aa64",
+    "pytest_junit_sha256": "3abf53ef9d91c14efd59e011f998e0d51af205a3bf3830e38a8826819f3bf95e",
+    "compile_commands_sha256": "0bcd011717d479dd0d7bcaabb444cbfd5c2d1490aa90d453de71346e95d4524e"
+  },
+  "diagnostics": [
+    {
+      "run_id": "pypto-20260825T100516Z-986379-2f9124",
+      "preflight_sha256": "ee4ee9d2d484a24c4bfe8b26173292f5eed8a3f779b19e4fc54526546a9d9bab",
+      "process_sha256": "d32fa2d1477b6a6a517244cfec0b408906a7a7ce5b34407938a5690ac2f1b95c",
+      "classification": "validation_harness_only",
+      "result": "return_code_1",
+      "session_observation": "failed before pytest because the harness required the enabled-only embedded PyPTO revision from a backend-disabled DSO",
+      "observation_tier": "session_output_only_not_persisted_in_run_sidecars",
+      "resolution": "retain exact DSO and compiled=false assertions; preserve the strict revision assertion for backend-ON"
+    },
+    {
+      "run_id": "pypto-20260825T101230Z-988122-d48b1d",
+      "preflight_sha256": "2f93aef42e2732c6192506d86ae774ee24ba6554f9354a03cb11db37181bfefa",
+      "process_sha256": "2316d548be5bf7ba823fac93af15b8bb7187f40231a43c1f5c644e7bce3a81f2",
+      "classification": "expected_root_cleanliness_latch",
+      "result": "return_code_1",
+      "session_observation": "224 passed and 113 subtests passed; the sole failure was the control-manifest cleanliness latch while CP-0040 files were uncommitted",
+      "observation_tier": "session_output_only_not_persisted_in_run_sidecars",
+      "resolution": "commit the reviewed checkpoint transaction and rerun the root suite from a clean repository"
+    }
+  ],
+  "review": {
+    "reviewer": "/root/canonical_schedule_review",
+    "decision": "GO",
+    "p0": 0,
+    "p1": 0,
+    "p2": 0,
+    "native": "2/2",
+    "python": "98/98",
+    "ruff": "passed",
+    "pyright": "passed"
+  },
+  "accepted_scope": [
+    "standalone versioned canonical schedule serialization and identity",
+    "bounded fail-closed deserialization",
+    "unchanged nested KernelBuildSpec schedule wire identity",
+    "single pypto.compiler Python exposure",
+    "backend-ON and backend-OFF build and contract-test integration"
+  ],
+  "not_claimed": [
+    "frontend specialization or ABI projection",
+    "compiler-owned final KernelBuildSpec and Artifact preparation",
+    "TensorIR parse compile or Cubin production from HIR",
+    "frontend SM120 numerical correctness",
+    "generic operator codegen TorchInductor SGLang Qwen coverage or performance"
+  ]
+}

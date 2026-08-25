@@ -1,4 +1,4 @@
-PyPTO NVIDIA source implementation: 07ab9ea1feb5f5cc5557c7b7c67e7ad33d15974e
+PyPTO NVIDIA source implementation: fa85e5a2c917af78ef94576073eb91c0891c4384
 TensorIR private implementation: 1dcb38c20e53d07c97d3781cae538e33901bae30
 CUDA Tile: af2417041cc939b87ef56d92cfdcf61737c5457e (v13.3.3)
 LLVM/MLIR: 57109befac92811d2253109242ca6fa69c961fb2
@@ -6,6 +6,7 @@ Structured TensorIR pipeline blob: 46610e0415598d010981e4bd07d0660c592401ac
 PyPTO accepted runtime-v1 backend-ON DSO (source 206447c): 15675c471f507b97190b0a770bb16e821c5e99353b65bbbc019988490f59018c
 PyPTO accepted runtime-v1 backend-OFF DSO (source 206447c): 32c2dea03e13ea49937df239ed1e7bc2b8a931594c41dcfc0cc6de8375464109
 PyPTO HIR-to-TensorIR emitter: accepted compile-free v1 at 07ab9ea; Artifact integration pending
+PyPTO CanonicalSchedule: accepted standalone bounded identity v1 at fa85e5a; frontend ABI preparation pending
 PyPTO ArtifactCache: accepted trusted-local persistent v1
 PyPTO NvidiaExecutable: accepted minimal real SM120 correctness v1 at run pypto-20260825T080254Z-910620-c669d9
 PyPTO NvidiaRuntimeObservation: accepted real provider/context in finalized minimal SM120 runtime result

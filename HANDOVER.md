@@ -41,7 +41,7 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0039.md` and evidence `EV-0005` through `EV-0052`.
+- Read `state/checkpoints/CP-0040.md` and evidence `EV-0005` through `EV-0053`.
 - Root `5564008` plus manifest-only `7639d82` owns the current v4
   correctness-only SM120 smoke. The manifest SHA is `a079c4d2...98bf` and
   binds seven exact control blobs to the Layer-A commit/tree. Controller and
@@ -51,7 +51,7 @@ upstream checkouts and their optional/manual suites.
   `727362d7...272a9`; it joins six real non-default-stream lifetimes, references,
   sidecars, compiler inputs, TargetInfo, Artifacts and Cubins with no fallback.
   V3 run `073624` remains an unfinalized diagnostic and is never reused.
-- `projects/pypto` is clean at `07ab9ea...`. Single-DSO, immutable SM120
+- `projects/pypto` is clean at `fa85e5a...`. Single-DSO, immutable SM120
   TargetInfo, Artifact v1, strict canonical-source production, ArtifactCache
   v1, the CPU/fake-driver NvidiaExecutable v1 and the parent runtime-observation
   value are accepted. The observation queries every live TargetInfo field via
@@ -63,7 +63,8 @@ upstream checkouts and their optional/manual suites.
   validation, allocation-free prepared launch packets and graph/module leases.
   TensorIR `1dcb38c...` remains private and owns the bounded assembler boundary.
   The accepted CP-0038 runtime DSO remains the earlier exact PyPTO `206447c`
-  product; `07ab9ea` has not yet produced a new accepted DSO. Those ON/OFF
+  product; later exact-head DSOs are contract-test evidence, not a replacement
+  accepted runtime smoke product. Those accepted runtime ON/OFF
   products remain RPATH-free with five standard dependencies/two
   definitions. ON SHA `15675c47...018c` passes native 9/9 plus exact-DSO
   Python 142/2; OFF SHA `32c2dea0...4109` passes native 7/7 plus Python
@@ -75,6 +76,12 @@ upstream checkouts and their optional/manual suites.
   deterministic canonical source and `Input0/Input1/Result0` metadata. Clean
   ON/OFF native tests pass 1/1. It has no Python binding and has not parsed or
   compiled TensorIR, produced an Artifact/Cubin, or executed frontend HIR.
+- CP-0040/EV-0053 accepts standalone `pypto.canonical_schedule.v1` identity at
+  `fa85e5a`. Its bounded MessagePack wrapper preserves the existing nested
+  KernelBuildSpec schedule bytes. Retained CP-0039 build directories were
+  reconfigured/rebuilt at exact head; backend-ON/OFF native suites pass 2/2 and
+  exact-DSO Python suites pass 98/98. This is the first prerequisite of the
+  compiler-owned preparation API, not that API itself.
 - TensorIR `1dcb38c...` is a local committed feature revision and is fully
   pinned by the PyPTO gitlink/build guards. It has not been published to the
   configured NVIDIA remote; push or otherwise materialize that commit before

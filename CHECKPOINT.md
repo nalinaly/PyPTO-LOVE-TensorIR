@@ -1,14 +1,16 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0039`
+**Checkpoint:** `CP-0040`
 
 **Status:** R0 remains open. P2 accepts finalized minimal real-SM120
 `NvidiaExecutable` correctness v1: exact PyPTO/TensorIR/CUDA Tile Artifacts load,
 prewarm, execute on the caller's non-default stream, synchronize and unload on
-the RTX 5090 with no fallback. It now also accepts compile-free deterministic
-static `tensor.add` HIR-to-TensorIR emission at PyPTO `07ab9ea`. TensorIR
-parsing/Artifact integration, frontend GPU correctness, operator-family,
-framework, model, CUDA Graph, coverage and performance milestones remain open.
+the RTX 5090 with no fallback. It also accepts compile-free deterministic
+static `tensor.add` HIR-to-TensorIR emission at PyPTO `07ab9ea`, and now the
+standalone bounded `pypto.canonical_schedule.v1` identity at PyPTO `fa85e5a`
+without changing nested KernelBuildSpec bytes. TensorIR parsing/Artifact
+integration, frontend GPU correctness, operator-family, framework, model,
+CUDA Graph, coverage and performance milestones remain open.
 
 ## Current truth
 
@@ -507,6 +509,13 @@ framework, model, CUDA Graph, coverage and performance milestones remain open.
   metadata construction and exhaustive fail-closed validation make source bytes
   deterministic. Fresh OFF and ON builds both pass the unconditional native
   test 1/1. No TensorIR parser/compiler or device is invoked by this gate.
+- PyPTO `fa85e5a2c917af78ef94576073eb91c0891c4384` adds standalone
+  `pypto.canonical_schedule.v1` serialization, identity, bounded fail-closed
+  decoding and the single `pypto.compiler` binding. Nested KernelBuildSpec
+  bytes and its representative digest remain unchanged. The retained CP-0039
+  build directories were reconfigured/rebuilt at exact head; backend-ON/OFF
+  native suites pass 2/2 and exact-DSO Python suites pass 98/98. This is a
+  compiler-preparation prerequisite only; it does not construct an Artifact.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact
@@ -548,9 +557,10 @@ framework, model, CUDA Graph, coverage and performance milestones remain open.
 The goal is active, not complete. Freeze Triton as accepted reference-only
 infrastructure. CP-0038 closes the minimal real-SM120 compiler/runtime launch
 gate. Preserve its v4 controls and final report; do not rerun it merely to
-change evidence. CP-0039 closes compile-free HIR emission. Next add the
-compiler-owned preparation/compile API that derives final specialization/ABI
-identities and returns `KernelBuildSpec` plus strict `Artifact`, then compile and
+change evidence. CP-0039 closes compile-free HIR emission and CP-0040 closes
+standalone schedule identity. Next add compiler-owned canonical
+specialization/ABI projections and a one-producer preparation/compile API that
+returns the final `KernelBuildSpec` plus strict `Artifact`, then compile and
 execute the HIR-authored vector add on real SM120. Fused pointwise, row
 reduction and structured matmul follow.
 Defer the separate exclusive Triton replacement/reference-smoke gate until the
