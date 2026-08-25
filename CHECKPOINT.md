@@ -1,15 +1,13 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0036`
+**Checkpoint:** `CP-0037`
 
-**Status:** R0 remains open. P2 records the first fail-closed real-runtime
-diagnostic and accepts only the generic CUDA parameter-ABI/enumeration repair,
-fresh supporting CPU validation, CUDA Tile logical-host semantics, and the
-correctness-only SM120 smoke controller/runner/finalizer rebound through
-external manifest v3. Real module/function load inside prewarm was reached, but
-prewarm did not complete; no PyPTO kernel launch, CUDA
-numerical result, frontend-HIR lowering, operator,
-framework or model milestone is accepted.
+**Status:** R0 remains open. P2 records an unfinalized v3 real-GPU child that
+completed six minimal lifetimes and accepts only the generic canonical
+dtype-order finalizer repair, supporting CPU validation and immutable v4
+controls. The v3 provisional is diagnostic and cannot be promoted across
+control versions. No finalized PyPTO CUDA correctness result, frontend-HIR
+lowering, operator, framework or model milestone is accepted.
 
 ## Current truth
 
@@ -479,6 +477,22 @@ framework or model milestone is accepted.
   `978e873788eb7f3aaeba6473a9b7f8a1bcd827fe201d89cb781927f538c9b6e3`.
   Versions 1 and 2 remain unchanged. Clean post-v3 run
   `pypto-20260825T071601Z-892819-67acee` passes 224 tests plus 106 subtests.
+- V3 run `pypto-20260825T073624Z-900485-7df250` exited zero after recording six
+  real non-default-stream module lifetimes, equal logical/Torch results,
+  unchanged inputs/padding and explicit unloads. Its provisional SHA is
+  `64c0906b...d34cfe`. The required CPU finalizer then failed before publication
+  because it expected handwritten `[BF16,FP32]` while canonical TargetInfo and
+  replay order is `[FP32,BF16]`. The provisional is retained diagnostic evidence,
+  not accepted GPU correctness.
+- Root A4 `5564008fddeaaf0a9861ee5c38c895558f577600` fixes only that
+  finalizer/control defect with a shared exact ordered contract and malformed
+  evidence matrix. Manifest-only B4 `7639d820f4d74972b493c01adc69c92087eefdea`
+  publishes immutable v4 manifest SHA
+  `a079c4d252aa346bb19a64a6ad3947867b76e7c778f7234125078fb16b2598bf`.
+  PyPTO, the DSO, Artifact and Cubin bytes are unchanged.
+- Clean post-v4 run `pypto-20260825T074420Z-903996-c8d50d` passes 225 tests
+  plus 113 subtests. A v4 finalizer cannot promote the v3 provisional because
+  exact contract/control identity is mandatory; a fresh v4 child is required.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact
@@ -519,7 +533,7 @@ framework or model milestone is accepted.
 
 The goal is active, not complete. Freeze Triton as accepted reference-only
 infrastructure. The repaired fixed-command payload/finalizer is accepted by
-CP-0036 and manifest v3. Next, only under a fresh green `gpu-smoke` admission,
+CP-0037 and manifest v4. Next, only under a fresh green `gpu-smoke` admission,
 run that exact-product
 RTX 5090 static/dynamic/scalar non-default-current-stream smoke and finalize its
 replay evidence. Do not edit the seven manifest-bound controls before the run.

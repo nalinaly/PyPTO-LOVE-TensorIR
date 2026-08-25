@@ -1,8 +1,18 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `28`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `29`
 
 ## Current phase: P2 exact SM120 NvidiaExecutable correctness smoke; R0 baseline remains open
+
+Checkpoint `CP-0037` records, but does not accept, v3 run
+`pypto-20260825T073624Z-900485-7df250`. Its real GPU child completed six
+static/dynamic/scalar lifetimes and published provisional SHA `64c0906b...d34cfe`,
+but the no-site finalizer failed because its handwritten dtype order disagreed
+with canonical `NvidiaTargetInfo` order. Root A4 `5564008` and manifest-only B4
+`7639d82` share exact `[FP32,BF16]` ordering, reject malformed/order-drift
+evidence, and pass a clean 225-test/113-subtest suite. No PyPTO rebuild was
+needed. The next narrow transaction is a fresh exact v4 GPU smoke and v4 CPU
+finalizer; cross-version promotion of the v3 provisional is forbidden.
 
 Checkpoint `CP-0036` records a fail-closed real-runtime diagnostic and accepts
 the resulting generic ABI repair, not GPU correctness. Run
@@ -17,8 +27,8 @@ host block `[1,1,1]`. Fresh ON/OFF builds pass CTest 9/9 and 7/7, exact-DSO
 Python 142/2 and 135/9, and the complete product audit. Root `c71f32b` plus
 manifest-only `3de4cf7` bind the final DSO through immutable control manifest
 v3; post-manifest run `pypto-20260825T071601Z-892819-67acee` passes 224 tests
-plus 106 subtests. The next narrow transaction is the exact v3 GPU smoke and
-CPU finalizer.
+plus 106 subtests. Its scheduled v3 transaction is now the unfinalized CP-0037
+diagnostic; only the v4 route is current.
 
 Checkpoint `CP-0035` accepts the fixed correctness-only SM120 smoke control
 path, not a GPU result. Root implementation `394b75a` and manifest-only commit
@@ -31,7 +41,8 @@ PGID. Static/dynamic/scalar Cubins compile deterministically CPU-only; replay
 through the exact DSO reconstructs full TargetInfo, BuildSpecs, ABI and Cubin.
 The post-manifest root suite passes 224 tests plus 106 subtests. At CP-0035 no
 CUDA context, module or kernel had been used. Its scheduled live transaction is
-now preserved as the CP-0036 failed diagnostic; only the v3 route is current.
+now preserved as the CP-0036 failed diagnostic; only the latest CP-0037 v4
+route is current.
 
 Checkpoint `CP-0034` accepts only the parent-process NVIDIA runtime observation
 value at PyPTO `6361f11`. It reuses the private Driver boundary to produce every

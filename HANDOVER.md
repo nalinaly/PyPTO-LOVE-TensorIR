@@ -41,19 +41,18 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0036.md` and evidence `EV-0005` through `EV-0049`.
-- Root `c71f32b` plus manifest-only `3de4cf7` owns the repaired v3
-  correctness-only SM120 smoke. The manifest SHA is `978e8737...b6e3` and
+- Read `state/checkpoints/CP-0037.md` and evidence `EV-0005` through `EV-0050`.
+- Root `5564008` plus manifest-only `7639d82` owns the current v4
+  correctness-only SM120 smoke. The manifest SHA is `a079c4d2...98bf` and
   binds seven exact control blobs to the Layer-A commit/tree. Controller and
   finalizer require `-E -B -S`; the child and semantic replay use
-  `-I -B -S`. Clean run `pypto-20260825T071601Z-892819-67acee` passes 224
-  tests plus 106 subtests; exact-DSO compiler/runtime suites pass, and CPU-only
-  run `pypto-20260825T070649Z-890066-2a1ae2` preserves the wrapper markers and
-  recompiles all three deterministic Cubins through the v3-selected DSO with
-  device count zero and CUDA uninitialized. A serialized v3 smoke replay does
-  not exist yet. The retained
-  first real run reached module/function prewarm but failed before packet
-  preparation or launch.
+  `-I -B -S`. Clean post-v4 run `pypto-20260825T074420Z-903996-c8d50d`
+  passes 225 tests plus 113 subtests. V3 run `073624` completed six real GPU
+  child lifetimes and published provisional SHA `64c0906b...d34cfe`, but its
+  finalizer failed on a handwritten dtype-order assertion and no final report
+  exists. Preserve it as diagnostic only. V4 fixes the generic finalizer
+  contract; it cannot promote the v3 provisional, so the next action is a fresh
+  v4 run.
 - `projects/pypto` is clean at `206447c...`. Single-DSO, immutable SM120
   TargetInfo, Artifact v1, strict canonical-source production, ArtifactCache
   v1, the CPU/fake-driver NvidiaExecutable v1 and the parent runtime-observation
@@ -82,7 +81,8 @@ upstream checkouts and their optional/manual suites.
   v1 plus strict production are accepted by CP-0031, ArtifactCache v1 by
   CP-0032, modeled NvidiaExecutable lifecycle by CP-0033 and parent observation
   value by CP-0034. Real module/function load was reached diagnostically in the
-  failed first smoke; current-stream launch remains unverified.
+  failed first smoke; current-stream launch is recorded by the unfinalized v3
+  child but is not accepted correctness evidence.
 - `projects/pypto-kernels` is clean at `6f73857...` with typed semantic
   families, canonical process-safe tuning database, matmul invocation ABI v1,
   catalog-bound canonical operator artifact provenance, paged-attention ABI v1
@@ -143,14 +143,15 @@ upstream checkouts and their optional/manual suites.
   cache, and a process/device/CUcontext-bound prewarmed executable before any
   real CUDA smoke. Those prerequisites are now accepted through the CP-0034
   observation gate. Workers never query CUDA or carry streams/handles.
-- The fixed-command payload/finalizer is repaired and v3-manifest-bound by
-  CP-0036. Next run exactly the command in
+- The fixed-command payload/finalizer is canonical-order repaired and
+  v4-manifest-bound by CP-0037. Next run exactly the command in
   `docs/pypto_nvidia_executable_sm120_smoke.md` under a fresh green
   `gpu-smoke` admission. Do not edit any of the seven manifest-bound controls.
   Capture the printed provisional SHA, wait for the controller to exit, then
   invoke the no-site finalizer. Retain a failed/aborted run as diagnostic only.
-  If prewarm next fails at occupancy, investigate a tile-aware physical
-  residency check; never change CUDA Tile's logical host block to 128.
+  The v3 child already cleared prewarm, occupancy/resource validation, launch
+  and unload; do not reopen the launch ABI or CUDA Tile logical block while
+  rerunning the unchanged v4 child.
   Keep frontend lowering, operator algorithms, framework registration, online
   tuning and model work after this real-runtime gate.
 - `docs/coverage_collector_map.md` is the pinned collector implementation map.

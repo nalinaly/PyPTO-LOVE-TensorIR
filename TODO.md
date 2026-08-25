@@ -97,8 +97,11 @@
       parameter ranges, four-byte dynamic size/stride packing and
       enumeration-order-independent width validation at PyPTO `206447c`, and
       rebind the exact product through control manifest v3.
+- [x] Preserve the v3 real-GPU child/provisional as unfinalized diagnostic,
+      repair producer-canonical `[FP32,BF16]` evidence validation, add the full
+      malformed/order-drift matrix, and bind immutable control manifest v4.
 - [ ] Under a fresh green `gpu-smoke` gate, run and finalize the exact-product
-      v3 real SM120 static/dynamic/scalar non-default-current-stream
+      v4 real SM120 static/dynamic/scalar non-default-current-stream
       correctness and explicit unload smoke; do not advance frontend lowering
       from CPU/fake-driver or prewarm-failure evidence alone.
 - [x] Implement bounded canonical PyPTO Artifact v1 serialization with bytes,

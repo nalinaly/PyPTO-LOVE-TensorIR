@@ -6,11 +6,11 @@ Structured TensorIR pipeline blob: 46610e0415598d010981e4bd07d0660c592401ac
 PyPTO backend-ON DSO: 15675c471f507b97190b0a770bb16e821c5e99353b65bbbc019988490f59018c
 PyPTO backend-OFF DSO: 32c2dea03e13ea49937df239ed1e7bc2b8a931594c41dcfc0cc6de8375464109
 PyPTO ArtifactCache: accepted trusted-local persistent v1
-PyPTO NvidiaExecutable: accepted CPU/fake-driver v1 plus enumeration-safe CUDA parameter-ABI repair; real SM120 launch pending fresh v3 gpu-smoke
-PyPTO NvidiaRuntimeObservation: accepted CPU/value v1; real provider/context recorded in failed prewarm diagnostic, current-stream launch pending v3 smoke
-PyPTO SM120 smoke controls: c71f32bd415a973a2a7756ecc9b1ae59f30df219
-PyPTO SM120 smoke manifest: 3de4cf702662cbaf948c6429acf269fee16a491e, SHA-256 978e873788eb7f3aaeba6473a9b7f8a1bcd827fe201d89cb781927f538c9b6e3
-PyPTO SM120 smoke status: first real prewarm failed closed before launch; repaired v3 control accepted CPU-only
+PyPTO NvidiaExecutable: accepted CPU/fake-driver v1 plus enumeration-safe CUDA parameter ABI; v3 child completed but remains unfinalized diagnostic, fresh v4 smoke pending
+PyPTO NvidiaRuntimeObservation: accepted CPU/value v1; real provider/context and launches recorded only in unfinalized v3 diagnostic
+PyPTO SM120 smoke controls: 5564008fddeaaf0a9861ee5c38c895558f577600
+PyPTO SM120 smoke manifest: 7639d820f4d74972b493c01adc69c92087eefdea, SHA-256 a079c4d252aa346bb19a64a6ad3947867b76e7c778f7234125078fb16b2598bf
+PyPTO SM120 smoke status: v3 child provisional unfinalized; canonical dtype-order v4 control accepted CPU-only
 msgpack-c: 919908742b4fdbc575e77fe1a8657e70c9573c44
 libbacktrace: 6f8310e238fc3ce68f42f391cbe93fd156bb2c23
 PyPTO runtime headers: 93adc3865e65fd72655f571f2e4165cf5ac02616

@@ -1,0 +1,189 @@
+{
+  "id": "EV-0050",
+  "kind": "sm120_v3_provisional_and_canonical_dtype_finalizer_v4",
+  "status": "records_unfinalized_v3_gpu_diagnostic_accepts_v4_cpu_control_gpu_rerun_pending",
+  "v3_gpu_child_diagnostic": {
+    "run_id": "pypto-20260825T073624Z-900485-7df250",
+    "root_commit": "800a7660e8cc7669cc1a2b592236e262dcb46797",
+    "root_tree": "7a8764da31506be65eeb41077b49e39f5d6efba9",
+    "pypto_commit": "206447cf8c68b9cff1b86e01f0b40bfd689cd7a7",
+    "control_manifest_sha256": "978e873788eb7f3aaeba6473a9b7f8a1bcd827fe201d89cb781927f538c9b6e3",
+    "process_return_code": 0,
+    "process_status": "exited",
+    "gpu_correctness_accepted": false,
+    "child_execution_completed": true,
+    "provisional": {
+      "path": "runs/pypto-20260825T073624Z-900485-7df250/pypto-nvidia-executable-sm120/provisional.json",
+      "bytes": 28414,
+      "sha256": "64c0906b7fe57bdddf4c26f7b205a51918a91b93284604f363633ef439d34cfe",
+      "recorded_child_acceptance": "gpu-execution-complete-awaiting-run-finalization",
+      "current_classification": "gpu-child-complete-unfinalized-diagnostic-cross-version-promotion-forbidden"
+    },
+    "cases": [
+      {
+        "case": "static",
+        "artifact_identity": "411f87920e7a9d9f97f66c865a5695b6b5016ec7983009c47df5c6a3c07b88e9",
+        "cubin_bytes": 13624,
+        "cubin_sha256": "6dc121d2574537753229ed537efc5d2558eee26bfac0ad9d21826b5f33632b82"
+      },
+      {
+        "case": "dynamic",
+        "artifact_identity": "6914638d762ce5aaa963e4845d5c5fc473cf2c102b719de3260c7b27619711f5",
+        "cubin_bytes": 17408,
+        "cubin_sha256": "eabdc1377c66f2879a8cf77e43b3f705e4d725b71f6c8b30244521e97d72ed60"
+      },
+      {
+        "case": "scalar",
+        "artifact_identity": "28bf2001d40cfd49c641f5280f4c52cbad2c656377c70acf40ad8bb78e273a3f",
+        "cubin_bytes": 13744,
+        "cubin_sha256": "fff77b041e032eaae3804105578f49b22fd26cd5d9cb0d483f3170c2bc1a4735"
+      }
+    ],
+    "runtime_records": {
+      "case_order": ["static", "dynamic", "scalar"],
+      "repetitions_per_case": 2,
+      "module_lifetimes": 6,
+      "explicit_unloads": 6,
+      "non_default_current_stream": true,
+      "external_synchronization": true,
+      "all_expected_and_actual_logical_hashes_equal": true,
+      "all_torch_equal": true,
+      "all_inputs_and_padding_unchanged": true,
+      "all_terminal_states_unloaded": true,
+      "fallback_used": false,
+      "forbidden_provider_imports": []
+    },
+    "retained_files": {
+      "preflight_sha256": "76c36a385b81e1feb1bfbb791b339618037e16f25cb9097b95b9423900906652",
+      "gate_sha256": "6e910273d9c3769af720bf31a25e93e884e85eb64198fe0d226b5f706de17ba6",
+      "barrier_sha256": "4d02898ae5435cf249341cd5fa6b08504a2dfeda8f14a81da83a6ee504a0fd45",
+      "process_sha256": "a44850f07fa053011d7f1ff8cb1a3a434f3ee4f547ffbd7ec7cd54024ccafeec"
+    },
+    "safety": {
+      "pre_release_external_and_protected_compute_sets_empty": true,
+      "last_external_and_protected_compute_sets_empty": true,
+      "post_exit_external_and_protected_compute_sets_empty": true,
+      "protected_runtime_mapping_and_unreadable_map_sets_empty": true,
+      "owned_pgid": 900588,
+      "owned_pgid_survivors": 0,
+      "external_signal_evidence": false
+    }
+  },
+  "v3_finalizer_diagnostic": {
+    "return_code": 1,
+    "session_observation_tier": "observed_in_inherited_terminal_not_persisted_as_a_finalizer_sidecar",
+    "observed_error": "FinalizeError: live PyPTO runtime observation differs",
+    "final_report_published": false,
+    "mismatch": {
+      "producer_canonical_supported_compute_dtypes": ["FP32", "BF16"],
+      "v3_finalizer_expected_supported_compute_dtypes": ["BF16", "FP32"]
+    },
+    "cause": "finalizer and synthetic fixture handwrote semantic-set order instead of using NvidiaTargetInfo code-sorted canonical order",
+    "v4_cannot_finalize_v3_provisional": "contract bytes and exact control-manifest identity differ; the v3 result remains diagnostic and a clean v4 GPU rerun is required"
+  },
+  "generic_v4_fix": {
+    "implementation_commit": "5564008fddeaaf0a9861ee5c38c895558f577600",
+    "implementation_tree": "b1676a118604c22eebaec787987806f3cf1aeebb",
+    "changed_files": [
+      "docs/pypto_nvidia_executable_sm120_smoke.md",
+      "tests/test_pypto_nvidia_executable_sm120.py",
+      "tools/_pypto_nvidia_executable_sm120_contract.py",
+      "tools/_pypto_nvidia_sm120_control_manifest.py",
+      "tools/finalize_pypto_nvidia_executable_sm120.py"
+    ],
+    "canonical_supported_compute_dtypes": ["FP32", "BF16"],
+    "canonical_order_provenance": "NvidiaTargetInfo sorts stable DataType codes FP32=0x34 then BF16=0x40",
+    "validation_policy": "exact ordered equality against one shared contract tuple; no validator-side sorting or set normalization",
+    "negative_matrix": [
+      "reversed",
+      "missing",
+      "duplicate",
+      "extra_or_unknown",
+      "numeric_items",
+      "wrong_container_type",
+      "semantic_replay_target_drift"
+    ],
+    "pypto_commit_changed": false,
+    "dso_changed": false,
+    "artifact_or_cubin_changed": false
+  },
+  "root_control_v4": {
+    "implementation_commit": "5564008fddeaaf0a9861ee5c38c895558f577600",
+    "implementation_tree": "b1676a118604c22eebaec787987806f3cf1aeebb",
+    "manifest_commit": "7639d820f4d74972b493c01adc69c92087eefdea",
+    "manifest_tree": "52e37ab60276ebec2e06b46a4b55c39af4c22d62",
+    "manifest_path": "state/contracts/pypto_nvidia_executable_sm120_v4.json",
+    "manifest_bytes": 1569,
+    "manifest_sha256": "a079c4d252aa346bb19a64a6ad3947867b76e7c778f7234125078fb16b2598bf",
+    "v1_through_v3_unchanged": true,
+    "targeted_test_run": {
+      "run_id": "pypto-20260825T074328Z-903562-ee6d75",
+      "tests": "20 passed, 15 subtests passed",
+      "junit_sha256": "260395079840eaa32fb40d7aad1aed32bf2f6f6209b0b1f9d7bbbfff7917f83a",
+      "preflight_sha256": "e0832c852ea32f9fbe728d2f490c2f0c300450ac803e153e30a89ccefb02b639",
+      "process_sha256": "8c95707cd81b02a19ef50e9df02b578d43e9f212038495879ac13baea927dfb1"
+    },
+    "post_manifest_test_run": {
+      "run_id": "pypto-20260825T074420Z-903996-c8d50d",
+      "tests": "225 passed, 113 subtests passed",
+      "junit_sha256": "9f1d81ed44b9b9b959656d2eff8049b4c529ae8b89fe61c05a8f082783fb1acd",
+      "preflight_sha256": "f14f7d5ddac570839729f76ed12d52fb7570425a3a3a42ddbec4a866ea181c5f",
+      "process_sha256": "4bad7906854f1ec42d819dbbc77d7bc5344b12f3d23071ef763b285f6c1e28cc"
+    }
+  },
+  "recorded_only_not_accepted": [
+    "v3 real GPU child execution and provisional result",
+    "v3 finalizer failure"
+  ],
+  "review_lineage": {
+    "reviewed_subjects": {
+      "checkpoint_sha256": "c08c278bb4e0866c7133f51f515a348edbdd7dc20406387aa90d2dbeed0ff087",
+      "evidence_pre_lineage_sha256": "104c70eabb7c6c3adb7ec9ad31f26754cf9f2cddc722c795e92f603825f55cd7",
+      "bitlesson_0055_sha256": "6e2d351b550962999c37c3994b1f864fd2e825bed7328e70ba61ebc55519cb9c"
+    },
+    "reviews": [
+      {
+        "reviewer": "/root/abi_fix_evidence_review",
+        "decision": "GO_CP0037_NOT_FINALIZED_GPU_CORRECTNESS",
+        "p0": 0,
+        "p1": 0,
+        "p2": 0,
+        "report_path": "logs/cp37-v4-finalizer-evidence-review.md",
+        "report_bytes": 8188,
+        "report_sha256": "97bf534484ed934c162d660cbf96a6a934a36cb49bcbbc291777bab550a67449"
+      },
+      {
+        "reviewer": "/root/cuda_tile_semantics_review",
+        "decision": "GO_CP0037_NO_GO_FINALIZED_GPU_CORRECTNESS",
+        "p0": 0,
+        "p1": 0,
+        "p2": 0,
+        "report_path": "logs/cp37-v3-runtime-semantics-review.md",
+        "report_bytes": 9129,
+        "report_sha256": "4f523190a80fa86618ab47a4f0d067cd9ea2bbafb4416cb52e34aa4f2d6c7e3e"
+      },
+      {
+        "reviewer": "/root/cp36_persistence_review",
+        "decision": "GO_CP0037_NOT_FINALIZED_GPU_CORRECTNESS",
+        "p0": 0,
+        "p1": 0,
+        "p2": 0,
+        "report_path": "logs/cp37-final-persistence-review.md",
+        "report_bytes": 10765,
+        "report_sha256": "464312dd7afb3dedccd6c2b6c996b41af4c3cde94f9a710c9034112eced672bd"
+      }
+    ]
+  },
+  "accepted_scope": [
+    "generic canonical compute-dtype evidence contract",
+    "v4 finalizer implementation and negative validation matrix",
+    "immutable v4 control manifest and supporting CPU tests"
+  ],
+  "not_claimed": [
+    "finalized real SM120 correctness smoke",
+    "successful accepted PyPTO CUDA correctness milestone",
+    "CUDA Graph frontend HIR lowering or executable custom operators",
+    "TorchInductor or SGLang backend registration",
+    "Qwen3.5 correctness strict coverage profiling or performance"
+  ]
+}

@@ -2,22 +2,18 @@
 
 **Goal ID:** `PYPTO-NVIDIA-QWEN35-V1`
 
-**Execution status:** active. CP-0036 preserves the fail-closed first real-SM120
-diagnostic and accepts the generic CUDA parameter-ABI/enumeration repair at
-PyPTO `206447c`, plus the externally anchored v3 smoke controls at root
-`c71f32b` and `3de4cf7`.
-The first run reached real PyTorch Runtime observation and libcuda
-module/function prewarm, then stopped in static parameter-ABI validation before
-`prepare_launch`. The exact failed predicate was not persisted; source/Cubin
-audit found a four-byte dynamic-metadata defect and a separate live Driver
-enumeration-order assumption. The final repair validates bounded offset ranges
-and the width multiset independent of enumeration order, keeps launch pointers
-in signature order, and packs dynamic size/stride as four-byte `int32`. Fresh
-ON/OFF products, exact-DSO suites and all root controls pass CPU-only. CUDA Tile
-host block remains the required logical `[1,1,1]`; Cubin `REQNTID` is internal
-worker metadata. No PyPTO kernel launch or CUDA numerical result is accepted
-yet. The next transaction is the exact v3
-authorized RTX 5090 static/dynamic/scalar non-default-current-stream smoke.
+**Execution status:** active. CP-0037 records the v3 real-SM120 child that
+completed six static/dynamic/scalar non-default-stream lifetimes and published a
+provisional result, but whose CPU finalizer failed closed before acceptance.
+The failure was a root-control defect: `NvidiaTargetInfo` canonically serialized
+compute dtypes as `[FP32,BF16]`, while the v3 finalizer fixture handwrote
+`[BF16,FP32]`. PyPTO `206447c`, its DSO and Cubins are unchanged. Root
+`5564008` plus manifest-only `7639d82` defines one producer-derived ordered
+contract, an exact validator and a complete negative matrix through immutable
+manifest v4. All v4 CPU/control tests pass. The v3 child remains diagnostic and
+cannot be promoted across control versions. No finalized PyPTO GPU correctness
+result is accepted yet; the next transaction is a fresh exact v4 RTX 5090
+smoke and no-site finalization.
 Frontend-HIR lowering, operators, framework routes and model execution remain
 later. The exact PyTorch-pinned Triton reference wheel stays audited/frozen and
 deliberately uninstalled as baseline-only infrastructure. The full objective
