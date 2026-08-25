@@ -1,0 +1,50 @@
+{
+  "files": [
+    {
+      "bytes": 43947,
+      "mode": 420,
+      "path": "benchmarks/operators/pypto_nvidia_executable_sm120.py",
+      "sha256": "f22befff45d87097ae42b5725cf33a5e296ed74ff177cd84c2b772be5939abdd"
+    },
+    {
+      "bytes": 4730,
+      "mode": 420,
+      "path": "tools/_pypto_nvidia_executable_sm120_contract.py",
+      "sha256": "e25a10de17c3057a4eb91f3cf48d689f323dbe5bced2a551a3cb4ee2cc257537"
+    },
+    {
+      "bytes": 7491,
+      "mode": 420,
+      "path": "tools/_pypto_nvidia_sm120_control_manifest.py",
+      "sha256": "78e481b24ee2d9b2fffadc5ec54d402b137eb754aca1443cb2e9fd7e7a9c81e3"
+    },
+    {
+      "bytes": 58882,
+      "mode": 420,
+      "path": "tools/finalize_pypto_nvidia_executable_sm120.py",
+      "sha256": "c221ba4fa5174dbe1b8314d651cc5ec10463514f5fe151dafa7ef487270f97c3"
+    },
+    {
+      "bytes": 27684,
+      "mode": 493,
+      "path": "tools/preflight.py",
+      "sha256": "0b9884f8dbd34337a85f62c351b1e19dda3a8b84ec9a88c835d8701af053e3d1"
+    },
+    {
+      "bytes": 76558,
+      "mode": 493,
+      "path": "tools/run_isolated.py",
+      "sha256": "978686ac09743a98233c9616d23b04e57d3a257bd643d5db3b8a71eaac7465c8"
+    },
+    {
+      "bytes": 7885,
+      "mode": 493,
+      "path": "tools/stop_run.py",
+      "sha256": "879a2e3863671531a548c71d788d56298500eab989bd1420d2c7ae01717ddfe4"
+    }
+  ],
+  "implementation_commit": "817673176002f711ee0e77c3504b4e9b94bcaac3",
+  "implementation_tree": "25becd78ca579eb40f86c768cbde98acb5b88bd4",
+  "kind": "pypto-nvidia-executable-sm120-controls-v2",
+  "schema_version": 2
+}
