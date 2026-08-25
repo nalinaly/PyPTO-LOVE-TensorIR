@@ -41,18 +41,16 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0037.md` and evidence `EV-0005` through `EV-0050`.
+- Read `state/checkpoints/CP-0038.md` and evidence `EV-0005` through `EV-0051`.
 - Root `5564008` plus manifest-only `7639d82` owns the current v4
   correctness-only SM120 smoke. The manifest SHA is `a079c4d2...98bf` and
   binds seven exact control blobs to the Layer-A commit/tree. Controller and
   finalizer require `-E -B -S`; the child and semantic replay use
-  `-I -B -S`. Clean post-v4 run `pypto-20260825T074420Z-903996-c8d50d`
-  passes 225 tests plus 113 subtests. V3 run `073624` completed six real GPU
-  child lifetimes and published provisional SHA `64c0906b...d34cfe`, but its
-  finalizer failed on a handwritten dtype-order assertion and no final report
-  exists. Preserve it as diagnostic only. V4 fixes the generic finalizer
-  contract; it cannot promote the v3 provisional, so the next action is a fresh
-  v4 run.
+  `-I -B -S`. V4 run `pypto-20260825T080254Z-910620-c669d9` and its matching
+  finalizer are accepted by CP-0038. Final report SHA is
+  `727362d7...272a9`; it joins six real non-default-stream lifetimes, references,
+  sidecars, compiler inputs, TargetInfo, Artifacts and Cubins with no fallback.
+  V3 run `073624` remains an unfinalized diagnostic and is never reused.
 - `projects/pypto` is clean at `206447c...`. Single-DSO, immutable SM120
   TargetInfo, Artifact v1, strict canonical-source production, ArtifactCache
   v1, the CPU/fake-driver NvidiaExecutable v1 and the parent runtime-observation
@@ -68,7 +66,8 @@ upstream checkouts and their optional/manual suites.
   definitions. ON SHA `15675c47...018c` passes native 9/9 plus exact-DSO
   Python 142/2; OFF SHA `32c2dea0...4109` passes native 7/7 plus Python
   135/9. EV-0049 binds their exact hashes, revisions, compile rows, JUnit and
-  product audit. No PyPTO kernel launch or CUDA numerical result is accepted.
+  product audit. EV-0051 accepts only the minimal real-SM120 launch/numerical
+  runtime gate; frontend and operator-family execution remain open.
 - TensorIR `1dcb38c...` is a local committed feature revision and is fully
   pinned by the PyPTO gitlink/build guards. It has not been published to the
   configured NVIDIA remote; push or otherwise materialize that commit before
@@ -81,8 +80,8 @@ upstream checkouts and their optional/manual suites.
   v1 plus strict production are accepted by CP-0031, ArtifactCache v1 by
   CP-0032, modeled NvidiaExecutable lifecycle by CP-0033 and parent observation
   value by CP-0034. Real module/function load was reached diagnostically in the
-  failed first smoke; current-stream launch is recorded by the unfinalized v3
-  child but is not accepted correctness evidence.
+  failed first smoke; CP-0038 now accepts the narrow finalized v4 current-stream
+  static/dynamic/scalar runtime result.
 - `projects/pypto-kernels` is clean at `6f73857...` with typed semantic
   families, canonical process-safe tuning database, matmul invocation ABI v1,
   catalog-bound canonical operator artifact provenance, paged-attention ABI v1
@@ -143,17 +142,12 @@ upstream checkouts and their optional/manual suites.
   cache, and a process/device/CUcontext-bound prewarmed executable before any
   real CUDA smoke. Those prerequisites are now accepted through the CP-0034
   observation gate. Workers never query CUDA or carry streams/handles.
-- The fixed-command payload/finalizer is canonical-order repaired and
-  v4-manifest-bound by CP-0037. Next run exactly the command in
-  `docs/pypto_nvidia_executable_sm120_smoke.md` under a fresh green
-  `gpu-smoke` admission. Do not edit any of the seven manifest-bound controls.
-  Capture the printed provisional SHA, wait for the controller to exit, then
-  invoke the no-site finalizer. Retain a failed/aborted run as diagnostic only.
-  The v3 child already cleared prewarm, occupancy/resource validation, launch
-  and unload; do not reopen the launch ABI or CUDA Tile logical block while
-  rerunning the unchanged v4 child.
-  Keep frontend lowering, operator algorithms, framework registration, online
-  tuning and model work after this real-runtime gate.
+- The v4 fixed-command payload/finalizer gate is closed by CP-0038. Preserve its
+  controls and final report; do not rerun it merely to change evidence. Next
+  implement frontend HIR -> private TensorIR -> CUDA Tile -> Artifact ->
+  `NvidiaExecutable` correctness for vector add, fused pointwise, row reduction
+  and simple structured matmul. Operator algorithms, framework registration,
+  online tuning and model work remain after this frontend gate.
 - `docs/coverage_collector_map.md` is the pinned collector implementation map.
   Do not claim `closed_world=true` from ordinary Kineto/NVTX or from the first
   CUPTI-monitor development trace.

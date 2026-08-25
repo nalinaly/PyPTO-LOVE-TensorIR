@@ -1,13 +1,12 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0037`
+**Checkpoint:** `CP-0038`
 
-**Status:** R0 remains open. P2 records an unfinalized v3 real-GPU child that
-completed six minimal lifetimes and accepts only the generic canonical
-dtype-order finalizer repair, supporting CPU validation and immutable v4
-controls. The v3 provisional is diagnostic and cannot be promoted across
-control versions. No finalized PyPTO CUDA correctness result, frontend-HIR
-lowering, operator, framework or model milestone is accepted.
+**Status:** R0 remains open. P2 accepts finalized minimal real-SM120
+`NvidiaExecutable` correctness v1: exact PyPTO/TensorIR/CUDA Tile Artifacts load,
+prewarm, execute on the caller's non-default stream, synchronize and unload on
+the RTX 5090 with no fallback. Frontend-HIR lowering, operator-family,
+framework, model, CUDA Graph, coverage and performance milestones remain open.
 
 ## Current truth
 
@@ -492,7 +491,14 @@ lowering, operator, framework or model milestone is accepted.
   PyPTO, the DSO, Artifact and Cubin bytes are unchanged.
 - Clean post-v4 run `pypto-20260825T074420Z-903996-c8d50d` passes 225 tests
   plus 113 subtests. A v4 finalizer cannot promote the v3 provisional because
-  exact contract/control identity is mandatory; a fresh v4 child is required.
+  exact contract/control identity is mandatory; at CP-0037 a fresh v4 child was
+  still required, and the next bullet records its CP-0038 completion.
+- Clean v4 run `pypto-20260825T080254Z-910620-c669d9` and its matching no-site
+  finalizer close that gate. Six real current-stream executions match
+  references and unload cleanly; independent replay joins all compiler inputs,
+  TargetInfo, Artifacts and Cubins without fallback. Final report SHA is
+  `727362d7879d58cbee07b11050b17ad149274e8087b0d1872b8f186a66a272a9`.
+  This accepts minimal `NvidiaExecutable` runtime correctness only.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact
@@ -532,13 +538,11 @@ lowering, operator, framework or model milestone is accepted.
 ## Resume action
 
 The goal is active, not complete. Freeze Triton as accepted reference-only
-infrastructure. The repaired fixed-command payload/finalizer is accepted by
-CP-0037 and manifest v4. Next, only under a fresh green `gpu-smoke` admission,
-run that exact-product
-RTX 5090 static/dynamic/scalar non-default-current-stream smoke and finalize its
-replay evidence. Do not edit the seven manifest-bound controls before the run.
-Do not infer real CUDA behavior from CPU evidence or advance frontend lowering
-before this runtime evidence closes.
+infrastructure. CP-0038 closes the minimal real-SM120 compiler/runtime launch
+gate. Preserve its v4 controls and final report; do not rerun it merely to
+change evidence. Next implement and verify standalone frontend HIR -> private
+TensorIR -> CUDA Tile -> Artifact -> `NvidiaExecutable` for vector add, fused
+pointwise, row reduction and simple structured matmul.
 Defer the separate exclusive Triton replacement/reference-smoke gate until the
 unmodified SGLang baseline needs it.
 Use explicit CPU-only coexistence only for non-GPU build/test work. The single

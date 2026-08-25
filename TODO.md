@@ -100,10 +100,13 @@
 - [x] Preserve the v3 real-GPU child/provisional as unfinalized diagnostic,
       repair producer-canonical `[FP32,BF16]` evidence validation, add the full
       malformed/order-drift matrix, and bind immutable control manifest v4.
-- [ ] Under a fresh green `gpu-smoke` gate, run and finalize the exact-product
+- [x] Under a fresh green `gpu-smoke` gate, run and finalize the exact-product
       v4 real SM120 static/dynamic/scalar non-default-current-stream
       correctness and explicit unload smoke; do not advance frontend lowering
       from CPU/fake-driver or prewarm-failure evidence alone.
+- [ ] Implement and verify frontend HIR -> private TensorIR -> CUDA Tile ->
+      Artifact -> `NvidiaExecutable` on real SM120 for vector add, fused
+      pointwise, row reduction and simple structured matmul.
 - [x] Implement bounded canonical PyPTO Artifact v1 serialization with bytes,
       ABI, request/build-spec/producer digests and malformed-input rejection.
 - [x] Isolate the TensorIR/LLVM ABI bridge, hide every non-Python DSO export,

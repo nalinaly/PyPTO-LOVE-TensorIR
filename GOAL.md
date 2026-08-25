@@ -2,18 +2,18 @@
 
 **Goal ID:** `PYPTO-NVIDIA-QWEN35-V1`
 
-**Execution status:** active. CP-0037 records the v3 real-SM120 child that
-completed six static/dynamic/scalar non-default-stream lifetimes and published a
-provisional result, but whose CPU finalizer failed closed before acceptance.
-The failure was a root-control defect: `NvidiaTargetInfo` canonically serialized
-compute dtypes as `[FP32,BF16]`, while the v3 finalizer fixture handwrote
-`[BF16,FP32]`. PyPTO `206447c`, its DSO and Cubins are unchanged. Root
-`5564008` plus manifest-only `7639d82` defines one producer-derived ordered
-contract, an exact validator and a complete negative matrix through immutable
-manifest v4. All v4 CPU/control tests pass. The v3 child remains diagnostic and
-cannot be promoted across control versions. No finalized PyPTO GPU correctness
-result is accepted yet; the next transaction is a fresh exact v4 RTX 5090
-smoke and no-site finalization.
+**Execution status:** active. CP-0038 accepts the finalized minimal real-SM120
+`NvidiaExecutable` correctness v1 result. V4 run `080254` completed six
+static/dynamic/scalar lifetimes on the RTX 5090 using the caller's non-default
+current stream, matched Torch/reference bytes, preserved inputs/padding, and
+explicitly unloaded every module. The matching no-site finalizer replayed the
+CompileRequest, BuildSpecs, Artifacts, TargetInfo and Cubins and published final
+report SHA `727362d7...272a9`; all three Artifacts have no fallback. This is a
+narrow `pypto.tensorir` runtime milestone, not frontend-HIR, operator-family,
+Inductor, SGLang, CUDA Graph, model, coverage or performance acceptance. The
+next transaction is standalone frontend HIR -> private TensorIR -> CUDA Tile ->
+Artifact -> real SM120 execution for vector add, fused pointwise, row reduction
+and simple structured matmul.
 Frontend-HIR lowering, operators, framework routes and model execution remain
 later. The exact PyTorch-pinned Triton reference wheel stays audited/frozen and
 deliberately uninstalled as baseline-only infrastructure. The full objective

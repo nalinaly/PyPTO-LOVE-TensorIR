@@ -1,0 +1,172 @@
+{
+  "id": "EV-0051",
+  "kind": "finalized_real_sm120_nvidia_executable_correctness_v1",
+  "status": "accepted_minimal_nvidia_executable_runtime_frontend_and_operator_work_pending",
+  "final_report": {
+    "path": "reports/data/pypto-nvidia-executable-sm120-pypto-20260825T080254Z-910620-c669d9.json",
+    "bytes": 29107,
+    "published_mode": 292,
+    "git_blob_mode": 420,
+    "sha256": "727362d7879d58cbee07b11050b17ad149274e8087b0d1872b8f186a66a272a9",
+    "evidence_commit": "acb79bf844ef36a28edb289d6aaf0e8977423f4b",
+    "evidence_tree": "95b38dcbc1dfa33538d74757eb21a40c2427ac5f",
+    "schema_version": 1,
+    "status": "accepted-real-sm120-correctness-smoke",
+    "canonical_json": true
+  },
+  "run": {
+    "run_id": "pypto-20260825T080254Z-910620-c669d9",
+    "root_commit": "37c16b3902192a8da59a1d912d2ff3e06bec02fb",
+    "root_tree": "cc90c7d8ec7a58ccd0952c4af8756be89a69507e",
+    "pypto_commit": "206447cf8c68b9cff1b86e01f0b40bfd689cd7a7",
+    "pypto_tree": "e0357daaefa74dbf676550015e60701996c400fb",
+    "return_code": 0,
+    "process_status": "exited",
+    "preflight_sha256": "4c788dbd6ee0b6d68277fc8fd66663f88a70d915b66ee1e7042cc263de0964f3",
+    "gate_sha256": "be92af0d23965ccc7c7917529149047f108973a084f4bd8d23dbcc1b1cd43883",
+    "barrier_sha256": "d510ef38bdfb757f3ca0c6be2ed6c5300d7313cb3dfe9448c141766a41cd1cfe",
+    "process_sha256": "153f9c69b113c36f4e59c7fd272aea3ff281c70776e6a843ad12578621dddbff",
+    "provisional_bytes": 28427,
+    "provisional_sha256": "954a266ed5d592698649ad1947fe1879e75dce2f3d9ebad9e16c74034076221f",
+    "zero_nvidia_interference": true,
+    "owned_pgid": 910707,
+    "owned_pgid_survivors": 0,
+    "external_signal_evidence": false
+  },
+  "control": {
+    "implementation_commit": "5564008fddeaaf0a9861ee5c38c895558f577600",
+    "implementation_tree": "b1676a118604c22eebaec787987806f3cf1aeebb",
+    "manifest_commit": "7639d820f4d74972b493c01adc69c92087eefdea",
+    "manifest_tree": "52e37ab60276ebec2e06b46a4b55c39af4c22d62",
+    "manifest_path": "state/contracts/pypto_nvidia_executable_sm120_v4.json",
+    "manifest_bytes": 1569,
+    "manifest_sha256": "a079c4d252aa346bb19a64a6ad3947867b76e7c778f7234125078fb16b2598bf",
+    "finalizer_sha256": "aad7faf215e2aef0dc626553c1f917e443df0f7ffce4d22425c8276ed23e2f55",
+    "runner_sha256": "f22befff45d87097ae42b5725cf33a5e296ed74ff177cd84c2b772be5939abdd",
+    "v1_through_v3_unchanged": true
+  },
+  "runtime": {
+    "provider": "pypto.tensorir",
+    "runtime_object": "NvidiaExecutable",
+    "device_name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+    "compute_capability": 120,
+    "multiprocessor_count": 82,
+    "driver_release": "610.74",
+    "driver_api_version": 13030,
+    "runtime_api_version": 13000,
+    "cuda_toolkit_version": "13.3.73",
+    "tensor_ir_commit": "1dcb38c20e53d07c97d3781cae538e33901bae30",
+    "cuda_tile_commit": "af2417041cc939b87ef56d92cfdcf61737c5457e",
+    "supported_compute_dtypes": ["FP32", "BF16"],
+    "case_order": ["static", "dynamic", "scalar"],
+    "repetitions_per_case": 2,
+    "module_lifetimes": 6,
+    "explicit_unloads": 6,
+    "non_default_current_stream": true,
+    "external_synchronization": true,
+    "all_reference_and_actual_hashes_equal": true,
+    "all_torch_equal": true,
+    "all_inputs_and_padding_unchanged": true,
+    "all_packets_released_after_synchronization": true,
+    "all_terminal_states_unloaded": true,
+    "fallback_used": false,
+    "forbidden_provider_imports": []
+  },
+  "artifacts": [
+    {
+      "case": "static",
+      "artifact_identity": "411f87920e7a9d9f97f66c865a5695b6b5016ec7983009c47df5c6a3c07b88e9",
+      "cubin_bytes": 13624,
+      "cubin_sha256": "6dc121d2574537753229ed537efc5d2558eee26bfac0ad9d21826b5f33632b82",
+      "grid": [4, 1, 1],
+      "kernel_arguments": 3
+    },
+    {
+      "case": "dynamic",
+      "artifact_identity": "6914638d762ce5aaa963e4845d5c5fc473cf2c102b719de3260c7b27619711f5",
+      "cubin_bytes": 17408,
+      "cubin_sha256": "eabdc1377c66f2879a8cf77e43b3f705e4d725b71f6c8b30244521e97d72ed60",
+      "grid": [6, 1, 1],
+      "kernel_arguments": 12
+    },
+    {
+      "case": "scalar",
+      "artifact_identity": "28bf2001d40cfd49c641f5280f4c52cbad2c656377c70acf40ad8bb78e273a3f",
+      "cubin_bytes": 13744,
+      "cubin_sha256": "fff77b041e032eaae3804105578f49b22fd26cd5d9cb0d483f3170c2bc1a4735",
+      "grid": [4, 1, 1],
+      "kernel_arguments": 3
+    }
+  ],
+  "finalizer_replay": {
+    "compile_request_replayed": true,
+    "all_three_build_specs_replayed": true,
+    "all_three_artifacts_replayed": true,
+    "all_cubin_size_and_sha_pairs_replayed": true,
+    "runtime_target_info_equals_serialized_target_info": true,
+    "fallback_used": false,
+    "replay_command_sha256": "ca892e64d69c6bddb1cbe0c02b305b1e17d43c0149c4c29b19ebdaa66e1f88fc",
+    "replay_stdout_sha256": "b2698fa85b8acebcd71150ea239b2908b988c9f675f010c3082071493d66d816"
+  },
+  "pre_smoke_checkpoint_test": {
+    "run_id": "pypto-20260825T080217Z-909769-8f0e3b",
+    "tests": "225 passed, 113 subtests passed",
+    "junit_sha256": "9f1ccac58960371a82c7f9ca5c5ed754b71159fbdfb4e92bb3ea65e79fd7dfc7",
+    "preflight_sha256": "3daf7d96aa1f944ca23487d0463e140b7bf5d2c3065bfe249e4011480408acac",
+    "process_sha256": "28ad6716bc0f8fc8e493dd4640506c9f4c0c56b9a8e08fb3900bb5161dbea115"
+  },
+  "review_lineage": {
+    "reviewed_subjects": {
+      "checkpoint_sha256": "c146c8c025cb1303d0f9b58a591d2251cc3df1b20f3884fbe4fb5b0d8e0bdb7f",
+      "evidence_pre_lineage_sha256": "548c7553bea65dc4dd7dc4faba13170b8b10cc9dee39ba4f90156bbe742f133d",
+      "bitlesson_0056_sha256": "179382076a3c5cc40a98b2f7173b06f7638dd65bdd2a519a55bec233c7a0efa8"
+    },
+    "reviews": [
+      {
+        "reviewer": "/root/abi_fix_evidence_review",
+        "decision": "GO_MINIMAL_REAL_SM120_RUNTIME_V1",
+        "p0": 0,
+        "p1": 0,
+        "p2": 0,
+        "report_path": "logs/cp38-finalized-runtime-evidence-review.md",
+        "report_bytes": 9915,
+        "report_sha256": "cc648d42c134324d819c0a346899f09bf39f06d148ed60c8707554f18e33c28c"
+      },
+      {
+        "reviewer": "/root/cuda_tile_semantics_review",
+        "decision": "GO_MINIMAL_REAL_SM120_RUNTIME_V1",
+        "p0": 0,
+        "p1": 0,
+        "p2": 0,
+        "report_path": "logs/cp38-finalized-runtime-semantics-review.md",
+        "report_bytes": 9169,
+        "report_sha256": "83ccd8e4de5a2cd3ad610e1f6427e672afcb8359379ac5e64e8caccd18464429"
+      },
+      {
+        "reviewer": "/root/cp36_persistence_review",
+        "decision": "GO_CP0038_MINIMAL_RUNTIME_SCOPE",
+        "p0": 0,
+        "p1": 0,
+        "p2": 0,
+        "report_path": "logs/cp38-final-persistence-review.md",
+        "report_bytes": 12773,
+        "report_sha256": "5ccd5390062e58edb02c176720cc50a2a9f758b949095724eb2aef2d6c24de85"
+      }
+    ]
+  },
+  "accepted_scope": [
+    "minimal real SM120 NvidiaExecutable module load prewarm launch synchronization and unload correctness",
+    "static dynamic-metadata and by-value scalar argument ABI",
+    "caller non-default current stream",
+    "exact PyPTO TensorIR CUDA Tile Artifact and Cubin replay",
+    "zero fallback for the three smoke Artifacts"
+  ],
+  "not_claimed": [
+    "performance",
+    "CUDA Graph correctness",
+    "frontend HIR lowering",
+    "custom operator-family correctness or performance",
+    "TorchInductor or SGLang integration",
+    "Qwen3.5 correctness strict coverage profiling or performance"
+  ]
+}
