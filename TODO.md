@@ -112,9 +112,11 @@
 - [x] Add and independently gate compiler-owned canonical frontend
       specialization/ABI preparation and final BuildSpec construction from a
       producer-shaped callable ABI at PyPTO `c4cf755`.
-- [ ] Refactor one strict producer transaction to return final BuildSpec plus
-      Artifact, bind it under `pypto.compiler`, then execute HIR-authored vector
-      add on real SM120.
+- [x] Refactor one strict producer transaction to return final BuildSpec plus
+      Artifact and bind the immutable result under `pypto.compiler` at PyPTO
+      `642ff5b`.
+- [ ] Execute separately versioned HIR-authored FP32/BF16 vector add through the
+      returned Artifact on real SM120 and finalize it in a CPU-only replay.
 - [ ] Extend the accepted frontend path to fused pointwise, row reduction and
       simple structured matmul before Inductor integration.
 - [x] Implement bounded canonical PyPTO Artifact v1 serialization with bytes,

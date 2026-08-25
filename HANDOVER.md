@@ -41,7 +41,7 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0041.md` and evidence `EV-0005` through `EV-0054`.
+- Read `state/checkpoints/CP-0042.md` and evidence `EV-0005` through `EV-0055`.
 - Root `5564008` plus manifest-only `7639d82` owns the current v4
   correctness-only SM120 smoke. The manifest SHA is `a079c4d2...98bf` and
   binds seven exact control blobs to the Layer-A commit/tree. Controller and
@@ -51,7 +51,7 @@ upstream checkouts and their optional/manual suites.
   `727362d7...272a9`; it joins six real non-default-stream lifetimes, references,
   sidecars, compiler inputs, TargetInfo, Artifacts and Cubins with no fallback.
   V3 run `073624` remains an unfinalized diagnostic and is never reused.
-- `projects/pypto` is clean at `c4cf755...`. Single-DSO, immutable SM120
+- `projects/pypto` is clean at `642ff5b...`. Single-DSO, immutable SM120
   TargetInfo, Artifact v1, strict canonical-source production, ArtifactCache
   v1, the CPU/fake-driver NvidiaExecutable v1 and the parent runtime-observation
   value are accepted. The observation queries every live TargetInfo field via
@@ -87,8 +87,16 @@ upstream checkouts and their optional/manual suites.
   strict schedule prevalidation, producer-shaped ABI validation and final
   BuildSpec construction with no placeholder callable. Fresh backend-ON native
   6/6 and exact-DSO Python 180/2 pass; backend-OFF passes 4/4 and 173/9. It
-  invokes no frontend producer and constructs no Artifact. Resume at the
-  one-producer immutable `{build_spec, artifact}` facade, then HIR vector add.
+  invokes no frontend producer and constructs no Artifact.
+- CP-0042/EV-0055 accepts the public one-producer structured facade at
+  `642ff5b`: one hard-wired private producer invocation yields a sealed
+  normalized result, final BuildSpec and immutable Artifact whose complete
+  identities join before return. No producer callback, provisional Artifact,
+  compile-twice discovery or cache publication exists. Backend-ON native 7/7
+  and exact-DSO Python 182/2 pass; backend-OFF native 5/5, functional Python
+  7/7 and full Python 175/9 pass. The ON/OFF build-directory names are stale;
+  EV-0055 binds the exact DSO paths/hashes and ON embedded revision. Resume at
+  the separate HIR-authored real-SM120 vector-add smoke, not framework work.
 - TensorIR `1dcb38c...` is a local committed feature revision and is fully
   pinned by the PyPTO gitlink/build guards. It has not been published to the
   configured NVIDIA remote; push or otherwise materialize that commit before
@@ -164,12 +172,12 @@ upstream checkouts and their optional/manual suites.
   real CUDA smoke. Those prerequisites are now accepted through the CP-0034
   observation gate. Workers never query CUDA or carry streams/handles.
 - The v4 fixed-command payload/finalizer gate is closed by CP-0038. Preserve its
-  controls and final report; do not rerun it merely to change evidence. Next
-  refactor the strict producer into a single-call frontend Artifact transaction,
-  return the CP-0041 final BuildSpec plus Artifact under `pypto.compiler`, and
-  run HIR-authored vector add on SM120. Fused pointwise, row reduction and
-  structured matmul follow. Operator algorithms, framework registration,
-  online tuning and model work remain after this frontend gate.
+  controls and final report; do not rerun it merely to change evidence. CP-0042
+  closes the single-call frontend Artifact transaction under `pypto.compiler`.
+  Add a separately versioned frontend controller/finalizer and run HIR-authored
+  FP32/BF16 vector add on SM120. Fused pointwise, row reduction and structured
+  matmul follow. Operator algorithms, framework registration, online tuning and
+  model work remain after this frontend gate.
 - `docs/coverage_collector_map.md` is the pinned collector implementation map.
   Do not claim `closed_world=true` from ordinary Kineto/NVTX or from the first
   CUPTI-monitor development trace.

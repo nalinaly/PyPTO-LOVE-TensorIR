@@ -1,16 +1,16 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0041`
+**Checkpoint:** `CP-0042`
 
 **Status:** R0 remains open. P2 accepts finalized minimal real-SM120
 `NvidiaExecutable` correctness v1: exact PyPTO/TensorIR/CUDA Tile Artifacts load,
 prewarm, execute on the caller's non-default stream, synchronize and unload on
 the RTX 5090 with no fallback. It also accepts compile-free deterministic
 static `tensor.add` HIR-to-TensorIR emission at PyPTO `07ab9ea`, and now the
-standalone bounded schedule identity at `fa85e5a`. CP-0041 now accepts private
+standalone bounded schedule identity at `fa85e5a`, and CP-0041 accepts private
 compile-free frontend specialization/ABI projections and final BuildSpec
-construction from one producer-shaped callable ABI at PyPTO `c4cf755`.
-Frontend producer/Artifact integration, frontend GPU correctness,
+construction. CP-0042 now accepts the public one-producer joined BuildSpec/
+Artifact transaction at PyPTO `642ff5b`. Frontend GPU correctness,
 operator-family, framework, model, CUDA Graph, coverage and performance
 milestones remain open.
 
@@ -527,6 +527,17 @@ milestones remain open.
   frozen. Fresh backend-ON native 6/6 and exact-DSO Python 180/2 pass;
   backend-OFF native 4/4 and Python 173/9 pass. No frontend producer call,
   Artifact, public binding or GPU execution is accepted by this gate.
+- PyPTO `642ff5bd79ee96b9e5a279a2bc945ad7a78362b7` adds the public immutable
+  structured compile facade. It prepares frontend HIR, hard-calls the concrete
+  private producer once, seals exact source/request/options identity, finalizes
+  the producer ABI into the BuildSpec, constructs the Artifact from that same
+  move-only result, validates the complete identity join and returns only after
+  success. No producer callback, placeholder identity, provisional Artifact,
+  compile-twice discovery or cache publication is exposed. Backend-ON native
+  7/7 and exact-DSO Python 182/2 pass; backend-OFF native 5/5, functional Python
+  7/7 and full Python 175/9 pass. The retained ON/OFF build-directory names are
+  stale, so EV-0055 binds exact paths, DSO hashes and the ON embedded revision.
+  No CUDA launch through frontend HIR is accepted by this checkpoint.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact
@@ -568,13 +579,12 @@ milestones remain open.
 The goal is active, not complete. Freeze Triton as accepted reference-only
 infrastructure. CP-0038 closes the minimal real-SM120 compiler/runtime launch
 gate. Preserve its v4 controls and final report; do not rerun it merely to
-change evidence. CP-0039 closes compile-free HIR emission, CP-0040 closes
-standalone schedule identity, and CP-0041 closes compile-free frontend identity
-plus final BuildSpec construction from a producer-shaped callable ABI. Next
-refactor one strict producer transaction to return the final
-`KernelBuildSpec` plus `Artifact`, expose that immutable result only through
-`pypto.compiler`, then compile and execute HIR-authored vector add on real
-SM120. Fused pointwise, row reduction and structured matmul follow.
+change evidence. CP-0039 through CP-0041 close compile-free HIR emission,
+standalone schedule identity and final frontend BuildSpec identity. CP-0042
+closes the one-producer joined BuildSpec/Artifact facade. Next implement and
+finalize a separate frontend smoke that compiles and executes HIR-authored FP32
+and BF16 vector add on real SM120. Fused pointwise, row reduction and structured
+matmul follow.
 Defer the separate exclusive Triton replacement/reference-smoke gate until the
 unmodified SGLang baseline needs it.
 Use explicit CPU-only coexistence only for non-GPU build/test work. The single

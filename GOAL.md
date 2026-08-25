@@ -3,20 +3,18 @@
 **Goal ID:** `PYPTO-NVIDIA-QWEN35-V1`
 
 **Execution status:** active. CP-0038 accepts the finalized minimal real-SM120
-`NvidiaExecutable` correctness v1 result. CP-0039 adds the first compile-free
-frontend link at PyPTO `07ab9ea`; CP-0040 adds standalone schedule identity;
-and CP-0041 advances PyPTO to `c4cf755` with compiler-owned canonical
-specialization/ABI projections and final `KernelBuildSpec` construction from a
-real-shaped callable ABI. Fresh backend-ON and exact-source backend-OFF native
-and Python gates pass. This still does not prove that frontend HIR invokes the
-producer, creates an Artifact, or executes a GPU. The next transaction is the
-one-producer strict compile facade followed by real SM120 vector-add
-correctness.
-Frontend-HIR lowering, operators, framework routes and model execution remain
-later. The exact PyTorch-pinned Triton reference wheel stays audited/frozen and
-deliberately uninstalled as baseline-only infrastructure. The full objective
-and acceptance criteria remain unchanged. Never signal protected
-amdgpu-sim/zcode processes.
+`NvidiaExecutable` correctness v1 result. CP-0039 through CP-0041 add the
+compile-free HIR emitter, standalone schedule identity and compiler-owned
+frontend specialization/ABI identity. CP-0042 advances PyPTO to `642ff5b` with
+the public one-producer `compile_structured_strict` transaction: one concrete
+private producer call returns a joined final `KernelBuildSpec` and immutable
+`Artifact`. Exact backend-ON and backend-OFF native/Python gates pass. This
+still does not prove CUDA execution from frontend-authored HIR; the next gate
+is separately versioned real-SM120 FP32/BF16 vector-add correctness.
+Generic operators, framework routes and model execution remain later. The exact
+PyTorch-pinned Triton reference wheel stays audited/frozen and deliberately
+uninstalled as baseline-only infrastructure. The full objective and acceptance
+criteria remain unchanged. Never signal protected amdgpu-sim/zcode processes.
 
 Build a usable, high-performance NVIDIA SM120 backend for the authorized PyPTO
 source; internalize NVIDIA TensorIR/CUDA Tile behind the single public `pypto`

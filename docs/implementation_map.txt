@@ -2,7 +2,7 @@ PYPTO-NVIDIA-QWEN35-V1 IMPLEMENTATION MAP
 =========================================
 
 Generated from the local checkouts on 2026-08-24 and refreshed through
-CP-0041 on 2026-08-25. Paths are relative to
+CP-0042 on 2026-08-25. Paths are relative to
 /home/zhaosiying/pypto-love-tensor-ir unless explicitly stated otherwise.
 This is an ownership/implementation map, not a runtime-support claim.
 
@@ -11,7 +11,7 @@ This is an ownership/implementation map, not a runtime-support claim.
 --------------------------------------
 
 projects/pypto
-  Head: c4cf755b7ef2998cdfb7499a76b80b280bafdf2d on
+  Head: 642ff5bd79ee96b9e5a279a2bc945ad7a78362b7 on
   feature/nvidia-sm120. In addition to the accepted single-DSO/SM120 TargetInfo
   boundary, it now owns canonical CompileRequest, KernelBuildSpec,
   CanonicalSchedule and Artifact contracts; the private TensorIR/CUDA Tile
@@ -20,8 +20,9 @@ projects/pypto
   static-add HIR-to-TensorIR emitter. CP-0038 accepts only the earlier exact
   source-206447c real-SM120 runtime smoke. CP-0040 accepts standalone schedule
   identity; CP-0041 accepts compile-free frontend projections and final
-  BuildSpec construction from a producer-shaped ABI. The one-producer frontend
-  Artifact facade and HIR-authored GPU execution remain open.
+  BuildSpec construction from a producer-shaped ABI. CP-0042 accepts the public
+  one-producer joined BuildSpec/Artifact facade. HIR-authored GPU execution
+  remains open.
 
 projects/pypto-kernels
   Head: 6f73857b52c86dd98e25d23fbc825a675fb25b6a. Contains framework-neutral
@@ -61,10 +62,11 @@ Read-only compatibility/reference checkouts
   frozen reference-only; reversible environment replacement and unmodified
   SGLang baselines remain open.
 
-The standalone source-to-Cubin producer and minimal current-stream SM120 launch
-are accepted. There is still no frontend-HIR-produced Artifact/GPU result,
-custom CUDA operator, TorchInductor backend, SGLang baseline, Qwen execution,
-strict-coverage result or performance result.
+The standalone source-to-Cubin producer, public HIR-to-Artifact transaction and
+minimal current-stream SM120 launch are accepted as separate gates. There is
+still no frontend-HIR-produced GPU result, custom CUDA operator, TorchInductor
+backend, SGLang baseline, Qwen execution, strict-coverage result or performance
+result.
 
 
 2. Ownership and dependency direction
@@ -487,9 +489,9 @@ No restart, driver/kernel change or WSL shutdown is authorized.
   6. [done] Add deterministic Artifact metadata plus SM120 resource/options
      fixes, ArtifactCache, prewarmed NvidiaExecutable and minimal real-SM120
      current-stream correctness.
-  7. [current] Canonical ABI/specialization projections are done. Add the
-     one-producer frontend compile facade, then prove HIR-authored vector add ->
-     Artifact -> actual SM120 Cubin -> non-default current-stream launch.
+  7. [current] Canonical ABI/specialization projections and the one-producer
+     frontend compile facade are done. Prove HIR-authored vector add -> Artifact
+     -> actual SM120 Cubin -> non-default current-stream launch.
   8. Extend the accepted frontend path to fused pointwise, row reduction and
      structured matmul, then implement generic fused-loop memory lowering.
   9. Implement the already-frozen operator ABIs as executable attention and
