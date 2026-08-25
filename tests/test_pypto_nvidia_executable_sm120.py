@@ -494,6 +494,11 @@ class SmokeFinalizerFullFixtureTest(unittest.TestCase):
             "root_clean": True,
             "files": [],
         }
+        self.pypto_identity = {
+            "head": contract.PYPTO_HEAD,
+            "tree": contract.PYPTO_TREE,
+            "clean": True,
+        }
         self.protected_process = {
             "pid": 10,
             "ppid": 1,
@@ -927,6 +932,11 @@ class SmokeFinalizerFullFixtureTest(unittest.TestCase):
                 return_value=semantic_audit,
             ),
             mock.patch.object(
+                finalizer,
+                "git_identity",
+                return_value=self.pypto_identity,
+            ),
+            mock.patch.object(
                 finalizer.contract,
                 "FINAL_REPORT_DIRECTORY",
                 final_directory,
@@ -1014,6 +1024,11 @@ class SmokeFinalizerFullFixtureTest(unittest.TestCase):
                 finalizer,
                 "audit_replay_semantics",
                 return_value=semantic_audit,
+            ),
+            mock.patch.object(
+                finalizer,
+                "git_identity",
+                return_value=self.pypto_identity,
             ),
             mock.patch.object(
                 finalizer.contract,
