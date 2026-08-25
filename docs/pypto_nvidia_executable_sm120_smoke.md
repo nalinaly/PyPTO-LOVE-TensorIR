@@ -26,7 +26,8 @@ SGLang, FlashInfer, or the framework plugin project.
 
 The runner, contract, preflight, controller, stop tool and finalizer must equal
 the exact blobs in
-`state/contracts/pypto_nvidia_executable_sm120_v1.json`. The root repository
+`state/contracts/pypto_nvidia_executable_sm120_v2.json`. Version 1 remains an
+immutable record of the pre-ABI-fix control transaction. The root repository
 must be clean and the manifest's implementation commit must be an ancestor of
 the current checkpoint. Before that manifest is published, launch fails closed.
 

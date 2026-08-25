@@ -122,8 +122,8 @@ class SmokePayloadContractTest(unittest.TestCase):
                     }
                 )
             manifest = {
-                "schema_version": 1,
-                "kind": "pypto-nvidia-executable-sm120-controls",
+                "schema_version": control_manifest.MANIFEST_SCHEMA_VERSION,
+                "kind": control_manifest.MANIFEST_KIND,
                 "implementation_commit": implementation,
                 "implementation_tree": tree,
                 "files": records,

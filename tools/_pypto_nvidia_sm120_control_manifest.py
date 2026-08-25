@@ -11,7 +11,9 @@ import subprocess
 from pathlib import Path
 
 
-MANIFEST_RELATIVE_PATH = Path("state/contracts/pypto_nvidia_executable_sm120_v1.json")
+MANIFEST_SCHEMA_VERSION = 2
+MANIFEST_KIND = "pypto-nvidia-executable-sm120-controls-v2"
+MANIFEST_RELATIVE_PATH = Path("state/contracts/pypto_nvidia_executable_sm120_v2.json")
 CONTROL_PATHS = (
     "benchmarks/operators/pypto_nvidia_executable_sm120.py",
     "tools/_pypto_nvidia_executable_sm120_contract.py",
@@ -99,8 +101,8 @@ def validate_control_manifest(workspace: Path) -> dict[str, object]:
     implementation_commit = manifest.get("implementation_commit")
     implementation_tree = manifest.get("implementation_tree")
     if (
-        manifest.get("schema_version") != 1
-        or manifest.get("kind") != "pypto-nvidia-executable-sm120-controls"
+        manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION
+        or manifest.get("kind") != MANIFEST_KIND
         or not isinstance(implementation_commit, str)
         or COMMIT_PATTERN.fullmatch(implementation_commit) is None
         or not isinstance(implementation_tree, str)
