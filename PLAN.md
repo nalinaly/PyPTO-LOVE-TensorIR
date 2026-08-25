@@ -1,8 +1,21 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `25`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `26`
 
-## Current phase: P2 exclusive SM120 NvidiaExecutable smoke; R0 baseline remains open
+## Current phase: P2 exact SM120 NvidiaExecutable correctness smoke; R0 baseline remains open
+
+Checkpoint `CP-0035` accepts the fixed correctness-only SM120 smoke control
+path, not a GPU result. Root implementation `394b75a` and manifest-only commit
+`2b53f0a` bind the exact controller, preflight, stop tool, runner, finalizer and
+contract blobs. Controller/finalizer/preflights use `-E -B -S`; the child uses
+`-I -B -S`, an empty `PYTHONPATH` and no plugins. Parent and child prove the
+protected lane has no NVIDIA mapping/compute PID before Torch import, and the
+owned watchdog identifies compute only through PID start-tick, descendant and
+PGID. Static/dynamic/scalar Cubins compile deterministically CPU-only; replay
+through the exact DSO reconstructs full TargetInfo, BuildSpecs, ABI and Cubin.
+The post-manifest root suite passes 224 tests plus 106 subtests. No CUDA context,
+module or kernel was used. The next narrow transaction is to execute this exact
+route under a fresh green `gpu-smoke` gate and finalize its correctness evidence.
 
 Checkpoint `CP-0034` accepts only the parent-process NVIDIA runtime observation
 value at PyPTO `6361f11`. It reuses the private Driver boundary to produce every
@@ -12,8 +25,8 @@ handles or loading Cubin. `dlsym(RTLD_DEFAULT)` plus `dladdr` and canonical
 expected-path equality never opens libcudart. Distinct-sentinel, provider,
 fork-latch and backend-OFF tests pass; fresh ON/OFF products and exact-DSO gates
 remain single-DSO and isolated. No production observation or real CUDA call has
-run. The next narrow transaction is a fixed-command root smoke payload and
-post-run finalizer; execution still requires a fresh authorized GPU-smoke gate.
+run. CP-0035 now provides the fixed smoke payload/finalizer, but execution still
+requires a fresh authorized GPU-smoke gate.
 
 Checkpoint `CP-0033` accepts only the CPU/fake-driver NvidiaExecutable v1
 contract at PyPTO `2842a1c`. It adds a separate internal runtime object target,

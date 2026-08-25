@@ -41,7 +41,15 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0034.md` and evidence `EV-0005` through `EV-0047`.
+- Read `state/checkpoints/CP-0035.md` and evidence `EV-0005` through `EV-0048`.
+- Root `394b75a` plus manifest-only `2b53f0a` now owns the fixed
+  correctness-only SM120 smoke. The manifest SHA is `c609e97a...aa09` and
+  binds seven exact control blobs to the Layer-A commit/tree. Controller and
+  finalizer require `-E -B -S`; the child and semantic replay use
+  `-I -B -S`. The post-manifest root suite passes 224 tests plus 106 subtests,
+  and the exact-DSO CPU replay reconstructs complete TargetInfo, three
+  BuildSpecs/Artifacts, ABI and deterministic Cubins. This is control/replay
+  evidence only: no real CUDA call or result has run.
 - `projects/pypto` is clean at `6361f11...`. Single-DSO, immutable SM120
   TargetInfo, Artifact v1, strict canonical-source production, ArtifactCache
   v1, the CPU/fake-driver NvidiaExecutable v1 and the parent runtime-observation
@@ -132,14 +140,14 @@ upstream checkouts and their optional/manual suites.
   cache, and a process/device/CUcontext-bound prewarmed executable before any
   real CUDA smoke. Those prerequisites are now accepted through the CP-0034
   observation gate. Workers never query CUDA or carry streams/handles.
-- Next implement the fixed-command root smoke payload/finalizer. It must audit
-  the selected Torch libcudart mapping before passing its canonical path to
-  CP-0034 observation, bootstrap the exact ON DSO from EV-0047, and use the
-  PyTorch-owned current non-default stream. Execute only under a fresh
-  authorized GPU-smoke policy. Retain packets until external stream completion,
-  reject handles 0/1/2, compare CPU references, repeat module lifetime and
-  explicitly unload. Keep frontend lowering, operator algorithms, framework
-  registration, online tuning and model work after this real-runtime gate.
+- The fixed-command payload/finalizer is complete and manifest-bound by
+  CP-0035. Next run exactly the command in
+  `docs/pypto_nvidia_executable_sm120_smoke.md` under a fresh green
+  `gpu-smoke` admission. Do not edit any of the seven manifest-bound controls.
+  Capture the printed provisional SHA, wait for the controller to exit, then
+  invoke the no-site finalizer. Retain a failed/aborted run as diagnostic only.
+  Keep frontend lowering, operator algorithms, framework registration, online
+  tuning and model work after this real-runtime gate.
 - `docs/coverage_collector_map.md` is the pinned collector implementation map.
   Do not claim `closed_world=true` from ordinary Kineto/NVTX or from the first
   CUPTI-monitor development trace.

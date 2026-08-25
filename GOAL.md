@@ -2,19 +2,21 @@
 
 **Goal ID:** `PYPTO-NVIDIA-QWEN35-V1`
 
-**Execution status:** active. CP-0034 accepts the CPU/value-only parent NVIDIA
-runtime observation seam at PyPTO `6361f11...`, layered over the CP-0033
-NvidiaExecutable, CP-0032 ArtifactCache and strict private TensorIR/CUDA Tile
-SM120 Cubin producer. It provides a complete live TargetInfo value plus
-authenticated already-loaded Runtime provider path without retaining handles
-or opening libcudart. Real provider/context observation, libcuda module load
-and non-default current-stream execution remain unaccepted and require a fresh
-authorized GPU-smoke gate. The next transaction is the fixed-command root smoke
-payload/finalizer; frontend-HIR lowering, operators, framework routes and model
-execution remain later. The exact PyTorch-pinned Triton reference wheel stays
-audited/frozen and deliberately uninstalled as baseline-only infrastructure.
-The full objective and acceptance criteria remain unchanged. Never signal
-protected amdgpu-sim/zcode processes.
+**Execution status:** active. CP-0035 accepts the committed correctness-only
+SM120 smoke harness and its externally anchored root-control manifest at
+`394b75a` plus `2b53f0a`. It binds the CP-0034 live observation seam, CP-0033
+NvidiaExecutable and strict private TensorIR/CUDA Tile producer into one exact
+`-E/-I -B -S` parent/child/finalizer route, with protected-lane NVIDIA mapping
+and compute-PID audits, a pre-release barrier, six module lifetimes, semantic
+Artifact replay and no performance/model claim. All control and replay gates
+pass CPU-only; no production observation, libcuda module load, kernel launch or
+CUDA numerical result has run. The next transaction is the exact authorized
+RTX 5090 static/dynamic/scalar non-default-current-stream correctness smoke.
+Frontend-HIR lowering, operators, framework routes and model execution remain
+later. The exact PyTorch-pinned Triton reference wheel stays audited/frozen and
+deliberately uninstalled as baseline-only infrastructure. The full objective
+and acceptance criteria remain unchanged. Never signal protected
+amdgpu-sim/zcode processes.
 
 Build a usable, high-performance NVIDIA SM120 backend for the authorized PyPTO
 source; internalize NVIDIA TensorIR/CUDA Tile behind the single public `pypto`

@@ -1,13 +1,13 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0034`
+**Checkpoint:** `CP-0035`
 
 **Status:** R0 remains open. P2 now accepts the CPU/fake-driver
-NvidiaExecutable v1 plus the parent-process live-target/Runtime observation
-value and product-isolation contracts over the accepted compiler Artifact/Cache.
-Real Runtime provider/context observation, SM120 module load/current-stream
-execution, frontend-HIR lowering, operators, framework routes and model
-milestones remain unaccepted.
+NvidiaExecutable v1, parent-process live-target/Runtime observation value, and
+the exact correctness-only SM120 smoke controller/runner/finalizer plus its
+external control manifest. Real Runtime provider/context observation, SM120
+module load/current-stream execution, frontend-HIR lowering, operators,
+framework routes and model milestones remain unaccepted.
 
 ## Current truth
 
@@ -417,6 +417,29 @@ milestones remain unaccepted.
 - CP-0034 accepts only the CPU/value observation and product boundary. No
   production dlsym/dladdr, real context/device query, Cubin load, CUDA launch,
   numerical result, graph, framework, model coverage or performance is claimed.
+- Root `394b75adbc7babe1000d93938e6fa84493a4277d` implements the
+  correctness-only SM120 NvidiaExecutable smoke. Its exact child is
+  `-I -B -S`; controller, finalizer and both GPU preflights require
+  `-E -B -S`. Ambient Python paths, plugins and fallbacks are absent.
+- Root `2b53f0a6cdeffa89b38ad75515b9ea1d1019748a` adds the canonical
+  seven-blob control manifest with SHA-256
+  `c609e97a2f3e379e332137916d041d14931c0e415cd2f2e769c82eab1650aa09`.
+  It binds implementation commit/tree, live/committed bytes and modes, requires
+  a clean descendant root, and rejects post-implementation control drift.
+- The smoke has distinct fully specified static FP32, dynamic-stride FP32 and
+  FP16-plus-FP32-scalar TensorIR cases. CPU-only compilation locks Cubin
+  sizes/SHA, and exact-DSO replay reopens CompileRequest, all BuildSpecs and
+  Artifacts, then joins complete TargetInfo, ABI, Cubin and execution identity.
+- Parent admission, post-Popen pre-release gate, child pre-CUDA gate, periodic
+  watchdog and post-exit audit reject protected NVIDIA mappings, unreadable
+  maps and foreign compute PIDs. Only PID/start-tick descendants in the owned
+  PGID are signalable. The protected CPU lane may coexist only through the
+  explicit correctness-smoke policy; `gpu-benchmark` remains exclusive.
+- Post-manifest root run `pypto-20260825T050233Z-793333-c8f8cb` passes
+  224 tests plus 106 subtests. Exact-DSO semantic replay/TargetInfo run
+  `pypto-20260825T045248Z-788969-a1b6bc` returns zero and leaves no ignored
+  PyPTO package shadow. No CUDA context, module, stream launch, device result or
+  performance measurement is accepted by CP-0035.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact
@@ -456,15 +479,15 @@ milestones remain unaccepted.
 ## Resume action
 
 The goal is active, not complete. Freeze Triton as accepted reference-only
-infrastructure. First implement the fixed-command root smoke payload/finalizer
-using CP-0034 observation plus the CP-0033 executable. Then, only under a fresh
-authorized GPU-smoke policy, run the exact-product RTX 5090 static/dynamic/
-scalar non-default-current-stream smoke. Synchronize and compare outside PyPTO,
-retain packets through asynchronous completion, release graph leases and
-explicitly unload. Do not infer real CUDA behavior from CPU evidence or advance
-frontend lowering before this runtime evidence closes.
+infrastructure. The fixed-command payload/finalizer is accepted by CP-0035.
+Next, only under a fresh green `gpu-smoke` admission, run that exact-product
+RTX 5090 static/dynamic/scalar non-default-current-stream smoke and finalize its
+replay evidence. Do not edit the seven manifest-bound controls before the run.
+Do not infer real CUDA behavior from CPU evidence or advance frontend lowering
+before this runtime evidence closes.
 Defer the separate exclusive Triton replacement/reference-smoke gate until the
 unmodified SGLang baseline needs it.
-Use explicit CPU-only coexistence only for non-benchmark build/test work; GPU
-smoke/benchmarks require exclusive `gpu-benchmark` preflight. Never inherit
-TensorIR's SM100 defaults.
+Use explicit CPU-only coexistence only for non-GPU build/test work. The single
+fixed correctness smoke may use its separately audited zero-NVIDIA protected-
+CPU policy; all GPU performance benchmarks remain exclusive `gpu-benchmark`
+runs. Never inherit TensorIR's SM100 defaults.

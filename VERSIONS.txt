@@ -6,8 +6,11 @@ Structured TensorIR pipeline blob: 46610e0415598d010981e4bd07d0660c592401ac
 PyPTO backend-ON DSO: 72ef7549a3da47d495e2c213de6ca15968713e2594c5f94d1181173bce935664
 PyPTO backend-OFF DSO: b88edbd2ff0a744c417e775a5bbe393ee9b897a2801c33b5bed4b840f461499f
 PyPTO ArtifactCache: accepted trusted-local persistent v1
-PyPTO NvidiaExecutable: accepted CPU/fake-driver v1; real SM120 launch pending exclusive gate
+PyPTO NvidiaExecutable: accepted CPU/fake-driver v1; real SM120 launch pending fresh authorized gpu-smoke gate
 PyPTO NvidiaRuntimeObservation: accepted CPU/value v1; real provider/context observation pending GPU smoke
+PyPTO SM120 smoke controls: 394b75adbc7babe1000d93938e6fa84493a4277d
+PyPTO SM120 smoke manifest: 2b53f0a6cdeffa89b38ad75515b9ea1d1019748a, SHA-256 c609e97a2f3e379e332137916d041d14931c0e415cd2f2e769c82eab1650aa09
+PyPTO SM120 smoke status: accepted CPU-only control/replay path; real CUDA unexecuted
 msgpack-c: 919908742b4fdbc575e77fe1a8657e70c9573c44
 libbacktrace: 6f8310e238fc3ce68f42f391cbe93fd156bb2c23
 PyPTO runtime headers: 93adc3865e65fd72655f571f2e4165cf5ac02616

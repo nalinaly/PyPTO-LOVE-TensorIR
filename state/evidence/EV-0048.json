@@ -1,0 +1,168 @@
+{
+  "id": "EV-0048",
+  "kind": "pypto_nvidia_executable_sm120_smoke_control_acceptance",
+  "status": "accepted_cpu_control_and_semantic_replay_real_cuda_execution_deferred",
+  "root_layers": {
+    "implementation": {
+      "commit": "394b75adbc7babe1000d93938e6fa84493a4277d",
+      "tree": "8b80ab64ee6c0fa15c27e7249da1fb4f9995c725",
+      "files": 9
+    },
+    "manifest": {
+      "commit": "2b53f0a6cdeffa89b38ad75515b9ea1d1019748a",
+      "tree": "ccda1b64f1df64b1428c409c910081333b36e20d",
+      "path": "state/contracts/pypto_nvidia_executable_sm120_v1.json",
+      "bytes": 1566,
+      "sha256": "c609e97a2f3e379e332137916d041d14931c0e415cd2f2e769c82eab1650aa09",
+      "control_files": 7
+    }
+  },
+  "compiler_runtime_inputs": {
+    "pypto": "6361f110660a77f9a8dc542265575d8f7260b343",
+    "tensor_ir": "1dcb38c20e53d07c97d3781cae538e33901bae30",
+    "cuda_tile": "af2417041cc939b87ef56d92cfdcf61737c5457e",
+    "llvm": "57109befac92811d2253109242ca6fa69c961fb2",
+    "pipeline_revision": "46610e0415598d010981e4bd07d0660c592401ac",
+    "backend_on_dso_sha256": "72ef7549a3da47d495e2c213de6ca15968713e2594c5f94d1181173bce935664",
+    "runner_bytes": 43947,
+    "runner_sha256": "f22befff45d87097ae42b5725cf33a5e296ed74ff177cd84c2b772be5939abdd",
+    "cuda_runtime_sha256": "96c42e418cec19054186b9429c321603cc190bf26a18104e19408117a2a817b0"
+  },
+  "accepted_scope": {
+    "correctness_only": true,
+    "controller_and_finalizer_flags": "-E -B -S",
+    "child_and_replay_flags": "-I -B -S",
+    "empty_pythonpath": true,
+    "framework_plugins_loaded": false,
+    "fallback_allowed": false,
+    "parent_pre_release_barrier": true,
+    "child_pre_cuda_recheck": true,
+    "periodic_and_post_exit_nvidia_audit": true,
+    "owned_pid_start_tick_descendant_pgid_required": true,
+    "semantic_replay_through_exact_dso": true,
+    "exact_nested_evidence_schemas": true,
+    "performance_result": false,
+    "model_forward_result": false,
+    "strict_coverage_result": false,
+    "cuda_graph_result": false
+  },
+  "cases": [
+    {
+      "name": "static",
+      "dtype": "FP32",
+      "shape": [8, 8],
+      "grid": [4, 1, 1],
+      "kernel_arguments": 3,
+      "cubin_bytes": 13624,
+      "cubin_sha256": "6dc121d2574537753229ed537efc5d2558eee26bfac0ad9d21826b5f33632b82"
+    },
+    {
+      "name": "dynamic",
+      "dtype": "FP32",
+      "shape": [17, 9],
+      "strides": [18, 1],
+      "grid": [6, 1, 1],
+      "kernel_arguments": 12,
+      "cubin_bytes": 17408,
+      "cubin_sha256": "eabdc1377c66f2879a8cf77e43b3f705e4d725b71f6c8b30244521e97d72ed60"
+    },
+    {
+      "name": "scalar",
+      "input_dtype": "FP16",
+      "scalar_dtype": "FP32",
+      "shape": [4, 4, 4],
+      "grid": [4, 1, 1],
+      "kernel_arguments": 3,
+      "cubin_bytes": 13744,
+      "cubin_sha256": "fff77b041e032eaae3804105578f49b22fd26cd5d9cb0d483f3170c2bc1a4735"
+    }
+  ],
+  "cpu_validation": {
+    "post_manifest_root": {
+      "run_id": "pypto-20260825T050233Z-793333-c8f8cb",
+      "return_code": 0,
+      "tests_passed": 224,
+      "subtests_passed": 106,
+      "junit_sha256": "61104d579f8a5d619f1d0b0bac94e56ad7671d3bd1ead1b2258859030c1c0348",
+      "preflight_sha256": "a7b50168d8df4394d72acdb6f2cb8ed9817017ef3fd0e85a865fd33a0031a956",
+      "process_metadata_sha256": "cb8ff8f5aeb30ace559daf85c5a8498147ae369ab1f3ae0a78abe6d3c5d44827",
+      "coexistence_pauses": 0
+    },
+    "exact_dso_semantic_replay": {
+      "run_id": "pypto-20260825T045248Z-788969-a1b6bc",
+      "return_code": 0,
+      "preflight_sha256": "592afc7f34aff46c0467bbf85b7ae8bc6cc02b2edfb1cb5b007d680abe967ce6",
+      "process_metadata_sha256": "67384d064dee8e8d93f089ce6fd559a7dd5f812c241ed46ca75f4ecc633d0da9",
+      "result": "static dynamic scalar replay and complete TargetInfo join passed",
+      "pypto_package_ignored_shadows_after": 0
+    },
+    "missing_manifest_diagnostic": {
+      "return_code": 75,
+      "result": "failed before run directory and Popen",
+      "gpu_child_created": false
+    }
+  },
+  "quarantine": [
+    {
+      "path": "runs/quarantine/llvm-benchmark-ruff-cache-20260825T0210Z",
+      "recoverable": true
+    },
+    {
+      "path": "runs/quarantine/pypto-runtime-ruff-cache-20260825T0211Z",
+      "recoverable": true
+    },
+    {
+      "source": "projects/pypto/python/pypto/**/__pycache__",
+      "path": "runs/quarantine/pypto-python-pyc-20260825T0445Z",
+      "recoverable": true
+    },
+    {
+      "source": "projects/pypto/python/pypto/pypto_core.cpython-314-x86_64-linux-gnu.so",
+      "path": "runs/quarantine/pypto-source-shadow-dso-20260825T0448Z.so",
+      "bytes": 776310912,
+      "recoverable": true
+    }
+  ],
+  "review_lineage": {
+    "subject_checkpoint_sha256": "f4b68df1713f83749bc5bbe1cf093eb8ca7925dc093e801acbb71a3ed7c79716",
+    "subject_evidence_pre_review_lineage_sha256": "d85b9eefb33ae63b89365148b91eaab3ad7b5d9b13da21943e8ca85fa5696d71",
+    "reviews": [
+      {
+        "reviewer": "/root/cp33_evidence_audit",
+        "scope": "evidence integrity products runs quarantine and closing conditions",
+        "decision": "GO",
+        "p0": 0,
+        "p1": 0,
+        "report": "logs/pypto-sm120-smoke-harness-cp35-final-evidence-review.md",
+        "report_sha256": "0e1a5170b76468c8833ef5b92d6367a28997dd2f5335c13af934f12aba2976c0"
+      },
+      {
+        "reviewer": "/root/cp33_scope_audit",
+        "scope": "accepted correctness-control scope and explicit non-claims",
+        "decision": "GO",
+        "p0": 0,
+        "p1": 0,
+        "report": "logs/pypto-sm120-smoke-harness-cp35-final-scope-review.md",
+        "report_sha256": "c742ee13c8f3d0d5af86fd891b21de9cd6b37fd88f93760f021af43207be7307"
+      },
+      {
+        "reviewer": "/root/cp33_persistence_audit",
+        "scope": "root checkpoint consistency locks handover and commit boundary",
+        "decision": "GO",
+        "p0": 0,
+        "p1": 0,
+        "report": "logs/pypto-sm120-smoke-harness-cp35-final-persistence-review.md",
+        "report_sha256": "5b69fb41a7a74b235049c0dd493b010ea880fe98c5e055518318f2f74daadca1"
+      }
+    ]
+  },
+  "not_claimed": [
+    "real PyTorch-loaded libcudart observation",
+    "real CUDA context device UUID PCI or resource observation",
+    "real libcuda module load or non-default-current-stream launch",
+    "CUDA numerical correctness or CUDA Graph capture replay",
+    "frontend HIR lowering generic codegen or CUDA operators",
+    "TorchInductor or SGLang registration",
+    "Qwen3.5 correctness strict coverage profiling or performance"
+  ]
+}

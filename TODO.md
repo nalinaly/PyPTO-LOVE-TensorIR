@@ -89,10 +89,14 @@
       observation value at PyPTO `6361f11`: complete TargetInfo propagation,
       authenticated already-loaded Runtime provider, real private-Driver fork
       latch, no handle retention and backend-OFF fail-closed behavior.
-- [ ] Under a green exclusive `gpu-benchmark` gate, run the exact-product real
-      SM120 static/dynamic/scalar non-default-current-stream correctness and
-      explicit unload smoke; do not advance frontend lowering from fake-driver
-      evidence alone.
+- [x] Implement, source-lock and independently gate the exact-product SM120
+      correctness-smoke controller, static/dynamic/scalar runner, protected
+      zero-NVIDIA policy, replay artifacts and CPU-only finalizer. This is not
+      real CUDA evidence.
+- [ ] Under a fresh green `gpu-smoke` gate, run and finalize the exact-product
+      real SM120 static/dynamic/scalar non-default-current-stream correctness
+      and explicit unload smoke; do not advance frontend lowering from
+      CPU/fake-driver evidence alone.
 - [x] Implement bounded canonical PyPTO Artifact v1 serialization with bytes,
       ABI, request/build-spec/producer digests and malformed-input rejection.
 - [x] Isolate the TensorIR/LLVM ABI bridge, hide every non-Python DSO export,
