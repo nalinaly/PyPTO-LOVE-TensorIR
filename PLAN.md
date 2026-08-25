@@ -1,8 +1,19 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `23`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `24`
 
-## Current phase: P2 compiler-owned NvidiaExecutable; R0 baseline remains open
+## Current phase: P2 exclusive SM120 NvidiaExecutable smoke; R0 baseline remains open
+
+Checkpoint `CP-0033` accepts only the CPU/fake-driver NvidiaExecutable v1
+contract at PyPTO `2842a1c`. It adds a separate internal runtime object target,
+lazy typed Driver resolution, process/device/context binding, forced function
+load, parameter/resource legality, prepared allocation-free launch packets,
+graph/module lifetime leases and strict ON/OFF product isolation. Fresh ON
+CTest is 9/9 with exact-DSO Python 142 passed/1 skipped; fresh OFF is 7/7 and
+134 passed/9 skipped. No real CUDA Driver call or launch occurred. The
+exclusive `gpu-benchmark` gate returned 75 for the active protected lane while
+reporting no NVIDIA compute PID, so the next transaction remains an exact
+non-default-stream RTX 5090 smoke without waiver.
 
 Checkpoint `CP-0032` accepts the persistent ArtifactCache v1 at PyPTO
 `c087170`. Cache identity is derived only from the accepted precompile
@@ -13,7 +24,8 @@ audits, seven-source provenance negatives and independent API/security/final
 reviews pass. No CUDA state, compile-on-miss, eviction, repair, framework or
 model behavior is present. The next narrow transaction is a process/device/
 CUcontext-bound `NvidiaExecutable` that consumes only a validated Artifact and
-accepts the non-null current stream only at launch.
+accepts the non-null current stream only at launch. CP-0033 now accepts its
+CPU/fake-driver contract; real CUDA execution remains the active gate.
 
 Checkpoint `CP-0031` accepts the strict canonical-source producer bridge at
 PyPTO `f3bcaac` and TensorIR `1dcb38c`. Exact source bytes plus
@@ -244,6 +256,12 @@ Checkpoint `CP-0032` accepts only trusted-local persistent Artifact storage.
 It does not accept CUDA device/context/module/function state, resource or
 workspace legality, current-stream launch, CUDA Graph, frontend-HIR lowering,
 operators, TorchInductor, SGLang, Qwen correctness/coverage or performance.
+
+Checkpoint `CP-0033` accepts only modeled executable lifecycle, packing,
+legality, concurrency/fork rules and ON/OFF product isolation. It does not
+accept real libcuda resolution, Cubin module load, current-stream execution,
+CUDA numerical correctness, CUDA Graph, frontend-HIR lowering, operators,
+TorchInductor, SGLang or Qwen execution.
 
 1. Create the control repository, persistence documents, safety preflight, and
    isolated directory layout.

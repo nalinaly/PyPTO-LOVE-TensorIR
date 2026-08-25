@@ -41,25 +41,21 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0032.md` and evidence `EV-0005` through `EV-0045`.
-- `projects/pypto` is clean at `c087170...`. Single-DSO, immutable SM120
-  TargetInfo, Artifact v1, the strict canonical-source producer bridge and the
-  compiler-owned persistent ArtifactCache v1 are accepted. Exact source bytes
-  plus CompileRequest/KernelBuildSpec traverse the private TensorIR/CUDA Tile/
-  pinned-tileiras route and return a validated Cubin Artifact without vendor
-  types in the public API; cache lookup/publication then uses only the accepted
-  precompile projection under an owner-private descriptor-relative namespace.
-  TensorIR `1dcb38c...` owns the bounded exact-assembler process boundary.
-  The final ON DSO SHA is `d6c9729d...df0c7b`; it is RPATH-free, exports only
-  the version node/Python init entry, has only five standard dependencies, and
-  passes native 8/8 plus exact-product compiler 137 passed/1 skipped. A fresh
-  OFF DSO SHA `7edab542...7e1` passes native 6/6 and exact-product compiler 130
-  passed/8 skipped, contains no private bridge/dynamic leakage and reports
-  `compiled=false`. EV-0045 binds the exact revisions, pipeline blob
-  `46610e...`, cache contract, ON/OFF products, seven-source provenance
-  negatives and final GO review. The strict guard covers the clean PyPTO parent
-  plus TensorIR, CUDA Tile, LLVM, msgpack-c, libbacktrace and runtime at
-  configure and build time. `NvidiaExecutable` and CUDA launch do not exist yet.
+- Read `state/checkpoints/CP-0033.md` and evidence `EV-0005` through `EV-0046`.
+- `projects/pypto` is clean at `2842a1c...`. Single-DSO, immutable SM120
+  TargetInfo, Artifact v1, strict canonical-source production, ArtifactCache
+  v1 and the CPU/fake-driver NvidiaExecutable v1 contract are accepted. The
+  executable has its own internal runtime object target, process/device/regular
+  CUcontext lifetime, typed lazy Driver resolver, forced-function/resource ABI
+  validation, allocation-free prepared launch packets and graph/module leases.
+  TensorIR `1dcb38c...` remains private and owns the bounded assembler boundary.
+  The final ON DSO SHA is `ef60b6a9...e4727`; it is RPATH-free, has only five
+  standard dependencies/two definitions and passes native 9/9 plus exact-DSO
+  Python 142 passed/1 skipped. The OFF DSO SHA `9ffd2291...cee7a` passes native
+  7/7 plus Python 134 passed/9 skipped and compiles only the fail-closed Driver
+  stub. EV-0046 binds revisions, products, compile rows, seven-source negatives,
+  root regression and three GO reviews. No real libcuda/module/current-stream
+  launch has run: the exclusive gate is red for the protected lane.
 - TensorIR `1dcb38c...` is a local committed feature revision and is fully
   pinned by the PyPTO gitlink/build guards. It has not been published to the
   configured NVIDIA remote; push or otherwise materialize that commit before
@@ -69,8 +65,9 @@ upstream checkouts and their optional/manual suites.
   data-only contracts. KernelBuildSpec passes native 4/4 and exact current-DSO
   Python compiler 122/122; EV-0038 binds commit/tree/source/DSO/run hashes and
   the recovered stale editable-DSO evidence. Producer integration and Artifact
-  v1 plus strict production are accepted by CP-0031, and ArtifactCache v1 is
-  accepted by CP-0032; executable/runtime and CUDA launch remain unimplemented.
+  v1 plus strict production are accepted by CP-0031, ArtifactCache v1 by
+  CP-0032 and modeled NvidiaExecutable lifecycle by CP-0033; real CUDA module
+  load/current-stream launch remains unverified.
 - `projects/pypto-kernels` is clean at `6f73857...` with typed semantic
   families, canonical process-safe tuning database, matmul invocation ABI v1,
   catalog-bound canonical operator artifact provenance, paged-attention ABI v1
@@ -125,21 +122,21 @@ upstream checkouts and their optional/manual suites.
   seven protected heavy processes with no protected NVIDIA compute PID or
   pause/abort. This accepts the control path only; TargetInfo still needed no
   waiver, and no GPU/model/performance claim follows.
-- Do not jump directly to CUDA runtime. D-0009 and
-  `docs/compile_request_artifact_design.md` require data-only CompileRequest,
-  then accepted per-region KernelBuildSpec, exact LLVM/tileiras producer
+- D-0009 and `docs/compile_request_artifact_design.md` ordered data-only
+  CompileRequest, per-region KernelBuildSpec, exact LLVM/tileiras producer
   identity, complete bytes-plus-metadata Artifact, compiler-owned persistent
-  cache, then a
-  process/device/CUcontext-bound prewarmed
-  executable. Parent-only target query and CUDA Graph capture/replay law are
-  part of that boundary; workers never query CUDA or carry streams/handles.
-- Resume by implementing only the process/device/CUcontext-bound
-  `NvidiaExecutable`. Load an already validated Artifact, prove the exact entry
-  plus loader/resource/argument/grid/workspace ABI, prewarm before graph
-  capture, latch failures, own unload and graph leases, and accept a non-null
-  current stream only on each launch. Keep frontend lowering, operator
-  algorithms, framework registration, online tuning and model work out of this
-  transaction.
+  cache, and a process/device/CUcontext-bound prewarmed executable before any
+  real CUDA smoke. Those prerequisites are now accepted through the CP-0033
+  CPU/fake-driver gate. Parent-only target query and CUDA Graph capture/replay
+  law remain part of the boundary; workers never query CUDA or carry
+  streams/handles.
+- Resume only after `python -B tools/preflight.py --mode gpu-benchmark --json`
+  returns green. Use the exact ON DSO from EV-0046 in a PyTorch-owned SM120
+  context, query the already-loaded CUDA Runtime version, create a real
+  non-default stream, and run static/dynamic/scalar Cubin correctness plus
+  explicit unload. Retain packets until stream completion and do not use stream
+  handles 0/1/2. Keep frontend lowering, operator algorithms, framework
+  registration, online tuning and model work after this real-runtime gate.
 - `docs/coverage_collector_map.md` is the pinned collector implementation map.
   Do not claim `closed_world=true` from ordinary Kineto/NVTX or from the first
   CUPTI-monitor development trace.

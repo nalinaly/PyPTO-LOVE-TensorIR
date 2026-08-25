@@ -2,14 +2,15 @@
 
 **Goal ID:** `PYPTO-NVIDIA-QWEN35-V1`
 
-**Execution status:** active. CP-0032 accepts the compiler-owned persistent
-ArtifactCache v1 at PyPTO `c087170...`, layered over the already accepted
-strict source-to-Cubin Artifact producer and private TensorIR `1dcb38c...`.
-CompileRequest, KernelBuildSpec, exact producer provenance, runtime-free Cubin
-ABI validation, bounded pinned-tileiras production and trusted-local atomic
-cache publication/readback are accepted. The next narrow transaction is the
-process/device/CUcontext-bound `NvidiaExecutable`; frontend-HIR lowering,
-operators, framework routes and model execution remain later. The exact
+**Execution status:** active. CP-0033 accepts the CPU/fake-driver
+`NvidiaExecutable` v1 lifecycle, prepared launch packet and product-isolation
+contract at PyPTO `2842a1c...`, layered over CP-0032 ArtifactCache and the
+strict private TensorIR/CUDA Tile SM120 Cubin producer. Real libcuda module
+load and non-default current-stream execution remain unaccepted because the
+exclusive GPU gate is red for the protected ZCode/gem5/SGLang lane. The next
+narrow transaction is that exact-product RTX 5090 smoke when the gate is green;
+frontend-HIR lowering, operators, framework routes and model execution remain
+later. The exact
 PyTorch-pinned Triton reference wheel stays audited/frozen and deliberately
 uninstalled as baseline-only infrastructure. The full objective and acceptance
 criteria remain unchanged. Never signal protected amdgpu-sim/zcode processes.

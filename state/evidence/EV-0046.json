@@ -1,0 +1,296 @@
+{
+  "id": "EV-0046",
+  "kind": "pypto_nvidia_executable_cpu_contract_acceptance",
+  "status": "accepted_cpu_fake_driver_lifecycle_and_product_isolation_real_sm120_launch_deferred",
+  "repositories": {
+    "pypto": {
+      "head": "2842a1c5433cb3cfe9e4fbc7664ebe0ad8a4b129",
+      "tree": "a44a601acaf577d8a5468ccd154682aa166a510c",
+      "feature_commit": "6819c4fc0b6956f7cbfb3115a4b2dab81be3c797",
+      "feature_parent": "c087170444270cbe00f83e1fbf127ddcf3e33926",
+      "test_only_followup": "2842a1c5433cb3cfe9e4fbc7664ebe0ad8a4b129",
+      "branch": "feature/nvidia-sm120",
+      "tracked_dirty": false,
+      "untracked_build_inputs": false
+    },
+    "tensor_ir": "1dcb38c20e53d07c97d3781cae538e33901bae30",
+    "cuda_tile": "af2417041cc939b87ef56d92cfdcf61737c5457e",
+    "llvm": "57109befac92811d2253109242ca6fa69c961fb2",
+    "msgpack_c": "919908742b4fdbc575e77fe1a8657e70c9573c44",
+    "libbacktrace": "6f8310e238fc3ce68f42f391cbe93fd156bb2c23",
+    "pypto_runtime": "93adc3865e65fd72655f571f2e4165cf5ac02616",
+    "pipeline_spec_git_blob": "46610e0415598d010981e4bd07d0660c592401ac"
+  },
+  "accepted_scope": {
+    "public_module": "pypto.runtime.nvidia",
+    "static_inputs": "validated Artifact plus CompileRequest",
+    "constructor_cuda_calls": 0,
+    "runtime_object_boundary": "pypto_nvidia_runtime_objects embedded in pypto_core",
+    "states": [
+      "Unloaded",
+      "Prewarming",
+      "Ready",
+      "Failed",
+      "Unloading"
+    ],
+    "prewarm_once_failure_latched": true,
+    "creator_pid_device_context_and_context_id_bound": true,
+    "fork_child_inherited_state_custom_deleter": true,
+    "fresh_child_allowed_only_before_parent_driver_initialize": true,
+    "driver_resolution": "lazy libcuda.so.1 plus cuGetProcAddress_v2 typed CUDA 13.3 legacy-stream APIs",
+    "context_bound_module_api": true,
+    "tensorir_runtime_reused": false,
+    "libcudart_loaded": false,
+    "forced_function_load": true,
+    "parameter_and_resource_validation": true,
+    "green_current_context_rejected_before_module_load": true,
+    "uuid_case_and_pci_numeric_normalization": true,
+    "workspace": "static zero bytes alignment one only",
+    "prepared_launch_packet": true,
+    "successful_launch_counted_host_allocations": 0,
+    "stream_retained": false,
+    "rejected_stream_handles": [
+      0,
+      1,
+      2
+    ],
+    "green_stream_rejected": true,
+    "packet_is_execution_lease": true,
+    "cuda_graph_module_lifetime_lease": true,
+    "real_cuda_graph_claim": false,
+    "tensor_dtype_or_device_address_alignment_claim": false,
+    "real_cuda_driver_or_launch_claim": false
+  },
+  "final_backend_on": {
+    "run_id": "pypto-20260825T003217Z-665799-0ee2f4",
+    "return_code": 0,
+    "fresh_build_directory": "builds/pypto-nvidia-executable-on-2842a1c-final",
+    "build_edges": 1902,
+    "native_tests_passed": 9,
+    "native_tests_failed": 0,
+    "executable_test_seconds": 3.38,
+    "log": "logs/pypto-nvidia-executable-on-2842a1c-final.log",
+    "log_sha256": "09d7683ca777d9a928c9bae65b658cb4704dd08ffa5acb84f5bd027c30844084",
+    "preflight_sha256": "6c7ff1becb0f50c1f796b31137c68efde6ddca73138da91e88318a05e896811a",
+    "process_metadata_sha256": "6663a2f58124900438f34fa91aadf09e2c352ce09cc73c538eb784018ca99810"
+  },
+  "final_backend_on_exact_dso_python": {
+    "run_id": "pypto-20260825T004608Z-681959-914b5d",
+    "return_code": 0,
+    "tests_passed": 142,
+    "tests_skipped": 1,
+    "python_flags": "-I -B",
+    "cuda_hidden": true,
+    "exact_product_dso_preloaded": true,
+    "compiled_pypto_revision": "2842a1c5433cb3cfe9e4fbc7664ebe0ad8a4b129",
+    "compiled_tensor_ir_revision": "1dcb38c20e53d07c97d3781cae538e33901bae30",
+    "log": "logs/pypto-nvidia-executable-on-2842a1c-final-python.log",
+    "log_sha256": "c70cd614f15cf73a5d3a49fc3922ea6919549e2ded4c02ff556a9c38cc4f9901",
+    "preflight_sha256": "a21ad78a969008ab2304503304ecdfb74190ae8d3775ad3c57b8d96144639257",
+    "process_metadata_sha256": "d945888252f5904adfa5a77498f632fdef610319d27c37181baa0a87392694cb"
+  },
+  "final_backend_off": {
+    "run_id": "pypto-20260825T004644Z-682185-20f972",
+    "return_code": 0,
+    "fresh_build_directory": "builds/pypto-nvidia-executable-off-2842a1c-final",
+    "build_edges": 312,
+    "native_tests_passed": 7,
+    "native_tests_failed": 0,
+    "direct_driver_stub_test": "passed including inherited-fork rejection",
+    "log": "logs/pypto-nvidia-executable-off-2842a1c-final.log",
+    "log_sha256": "2df33585ec2c10cc7ce17a332db04f7845283e4f6b7dccd7ee6ac69c4a83e5b2",
+    "preflight_sha256": "466db01507b4685f2041377a4ac1390d750b53cf228931fcfa657e7c8c984718",
+    "process_metadata_sha256": "d737c3d3e81a53f368bac99331191d9623fc7215eba5ea659141f676564e6e97"
+  },
+  "final_backend_off_exact_dso_python": {
+    "run_id": "pypto-20260825T005322Z-687647-40d110",
+    "return_code": 0,
+    "tests_passed": 134,
+    "tests_skipped": 9,
+    "python_flags": "-I -B",
+    "compiled": false,
+    "cuda_hidden": true,
+    "log": "logs/pypto-nvidia-executable-off-2842a1c-final-python.log",
+    "log_sha256": "8125bc3ad98d8e2b690c204eadd04514dd4a7efdd02253298107544b68476fb1",
+    "preflight_sha256": "b4b7ce46e17c34d421d357f5636b5700039c343c742d965412f5c1e8bdb0c5ea",
+    "process_metadata_sha256": "c263fabe9965932f188c58228a80b1d0b7ce72f13e2946ce86efc23077c2823e"
+  },
+  "product_and_compile_database_audit": {
+    "run_id": "pypto-20260825T005412Z-687855-2202a9",
+    "return_code": 0,
+    "on": {
+      "path": "builds/pypto-nvidia-executable-on-2842a1c-final/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+      "bytes": 779771200,
+      "sha256": "ef60b6a9749036eaff27786c5838b24fdd282b97b345315855c2994e2b3e4727",
+      "runtime_compile_rows": {
+        "executable": 1,
+        "driver": 1,
+        "stub": 0,
+        "binding": 1,
+        "native_executable_test": 1
+      }
+    },
+    "off": {
+      "path": "builds/pypto-nvidia-executable-off-2842a1c-final/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+      "bytes": 434006088,
+      "sha256": "9ffd22915e5c2c694660f06f3db0455ee9df560e828fd6b8c13c8c3f478cee7a",
+      "runtime_compile_rows": {
+        "executable": 1,
+        "driver": 0,
+        "stub_product_plus_test": 2,
+        "binding": 1,
+        "native_stub_test": 1
+      }
+    },
+    "rpath_or_runpath": false,
+    "needed": [
+      "libstdc++.so.6",
+      "libm.so.6",
+      "libgcc_s.so.1",
+      "libc.so.6",
+      "ld-linux-x86-64.so.2"
+    ],
+    "dynamic_definitions": [
+      "PYPTO_CORE_1",
+      "PyInit_pypto_core@@PYPTO_CORE_1"
+    ],
+    "undefined_or_exported_cuda_tensorir_executable_symbols": 0,
+    "log": "logs/pypto-nvidia-executable-2842a1c-dso-audit.log",
+    "log_sha256": "a95867fb857a570e8c131bb771a42d92e998f065c543989de81598b6633aaa43",
+    "preflight_sha256": "78686fe46daa3c0a680a43ae73ba138b847afe998e81ed2b469aeb8e5f2f8b3b",
+    "process_metadata_sha256": "913fc64b5e6e119bd2bf3c8d9d329389c5d1a4a095581b3ff658021617d9df61"
+  },
+  "source_provenance_matrix": {
+    "run_id": "pypto-20260825T005512Z-688042-fabbfb",
+    "return_code": 0,
+    "actual_clean": "passed",
+    "wrong_revision_rejections": [
+      "PyPTO",
+      "TensorIR",
+      "CUDA Tile",
+      "LLVM",
+      "msgpack-c",
+      "libbacktrace",
+      "PyPTO runtime"
+    ],
+    "source_change_rejections": [
+      "tracked msgpack-c",
+      "untracked libbacktrace",
+      "ignored PyPTO runtime",
+      "ignored PyPTO NVIDIA driver source"
+    ],
+    "synthetic_recovered_clean": "passed",
+    "log": "logs/pypto-nvidia-executable-2842a1c-provenance.log",
+    "log_sha256": "7ea62126642df01bf3f033e5ba03d6597b997f84500060fd30535963a77a2870",
+    "preflight_sha256": "7d654c203cc8e2456f27c021a19e22e64065b838300f47fd156b9084910d2748",
+    "process_metadata_sha256": "890e59933fb7284dd43f36c958d8e380484b7656d3fbd21fdbed4b70eabd1d12"
+  },
+  "static_validation": {
+    "run_id": "pypto-20260825T011705Z-696474-46130b",
+    "return_code": 0,
+    "scope": "Ruff/format and Pyright cover the four changed Python/stub files; repository scripts cover all tracked header, paired-doc/navigation and English-only inputs",
+    "ruff_changed_python_and_stubs": "4/4 passed",
+    "ruff_format_changed_python_and_stubs": "4/4 passed",
+    "pyright_changed_python_and_stubs": "0 errors, 0 warnings",
+    "headers": "1144/1144",
+    "en_zh_doc_pairs_and_navigation": "169/169",
+    "english_only": "1336/1336",
+    "git_diff_check": "passed",
+    "preflight_sha256": "d40dbe5d82beac172e349ac3b194a7052a7a72e94027ac1009888e61608f6ecd",
+    "process_metadata_sha256": "d462afaefbdacea4e3160445596cd783ff6425079e64cfe4be4da50b555a920d"
+  },
+  "root_control_regression": {
+    "run_id": "pypto-20260825T005636Z-689156-f26e74",
+    "return_code": 0,
+    "tests_passed": 198,
+    "subtests_passed": 98,
+    "cuda_hidden": true,
+    "log": "logs/pypto-nvidia-executable-2842a1c-root-control.log",
+    "log_sha256": "63323422893691fa0fd2bd836b216a44df3d36cddd831e51b6ace480f2357ae0",
+    "preflight_sha256": "7a694896ad2e8b74753e7b72934ea65bde9114b6a8a0fdf3dcf419ca6c976ee9",
+    "process_metadata_sha256": "9db4b34c7a1fde0a67c175f847254909da302082d2a9ca52e7a761e14f6b59e6"
+  },
+  "exclusive_gpu_gate": {
+    "return_code": 75,
+    "return_code_run_id": "pypto-20260825T012159Z-697792-d2d6c4",
+    "return_code_process_metadata_sha256": "10e34c7ab76984ca674d76f9c59087c97d435bdc8521932b2b1266a03e41beb9",
+    "mode": "gpu-benchmark",
+    "reason": "protected zcode/gem5/SGLang heavy workload is active; pause this project",
+    "nvidia_compute_pids": [],
+    "protected_nvidia_compute_pids": [],
+    "waiver_used": false,
+    "external_signals": 0,
+    "log": "logs/pypto-nvidia-executable-2842a1c-gpu-gate.json",
+    "log_sha256": "3bb7930b8693a9f74722fbacc8323b4cc1df0ecc76cf9361478cbe6af4b0a51a"
+  },
+  "diagnostic_nonacceptance": [
+    {
+      "run_id": "pypto-20260825T001919Z-647173-4bcdef",
+      "return_code": 8,
+      "cause": "test fixture evaluated shape.size and move(shape) in one constructor call, allowing moved-from rank",
+      "product_bug": false,
+      "log": "logs/pypto-nvidia-executable-on-6819c4f-dev01.log",
+      "log_sha256": "9d998eb2f0832d52571e874a4412bfb98df489f77b3ac80270966c8d8711ef9f"
+    },
+    {
+      "run_id": "pypto-20260825T002951Z-662744-bcfc76",
+      "return_code": 8,
+      "cause": "test allocation interposer passed under-aligned LLVM requests directly to posix_memalign",
+      "product_bug": false,
+      "log": "logs/pypto-nvidia-executable-on-a57c75b-targeted01.log",
+      "log_sha256": "e397afd6478564aabe9fe7a32d609fbc4e894a3738015d971098e5b216c98d6d"
+    },
+    {
+      "run_id": "pypto-20260825T003133Z-664429-8b6017",
+      "return_code": 0,
+      "result": "corrected targeted executable test passed 1/1 in 2.93 seconds",
+      "log": "logs/pypto-nvidia-executable-on-2842a1c-targeted02.log",
+      "log_sha256": "7a868ffde2d1e5ec310f10d1ab0947e25972d1918b96be5ec93f95fd3a68f0ad"
+    }
+  ],
+  "review_lineage": {
+    "subject_checkpoint_sha256": "410c8d7cab18a16d429e5b932a3126096f1226c2cf1a9d03547c2bd0fc80af4c",
+    "subject_evidence_pre_review_lineage_sha256": "96ee10bfb62b967f811a202e08d3e7255a4e31fdba49b27cd7aa383a66cf6124",
+    "reviews": [
+      {
+        "reviewer": "/root/cp33_evidence_audit",
+        "scope": "evidence integrity and closing conditions",
+        "decision": "GO",
+        "p0": 0,
+        "p1": 0,
+        "report": "logs/pypto-nvidia-executable-2842a1c-final-evidence-review.md",
+        "report_sha256": "3947c371396b9a1ececd174d309e3c9538ff7c3388c1a2d7cb99f4794b714755"
+      },
+      {
+        "reviewer": "/root/cp33_scope_audit",
+        "scope": "accepted claim boundary and explicit non-claims",
+        "decision": "GO",
+        "p0": 0,
+        "p1": 0,
+        "report": "logs/pypto-nvidia-executable-2842a1c-final-scope-review.md",
+        "report_sha256": "3dd4b33ed1c476a437ebc86a5cef3ffa25e0fb64ddb8d94dc9cb98af959ba0bf"
+      },
+      {
+        "reviewer": "/root/cp33_persistence_audit",
+        "scope": "root checkpoint consistency dependency direction and commit boundary",
+        "decision": "GO",
+        "p0": 0,
+        "p1": 0,
+        "report": "logs/pypto-nvidia-executable-2842a1c-final-persistence-review.md",
+        "report_sha256": "7b14d7e67b1ff32dad8103fee962477125d02be6ee604fbd81026828781e8a2c"
+      }
+    ]
+  },
+  "not_claimed": [
+    "real libcuda resolution or cuModule load on RTX 5090",
+    "real non-default current-stream CUDA launch or numerical correctness",
+    "tensor dtype or device-address alignment validation",
+    "nonzero workspace",
+    "CUDA Graph capture or replay",
+    "frontend HIR to TensorIR lowering",
+    "generic fused-loop or structured matmul execution",
+    "paged attention or GDN CUDA kernels",
+    "TorchInductor or SGLang registration",
+    "Qwen3.5 correctness strict coverage profiling or performance"
+  ]
+}

@@ -14,7 +14,8 @@
       ownership, extension points, dependency direction and forbidden edits.
 - [ ] Run unmodified SGLang 0.8B then minimal 9B baseline.
 - [x] Freeze plugin-free, selected-prefix 0.8B/9B baseline launch commands.
-- [ ] Freeze R0 evidence and advance `PLAN.md` to P1.
+- [ ] Freeze the remaining R0 baseline evidence without rolling back the
+      already active P2 compiler/runtime phase.
 - [ ] Replace the inherited external editable Triton with an in-workspace build
       of PyTorch's exact `5d6048aa...` pin.
 - [x] Commit bounded dependency materialization, exact wheel/native audit,
@@ -78,11 +79,16 @@
 - [x] Implement the compiler-owned persistent ArtifactCache with bounded
       trusted-local reads, exact cache-key/provenance validation, atomic
       no-replace publication and no CUDA/runtime/framework state.
-- [ ] Implement and independently gate a process/device/CUcontext-bound
+- [x] Implement and independently gate the CPU/fake-driver contract for a
+      process/device/CUcontext-bound
       `NvidiaExecutable` that loads only a validated Artifact, validates exact
       entry/resource/argument/grid/workspace ABI, prewarms outside graph
       capture, latches failure, owns graph leases, and accepts a non-null raw
       current stream only at launch.
+- [ ] Under a green exclusive `gpu-benchmark` gate, run the exact-product real
+      SM120 static/dynamic/scalar non-default-current-stream correctness and
+      explicit unload smoke; do not advance frontend lowering from fake-driver
+      evidence alone.
 - [x] Implement bounded canonical PyPTO Artifact v1 serialization with bytes,
       ABI, request/build-spec/producer digests and malformed-input rejection.
 - [x] Isolate the TensorIR/LLVM ABI bridge, hide every non-Python DSO export,

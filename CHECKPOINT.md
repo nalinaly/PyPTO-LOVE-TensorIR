@@ -1,11 +1,11 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0032`
+**Checkpoint:** `CP-0033`
 
-**Status:** R0 remains open. P1 now additionally accepts the compiler-owned
-persistent ArtifactCache v1 over the strict canonical-source TensorIR/CUDA Tile
-producer and immutable SM120 Cubin Artifact v1. PyPTO frontend-HIR lowering,
-CUDA executable/current-stream launch, operators, framework routes and model
+**Status:** R0 remains open. P2 now accepts the CPU/fake-driver
+NvidiaExecutable v1 lifecycle, prepared-launch and product-isolation contract
+over the accepted compiler Artifact/Cache. Real SM120 module load/current-stream
+execution, frontend-HIR lowering, operators, framework routes and model
 milestones remain unaccepted.
 
 ## Current truth
@@ -83,16 +83,16 @@ milestones remain unaccepted.
   CUDA implementation exists yet.
 - Paged attention now also has a reviewed standard-library numerical reference
   implementing BF16 storage, FP32-rounded causal GQA, append-before-attention,
-  prefill-to-decode cache continuity and inactive-output zeroing. It is not yet
-  cross-checked against a CUDA/PyTorch baseline.
+  prefill-to-decode cache continuity and inactive-output zeroing. Its CPU Torch
+  cross-check is accepted; CUDA and SGLang device comparison remain open.
 - GDN now has a reviewed unified core ABI v1 for decode and prefill/extend,
   freezing packed layout, no-bias causal conv, FP32 gate/delta semantics,
   paired BF16-conv/FP32-recurrent state, pitched envelope views and canonical
   metadata/output tails. State preparation/copy and CUDA remain open.
 - GDN now also has a reviewed standard-library paired-state numerical reference.
   One-shot prefill, checkpoint-segmented prefill and token decode match exactly
-  in output, BF16 conv state and FP32 recurrent state. It is not yet compared
-  against pinned Torch/SGLang.
+  in output, BF16 conv state and FP32 recurrent state. Its independent CPU Torch
+  cross-check is accepted; CUDA and pinned-SGLang device comparison remain open.
 - The framework plugin now binds actual imports to the locked CUDA Torch tree
   and clean SGLang checkout, rejects mixed linear-attention providers, and
   fails before launch while the real PyPTO Inductor dispatcher is unavailable.
@@ -354,6 +354,44 @@ milestones remain unaccepted.
   allocation, current-stream launch, CUDA Graph, frontend-HIR lowering,
   operators, TorchInductor, SGLang, Qwen correctness/coverage, profiling or
   performance.
+- PyPTO `2842a1c5433cb3cfe9e4fbc7664ebe0ad8a4b129` now owns a distinct
+  internal NVIDIA runtime object target and public `pypto.runtime.nvidia`
+  lifecycle API. Construction from Artifact plus CompileRequest is CUDA-free;
+  KernelBuildSpec is already transitively bound into Artifact.
+- The executable binds PID/device/regular CUcontext/context ID, uses a
+  once-only failure-latched state machine and creator-PID custom deletion, and
+  makes explicit unload terminal. Its private backend-ON boundary lazily opens
+  only `libcuda.so.1`, resolves typed CUDA 13.3 entrypoints through
+  `cuGetProcAddress_v2`, and uses context-bound `cuModule*` APIs without storing
+  a stream or reusing TensorIR runtime.
+- Prewarm validates explicit active Runtime/Driver API versions, current
+  non-green context, normalized UUID/PCI identity, SM120 resources, forced
+  function loading, exact parameter widths and block/register/shared-memory/
+  cluster/occupancy legality. Partial modules roll back and failures latch.
+- Prepared packets allocate and validate shape/stride/scalar slots plus checked
+  runtime grid before launch. A successful fake-driver Launch records zero host
+  allocations and rejects special default stream handles 0/1/2, foreign or
+  green stream contexts. Packet and CUDA Graph leases block module unload;
+  actual graph capture is not claimed.
+- Fresh backend-ON builds 1,902 edges and passes native 9/9 plus exact-DSO
+  Python 142 passed/1 skipped. DSO SHA-256 is
+  `ef60b6a9749036eaff27786c5838b24fdd282b97b345315855c2994e2b3e4727`.
+  Fresh backend-OFF builds 312 edges and passes native 7/7 plus Python 134
+  passed/9 skipped; its SHA-256 is
+  `9ffd22915e5c2c694660f06f3db0455ee9df560e828fd6b8c13c8c3f478cee7a`.
+- Both products retain only five standard dependencies, no RPATH/RUNPATH and
+  only the version/Python-init definitions. ON has exactly one driver source;
+  OFF has no driver row and directly tests its fail-closed stub. Neither has
+  exported or undefined CUDA/TensorIR/executable symbols.
+- Seven-source provenance and all negative revisions/drift pass. Ruff,
+  Pyright, 1,144 headers, 169 EN/ZH docs/nav, 1,336 English-only checks and
+  root 198 tests plus 98 subtests pass. Three independent reviews report no
+  P0/P1. EV-0046 binds the exact products/runs and diagnostic lineage.
+- The exclusive GPU gate returned 75 for the active protected ZCode/gem5/
+  SGLang lane, with zero NVIDIA compute PIDs. No waiver or external signal was
+  used. CP-0033 therefore does not accept real libcuda resolution, Cubin load,
+  current-stream execution, numerical correctness, CUDA Graph, frontend
+  lowering, operators, frameworks, Qwen coverage or performance.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact
@@ -393,13 +431,12 @@ milestones remain unaccepted.
 ## Resume action
 
 The goal is active, not complete. Freeze Triton as accepted reference-only
-infrastructure. Implement a process/device/CUcontext-bound `NvidiaExecutable`
-as a separate P2 transaction over an already validated Artifact. It must
-resolve and validate the exact entry, loader/resource/argument/grid/workspace
-ABI, latch prewarm failure, own explicit module unload and CUDA Graph leases,
-and accept a non-null raw current stream only at launch. Do not combine this
-first loader transaction with frontend lowering, framework registration,
-operator codegen, online autotuning or model execution.
+infrastructure. Wait for a green exclusive `gpu-benchmark` preflight, then run
+the exact-product RTX 5090 static/dynamic/scalar non-default-current-stream
+smoke described by CP-0033. Synchronize and compare outside PyPTO, retain
+packets through asynchronous completion, release graph leases and explicitly
+unload. Do not infer real CUDA behavior from the fake-driver gate or advance
+frontend lowering before this runtime evidence closes.
 Defer the separate exclusive Triton replacement/reference-smoke gate until the
 unmodified SGLang baseline needs it.
 Use explicit CPU-only coexistence only for non-benchmark build/test work; GPU
