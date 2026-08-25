@@ -1,0 +1,145 @@
+{
+  "id": "EV-0052",
+  "kind": "compile_free_pypto_hir_to_tensorir_emitter_v1",
+  "status": "accepted_compile_free_emission_artifact_integration_pending",
+  "pypto": {
+    "commit": "07ab9ea1feb5f5cc5557c7b7c67e7ad33d15974e",
+    "tree": "c02d8ccd03b40193c5547cb9c4956c29a5ed92af",
+    "parent": "206447cf8c68b9cff1b86e01f0b40bfd689cd7a7",
+    "branch": "feature/nvidia-sm120",
+    "clean": true,
+    "changed_files": [
+      "CMakeLists.txt",
+      "src/codegen/nvidia/tensor_ir_codegen.cpp",
+      "src/codegen/nvidia/tensor_ir_codegen.h",
+      "tests/ut/cpp/CMakeLists.txt",
+      "tests/ut/cpp/tensor_ir_codegen_test.cpp"
+    ],
+    "source_sha256": {
+      "header": "4c08400186071b07ebbea7b01e30b9837529adc6ced00bb4761eb361f8374309",
+      "implementation": "3aced888175b74c18db641cc776f560a1710b624dd148f4eaf1ea9339186eed1",
+      "native_test": "e0357652a8e79247b9e4f316864f9f514bbd9ed71bb66da437a8564535c299cb"
+    }
+  },
+  "contract": {
+    "api": "internal TensorIrModule EmitTensorIr(const ir::ProgramPtr&)",
+    "compile_free": true,
+    "vendor_header_dependency": false,
+    "public_python_api": false,
+    "metadata_schema_version": 1,
+    "canonical_entry_name": "pypto_vector_add",
+    "canonical_ssa_names": ["arg0", "arg1", "result0"],
+    "supported_hir": "one Opaque function; exact SeqStmts[AssignStmt(tensor.add), ReturnStmt(result)]",
+    "supported_dtypes": ["FP32", "BF16"],
+    "supported_shapes": "equal positive static contiguous ranks 1 through 32 with int64-safe dense strides",
+    "rank_one_explicit_strides": false,
+    "rank_ge_two_explicit_dense_strides": true,
+    "value_metadata_order": ["Input0", "Input1", "Result0"],
+    "cosmetic_hir_names_affect_source": false,
+    "locale_independent_integer_formatting": true
+  },
+  "canonical_golden_sources": {
+    "fp32_rank1_128": {
+      "bytes": 224,
+      "sha256": "c4066583da2e4e53ca23402885daee73ac77b2c41a7ba264b5c3b388f1215421"
+    },
+    "fp32_rank2_2x3": {
+      "bytes": 322,
+      "sha256": "4f411886f6dbc3ca7e0c092da894226f1ac4927764cfa56467c006516c640ab8"
+    },
+    "bf16_rank1_7": {
+      "bytes": 219,
+      "sha256": "6656113a18a7933799764417717c4a67751d354c01dfa7a51c46ca5d4d8c178b"
+    }
+  },
+  "negative_matrix": [
+    "null empty multi-function or malformed Program binding",
+    "runtime-bound hierarchical attributed or non-Opaque function",
+    "wrong parameter count direction identity kind or return count",
+    "non-Seq null extra reordered or side-effecting body statements",
+    "wrong op nested expression attrs kwargs or arity",
+    "broadcast dtype shape call assignment or result mismatch",
+    "dynamic non-INDEX zero negative rank-overflow or product-overflow shape",
+    "MemRef TensorView unsupported dtype or Var subclass",
+    "operand outside parameters repeated operand reused result or wrong return identity",
+    "cosmetic-name leakage locale-dependent bytes and unbounded diagnostics"
+  ],
+  "backend_off": {
+    "configure_run_id": "pypto-20260825T091116Z-943534-89b3d0",
+    "configure_preflight_sha256": "cd699c3b15f0eb1044197d2438349c5482b593c9b07ec47d15da54f82fa9bbd2",
+    "configure_process_sha256": "556e07c58ec0cffd37419c83acba62234078b40cca0b6679cc86a48ff08ab481",
+    "build_run_id": "pypto-20260825T091141Z-944924-ac0540",
+    "build_preflight_sha256": "9393ebe9d50d73ced47bb152514078fe71dea676885d7f16fa452bb3247f6ef8",
+    "build_process_sha256": "b2bc4eae2848b17ec697538557b766c4ba14f33d3d00d11bcf6bfda1ca597353",
+    "ctest_run_id": "pypto-20260825T091343Z-958355-5ef5a9",
+    "ctest": "1/1",
+    "ctest_junit_sha256": "31a02211c020e6d2c91339fdd2e6a6934b14a61ecf31f32782716ac7b0a1dff3",
+    "ctest_preflight_sha256": "37645df5a9cd9eb725728b3873ee9d06e062e0fb54cfd3d9614ef2451d1614bc",
+    "ctest_process_sha256": "8ddda9485445bea73542be9c8efe4bdc13722e0d678c88410edbe26e42991518",
+    "ninja_log_records": 263,
+    "ninja_log_unique_outputs": 263,
+    "ninja_log_sha256": "673a0c3efb3bd9d275630c5cc820b3628188aeb94f7fb47f23f3017806f59d23",
+    "compile_commands_sha256": "50230c7e5581a90e66824a9826257f355095091dafc2f42634dee0738d95e537",
+    "test_binary_sha256": "0c647a14342f6932560e31986797aa5f1618eab63c3cceb17883ce8220ac04dd"
+  },
+  "backend_on": {
+    "configure_run_id": "pypto-20260825T091116Z-943536-d963c3",
+    "configure_preflight_sha256": "fc85ecca938a95df84a54e08eaff08182ae3e9896674608e135c8c82c953794b",
+    "configure_process_sha256": "8d9e2fc914ff0f19df6eb8a908058be9b0d82f3ef779985a805c0bf3ccbfdb47",
+    "build_run_id": "pypto-20260825T091141Z-944928-dfa80f",
+    "build_preflight_sha256": "dad8b4e07e427c2e4f1297bd6008265a957865a00cdf95d842c519f4deb49bcd",
+    "build_process_sha256": "46f3e4f2eb40488aa3c4ae1aef4abea0c11e4435b9953cf6a407aef203666c12",
+    "ctest_run_id": "pypto-20260825T091556Z-961868-8ee40b",
+    "ctest": "1/1",
+    "ctest_junit_sha256": "721e76033edad6f6af1744fecbb3445304921025b7bd514131cf1d8fb6bb6583",
+    "ctest_preflight_sha256": "67553f2169d9dce05cae93e14b8f17ffde66ce59698ff81ab0540746ed3bfa27",
+    "ctest_process_sha256": "b31e07f2a86828f7429ba8bdcd47ad5f8fe20ae62469c2519b47108b2db1cb77",
+    "ninja_log_records": 2720,
+    "ninja_log_unique_outputs": 2720,
+    "ninja_log_sha256": "3787657356d2ba9896cbf9188424a8e1e2028cf6951ebfc242007b15c4a605f9",
+    "compile_commands_sha256": "30a6df1244ed3e6f1a44a73b36f52097e83c0537e4ecd9c939820b1013d78f3e",
+    "test_binary_sha256": "e5441706f7a1dbf56411eb56f3a672ecd1ed9c0d41a86a21adbe8e3b1165aebb"
+  },
+  "review_lineage": {
+    "reviewed_subjects": {
+      "checkpoint_sha256": "e2a3aacb315a2524f938da8f6eb55d4f8e7f43c7707dda8c034a42066d6f9d6a",
+      "evidence_pre_lineage_sha256": "22edf819e27ecbab10ef76234b2a14d240430060576e2125e360344b0acddbbf",
+      "bitlesson_0057_sha256": "97aa0156e9332965ae9590ed003b38344d815acc04a5da2e83a535a50f96633f"
+    },
+    "reviews": [
+      {
+        "reviewer": "/root/nvidia_frontend_emitter_review",
+        "decision": "GO_COMPILE_FREE_HIR_TENSORIR_EMITTER_V1",
+        "p0": 0,
+        "p1": 0,
+        "p2": 2,
+        "report_path": "logs/cp39-hir-tensorir-emitter-final-review.md",
+        "report_bytes": 12626,
+        "report_sha256": "112f1c76cf205026f7e798d944e102c9820c7a39b6fdc40b50df767ee06293b6"
+      },
+      {
+        "reviewer": "/root/cp36_persistence_review",
+        "decision": "GO_CP0039_COMPILE_FREE_SCOPE",
+        "p0": 0,
+        "p1": 0,
+        "p2": 0,
+        "report_path": "logs/cp39-final-persistence-review.md",
+        "report_bytes": 14788,
+        "report_sha256": "b826a0054d5510c4ba6305278ab87ed7e247d5eacd72a02f8c7e45b368a7a63a"
+      }
+    ]
+  },
+  "accepted_scope": [
+    "compile-free deterministic PyPTO HIR validation and TensorIR text emission",
+    "compiler-neutral static contiguous input and result metadata",
+    "backend-ON and backend-OFF build/link/test integration"
+  ],
+  "not_claimed": [
+    "public Python frontend compilation API",
+    "TensorIR parsing analysis or tile selection",
+    "KernelBuildSpec or Artifact construction",
+    "Cubin production or NvidiaExecutable launch",
+    "frontend numerical GPU correctness",
+    "pointwise chain reduction matmul operator framework model coverage or performance"
+  ]
+}

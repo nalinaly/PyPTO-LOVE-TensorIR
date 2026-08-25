@@ -3,17 +3,15 @@
 **Goal ID:** `PYPTO-NVIDIA-QWEN35-V1`
 
 **Execution status:** active. CP-0038 accepts the finalized minimal real-SM120
-`NvidiaExecutable` correctness v1 result. V4 run `080254` completed six
-static/dynamic/scalar lifetimes on the RTX 5090 using the caller's non-default
-current stream, matched Torch/reference bytes, preserved inputs/padding, and
-explicitly unloaded every module. The matching no-site finalizer replayed the
-CompileRequest, BuildSpecs, Artifacts, TargetInfo and Cubins and published final
-report SHA `727362d7...272a9`; all three Artifacts have no fallback. This is a
-narrow `pypto.tensorir` runtime milestone, not frontend-HIR, operator-family,
-Inductor, SGLang, CUDA Graph, model, coverage or performance acceptance. The
-next transaction is standalone frontend HIR -> private TensorIR -> CUDA Tile ->
-Artifact -> real SM120 execution for vector add, fused pointwise, row reduction
-and simple structured matmul.
+`NvidiaExecutable` correctness v1 result. CP-0039 then adds the first
+compile-free frontend link at PyPTO `07ab9ea`: one strict static contiguous
+FP32/BF16 `tensor.add` HIR form emits deterministic canonical TensorIR text and
+input/result metadata with compiler-owned names, locale-independent bytes and a
+broad fail-closed matrix. Clean backend-ON and backend-OFF builds/tests pass.
+This still does not prove TensorIR parsing, callable-ABI preparation, Artifact
+or frontend GPU execution. The next transaction is a compiler-owned preparation
+API that creates the final `KernelBuildSpec` and strict `Artifact` without
+placeholder identities, followed by real SM120 vector-add correctness.
 Frontend-HIR lowering, operators, framework routes and model execution remain
 later. The exact PyTorch-pinned Triton reference wheel stays audited/frozen and
 deliberately uninstalled as baseline-only infrastructure. The full objective

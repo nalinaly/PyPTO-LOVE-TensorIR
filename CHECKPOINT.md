@@ -1,11 +1,13 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0038`
+**Checkpoint:** `CP-0039`
 
 **Status:** R0 remains open. P2 accepts finalized minimal real-SM120
 `NvidiaExecutable` correctness v1: exact PyPTO/TensorIR/CUDA Tile Artifacts load,
 prewarm, execute on the caller's non-default stream, synchronize and unload on
-the RTX 5090 with no fallback. Frontend-HIR lowering, operator-family,
+the RTX 5090 with no fallback. It now also accepts compile-free deterministic
+static `tensor.add` HIR-to-TensorIR emission at PyPTO `07ab9ea`. TensorIR
+parsing/Artifact integration, frontend GPU correctness, operator-family,
 framework, model, CUDA Graph, coverage and performance milestones remain open.
 
 ## Current truth
@@ -499,6 +501,12 @@ framework, model, CUDA Graph, coverage and performance milestones remain open.
   TargetInfo, Artifacts and Cubins without fallback. Final report SHA is
   `727362d7879d58cbee07b11050b17ad149274e8087b0d1872b8f186a66a272a9`.
   This accepts minimal `NvidiaExecutable` runtime correctness only.
+- PyPTO `07ab9ea1feb5f5cc5557c7b7c67e7ad33d15974e` adds an internal,
+  vendor-independent HIR-to-TensorIR emitter for the exact static contiguous
+  FP32/BF16 `tensor.add` normal form. Compiler-owned names, `to_chars`, private
+  metadata construction and exhaustive fail-closed validation make source bytes
+  deterministic. Fresh OFF and ON builds both pass the unconditional native
+  test 1/1. No TensorIR parser/compiler or device is invoked by this gate.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact
@@ -540,9 +548,11 @@ framework, model, CUDA Graph, coverage and performance milestones remain open.
 The goal is active, not complete. Freeze Triton as accepted reference-only
 infrastructure. CP-0038 closes the minimal real-SM120 compiler/runtime launch
 gate. Preserve its v4 controls and final report; do not rerun it merely to
-change evidence. Next implement and verify standalone frontend HIR -> private
-TensorIR -> CUDA Tile -> Artifact -> `NvidiaExecutable` for vector add, fused
-pointwise, row reduction and simple structured matmul.
+change evidence. CP-0039 closes compile-free HIR emission. Next add the
+compiler-owned preparation/compile API that derives final specialization/ABI
+identities and returns `KernelBuildSpec` plus strict `Artifact`, then compile and
+execute the HIR-authored vector add on real SM120. Fused pointwise, row
+reduction and structured matmul follow.
 Defer the separate exclusive Triton replacement/reference-smoke gate until the
 unmodified SGLang baseline needs it.
 Use explicit CPU-only coexistence only for non-GPU build/test work. The single

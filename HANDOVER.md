@@ -41,7 +41,7 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
-- Read `state/checkpoints/CP-0038.md` and evidence `EV-0005` through `EV-0051`.
+- Read `state/checkpoints/CP-0039.md` and evidence `EV-0005` through `EV-0052`.
 - Root `5564008` plus manifest-only `7639d82` owns the current v4
   correctness-only SM120 smoke. The manifest SHA is `a079c4d2...98bf` and
   binds seven exact control blobs to the Layer-A commit/tree. Controller and
@@ -51,7 +51,7 @@ upstream checkouts and their optional/manual suites.
   `727362d7...272a9`; it joins six real non-default-stream lifetimes, references,
   sidecars, compiler inputs, TargetInfo, Artifacts and Cubins with no fallback.
   V3 run `073624` remains an unfinalized diagnostic and is never reused.
-- `projects/pypto` is clean at `206447c...`. Single-DSO, immutable SM120
+- `projects/pypto` is clean at `07ab9ea...`. Single-DSO, immutable SM120
   TargetInfo, Artifact v1, strict canonical-source production, ArtifactCache
   v1, the CPU/fake-driver NvidiaExecutable v1 and the parent runtime-observation
   value are accepted. The observation queries every live TargetInfo field via
@@ -62,12 +62,19 @@ upstream checkouts and their optional/manual suites.
   CUcontext lifetime, typed lazy Driver resolver, forced-function/resource ABI
   validation, allocation-free prepared launch packets and graph/module leases.
   TensorIR `1dcb38c...` remains private and owns the bounded assembler boundary.
-  Final ON/OFF products remain RPATH-free with five standard dependencies/two
+  The accepted CP-0038 runtime DSO remains the earlier exact PyPTO `206447c`
+  product; `07ab9ea` has not yet produced a new accepted DSO. Those ON/OFF
+  products remain RPATH-free with five standard dependencies/two
   definitions. ON SHA `15675c47...018c` passes native 9/9 plus exact-DSO
   Python 142/2; OFF SHA `32c2dea0...4109` passes native 7/7 plus Python
   135/9. EV-0049 binds their exact hashes, revisions, compile rows, JUnit and
   product audit. EV-0051 accepts only the minimal real-SM120 launch/numerical
   runtime gate; frontend and operator-family execution remain open.
+- CP-0039/EV-0052 accepts the internal compile-free HIR-to-TensorIR emitter at
+  `07ab9ea`: one exact static contiguous FP32/BF16 `tensor.add` form emits
+  deterministic canonical source and `Input0/Input1/Result0` metadata. Clean
+  ON/OFF native tests pass 1/1. It has no Python binding and has not parsed or
+  compiled TensorIR, produced an Artifact/Cubin, or executed frontend HIR.
 - TensorIR `1dcb38c...` is a local committed feature revision and is fully
   pinned by the PyPTO gitlink/build guards. It has not been published to the
   configured NVIDIA remote; push or otherwise materialize that commit before
@@ -144,10 +151,11 @@ upstream checkouts and their optional/manual suites.
   observation gate. Workers never query CUDA or carry streams/handles.
 - The v4 fixed-command payload/finalizer gate is closed by CP-0038. Preserve its
   controls and final report; do not rerun it merely to change evidence. Next
-  implement frontend HIR -> private TensorIR -> CUDA Tile -> Artifact ->
-  `NvidiaExecutable` correctness for vector add, fused pointwise, row reduction
-  and simple structured matmul. Operator algorithms, framework registration,
-  online tuning and model work remain after this frontend gate.
+  implement compiler-owned final ABI/specialization preparation and strict
+  Artifact compilation from the CP-0039 emitter, bind it under `pypto.compiler`,
+  and run HIR-authored vector add on SM120. Fused pointwise, row reduction and
+  structured matmul follow. Operator algorithms, framework registration, online
+  tuning and model work remain after this frontend gate.
 - `docs/coverage_collector_map.md` is the pinned collector implementation map.
   Do not claim `closed_world=true` from ordinary Kineto/NVTX or from the first
   CUPTI-monitor development trace.
