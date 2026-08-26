@@ -1978,7 +1978,7 @@ class StructureTest(unittest.TestCase):
             "tools/_pypto_nvidia_sm120_control_manifest.py": "bfa0e5c66ffad9435c0c31dc82ed7581d6bee608f1487e3fb2932cabbb2b597a",
             "state/contracts/pypto_nvidia_executable_sm120_v4.json": "a079c4d252aa346bb19a64a6ad3947867b76e7c778f7234125078fb16b2598bf",
             "state/contracts/pypto_fused_pointwise_sm120_v2.json": "d3b16079c811dd2fbe610ba264d81117e8c4a44886b74caaddb684df2d467036",
-            "state/contracts/pypto_row_reduction_sm120_v1.json": "bff40830d0f2bb07da17d9267aff253e5f138ad1ddbfce30f9ea09ac6033df15",
+            "state/contracts/pypto_row_reduction_sm120_v1.json": "6d9a9fbf507c6f3a2fe757e37c4574055136266f825c15c18d5396195b2b5b13",
             "state/evidence/EV-0060.json": "984f59acbdfc95ca96f57d97f38986bb581c0fbb59214a29976d519cf0215622",
             "state/evidence/EV-0061.json": "1cc93511c73e116a1be341a4dacab47a7dbae9270eb7875e99063f5c44b29bab",
         }
