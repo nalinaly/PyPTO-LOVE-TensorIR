@@ -71,6 +71,17 @@ upstream checkouts and their optional/manual suites.
   then FP32-to-BF16 `convert`. Do not accept the arbitrary-rank grid law before
   direct rank-1, rank-2 and dense row-major rank-3 normalized-layout producer
   fixtures pass.
+- Read-only structured-matmul reconnaissance selected a later private
+  `StructuredMatmulV4` contract: static dense BF16 rank-2 or equal-batch rank-3
+  `tensor.matmul`, BF16 physical result ABI, TensorIR BF16-by-BF16-to-FP32
+  matmul and an explicit nearest-even FP32-to-BF16 result conversion. TensorIR
+  has no transpose flags, so accepted `a_trans`/`b_trans` forms must emit
+  explicit rank-aware transpose views without changing physical argument
+  shapes or strides. Unit output modes disappear during normalization: decode
+  `M=1` uses a one-dimensional N tile, not a synthetic M-by-N schedule. Matmul
+  static grid metadata is output-driven and must select descriptor index 2.
+  Dynamic shapes, rank mixing, batch broadcast, direct BF16 TensorIR result,
+  `c_matrix_nz` and accumulator forms remain fail-closed until later contracts.
 - Read `state/checkpoints/CP-0044.md` and evidence `EV-0005` through `EV-0057`.
 - Root `5564008` plus manifest-only `7639d82` owns the current v4
   correctness-only SM120 smoke. The manifest SHA is `a079c4d2...98bf` and

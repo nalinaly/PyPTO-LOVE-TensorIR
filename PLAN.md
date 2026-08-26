@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `37`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `38`
 
 ## Current phase: P2 frontend-HIR SM120 execution; R0 baseline remains open
 
@@ -31,6 +31,11 @@ behavior yet. While paused, read-only reconnaissance fixed the next separate
 reduce-last/keep-dim, one flattened outer-row tile/grid (frozen by direct
 rank-1/rank-2/rank-3 producer fixtures), and explicit BF16-to-FP32
 reduction-to-BF16 conversion so BF16 sum does not silently accumulate in BF16.
+The following structured-matmul source map is also frozen: bounded static BF16
+rank-2/equal-batch-rank-3 HIR, TensorIR BF16-by-BF16-to-FP32 matmul, explicit
+FP32-to-BF16 output conversion, explicit transpose views, normalization-driven
+schedule arity (especially `M=1` decode), and output descriptor 2 as the static
+grid source. No matmul implementation or SM120 claim exists yet.
 
 Checkpoint `CP-0038` accepts the finalized minimal real-SM120
 `NvidiaExecutable` correctness v1 report from run `080254`, SHA
