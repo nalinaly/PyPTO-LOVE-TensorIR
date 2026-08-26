@@ -270,7 +270,9 @@ upstream checkouts and their optional/manual suites.
   and no further Triton feature work belongs on the candidate path.
 - Protected CPU-only coexistence is explicit. It does not apply to GPU
   benchmarks, hides CUDA from the child, and can signal only a recorded
-  workspace group. Run `pypto-20260824T075816Z-91897-64e1ea` passed live beside
+  workspace group. Current policy v2 uses a 22 GiB launch/resume floor and a
+  16 GiB owned-run pause floor. Run `pypto-20260824T075816Z-91897-64e1ea`
+  passed under the earlier 24 GiB policy v1 beside
   seven protected heavy processes with no protected NVIDIA compute PID or
   pause/abort. This accepts the control path only; TargetInfo still needed no
   waiver, and no GPU/model/performance claim follows.

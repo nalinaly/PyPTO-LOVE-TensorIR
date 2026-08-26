@@ -10,8 +10,10 @@ reproducible acceptance recipe.
 The single-DSO prerequisite is committed at `e463bce...`; all TargetInfo blocks
 and the lineage recovery audit pass. The user explicitly authorized CPU-only
 coexistence with the protected zcode/gem5 lane. This does not waive NVIDIA,
-environment, or DSO gates. CPU-only coexistence uses a 24 GiB launch floor and
-a 16 GiB owned-run pause floor; ordinary heavy work retains 32 GiB.
+environment, or DSO gates. CPU-only coexistence policy v2 uses a 22 GiB launch
+and resume floor and a 16 GiB owned-run pause floor; ordinary heavy work retains
+32 GiB. The accepted EV-0035 run used the earlier 24 GiB policy v1 and remains
+immutable historical evidence.
 
 Every build/test block starts through `tools/run_isolated.py --mode heavy
 --allow-protected-cpu-only-coexistence`, performs a second action-boundary

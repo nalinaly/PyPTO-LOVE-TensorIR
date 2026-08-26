@@ -189,11 +189,12 @@
 ## Protected coexistence
 
 The user explicitly authorized non-benchmark CPU-only coexistence with a
-protected zcode/gem5 lane. Use only the explicit heavy coexistence flag: 24 GiB
-launch floor, living-runner 16 GiB pause floor, action-boundary and periodic
-NVIDIA PID audit, and verified signals only to this workspace's recorded PGID.
+protected zcode/gem5 lane. Use only the explicit heavy coexistence policy v2:
+22 GiB launch/resume floor, living-runner 16 GiB pause floor, action-boundary
+and periodic NVIDIA PID audit, and verified signals only to this workspace's
+recorded PGID.
 GPU benchmarks never coexist. External signals and cleanup remain forbidden.
-The isolated root control suite has now passed live beside seven protected
-heavy processes with no protected NVIDIA compute PID, no pause/abort and no
-external signal; EV-0035 binds that run. This is control evidence only, not a
-GPU/compiler/model/performance result.
+The isolated root control suite passed live under the earlier 24 GiB policy v1
+beside seven protected heavy processes with no protected NVIDIA compute PID,
+no pause/abort and no external signal; EV-0035 binds that run. This is control
+evidence only, not a GPU/compiler/model/performance result.

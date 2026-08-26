@@ -633,13 +633,15 @@ remains open.
 - Prior reconnaissance did not complete a TensorIR SM120 runtime launch. Static
   target support is not runtime acceptance.
 - The user explicitly authorized non-benchmark CPU-only coexistence with a
-  protected lane. The new policy is opt-in, retains NVIDIA/environment checks,
-  uses a 24 GiB launch floor and 16 GiB owned-run pause floor, and never signals
-  external PIDs. TargetInfo itself used green windows and no waiver. A separate
-  live control run `pypto-20260824T075816Z-91897-64e1ea` passed the full root
-  suite beside seven protected heavy processes with waiver=true, no protected
-  NVIDIA compute PID, no pause/abort and no external signal. EV-0035 binds the
-  log/preflight/process hashes; this is not GPU or performance evidence.
+  protected lane. Current policy v2 is opt-in, retains NVIDIA/environment
+  checks, uses a 22 GiB launch/resume floor and 16 GiB owned-run pause floor,
+  and never signals external PIDs. TargetInfo itself used green windows and no
+  waiver. A separate live control run
+  `pypto-20260824T075816Z-91897-64e1ea` passed the full root suite under the
+  earlier 24 GiB policy v1 beside seven protected heavy processes with
+  waiver=true, no protected NVIDIA compute PID, no pause/abort and no external
+  signal. EV-0035 binds the log/preflight/process hashes; this is not GPU or
+  performance evidence.
 
 ## Resume action
 

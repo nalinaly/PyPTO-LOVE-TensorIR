@@ -18,9 +18,9 @@ reference smoke, never PyPTO strict-coverage evidence.
   external `libtriton.so`. The environment must continue to fail closed.
 - The single-DSO prerequisite is accepted. Execute this runbook only after
   TargetInfo acceptance and a fresh explicit CPU-only coexistence heavy
-  preflight. This mode uses the user-authorized 24 GiB launch floor, a 16 GiB
-  owned-run pause floor, and retains the NVIDIA-isolation gates. It is never
-  valid for benchmark evidence.
+  preflight. Current coexistence policy v2 uses the user-authorized 22 GiB
+  launch/resume floor, a 16 GiB owned-run pause floor, and retains the
+  NVIDIA-isolation gates. It is never valid for benchmark evidence.
 
 Never build inside `upstream/triton`. Never reuse `~/.triton`, the original
 `triton-dev` environment, or TensorIR's LLVM.
