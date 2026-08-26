@@ -14,6 +14,11 @@
       ownership, extension points, dependency direction and forbidden edits.
 - [ ] Run unmodified SGLang 0.8B then minimal 9B baseline.
 - [x] Freeze plugin-free, selected-prefix 0.8B/9B baseline launch commands.
+- [ ] Capture the per-kernel/per-operator baseline profile of the unmodified
+      SGLang default kernel stack on the fixed 9B workload (D-0017 lane 1).
+- [ ] Produce the matching per-kernel candidate profile and the final
+      PyPTO-versus-SGLang-default breakdown table with per-class deltas,
+      strict-coverage proof and hot-kernel evidence (D-0017 lane 2).
 - [ ] Freeze the remaining R0 baseline evidence without rolling back the
       already active P2 compiler/runtime phase.
 - [ ] Replace the inherited external editable Triton with an in-workspace build

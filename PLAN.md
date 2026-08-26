@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `44`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `45`
 
 ## Current phase: P2 frontend-HIR SM120 execution; R0 baseline remains open
 
@@ -52,6 +52,18 @@ grid source. Source-only implementation now ends at PyPTO `d755117` on top of re
 RowReductionV3. Two independent reviews are GO with P0/P1/P2 zero; build,
 TensorIR/CUDA Tile production, Cubin, runtime and performance gates remain
 pending.
+
+The user reconfirmed the final objective on 2026-08-26: the end state is
+Qwen3.5-9B text generation executing with 100% PyPTO model-forward compute
+kernels — handwritten `pypto-kernels` operators plus TorchInductor auto-fused
+regions lowered through the PyPTO CUDA backend — benchmarked against the
+unmodified SGLang default optimized kernel stack on the same RTX 5090 Laptop
+GPU, same model, same workload schedule and batching. Acceptance requires both
+the end-to-end comparison and a per-kernel/per-operator breakdown table
+(kernel/provider, call counts, GPU time, mean, candidate-versus-baseline
+delta per operator class: attention prefill/decode, GDN prefill/decode, GEMM,
+pointwise/reduction/indexing fusion), produced from identical profiling
+methodology on both lanes. D-0017 freezes this contract.
 
 Checkpoint `CP-0038` accepts the finalized minimal real-SM120
 `NvidiaExecutable` correctness v1 report from run `080254`, SHA
@@ -404,7 +416,8 @@ TorchInductor, SGLang or Qwen execution.
 - P7: zero-diff SGLang plugin and Qwen3.5-0.8B strict coverage.
 - P8: 0.8B stabilization and full profiling.
 - P9: Qwen3.5-9B correctness, strict coverage, and SM120 tuning.
-- P10: final E2E benchmarks, coverage proof, and performance report.
+- P10: final E2E benchmarks, coverage proof, per-kernel PyPTO-versus-SGLang-
+  default breakdown, and the final performance report.
 
 Every milestone is correctness-first, then performance, then evidence and a
 checkpoint commit. A green smoke test is never promoted to a later acceptance

@@ -176,3 +176,27 @@ That layer must retain the 16 GiB owned-run pause floor, CUDA-hidden child,
 NVIDIA/action-boundary/periodic audits, disk and timeout controls, and verified
 workspace-owned PGID signalling. It never applies to GPU-smoke or performance
 runs and never authorizes signalling an amdgpu-sim/zcode process.
+
+## D-0017: Final acceptance is a per-kernel PyPTO-versus-SGLang-default comparison
+
+The user reconfirmed on 2026-08-26 that the end state is Qwen3.5-9B running
+with 100% PyPTO model-forward compute kernels — handwritten `pypto-kernels`
+operators and TorchInductor auto-fused regions lowered through the PyPTO CUDA
+backend — and that final performance acceptance is comparative, not absolute.
+
+The baseline lane is the unmodified SGLang default optimized kernel stack
+under the pinned SGLang/PyTorch versions on the same RTX 5090 Laptop GPU.
+The candidate lane is the strict PyPTO run with `coverage=100%` and
+`fallback_compute_kernels=0`. Both lanes use the same model, workload
+schedule, batching, lengths and profiling methodology.
+
+The required deliverables are: (1) end-to-end throughput/latency for both
+lanes; (2) a per-kernel/per-operator breakdown table for both lanes covering
+at least attention prefill/decode, GDN prefill/decode, GEMM/structured matmul,
+and pointwise/reduction/indexing fusion classes, with kernel/provider, call
+counts, total and mean GPU time, and candidate-versus-baseline deltas per
+class; (3) the strict-coverage proof for the candidate lane; (4) hot-kernel
+profiling evidence (Nsight or equivalent) for the largest regressions or wins.
+E2E numbers alone do not satisfy this contract, and the breakdown must come
+from identical measurement methodology on both lanes rather than vendor
+marketing or unrelated configurations.

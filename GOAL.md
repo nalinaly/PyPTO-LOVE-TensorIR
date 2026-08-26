@@ -53,3 +53,9 @@ PyPTO model-forward compute coverage.
 - No system/WSL restart without explicit user approval.
 - `/home/zhaosiying/amdgpu-sim` and `/home/zhaosiying/zcode-lane` are read-only
   external scopes. Never modify their files or signal their processes.
+- Final performance acceptance (D-0017) compares the 100% PyPTO run against
+  the unmodified SGLang default optimized kernel stack on the same GPU, model,
+  workload and methodology, delivering both end-to-end numbers and a
+  per-kernel/per-operator breakdown table (attention prefill/decode, GDN
+  prefill/decode, GEMM, fused pointwise/reduction/indexing), with the strict
+  coverage proof and hot-kernel profiling for the largest deltas.
