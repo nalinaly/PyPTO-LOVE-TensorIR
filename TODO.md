@@ -206,6 +206,12 @@ existing executable control continues to enforce 24 GiB.
 
 ## Current resume point
 
+- [ ] Read `docs/NEXT_AGENT_ZERO_CONTEXT_HANDOVER.md`; the user paused the
+      current run and requested a zero-context transfer.
+- [ ] Revalidate the six untracked CPU-v2 draft files from scratch before any
+      commit or live use; latest test/review results are stale after safety
+      edits.
+
 - [x] Commit hardened RowReductionV3 SM120 controls (`23efafa`).
 - [x] Publish the separate canonical manifest (`34ee759`).
 - [x] Regenerate and validate two CUDA-hidden anchor runs; focused tests pass

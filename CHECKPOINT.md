@@ -663,6 +663,11 @@ remains open.
 
 ## Resume action
 
+The user explicitly paused the current run on 2026-08-26. The authoritative
+zero-context resume record is `docs/NEXT_AGENT_ZERO_CONTEXT_HANDOVER.md`.
+Do not resume from an older CP summary without first reconciling the six
+untracked CPU-v2 draft files. Their latest edits are not accepted evidence.
+
 The goal is active, not complete. Freeze Triton as accepted reference-only
 infrastructure. CP-0038 closes the minimal real-SM120 compiler/runtime launch
 gate. Preserve its v4 controls and final report; do not rerun it merely to

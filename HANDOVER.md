@@ -1,5 +1,17 @@
 # HANDOVER
 
+## 2026-08-26 explicit pause handoff
+
+The user requested an immediate pause and zero-context transfer. Read
+`docs/NEXT_AGENT_ZERO_CONTEXT_HANDOVER.md` before doing anything. The
+pre-handover implementation base is `290dffc`; inspect the later docs-only
+handover commit as current HEAD. PyPTO is clean at `62eb882`. RowReduction controls/manifest are
+committed and focused-green, but the clean full CPU suite and real GPU result
+remain pending. Exactly six untracked CPU-coexistence-v2 draft files exist;
+their latest start-gate/termination edits are unverified and must not be
+committed or used live until fresh tests and independent reviews pass. No
+external process is owned by this project, and none may be signalled.
+
 This workspace is implementing the approved plan with three independent
 projects: the PyPTO compiler, a FlashInfer-like standalone operator library, and
 framework compatibility plugins. PyTorch and SGLang themselves are immutable
