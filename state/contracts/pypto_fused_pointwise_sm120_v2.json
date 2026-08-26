@@ -1,0 +1,45 @@
+{
+  "base_v1_manifest_sha256": "ce20dd3ac6796bee16235913b8b296ae8c4781167c35f08de7c19ac7977a6896",
+  "files": [
+    {
+      "bytes": 25051,
+      "mode": 420,
+      "path": "benchmarks/operators/pypto_fused_pointwise_sm120_v2.py",
+      "sha256": "8eaed4a6280187ea8fbf99bebc1e9674748b7f66e40031ab3fa2147b9191b103"
+    },
+    {
+      "bytes": 3784,
+      "mode": 420,
+      "path": "tools/_pypto_fused_pointwise_sm120_contract_v2.py",
+      "sha256": "9825558b443aa5337882842b9214ed297ad777f77d8a766986960d8dea4c06de"
+    },
+    {
+      "bytes": 11708,
+      "mode": 420,
+      "path": "tools/preflight_gpu_smoke_v2.py",
+      "sha256": "0dd3dc96fbb170ddf4967fed4b7cf6f5a4b438c1499a5f5535a35cff56a59027"
+    },
+    {
+      "bytes": 10807,
+      "mode": 420,
+      "path": "tools/_pypto_fused_pointwise_sm120_control_manifest_v2.py",
+      "sha256": "6c2737daf653ac237a2da0081ad05b9d3e14593e2862582e74898f92c7c94ebf"
+    },
+    {
+      "bytes": 23094,
+      "mode": 420,
+      "path": "tools/run_pypto_fused_pointwise_sm120_v2_isolated.py",
+      "sha256": "be93fdac4ac5b5c097ac3899d4b90956afce5af113c06df70eb65f94c10c44c0"
+    },
+    {
+      "bytes": 55922,
+      "mode": 420,
+      "path": "tools/finalize_pypto_fused_pointwise_sm120_v2.py",
+      "sha256": "f1007836af671a47a75133e0b215f0b2abf2e84060af028295928d4e24d745a8"
+    }
+  ],
+  "implementation_commit": "6cf5f958bf52f8be0b78fc96e39f16f8bf953093",
+  "implementation_tree": "75b5e04223013323783c63a137795d5ab06041bb",
+  "kind": "pypto-fused-pointwise-sm120-controls-v2",
+  "schema_version": 2
+}
