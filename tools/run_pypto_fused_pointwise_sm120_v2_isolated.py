@@ -307,6 +307,26 @@ def _gate_and_release(
     return True, None
 
 
+def enforce_no_surviving_owned_processes(
+    process: subprocess.Popen[bytes], metadata: dict[str, object]
+) -> bool:
+    """Return true only when the verified process group has no survivor."""
+
+    try:
+        survivors = stop_run.owned_group_members(metadata)
+    except (OSError, RuntimeError) as error:
+        metadata["status"] = "group-ownership-ambiguous"
+        metadata["group_exit_error"] = f"{type(error).__name__}: {error}"
+        return False
+    if not survivors:
+        return True
+    metadata["surviving_group_pids"] = survivors
+    metadata["surviving_group_cleanup_code"] = isolation.terminate_owned_process(
+        process, metadata, wait_seconds=5
+    )
+    return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--allow-protected-zero-nvidia-gpu-smoke", action="store_true")
@@ -491,14 +511,7 @@ def main() -> int:
                     metadata["gpu_smoke_abort"] = post_violation
                     parent_return_code = 75
             if process.poll() is not None and metadata.get("status") != "paused":
-                survivors = stop_run.owned_group_members(metadata)
-                if survivors:
-                    metadata["surviving_group_pids"] = survivors
-                    metadata["surviving_group_cleanup_code"] = (
-                        isolation.terminate_owned_process(
-                            process, metadata, wait_seconds=5
-                        )
-                    )
+                if not enforce_no_surviving_owned_processes(process, metadata):
                     parent_return_code = 75
         except (KeyboardInterrupt, isolation.RunInterrupted) as error:
             if process is not None:

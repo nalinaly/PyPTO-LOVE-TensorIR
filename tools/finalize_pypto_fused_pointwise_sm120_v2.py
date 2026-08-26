@@ -142,6 +142,35 @@ def expected_floor(requested: bool) -> int:
     )
 
 
+def validate_process_inventory(
+    value: object, description: str
+) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        raise FinalizeV2Error(f"{description} is not a list")
+    output: list[dict[str, object]] = []
+    expected = {"pid", "ppid", "start_ticks", "rss_kib", "command", "cwd"}
+    for index, record in enumerate(value):
+        record = require_exact_keys(record, expected, f"{description}[{index}]")
+        require_int(record.get("pid"), f"{description}[{index}].pid", positive=True)
+        require_int(
+            record.get("start_ticks"),
+            f"{description}[{index}].start_ticks",
+            positive=True,
+        )
+        for name in ("ppid", "rss_kib"):
+            field = require_int(record.get(name), f"{description}[{index}].{name}")
+            if field < 0:
+                raise FinalizeV2Error(f"{description}[{index}].{name} is negative")
+        if (
+            not isinstance(record.get("command"), str)
+            or not record.get("command")
+            or not isinstance(record.get("cwd"), str)
+        ):
+            raise FinalizeV2Error(f"{description}[{index}] text fields differ")
+        output.append(record)
+    return output
+
+
 def validate_preflight(value: dict[str, object], *, description: str) -> bool:
     required = {
         "coexistence_policy_version",
@@ -178,9 +207,30 @@ def validate_preflight(value: dict[str, object], *, description: str) -> bool:
         raise FinalizeV2Error(f"{description} authorization is malformed")
     floor = expected_floor(bool(requested))
     protected = value.get("protected_processes")
+    protected_inventory = validate_process_inventory(
+        protected, f"{description} protected inventory"
+    )
+    protected_heavy = validate_process_inventory(
+        value.get("protected_heavy_processes"),
+        f"{description} protected-heavy inventory",
+    )
+    validate_process_inventory(
+        value.get("workspace_processes"), f"{description} workspace inventory"
+    )
+    protected_identities = {
+        (record["pid"], record["start_ticks"]) for record in protected_inventory
+    }
+    if any(
+        (record["pid"], record["start_ticks"]) not in protected_identities
+        for record in protected_heavy
+    ):
+        raise FinalizeV2Error(
+            f"{description} protected-heavy inventory is not a subset"
+        )
     expected_waiver = bool(protected) if requested is True else False
     if (
         value.get("policy_version") != 3
+        or value.get("coexistence_policy_version") != 1
         or value.get("gpu_smoke_policy_version") != 2
         or value.get("mode") != "gpu-smoke"
         or value.get("workspace") != str(ROOT)
@@ -193,6 +243,9 @@ def validate_preflight(value: dict[str, object], *, description: str) -> bool:
         or value.get("protected_nvidia_runtime_mapping_pids") != []
         or value.get("unreadable_protected_maps") != []
         or value.get("protected_gpu_smoke_waiver_applied") is not expected_waiver
+        or value.get("protected_cpu_only_coexistence_requested") is not False
+        or value.get("protected_activity_waiver_applied") is not False
+        or (requested is False and protected_heavy)
         or value.get("memory_floor_kib") != floor
         or require_int(
             value.get("mem_available_kib"), f"{description} MemAvailable", positive=True
@@ -202,6 +255,8 @@ def validate_preflight(value: dict[str, object], *, description: str) -> bool:
         != contract.GPU_FREE_MEMORY_FLOOR_MIB
         or value.get("gpu_smoke_admission_policy")
         != preflight_adapter.policy_document()
+        or value.get("policy")
+        != "observation-only; no external process is ever signalled"
     ):
         raise FinalizeV2Error(f"{description} v2 admission differs")
     gpu = require_exact_keys(
@@ -314,6 +369,18 @@ def validate_child_gate(
         or gpu.get("driver") != contract.EXPECTED_DRIVER_RELEASE
     ):
         raise FinalizeV2Error("child pre-CUDA GPU identity differs")
+    if gate.get("free_memory_mib") != int(str(gpu["memory_mib"])) - int(
+        str(gpu["used_mib"])
+    ):
+        raise FinalizeV2Error("child pre-CUDA free-memory join differs")
+    protected_heavy = gate.get("protected_heavy_pids")
+    if not isinstance(protected_heavy, list) or any(
+        isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0
+        for pid in protected_heavy
+    ):
+        raise FinalizeV2Error("child protected-heavy PID inventory differs")
+    if not requested and protected_heavy:
+        raise FinalizeV2Error("exclusive child gate contains a protected heavy PID")
 
 
 def validate_audit(
@@ -328,6 +395,116 @@ def validate_audit(
         )
     except base.FinalizeError as error:
         raise FinalizeV2Error(str(error)) from error
+
+
+def validate_process_policy(
+    process: dict[str, object],
+    *,
+    run_id: str,
+    requested: bool,
+    preflight: dict[str, object],
+) -> None:
+    environment_lock = require_exact_keys(
+        process.get("environment_access_lock"),
+        {"path", "mode", "device", "inode"},
+        "environment access lock",
+    )
+    if (
+        process.get("environment") != str(ROOT / "envs/pypto-nvidia")
+        or process.get("framework_profile") != "pypto"
+        or process.get("framework_launch") is not False
+        or environment_lock.get("path")
+        != str(ROOT / "runs/environment-pypto-nvidia.lock")
+        or environment_lock.get("mode") != "shared"
+    ):
+        raise FinalizeV2Error("process environment/shared-lock/framework differs")
+    require_int(
+        environment_lock.get("device"), "environment lock device", positive=True
+    )
+    require_int(environment_lock.get("inode"), "environment lock inode", positive=True)
+    for name in ("pid", "pgid", "start_ticks"):
+        require_int(process.get(name), f"process {name}", positive=True)
+    for name in ("started_at", "finished_at"):
+        value = process.get(name)
+        if (
+            not isinstance(value, str)
+            or re.fullmatch(r"[0-9]{8}T[0-9]{6}Z", value) is None
+        ):
+            raise FinalizeV2Error(f"process {name} is malformed")
+
+    floor = expected_floor(requested)
+    expected_waiver = bool(preflight.get("protected_processes")) if requested else False
+    gpu_smoke = require_exact_keys(
+        process.get("gpu_smoke"),
+        {
+            "policy_version",
+            "requested",
+            "waiver_applied",
+            "authorization",
+            "start_barrier_path",
+            "gate_path",
+            "memory_floor_kib",
+            "gpu_free_memory_floor_mib",
+            "protected_heavy_processes",
+            "protected_nvidia_compute_pids",
+            "protected_nvidia_runtime_mapping_pids",
+            "unreadable_protected_maps",
+            "gate_sha256",
+            "start_barrier_sha256",
+            "release_authorized_at",
+        },
+        "process GPU-smoke policy",
+    )
+    if (
+        gpu_smoke.get("policy_version") != 2
+        or gpu_smoke.get("requested") is not requested
+        or gpu_smoke.get("waiver_applied") is not expected_waiver
+        or gpu_smoke.get("authorization")
+        != (contract.GPU_SMOKE_AUTHORIZATION if requested else None)
+        or gpu_smoke.get("start_barrier_path")
+        != str(ROOT / "runs" / run_id / "gpu-smoke-start-barrier.json")
+        or gpu_smoke.get("gate_path")
+        != str(ROOT / "runs" / run_id / "gpu-smoke-gate.json")
+        or gpu_smoke.get("memory_floor_kib") != floor
+        or gpu_smoke.get("gpu_free_memory_floor_mib")
+        != contract.GPU_FREE_MEMORY_FLOOR_MIB
+        or gpu_smoke.get("protected_heavy_processes")
+        != preflight.get("protected_heavy_processes")
+        or gpu_smoke.get("protected_nvidia_compute_pids") != []
+        or gpu_smoke.get("protected_nvidia_runtime_mapping_pids") != []
+        or gpu_smoke.get("unreadable_protected_maps") != []
+        or not isinstance(gpu_smoke.get("release_authorized_at"), str)
+        or re.fullmatch(
+            r"[0-9]{8}T[0-9]{6}Z", str(gpu_smoke.get("release_authorized_at"))
+        )
+        is None
+    ):
+        raise FinalizeV2Error("process GPU-smoke fields differ")
+    require_sha(gpu_smoke.get("gate_sha256"), "process gate SHA")
+    require_sha(gpu_smoke.get("start_barrier_sha256"), "process barrier SHA")
+
+    coexistence = require_exact_keys(
+        process.get("coexistence"),
+        {
+            "policy_version",
+            "requested",
+            "waiver_applied",
+            "memory_floor_kib",
+            "protected_heavy_processes",
+            "protected_nvidia_compute_pids",
+        },
+        "process CPU-only coexistence policy",
+    )
+    if (
+        coexistence.get("policy_version") != 1
+        or coexistence.get("requested") is not False
+        or coexistence.get("waiver_applied") is not False
+        or coexistence.get("memory_floor_kib") != floor
+        or coexistence.get("protected_heavy_processes")
+        != preflight.get("protected_heavy_processes")
+        or coexistence.get("protected_nvidia_compute_pids") != []
+    ):
+        raise FinalizeV2Error("process CPU-only coexistence fields differ")
 
 
 def expected_replay_names() -> list[str]:
@@ -355,6 +532,25 @@ def expected_replay_names() -> list[str]:
                 ]
             )
     return names
+
+
+def validate_execution_outputs(
+    execution: dict[str, object],
+    reference_raw: bytes,
+    actual_raw: bytes,
+    reconstructed_metrics: dict[str, object],
+) -> None:
+    """Join raw outputs and compare only independently reconstructed metrics."""
+
+    if sha256_bytes(reference_raw) != execution.get(
+        "expected_logical_bytes_sha256"
+    ) or sha256_bytes(actual_raw) != execution.get("actual_logical_bytes_sha256"):
+        raise FinalizeV2Error("raw output/execution hash join differs")
+    comparison = execution.get("comparison")
+    if not isinstance(comparison, dict) or any(
+        comparison.get(name) != value for name, value in reconstructed_metrics.items()
+    ):
+        raise FinalizeV2Error("recorded/reconstructed numerical metrics differ")
 
 
 def validate_replay(
@@ -433,8 +629,9 @@ def audit_numerical_replay(
             torch_cpu = base._compare_words(case, reference, cpu)
             candidate_torch = base._compare_words(case, actual, reference)
             candidate_cpu = base._compare_words(case, actual, cpu)
-            if execution["comparison"] != candidate_torch:
-                raise FinalizeV2Error("recorded/reconstructed numerical metrics differ")
+            validate_execution_outputs(
+                execution, reference_raw, actual_raw, candidate_torch
+            )
             output.append(
                 {
                     "case": case.name,
@@ -557,6 +754,34 @@ def audit_replay_semantics(
     }
 
 
+def validate_provisional_input_identity(
+    value: object, control_identity: dict[str, object]
+) -> dict[str, object]:
+    inputs = require_exact_keys(
+        value,
+        {
+            "integrity",
+            "pypto",
+            "tensor_ir_head",
+            "cuda_tile_head",
+            "llvm_head",
+            "replay_files",
+            "control_manifest",
+        },
+        "provisional inputs",
+    )
+    if (
+        inputs.get("control_manifest") != control_identity
+        or inputs.get("pypto")
+        != {"head": contract.PYPTO_HEAD, "tree": contract.PYPTO_TREE, "clean": True}
+        or inputs.get("tensor_ir_head") != contract.TENSOR_IR_HEAD
+        or inputs.get("cuda_tile_head") != contract.CUDA_TILE_HEAD
+        or inputs.get("llvm_head") != contract.LLVM_HEAD
+    ):
+        raise FinalizeV2Error("provisional input identity differs")
+    return inputs
+
+
 def validate_provisional(
     provisional: dict[str, object], control_identity: dict[str, object]
 ) -> None:
@@ -573,25 +798,12 @@ def validate_provisional(
         },
         "provisional",
     )
-    inputs = require_exact_keys(
-        provisional.get("inputs"),
-        {
-            "integrity",
-            "pypto",
-            "tensor_ir_head",
-            "cuda_tile_head",
-            "llvm_head",
-            "replay_files",
-            "control_manifest",
-        },
-        "provisional inputs",
-    )
+    validate_provisional_input_identity(provisional.get("inputs"), control_identity)
     if (
         provisional.get("schema_version") != 2
         or provisional.get("smoke") != contract.SMOKE_NAME
         or provisional.get("acceptance")
         != "gpu-execution-complete-awaiting-run-finalization"
-        or inputs.get("control_manifest") != control_identity
     ):
         raise FinalizeV2Error("provisional identity differs")
     require_exact_keys(
@@ -694,8 +906,15 @@ def validate_run_documents(
     requested = validate_preflight(preflight, description="action preflight")
     if initial_requested is not requested:
         raise FinalizeV2Error("initial/action authorization differs")
+    validate_process_policy(
+        process, run_id=run_id, requested=requested, preflight=preflight
+    )
     floor = expected_floor(requested)
-    resource = process.get("resource_policy")
+    resource = require_exact_keys(
+        process.get("resource_policy"),
+        {"timeout_seconds", "minimum_free_disk_bytes", "owned_run_pause_memory_kib"},
+        "process resource policy",
+    )
     gpu_smoke = process.get("gpu_smoke")
     if (
         process.get("schema") != 4
@@ -705,7 +924,6 @@ def validate_run_documents(
         or process.get("status") != "exited"
         or process.get("return_code") != 0
         or process.get("command") != contract.fixed_child_command(ROOT)
-        or not isinstance(resource, dict)
         or resource.get("owned_run_pause_memory_kib")
         != contract.OWNED_RUN_ABORT_MEMORY_FLOOR_KIB
         or resource.get("timeout_seconds") != contract.GPU_SMOKE_TIMEOUT_SECONDS
@@ -831,6 +1049,21 @@ def validate_run_documents(
         raise FinalizeV2Error("parent/child static identity differs")
 
 
+def exact_integrity_record(path: Path, name: str) -> dict[str, object]:
+    if path.is_symlink() or not path.is_file():
+        raise FinalizeV2Error(
+            f"integrity path is not a regular non-symlink file: {name}"
+        )
+    resolved = path.resolve(strict=True)
+    if resolved != path:
+        raise FinalizeV2Error(f"integrity path is noncanonical: {name}")
+    return {
+        "path": resolved.relative_to(ROOT).as_posix(),
+        "bytes": resolved.stat().st_size,
+        "sha256": sha256_file(resolved),
+    }
+
+
 def validate_integrity(provisional: dict[str, object]) -> None:
     expected = {
         "anchor_generator": ROOT / contract.ANCHOR_GENERATOR_RELATIVE_PATH,
@@ -851,12 +1084,7 @@ def validate_integrity(provisional: dict[str, object]) -> None:
     if not isinstance(integrity, dict) or set(integrity) != set(expected):
         raise FinalizeV2Error("provisional integrity set differs")
     for name, path in expected.items():
-        resolved = path.resolve(strict=True)
-        record = {
-            "path": resolved.relative_to(ROOT).as_posix(),
-            "bytes": resolved.stat().st_size,
-            "sha256": sha256_file(resolved),
-        }
+        record = exact_integrity_record(path, name)
         if integrity.get(name) != record:
             raise FinalizeV2Error(f"provisional integrity differs: {name}")
 
@@ -910,7 +1138,13 @@ def validate_fixed_inputs() -> dict[str, dict[str, object]]:
             "bytes": size,
             "sha256": digest,
         }
-    if sha256_file(ROOT / "ENVIRONMENT.lock") != contract.ENVIRONMENT_LOCK_SHA256:
+    environment_lock = ROOT / "ENVIRONMENT.lock"
+    if (
+        environment_lock.is_symlink()
+        or not environment_lock.is_file()
+        or environment_lock.resolve(strict=True) != environment_lock
+        or sha256_file(environment_lock) != contract.ENVIRONMENT_LOCK_SHA256
+    ):
         raise FinalizeV2Error("ENVIRONMENT.lock differs")
     return output
 
@@ -921,7 +1155,11 @@ def validate_runtime_identity(
     gate: dict[str, object],
 ) -> None:
     runtime = provisional["runtime"]
-    torch = runtime["torch"]
+    torch = require_exact_keys(
+        runtime.get("torch"),
+        {"version", "git_version", "cuda", "hip", "module_path"},
+        "runtime Torch",
+    )
     expected_torch = (
         ROOT / "envs/pypto-nvidia/lib/python3.14/site-packages/torch/__init__.py"
     ).resolve(strict=True)
@@ -936,10 +1174,68 @@ def validate_runtime_identity(
         or preflight.get("torch") != gate.get("static_identity")
     ):
         raise FinalizeV2Error("runtime Torch/provider identity differs")
-    observation = runtime["observation"]
-    traits = observation["traits"]
+    observation = require_exact_keys(
+        runtime.get("observation"),
+        {
+            "device_ordinal",
+            "device_name",
+            "device_uuid",
+            "pci_device_id",
+            "traits",
+            "cuda_toolkit_version",
+            "cuda_driver_version",
+            "tensor_ir_revision",
+            "cuda_tile_revision",
+            "supported_compute_dtypes",
+            "cuda_driver_release_provenance",
+            "cuda_driver_api_version",
+            "cuda_runtime_api_version",
+            "cuda_runtime_library_path",
+            "context_address",
+            "context_id",
+        },
+        "runtime observation",
+    )
+    traits = require_exact_keys(
+        observation.get("traits"),
+        {
+            "compute_capability",
+            "multiprocessor_count",
+            "warp_size",
+            "max_threads_per_block",
+            "max_threads_per_multiprocessor",
+            "max_blocks_per_multiprocessor",
+            "max_block_dim_x",
+            "max_block_dim_y",
+            "max_block_dim_z",
+            "max_grid_dim_x",
+            "max_grid_dim_y",
+            "max_grid_dim_z",
+            "l1_cache_line_bytes",
+            "default_shared_memory_per_cta_bytes",
+            "max_shared_memory_per_cta_bytes",
+            "shared_memory_per_multiprocessor_bytes",
+            "registers_per_cta",
+            "max_registers_per_thread",
+            "registers_per_multiprocessor",
+            "l2_cache_size_bytes",
+            "total_global_memory_bytes",
+        },
+        "runtime TargetTraits",
+    )
+    for name, value in traits.items():
+        require_int(value, f"target trait {name}", positive=True)
     if (
-        observation.get("device_name") != contract.EXPECTED_DEVICE_NAME
+        observation.get("device_ordinal") != 0
+        or observation.get("device_name") != contract.EXPECTED_DEVICE_NAME
+        or not isinstance(observation.get("device_uuid"), str)
+        or re.fullmatch(
+            r"GPU-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+            str(observation.get("device_uuid")),
+        )
+        is None
+        or not isinstance(observation.get("pci_device_id"), str)
+        or not observation.get("pci_device_id")
         or traits.get("compute_capability") != 120
         or traits.get("multiprocessor_count") != contract.EXPECTED_SM_COUNT
         or observation.get("cuda_toolkit_version")
@@ -947,6 +1243,10 @@ def validate_runtime_identity(
         or observation.get("cuda_driver_version") != contract.EXPECTED_DRIVER_RELEASE
         or observation.get("tensor_ir_revision") != contract.TENSOR_IR_HEAD
         or observation.get("cuda_tile_revision") != contract.CUDA_TILE_HEAD
+        or observation.get("supported_compute_dtypes")
+        != list(contract.EXPECTED_SUPPORTED_COMPUTE_DTYPES)
+        or observation.get("cuda_driver_release_provenance")
+        != contract.EXPECTED_DRIVER_RELEASE
         or observation.get("cuda_runtime_library_path")
         != str((ROOT / contract.CUDA_RUNTIME_RELATIVE_PATH).resolve(strict=True))
         or require_int(
@@ -957,9 +1257,23 @@ def validate_runtime_identity(
             observation.get("cuda_runtime_api_version"), "runtime API", positive=True
         )
         < contract.MINIMUM_CUDA_RUNTIME_API_VERSION
+        or require_int(
+            observation.get("context_address"), "context address", positive=True
+        )
+        <= 0
+        or require_int(observation.get("context_id"), "context ID", positive=True) <= 0
     ):
         raise FinalizeV2Error("runtime target identity differs")
-    for value in runtime["compile_request"].values():
+    compile_request = require_exact_keys(
+        runtime.get("compile_request"),
+        {
+            "byte_identity_digest",
+            "loader_compatibility_input_digest",
+            "device_autotune_identity_digest",
+        },
+        "CompileRequest identity",
+    )
+    for value in compile_request.values():
         require_sha(value, "CompileRequest identity")
 
 

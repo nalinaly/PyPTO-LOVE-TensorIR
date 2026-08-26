@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import os
 import pathlib
 import subprocess
 import sys
+import tempfile
 import unittest
 from types import ModuleType, SimpleNamespace
 from unittest import mock
@@ -62,6 +64,12 @@ class FrozenV1AndContractTest(unittest.TestCase):
             "tools/run_pypto_fused_pointwise_sm120_isolated.py": "484ec6e5c773f1cc912ae447b1319e3f3b7610fd9cf5d8e7eafb29a71e2b5e32",
             "tools/finalize_pypto_fused_pointwise_sm120.py": "c1724d138a6385d293ba5e79dcbf3208ebb0bac1f0dd734af738dddda5d26a37",
             "state/contracts/pypto_fused_pointwise_sm120_v1.json": "ce20dd3ac6796bee16235913b8b296ae8c4781167c35f08de7c19ac7977a6896",
+            "tools/_pypto_fused_pointwise_sm120_contract.py": "7c812ccd3d9a76f2e5a258cf53fd029df776a67dfaf42c631363332fb9f8811c",
+            "tools/generate_pypto_fused_pointwise_anchors.py": "89f06a416622e1d78595c0a086db4dce66bebbf70f3867b2601885767e85c54e",
+            "state/contracts/pypto_fused_pointwise_compile_anchors_v1.json": "584f6755bbd248de5bb6ddd3ff610da8082667bc892a6cff6583ea42d4c44c97",
+            "tools/_pypto_fused_pointwise_sm120_control_manifest.py": "299356cf6361fd1372e1fb77ddd626c2d4f84609abd565a3ea3be0bbe26c98c9",
+            "tests/test_pypto_fused_pointwise_sm120.py": "8ab9ac5ff7312f8583f7a970f7c060ea00f22637348755dce42cee747cd88c3f",
+            "docs/pypto_fused_pointwise_sm120_smoke.md": "c35772024d22956668d2637d489fd4af5a3993d664f21272b0d214bfaf4da70d",
         }
         for relative, digest in expected.items():
             with self.subTest(path=relative):
@@ -225,7 +233,7 @@ class AdmissionBoundaryTest(unittest.TestCase):
                 "used_mib": "1024",
                 "driver": contract.EXPECTED_DRIVER_RELEASE,
             },
-            "free_memory_mib": 4096,
+            "free_memory_mib": 23_552,
             "mem_available_kib": 23_068_672,
             "host_memory_floor_kib": 23_068_672,
             "admission_policy": preflight.policy_document(),
@@ -249,6 +257,63 @@ class AdmissionBoundaryTest(unittest.TestCase):
 
 
 class CompositionAndPublicationTest(unittest.TestCase):
+    def test_exact_case_helpers_and_injected_dependencies_are_frozen(self) -> None:
+        self.assertIs(contract.CASE_SPECS, contract._BASE.CASE_SPECS)
+        self.assertIs(contract.CASE_ORDER, contract._BASE.CASE_ORDER)
+        for helper in (
+            child.base.make_program,
+            child.base.canonical_tensor_ir_source,
+            child.base.validate_structured_result,
+            child.base.execute_case,
+        ):
+            self.assertIs(helper.__globals__, child.base.__dict__)
+        for helper in (
+            finalizer.base.validate_frontend_results,
+            finalizer.base.validate_audit,
+            finalizer.base._input_words,
+            finalizer.base._cpu_reference_words,
+            finalizer.base._compare_words,
+        ):
+            self.assertIs(helper.__globals__, finalizer.base.__dict__)
+        self.assertIs(controller.isolation.preflight_tool, controller.preflight)
+        self.assertIs(controller.isolation.stop_run, controller.stop_run)
+        self.assertIs(controller.isolation.nvidia_smoke_contract, controller.contract)
+        self.assertIs(controller.isolation.nvidia_smoke_control, controller.control)
+
+    def test_full_controller_sequence_is_ordered(self) -> None:
+        source = (
+            ROOT / "tools/run_pypto_fused_pointwise_sm120_v2_isolated.py"
+        ).read_text()
+        markers = (
+            'description="initial v2 preflight"',
+            'description="action-boundary v2 preflight"',
+            "process = subprocess.Popen(",
+            "metadata = isolation.build_run_metadata(",
+            "released, early_code = _gate_and_release(",
+            "isolation.wait_with_gpu_smoke_watchdog(",
+            "post_snapshot, post_violation = isolation.audit_gpu_smoke_runtime_state(",
+            "enforce_no_surviving_owned_processes(process, metadata)",
+        )
+        positions = [source.index(marker) for marker in markers]
+        self.assertEqual(positions, sorted(positions))
+
+    def test_survivor_path_uses_only_verified_owned_helpers(self) -> None:
+        process = mock.Mock()
+        metadata: dict[str, object] = {"pgid": 7}
+        with (
+            mock.patch.object(
+                controller.stop_run, "owned_group_members", return_value=[101]
+            ),
+            mock.patch.object(
+                controller.isolation, "terminate_owned_process", return_value=0
+            ) as terminate,
+        ):
+            self.assertFalse(
+                controller.enforce_no_surviving_owned_processes(process, metadata)
+            )
+        terminate.assert_called_once_with(process, metadata, wait_seconds=5)
+        self.assertEqual(metadata["surviving_group_pids"], [101])
+
     def test_environment_lock_acquisition_blocks_and_restores_signals(self) -> None:
         calls: list[tuple[object, object]] = []
 
@@ -374,6 +439,296 @@ class CompositionAndPublicationTest(unittest.TestCase):
                 [record["path"] for record in identity["files"]],
                 list(control.CONTROL_PATHS),
             )
+
+
+class FinalizerOutputJoinRegressionTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.reference = b"frozen-reference-bytes"
+        self.actual = b"frozen-actual-bytes"
+        self.metrics = {
+            "observed_max_ulp": 1,
+            "observed_max_relative_error": 0.001,
+            "observed_max_absolute_error": 0.0005,
+        }
+        self.execution = {
+            "expected_logical_bytes_sha256": finalizer.sha256_bytes(self.reference),
+            "actual_logical_bytes_sha256": finalizer.sha256_bytes(self.actual),
+            "comparison": {
+                "policy": "ulp-and-relative",
+                "max_ulp_limit": 4,
+                "rtol": 2.0e-6,
+                "atol": 0.0,
+                **self.metrics,
+                "special_classification_and_sign_passed": True,
+                "negative_zero_fma_discriminator_passed": False,
+                "no_subnormals": True,
+                "comparison_passed": True,
+            },
+        }
+
+    def test_full_comparison_record_accepts_reconstructed_metric_subset(self) -> None:
+        finalizer.validate_execution_outputs(
+            self.execution, self.reference, self.actual, self.metrics
+        )
+
+    def test_reference_raw_tamper_is_rejected(self) -> None:
+        with self.assertRaisesRegex(finalizer.FinalizeV2Error, "raw output"):
+            finalizer.validate_execution_outputs(
+                self.execution, self.reference + b"!", self.actual, self.metrics
+            )
+
+    def test_actual_raw_tamper_is_rejected(self) -> None:
+        with self.assertRaisesRegex(finalizer.FinalizeV2Error, "raw output"):
+            finalizer.validate_execution_outputs(
+                self.execution, self.reference, self.actual + b"!", self.metrics
+            )
+
+
+class AuditorParityRegressionTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.preflight = AdmissionBoundaryTest()._report(
+            available=23_068_672, requested=True
+        )
+        self.run_id = "pypto-20260826T120000Z-123456-abcdef"
+
+    def test_preflight_rejects_policy_cpu_flag_and_inventory_drift(self) -> None:
+        mutations = (
+            ("coexistence version", ("coexistence_policy_version",), 2),
+            (
+                "CPU-only request",
+                ("protected_cpu_only_coexistence_requested",),
+                True,
+            ),
+            ("policy", ("policy",), "signals may be sent"),
+            ("inventory", ("protected_processes",), [{"pid": 1}]),
+        )
+        for name, path, value in mutations:
+            candidate = copy.deepcopy(self.preflight)
+            candidate[path[0]] = value
+            with self.subTest(name=name), self.assertRaises(finalizer.FinalizeV2Error):
+                finalizer.validate_preflight(candidate, description="fixture")
+
+    def _process(self) -> dict[str, object]:
+        floor = 23_068_672
+        return {
+            "schema": 4,
+            "run_id": self.run_id,
+            "workspace": str(ROOT),
+            "environment": str(ROOT / "envs/pypto-nvidia"),
+            "environment_access_lock": {
+                "path": str(ROOT / "runs/environment-pypto-nvidia.lock"),
+                "mode": "shared",
+                "device": 1,
+                "inode": 2,
+            },
+            "framework_profile": "pypto",
+            "framework_launch": False,
+            "mode": "gpu-smoke",
+            "coexistence": {
+                "policy_version": 1,
+                "requested": False,
+                "waiver_applied": False,
+                "memory_floor_kib": floor,
+                "protected_heavy_processes": [],
+                "protected_nvidia_compute_pids": [],
+            },
+            "gpu_smoke": {
+                "policy_version": 2,
+                "requested": True,
+                "waiver_applied": False,
+                "authorization": contract.GPU_SMOKE_AUTHORIZATION,
+                "start_barrier_path": str(
+                    ROOT / "runs" / self.run_id / "gpu-smoke-start-barrier.json"
+                ),
+                "gate_path": str(ROOT / "runs" / self.run_id / "gpu-smoke-gate.json"),
+                "memory_floor_kib": floor,
+                "gpu_free_memory_floor_mib": 4096,
+                "protected_heavy_processes": [],
+                "protected_nvidia_compute_pids": [],
+                "protected_nvidia_runtime_mapping_pids": [],
+                "unreadable_protected_maps": [],
+                "gate_sha256": "1" * 64,
+                "start_barrier_sha256": "2" * 64,
+                "release_authorized_at": "20260826T120001Z",
+            },
+            "initial_preflight": {},
+            "preflight": {},
+            "resource_policy": {},
+            "command": [],
+            "pid": 10,
+            "pgid": 10,
+            "start_ticks": 20,
+            "started_at": "20260826T120000Z",
+            "status": "exited",
+            "gpu_smoke_pre_release_audit": {},
+            "gpu_smoke_last_audit": {},
+            "gpu_smoke_post_exit_audit": {},
+            "return_code": 0,
+            "finished_at": "20260826T120002Z",
+        }
+
+    def test_process_rejects_environment_lock_framework_timestamp_and_gpu_drift(
+        self,
+    ) -> None:
+        process = self._process()
+        finalizer.validate_process_policy(
+            process,
+            run_id=self.run_id,
+            requested=True,
+            preflight=self.preflight,
+        )
+        mutations = (
+            ("environment", ("environment",), "/wrong"),
+            ("lock", ("environment_access_lock", "mode"), "exclusive"),
+            ("framework", ("framework_launch",), True),
+            ("timestamp", ("finished_at",), "bad"),
+            ("GPU floor", ("gpu_smoke", "gpu_free_memory_floor_mib"), 4095),
+        )
+        for name, path, value in mutations:
+            candidate = copy.deepcopy(process)
+            target = candidate
+            for key in path[:-1]:
+                target = target[key]
+            target[path[-1]] = value
+            with self.subTest(name=name), self.assertRaises(finalizer.FinalizeV2Error):
+                finalizer.validate_process_policy(
+                    candidate,
+                    run_id=self.run_id,
+                    requested=True,
+                    preflight=self.preflight,
+                )
+
+    def _runtime_provisional(self) -> tuple[dict[str, object], dict[str, object]]:
+        trait_names = {
+            "compute_capability",
+            "multiprocessor_count",
+            "warp_size",
+            "max_threads_per_block",
+            "max_threads_per_multiprocessor",
+            "max_blocks_per_multiprocessor",
+            "max_block_dim_x",
+            "max_block_dim_y",
+            "max_block_dim_z",
+            "max_grid_dim_x",
+            "max_grid_dim_y",
+            "max_grid_dim_z",
+            "l1_cache_line_bytes",
+            "default_shared_memory_per_cta_bytes",
+            "max_shared_memory_per_cta_bytes",
+            "shared_memory_per_multiprocessor_bytes",
+            "registers_per_cta",
+            "max_registers_per_thread",
+            "registers_per_multiprocessor",
+            "l2_cache_size_bytes",
+            "total_global_memory_bytes",
+        }
+        traits = {name: 1 for name in trait_names}
+        traits["compute_capability"] = 120
+        traits["multiprocessor_count"] = contract.EXPECTED_SM_COUNT
+        torch = {
+            "version": contract.EXPECTED_TORCH_VERSION,
+            "git_version": contract.EXPECTED_TORCH_GIT,
+            "cuda": contract.EXPECTED_TORCH_CUDA,
+            "hip": None,
+            "module_path": str(
+                (
+                    ROOT
+                    / "envs/pypto-nvidia/lib/python3.14/site-packages/torch/__init__.py"
+                ).resolve(strict=True)
+            ),
+        }
+        runtime = {
+            "torch": torch,
+            "libcudart_paths": [
+                str((ROOT / contract.CUDA_RUNTIME_RELATIVE_PATH).resolve(strict=True))
+            ],
+            "observation": {
+                "device_ordinal": 0,
+                "device_name": contract.EXPECTED_DEVICE_NAME,
+                "device_uuid": "GPU-01234567-89ab-cdef-0123-456789abcdef",
+                "pci_device_id": "0000:01:00.0",
+                "traits": traits,
+                "cuda_toolkit_version": contract.EXPECTED_CUDA_TOOLKIT_VERSION,
+                "cuda_driver_version": contract.EXPECTED_DRIVER_RELEASE,
+                "tensor_ir_revision": contract.TENSOR_IR_HEAD,
+                "cuda_tile_revision": contract.CUDA_TILE_HEAD,
+                "supported_compute_dtypes": list(
+                    contract.EXPECTED_SUPPORTED_COMPUTE_DTYPES
+                ),
+                "cuda_driver_release_provenance": contract.EXPECTED_DRIVER_RELEASE,
+                "cuda_driver_api_version": contract.MINIMUM_CUDA_DRIVER_API_VERSION,
+                "cuda_runtime_api_version": contract.MINIMUM_CUDA_RUNTIME_API_VERSION,
+                "cuda_runtime_library_path": str(
+                    (ROOT / contract.CUDA_RUNTIME_RELATIVE_PATH).resolve(strict=True)
+                ),
+                "context_address": 1,
+                "context_id": 2,
+            },
+            "compile_request": {
+                "byte_identity_digest": "1" * 64,
+                "loader_compatibility_input_digest": "2" * 64,
+                "device_autotune_identity_digest": "3" * 64,
+            },
+        }
+        return {"runtime": runtime}, {"static_identity": self.preflight["torch"]}
+
+    def test_runtime_rejects_trait_uuid_dtype_and_context_drift(self) -> None:
+        provisional, gate = self._runtime_provisional()
+        finalizer.validate_runtime_identity(provisional, self.preflight, gate)
+        mutations = (
+            ("trait", ("traits", "warp_size"), 0),
+            ("UUID", ("device_uuid",), "GPU-bad"),
+            ("dtype", ("supported_compute_dtypes",), ["FP32"]),
+            ("context", ("context_id",), 0),
+        )
+        for name, path, value in mutations:
+            candidate = copy.deepcopy(provisional)
+            observation = candidate["runtime"]["observation"]
+            target = observation
+            for key in path[:-1]:
+                target = target[key]
+            target[path[-1]] = value
+            with self.subTest(name=name), self.assertRaises(finalizer.FinalizeV2Error):
+                finalizer.validate_runtime_identity(candidate, self.preflight, gate)
+
+    def test_provisional_input_identity_rejects_source_lineage_tamper(self) -> None:
+        identity = {"control": "v2"}
+        inputs = {
+            "integrity": {},
+            "pypto": {
+                "head": contract.PYPTO_HEAD,
+                "tree": contract.PYPTO_TREE,
+                "clean": True,
+            },
+            "tensor_ir_head": contract.TENSOR_IR_HEAD,
+            "cuda_tile_head": contract.CUDA_TILE_HEAD,
+            "llvm_head": contract.LLVM_HEAD,
+            "replay_files": [],
+            "control_manifest": identity,
+        }
+        finalizer.validate_provisional_input_identity(inputs, identity)
+        for name in ("pypto", "tensor_ir_head", "cuda_tile_head", "llvm_head"):
+            candidate = copy.deepcopy(inputs)
+            if name == "pypto":
+                candidate[name]["head"] = "0" * 40
+            else:
+                candidate[name] = "0" * 40
+            with self.subTest(name=name), self.assertRaises(finalizer.FinalizeV2Error):
+                finalizer.validate_provisional_input_identity(candidate, identity)
+
+    def test_integrity_rejects_symlink_and_nonregular_paths_before_resolve(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT / ".cache") as directory:
+            root = pathlib.Path(directory)
+            regular = root / "regular"
+            regular.write_bytes(b"value")
+            symlink = root / "symlink"
+            symlink.symlink_to(regular)
+            with self.assertRaisesRegex(finalizer.FinalizeV2Error, "non-symlink"):
+                finalizer.exact_integrity_record(symlink, "symlink fixture")
+            with self.assertRaisesRegex(finalizer.FinalizeV2Error, "regular"):
+                finalizer.exact_integrity_record(root, "directory fixture")
 
 
 class DocumentationTest(unittest.TestCase):

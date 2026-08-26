@@ -37,6 +37,13 @@ source, replace `subprocess.run`, or spoof Python process identity:
   `_pypto_fused_pointwise_sm120_control_manifest_v2.py` bind the new family to
   the complete accepted v1 manifest, runner and compiler/Cubin anchors.
 
+Focused regression coverage freezes every accepted v1 control input used by
+this composition: runner, contract, anchor generator, compile-anchor manifest,
+control validator, controller, finalizer, preflight, isolation, stop primitive,
+focused test, runbook and published v1 manifest. It also freezes the shared
+`CASE_SPECS` object, the exact helper globals, and all injected dependency
+objects before v2 publication.
+
 The implementation commit intentionally omits
 `state/contracts/pypto_fused_pointwise_sm120_v2.json`. The controller and
 finalizer therefore fail closed. After source review and CPU-only tests, a
