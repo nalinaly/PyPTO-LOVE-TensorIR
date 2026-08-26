@@ -506,19 +506,6 @@ class ProtectedProcessClassificationTest(unittest.TestCase):
         )
 
     def test_cpu_only_coexistence_waives_only_protected_activity(self) -> None:
-        self.assertEqual(preflight.COEXISTENCE_POLICY_VERSION, 2)
-        self.assertEqual(
-            preflight.COEXISTENCE_MEMORY_FLOOR_KIB,
-            22 * 1024 * 1024,
-        )
-        self.assertEqual(
-            run_isolated.COEXISTENCE_RESUME_MEMORY_KIB,
-            preflight.COEXISTENCE_MEMORY_FLOOR_KIB,
-        )
-        self.assertEqual(
-            run_isolated.COEXISTENCE_ABORT_MEMORY_KIB,
-            16 * 1024 * 1024,
-        )
         protected = [self.process(10, 1, "gem5.opt")]
         default = preflight.heavy_policy_failures(
             mode="heavy",
@@ -543,11 +530,11 @@ class ProtectedProcessClassificationTest(unittest.TestCase):
             mode="heavy",
             coexistence_authorized=True,
             protected_heavy=protected,
-            available_kib=21 * 1024 * 1024,
+            available_kib=23 * 1024 * 1024,
             protected_nvidia_compute_pids=[10],
         )
         self.assertTrue(any("NVIDIA" in value for value in failures))
-        self.assertTrue(any("22 GiB safety floor" in value for value in failures))
+        self.assertTrue(any("24 GiB safety floor" in value for value in failures))
 
     def test_gpu_smoke_waives_cpu_lane_only_when_nvidia_is_absent(self) -> None:
         protected = [self.process(10, 1, "gem5.opt")]
@@ -667,7 +654,7 @@ class ModelImportCoexistenceTest(unittest.TestCase):
         ), mock.patch.object(
             import_models,
             "mem_available_kib",
-            return_value=21 * 1024 * 1024,
+            return_value=23 * 1024 * 1024,
         ):
             with self.assertRaisesRegex(RuntimeError, "memory floor"):
                 import_models.ensure_model_copy_boundary_safe(

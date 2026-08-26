@@ -387,7 +387,7 @@ TorchInductor, SGLang or Qwen execution.
    modifying the original environment.
 5. Copy Qwen3.5 weights from the read-only AMD simulator tree into `models/`
    after the default idle gate, or only with the explicit CPU-only coexistence
-   flag while the 22 GiB and protected-NVIDIA-compute boundary remains green;
+   flag while the 24 GiB and protected-NVIDIA-compute boundary remains green;
    recheck at each file EOF/publication boundary and verify every hash.
 6. Generate the checkout-grounded `docs/implementation_map.txt` and freeze the
    unmodified SGLang baseline before compiler changes.

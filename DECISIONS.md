@@ -162,16 +162,3 @@ time; no dirty-source override may mint a strict Artifact under locked commit
 names. This remains runtime-free validation. It does not replace the future
 trusted producer bridge, disassemble arbitrary SASS, load CUDA or prove kernel
 execution.
-
-## D-0016: Protected CPU coexistence policy v2 uses a 22 GiB operating floor
-
-The user clarified that roughly 22 GiB of available host memory is sufficient
-for this project's bounded CPU-heavy build/test work and that the former 24 GiB
-threshold was an approximate operating value. Policy v2 therefore uses 22 GiB
-for both initial admission and automatic resume. It preserves the 16 GiB
-owned-run pause floor, CUDA-hidden child, action-boundary and periodic NVIDIA
-audits, disk and timeout controls, and verified workspace-owned PGID signalling.
-
-This change does not relax any GPU-smoke or performance admission, does not
-rewrite EV-0035's accepted policy-v1 evidence, and never authorizes signalling,
-stopping, cleaning, or otherwise managing an amdgpu-sim/zcode process.
