@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `36`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `37`
 
 ## Current phase: P2 frontend-HIR SM120 execution; R0 baseline remains open
 
@@ -20,6 +20,17 @@ four fresh non-default-stream lifetimes are numerically correct with no
 fallback. The current transaction generalizes the add-only emitter and frontend
 identity boundary to a bounded fused-pointwise chain while preserving every
 accepted vector-add byte and control.
+
+The fused-pointwise source candidate is now committed at PyPTO `b83fcd3`, with
+independent source review GO and earlier diagnostic backend-OFF native/Python
+passes. Final clean-commit configure passed; the corresponding build is safely
+watchdog-paused at about 49% on the owned PGID because host memory crossed the
+16 GiB living-run floor. This is not CP-0045 and does not accept compiler or GPU
+behavior yet. While paused, read-only reconnaissance fixed the next separate
+`RowReductionV3` boundary: dense static rank-1-through-32
+reduce-last/keep-dim, one flattened outer-row tile/grid (frozen by direct
+rank-1/rank-2/rank-3 producer fixtures), and explicit BF16-to-FP32
+reduction-to-BF16 conversion so BF16 sum does not silently accumulate in BF16.
 
 Checkpoint `CP-0038` accepts the finalized minimal real-SM120
 `NvidiaExecutable` correctness v1 report from run `080254`, SHA

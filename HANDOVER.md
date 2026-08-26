@@ -41,6 +41,36 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
+- The active, not-yet-accepted fused-pointwise candidate is PyPTO commit
+  `b83fcd3ddc497d585bcc45883eede179aff7d4d2`, tree
+  `49eda98f3ed8d72bfd14d5a5900cdc0e71ca699d`, on
+  `feature/fused-pointwise-v2`. It changes exactly ten tracked source/test/doc
+  files, preserves all six exact clean gitlinks and the legacy add source,
+  projection and Cubin anchors, and has independent source-review verdict GO
+  with P0/P1/P2 = 0. Earlier backend-OFF diagnostics passed the native 3/3 and
+  exact-product Python 1/1 gates; they are not the final clean-commit evidence.
+- Fresh clean-commit backend-OFF configure run
+  `pypto-20260826T001612Z-1262389-4b0314` passed. Its build run
+  `pypto-20260826T001705Z-1262860-cb4c7a` is intact at about 49% but is
+  watchdog-paused after `MemAvailable` crossed the 16 GiB living-run floor.
+  Only the verified owned PGID `1262960` was stopped. The user authorized an
+  approximate 22 GiB launch floor, which this run's preflight records as
+  `23068672` KiB, but this already-running watchdog still has the accepted
+  fixed 24 GiB resume threshold. Do not manually `SIGCONT`, signal any external
+  PID, or treat the pause as a build failure; wait for its own resume/timeout
+  and re-read `runs/.../process.json` before acting. The generated
+  `build-fused-off-final/` directory is the only untracked worktree path.
+- Read-only reduction reconnaissance selected a separate private
+  `RowReductionV3` family rather than weakening `FusedPointwiseV2`. The first
+  safe contract is dense static rank-1-through-32 reduce-last/keep-dim
+  `row_sum` and `row_max`, one input pointer plus one result pointer, one
+  flattened outer-row schedule tile and grid `ceil(rows/T)`. Rank 1 has
+  `rows=1`; higher ranks use the checked product of every non-reduced extent.
+  Direct TensorIR BF16 reduction accumulates in BF16;
+  the PyPTO producer must instead emit BF16-to-FP32 `convert`, FP32 `reduce`,
+  then FP32-to-BF16 `convert`. Do not accept the arbitrary-rank grid law before
+  direct rank-1, rank-2 and dense row-major rank-3 normalized-layout producer
+  fixtures pass.
 - Read `state/checkpoints/CP-0044.md` and evidence `EV-0005` through `EV-0057`.
 - Root `5564008` plus manifest-only `7639d82` owns the current v4
   correctness-only SM120 smoke. The manifest SHA is `a079c4d2...98bf` and
