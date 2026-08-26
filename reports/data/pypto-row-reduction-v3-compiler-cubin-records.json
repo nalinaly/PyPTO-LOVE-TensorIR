@@ -1,0 +1,134 @@
+{
+  "build": {
+    "backend_off_dso": {
+      "bytes": 438701720,
+      "path": "builds/pypto-row-reduction-v3-off-62eb882-final/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+      "sha256": "95fc6579572faa5026cd3931da4b73773e2f879237e2c76088af8ca288c93451"
+    },
+    "backend_on_dso": {
+      "bytes": 784224056,
+      "path": "builds/pypto-row-reduction-v3-on-62eb882-final/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+      "rpath_or_runpath": false,
+      "sha256": "e1213cf31972664a66012f95f1ebf003623dfebb54accdff3ab47cd6ca3e4220"
+    }
+  },
+  "compiler": {
+    "cuda_tile_head": "af2417041cc939b87ef56d92cfdcf61737c5457e",
+    "llvm_head": "57109befac92811d2253109242ca6fa69c961fb2",
+    "pypto_head": "62eb88251df5bdad95277a9d619d20da9bf121eb",
+    "pypto_tree": "04d3bca3e0b35b796f7745ded27a26dd61e25c67",
+    "tensor_ir_head": "1dcb38c20e53d07c97d3781cae538e33901bae30"
+  },
+  "diagnostics": [
+    {
+      "reason": "rank-1 row tile 16 exceeds checked row count 1",
+      "run_id": "pypto-20260826T090011Z-1505814-4aa4ad"
+    },
+    {
+      "reason": "row tile 6 is not a positive power of two",
+      "run_id": "pypto-20260826T090058Z-1506060-a48709"
+    }
+  ],
+  "kind": "pypto-row-reduction-v3-compiler-cubin-records",
+  "records": [
+    {
+      "argument_layout": {
+        "input_shape": [7],
+        "input_strides": [],
+        "result_shape": [1],
+        "result_strides": [],
+        "total_kernel_argument_count": 2
+      },
+      "artifact_bytes": 16279,
+      "artifact_sha256": "71bd97a84c02322f410186fc01262a80ac22503d97451eb886a40ae4a00cb2c4",
+      "build_spec_bytes": 1416,
+      "build_spec_sha256": "7f5caa8ee9de27f0e95498896bf72d6b777766099dc4bd28e7839d6f0f7b71c0",
+      "case": "rank1_fp32_sum",
+      "device_code_bytes": 13328,
+      "device_code_sha256": "6b94363838161d125e61f13bdf3a3aac211649b2fb98613e3096c90f9a820fde",
+      "entry_function_name": "pypto_row_reduction_v3",
+      "fallback_used": false,
+      "grid": [1, 1, 1],
+      "row_tile": 1,
+      "semantic_route": "structured-tensorir",
+      "source_ir_digest": "ecc1bb444f0118aa8aa2e7b6c3e75c42ee86eb97328b169f29dba540f2f39223",
+      "workspace_bytes": 0
+    },
+    {
+      "argument_layout": {
+        "input_shape": [2, 17],
+        "input_strides": [17, 1],
+        "result_shape": [2, 1],
+        "result_strides": [1, 1],
+        "total_kernel_argument_count": 2
+      },
+      "artifact_bytes": 16821,
+      "artifact_sha256": "ff0702ba50db284af40b2379a6d64e8a61459e874a7a4e6510aba7dd72312514",
+      "build_spec_bytes": 1416,
+      "build_spec_sha256": "455aaac01e16251b1fe091cda4ef72d0f019029e9e15a3ec539478b87fc6af85",
+      "case": "rank2_bf16_max",
+      "device_code_bytes": 13864,
+      "device_code_sha256": "8245b25e500a85b1aa4338000ab0d272f55fba0e9ae771992c5ba3f4b2de0b53",
+      "entry_function_name": "pypto_row_reduction_v3",
+      "fallback_used": false,
+      "grid": [1, 1, 1],
+      "row_tile": 2,
+      "semantic_route": "structured-tensorir",
+      "source_ir_digest": "2f361dd45776471086d209fcdc7208faea877ce005eb13d2afeda7ff42cd67b3",
+      "workspace_bytes": 0
+    },
+    {
+      "argument_layout": {
+        "input_shape": [2, 3, 17],
+        "input_strides": [51, 17, 1],
+        "result_shape": [2, 3, 1],
+        "result_strides": [3, 1, 1],
+        "total_kernel_argument_count": 2
+      },
+      "artifact_bytes": 17801,
+      "artifact_sha256": "94c5770e9ab27ce6122d7c2332ac662441fc8710b508bdf41340a6e756fafbad",
+      "build_spec_bytes": 1416,
+      "build_spec_sha256": "035d485673b767f911e97d076dfc19f40049a34c29d75ffc2ce4cf95e6eed2fc",
+      "case": "rank3_fp32_sum",
+      "device_code_bytes": 14840,
+      "device_code_sha256": "cee76f4d4a41c766fcc64f3c9f6acfee7d3a56e29650c70ce1d6f2b5c3568b75",
+      "entry_function_name": "pypto_row_reduction_v3",
+      "fallback_used": false,
+      "grid": [2, 1, 1],
+      "row_tile": 4,
+      "semantic_route": "structured-tensorir",
+      "source_ir_digest": "87ed7b6e1e0828508e45a5597d19daebdc26233932912e6b0f3b8918bc4e63bc",
+      "workspace_bytes": 0
+    },
+    {
+      "argument_layout": {
+        "input_shape": [2, 16, 17],
+        "input_strides": [272, 17, 1],
+        "result_shape": [2, 16, 1],
+        "result_strides": [16, 1, 1],
+        "total_kernel_argument_count": 2
+      },
+      "artifact_bytes": 17171,
+      "artifact_sha256": "7cbaf93f3eb5b69ace387bb8411d790a86592947f6fc9e0aef800bf6498ee910",
+      "build_spec_bytes": 1416,
+      "build_spec_sha256": "2e7a790f54c90bf53ade919377ff8f02ec0141446b4a8ffb5212463af5ffb206",
+      "case": "rank3_bf16_max",
+      "device_code_bytes": 14208,
+      "device_code_sha256": "d1b454a5106f8dd72342e118805883bc73a57cc316857428ca81934adad871a1",
+      "entry_function_name": "pypto_row_reduction_v3",
+      "fallback_used": false,
+      "grid": [2, 1, 1],
+      "row_tile": 16,
+      "semantic_route": "structured-tensorir",
+      "source_ir_digest": "4f851e9e17a14be2a7b5e1c134a5c31a5b97a1895fd07d0b62831373fc36270c",
+      "workspace_bytes": 0
+    }
+  ],
+  "run": {
+    "cuda_hidden": true,
+    "preflight_sha256": "a467e7d0ce0b7214b946cf7b7e0563c7356982dad4e171e3e68a6cce3673922d",
+    "process_sha256": "cb2b2f91f1f07265f912fcdd2cf93a577a946511414cb3c6ba4118a84592ee27",
+    "run_id": "pypto-20260826T090132Z-1506220-c226a2"
+  },
+  "schema": 1
+}

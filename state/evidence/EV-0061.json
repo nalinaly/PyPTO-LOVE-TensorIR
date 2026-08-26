@@ -1,0 +1,201 @@
+{
+  "id": "EV-0061",
+  "kind": "row_reduction_v3_compiler_cubin",
+  "status": "accepted_host_compiler_and_four_sm120_cubin_records",
+  "source": {
+    "commits": [
+      "1daa7e57893eeb821752ca0fcf07daec4d46080e",
+      "17b2b3c655d97076ac6d968ff2e45969da5161a2",
+      "62eb88251df5bdad95277a9d619d20da9bf121eb"
+    ],
+    "head": "62eb88251df5bdad95277a9d619d20da9bf121eb",
+    "tree": "04d3bca3e0b35b796f7745ded27a26dd61e25c67",
+    "clean": true,
+    "gitlinks": {
+      "libbacktrace": "6f8310e238fc3ce68f42f391cbe93fd156bb2c23",
+      "msgpack": "919908742b4fdbc575e77fe1a8657e70c9573c44",
+      "cuda_tile": "af2417041cc939b87ef56d92cfdcf61737c5457e",
+      "llvm": "57109befac92811d2253109242ca6fa69c961fb2",
+      "tensor_ir": "1dcb38c20e53d07c97d3781cae538e33901bae30",
+      "runtime": "93adc3865e65fd72655f571f2e4165cf5ac02616"
+    }
+  },
+  "fixture_build_fix": {
+    "commit": "62eb88251df5bdad95277a9d619d20da9bf121eb",
+    "tree": "04d3bca3e0b35b796f7745ded27a26dd61e25c67",
+    "changed_file": "tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp",
+    "insertions": 6,
+    "deletions": 2,
+    "reason": "ArtifactArgumentDescriptor copy and move assignment are deleted; rebuild immutable vectors",
+    "negative_shape_and_stride_expectations_preserved": true,
+    "review_decision": "GO",
+    "p0": 0,
+    "p1": 0,
+    "p2": 0
+  },
+  "products": {
+    "backend_off": {
+      "path": "builds/pypto-row-reduction-v3-off-62eb882-final/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+      "bytes": 438701720,
+      "sha256": "95fc6579572faa5026cd3931da4b73773e2f879237e2c76088af8ca288c93451",
+      "rpath_or_runpath": false,
+      "needed": [
+        "libstdc++.so.6",
+        "libm.so.6",
+        "libgcc_s.so.1",
+        "libc.so.6",
+        "ld-linux-x86-64.so.2"
+      ]
+    },
+    "backend_on": {
+      "path": "builds/pypto-row-reduction-v3-on-62eb882-final/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+      "bytes": 784224056,
+      "sha256": "e1213cf31972664a66012f95f1ebf003623dfebb54accdff3ab47cd6ca3e4220",
+      "embedded_pypto_revision": "62eb88251df5bdad95277a9d619d20da9bf121eb",
+      "rpath_or_runpath": false,
+      "needed": [
+        "libstdc++.so.6",
+        "libm.so.6",
+        "libgcc_s.so.1",
+        "libc.so.6",
+        "ld-linux-x86-64.so.2"
+      ]
+    }
+  },
+  "fresh_runs": {
+    "off_configure": {
+      "run_id": "pypto-20260826T081830Z-1475130-67cc32",
+      "process_sha256": "110fa6db2ca12eaf696e8dba4482ce063576a19f05b71df3fea665e1225b749e",
+      "preflight_sha256": "50413f0d015d67c61329bbb960c041eeae34ac52b01e695333d37e40717a4237",
+      "return_code": 0
+    },
+    "off_build": {
+      "run_id": "pypto-20260826T081902Z-1475654-80af0b",
+      "process_sha256": "dc80f28680a0851d5403a9ecb9773c62f6cd1e60ad1f936295511b373a2db4ef",
+      "preflight_sha256": "9adc47a77f4c4c56f720ac0f2af63efa2b9a6611bec2fdc7d449c5efc346410b",
+      "return_code": 0,
+      "owned_pause_count": 1,
+      "owned_resume_count": 1,
+      "external_processes_signalled": 0
+    },
+    "off_ctest": {
+      "run_id": "pypto-20260826T083232Z-1482640-501d3c",
+      "process_sha256": "c9a0624630ff98f4a6f66bf024deff278c2fd1625836c2dd396e5cf5a5f64fb1",
+      "preflight_sha256": "c7d5ed6916db6b5e7d7b2a8b62ce2feeaa78506510460927edd5b838b7220b0e",
+      "result": "11 passed 0 failed",
+      "last_test_log_sha256": "106d5654cac225fe64d8e3d5864f25761be26f0efcff0f834cd6c45388191f49"
+    },
+    "off_python": {
+      "run_id": "pypto-20260826T083340Z-1482901-2770d1",
+      "process_sha256": "53f33a2da5f06132247a526db5098141c7f089592326f164c14365f410c00dc5",
+      "preflight_sha256": "bca5d0fb1a90246f0de5c85c99cae7990fffb87670f3588bf3aef78f0049ab1d",
+      "result": "1 passed",
+      "junit_sha256": "21db37abeb918e091e052824fff7e546b10418d776942130b13f9c013f3bb049"
+    },
+    "on_configure": {
+      "run_id": "pypto-20260826T083404Z-1483052-38a759",
+      "process_sha256": "9bd27d8683100220013a5a6b2e23419480d60196f77d0e15146464643582a0dd",
+      "preflight_sha256": "fd848d534c18d5617637dc5c5d54881e3cd32254d348ead371ac01d5da06836b",
+      "return_code": 0
+    },
+    "on_build": {
+      "run_id": "pypto-20260826T083435Z-1484437-877fb0",
+      "process_sha256": "a66136dbe4a33e06da76881fb64252d2f4f1c5aa22cbfa4e1a4947548c5976fe",
+      "preflight_sha256": "483ba4db44d2d684e4a53b43c227a792537d7c6d2d73b74a1bc6bc656b8e5fb5",
+      "return_code": 0
+    },
+    "on_ctest": {
+      "run_id": "pypto-20260826T085507Z-1504511-416ab9",
+      "process_sha256": "7399e6eb6e9f4d455b73097ea5bd9e5e9aaa1954bd92265b234044317cb634e1",
+      "preflight_sha256": "d8e4225aa266badf5c7cc3065a442663e841796b68a6f85b54862803fdefe703",
+      "result": "13 passed 0 failed",
+      "last_test_log_sha256": "3ed4564516e04a17c6b0a88ca3e562909ac51ddfa61c92b81fab06dc0b2aae0b"
+    },
+    "on_python": {
+      "run_id": "pypto-20260826T085716Z-1505017-27dc82",
+      "process_sha256": "e3065f24ae8d201372c30482f6448032872117e94039b21ddf8fd0ad006cf8d6",
+      "preflight_sha256": "bc2d20293fef08c3f9816730eb3b218b3d616b6777b7d0a88cfa00eec7238878",
+      "result": "1 passed",
+      "junit_sha256": "f98960d9f692a712e7d23a39e2c553180050565e49ec346f647b7fbbb2d96d91"
+    }
+  },
+  "cubin_records": {
+    "path": "reports/data/pypto-row-reduction-v3-compiler-cubin-records.json",
+    "bytes": 5311,
+    "sha256": "d06765beaf4fd3ebec3c023b473a904bc704f6ae3a3491b157913ff49e338abb",
+    "run_id": "pypto-20260826T090132Z-1506220-c226a2",
+    "process_sha256": "cb2b2f91f1f07265f912fcdd2cf93a577a946511414cb3c6ba4118a84592ee27",
+    "preflight_sha256": "a467e7d0ce0b7214b946cf7b7e0563c7356982dad4e171e3e68a6cce3673922d",
+    "cases": [
+      "rank1_fp32_sum",
+      "rank2_bf16_max",
+      "rank3_fp32_sum",
+      "rank3_bf16_max"
+    ],
+    "all_nonempty_cubin": true,
+    "all_cubin_hashes_self_consistent": true,
+    "all_fallback_false": true,
+    "all_zero_workspace": true
+  },
+  "independent_reproduction": {
+    "run_id": "pypto-20260826T090758Z-1508157-9870e7",
+    "process_sha256": "554b7dcc06c5f85bc60266815c6c07788fd14ab46b0578f4d3c0a9e4bc44471e",
+    "preflight_sha256": "e8ba690d9fb8ff20f0cade5fdfbd1668765ffaf85c566c0276bf0351b64bed2d",
+    "result": "all four records match field for field",
+    "cuda_hidden": true,
+    "torch_cuda_initialized": false,
+    "runtime_launch_performed": false
+  },
+  "diagnostics": [
+    {
+      "run_id": "pypto-20260826T075147Z-1462269-2db57f",
+      "return_code": 2,
+      "reason": "deleted ArtifactArgumentDescriptor assignment in negative fixtures"
+    },
+    {
+      "run_id": "pypto-20260826T081115Z-1471295-394339",
+      "return_code": 4,
+      "reason": "pytest -n 0 unavailable while plugin autoload was disabled"
+    },
+    {
+      "run_id": "pypto-20260826T085627Z-1504888-f66bfc",
+      "return_code": 1,
+      "reason": "copied base64 exact-product harness had incorrect padding"
+    },
+    {
+      "run_id": "pypto-20260826T090011Z-1505814-4aa4ad",
+      "return_code": 1,
+      "reason": "rank-1 row tile 16 exceeds one checked outer row"
+    },
+    {
+      "run_id": "pypto-20260826T090058Z-1506060-a48709",
+      "return_code": 1,
+      "reason": "row tile 6 is not a positive power of two"
+    }
+  ],
+  "reviews": {
+    "decision": "GO",
+    "p0": 0,
+    "p1": 0,
+    "p2": 0,
+    "reviewers": [
+      "/root/fused_pointwise_impl",
+      "/root/fused_pointwise_tensorir_audit"
+    ],
+    "report_path": "logs/cp48-row-reduction-compiler-cubin-review.md",
+    "report_bytes": 2813,
+    "report_sha256": "5b673351bd1865e25c8a2ad68a3043ecb757d2b58c2a0b3edc82be3a03ea4755"
+  },
+  "accepted_scope": [
+    "clean backend-OFF and backend-ON unified PyPTO products",
+    "host-side native and exact-product Python regression",
+    "four exact nonfallback RowReductionV3 BuildSpec Artifact and SM120 Cubin records"
+  ],
+  "not_claimed": [
+    "GPU module loading launch or runtime ABI behavior",
+    "row-reduction numerical correctness or BF16 accuracy",
+    "general reduction shapes dtypes or operators",
+    "repeat determinism across builds profiling or performance",
+    "TorchInductor SGLang or Qwen integration"
+  ]
+}
