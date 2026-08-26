@@ -1,0 +1,521 @@
+{
+  "anchor_request": {
+    "bytes": 1583,
+    "derived_bytes": 1583,
+    "derived_sha256": "ec4141dee238e515cdbd266bc2e950e98a85717480d60c6a3fd6debd4a9e8d07",
+    "path": "runs/pypto-20260825T080254Z-910620-c669d9/pypto-nvidia-executable-sm120/compile-request.msgpack",
+    "sha256": "13c319b832c51188678b51a32b155253a6f896bfd1395044832611df0843adda"
+  },
+  "anchor_runs": [
+    {
+      "cuda_visible_devices": "",
+      "nvidia_visible_devices": "void",
+      "preflight": {
+        "bytes": 4528,
+        "mode": 384,
+        "path": "runs/pypto-20260826T094510Z-1519364-ce19bd/preflight.json",
+        "sha256": "942095e95001592e3be3d5f7e000b0d168f093d56484f2d92fa746de5b864719"
+      },
+      "process": {
+        "bytes": 1873,
+        "mode": 384,
+        "path": "runs/pypto-20260826T094510Z-1519364-ce19bd/process.json",
+        "sha256": "6cfd9607d314158b0a84aebebcb7e9858e784061de4e941c9600f5c827d877b8"
+      },
+      "record": {
+        "bytes": 28864,
+        "mode": 292,
+        "path": "runs/pypto-20260826T094510Z-1519364-ce19bd/row-reduction-compile-anchor-record.json",
+        "records_sha256": "c2ef43de60c70f452a718abf437913310144c694fea8955d0ace138143deb8b4",
+        "sha256": "5ced4369567cdb59b414dfd8af2aa5912b32bacd0d9b7639e1f8200add6d85e0"
+      },
+      "return_code": 0,
+      "run_id": "pypto-20260826T094510Z-1519364-ce19bd",
+      "torch_cuda_initialized_before_and_after": false
+    },
+    {
+      "cuda_visible_devices": "",
+      "nvidia_visible_devices": "void",
+      "preflight": {
+        "bytes": 4528,
+        "mode": 384,
+        "path": "runs/pypto-20260826T094530Z-1519654-79c7b7/preflight.json",
+        "sha256": "cf35428bd3e9d72fcd67c650a5248cf2f6186dfa826f57fc2ea7eb90bfe62363"
+      },
+      "process": {
+        "bytes": 1873,
+        "mode": 384,
+        "path": "runs/pypto-20260826T094530Z-1519654-79c7b7/process.json",
+        "sha256": "11348e389614d77c61253732b3a05f96b7a9248125b4662cf1308aa64e2e1efe"
+      },
+      "record": {
+        "bytes": 28864,
+        "mode": 292,
+        "path": "runs/pypto-20260826T094530Z-1519654-79c7b7/row-reduction-compile-anchor-record.json",
+        "records_sha256": "c2ef43de60c70f452a718abf437913310144c694fea8955d0ace138143deb8b4",
+        "sha256": "33e1358d7c6282636905b022d9a51b7c41a46b5bbd90f6a8d561dc5d09324eff"
+      },
+      "return_code": 0,
+      "run_id": "pypto-20260826T094530Z-1519654-79c7b7",
+      "torch_cuda_initialized_before_and_after": false
+    }
+  ],
+  "base_runner": {
+    "bytes": 66999,
+    "path": "benchmarks/operators/pypto_fused_pointwise_sm120.py",
+    "sha256": "b7960cc894834b3ba05476943e774cfc8602891faa5b9137b3d97a6aac40ab15"
+  },
+  "cp48_report": {
+    "bytes": 5311,
+    "path": "reports/data/pypto-row-reduction-v3-compiler-cubin-records.json",
+    "sha256": "d06765beaf4fd3ebec3c023b473a904bc704f6ae3a3491b157913ff49e338abb"
+  },
+  "dso": {
+    "bytes": 784224056,
+    "path": "builds/pypto-row-reduction-v3-on-62eb882-final/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "sha256": "e1213cf31972664a66012f95f1ebf003623dfebb54accdff3ab47cd6ca3e4220"
+  },
+  "generator": {
+    "bytes": 21172,
+    "path": "tools/generate_pypto_row_reduction_anchors.py",
+    "sha256": "2bbfa3dce913412ef6226e1518eb0004469b70c9f2b62ce2181add33979d9861"
+  },
+  "kind": "pypto-row-reduction-compile-anchors-v1",
+  "matrix_policy": {
+    "bf16_sum_accumulation": "bf16-input-fp32-reduce-one-rne-bf16-output",
+    "case_count": 10,
+    "executions": 20,
+    "fresh_executable_lifetimes": 20,
+    "input_guard_elements_per_side": 4096,
+    "maximum_required_input_guard_elements": 3967,
+    "maximum_required_output_guard_elements": 15,
+    "output_guard_elements_per_side": 16,
+    "sentinel_words": {
+      "bfloat16": [
+        49866,
+        17102,
+        49878,
+        17114
+      ],
+      "float32": [
+        3268018176,
+        1120796672,
+        3268804608,
+        1121583104
+      ]
+    }
+  },
+  "normalized_records_bytes": 16027,
+  "normalized_records_sha256": "447feaec3c9ecf39bc00de143653a8f3df5d726f22fdfd345237e9731f7f733d",
+  "pypto": {
+    "clean": true,
+    "head": "62eb88251df5bdad95277a9d619d20da9bf121eb",
+    "tree": "04d3bca3e0b35b796f7745ded27a26dd61e25c67"
+  },
+  "records": [
+    {
+      "artifact_bytes": 16023,
+      "artifact_sha256": "e78efb571315ac315e2f3305c5cf6185d58d1ae49effdb048e05cd6cdbaed698",
+      "atol": 0.0,
+      "build_spec_bytes": 1416,
+      "build_spec_sha256": "f5f653f85e9aa2cda3981542cf895e68eceda30e3eb61f8b7f80821255522e95",
+      "case": "rank1_fp32_sum_n1",
+      "comparison": "fp32-sum-ulp16-relative",
+      "contraction_chunks": 1,
+      "contraction_tile": 1,
+      "cp48_case": null,
+      "device_code_bytes": 13072,
+      "device_code_sha256": "26b033919473a536f27b2443d6ae6206c6c57f9b25cbad0eb5010fa6661790e6",
+      "dtype": "float32",
+      "grid": [
+        1,
+        1,
+        1
+      ],
+      "hir_bytes": 1759,
+      "hir_sha256": "90afc51a1085ed11ba3ab444cff59055d1cae8b755070934b174cc99968507e4",
+      "kernel_build_spec_digest": "f5f653f85e9aa2cda3981542cf895e68eceda30e3eb61f8b7f80821255522e95",
+      "max_ulp": 16,
+      "op_name": "tensor.row_sum",
+      "required_input_guard_elements": 0,
+      "required_output_guard_elements": 0,
+      "result_shape": [
+        1
+      ],
+      "row_tile": 1,
+      "rtol": 2e-06,
+      "shape": [
+        1
+      ],
+      "source_bytes": 251,
+      "source_ir_digest": "70a0f4bc90dea3a7f5e149b235ee0235e408a0d3397878bb94816bd920dd9cee",
+      "source_sha256": "70a0f4bc90dea3a7f5e149b235ee0235e408a0d3397878bb94816bd920dd9cee"
+    },
+    {
+      "artifact_bytes": 16279,
+      "artifact_sha256": "f9ad10e62d8512f4f75849f46468b7416c9454041f0c355326a7068051667064",
+      "atol": 0.0,
+      "build_spec_bytes": 1416,
+      "build_spec_sha256": "2aab9cba0bbe5b90fd633ad8bc175ca8412ebfccfb747fde77ce7f7ee5bfda8b",
+      "case": "rank1_fp32_sum_n7",
+      "comparison": "fp32-sum-ulp16-relative",
+      "contraction_chunks": 7,
+      "contraction_tile": 1,
+      "cp48_case": "rank1_fp32_sum",
+      "device_code_bytes": 13328,
+      "device_code_sha256": "6b94363838161d125e61f13bdf3a3aac211649b2fb98613e3096c90f9a820fde",
+      "dtype": "float32",
+      "grid": [
+        1,
+        1,
+        1
+      ],
+      "hir_bytes": 1759,
+      "hir_sha256": "e80bed5a12dff4fc218d253687ce10d9e811826f81c598b49ca7693f2ff5a892",
+      "kernel_build_spec_digest": "2aab9cba0bbe5b90fd633ad8bc175ca8412ebfccfb747fde77ce7f7ee5bfda8b",
+      "max_ulp": 16,
+      "op_name": "tensor.row_sum",
+      "required_input_guard_elements": 0,
+      "required_output_guard_elements": 0,
+      "result_shape": [
+        1
+      ],
+      "row_tile": 1,
+      "rtol": 2e-06,
+      "shape": [
+        7
+      ],
+      "source_bytes": 251,
+      "source_ir_digest": "ecc1bb444f0118aa8aa2e7b6c3e75c42ee86eb97328b169f29dba540f2f39223",
+      "source_sha256": "ecc1bb444f0118aa8aa2e7b6c3e75c42ee86eb97328b169f29dba540f2f39223"
+    },
+    {
+      "artifact_bytes": 20961,
+      "artifact_sha256": "c167bd40d3d7c243f103cdab3262002e01d78b422485c36ee5f20f7580871f85",
+      "atol": 0.0,
+      "build_spec_bytes": 1416,
+      "build_spec_sha256": "8be6ff5bc2914a0906cc6051b7da3718a719273549c4afe9f129c61f556a2672",
+      "case": "rank2_bf16_sum_n256_tail",
+      "comparison": "bf16-fp32-sum-ulp1-relative",
+      "contraction_chunks": 2,
+      "contraction_tile": 128,
+      "cp48_case": null,
+      "device_code_bytes": 18000,
+      "device_code_sha256": "24859c4eff44a7d1f5227a443083d1f3dbb5004da3ba280ba81f86744a69ad34",
+      "dtype": "bfloat16",
+      "grid": [
+        2,
+        1,
+        1
+      ],
+      "hir_bytes": 2037,
+      "hir_sha256": "06e1f69a77fec5692a9a2ff19fd879c344dec589fd0f5ab8ff488c949ba82fc1",
+      "kernel_build_spec_digest": "8be6ff5bc2914a0906cc6051b7da3718a719273549c4afe9f129c61f556a2672",
+      "max_ulp": 1,
+      "op_name": "tensor.row_sum",
+      "required_input_guard_elements": 3967,
+      "required_output_guard_elements": 15,
+      "result_shape": [
+        17,
+        1
+      ],
+      "row_tile": 16,
+      "rtol": 0.0078125,
+      "shape": [
+        17,
+        256
+      ],
+      "source_bytes": 485,
+      "source_ir_digest": "bd4a4fb0bdfa891f027c21c176166fba6a098fb4192e15472b8c09278e69cab5",
+      "source_sha256": "bd4a4fb0bdfa891f027c21c176166fba6a098fb4192e15472b8c09278e69cab5"
+    },
+    {
+      "artifact_bytes": 16821,
+      "artifact_sha256": "b867d88d3b3ba011180b4be815ab28476d8659c1a6ab59707a87ba66e5f95541",
+      "atol": 0.0,
+      "build_spec_bytes": 1416,
+      "build_spec_sha256": "731a908f8486a6cae98e0776b1d1320c45f8631651f6fe9aa91898dea14df888",
+      "case": "rank2_bf16_max_n17",
+      "comparison": "exact-max-classification-sign",
+      "contraction_chunks": 17,
+      "contraction_tile": 1,
+      "cp48_case": "rank2_bf16_max",
+      "device_code_bytes": 13864,
+      "device_code_sha256": "8245b25e500a85b1aa4338000ab0d272f55fba0e9ae771992c5ba3f4b2de0b53",
+      "dtype": "bfloat16",
+      "grid": [
+        1,
+        1,
+        1
+      ],
+      "hir_bytes": 2035,
+      "hir_sha256": "dcd983fa270e791a9c4e4077aa3e673d242a7647668aa7fa90d3d75db1caa50e",
+      "kernel_build_spec_digest": "731a908f8486a6cae98e0776b1d1320c45f8631651f6fe9aa91898dea14df888",
+      "max_ulp": 1,
+      "op_name": "tensor.row_max",
+      "required_input_guard_elements": 0,
+      "required_output_guard_elements": 1,
+      "result_shape": [
+        2,
+        1
+      ],
+      "row_tile": 2,
+      "rtol": 0.0078125,
+      "shape": [
+        2,
+        17
+      ],
+      "source_bytes": 471,
+      "source_ir_digest": "2f361dd45776471086d209fcdc7208faea877ce005eb13d2afeda7ff42cd67b3",
+      "source_sha256": "2f361dd45776471086d209fcdc7208faea877ce005eb13d2afeda7ff42cd67b3"
+    },
+    {
+      "artifact_bytes": 18199,
+      "artifact_sha256": "b9cc830b9d295909f0f40c1e54a3c8d506e8ebf99ecaa9203e8ee1f926b57ec8",
+      "atol": 0.0,
+      "build_spec_bytes": 1416,
+      "build_spec_sha256": "93da767b52f34847be5f8dec0942c784cf2eb0b389c4edcfc096fad1b3cccbb2",
+      "case": "rank2_fp32_max_n128_tail",
+      "comparison": "exact-max-classification-sign",
+      "contraction_chunks": 1,
+      "contraction_tile": 128,
+      "cp48_case": null,
+      "device_code_bytes": 15240,
+      "device_code_sha256": "09daab6101079a80cd20a580e8fa12e54ddce6684483b7f7ed5bb1dbb80e7c58",
+      "dtype": "float32",
+      "grid": [
+        2,
+        1,
+        1
+      ],
+      "hir_bytes": 2036,
+      "hir_sha256": "d34faf60ffef3910cd07ae6312e66d74676bf86449fa6d4df8aa29c3627f2377",
+      "kernel_build_spec_digest": "93da767b52f34847be5f8dec0942c784cf2eb0b389c4edcfc096fad1b3cccbb2",
+      "max_ulp": 16,
+      "op_name": "tensor.row_max",
+      "required_input_guard_elements": 511,
+      "required_output_guard_elements": 3,
+      "result_shape": [
+        5,
+        1
+      ],
+      "row_tile": 4,
+      "rtol": 2e-06,
+      "shape": [
+        5,
+        128
+      ],
+      "source_bytes": 333,
+      "source_ir_digest": "ed4b4b8da81695887065ca40d1d8cbad4ec26ddf3f1821456aa3c463071200cc",
+      "source_sha256": "ed4b4b8da81695887065ca40d1d8cbad4ec26ddf3f1821456aa3c463071200cc"
+    },
+    {
+      "artifact_bytes": 18069,
+      "artifact_sha256": "206f3b17debd7ef8340b69beb88ac273e75423242cf8a406a79431184a520860",
+      "atol": 0.0,
+      "build_spec_bytes": 1416,
+      "build_spec_sha256": "6109901f4748c1e8ae7ad1a8637fb5a8d839f59e0039a065429734e002961184",
+      "case": "rank2_fp32_max_n96_tail",
+      "comparison": "exact-max-classification-sign",
+      "contraction_chunks": 3,
+      "contraction_tile": 32,
+      "cp48_case": null,
+      "device_code_bytes": 15112,
+      "device_code_sha256": "057c0ed90ae0ecf4cfab46649cb21b59fc8c902aa68f2234dfbf2c058aad3f87",
+      "dtype": "float32",
+      "grid": [
+        2,
+        1,
+        1
+      ],
+      "hir_bytes": 2035,
+      "hir_sha256": "96cb95e504b4de609856b6bf174eca41d9fcefd21f7954b905722e8d48839fb9",
+      "kernel_build_spec_digest": "6109901f4748c1e8ae7ad1a8637fb5a8d839f59e0039a065429734e002961184",
+      "max_ulp": 16,
+      "op_name": "tensor.row_max",
+      "required_input_guard_elements": 319,
+      "required_output_guard_elements": 3,
+      "result_shape": [
+        5,
+        1
+      ],
+      "row_tile": 4,
+      "rtol": 2e-06,
+      "shape": [
+        5,
+        96
+      ],
+      "source_bytes": 330,
+      "source_ir_digest": "5833b2878941747503839ee94cdc685263b8d302af62da15b00d2f737ae12ce0",
+      "source_sha256": "5833b2878941747503839ee94cdc685263b8d302af62da15b00d2f737ae12ce0"
+    },
+    {
+      "artifact_bytes": 21231,
+      "artifact_sha256": "410c3b27b9cb1e09fabba05c46b416f30fa960e1e0352f54104db9552cff255f",
+      "atol": 0.0,
+      "build_spec_bytes": 1416,
+      "build_spec_sha256": "fb754117ea8c8831b8e6f160ee2711455e6317a1e757fe628f1d15151d01bba2",
+      "case": "rank2_bf16_sum_n129",
+      "comparison": "bf16-fp32-sum-ulp1-relative",
+      "contraction_chunks": 129,
+      "contraction_tile": 1,
+      "cp48_case": null,
+      "device_code_bytes": 18272,
+      "device_code_sha256": "f874d284f6c5199455386ad458e996ea65476ea58902a595536fbe280fe6ccac",
+      "dtype": "bfloat16",
+      "grid": [
+        1,
+        1,
+        1
+      ],
+      "hir_bytes": 2036,
+      "hir_sha256": "083c4ed03125a32c48c68f0069061d35c7c64c11b81d9f65292f7c76d6c36d77",
+      "kernel_build_spec_digest": "fb754117ea8c8831b8e6f160ee2711455e6317a1e757fe628f1d15151d01bba2",
+      "max_ulp": 1,
+      "op_name": "tensor.row_sum",
+      "required_input_guard_elements": 0,
+      "required_output_guard_elements": 7,
+      "result_shape": [
+        8,
+        1
+      ],
+      "row_tile": 8,
+      "rtol": 0.0078125,
+      "shape": [
+        8,
+        129
+      ],
+      "source_bytes": 476,
+      "source_ir_digest": "2efa6b359cba0c7f12ad4767bf9ac0f002bb1499474a29b79cf5dddd22cc6b9d",
+      "source_sha256": "2efa6b359cba0c7f12ad4767bf9ac0f002bb1499474a29b79cf5dddd22cc6b9d"
+    },
+    {
+      "artifact_bytes": 17801,
+      "artifact_sha256": "8da3d34ee67241b095957574ddbf6d68fc8c7455b1a75d076f0989c2372cc0e4",
+      "atol": 0.0,
+      "build_spec_bytes": 1416,
+      "build_spec_sha256": "8b1fcca35fa69860a4975443b73c6645f4bc3103d72aa82f90b46d9133636fa0",
+      "case": "rank3_fp32_sum_n17_tail",
+      "comparison": "fp32-sum-ulp16-relative",
+      "contraction_chunks": 17,
+      "contraction_tile": 1,
+      "cp48_case": "rank3_fp32_sum",
+      "device_code_bytes": 14840,
+      "device_code_sha256": "cee76f4d4a41c766fcc64f3c9f6acfee7d3a56e29650c70ce1d6f2b5c3568b75",
+      "dtype": "float32",
+      "grid": [
+        2,
+        1,
+        1
+      ],
+      "hir_bytes": 2311,
+      "hir_sha256": "27c7d9c5a5aebfb1dbe4a84aac996724e0bb5aabaa546f070f272a5c3e86387b",
+      "kernel_build_spec_digest": "8b1fcca35fa69860a4975443b73c6645f4bc3103d72aa82f90b46d9133636fa0",
+      "max_ulp": 16,
+      "op_name": "tensor.row_sum",
+      "required_input_guard_elements": 34,
+      "required_output_guard_elements": 3,
+      "result_shape": [
+        2,
+        3,
+        1
+      ],
+      "row_tile": 4,
+      "rtol": 2e-06,
+      "shape": [
+        2,
+        3,
+        17
+      ],
+      "source_bytes": 481,
+      "source_ir_digest": "87ed7b6e1e0828508e45a5597d19daebdc26233932912e6b0f3b8918bc4e63bc",
+      "source_sha256": "87ed7b6e1e0828508e45a5597d19daebdc26233932912e6b0f3b8918bc4e63bc"
+    },
+    {
+      "artifact_bytes": 17171,
+      "artifact_sha256": "d8fec7243666da3ae29ae0cb4df557b8772f51bc1b61bdf24ea96ddb4e8ecc33",
+      "atol": 0.0,
+      "build_spec_bytes": 1416,
+      "build_spec_sha256": "f96aa6ed0850d2fb01247e62ced274a1ece4d47c8393edc9352c23cffdef4684",
+      "case": "rank3_bf16_max_n17",
+      "comparison": "exact-max-classification-sign",
+      "contraction_chunks": 17,
+      "contraction_tile": 1,
+      "cp48_case": "rank3_bf16_max",
+      "device_code_bytes": 14208,
+      "device_code_sha256": "d1b454a5106f8dd72342e118805883bc73a57cc316857428ca81934adad871a1",
+      "dtype": "bfloat16",
+      "grid": [
+        2,
+        1,
+        1
+      ],
+      "hir_bytes": 2311,
+      "hir_sha256": "9d474fb2dbda7e0bc9e84b8fa246d36452d227cc053af6151c02c35b5efa5e01",
+      "kernel_build_spec_digest": "f96aa6ed0850d2fb01247e62ced274a1ece4d47c8393edc9352c23cffdef4684",
+      "max_ulp": 1,
+      "op_name": "tensor.row_max",
+      "required_input_guard_elements": 0,
+      "required_output_guard_elements": 15,
+      "result_shape": [
+        2,
+        16,
+        1
+      ],
+      "row_tile": 16,
+      "rtol": 0.0078125,
+      "shape": [
+        2,
+        16,
+        17
+      ],
+      "source_bytes": 643,
+      "source_ir_digest": "4f851e9e17a14be2a7b5e1c134a5c31a5b97a1895fd07d0b62831373fc36270c",
+      "source_sha256": "4f851e9e17a14be2a7b5e1c134a5c31a5b97a1895fd07d0b62831373fc36270c"
+    },
+    {
+      "artifact_bytes": 19743,
+      "artifact_sha256": "a0e268b4f160d49be7e4ae37c781078e1b901a7610cf498554628d31983c3bc0",
+      "atol": 0.0,
+      "build_spec_bytes": 1416,
+      "build_spec_sha256": "e976117bfa6e75d67631c75ec073f745434f03f843d159bfeabf3f3bdde96336",
+      "case": "rank3_fp32_max_n257_tail",
+      "comparison": "exact-max-classification-sign",
+      "contraction_chunks": 257,
+      "contraction_tile": 1,
+      "cp48_case": null,
+      "device_code_bytes": 16776,
+      "device_code_sha256": "41783c52ac7d1857f76a5a10728df9025a485b25ee8192f674921841bde73e57",
+      "dtype": "float32",
+      "grid": [
+        2,
+        1,
+        1
+      ],
+      "hir_bytes": 2313,
+      "hir_sha256": "9dec2d9b85636e7ef4c2e42396ea42e6b4d7587a72c399e5eefcf5f8755ea788",
+      "kernel_build_spec_digest": "e976117bfa6e75d67631c75ec073f745434f03f843d159bfeabf3f3bdde96336",
+      "max_ulp": 16,
+      "op_name": "tensor.row_max",
+      "required_input_guard_elements": 514,
+      "required_output_guard_elements": 3,
+      "result_shape": [
+        2,
+        3,
+        1
+      ],
+      "row_tile": 4,
+      "rtol": 2e-06,
+      "shape": [
+        2,
+        3,
+        257
+      ],
+      "source_bytes": 487,
+      "source_ir_digest": "95feb13487688b1c673071ef1c3a1e33f759a70ac58c4430b184ccec52b4600e",
+      "source_sha256": "95feb13487688b1c673071ef1c3a1e33f759a70ac58c4430b184ccec52b4600e"
+    }
+  ],
+  "records_sha256": "c2ef43de60c70f452a718abf437913310144c694fea8955d0ace138143deb8b4",
+  "schema_version": 1
+}
