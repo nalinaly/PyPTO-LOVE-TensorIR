@@ -383,6 +383,48 @@ def validate_child_gate(
         raise FinalizeV2Error("exclusive child gate contains a protected heavy PID")
 
 
+def validate_child_parent_joins(
+    child_gate: dict[str, object],
+    preflight: dict[str, object],
+    process: dict[str, object],
+) -> None:
+    child_gpu = child_gate["gpu"]
+    preflight_gpu = preflight["gpu"]
+    pre_release = process["gpu_smoke_pre_release_audit"]
+    pre_release_gpu = pre_release["gpu"]
+    immutable_gpu_fields = ("name", "compute_capability", "memory_mib", "driver")
+    if any(
+        child_gpu.get(name) != preflight_gpu.get(name)
+        or child_gpu.get(name) != pre_release_gpu.get(name)
+        for name in immutable_gpu_fields
+    ):
+        raise FinalizeV2Error("parent/child immutable GPU identity differs")
+    if child_gate.get("free_memory_mib") != int(str(child_gpu["memory_mib"])) - int(
+        str(child_gpu["used_mib"])
+    ) or pre_release.get("free_memory_mib") != int(
+        str(pre_release_gpu["memory_mib"])
+    ) - int(str(pre_release_gpu["used_mib"])):
+        raise FinalizeV2Error("parent/child free-memory joins differ")
+    expected_protected_heavy = [
+        record["pid"] for record in preflight["protected_heavy_processes"]
+    ]
+    if (
+        child_gate.get("protected_heavy_pids") != expected_protected_heavy
+        or pre_release.get("protected_heavy_pids") != expected_protected_heavy
+    ):
+        raise FinalizeV2Error("parent/child protected-heavy inventories differ")
+
+
+def validate_run_context_identity(
+    run: dict[str, object], process: dict[str, object], gate: dict[str, object]
+) -> None:
+    for name in ("run_id", "pid", "pgid", "start_ticks"):
+        if run.get(name) != process.get(name) or run.get(name) != gate.get(name):
+            raise FinalizeV2Error(f"run-context {name} identity differs")
+    if run.get("mode") != "gpu-smoke" or process.get("mode") != "gpu-smoke":
+        raise FinalizeV2Error("run-context mode identity differs")
+
+
 def validate_audit(
     value: object, *, description: str, authorized: bool, zero_owned: bool
 ) -> None:
@@ -1021,6 +1063,7 @@ def validate_run_documents(
     ):
         raise FinalizeV2Error("gate/barrier identity differs")
     run = provisional["run_context"]
+    validate_run_context_identity(run, process, gate)
     if (
         run.get("initial_preflight")
         != {
@@ -1047,6 +1090,7 @@ def validate_run_documents(
     child_gate = provisional["runtime"]["child_pre_cuda_gate"]
     if child_gate.get("static_identity") != gate.get("static_identity"):
         raise FinalizeV2Error("parent/child static identity differs")
+    validate_child_parent_joins(child_gate, preflight, process)
 
 
 def exact_integrity_record(path: Path, name: str) -> dict[str, object]:

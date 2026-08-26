@@ -730,6 +730,66 @@ class AuditorParityRegressionTest(unittest.TestCase):
             with self.assertRaisesRegex(finalizer.FinalizeV2Error, "regular"):
                 finalizer.exact_integrity_record(root, "directory fixture")
 
+    def test_run_context_joins_all_five_process_identity_fields(self) -> None:
+        process = {
+            "run_id": self.run_id,
+            "mode": "gpu-smoke",
+            "pid": 10,
+            "pgid": 11,
+            "start_ticks": 12,
+        }
+        gate = {
+            name: process[name] for name in ("run_id", "pid", "pgid", "start_ticks")
+        }
+        run = dict(process)
+        finalizer.validate_run_context_identity(run, process, gate)
+        mutations = {
+            "run_id": "pypto-20260826T120001Z-123456-abcdef",
+            "mode": "heavy",
+            "pid": 20,
+            "pgid": 21,
+            "start_ticks": 22,
+        }
+        for name, value in mutations.items():
+            candidate = dict(run)
+            candidate[name] = value
+            with self.subTest(name=name), self.assertRaises(finalizer.FinalizeV2Error):
+                finalizer.validate_run_context_identity(candidate, process, gate)
+
+    def test_child_gpu_free_memory_and_protected_heavy_join_parent(self) -> None:
+        gpu = copy.deepcopy(self.preflight["gpu"])
+        child_gate = {
+            "gpu": gpu,
+            "free_memory_mib": 23_552,
+            "protected_heavy_pids": [],
+        }
+        process = {
+            "gpu_smoke_pre_release_audit": {
+                "gpu": copy.deepcopy(gpu),
+                "free_memory_mib": 23_552,
+                "protected_heavy_pids": [],
+            }
+        }
+        finalizer.validate_child_parent_joins(child_gate, self.preflight, process)
+        candidates = []
+        gpu_drift = copy.deepcopy(child_gate)
+        gpu_drift["gpu"]["memory_mib"] = "24575"
+        candidates.append(("GPU", gpu_drift, process))
+        free_drift = copy.deepcopy(child_gate)
+        free_drift["free_memory_mib"] = 23_551
+        candidates.append(("free", free_drift, process))
+        protected_drift = copy.deepcopy(child_gate)
+        protected_drift["protected_heavy_pids"] = [99]
+        candidates.append(("protected", protected_drift, process))
+        process_drift = copy.deepcopy(process)
+        process_drift["gpu_smoke_pre_release_audit"]["protected_heavy_pids"] = [99]
+        candidates.append(("process protected", child_gate, process_drift))
+        for name, child_candidate, process_candidate in candidates:
+            with self.subTest(name=name), self.assertRaises(finalizer.FinalizeV2Error):
+                finalizer.validate_child_parent_joins(
+                    child_candidate, self.preflight, process_candidate
+                )
+
 
 class DocumentationTest(unittest.TestCase):
     def test_v2_runbook_freezes_boundaries_and_nonclaims(self) -> None:
