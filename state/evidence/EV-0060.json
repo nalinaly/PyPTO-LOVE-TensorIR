@@ -1,0 +1,170 @@
+{
+  "id": "EV-0060",
+  "kind": "fused_pointwise_sm120_correctness_result_v2",
+  "status": "accepted_fixed_nine_case_real_sm120_correctness",
+  "admission_change": {
+    "reason": "user authorized approximately 22 GiB as sufficient host headroom",
+    "protected_memory_floor_kib": 23068672,
+    "exclusive_memory_floor_kib": 33554432,
+    "owned_run_abort_memory_floor_kib": 16777216,
+    "gpu_free_memory_floor_mib": 4096,
+    "v1_preserved_byte_exact": true
+  },
+  "implementation": {
+    "commits": [
+      {
+        "commit": "0b292da8fa0512db7bc33690065952f316c55f62",
+        "tree": "39718f77f80bd40404b957501668c8e1c9988424",
+        "purpose": "additive v2 admission and evidence family"
+      },
+      {
+        "commit": "339ff3508484b8f67b16ebfb173234beaf520925",
+        "tree": "fb9b028f2fdb0de0bd3e7c96b7e2900b83d657e6",
+        "purpose": "restore exact finalizer metadata and numerical joins"
+      },
+      {
+        "commit": "f0ea59ad0b198ac17b840648b3fc046a79e9e2b3",
+        "tree": "70b01af7b8190a3f5db3a1e4368a14e503701f69",
+        "purpose": "join run child GPU free-memory and protected-lane identities"
+      },
+      {
+        "commit": "6cf5f958bf52f8be0b78fc96e39f16f8bf953093",
+        "tree": "75b5e04223013323783c63a137795d5ab06041bb",
+        "purpose": "close mocked controller and child admission test coverage"
+      }
+    ],
+    "control_files": [
+      {
+        "path": "benchmarks/operators/pypto_fused_pointwise_sm120_v2.py",
+        "bytes": 25051,
+        "sha256": "8eaed4a6280187ea8fbf99bebc1e9674748b7f66e40031ab3fa2147b9191b103"
+      },
+      {
+        "path": "tools/_pypto_fused_pointwise_sm120_contract_v2.py",
+        "bytes": 3784,
+        "sha256": "9825558b443aa5337882842b9214ed297ad777f77d8a766986960d8dea4c06de"
+      },
+      {
+        "path": "tools/preflight_gpu_smoke_v2.py",
+        "bytes": 11708,
+        "sha256": "0dd3dc96fbb170ddf4967fed4b7cf6f5a4b438c1499a5f5535a35cff56a59027"
+      },
+      {
+        "path": "tools/_pypto_fused_pointwise_sm120_control_manifest_v2.py",
+        "bytes": 10807,
+        "sha256": "6c2737daf653ac237a2da0081ad05b9d3e14593e2862582e74898f92c7c94ebf"
+      },
+      {
+        "path": "tools/run_pypto_fused_pointwise_sm120_v2_isolated.py",
+        "bytes": 23094,
+        "sha256": "be93fdac4ac5b5c097ac3899d4b90956afce5af113c06df70eb65f94c10c44c0"
+      },
+      {
+        "path": "tools/finalize_pypto_fused_pointwise_sm120_v2.py",
+        "bytes": 55922,
+        "sha256": "f1007836af671a47a75133e0b215f0b2abf2e84060af028295928d4e24d745a8"
+      }
+    ]
+  },
+  "manifest": {
+    "commit": "f6a064b73750a71bdd35b97420bd42ca6d425245",
+    "tree": "69f16f12bf75c986cd1a9911fa402b1ad65046ad",
+    "only_file_in_commit": true,
+    "path": "state/contracts/pypto_fused_pointwise_sm120_v2.json",
+    "bytes": 1553,
+    "mode": "0644",
+    "sha256": "d3b16079c811dd2fbe610ba264d81117e8c4a44886b74caaddb684df2d467036"
+  },
+  "fixed_compiler": {
+    "pypto_commit": "b83fcd3ddc497d585bcc45883eede179aff7d4d2",
+    "pypto_tree": "49eda98f3ed8d72bfd14d5a5900cdc0e71ca699d",
+    "pypto_dso_sha256": "0e8f33c263e06777aec06263bf32ca59ac554868529f3fa085212cf27e2facbe",
+    "compile_anchor_manifest_sha256": "584f6755bbd248de5bb6ddd3ff610da8082667bc892a6cff6583ea42d4c44c97",
+    "compile_anchor_records_sha256": "01e8f99dfb0a1aa0e5788177b7d41cc6ed62983037aa57ed8628bb0a1594b844",
+    "v1_control_manifest_sha256": "ce20dd3ac6796bee16235913b8b296ae8c4781167c35f08de7c19ac7977a6896"
+  },
+  "post_manifest_tests": {
+    "focused": {
+      "command": "python -E -B -S -m unittest tests.test_pypto_fused_pointwise_sm120 tests.test_pypto_fused_pointwise_sm120_v2",
+      "result": "58 passed"
+    },
+    "full": {
+      "run_id": "pypto-20260826T072707Z-1448115-216ff1",
+      "result": "304 passed 189 subtests",
+      "process_sha256": "e955e001dbea76ca2fd215813fe04407d882d1ec11ac5fec370a96c85e2f451a",
+      "preflight_sha256": "f7ada7752d82e717f8a15ac45a6496bd7c75c5ce8c6c7a55202f6bba6fa37e02",
+      "cuda_hidden": true,
+      "return_code": 0,
+      "status": "exited"
+    }
+  },
+  "gpu_run": {
+    "run_id": "pypto-20260826T073309Z-1451510-e48ced",
+    "return_code": 0,
+    "status": "exited",
+    "process_sha256": "6eb362053c3da2ce9f4704f3a49698981d4ca6f8bb6d380a4467e7de020fa9fe",
+    "initial_preflight_sha256": "1da3438352fb7a66cf758f02e1ce0d0b787c9f6dc64267ccbee93c8520df91ad",
+    "action_preflight_sha256": "361fb740e045aa93483dc6e5d4c98c8de22d3233d3c6bdc2e6f1e4f2d301f57d",
+    "gate_sha256": "f70b6c81615e40f7c9a93e3bfe359e40c5f7445ad24c0bdde4a80c8615734182",
+    "start_barrier_sha256": "80f079604e3572f4a342f8093db075d548809d7abb3206990aac3a84973fb557",
+    "provisional_sha256": "e764bde5e4384ea09b994eec27f654ab0493c2eaf317d9bab43ec56591745329",
+    "initial_mem_available_kib": 26578520,
+    "action_mem_available_kib": 26531016,
+    "free_gpu_memory_mib_at_pre_release": 20392,
+    "zero_external_or_protected_nvidia_activity": true,
+    "surviving_owned_processes": 0
+  },
+  "final_report": {
+    "path": "reports/data/pypto-fused-pointwise-sm120-v2-pypto-20260826T073309Z-1451510-e48ced.json",
+    "bytes": 233749,
+    "mode": "0444",
+    "sha256": "d4ffafc053b2924a195f1f046d653233c0076b331f0bc90b075eaa2752eeedf0",
+    "status": "accepted-real-sm120-fused-pointwise-nine-case-correctness-gate-v2",
+    "no_replace_retry_exit_code": 1,
+    "no_replace_retry_preserved_sha256": true
+  },
+  "numerical_result": {
+    "case_count": 9,
+    "repetitions_per_case": 2,
+    "fresh_executable_lifetimes": 18,
+    "replay_file_count": 142,
+    "candidate_vs_torch_max_ulp": 0,
+    "candidate_vs_independent_cpu_max_ulp": 1,
+    "torch_vs_independent_cpu_max_ulp": 1,
+    "arithmetic_reciprocal_maximum_exact": true,
+    "special_classification_and_sign_exact": true,
+    "fp32_negative_zero_word": "0x80000000",
+    "bf16_negative_zero_word": "0x8000",
+    "inputs_unchanged": true,
+    "canaries_unchanged": true,
+    "fallback_used": false,
+    "forbidden_provider_imports": [],
+    "explicit_packet_releases": 18,
+    "explicit_unloads": 18,
+    "terminal_context_unbound": true
+  },
+  "reviews": {
+    "decision": "GO",
+    "p0": 0,
+    "p1": 0,
+    "p2": 0,
+    "reviewers": [
+      "/root/fused_pointwise_impl",
+      "/root/fused_pointwise_tensorir_audit"
+    ],
+    "report_path": "logs/cp47-fused-pointwise-v2-evidence-review.md",
+    "report_bytes": 3170,
+    "report_sha256": "b44846b222e93fe913f943f47b95f71f5b382eaabf3db80a64edf3f7a70a5488"
+  },
+  "accepted_scope": [
+    "real SM120 execution and numerical correctness for the frozen nine-case FusedPointwiseV2 matrix",
+    "exact parent child process isolation and current-stream executable lifecycle for eighteen fixed lifetimes",
+    "immutable CPU-finalized replay evidence with independent Torch and CPU joins"
+  ],
+  "not_claimed": [
+    "general FusedPointwiseV2 correctness or other chains shapes ranks scalars subnormal or high_precision behavior",
+    "cross-build Cubin determinism",
+    "reduction matmul memory lowering performance or CUDA Graph",
+    "TorchInductor SGLang Qwen correctness or strict coverage"
+  ]
+}
