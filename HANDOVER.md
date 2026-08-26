@@ -79,11 +79,13 @@ upstream checkouts and their optional/manual suites.
   then FP32-to-BF16 `convert`. Do not accept the arbitrary-rank grid law before
   direct rank-1, rank-2 and dense row-major rank-3 normalized-layout producer
   fixtures pass. Source candidate `1daa7e57893eeb821752ca0fcf07daec4d46080e`
-  is committed cleanly on `feature/row-reduction-v3` with no build or runtime
-  claim. Independent review has already found one blocking resource-bound gap:
-  preparation must bound the real outer-by-contraction CUDA Tile element count
-  and the i32 contraction-loop trip count. Do not build or accept that candidate
-  until the final review and a source-fix commit close those checks/tests/docs.
+  plus follow-up `17b2b3c655d97076ac6d968ff2e45969da5161a2`
+  are committed cleanly on `feature/row-reduction-v3`. The follow-up derives
+  the actual contraction tile, bounds the full CUDA Tile element count and i32
+  loop trip count, adds N=128/N=256 producer fixtures and completes exact
+  source/projection goldens. Independent static re-review returns GO with
+  P0/P1/P2 = 0. This is source-only: no reduction build, Cubin, runtime,
+  numerical correctness or performance claim exists yet.
 - Read-only structured-matmul reconnaissance selected a later private
   `StructuredMatmulV4` contract: static dense BF16 rank-2 or equal-batch rank-3
   `tensor.matmul`, BF16 physical result ABI, TensorIR BF16-by-BF16-to-FP32

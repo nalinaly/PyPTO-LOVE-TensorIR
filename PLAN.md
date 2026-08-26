@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `39`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `40`
 
 ## Current phase: P2 frontend-HIR SM120 execution; R0 baseline remains open
 
@@ -32,9 +32,11 @@ read-only reconnaissance fixed the next separate
 reduce-last/keep-dim, one flattened outer-row tile/grid (frozen by direct
 rank-1/rank-2/rank-3 producer fixtures), and explicit BF16-to-FP32
 reduction-to-BF16 conversion so BF16 sum does not silently accumulate in BF16.
-Its source-only candidate is committed at PyPTO `1daa7e5`; independent review
-has found a blocking CUDA Tile element-count/i32 contraction-loop bound that
-must be fixed before any reduction build.
+Its two source-only commits end at PyPTO `17b2b3c`: the follow-up closes CUDA
+Tile element-count and i32 contraction-loop bounds, adds actual no-loop/looped
+producer fixtures and complete source/projection goldens. Independent static
+re-review is GO with P0/P1/P2 = 0. Reduction build, Cubin and runtime gates
+remain pending behind the current fused-pointwise transaction.
 The following structured-matmul source map is also frozen: bounded static BF16
 rank-2/equal-batch-rank-3 HIR, TensorIR BF16-by-BF16-to-FP32 matmul, explicit
 FP32-to-BF16 output conversion, explicit transpose views, normalization-driven
