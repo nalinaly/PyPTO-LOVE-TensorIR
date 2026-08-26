@@ -1,0 +1,64 @@
+{
+  "base_dependencies": {
+    "nvidia_contract": {
+      "bytes": 4783,
+      "path": "tools/_pypto_nvidia_executable_sm120_contract.py",
+      "sha256": "fa477d91933df765e9163bf3081ed6d41f323bb49285106dcdbd4bee554113bf"
+    },
+    "nvidia_control": {
+      "bytes": 7491,
+      "path": "tools/_pypto_nvidia_sm120_control_manifest.py",
+      "sha256": "bfa0e5c66ffad9435c0c31dc82ed7581d6bee608f1487e3fb2932cabbb2b597a"
+    },
+    "nvidia_manifest": {
+      "bytes": 1569,
+      "path": "state/contracts/pypto_nvidia_executable_sm120_v4.json",
+      "sha256": "a079c4d252aa346bb19a64a6ad3947867b76e7c778f7234125078fb16b2598bf"
+    },
+    "preflight": {
+      "bytes": 27684,
+      "path": "tools/preflight.py",
+      "sha256": "0b9884f8dbd34337a85f62c351b1e19dda3a8b84ec9a88c835d8701af053e3d1"
+    },
+    "run_isolated": {
+      "bytes": 76558,
+      "path": "tools/run_isolated.py",
+      "sha256": "978686ac09743a98233c9616d23b04e57d3a257bd643d5db3b8a71eaac7465c8"
+    },
+    "stop_run": {
+      "bytes": 7885,
+      "path": "tools/stop_run.py",
+      "sha256": "879a2e3863671531a548c71d788d56298500eab989bd1420d2c7ae01717ddfe4"
+    }
+  },
+  "files": [
+    {
+      "bytes": 14031,
+      "mode": 420,
+      "path": "tools/_pypto_cpu_coexistence_v2_contract.py",
+      "sha256": "3c15af140f9be3aea274a9dc07bee83cd6ec6b4e0313ca2bcf083163f1feb7bb"
+    },
+    {
+      "bytes": 12276,
+      "mode": 420,
+      "path": "tools/preflight_cpu_coexistence_v2.py",
+      "sha256": "459902cb3b727e1cc313ed0d0db93fad75255be5466a8fa26621db44a911ec33"
+    },
+    {
+      "bytes": 45665,
+      "mode": 420,
+      "path": "tools/run_pypto_cpu_coexistence_v2_isolated.py",
+      "sha256": "ed9b11c3edbf52f0ffa1e1d627a04db5b04f42b87372461bf51703d3ef4205e2"
+    },
+    {
+      "bytes": 10100,
+      "mode": 420,
+      "path": "tools/_pypto_cpu_coexistence_v2_control_manifest.py",
+      "sha256": "da8ed9d012f6b5a146eab93c20740584167345d5a64aa8f46fe65b3a440b51a9"
+    }
+  ],
+  "implementation_commit": "82162c643ef8788e6310e6026b0040043e37f4db",
+  "implementation_tree": "ab29d6d5925f53d292bccb9890a4c9c1730b327f",
+  "kind": "pypto-cpu-only-coexistence-v2",
+  "schema_version": 2
+}
