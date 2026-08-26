@@ -47,19 +47,27 @@ upstream checkouts and their optional/manual suites.
   `feature/fused-pointwise-v2`. It changes exactly ten tracked source/test/doc
   files, preserves all six exact clean gitlinks and the legacy add source,
   projection and Cubin anchors, and has independent source-review verdict GO
-  with P0/P1/P2 = 0. Earlier backend-OFF diagnostics passed the native 3/3 and
-  exact-product Python 1/1 gates; they are not the final clean-commit evidence.
+  with P0/P1/P2 = 0.
 - Fresh clean-commit backend-OFF configure run
-  `pypto-20260826T001612Z-1262389-4b0314` passed. Its build run
-  `pypto-20260826T001705Z-1262860-cb4c7a` is intact at about 49% but is
-  watchdog-paused after `MemAvailable` crossed the 16 GiB living-run floor.
-  Only the verified owned PGID `1262960` was stopped. The user authorized an
-  approximate 22 GiB launch floor, which this run's preflight records as
-  `23068672` KiB, but this already-running watchdog still has the accepted
-  fixed 24 GiB resume threshold. Do not manually `SIGCONT`, signal any external
-  PID, or treat the pause as a build failure; wait for its own resume/timeout
-  and re-read `runs/.../process.json` before acting. The generated
-  `build-fused-off-final/` directory is the only untracked worktree path.
+  `pypto-20260826T001612Z-1262389-4b0314` passed. Initial build run
+  `pypto-20260826T001705Z-1262860-cb4c7a` paused only its verified owned PGID
+  at the 16 GiB floor and later exited through the expected owned 3600-second
+  timeout. Continuation `pypto-20260826T012525Z-1297224-e14260` used the
+  user-authorized approximate 21.5 GiB (`22544384` KiB) launch floor and
+  completed with no pause/abort. Exact DSO SHA is `eb4225cc...7ab80`.
+  Native run `pypto-20260826T013235Z-1301725-baa2a2` passes 3/3, JUnit SHA
+  `4d805ed4...05195`; exact-product serial Python run
+  `pypto-20260826T013335Z-1302159-5819e7` passes 1/1 with exact source/core
+  origins, JUnit SHA `958b4f7a...c4dfc`. The complete OFF build is retained at
+  `builds/pypto-fused-pointwise-v2-off-b83fcd3-final`.
+- After that atomic move, the fused source worktree and all six initialized
+  gitlinks were literally clean at `b83fcd3`. Fresh backend-ON configure run
+  `pypto-20260826T013615Z-1303454-52279f` passed and binds the exact PyPTO,
+  TensorIR, CUDA Tile, LLVM, pipeline and tileiras identities. Its build has
+  not started: the first attempt failed closed at the action-boundary memory
+  recheck before a child or run ID existed. Wait for stable memory above the
+  recorded 21.5 GiB floor; never bypass the 16/24 GiB living watchdog or signal
+  an external PID.
 - Read-only reduction reconnaissance selected a separate private
   `RowReductionV3` family rather than weakening `FusedPointwiseV2`. The first
   safe contract is dense static rank-1-through-32 reduce-last/keep-dim
@@ -70,7 +78,12 @@ upstream checkouts and their optional/manual suites.
   the PyPTO producer must instead emit BF16-to-FP32 `convert`, FP32 `reduce`,
   then FP32-to-BF16 `convert`. Do not accept the arbitrary-rank grid law before
   direct rank-1, rank-2 and dense row-major rank-3 normalized-layout producer
-  fixtures pass.
+  fixtures pass. Source candidate `1daa7e57893eeb821752ca0fcf07daec4d46080e`
+  is committed cleanly on `feature/row-reduction-v3` with no build or runtime
+  claim. Independent review has already found one blocking resource-bound gap:
+  preparation must bound the real outer-by-contraction CUDA Tile element count
+  and the i32 contraction-loop trip count. Do not build or accept that candidate
+  until the final review and a source-fix commit close those checks/tests/docs.
 - Read-only structured-matmul reconnaissance selected a later private
   `StructuredMatmulV4` contract: static dense BF16 rank-2 or equal-batch rank-3
   `tensor.matmul`, BF16 physical result ABI, TensorIR BF16-by-BF16-to-FP32
