@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `41`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `42`
 
 ## Current phase: P2 frontend-HIR SM120 execution; R0 baseline remains open
 
@@ -21,6 +21,9 @@ fallback. The current transaction generalizes the add-only emitter and frontend
 identity boundary to a bounded fused-pointwise chain while preserving every
 accepted vector-add byte and control. CP-0045 now accepts that compiler/Cubin
 transaction at PyPTO `b83fcd3`; V2 GPU numerical correctness is still open.
+CP-0046 now closes the reviewed nine-case GPU control/finalizer and CPU anchor
+boundary. The next transaction is its admitted real-SM120 execution and
+CPU-only no-replace finalization, not a broader correctness claim.
 
 The fused-pointwise compiler/Cubin gate is complete. Fresh backend-OFF and
 external backend-ON builds, native 3/3 and exact-product Python 1/1 pass; EV-0058
@@ -35,8 +38,8 @@ Its two source-only commits end at PyPTO `17b2b3c`: the follow-up closes CUDA
 Tile element-count and i32 contraction-loop bounds, adds actual no-loop/looped
 producer fixtures and complete source/projection goldens. Independent static
 re-review is GO with P0/P1/P2 = 0. Reduction build, Cubin and runtime gates
-remain pending and can proceed alongside the separate fused-pointwise GPU
-correctness-control work.
+remain pending and can proceed alongside the separate fused-pointwise real-GPU
+execution/finalization work.
 The following structured-matmul source map is also frozen: bounded static BF16
 rank-2/equal-batch-rank-3 HIR, TensorIR BF16-by-BF16-to-FP32 matmul, explicit
 FP32-to-BF16 output conversion, explicit transpose views, normalization-driven
@@ -53,7 +56,8 @@ TargetInfo with no fallback. This closes only the low-level compiler/runtime
 launch gate. CP-0042 closes the one-producer frontend Artifact facade, CP-0043
 closes its separate smoke controls, and CP-0044 closes HIR-authored vector-add
 real-SM120 correctness. CP-0045 closes fused-pointwise compiler/Cubin evidence;
-its real-SM120 numerical gate and RowReductionV3 compiler gate are current,
+CP-0046 closes its execution controls. The real-SM120 numerical run and
+RowReductionV3 compiler gate are current,
 followed by structured matmul.
 
 Checkpoint `CP-0037` records, but does not accept, v3 run

@@ -1,6 +1,6 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0045`
+**Checkpoint:** `CP-0046`
 
 **Status:** R0 remains open. P2 accepts finalized minimal real-SM120
 `NvidiaExecutable` correctness v1: exact PyPTO/TensorIR/CUDA Tile Artifacts load,
@@ -18,6 +18,9 @@ bounded `FusedPointwiseV2` source/identity/ABI and filtered backend-OFF/ON
 TensorIR/CUDA Tile Cubin production at PyPTO `b83fcd3`, while its GPU numerical
 correctness remains open. Reduction, matmul, framework, model, CUDA Graph,
 coverage and performance milestones remain open.
+CP-0046 additionally accepts the fixed nine-case fused-pointwise GPU-smoke
+controller, deterministic CUDA-hidden anchors and CPU-only no-replace finalizer;
+it still accepts no fused-pointwise GPU result.
 
 ## Current truth
 
@@ -573,6 +576,14 @@ coverage and performance milestones remain open.
   CP44 legacy Cubins exactly. EV-0058 binds all source/product/run/JUnit hashes
   and the rejected in-source provenance diagnostic. Independent review is GO
   with P0/P1/P2 zero. No V2 GPU or numerical claim is accepted.
+- Root implementation `c98f984ddc4df7cd3354f5fbddadb12df072ed48`
+  plus manifest-only `438c25f5db0b3e40c79604352df81e536dcdf137`
+  adds the reviewed nine-case fused-pointwise SM120 correctness transaction.
+  It binds exact source-only loaders, two CUDA-hidden compiler-anchor runs,
+  guarded tail views, eager reference/candidate streams, exact/ULP/special
+  comparisons, full replay closure and a CPU-only immutable finalizer. Focused
+  32/24 and full 278/150 tests pass after manifest publication. EV-0059 binds
+  every exact identity. No real GPU result is accepted here.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact
@@ -619,9 +630,10 @@ standalone schedule identity and final frontend BuildSpec identity. CP-0042
 closes the one-producer joined BuildSpec/Artifact facade, CP-0043 closes the
 separate fixed frontend smoke control/finalizer boundary, and CP-0044 closes its
 real-SM120 FP32/BF16 correctness result. CP-0045 closes bounded fused-pointwise
-compiler/Cubin production while preserving all vector-add bytes. Next add its
-separately versioned real-SM120 numerical gate and build the source-reviewed
-RowReductionV3 head `17b2b3c`; structured matmul follows.
+compiler/Cubin production while preserving all vector-add bytes. CP-0046 closes
+the separate numerical gate's reviewed controls. Execute that controller/
+finalizer next and independently review the report before acceptance; the
+source-reviewed RowReductionV3 head `17b2b3c` and structured matmul follow.
 Defer the separate exclusive Triton replacement/reference-smoke gate until the
 unmodified SGLang baseline needs it.
 Use explicit CPU-only coexistence only for non-GPU build/test work. The single

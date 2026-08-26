@@ -97,7 +97,7 @@ upstream checkouts and their optional/manual suites.
   static grid metadata is output-driven and must select descriptor index 2.
   Dynamic shapes, rank mixing, batch broadcast, direct BF16 TensorIR result,
   `c_matrix_nz` and accumulator forms remain fail-closed until later contracts.
-- Read `state/checkpoints/CP-0045.md` and evidence `EV-0005` through `EV-0058`.
+- Read `state/checkpoints/CP-0046.md` and evidence `EV-0005` through `EV-0059`.
 - Root `5564008` plus manifest-only `7639d82` owns the current v4
   correctness-only SM120 smoke. The manifest SHA is `a079c4d2...98bf` and
   binds seven exact control blobs to the Layer-A commit/tree. Controller and
@@ -173,6 +173,11 @@ upstream checkouts and their optional/manual suites.
   both exact OFF/ON products, native 3/3 and Python 1/1 gates, the maximum
   producer boundary and exact CP44 V1 byte preservation. V2 GPU launch,
   numerical correctness and performance remain separate.
+- CP-0046/EV-0059 accepts fused-pointwise correctness controls only:
+  implementation `c98f984`, manifest `438c25f`, manifest SHA
+  `ce20dd3a...7a6896`, anchors `584f6755...4c97`, nine cases/eighteen
+  lifetimes, and a CPU-only finalizer. Post-manifest focused 32/24 and full
+  278/150 tests pass. No fused GPU result exists yet.
 - TensorIR `1dcb38c...` is a local committed feature revision and is fully
   pinned by the PyPTO gitlink/build guards. It has not been published to the
   configured NVIDIA remote; push or otherwise materialize that commit before
@@ -253,8 +258,9 @@ upstream checkouts and their optional/manual suites.
   CP-0043 accepts the separately versioned frontend controller/finalizer and
   CP-0044 accepts its HIR-authored FP32/BF16 SM120 result. CP-0045 accepts
   bounded fused-pointwise compiler/Cubin production while preserving those add
-  controls byte-for-byte. Next close the separate fused real-SM120 numerical
-  gate and run OFF/ON compiler gates for reviewed RowReductionV3 `17b2b3c`;
+  controls byte-for-byte. CP-0046 accepts the separate fused numerical controls;
+  next execute/finalize/review that fixed GPU gate and run OFF/ON compiler
+  gates for reviewed RowReductionV3 `17b2b3c`;
   structured matmul follows. Operator algorithms, framework registration,
   online tuning and model work remain after these compiler gates.
 - `docs/coverage_collector_map.md` is the pinned collector implementation map.

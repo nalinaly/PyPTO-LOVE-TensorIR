@@ -16,7 +16,10 @@ correctness lifetimes with no fallback. CP-0045 advances PyPTO to `b83fcd3` and
 accepts the bounded generic fused-pointwise V2 source/identity/ABI plus
 backend-OFF/ON TensorIR/CUDA Tile Cubin production. Fused-pointwise GPU
 numerical correctness remains a separate gate. RowReductionV3 is source-review
-GO at `17b2b3c` but unbuilt; structured matmul follows.
+GO at `17b2b3c` but unbuilt; structured matmul follows. CP-0046 accepts the
+separately reviewed nine-case fused-pointwise GPU-smoke controller, CPU
+finalizer and deterministic compiler anchors at root `c98f984` plus manifest
+`438c25f`; no real fused-pointwise GPU result is accepted yet.
 Generic operators, framework routes and model execution remain later. The exact
 PyTorch-pinned Triton reference wheel stays audited/frozen and deliberately
 uninstalled as baseline-only infrastructure. The full objective and acceptance

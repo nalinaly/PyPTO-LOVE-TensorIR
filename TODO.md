@@ -122,7 +122,10 @@
       run `pypto-20260825T145519Z-1142938-70ac73`.
 - [x] Extend the accepted frontend compiler path to bounded fused pointwise at
       PyPTO `b83fcd3`, preserving CP44 V1 bytes and producing SM120 Cubins.
-- [ ] Run a separately versioned real-SM120 fused-pointwise numerical gate.
+- [x] Implement, independently review and manifest-bind the nine-case
+      fused-pointwise SM120 controller/finalizer at root `c98f984`/`438c25f`.
+- [ ] Run, CPU-finalize and independently review that real-SM120
+      fused-pointwise numerical gate.
 - [ ] Build and gate the source-reviewed RowReductionV3 head `17b2b3c`.
 - [ ] Implement and gate simple StructuredMatmulV4 before Inductor integration.
 - [x] Implement bounded canonical PyPTO Artifact v1 serialization with bytes,
