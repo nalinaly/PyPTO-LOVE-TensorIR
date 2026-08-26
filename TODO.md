@@ -211,11 +211,12 @@ existing executable control continues to enforce 24 GiB.
 
 ## Current resume point
 
-- [ ] Read `docs/NEXT_AGENT_ZERO_CONTEXT_HANDOVER.md`; the user paused the
+- [x] Read `docs/NEXT_AGENT_ZERO_CONTEXT_HANDOVER.md`; the user paused the
       current run and requested a zero-context transfer.
-- [ ] Revalidate the six untracked CPU-v2 draft files from scratch before any
+- [x] Revalidate the six untracked CPU-v2 draft files from scratch before any
       commit or live use; latest test/review results are stale after safety
-      edits.
+      edits. (Implementation `82162c6`, manifest `73e79fd`, eight review
+      rounds, three final P0/P1/P2=0 reviewers, post-manifest 55/85 green.)
 
 - [x] Commit hardened RowReductionV3 SM120 controls (`23efafa`).
 - [x] Publish the separate canonical manifest (`34ee759`).

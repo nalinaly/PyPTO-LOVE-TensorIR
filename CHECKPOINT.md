@@ -660,6 +660,19 @@ remains open.
   exact GPU-adapter hash gate and reverted in `7ecc197`; D-0016 now requires a
   separate CPU-only policy-v2 adapter. Existing 24 GiB controls and evidence are
   unchanged and remain authoritative until that adapter is implemented.
+- The D-0016 CPU-only coexistence policy v2 is now implemented and published.
+  Root implementation `82162c6` adds exactly six files (contract, preflight,
+  controller, control validator, 55-test suite, docs) with the v1 base modules
+  and the NVIDIA v4 manifest pinned by exact size/SHA. Manifest-only commit
+  `73e79fd` publishes the canonical `state/contracts/pypto_cpu_coexistence_v2.json`
+  (SHA-256 `8543ef80...5e2d1f`). Eight independent review rounds closed every
+  finding; the final tree bytes received P0/P1/P2=0 from three reviewers and
+  the manifest transaction is independently GO. Clean post-manifest focused
+  tests pass (55 tests, 85 subtests). The controller: 22 GiB admission/resume,
+  16 GiB pause, start-gated child launch under a blocked-signal window, exact
+  verified-PGID-only SIGTERM/CONT/STOP (never SIGKILL), character-level CPython
+  argv policy decoding, manifest-gated fail-closed admission before lease and
+  Popen. No live CPU-v2 run has occurred yet.
 
 ## Resume action
 
