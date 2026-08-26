@@ -293,9 +293,15 @@ upstream checkouts and their optional/manual suites.
   bounded fused-pointwise compiler/Cubin production while preserving those add
   controls byte-for-byte. CP-0046 accepts the separate fused numerical controls
   and CP-0047 accepts the finalized fixed-fixture result. CP-0048 accepts
-  RowReductionV3 compiler/Cubin production at `62eb882`; build its separate
-  real-SM120 correctness family next. StructuredMatmulV4 `d755117` then needs
-  replay onto `62eb882` before its build. Operator algorithms, framework registration,
+  RowReductionV3 compiler/Cubin production at `62eb882`. Its separate
+  correctness implementation is now `23efafa`, with manifest-only `34ee759`,
+  dual hidden-CUDA anchor runs `110849`/`110905`, focused 34+84 green, and three
+  final P0/P1/P2-zero reviews. The postmanifest full suite has not run:
+  preflight refused at about 18.8 GiB while an external zcode
+  `cutlass-compiler` held about 39 GiB. Never signal it. Retry the clean full
+  CPU suite only after the lane clears, then run the reviewed GPU controller,
+  CPU finalizer, and unchanged no-replace retry. StructuredMatmulV4 `d755117`
+  then needs replay onto `62eb882` before its build. Operator algorithms, framework registration,
   online tuning and model work remain after these compiler gates.
 - `docs/coverage_collector_map.md` is the pinned collector implementation map.
   Do not claim `closed_world=true` from ordinary Kineto/NVTX or from the first

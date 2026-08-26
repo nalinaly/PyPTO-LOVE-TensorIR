@@ -203,3 +203,14 @@ threshold for bounded CPU-heavy work. Implement it only as a separately
 versioned CPU-coexistence adapter and manifest; do not edit the exact-hashed
 policy-v1 modules or reinterpret EV-0035. Until that adapter is reviewed, the
 existing executable control continues to enforce 24 GiB.
+
+## Current resume point
+
+- [x] Commit hardened RowReductionV3 SM120 controls (`23efafa`).
+- [x] Publish the separate canonical manifest (`34ee759`).
+- [x] Regenerate and validate two CUDA-hidden anchor runs; focused tests pass
+      34 plus 84 subtests and all three final reviews are GO.
+- [ ] After the external zcode `cutlass-compiler` releases host memory, rerun
+      the clean postmanifest full CPU suite.
+- [ ] Only then run the fixed RowReductionV3 GPU controller, CPU finalizer, and
+      unchanged no-replace retry; preserve the provisional/final report.

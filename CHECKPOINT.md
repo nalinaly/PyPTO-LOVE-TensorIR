@@ -605,6 +605,21 @@ remains open.
   no fallback. Report SHA is `d06765be...38abb`; independent CUDA-hidden
   recompilation matches every field. EV-0061 accepts compiler/Cubin evidence,
   not GPU load, numerical correctness or performance.
+- RowReductionV3 correctness controls are now frozen at implementation commit
+  `23efafaac88fc62698b439b037cb96d95ecbd927`, tree
+  `d32c48b4c8139914fdbcdcfede15e92cf5830c76`, with separate manifest-only
+  commit `34ee759`. Dual CUDA-hidden anchors are
+  `pypto-20260826T110849Z-17249-b18e99` and
+  `pypto-20260826T110905Z-17569-3de174`; the 111,827-byte anchor SHA is
+  `14af24e4...418a0`. The matrix has ten FP32/BF16 sum/max cases, twenty fresh
+  lifetimes, exact/tolerance/special row partitions, independent frozen
+  numerical oracles, exact CompileRequest joins, and derived 3,840/15-element
+  worst suffix bounds. Three final independent reviews report P0/P1/P2 zero;
+  clean focused tests pass 34 plus 84 subtests. A clean full-suite launch was
+  refused before child creation when an external zcode `cutlass-compiler` used
+  about 39 GiB and MemAvailable fell below 19 GiB. No external process was
+  signalled. Full postmanifest CPU regression and all real-GPU claims remain
+  pending.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact
@@ -659,9 +674,11 @@ real-SM120 FP32/BF16 correctness result. CP-0045 closes bounded fused-pointwise
 compiler/Cubin production while preserving all vector-add bytes. CP-0046 closes
 the separate numerical gate's reviewed controls and CP-0047 closes the matching
 real-SM120 fixed-fixture correctness result. CP-0048 closes RowReductionV3 host
-compiler/Cubin production. Build its separate real-SM120 numerical gate next;
-StructuredMatmulV4 `d755117` follows after replaying its commits onto
-`62eb882`.
+compiler/Cubin production. Its reviewed numerical controls and manifest are now
+committed; wait for the external memory lane to clear, rerun the clean full CPU
+suite, then run the fixed controller/finalizer/no-replace transaction. Do not
+claim CP-0049 or GPU correctness before those gates complete. StructuredMatmulV4
+`d755117` follows after replaying its commits onto `62eb882`.
 Defer the separate exclusive Triton replacement/reference-smoke gate until the
 unmodified SGLang baseline needs it.
 Use explicit CPU-only coexistence only for non-GPU build/test work. The single
