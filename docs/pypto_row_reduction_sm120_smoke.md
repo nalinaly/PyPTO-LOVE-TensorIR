@@ -4,10 +4,12 @@ This separately controlled gate accepts only ten fixed `RowReductionV3` cases
 through `HIR -> compile_structured_strict -> BuildSpec/Artifact/Cubin ->
 NvidiaExecutable`. It is not a general reduction or performance claim.
 
-The exact compiler source is PyPTO `62eb88251df5bdad95277a9d619d20da9bf121eb`,
-tree `04d3bca3e0b35b796f7745ded27a26dd61e25c67`. The backend-ON DSO is
-`builds/pypto-row-reduction-v3-on-62eb882-final/product/pypto_core.cpython-314-x86_64-linux-gnu.so`,
-784,224,056 bytes, SHA-256 `e1213cf3...e4220`. The accepted CP48 compiler/Cubin
+After the signed-zero kernel correction the exact compiler source is PyPTO
+`faefd0a1df29b4bdb3434f5f6e5f73757387ae3e`, tree
+`8da7235e6212c29a57e905b61e47d7da489cd732` (the CP48-accepted `62eb882`
+plus the row-sum `+0` accumulator epilogue). The backend-ON DSO is
+`builds/pypto-row-reduction-sumfix-on-faefd0a/product/pypto_core.cpython-314-x86_64-linux-gnu.so`,
+784,342,176 bytes, SHA-256 `c72fdf3c...ea0e5`. The accepted CP48 compiler/Cubin
 report remains immutable at SHA-256 `d06765be...38abb`.
 
 ## Fixed matrix
@@ -30,9 +32,13 @@ Every Artifact is compiled once and reused by two fresh executable lifetimes:
 cases join the exact CP48 TensorIR source and Cubin hashes.
 
 The compile-anchor manifest binds two independent CUDA-hidden isolated runs,
-`pypto-20260826T110849Z-17249-b18e99` and
-`pypto-20260826T110905Z-17569-3de174`, including process/preflight sidecars
-and 51 replay files each. Their normalized ten-case records are byte-identical.
+`pypto-20260826T174245Z-209241-eb855d` and
+`pypto-20260826T174333Z-209547-311e35`, including process/preflight sidecars
+and 51 replay files each. Their normalized ten-case records are byte-identical. The two max overlap
+cases still join the CP48 source and Cubin bytes exactly; the two sum overlap
+cases record their pre-fix CP48 lineage as a deliberate divergence
+(`cp48_join_exact=false`) because the corrected `+0`-normalized sum source
+intentionally changes those Cubins.
 
 ## Numerical and memory contract
 
@@ -53,6 +59,15 @@ payload/sign are ignored but NaN class is mandatory. Subnormals never use the
 special-class shortcut. The special matrix covers both dtypes and both
 operators: max `+0 > -0`, all `-0 -> -0`, and sum all `-0 -> +0`, sole signed
 infinity, mixed infinities and NaN propagation.
+
+The compiler correction itself: PyPTO `faefd0a` emits an explicit
+`constant/splat/add` of `+0` after every FP32-domain row-sum reduction
+(`x + (+0)` is bit-identical for every value except `-0`, which becomes
+`+0`), because the tile backend's single-element reduction fast path
+returned the element itself and produced `-0` for the all-negative-zero
+row (observed in run `pypto-20260826T165111Z-173109-3f7a6a`, whose
+pre-comparison word dumps provided the decisive evidence). row_max is
+untouched: its contract preserves `-0`.
 
 Control revision 2 (after diagnostic run
 `pypto-20260826T161547Z-146383-954cc0` failed on the rank-1 repetition-1

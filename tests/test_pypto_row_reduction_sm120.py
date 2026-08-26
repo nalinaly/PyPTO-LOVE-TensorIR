@@ -457,15 +457,41 @@ class ContractAndAnchorTest(unittest.TestCase):
         )
         cp48 = json.loads((ROOT / contract.CP48_REPORT_RELATIVE_PATH).read_text())
         old = {record["case"]: record for record in cp48["records"]}
-        joined = 0
+        overlap = 0
+        exact = 0
+        diverged = []
         for record in anchors["records"]:
             if record["cp48_case"] is None:
                 continue
+            overlap += 1
             frozen = old[record["cp48_case"]]
-            self.assertEqual(record["source_ir_digest"], frozen["source_ir_digest"])
-            self.assertEqual(record["device_code_sha256"], frozen["device_code_sha256"])
-            joined += 1
-        self.assertEqual(joined, 4)
+            self.assertEqual(
+                record["cp48_source_ir_digest"], frozen["source_ir_digest"]
+            )
+            self.assertEqual(
+                record["cp48_device_code_sha256"], frozen["device_code_sha256"]
+            )
+            joins_exact = (
+                record["source_ir_digest"] == frozen["source_ir_digest"]
+                and record["device_code_sha256"] == frozen["device_code_sha256"]
+                and record["device_code_bytes"] == frozen["device_code_bytes"]
+            )
+            self.assertEqual(record["cp48_join_exact"], joins_exact)
+            if joins_exact:
+                exact += 1
+            else:
+                diverged.append(record["case"])
+        self.assertEqual(overlap, 4)
+        self.assertEqual(exact, 2)
+        self.assertEqual(
+            sorted(diverged),
+            ["rank1_fp32_sum_n7", "rank3_fp32_sum_n17_tail"],
+        )
+        for case in contract.CASE_SPECS:
+            if case.cp48_case is None or case.tensor_ir_mode != "add":
+                continue
+            source = contract.canonical_tensor_ir_source(case)
+            self.assertIn(b"%sumzero = constant 0.0 : f32", source)
 
     def test_bf16_sources_widen_reduce_and_demote(self) -> None:
         for case in contract.CASE_SPECS:

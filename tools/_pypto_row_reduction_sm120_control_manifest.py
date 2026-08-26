@@ -663,7 +663,7 @@ def validate_compile_anchors(root: Path, contract: ModuleType) -> dict[str, obje
             "bytes": contract.ANCHOR_REQUEST_SIZE,
             "sha256": contract.ANCHOR_REQUEST_SHA256,
             "derived_bytes": 1_583,
-            "derived_sha256": "ec4141dee238e515cdbd266bc2e950e98a85717480d60c6a3fd6debd4a9e8d07",
+            "derived_sha256": "4423c70fa213a8b09d05dc68263b8df8589cf94798e790fb50f665708aa8134c",
         }
         or anchors.get("cp48_report")
         != {
@@ -707,8 +707,17 @@ def validate_compile_anchors(root: Path, contract: ModuleType) -> dict[str, obje
         "semantic_abi",
         "cp48_case",
     }
+    overlap_record_keys = anchor_record_keys | {
+        "cp48_source_ir_digest",
+        "cp48_device_code_sha256",
+        "cp48_device_code_bytes",
+        "cp48_join_exact",
+    }
     for item, case in zip(records, contract.CASE_SPECS, strict=True):
-        item = require_exact_keys(item, anchor_record_keys, "row-reduction anchor record")
+        expected_keys = (
+            overlap_record_keys if case.cp48_case is not None else anchor_record_keys
+        )
+        item = require_exact_keys(item, expected_keys, "row-reduction anchor record")
         if (
             item.get("case") != case.name
             or item.get("dtype") != case.dtype
@@ -749,24 +758,42 @@ def validate_compile_anchors(root: Path, contract: ModuleType) -> dict[str, obje
         item["case"]: item for item in cp48.get("records", []) if isinstance(item, dict)
     }
     overlap = 0
+    exact_overlaps = 0
     for item, case in zip(records, contract.CASE_SPECS, strict=True):
         if case.cp48_case is None:
             if item.get("cp48_case") is not None:
                 raise ControlManifestError("row-reduction CP48 non-overlap differs")
             continue
         frozen = cp48_records.get(case.cp48_case)
+        joins_exact = (
+            item.get("source_ir_digest") == frozen.get("source_ir_digest")
+            and item.get("device_code_bytes") == frozen.get("device_code_bytes")
+            and item.get("device_code_sha256") == frozen.get("device_code_sha256")
+            and item.get("grid") == frozen.get("grid")
+            and item.get("row_tile") == frozen.get("row_tile")
+        )
         if (
             item.get("cp48_case") != case.cp48_case
             or not isinstance(frozen, dict)
-            or item.get("source_ir_digest") != frozen.get("source_ir_digest")
-            or item.get("device_code_bytes") != frozen.get("device_code_bytes")
-            or item.get("device_code_sha256") != frozen.get("device_code_sha256")
-            or item.get("grid") != frozen.get("grid")
-            or item.get("row_tile") != frozen.get("row_tile")
+            or item.get("cp48_source_ir_digest") != frozen.get("source_ir_digest")
+            or item.get("cp48_device_code_bytes") != frozen.get("device_code_bytes")
+            or item.get("cp48_device_code_sha256") != frozen.get("device_code_sha256")
+            or item.get("cp48_join_exact") is not joins_exact
         ):
             raise ControlManifestError("row-reduction CP48 overlap join differs")
+        if case.tensor_ir_mode == "add":
+            if joins_exact:
+                raise ControlManifestError(
+                    "row-reduction CP48 sum overlap must diverge from the pre-fix Cubin"
+                )
+        elif not joins_exact:
+            raise ControlManifestError(
+                "row-reduction CP48 max overlap must join exactly"
+            )
+        else:
+            exact_overlaps += 1
         overlap += 1
-    if overlap != 4:
+    if overlap != 4 or exact_overlaps != 2:
         raise ControlManifestError("row-reduction CP48 overlap count differs")
     runs = anchors.get("anchor_runs")
     if (

@@ -478,14 +478,27 @@ def compile_run() -> int:
         }
         if case.cp48_case is not None:
             frozen = cp48_records[case.cp48_case]
-            if (
-                record["source_ir_digest"] != frozen["source_ir_digest"]
-                or record["device_code_sha256"] != frozen["device_code_sha256"]
-                or record["device_code_bytes"] != frozen["device_code_bytes"]
-                or record["grid"] != frozen["grid"]
-                or record["row_tile"] != frozen["row_tile"]
-            ):
+            record["cp48_source_ir_digest"] = frozen["source_ir_digest"]
+            record["cp48_device_code_sha256"] = frozen["device_code_sha256"]
+            record["cp48_device_code_bytes"] = frozen["device_code_bytes"]
+            record["cp48_join_exact"] = (
+                record["source_ir_digest"] == frozen["source_ir_digest"]
+                and record["device_code_sha256"] == frozen["device_code_sha256"]
+                and record["device_code_bytes"] == frozen["device_code_bytes"]
+                and record["grid"] == frozen["grid"]
+                and record["row_tile"] == frozen["row_tile"]
+            )
+            # Max overlap cases must remain byte-identical to the accepted
+            # CP48 records; sum overlap cases carry the corrected
+            # +0-normalized source, so their CP48 lineage is recorded as a
+            # deliberate divergence instead of an equality join.
+            if case.tensor_ir_mode != "add" and not record["cp48_join_exact"]:
                 raise AnchorError(f"{case.name} CP48 source/Cubin join differs")
+            if case.tensor_ir_mode == "add" and record["cp48_join_exact"]:
+                raise AnchorError(
+                    f"{case.name} sum overlap unexpectedly matches the "
+                    "pre-fix CP48 Cubin"
+                )
         records.append(record)
     if torch.cuda.is_initialized():
         raise AnchorError("Torch CUDA initialized during row-reduction compilation")

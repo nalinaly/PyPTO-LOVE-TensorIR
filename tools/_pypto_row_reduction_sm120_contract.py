@@ -22,17 +22,17 @@ GPU_FREE_MEMORY_FLOOR_MIB = 4 * 1024
 GPU_SMOKE_TIMEOUT_SECONDS = 1_800
 GPU_SMOKE_MINIMUM_FREE_DISK_GIB = 64
 
-PYPTO_HEAD = "62eb88251df5bdad95277a9d619d20da9bf121eb"
-PYPTO_TREE = "04d3bca3e0b35b796f7745ded27a26dd61e25c67"
+PYPTO_HEAD = "faefd0a1df29b4bdb3434f5f6e5f73757387ae3e"
+PYPTO_TREE = "8da7235e6212c29a57e905b61e47d7da489cd732"
 TENSOR_IR_HEAD = "1dcb38c20e53d07c97d3781cae538e33901bae30"
 CUDA_TILE_HEAD = "af2417041cc939b87ef56d92cfdcf61737c5457e"
 LLVM_HEAD = "57109befac92811d2253109242ca6fa69c961fb2"
 PYPTO_DSO_RELATIVE_PATH = Path(
-    "builds/pypto-row-reduction-v3-on-62eb882-final/product/"
+    "builds/pypto-row-reduction-sumfix-on-faefd0a/product/"
     "pypto_core.cpython-314-x86_64-linux-gnu.so"
 )
-PYPTO_DSO_SIZE = 784_224_056
-PYPTO_DSO_SHA256 = "e1213cf31972664a66012f95f1ebf003623dfebb54accdff3ab47cd6ca3e4220"
+PYPTO_DSO_SIZE = 784_342_176
+PYPTO_DSO_SHA256 = "c72fdf3ccd140e0ed9cc930db2daa8fc7abd7dec4fb9ab70771e872252cea0e5"
 
 CUDA_RUNTIME_RELATIVE_PATH = Path(
     "envs/pypto-nvidia/lib/python3.14/site-packages/nvidia/cu13/lib/libcudart.so.13"
@@ -65,29 +65,29 @@ ANCHOR_REQUEST_SHA256 = (
     "13c319b832c51188678b51a32b155253a6f896bfd1395044832611df0843adda"
 )
 EXPECTED_COMPILE_REQUEST_BYTE_IDENTITY_DIGEST = (
-    "f550d15203327ac24eb72c4293d5132cc63afebced06f140e67dbca1dbc1d9ee"
+    "d71c1e183bca723d96e698da5a5c228022013773a22202d755769bd62584ca65"
 )
 EXPECTED_LOADER_COMPATIBILITY_INPUT_DIGEST = (
     "c1397051b8fff67ea69e94a0c452ea1f8253a400d32036e15f4f3817591b7eb5"
 )
 EXPECTED_DEVICE_AUTOTUNE_IDENTITY_DIGEST = (
-    "3a739499edecb156a29202ec77ece6600df468732f7e758472b4af86af4b8b98"
+    "2f3d3ef6528dbf72b6ae403e1fca223fc9b612de4f20a4d468f236a83998c08d"
 )
 
 RUNNER_RELATIVE_PATH = Path("benchmarks/operators/pypto_row_reduction_sm120.py")
 RUNNER_SIZE = 52478
 RUNNER_SHA256 = "7f01356fbe18c99fb688e15d50f64fa81628ed5eb4952d8a940b57ff4d76bf09"
 ANCHOR_GENERATOR_RELATIVE_PATH = Path("tools/generate_pypto_row_reduction_anchors.py")
-ANCHOR_GENERATOR_SIZE = 28_363
+ANCHOR_GENERATOR_SIZE = 29_218
 ANCHOR_GENERATOR_SHA256 = (
-    "a270b9c632f01d9ce47821bb9a8c96505e37b8e557a643c7c1a409047e3025ac"
+    "aa59e72741d36e8c32170dd1b362ebdc911299398628816aa17197f00eb821fb"
 )
 COMPILE_ANCHORS_RELATIVE_PATH = Path(
     "state/contracts/pypto_row_reduction_compile_anchors_v1.json"
 )
-COMPILE_ANCHORS_SIZE = 111_827
+COMPILE_ANCHORS_SIZE = 112_915
 COMPILE_ANCHORS_SHA256 = (
-    "14af24e4929fd629475cf70a871c1f8400daa59ed22b6f988c9d4a00968418a0"
+    "994da1c7f04157c381cd0093f88fbc9e0d335d7fe8a2a6c4f7b74a46a16ecd47"
 )
 PREFLIGHT_ADAPTER_RELATIVE_PATH = Path("tools/preflight_gpu_smoke_v2.py")
 CONTROLLER_RELATIVE_PATH = Path("tools/run_pypto_row_reduction_sm120_isolated.py")
@@ -747,21 +747,35 @@ def canonical_tensor_ir_source(case: CaseSpec) -> bytes:
     reduction_source = "%flat0" if flatten else ("%wide0" if widen else "%arg0")
     reduction_source_type = compute_reduction_input if widen else reduction_input
     reduction_target_type = compute_reduction_result if widen else reduction_result
-    reduction_name = "%result0" if not flatten and not widen else "%reduce0"
+    normalize_sum = case.tensor_ir_mode == "add"
+    reduction_name = (
+        "%result0" if not flatten and not widen and not normalize_sum else "%reduce0"
+    )
     lines.append(
         f"    {reduction_name} = reduce({reduction_source}) "
         f"<dimensions = [{axis}], reduction_mode = <{case.tensor_ir_mode}>> : "
         f"{reduction_source_type} -> {reduction_target_type}"
     )
+    reduce_result = "%sum0" if normalize_sum else "%reduce0"
+    if normalize_sum:
+        compute_type = compute_reduction_result if widen else reduction_result
+        sum_result_name = "%result0" if not flatten and not widen else "%sum0"
+        lines.extend(
+            [
+                "    %sumzero = constant 0.0 : f32",
+                f"    %sumsplat = splat %sumzero : {compute_type}",
+                f"    {sum_result_name} = add %reduce0, %sumsplat : {compute_type}",
+            ]
+        )
     if flatten:
         reshape_name = "%shape0" if widen else "%result0"
         reshape_target = compute_result if widen else result_type
         lines.append(
-            f"    {reshape_name} = reshape %reduce0 : {reduction_target_type} -> "
+            f"    {reshape_name} = reshape {reduce_result} : {reduction_target_type} -> "
             f"{reshape_target}"
         )
     if widen:
-        conversion_source = "%shape0" if flatten else "%reduce0"
+        conversion_source = "%shape0" if flatten else reduce_result
         lines.append(
             f"    %result0 = convert {conversion_source} : {compute_result} -> {result_type}"
         )
