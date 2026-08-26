@@ -14,12 +14,13 @@ correctness-smoke controls. CP-0044 now accepts their finalized real-SM120
 result: two HIR programs, two one-producer Artifacts and four non-default-stream
 correctness lifetimes with no fallback. CP-0045 advances PyPTO to `b83fcd3` and
 accepts the bounded generic fused-pointwise V2 source/identity/ABI plus
-backend-OFF/ON TensorIR/CUDA Tile Cubin production. Fused-pointwise GPU
-numerical correctness remains a separate gate. RowReductionV3 is source-review
-GO at `17b2b3c` but unbuilt; structured matmul follows. CP-0046 accepts the
-separately reviewed nine-case fused-pointwise GPU-smoke controller, CPU
-finalizer and deterministic compiler anchors at root `c98f984` plus manifest
-`438c25f`; no real fused-pointwise GPU result is accepted yet.
+backend-OFF/ON TensorIR/CUDA Tile Cubin production. CP-0046 accepts its frozen
+nine-case controls, and CP-0047/EV-0060 now accepts the separately versioned
+22 GiB policy-2 real-SM120 result: eighteen fresh lifetimes pass exact/ULP,
+special-value, canary, stream and unload checks with no fallback. The immutable
+final report SHA is `d4ffafc0...2eeedf0`. RowReductionV3 is source-review GO at
+`17b2b3c` but unbuilt; StructuredMatmulV4 is source-review GO at `d755117` and
+follows reduction.
 Generic operators, framework routes and model execution remain later. The exact
 PyTorch-pinned Triton reference wheel stays audited/frozen and deliberately
 uninstalled as baseline-only infrastructure. The full objective and acceptance

@@ -1,6 +1,6 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0046`
+**Checkpoint:** `CP-0047`
 
 **Status:** R0 remains open. P2 accepts finalized minimal real-SM120
 `NvidiaExecutable` correctness v1: exact PyPTO/TensorIR/CUDA Tile Artifacts load,
@@ -15,12 +15,12 @@ versioned frontend FP32/BF16 correctness-smoke controls and CPU-only exact-DSO
 replay boundary at root `47a0c15`. CP-0044 accepts the finalized two-fixture
 frontend HIR vector-add result on real SM120 with no fallback. CP-0045 accepts
 bounded `FusedPointwiseV2` source/identity/ABI and filtered backend-OFF/ON
-TensorIR/CUDA Tile Cubin production at PyPTO `b83fcd3`, while its GPU numerical
-correctness remains open. Reduction, matmul, framework, model, CUDA Graph,
-coverage and performance milestones remain open.
-CP-0046 additionally accepts the fixed nine-case fused-pointwise GPU-smoke
-controller, deterministic CUDA-hidden anchors and CPU-only no-replace finalizer;
-it still accepts no fused-pointwise GPU result.
+TensorIR/CUDA Tile Cubin production at PyPTO `b83fcd3`. CP-0046 accepts the
+fixed nine-case control/finalizer boundary. CP-0047 now accepts the separately
+versioned policy-2 real-SM120 result and immutable CPU-finalized report SHA
+`d4ffafc0...2eeedf0`: all eighteen fixed lifetimes pass with no fallback,
+intact canaries and explicit unload. Reduction, matmul, framework, model, CUDA
+Graph, coverage and performance milestones remain open.
 
 ## Current truth
 
@@ -584,6 +584,15 @@ it still accepts no fused-pointwise GPU result.
   comparisons, full replay closure and a CPU-only immutable finalizer. Focused
   32/24 and full 278/150 tests pass after manifest publication. EV-0059 binds
   every exact identity. No real GPU result is accepted here.
+- Additive policy-2 controls end at root `6cf5f958` and manifest-only
+  `f6a064b73750a71bdd35b97420bd42ca6d425245`. They preserve every v1 byte
+  while admitting only the explicitly authorized protected GPU-smoke lane at
+  22 GiB. Real run `pypto-20260826T073309Z-1451510-e48ced` completes all
+  eighteen fixed lifetimes; immutable final report SHA is
+  `d4ffafc0...2eeedf0`. Candidate versus Torch is zero ULP, independent CPU
+  joins are at most one ULP, all canaries/lifecycles pass and no fallback or
+  protected/external NVIDIA activity occurs. EV-0060 and two independent GO
+  reviews close only this frozen nine-case correctness claim.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact
@@ -631,9 +640,9 @@ closes the one-producer joined BuildSpec/Artifact facade, CP-0043 closes the
 separate fixed frontend smoke control/finalizer boundary, and CP-0044 closes its
 real-SM120 FP32/BF16 correctness result. CP-0045 closes bounded fused-pointwise
 compiler/Cubin production while preserving all vector-add bytes. CP-0046 closes
-the separate numerical gate's reviewed controls. Execute that controller/
-finalizer next and independently review the report before acceptance; the
-source-reviewed RowReductionV3 head `17b2b3c` and structured matmul follow.
+the separate numerical gate's reviewed controls and CP-0047 closes the matching
+real-SM120 fixed-fixture correctness result. Build and gate the source-reviewed
+RowReductionV3 head `17b2b3c` next; StructuredMatmulV4 `d755117` follows.
 Defer the separate exclusive Triton replacement/reference-smoke gate until the
 unmodified SGLang baseline needs it.
 Use explicit CPU-only coexistence only for non-GPU build/test work. The single

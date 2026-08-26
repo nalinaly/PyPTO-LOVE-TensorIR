@@ -41,6 +41,16 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
+- CP-0047/EV-0060 accepts the finalized policy-2 real-SM120 fused-pointwise
+  result. Additive control commits end at `6cf5f958`, manifest-only commit
+  `f6a064b` binds six v2 controls with SHA `d3b16079...d467036`, and GPU run
+  `pypto-20260826T073309Z-1451510-e48ced` publishes immutable mode-`0444`
+  report SHA `d4ffafc0...2eeedf0`. All nine cases/two repetitions pass;
+  candidate versus Torch is zero ULP and the independent CPU maximum is one
+  ULP. Eighteen packets release and executables unload, no fallback/provider or
+  external/protected NVIDIA activity appears, and the no-replace retry fails as
+  required. This is fixed-fixture correctness only, not performance or general
+  FusedPointwiseV2 correctness.
 - CP-0045/EV-0058 accepts the fused-pointwise compiler candidate at PyPTO commit
   `b83fcd3ddc497d585bcc45883eede179aff7d4d2`, tree
   `49eda98f3ed8d72bfd14d5a5900cdc0e71ca699d`, on
@@ -104,7 +114,7 @@ upstream checkouts and their optional/manual suites.
   exact rank-2/rank-3 transpose/projection goldens and representative producer
   fixtures. It remains unbuilt with no Cubin, runtime, numerical or performance
   claim.
-- Read `state/checkpoints/CP-0046.md` and evidence `EV-0005` through `EV-0059`.
+- Read `state/checkpoints/CP-0047.md` and evidence `EV-0005` through `EV-0060`.
 - Root `5564008` plus manifest-only `7639d82` owns the current v4
   correctness-only SM120 smoke. The manifest SHA is `a079c4d2...98bf` and
   binds seven exact control blobs to the Layer-A commit/tree. Controller and
@@ -184,7 +194,9 @@ upstream checkouts and their optional/manual suites.
   implementation `c98f984`, manifest `438c25f`, manifest SHA
   `ce20dd3a...7a6896`, anchors `584f6755...4c97`, nine cases/eighteen
   lifetimes, and a CPU-only finalizer. Post-manifest focused 32/24 and full
-  278/150 tests pass. No fused GPU result exists yet.
+  278/150 tests pass. CP-0047/EV-0060 separately accepts the matching policy-2
+  real-SM120 result and immutable report; do not rerun it merely to create new
+  evidence.
 - TensorIR `1dcb38c...` is a local committed feature revision and is fully
   pinned by the PyPTO gitlink/build guards. It has not been published to the
   configured NVIDIA remote; push or otherwise materialize that commit before
@@ -265,10 +277,10 @@ upstream checkouts and their optional/manual suites.
   CP-0043 accepts the separately versioned frontend controller/finalizer and
   CP-0044 accepts its HIR-authored FP32/BF16 SM120 result. CP-0045 accepts
   bounded fused-pointwise compiler/Cubin production while preserving those add
-  controls byte-for-byte. CP-0046 accepts the separate fused numerical controls;
-  next execute/finalize/review that fixed GPU gate and run OFF/ON compiler
-  gates for reviewed RowReductionV3 `17b2b3c`;
-  structured matmul follows. Operator algorithms, framework registration,
+  controls byte-for-byte. CP-0046 accepts the separate fused numerical controls
+  and CP-0047 accepts the finalized fixed-fixture result. Run fresh OFF/ON
+  compiler/Cubin gates for reviewed RowReductionV3 `17b2b3c`; StructuredMatmulV4
+  `d755117` follows. Operator algorithms, framework registration,
   online tuning and model work remain after these compiler gates.
 - `docs/coverage_collector_map.md` is the pinned collector implementation map.
   Do not claim `closed_world=true` from ordinary Kineto/NVTX or from the first

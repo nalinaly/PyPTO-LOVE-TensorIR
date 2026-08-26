@@ -124,8 +124,8 @@
       PyPTO `b83fcd3`, preserving CP44 V1 bytes and producing SM120 Cubins.
 - [x] Implement, independently review and manifest-bind the nine-case
       fused-pointwise SM120 controller/finalizer at root `c98f984`/`438c25f`.
-- [ ] Run, CPU-finalize and independently review that real-SM120
-      fused-pointwise numerical gate.
+- [x] Run, CPU-finalize and independently review the policy-2 real-SM120
+      fused-pointwise numerical gate at run `pypto-20260826T073309Z-1451510-e48ced`.
 - [ ] Build and gate the source-reviewed RowReductionV3 head `17b2b3c`.
 - [x] Implement and independently source-review StructuredMatmulV4 at
       `d755117`, including transpose, FP32 accumulation and normalized ABI.

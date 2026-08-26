@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `42`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `43`
 
 ## Current phase: P2 frontend-HIR SM120 execution; R0 baseline remains open
 
@@ -21,9 +21,12 @@ fallback. The current transaction generalizes the add-only emitter and frontend
 identity boundary to a bounded fused-pointwise chain while preserving every
 accepted vector-add byte and control. CP-0045 now accepts that compiler/Cubin
 transaction at PyPTO `b83fcd3`; V2 GPU numerical correctness is still open.
-CP-0046 now closes the reviewed nine-case GPU control/finalizer and CPU anchor
-boundary. The next transaction is its admitted real-SM120 execution and
-CPU-only no-replace finalization, not a broader correctness claim.
+CP-0046 closes the reviewed nine-case GPU control/finalizer and CPU anchor
+boundary. CP-0047/EV-0060 now closes its separately versioned policy-2
+real-SM120 execution and CPU-only no-replace finalization. The fixed eighteen
+lifetimes pass with candidate-versus-Torch zero ULP and independent-CPU error
+at most one ULP. This is the frozen nine-case correctness claim, not a general
+operator or performance claim.
 
 The fused-pointwise compiler/Cubin gate is complete. Fresh backend-OFF and
 external backend-ON builds, native 3/3 and exact-product Python 1/1 pass; EV-0058
@@ -59,9 +62,9 @@ TargetInfo with no fallback. This closes only the low-level compiler/runtime
 launch gate. CP-0042 closes the one-producer frontend Artifact facade, CP-0043
 closes its separate smoke controls, and CP-0044 closes HIR-authored vector-add
 real-SM120 correctness. CP-0045 closes fused-pointwise compiler/Cubin evidence;
-CP-0046 closes its execution controls. The real-SM120 numerical run and
-RowReductionV3 compiler gate are current,
-followed by structured matmul.
+CP-0046 closes its execution controls and CP-0047 closes its real-SM120
+numerical result. RowReductionV3 compiler/Cubin validation is current, followed
+by structured matmul.
 
 Checkpoint `CP-0037` records, but does not accept, v3 run
 `pypto-20260825T073624Z-900485-7df250`. Its real GPU child completed six
