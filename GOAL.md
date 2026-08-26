@@ -23,7 +23,7 @@ RowReductionV3 to clean PyPTO `62eb882`: OFF/ON products, native/Python tests
 and four exact nonfallback SM120 Cubin records are accepted; GPU numerical
 correctness remains separate. StructuredMatmulV4 is source-review GO at
 `d755117` and follows reduction.
-Generic operators, framework routes and model execution remain later. The exact
+Generic operators, framework routes and model execution remain later. D-0018 relaxes interim review gates to tests-plus-goldens until the models run. The exact
 PyTorch-pinned Triton reference wheel stays audited/frozen and deliberately
 uninstalled as baseline-only infrastructure. The full objective and acceptance
 criteria remain unchanged. Never signal protected amdgpu-sim/zcode processes.

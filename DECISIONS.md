@@ -177,6 +177,36 @@ NVIDIA/action-boundary/periodic audits, disk and timeout controls, and verified
 workspace-owned PGID signalling. It never applies to GPU-smoke or performance
 runs and never authorizes signalling an amdgpu-sim/zcode process.
 
+## D-0018: Lightweight execution gates until the models run (2026-08-27)
+
+The user found the per-transaction ceremony (two independent P0/P1/P2=0
+source reviews, separate manifest-only commits, multi-round review
+fix-loops) too slow relative to the real deliverable. Until Qwen3.5-0.8B
+and 9B run end-to-end with strict 100% PyPTO kernels, the process gates
+are relaxed:
+
+- No per-transaction source-code reviews and no two-reviewer GO
+  requirement. A single consolidated review happens once, after the
+  models run.
+- A layer is accepted when its automated evidence passes: the relevant
+  focused/full test suites are green, golden comparisons (source
+  goldens, projection digests, Cubin/byte hashes, numerical references)
+  match, and fresh builds link. "Tests + goldens green" replaces
+  "reviewed GO" as the gate.
+- Manifest-only publication ceremonies are optional; controls may be
+  committed together with their implementation.
+- Multi-round review fix-loops (the CPU-v2 style rounds) are replaced
+  by: fix → rerun tests → move on.
+
+The following are NOT relaxed: protected external scopes stay
+read-only and unsignalled; PyTorch/SGLang/Triton upstream checkouts
+stay zero-diff; all kernel algorithms stay in pypto-kernels and plugins
+stay algorithm-free; no model-name/hidden-size/layer-id special casing
+(specialization only from target/dtype/static dims/layout/phase/tuning
+bucket); correctness still precedes performance claims; Triton stays
+reference-only. The D-0017 per-kernel comparison report remains the
+final acceptance.
+
 ## D-0017: Final acceptance is a per-kernel PyPTO-versus-SGLang-default comparison
 
 The user reconfirmed on 2026-08-26 that the end state is Qwen3.5-9B running

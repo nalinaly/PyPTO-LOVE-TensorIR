@@ -1,8 +1,8 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `45`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `46`
 
-## Current phase: P2 frontend-HIR SM120 execution; R0 baseline remains open
+## Current phase: full-stack execution to Qwen3.5 (D-0018 lightweight gates)
 
 CP-0039 accepts compile-free HIR-to-TensorIR emission, CP-0040 accepts the
 standalone canonical schedule, and CP-0041 accepts compiler-owned frontend
@@ -52,6 +52,16 @@ grid source. Source-only implementation now ends at PyPTO `d755117` on top of re
 RowReductionV3. Two independent reviews are GO with P0/P1/P2 zero; build,
 TensorIR/CUDA Tile production, Cubin, runtime and performance gates remain
 pending.
+
+Per D-0018 (2026-08-27) the user relaxed the process gates until the
+models run: no per-transaction source reviews, no two-reviewer GO, no
+manifest-only ceremonies; a layer passes when its tests and golden
+comparisons are green and its build links, with one consolidated review
+after 0.8B/9B run. Safety boundaries are unchanged. The execution order
+is: finish StructuredMatmulV4 host/Cubin evidence, then generic
+pointwise/reduction/indexing/matmul coverage, the TorchInductor PyPTO
+CUDA backend plugin, pypto-kernels attention/GDN, the SGLang plugin,
+0.8B bring-up, profiling, then 9B, then the D-0017 comparison report.
 
 The user reconfirmed the final objective on 2026-08-26: the end state is
 Qwen3.5-9B text generation executing with 100% PyPTO model-forward compute

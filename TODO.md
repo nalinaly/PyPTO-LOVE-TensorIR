@@ -228,5 +228,10 @@ existing executable control continues to enforce 24 GiB.
 - [x] Only then run the fixed RowReductionV3 GPU controller, CPU finalizer, and
       unchanged no-replace retry; preserve the provisional/final report.
 - [x] Freeze the read-only StructuredMatmulV4 replay/conflict/build map.
-- [ ] After RowReduction acceptance, replay `6ee412a` then `d755117` exactly as
-      documented in `docs/structured_matmul_v4_replay_map.md`.
+- [~] After RowReduction acceptance, replay `6ee412a` then `d755117` exactly as
+      documented in `docs/structured_matmul_v4_replay_map.md`. (Trees verified; one
+      build-discovered test repair committed; OFF 11/11; ON build in progress.)
+
+- [ ] D-0018 mode: for every remaining layer, gate = focused/full tests green +
+      goldens match + build links; no per-transaction reviews; one consolidated
+      review after the models run.
