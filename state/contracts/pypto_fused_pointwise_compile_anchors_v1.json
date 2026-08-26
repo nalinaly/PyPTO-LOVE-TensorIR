@@ -1,0 +1,591 @@
+{
+  "anchor_runs": [
+    {
+      "cuda_visible_devices": "",
+      "nvidia_visible_devices": "void",
+      "preflight": {
+        "bytes": 5181,
+        "mode": 384,
+        "path": "runs/pypto-20260826T042728Z-1382280-ce1fa0/preflight.json",
+        "sha256": "87930ebfcb00322d9c9816be0e3bafe83ddbe9617b93ffda67243b79ba03f07c"
+      },
+      "process": {
+        "bytes": 2098,
+        "mode": 384,
+        "path": "runs/pypto-20260826T042728Z-1382280-ce1fa0/process.json",
+        "sha256": "deeb0549fbb0a3c2ec92c3a1f91c8c30a75380a751d10347f32d8c6b655df0cc"
+      },
+      "record": {
+        "bytes": 31933,
+        "mode": 292,
+        "path": "runs/pypto-20260826T042728Z-1382280-ce1fa0/fused-pointwise-compile-anchor-record.json",
+        "records_sha256": "01e8f99dfb0a1aa0e5788177b7d41cc6ed62983037aa57ed8628bb0a1594b844",
+        "sha256": "70b1951b1139cf0a6f71b2af54b611763710b56fe3f219f251d4fe0574df2b44"
+      },
+      "return_code": 0,
+      "run_id": "pypto-20260826T042728Z-1382280-ce1fa0",
+      "torch_cuda_initialized_before_and_after": false
+    },
+    {
+      "cuda_visible_devices": "",
+      "nvidia_visible_devices": "void",
+      "preflight": {
+        "bytes": 5181,
+        "mode": 384,
+        "path": "runs/pypto-20260826T042750Z-1382496-07c3e7/preflight.json",
+        "sha256": "692338b8b73206bfbbb391435939db962fb65a2118e4810725733684f94cbc93"
+      },
+      "process": {
+        "bytes": 2098,
+        "mode": 384,
+        "path": "runs/pypto-20260826T042750Z-1382496-07c3e7/process.json",
+        "sha256": "4ddaea24fc64de4648d867f83dd50022b2baf8a40c536e90dd3c870f02287cfe"
+      },
+      "record": {
+        "bytes": 31933,
+        "mode": 292,
+        "path": "runs/pypto-20260826T042750Z-1382496-07c3e7/fused-pointwise-compile-anchor-record.json",
+        "records_sha256": "01e8f99dfb0a1aa0e5788177b7d41cc6ed62983037aa57ed8628bb0a1594b844",
+        "sha256": "358b07b79d64b9ab9e025e8b731c051568d6c348854a6c647b043e5bfc6c0718"
+      },
+      "return_code": 0,
+      "run_id": "pypto-20260826T042750Z-1382496-07c3e7",
+      "torch_cuda_initialized_before_and_after": false
+    }
+  ],
+  "dso": {
+    "bytes": 784043568,
+    "mode": 493,
+    "path": "builds/pypto-fused-pointwise-v2-on-b83fcd3-final/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "sha256": "0e8f33c263e06777aec06263bf32ca59ac554868529f3fa085212cf27e2facbe"
+  },
+  "kind": "pypto-fused-pointwise-compile-anchors-v1",
+  "records": [
+    {
+      "argument_abi_digest": "12a28e966be5e9c4595f0b48138b095e973dc6b14479f5d4b2fe63b22f301438",
+      "artifact_identity_digest": "04c16e199be485ad314466f9fc7bb76ff223398bf41bd36bfcbd43f930ab6f25",
+      "assignment_count": 8,
+      "build_spec_identity_digest": "70a9fc00fc5d3203049acd53edb39730521d3fbb9d4c3c338afc271d79bf2cf9",
+      "callable_abi_digest": "c1dc16b29af4ea044aa2334b609ad8dd2c11bc89ca5d86f91cc58b61e2fefe60",
+      "case": "arith_fp32_tail",
+      "device_code_bytes": 15128,
+      "device_code_sha256": "54e7aac7f5d0ed39e6bf7537201f64629375ed89e7743fbf02effdf9a0536d58",
+      "dtype": "float32",
+      "entry_function_name": "pypto_fused_pointwise_v2",
+      "expected_grid": [
+        2,
+        1,
+        1
+      ],
+      "fallback_used": false,
+      "high_precision": false,
+      "hir_bytes": 7390,
+      "hir_sha256": "f7cd96727a6601f6f32de25c09c625db216b4679797d91448f798db0faad81a6",
+      "input_count": 4,
+      "kernel_argument_count": 5,
+      "module_kind": "FusedPointwiseV2",
+      "mutation_abi_digest": "55941266a7b5f38c0f7758330a3804562a00647270d4dd650b5f14d4480c75fd",
+      "operator_sequence": [
+        "tensor.mul",
+        "tensor.add",
+        "tensor.muls",
+        "tensor.adds",
+        "tensor.subs",
+        "tensor.mul",
+        "tensor.sub",
+        "tensor.neg"
+      ],
+      "pointer_only": true,
+      "projection_schema_version": 2,
+      "result_abi_digest": "ed8836313ff91be1cbaee6584b244cdd7904217cf70ef21ac8401d295953523c",
+      "result_count": 1,
+      "scalar_literals": [
+        8388608.0,
+        0.3,
+        0.3
+      ],
+      "shape": [
+        3,
+        5
+      ],
+      "source_ir_bytes": 1097,
+      "source_ir_digest": "e5d2275c70f95a32047743880cc8bc54a84e41e984936855c5a583eeb69721f0",
+      "static_specialization_digest": "541e614501314372a9e84bb19be297c1b9beda9446c563d717cfd0a27bb2aba2",
+      "strides": [
+        5,
+        1
+      ],
+      "symbolic_specialization_digest": "9372e99f73d788b3d6431e5e5532d5b3926a46fc14e679c980ca5f0a3517a905",
+      "tile_sizes": [
+        8
+      ],
+      "workspace_bytes": 0
+    },
+    {
+      "argument_abi_digest": "ede9371ece486907772fe98721994ee09e326db281ab5f0c76090a116255e9e4",
+      "artifact_identity_digest": "76c650bf5caf49786c2e753f0985c72c456a19a7e1c33758e23535696bc4c488",
+      "assignment_count": 8,
+      "build_spec_identity_digest": "9e506071b674aeb4a2d67f11f4bb2810c118726112d21b73664fae0c55f1e728",
+      "callable_abi_digest": "402e45f0066edf4807cf3733d97db8eb12e8a61f9451f2c347d52ae7fbbc240d",
+      "case": "arith_bf16_rank3_tail",
+      "device_code_bytes": 15136,
+      "device_code_sha256": "ed89b671ab98ecdf38c69b51c42e3a5a23b20772edce16e3ddb73663854e237a",
+      "dtype": "bfloat16",
+      "entry_function_name": "pypto_fused_pointwise_v2",
+      "expected_grid": [
+        2,
+        1,
+        1
+      ],
+      "fallback_used": false,
+      "high_precision": false,
+      "hir_bytes": 7858,
+      "hir_sha256": "c15563c288685576d131a6b492367e1ca22a69e33e5315a2d1a76a46c76b6689",
+      "input_count": 4,
+      "kernel_argument_count": 5,
+      "module_kind": "FusedPointwiseV2",
+      "mutation_abi_digest": "55941266a7b5f38c0f7758330a3804562a00647270d4dd650b5f14d4480c75fd",
+      "operator_sequence": [
+        "tensor.mul",
+        "tensor.add",
+        "tensor.muls",
+        "tensor.adds",
+        "tensor.subs",
+        "tensor.mul",
+        "tensor.sub",
+        "tensor.neg"
+      ],
+      "pointer_only": true,
+      "projection_schema_version": 2,
+      "result_abi_digest": "a34a664de763e6cb694ebb2eb1fcfd5dda5d6f40d1bc3b73de768837d7ce0dc8",
+      "result_count": 1,
+      "scalar_literals": [
+        128.0,
+        0.3,
+        0.3
+      ],
+      "shape": [
+        2,
+        3,
+        5
+      ],
+      "source_ir_bytes": 1162,
+      "source_ir_digest": "d5819a4048127083acaa34edc781432a625c951b339e5fa21722961b7a52b740",
+      "static_specialization_digest": "6789cbb549f7404120b2a8e97b2b385db6f3bb6a2ee10fe96e6db2c72ee65582",
+      "strides": [
+        15,
+        5,
+        1
+      ],
+      "symbolic_specialization_digest": "9372e99f73d788b3d6431e5e5532d5b3926a46fc14e679c980ca5f0a3517a905",
+      "tile_sizes": [
+        16
+      ],
+      "workspace_bytes": 0
+    },
+    {
+      "argument_abi_digest": "09e2888bac856ef869a84dafbab03a2f81d3b8027bba6dcc42233a156166a3bc",
+      "artifact_identity_digest": "f2453f3d7c9e0830ef741a516c1fd60c95b4c2dd560fbd7eca082204da71e529",
+      "assignment_count": 1,
+      "build_spec_identity_digest": "653fd49725c8421362541a2a1febd6dcb817cb28f44ddcfa12465002a8639ac4",
+      "callable_abi_digest": "3934c0909ac19b3280bf326cf1c414912b1038553d56483678010a5a8c778f8f",
+      "case": "exp_fp32_tail1",
+      "device_code_bytes": 13888,
+      "device_code_sha256": "d6b5d8968b2f9282c9898de60460652fa6ca84e5faa1671f1ae5fa7507544804",
+      "dtype": "float32",
+      "entry_function_name": "pypto_fused_pointwise_v2",
+      "expected_grid": [
+        2,
+        1,
+        1
+      ],
+      "fallback_used": false,
+      "high_precision": false,
+      "hir_bytes": 1766,
+      "hir_sha256": "69afe75eb2a82986b5329a5040c4a7e6039c77551b8eb13f44b3da2b4c4aa630",
+      "input_count": 1,
+      "kernel_argument_count": 2,
+      "module_kind": "FusedPointwiseV2",
+      "mutation_abi_digest": "1c10569fb6e5c1532f4019a0a66a50858338397a51b028f9b7336ce856803c47",
+      "operator_sequence": [
+        "tensor.exp"
+      ],
+      "pointer_only": true,
+      "projection_schema_version": 2,
+      "result_abi_digest": "d81c8395d1805105a449f047083515ff3fe11445f7d5ae93a67e3205a23777fe",
+      "result_count": 1,
+      "scalar_literals": [],
+      "shape": [
+        17
+      ],
+      "source_ir_bytes": 191,
+      "source_ir_digest": "3a9328a0aad4427374ccb56272ec89116093ab0fc385981dfcaf6f38dce280e3",
+      "static_specialization_digest": "8e94d10076beaad340e5045ecebb2f015ecd03dbc488a5b90f5a21e580e5d69b",
+      "strides": [
+        1
+      ],
+      "symbolic_specialization_digest": "9372e99f73d788b3d6431e5e5532d5b3926a46fc14e679c980ca5f0a3517a905",
+      "tile_sizes": [
+        16
+      ],
+      "workspace_bytes": 0
+    },
+    {
+      "argument_abi_digest": "b81159b08ec07df41a2dd17c2b22f17241f265c1564fa24d59bf06f737b0a870",
+      "artifact_identity_digest": "6f692785da6ae4b87b07d2b338836ad97917bfe01d810726175fee978ac6677f",
+      "assignment_count": 1,
+      "build_spec_identity_digest": "5af7f9290eeb6fc2ed65368169cc057139ef1fa578e70cc6d10c55d3a810b1fb",
+      "callable_abi_digest": "e2903ff8af453fe58a0ada387b68a22648f50ae924753d3da8705257bb3faab2",
+      "case": "exp_bf16_exact_tile",
+      "device_code_bytes": 13680,
+      "device_code_sha256": "5c4efdc785a2a9b648cb9292922474b89f934b3c8f33cb14cafe510024a42608",
+      "dtype": "bfloat16",
+      "entry_function_name": "pypto_fused_pointwise_v2",
+      "expected_grid": [
+        4,
+        1,
+        1
+      ],
+      "fallback_used": false,
+      "high_precision": false,
+      "hir_bytes": 1961,
+      "hir_sha256": "2b646fe17d05aa3c57c095aaa489a8bca773233651ee42ad97369c7090ceef22",
+      "input_count": 1,
+      "kernel_argument_count": 2,
+      "module_kind": "FusedPointwiseV2",
+      "mutation_abi_digest": "1c10569fb6e5c1532f4019a0a66a50858338397a51b028f9b7336ce856803c47",
+      "operator_sequence": [
+        "tensor.exp"
+      ],
+      "pointer_only": true,
+      "projection_schema_version": 2,
+      "result_abi_digest": "82d52c8ea547920ea649b16eda1b9b995df05abec9f83ea23d7ec9609bcd8329",
+      "result_count": 1,
+      "scalar_literals": [],
+      "shape": [
+        8,
+        8
+      ],
+      "source_ir_bytes": 265,
+      "source_ir_digest": "0f21270b0b1a9a30b4df1e7a2de3e38e6bedf484fbde7127139bf53f0c59d9f8",
+      "static_specialization_digest": "fae4a803ed8a5ddf145363a45ba520ddf634b5002d756d77ae9808b2d0935006",
+      "strides": [
+        8,
+        1
+      ],
+      "symbolic_specialization_digest": "9372e99f73d788b3d6431e5e5532d5b3926a46fc14e679c980ca5f0a3517a905",
+      "tile_sizes": [
+        16
+      ],
+      "workspace_bytes": 0
+    },
+    {
+      "argument_abi_digest": "5d5b85c8980f80454b658ff2d6a56906a6bf1e51e0630f4910bf4b48313fad3b",
+      "artifact_identity_digest": "3da13cdbaad387ca0dd78ad5a3bdbf6d15e0c38f3340476146b88d484558b5d2",
+      "assignment_count": 1,
+      "build_spec_identity_digest": "ef6fc26ff3ff03a6fbbe2c200bf85fb6d2e2aafad8f8d2b49fd5a0dd49fa0287",
+      "callable_abi_digest": "6366509845649ad50855675d79cabf767108349553185b869545ea9662aee227",
+      "case": "recip_fp32_tail",
+      "device_code_bytes": 16560,
+      "device_code_sha256": "2c339a23ae31f2c3c697a0f2b35b5f75dba42976efcb0bbe111733bc8016f95b",
+      "dtype": "float32",
+      "entry_function_name": "pypto_fused_pointwise_v2",
+      "expected_grid": [
+        2,
+        1,
+        1
+      ],
+      "fallback_used": false,
+      "high_precision": false,
+      "hir_bytes": 1927,
+      "hir_sha256": "1bca35843dd9f7639129d007732169a37667f5c5761a205c3250cdbc5438cc91",
+      "input_count": 1,
+      "kernel_argument_count": 2,
+      "module_kind": "FusedPointwiseV2",
+      "mutation_abi_digest": "1c10569fb6e5c1532f4019a0a66a50858338397a51b028f9b7336ce856803c47",
+      "operator_sequence": [
+        "tensor.recip"
+      ],
+      "pointer_only": true,
+      "projection_schema_version": 2,
+      "result_abi_digest": "ed8836313ff91be1cbaee6584b244cdd7904217cf70ef21ac8401d295953523c",
+      "result_count": 1,
+      "scalar_literals": [],
+      "shape": [
+        3,
+        5
+      ],
+      "source_ir_bytes": 268,
+      "source_ir_digest": "96bd090ead61b49a0f6a9abf9a8bf6fd3d6d65a26798aca74e8cb2bbe11e92b1",
+      "static_specialization_digest": "9d1d1b829f19447e03e2c7e061215e29adc1056fdd7cb6f72f08199b68ffbc34",
+      "strides": [
+        5,
+        1
+      ],
+      "symbolic_specialization_digest": "9372e99f73d788b3d6431e5e5532d5b3926a46fc14e679c980ca5f0a3517a905",
+      "tile_sizes": [
+        8
+      ],
+      "workspace_bytes": 0
+    },
+    {
+      "argument_abi_digest": "b417dca1da56bbd5c774e8ac3b809c167424590066cc7641983472204c65f127",
+      "artifact_identity_digest": "dc7c47ff0f82d84f0e539af44a840ba7fc2e6529c6949e6ce170f986453b8515",
+      "assignment_count": 1,
+      "build_spec_identity_digest": "55e16140e457c3692b3641f5fc74233bc65fd85d4c984c72f4a42694afb11edc",
+      "callable_abi_digest": "3934c0909ac19b3280bf326cf1c414912b1038553d56483678010a5a8c778f8f",
+      "case": "recip_bf16_tail1",
+      "device_code_bytes": 16688,
+      "device_code_sha256": "8a5313b536f0543bf6dba6a18737a9ffe90958565330445cfd0a055eb61aad4b",
+      "dtype": "bfloat16",
+      "entry_function_name": "pypto_fused_pointwise_v2",
+      "expected_grid": [
+        2,
+        1,
+        1
+      ],
+      "fallback_used": false,
+      "high_precision": false,
+      "hir_bytes": 1786,
+      "hir_sha256": "b3c652d781ff3d7dace289e7b4c0288011ca2be9a0e8e6f4b1deb014ce5ab7fd",
+      "input_count": 1,
+      "kernel_argument_count": 2,
+      "module_kind": "FusedPointwiseV2",
+      "mutation_abi_digest": "1c10569fb6e5c1532f4019a0a66a50858338397a51b028f9b7336ce856803c47",
+      "operator_sequence": [
+        "tensor.recip"
+      ],
+      "pointer_only": true,
+      "projection_schema_version": 2,
+      "result_abi_digest": "c91513be1d3301cad02dd83f849200d1f1fb44f2ec43b557079f8fbb5640bf29",
+      "result_count": 1,
+      "scalar_literals": [],
+      "shape": [
+        17
+      ],
+      "source_ir_bytes": 202,
+      "source_ir_digest": "278c016c1712b02abf94e2e697df5a0b0f25c40b0c14006e4106604f455d5bb8",
+      "static_specialization_digest": "8e94d10076beaad340e5045ecebb2f015ecd03dbc488a5b90f5a21e580e5d69b",
+      "strides": [
+        1
+      ],
+      "symbolic_specialization_digest": "9372e99f73d788b3d6431e5e5532d5b3926a46fc14e679c980ca5f0a3517a905",
+      "tile_sizes": [
+        16
+      ],
+      "workspace_bytes": 0
+    },
+    {
+      "argument_abi_digest": "2cab0028ec574e2a31808c61e90ea69e8201304abbf521a7d5b2830f017fe3f9",
+      "artifact_identity_digest": "9618a95f8cd35b72a8cb96c7915b6be086d598771144b324eef81afae9bb31bd",
+      "assignment_count": 1,
+      "build_spec_identity_digest": "0547be0d66ed9927cbe5d388856a022deadeac45e8da90ed44fdcf13cae85ba9",
+      "callable_abi_digest": "a1f918a38df76e355b672591911667b1216281c43e8a4a256ff064470ee77386",
+      "case": "rsqrt_fp32_rank3_tail",
+      "device_code_bytes": 13880,
+      "device_code_sha256": "c81fb8b186046f0927d3f281f06e27f5524a1a06b5deb729650beb228b069378",
+      "dtype": "float32",
+      "entry_function_name": "pypto_fused_pointwise_v2",
+      "expected_grid": [
+        2,
+        1,
+        1
+      ],
+      "fallback_used": false,
+      "high_precision": false,
+      "hir_bytes": 2131,
+      "hir_sha256": "2a90ef8ec803c094912514ee80145fedffddf63204bc6ef2ce5d7761838947dc",
+      "input_count": 1,
+      "kernel_argument_count": 2,
+      "module_kind": "FusedPointwiseV2",
+      "mutation_abi_digest": "1c10569fb6e5c1532f4019a0a66a50858338397a51b028f9b7336ce856803c47",
+      "operator_sequence": [
+        "tensor.rsqrt"
+      ],
+      "pointer_only": true,
+      "projection_schema_version": 2,
+      "result_abi_digest": "8623014bdd694da338601d8f1d46130564a4030ae5fd429a473acfc333e8a156",
+      "result_count": 1,
+      "scalar_literals": [],
+      "shape": [
+        2,
+        3,
+        5
+      ],
+      "source_ir_bytes": 277,
+      "source_ir_digest": "d50cec267d5ce639c7c5e6a2e906f7ffc3367a3f42019965abf709af2e2ae591",
+      "static_specialization_digest": "dd66068dffc39d3dd4a79c877b751f4f9e9cb92e298660143492439d6461bcc5",
+      "strides": [
+        15,
+        5,
+        1
+      ],
+      "symbolic_specialization_digest": "9372e99f73d788b3d6431e5e5532d5b3926a46fc14e679c980ca5f0a3517a905",
+      "tile_sizes": [
+        16
+      ],
+      "workspace_bytes": 0
+    },
+    {
+      "argument_abi_digest": "b81159b08ec07df41a2dd17c2b22f17241f265c1564fa24d59bf06f737b0a870",
+      "artifact_identity_digest": "49860aa4959eaf6b27ec582bb8fef47828e429800fb079ea7c94bbc58bef4924",
+      "assignment_count": 1,
+      "build_spec_identity_digest": "bf12c3373014637a3d04d8f46eeaee64aa867cc5b499f724ca505520eb22f4ea",
+      "callable_abi_digest": "e2903ff8af453fe58a0ada387b68a22648f50ae924753d3da8705257bb3faab2",
+      "case": "rsqrt_bf16_exact_tile",
+      "device_code_bytes": 13680,
+      "device_code_sha256": "8b5106458a6025aa89b01c316949caef7d6019ad09346b8d856a59f347d0c13c",
+      "dtype": "bfloat16",
+      "entry_function_name": "pypto_fused_pointwise_v2",
+      "expected_grid": [
+        4,
+        1,
+        1
+      ],
+      "fallback_used": false,
+      "high_precision": false,
+      "hir_bytes": 1981,
+      "hir_sha256": "4d40c1340335c6ac5358b0d8f4c8154edf82f4f044e1a2fb74348926f0601b77",
+      "input_count": 1,
+      "kernel_argument_count": 2,
+      "module_kind": "FusedPointwiseV2",
+      "mutation_abi_digest": "1c10569fb6e5c1532f4019a0a66a50858338397a51b028f9b7336ce856803c47",
+      "operator_sequence": [
+        "tensor.rsqrt"
+      ],
+      "pointer_only": true,
+      "projection_schema_version": 2,
+      "result_abi_digest": "82d52c8ea547920ea649b16eda1b9b995df05abec9f83ea23d7ec9609bcd8329",
+      "result_count": 1,
+      "scalar_literals": [],
+      "shape": [
+        8,
+        8
+      ],
+      "source_ir_bytes": 267,
+      "source_ir_digest": "94cc16f92ca2d04f24778094e6fc5146fe2b6422f532a49c2ebb872420fd972b",
+      "static_specialization_digest": "fae4a803ed8a5ddf145363a45ba520ddf634b5002d756d77ae9808b2d0935006",
+      "strides": [
+        8,
+        1
+      ],
+      "symbolic_specialization_digest": "9372e99f73d788b3d6431e5e5532d5b3926a46fc14e679c980ca5f0a3517a905",
+      "tile_sizes": [
+        16
+      ],
+      "workspace_bytes": 0
+    },
+    {
+      "argument_abi_digest": "4a7c19ef388ae38291a27efa019af54a8ddf9d1058679ab3ae4f79a058f29d6c",
+      "artifact_identity_digest": "42067515f7bb30002f6165cbd1bb6ebdbfbee5716f333d533b24ecb1738a7a56",
+      "assignment_count": 64,
+      "build_spec_identity_digest": "3aa8fec91ee401fc1f1baa3a61f2b4db649d7194f7f82dcde35229d3bd6b3877",
+      "callable_abi_digest": "176a4472446721cbe8d0407e8584c2d600cb843964d2d2f6b3a0557d3f6fd1ce",
+      "case": "max16x64_fp32_tail1",
+      "device_code_bytes": 21216,
+      "device_code_sha256": "83ab7ee75be6a8b2c4cfcf8bd4c61a50d54261982f73e318adc78e0637f9b53f",
+      "dtype": "float32",
+      "entry_function_name": "pypto_fused_pointwise_v2",
+      "expected_grid": [
+        2,
+        1,
+        1
+      ],
+      "fallback_used": false,
+      "high_precision": false,
+      "hir_bytes": 43558,
+      "hir_sha256": "f5b0bc5cb6f2d4d01b5c9167e4b60ec3d8362b83a4cf8a7929148ab9abcf6ae7",
+      "input_count": 16,
+      "kernel_argument_count": 17,
+      "module_kind": "FusedPointwiseV2",
+      "mutation_abi_digest": "4d27232983f5fe538dda27faa303a0d9f1c8cb0f2e3fde9ca6022e1381599f2a",
+      "operator_sequence": [
+        "tensor.add",
+        "tensor.add",
+        "tensor.add",
+        "tensor.add",
+        "tensor.add",
+        "tensor.add",
+        "tensor.add",
+        "tensor.add",
+        "tensor.add",
+        "tensor.add",
+        "tensor.add",
+        "tensor.add",
+        "tensor.add",
+        "tensor.add",
+        "tensor.add",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg",
+        "tensor.neg"
+      ],
+      "pointer_only": true,
+      "projection_schema_version": 2,
+      "result_abi_digest": "d81c8395d1805105a449f047083515ff3fe11445f7d5ae93a67e3205a23777fe",
+      "result_count": 1,
+      "scalar_literals": [],
+      "shape": [
+        17
+      ],
+      "source_ir_bytes": 3530,
+      "source_ir_digest": "dbd228b8eed9689754326ae8be540941fbf8b113178cbd86bf64af1c98d3c06d",
+      "static_specialization_digest": "5c609af8db0eff21c92a0a5af8d30a32e238228df72511aba9880e8dbe7c5360",
+      "strides": [
+        1
+      ],
+      "symbolic_specialization_digest": "9372e99f73d788b3d6431e5e5532d5b3926a46fc14e679c980ca5f0a3517a905",
+      "tile_sizes": [
+        16
+      ],
+      "workspace_bytes": 0
+    }
+  ],
+  "records_sha256": "01e8f99dfb0a1aa0e5788177b7d41cc6ed62983037aa57ed8628bb0a1594b844",
+  "schema_version": 1
+}
