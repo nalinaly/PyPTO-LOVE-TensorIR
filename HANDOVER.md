@@ -97,6 +97,13 @@ upstream checkouts and their optional/manual suites.
   static grid metadata is output-driven and must select descriptor index 2.
   Dynamic shapes, rank mixing, batch broadcast, direct BF16 TensorIR result,
   `c_matrix_nz` and accumulator forms remain fail-closed until later contracts.
+  Source commits `6ee412a751fe684c5977828f2d526e9c28d3e787` and
+  `d7551176ded1db74c3f185d443f1397a83029bb0` now implement that V4 boundary on
+  `feature/structured-matmul-v4`; both independent source reviews are GO with
+  P0/P1/P2 zero. The head adds conceptual `B*M*N*K` overflow protection,
+  exact rank-2/rank-3 transpose/projection goldens and representative producer
+  fixtures. It remains unbuilt with no Cubin, runtime, numerical or performance
+  claim.
 - Read `state/checkpoints/CP-0046.md` and evidence `EV-0005` through `EV-0059`.
 - Root `5564008` plus manifest-only `7639d82` owns the current v4
   correctness-only SM120 smoke. The manifest SHA is `a079c4d2...98bf` and

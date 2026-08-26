@@ -127,7 +127,10 @@
 - [ ] Run, CPU-finalize and independently review that real-SM120
       fused-pointwise numerical gate.
 - [ ] Build and gate the source-reviewed RowReductionV3 head `17b2b3c`.
-- [ ] Implement and gate simple StructuredMatmulV4 before Inductor integration.
+- [x] Implement and independently source-review StructuredMatmulV4 at
+      `d755117`, including transpose, FP32 accumulation and normalized ABI.
+- [ ] Build, produce Cubins and gate StructuredMatmulV4 before Inductor
+      integration.
 - [x] Implement bounded canonical PyPTO Artifact v1 serialization with bytes,
       ABI, request/build-spec/producer digests and malformed-input rejection.
 - [x] Isolate the TensorIR/LLVM ABI bridge, hide every non-Python DSO export,
