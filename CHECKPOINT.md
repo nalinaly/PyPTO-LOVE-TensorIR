@@ -1,30 +1,18 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0048`
+**Checkpoint:** `CP-0049`
 
-**Status:** R0 remains open. P2 accepts finalized minimal real-SM120
-`NvidiaExecutable` correctness v1: exact PyPTO/TensorIR/CUDA Tile Artifacts load,
-prewarm, execute on the caller's non-default stream, synchronize and unload on
-the RTX 5090 with no fallback. It also accepts compile-free deterministic
-static `tensor.add` HIR-to-TensorIR emission at PyPTO `07ab9ea`, and now the
-standalone bounded schedule identity at `fa85e5a`, and CP-0041 accepts private
-compile-free frontend specialization/ABI projections and final BuildSpec
-construction. CP-0042 now accepts the public one-producer joined BuildSpec/
-Artifact transaction at PyPTO `642ff5b`. CP-0043 accepts the separately
-versioned frontend FP32/BF16 correctness-smoke controls and CPU-only exact-DSO
-replay boundary at root `47a0c15`. CP-0044 accepts the finalized two-fixture
-frontend HIR vector-add result on real SM120 with no fallback. CP-0045 accepts
-bounded `FusedPointwiseV2` source/identity/ABI and filtered backend-OFF/ON
-TensorIR/CUDA Tile Cubin production at PyPTO `b83fcd3`. CP-0046 accepts the
-fixed nine-case control/finalizer boundary. CP-0047 now accepts the separately
-versioned policy-2 real-SM120 result and immutable CPU-finalized report SHA
-`d4ffafc0...2eeedf0`: all eighteen fixed lifetimes pass with no fallback,
-intact canaries and explicit unload. Reduction, matmul, framework, model, CUDA
-Graph, coverage and performance milestones remain open. CP-0048 advances the
-primary PyPTO checkout to `62eb882` and accepts RowReductionV3 host compiler/
-Cubin production: clean OFF/ON DSOs, native/Python gates and four exact
-nonfallback rank-1/2/3 SM120 Cubin records. Reduction GPU numerical correctness
-remains open.
+**Status:** R0 remains open. P2 accepts the finalized RowReductionV3
+real-SM120 ten-case correctness gate at PyPTO `faefd0a`: all twenty fresh
+lifetimes pass exact/tolerance/special partitions with the corrected `+0`
+row-sum accumulator identity, no fallback, intact canaries and explicit
+unload. The gate took three real runs: the first exposed a torch-sign
+control oracle contradiction, the second (with pre-comparison word dumps)
+produced decisive evidence of a genuine single-element signed-zero kernel
+defect, and the third passes after the explicit `+0` epilogue fix.
+Reduction performance, CUDA Graph, framework, model and coverage
+milestones remain open. CP-0048 previously accepted host compiler/Cubin
+production; its report stays immutable.
 
 ## Current truth
 
@@ -660,6 +648,19 @@ remains open.
   exact GPU-adapter hash gate and reverted in `7ecc197`; D-0016 now requires a
   separate CPU-only policy-v2 adapter. Existing 24 GiB controls and evidence are
   unchanged and remain authoritative until that adapter is implemented.
+- CP-0049/EV-0062 closes RowReductionV3 real-SM120 correctness. PyPTO
+  `faefd0a` (on `62eb882`) adds the explicit `+0` accumulator epilogue to
+  every FP32-domain row_sum reduction after two diagnostic GPU runs proved
+  the tile backend's single-element fast path returned `-0` for the
+  all-negative-zero row. Root control revision `6a4101c` + manifest
+  `39b4c35` rebind the corrected ON DSO (`c72fdf3c...`, 784,342,176 bytes),
+  regenerate the compile anchors from clean dual CUDA-hidden runs, keep the
+  CP48 max overlaps byte-exact and record the sum overlaps as deliberate
+  divergence. Fresh ON native is 13/13, ON Python passes, and the clean
+  post-manifest full suite is 395 tests plus 358 subtests. Accepted run
+  `pypto-20260826T175445Z-218543-3ae1ad` publishes immutable report SHA
+  `564ae535...fd7e35` with the historical row now `+0`; the no-replace
+  retry fails unchanged. This is the frozen ten-case claim only.
 - The D-0016 CPU-only coexistence policy v2 is now implemented and published.
   Root implementation `82162c6` adds exactly six files (contract, preflight,
   controller, control validator, 55-test suite, docs) with the v1 base modules
@@ -676,30 +677,21 @@ remains open.
 
 ## Resume action
 
-The user explicitly paused the current run on 2026-08-26. The authoritative
-zero-context resume record is `docs/NEXT_AGENT_ZERO_CONTEXT_HANDOVER.md`.
-Do not resume from an older CP summary without first reconciling the six
-untracked CPU-v2 draft files. Their latest edits are not accepted evidence.
-
-The goal is active, not complete. Freeze Triton as accepted reference-only
-infrastructure. CP-0038 closes the minimal real-SM120 compiler/runtime launch
-gate. Preserve its v4 controls and final report; do not rerun it merely to
-change evidence. CP-0039 through CP-0041 close compile-free HIR emission,
-standalone schedule identity and final frontend BuildSpec identity. CP-0042
-closes the one-producer joined BuildSpec/Artifact facade, CP-0043 closes the
-separate fixed frontend smoke control/finalizer boundary, and CP-0044 closes its
-real-SM120 FP32/BF16 correctness result. CP-0045 closes bounded fused-pointwise
-compiler/Cubin production while preserving all vector-add bytes. CP-0046 closes
-the separate numerical gate's reviewed controls and CP-0047 closes the matching
-real-SM120 fixed-fixture correctness result. CP-0048 closes RowReductionV3 host
-compiler/Cubin production. Its reviewed numerical controls and manifest are now
-committed; wait for the external memory lane to clear, rerun the clean full CPU
-suite, then run the fixed controller/finalizer/no-replace transaction. Do not
-claim CP-0049 or GPU correctness before those gates complete. StructuredMatmulV4
-`d755117` follows after replaying its commits onto `62eb882`.
-Defer the separate exclusive Triton replacement/reference-smoke gate until the
-unmodified SGLang baseline needs it.
-Use explicit CPU-only coexistence only for non-GPU build/test work. The single
-fixed correctness smoke may use its separately audited zero-NVIDIA protected-
-CPU policy; all GPU performance benchmarks remain exclusive `gpu-benchmark`
-runs. Never inherit TensorIR's SM100 defaults.
+The goal is active, not complete. CP-0049 closes RowReductionV3 real-SM120
+ten-case correctness; CP-0048 closed host compiler/Cubin production, CP-0047
+the fused-pointwise nine-case result, CP-0044/CP-0042/CP-0038 the earlier
+compiler/runtime gates, and D-0017 freezes the per-kernel
+PyPTO-versus-SGLang-default final acceptance. The next transaction is the
+StructuredMatmulV4 replay exactly per docs/structured_matmul_v4_replay_map.md:
+worktree from `62eb882`, cherry-pick `6ee412a` then `d755117` (only the
+documented descriptor-fixture conflict), verify both tree hashes, then the
+sequential OFF/ON fresh builds, native/Python gates, five-shape producer
+matrix and the independent CUDA-hidden deterministic recompilation. GPU
+numerical correctness and performance for matmul are separate later gates.
+After that, continue the PLAN.md main line (generic fused-loop codegen,
+Inductor plugin, pypto-kernels attention/GDN, SGLang plugin, 0.8B then 9B,
+strict coverage and the D-0017 comparison report). Do not rerun accepted
+gates merely to create new evidence. Use explicit CPU-only coexistence only
+for non-GPU build/test work; GPU correctness uses the reviewed policy-2 lane
+and all GPU performance remains exclusive. Never inherit TensorIR's SM100
+defaults and never signal protected amdgpu-sim/zcode processes.

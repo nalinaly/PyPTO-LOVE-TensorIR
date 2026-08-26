@@ -1,0 +1,78 @@
+{
+  "id": "EV-0062",
+  "kind": "row_reduction_v3_real_sm120_ten_case_correctness",
+  "status": "accepted_real_sm120_fixed_ten_case_correctness_gate",
+  "claim_scope": {
+    "fixed_case_correctness": true,
+    "case_count": 10,
+    "executions": 20,
+    "family": "RowReductionV3",
+    "general_reduction_correctness": false,
+    "performance_result": false,
+    "framework_or_model_result": false
+  },
+  "accepted_run": "pypto-20260826T175445Z-218543-3ae1ad",
+  "provisional_sha256": "e41d410fb26a8a61562d9f7f418cca93f2a7a5a40fa0770373d49ce9bb387851",
+  "final_report": "reports/data/pypto-row-reduction-sm120-pypto-20260826T175445Z-218543-3ae1ad.json",
+  "final_report_bytes": 306721,
+  "final_report_sha256": "564ae535b9e339cc1d0ca7198e066450f64a1c060c07a67e017a1a5631fd7e35",
+  "no_replace_retry_rejected": true,
+  "compiler_source": {
+    "pypto_head": "faefd0a1df29b4bdb3434f5f6e5f73757387ae3e",
+    "pypto_tree": "8da7235e6212c29a57e905b61e47d7da489cd732",
+    "on_dso_path": "builds/pypto-row-reduction-sumfix-on-faefd0a/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "on_dso_bytes": 784342176,
+    "on_dso_sha256": "c72fdf3ccd140e0ed9cc930db2daa8fc7abd7dec4fb9ab70771e872252cea0e5",
+    "tensor_ir": "1dcb38c20e53d07c97d3781cae538e33901bae30",
+    "cuda_tile": "af2417041cc939b87ef56d92cfdcf61737c5457e",
+    "llvm": "57109befac92811d2253109242ca6fa69c961fb2"
+  },
+  "signed_zero_kernel_fix": {
+    "pypto_commits": [
+      "b5e5cae",
+      "faefd0a1df29b4bdb3434f5f6e5f73757387ae3e"
+    ],
+    "defect": "the tile backend's single-element reduction fast path returned the element itself, so the all-negative-zero row reduced to -0 (0x80000000) instead of the frozen +0 accumulator identity",
+    "failing_runs": [
+      "pypto-20260826T161547Z-146383-954cc0",
+      "pypto-20260826T165111Z-173109-3f7a6a"
+    ],
+    "fix": "explicit constant/splat/add of +0 after every FP32-domain row_sum reduction; IEEE x + (+0) is bit-identical for every value except -0 which becomes +0; row_max untouched because its contract preserves -0",
+    "historical_row_evidence": {
+      "input": "0x80000000",
+      "pre_fix_actual": "0x80000000",
+      "post_fix_actual": "0x00000000",
+      "case": "rank1_fp32_sum_n1.r1"
+    }
+  },
+  "controls": {
+    "root_implementation_commit": "6a4101c",
+    "root_manifest_commit": "39b4c35",
+    "control_manifest_sha256": "6d9a9fbf507c6f3a2fe757e37c4574055136266f825c15c18d5396195b2b5b13",
+    "compile_anchors_sha256": "994da1c7f04157c381cd0093f88fbc9e0d335d7fe8a2a6c4f7b74a46a16ecd47",
+    "compile_anchor_runs": [
+      "pypto-20260826T174245Z-209241-eb855d",
+      "pypto-20260826T174333Z-209547-311e35"
+    ],
+    "cp48_overlap": {
+      "max_cases_join_exact": [
+        "rank2_bf16_max_n17",
+        "rank3_bf16_max_n17"
+      ],
+      "sum_cases_recorded_divergence": [
+        "rank1_fp32_sum_n7",
+        "rank3_fp32_sum_n17_tail"
+      ]
+    },
+    "comparison_schema": 2,
+    "clean_post_manifest_full_suite": {
+      "run": "pypto-20260826T181635Z-prefix",
+      "passed": 395,
+      "subtests": 358
+    }
+  },
+  "reviews": {
+    "final_report_review": "GO with P0=0 P1=0; signed-zero fix verified compiled and exercised; all 20 records joined; no fallback/provider violations; claim boundary fixed-ten-case only",
+    "reviewer_confirmed_max_zero_sign_provider_divergence": "rank3_fp32_max_n257_tail.r1 row 5 torch -0 vs contract +0 recorded non-fatally per provider tolerance"
+  }
+}

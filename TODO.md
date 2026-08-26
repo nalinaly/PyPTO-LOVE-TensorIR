@@ -133,8 +133,9 @@
       fused-pointwise numerical gate at run `pypto-20260826T073309Z-1451510-e48ced`.
 - [x] Build and gate RowReductionV3 at clean PyPTO `62eb882`, including OFF/ON
       products, native/Python tests and four exact nonfallback SM120 Cubins.
-- [ ] Execute and independently gate RowReductionV3 FP32/BF16 numerical
-      correctness on real SM120 before claiming runtime coverage.
+- [x] Execute and independently gate RowReductionV3 FP32/BF16 numerical
+      correctness on real SM120 before claiming runtime coverage. (CP-0049/
+      EV-0062; run 175445Z-218543; report 564ae535...; +0 accumulator fix.)
 - [x] Implement and independently source-review StructuredMatmulV4 at
       `d755117`, including transpose, FP32 accumulation and normalized ABI.
 - [ ] Build, produce Cubins and gate StructuredMatmulV4 before Inductor
@@ -222,9 +223,9 @@ existing executable control continues to enforce 24 GiB.
 - [x] Publish the separate canonical manifest (`34ee759`).
 - [x] Regenerate and validate two CUDA-hidden anchor runs; focused tests pass
       34 plus 84 subtests and all three final reviews are GO.
-- [ ] After the external zcode `cutlass-compiler` releases host memory, rerun
-      the clean postmanifest full CPU suite.
-- [ ] Only then run the fixed RowReductionV3 GPU controller, CPU finalizer, and
+- [x] After the external zcode `cutlass-compiler` releases host memory, rerun
+      the clean postmanifest full CPU suite. (395 tests + 358 subtests.)
+- [x] Only then run the fixed RowReductionV3 GPU controller, CPU finalizer, and
       unchanged no-replace retry; preserve the provisional/final report.
 - [x] Freeze the read-only StructuredMatmulV4 replay/conflict/build map.
 - [ ] After RowReduction acceptance, replay `6ee412a` then `d755117` exactly as
