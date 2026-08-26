@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 import argparse
+from fractions import Fraction
 import hashlib
 import json
+import math
 import os
 import re
 import stat
+import struct
 import sys
 import tempfile
 from pathlib import Path
@@ -43,6 +46,178 @@ def canonical_json(value: object) -> bytes:
         json.dumps(value, ensure_ascii=True, allow_nan=False, indent=2, sort_keys=True)
         + "\n"
     ).encode("ascii")
+
+
+def oracle_encode_word(value: float, dtype: str) -> int:
+    """Independently round one Python value into the fixed logical dtype."""
+
+    bits = struct.unpack("<I", struct.pack("<f", value))[0]
+    if dtype == "float32":
+        return bits
+    if dtype != "bfloat16":
+        raise AnchorError(f"unsupported oracle dtype: {dtype}")
+    if bits & 0x7F800000 == 0x7F800000 and bits & 0x007FFFFF:
+        return 0x7FC0
+    return ((bits + 0x7FFF + ((bits >> 16) & 1)) >> 16) & 0xFFFF
+
+
+def oracle_word_value(word: int, dtype: str) -> float:
+    bits = word if dtype == "float32" else word << 16
+    return struct.unpack("<f", struct.pack("<I", bits))[0]
+
+
+def oracle_pack_words(words: list[int], dtype: str) -> bytes:
+    code = "I" if dtype == "float32" else "H"
+    return struct.pack(f"<{len(words)}{code}", *words)
+
+
+def oracle_class_sign(word: int, dtype: str) -> dict[str, object]:
+    fraction_bits = 23 if dtype == "float32" else 7
+    sign = word >> (fraction_bits + 8)
+    exponent = (word >> fraction_bits) & 0xFF
+    fraction = word & ((1 << fraction_bits) - 1)
+    if exponent == 0xFF:
+        classification = "nan" if fraction else "inf"
+    elif exponent == 0:
+        classification = "zero" if fraction == 0 else "subnormal"
+    else:
+        classification = "finite"
+    return {"class": classification, "sign": sign}
+
+
+def oracle_input_words(case: object, repetition: int) -> list[int]:
+    """Construct the fixed input in word space, independently of GPU controls."""
+
+    rows: list[list[float]] = []
+    modes = case.output_comparison_modes(repetition)
+    for row in range(case.rows):
+        if (
+            repetition == 0
+            and case.dtype == "bfloat16"
+            and case.op_name == "tensor.row_sum"
+            and row == 0
+        ):
+            values = [1.0] + [2.0**-8 for _ in range(case.contraction - 1)]
+        elif modes[row] == contract.COMPARISON_MODE_TOLERANCE:
+            values = [
+                (1.0 + ((row * 13 + column * 11) % 29)) / 7.0
+                for column in range(case.contraction)
+            ]
+        elif repetition == 0 and case.op_name == "tensor.row_sum":
+            values = [
+                float(((row * 3 + column * 5) % 9) - 4) / 4
+                for column in range(case.contraction)
+            ]
+        elif repetition == 0:
+            values = [
+                float(((row * 11 + column * 7) % 127) - 90)
+                for column in range(case.contraction)
+            ]
+            values[-1] = float(32 + row)
+        elif case.op_name == "tensor.row_sum":
+            values = [-0.0 for _ in range(case.contraction)]
+            mode = row % 5
+            if mode == 1:
+                values = [math.inf] + [1.0 for _ in range(case.contraction - 1)]
+            elif mode == 2:
+                values = [-math.inf] + [-1.0 for _ in range(case.contraction - 1)]
+            elif mode == 3 and case.contraction > 1:
+                values[0:2] = [math.inf, -math.inf]
+            elif mode == 4:
+                values[0] = math.nan
+        else:
+            mode = row % 5
+            if mode == 0:
+                values = [-0.0, 0.0] + [
+                    -1.0 for _ in range(case.contraction - 2)
+                ]
+            elif mode == 1:
+                values = [-0.0 for _ in range(case.contraction)]
+            elif mode == 2:
+                values = [math.inf] + [1.0 for _ in range(case.contraction - 1)]
+            elif mode == 3:
+                values = [-math.inf for _ in range(case.contraction)]
+            else:
+                values = [math.nan for _ in range(case.contraction)]
+        rows.append(values)
+    words = [
+        oracle_encode_word(value, case.dtype)
+        for row_values in rows
+        for value in row_values
+    ]
+    if len(words) != case.rows * case.contraction:
+        raise AnchorError(f"{case.name} independent input cardinality differs")
+    return words
+
+
+def oracle_cpu_words(case: object, input_words: list[int]) -> list[int]:
+    """Reduce exact word values using Fraction for finite sums."""
+
+    output: list[int] = []
+    for row in range(case.rows):
+        begin = row * case.contraction
+        values = [
+            oracle_word_value(word, case.dtype)
+            for word in input_words[begin : begin + case.contraction]
+        ]
+        if any(math.isnan(value) for value in values):
+            result = math.nan
+        elif case.op_name == "tensor.row_sum":
+            positive_inf = any(value == math.inf for value in values)
+            negative_inf = any(value == -math.inf for value in values)
+            if positive_inf and negative_inf:
+                result = math.nan
+            elif positive_inf:
+                result = math.inf
+            elif negative_inf:
+                result = -math.inf
+            elif all(value == 0.0 for value in values):
+                result = 0.0
+            else:
+                exact_sum = sum(
+                    (Fraction.from_float(value) for value in values), Fraction(0)
+                )
+                result = float(exact_sum)
+        else:
+            result = max(values)
+            if result == 0.0:
+                result = (
+                    0.0
+                    if any(
+                        value == 0.0 and math.copysign(1.0, value) > 0
+                        for value in values
+                    )
+                    else -0.0
+                )
+        output.append(oracle_encode_word(result, case.dtype))
+    return output
+
+
+def numerical_oracles(case: object) -> list[dict[str, object]]:
+    output: list[dict[str, object]] = []
+    width = 4 if case.dtype == "float32" else 2
+    for repetition in range(contract.REPETITIONS):
+        input_words = oracle_input_words(case, repetition)
+        cpu_words = oracle_cpu_words(case, input_words)
+        input_raw = oracle_pack_words(input_words, case.dtype)
+        cpu_raw = oracle_pack_words(cpu_words, case.dtype)
+        output.append(
+            {
+                "repetition": repetition,
+                "input_elements": len(input_words),
+                "input_word_bytes": len(input_raw),
+                "input_word_sha256": sha256_bytes(input_raw),
+                "cpu_reference_words": cpu_words,
+                "cpu_reference_word_bytes": len(cpu_raw),
+                "cpu_reference_word_sha256": sha256_bytes(cpu_raw),
+                "cpu_reference_class_sign": [
+                    oracle_class_sign(word, case.dtype) for word in cpu_words
+                ],
+                "comparison_modes": list(case.output_comparison_modes(repetition)),
+                "element_width_bytes": width,
+            }
+        )
+    return output
 
 
 def load_exact(
@@ -221,6 +396,9 @@ def compile_run() -> int:
         device_code = bytes(artifact_object.device_code)
         source_digest = sha256_bytes(source)
         build_digest = sha256_bytes(build_raw)
+        semantic_abi = contract.artifact_semantic_abi(
+            compiler, request, result.build_spec, artifact_object, case
+        )
         if (
             artifact_object.fallback_used
             or artifact_object.actual_target.compute_capability != 120
@@ -272,6 +450,12 @@ def compile_run() -> int:
                 case
             ),
             "comparison": case.comparison,
+            "repetition0_policy": case.repetition0_policy,
+            "comparison_modes": [
+                list(case.output_comparison_modes(repetition))
+                for repetition in range(contract.REPETITIONS)
+            ],
+            "numerical_oracles": numerical_oracles(case),
             "max_ulp": case.max_ulp,
             "rtol": case.rtol,
             "atol": contract.REDUCTION_ATOL,
@@ -289,6 +473,7 @@ def compile_run() -> int:
             "kernel_build_spec_digest": (
                 artifact_object.identities.kernel_build_spec_digest
             ),
+            "semantic_abi": semantic_abi,
             "cp48_case": case.cp48_case,
         }
         if case.cp48_case is not None:

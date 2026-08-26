@@ -30,8 +30,8 @@ Every Artifact is compiled once and reused by two fresh executable lifetimes:
 cases join the exact CP48 TensorIR source and Cubin hashes.
 
 The compile-anchor manifest binds two independent CUDA-hidden isolated runs,
-`pypto-20260826T094510Z-1519364-ce19bd` and
-`pypto-20260826T094530Z-1519654-79c7b7`, including process/preflight sidecars
+`pypto-20260826T110849Z-17249-b18e99` and
+`pypto-20260826T110905Z-17569-3de174`, including process/preflight sidecars
 and 51 replay files each. Their normalized ten-case records are byte-identical.
 
 ## Numerical and memory contract
@@ -42,20 +42,34 @@ FP32, then converted once to BF16. The N=129 and N=256 BF16 sum rows begin with
 `0x3fc0` (1.5) and `0x4000` (2.0). Sequential BF16 accumulation produces the
 negative-control word `0x3f80` (1.0) and is rejected.
 
-Repetition zero uses exact dyadic sum rows and finite max rows; all three
-candidate/Torch/independent-CPU relationships must match bitwise. Other finite
-FP32 sum rows require at most 16 ULP and `rtol=2e-6, atol=0`; BF16 sum requires
-at most 1 ULP and `rtol=1/128, atol=0`. Max finite, infinity and signed-zero
-words are exact. NaN payload/sign are ignored but NaN classification is
-mandatory. The special matrix covers max `+0 > -0`, all `-0 -> -0`, and sum
-all `-0 -> +0`, sole signed infinity, mixed infinities and NaN propagation.
+Every output row in both repetitions has exactly one authoritative mode:
+raw-word exact, finite/subnormal sum tolerance, or special class/sign. Rank-1
+repetition-zero sums and every finite max are exact. The N=129/N=256 BF16
+discriminator row is exact while their remaining non-dyadic rows are tolerant;
+the rank-3 FP32 sum rows are tolerant. FP32 tolerance requires both at most 16
+ULP and `rtol=2e-6, atol=0`; BF16 requires both at most 1 ULP and
+`rtol=1/128, atol=0`. Infinity and signed zero preserve class/sign, while NaN
+payload/sign are ignored but NaN class is mandatory. Subnormals never use the
+special-class shortcut. The special matrix covers both dtypes and both
+operators: max `+0 > -0`, all `-0 -> -0`, and sum all `-0 -> +0`, sole signed
+infinity, mixed infinities and NaN propagation.
 
-Each input allocation has 4,096 guard elements on both sides. This exceeds the
-derived worst speculative span `15*256 + 127 = 3,967` elements for the
-`[17,256]/T16` case. Each output has 16 guards per side, exceeding `T-1=15`.
-Prefix/suffix and input/output roles use four distinct exactly representable
-words in both FP32 and BF16. Before/after hashes, logical input immutability and
-independently reconstructed sentinel hashes are all finalizer requirements.
+The compile anchors also freeze two independently generated input-byte hashes,
+CPU-reference word vectors/hashes, output class/sign vectors and comparison
+partitions per case. The runner and CPU-only finalizer each reconstruct and
+join all 20 records, preventing a correlated runner/finalizer oracle error from
+silently accepting itself.
+
+Each input allocation has 4,096 guard elements on both sides. The anchored
+lowering uses a 128-element reduction budget, `r=min(128, lowbit(N))`, and a
+full materialized row tile. Exact address enumeration gives the worst suffix
+span `(32-17)*256 = 3,840` elements for `[17,256]/T16`; index 3,839 is reachable
+and index 3,840 is not. Each output has 16 guards per side; the worst exact
+suffix span is 15 rows. Prefix/suffix and input/output roles use four distinct
+exactly representable words in both FP32 and BF16. Before/after hashes prove no
+writes into canaries and logical input immutability; the derived allocation
+bound makes any lowered speculative read remain in-bounds. The finalizer
+independently reconstructs every sentinel hash.
 
 Torch reference computation uses a distinct non-default stream, widens BF16,
 synchronizes before candidate coverage and stays outside that coverage. The
@@ -63,6 +77,13 @@ candidate launches on the selected non-default current stream, outside CUDA
 Graph capture, synchronizes externally, releases its packet, then unloads with
 zero terminal context identity. Triton, SGLang and FlashInfer providers and all
 fallback are forbidden.
+
+Finalization deserializes the replayed CompileRequest/BuildSpecs/Artifacts in a
+separate CUDA-hidden process. Its byte, loader-compatibility and device-autotune
+identity digests must match the provisional runtime and the ten anchored
+BuildSpecs. The replay interpreter, PyPTO DSO and libcudart must also match their
+contract size/SHA pins; co-mutating a live file and its provisional integrity
+record is rejected.
 
 ## Admission, publication and claim boundary
 

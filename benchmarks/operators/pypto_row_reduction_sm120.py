@@ -22,6 +22,9 @@ RUN_ID_PATTERN = re.compile(r"pypto-[0-9]{8}T[0-9]{6}Z-[0-9]+-[0-9a-f]{6}")
 BASE_RUNNER_RELATIVE_PATH = Path("benchmarks/operators/pypto_fused_pointwise_sm120.py")
 BASE_RUNNER_SIZE = 66_999
 BASE_RUNNER_SHA256 = "b7960cc894834b3ba05476943e774cfc8602891faa5b9137b3d97a6aac40ab15"
+COMPARISON_MODE_EXACT = "exact-word"
+COMPARISON_MODE_TOLERANCE = "sum-tolerance"
+COMPARISON_MODE_SPECIAL = "special-classification-sign"
 
 
 class SmokeError(RuntimeError):
@@ -153,6 +156,12 @@ def load_contract_and_child_gate(
         "_pypto_row_reduction_sm120_contract",
         workspace / "tools/_pypto_row_reduction_sm120_contract.py",
     )
+    if (
+        contract.COMPARISON_MODE_EXACT != COMPARISON_MODE_EXACT
+        or contract.COMPARISON_MODE_TOLERANCE != COMPARISON_MODE_TOLERANCE
+        or contract.COMPARISON_MODE_SPECIAL != COMPARISON_MODE_SPECIAL
+    ):
+        raise SmokeError("row comparison-mode contract differs")
     identity = control.validate_control_manifest(workspace)
     if parent_gate.get("control_manifest") != identity:
         raise SmokeError("parent/child row control identity differs")
@@ -261,13 +270,21 @@ def element_count(shape: tuple[int, ...]) -> int:
 
 def input_values(case: Any, repetition: int) -> list[float]:
     values: list[float] = []
+    tolerance_rows = set(case.tolerance_output_indices(repetition))
     for row in range(case.rows):
         if (
             repetition == 0
             and case.dtype == "bfloat16"
             and case.op_name == "tensor.row_sum"
+            and row == 0
         ):
             values.extend([1.0, *([2.0**-8] * (case.contraction - 1))])
+            continue
+        if row in tolerance_rows:
+            values.extend(
+                (1.0 + ((row * 13 + column * 11) % 29)) / 7.0
+                for column in range(case.contraction)
+            )
             continue
         if repetition == 0 and case.op_name == "tensor.row_sum":
             values.extend(
@@ -407,30 +424,48 @@ def compare_word_sequences(
     actual_words: list[int],
     reference_words: list[int],
     *,
-    exact_required: bool,
+    comparison_modes: tuple[str, ...],
 ) -> dict[str, object]:
+    if (
+        len(actual_words) != case.rows
+        or len(reference_words) != case.rows
+        or len(comparison_modes) != case.rows
+    ):
+        raise SmokeError(f"{case.name} comparison cardinality differs")
     max_ulp = 0
     max_relative = 0.0
     max_absolute = 0.0
-    for index, (actual_word, reference_word) in enumerate(
-        zip(actual_words, reference_words, strict=True)
+    for index, (actual_word, reference_word, mode) in enumerate(
+        zip(actual_words, reference_words, comparison_modes, strict=True)
     ):
         actual_class = base._classification(actual_word, case.dtype)
         reference_class = base._classification(reference_word, case.dtype)
-        if reference_class[0] == "nan":
-            if actual_class[0] != "nan":
-                raise SmokeError(f"{case.name} NaN classification differs at {index}")
+        if mode == COMPARISON_MODE_EXACT:
+            if actual_word != reference_word:
+                raise SmokeError(f"{case.name} exact word differs at {index}")
             continue
-        if reference_class[0] != "finite":
-            if actual_class != reference_class:
+        if mode == COMPARISON_MODE_SPECIAL:
+            if reference_class[0] not in {"nan", "inf", "zero"}:
+                raise SmokeError(
+                    f"{case.name} special policy reached a nonspecial row at {index}"
+                )
+            if reference_class[0] == "nan":
+                if actual_class[0] != "nan":
+                    raise SmokeError(
+                        f"{case.name} NaN classification differs at {index}"
+                    )
+            elif actual_class != reference_class:
                 raise SmokeError(
                     f"{case.name} special sign/classification differs at {index}"
                 )
             continue
-        if case.op_name == "tensor.row_max" or exact_required:
-            if actual_word != reference_word:
-                raise SmokeError(f"{case.name} exact max differs at {index}")
-            continue
+        if mode != COMPARISON_MODE_TOLERANCE:
+            raise SmokeError(f"{case.name} comparison mode differs at {index}")
+        if reference_class[0] not in {"finite", "subnormal"} or actual_class[0] not in {
+            "finite",
+            "subnormal",
+        }:
+            raise SmokeError(f"{case.name} tolerance class differs at {index}")
         distance = abs(
             base._ordered_word(actual_word, case.dtype)
             - base._ordered_word(reference_word, case.dtype)
@@ -462,7 +497,18 @@ def compare_output(
     actual_words = words(torch, actual, case.dtype)
     reference_words = words(torch, reference, case.dtype)
     cpu_words = cpu_reference_words(case, repetition)
-    exact_required = repetition == 0 and case.op_name == "tensor.row_sum"
+    comparison_modes = case.output_comparison_modes(repetition)
+    exact_indices = case.exact_output_indices(repetition)
+    tolerance_indices = case.tolerance_output_indices(repetition)
+    special_indices = case.special_output_indices(repetition)
+    if (
+        set(exact_indices) & set(tolerance_indices)
+        or set(exact_indices) & set(special_indices)
+        or set(tolerance_indices) & set(special_indices)
+        or set(exact_indices) | set(tolerance_indices) | set(special_indices)
+        != set(range(case.rows))
+    ):
+        raise SmokeError(f"{case.name} comparison partition differs")
     discriminator = (
         repetition == 0
         and case.dtype == "bfloat16"
@@ -477,9 +523,9 @@ def compare_output(
         for _ in range(case.contraction - 1):
             accumulator = bfloat16_word(word_value(accumulator, "bfloat16") + increment)
         if (
-            actual_words != [expected] * case.rows
-            or reference_words != [expected] * case.rows
-            or cpu_words != [expected] * case.rows
+            actual_words[0] != expected
+            or reference_words[0] != expected
+            or cpu_words[0] != expected
             or accumulator != 0x3F80
             or accumulator == expected
         ):
@@ -489,6 +535,11 @@ def compare_output(
     return (
         {
             "policy": case.comparison,
+            "repetition0_policy": case.repetition0_policy,
+            "comparison_modes": list(comparison_modes),
+            "exact_output_indices": list(exact_indices),
+            "tolerance_output_indices": list(tolerance_indices),
+            "special_output_indices": list(special_indices),
             "max_ulp_limit": case.max_ulp,
             "rtol": case.rtol,
             "atol": 0.0,
@@ -496,13 +547,13 @@ def compare_output(
                 case,
                 actual_words,
                 reference_words,
-                exact_required=exact_required,
+                comparison_modes=comparison_modes,
             ),
             "candidate_vs_cpu": compare_word_sequences(
-                case, actual_words, cpu_words, exact_required=exact_required
+                case, actual_words, cpu_words, comparison_modes=comparison_modes
             ),
             "torch_vs_cpu": compare_word_sequences(
-                case, reference_words, cpu_words, exact_required=exact_required
+                case, reference_words, cpu_words, comparison_modes=comparison_modes
             ),
             "special_classification_and_sign_passed": True,
             "bf16_fp32_accumulation_discriminator_passed": discriminator,
@@ -549,6 +600,9 @@ def validate_compiled(
     device_code = bytes(artifact.device_code)
     kernel = artifact.kernel_abi
     descriptors = list(kernel.argument_layout.operand_descriptors)
+    semantic_abi = contract_module.artifact_semantic_abi(
+        compiler, request, build, artifact, case
+    )
     if (
         sha256_bytes(source) != anchor["source_sha256"]
         or sha256_bytes(build_raw) != anchor["build_spec_sha256"]
@@ -571,18 +625,30 @@ def validate_compiled(
         or type(build).deserialize(build_raw).serialize() != build_raw
         or compiler.Artifact.deserialize(artifact_raw, request, build).serialize()
         != artifact_raw
+        or semantic_abi != anchor["semantic_abi"]
+        or anchor["comparison_modes"]
+        != [
+            list(case.output_comparison_modes(repetition))
+            for repetition in range(contract_module.REPETITIONS)
+        ]
     ):
         raise SmokeError(f"{case.name} compiled anchor differs")
     return artifact, {
         "case": case.name,
+        "hir_bytes": anchor["hir_bytes"],
         "hir_sha256": anchor["hir_sha256"],
+        "source_ir_bytes": len(source),
+        "source_ir_sha256": sha256_bytes(source),
         "source_ir_digest": build.source_ir_digest,
+        "build_spec_bytes": len(build_raw),
         "build_spec_identity_digest": build.identity_digest,
+        "artifact_bytes": len(artifact_raw),
         "artifact_identity_digest": artifact.identity_digest,
         "device_code_bytes": len(device_code),
         "device_code_sha256": artifact.device_code_sha256,
         "grid": list(case.grid),
         "row_tile": case.row_tile,
+        "semantic_abi": semantic_abi,
         "fallback_used": False,
     }
 
@@ -597,12 +663,35 @@ def execute_case(
     reference_stream: Any,
     case: Any,
     repetition: int,
+    numerical_oracle: dict[str, object],
     replay_file: Any,
 ) -> dict[str, object]:
     if torch.cuda.is_current_stream_capturing():
         raise SmokeError("row smoke cannot begin during CUDA Graph capture")
     logical = input_tensor(torch, case, repetition)
     input_raw = base.logical_tensor_bytes(torch, logical)
+    oracle_keys = {
+        "repetition",
+        "input_elements",
+        "input_word_bytes",
+        "input_word_sha256",
+        "cpu_reference_words",
+        "cpu_reference_word_bytes",
+        "cpu_reference_word_sha256",
+        "cpu_reference_class_sign",
+        "comparison_modes",
+        "element_width_bytes",
+    }
+    if (
+        set(numerical_oracle) != oracle_keys
+        or numerical_oracle.get("repetition") != repetition
+        or numerical_oracle.get("input_elements") != logical.numel()
+        or numerical_oracle.get("input_word_bytes") != len(input_raw)
+        or numerical_oracle.get("input_word_sha256") != sha256_bytes(input_raw)
+        or numerical_oracle.get("comparison_modes")
+        != list(case.output_comparison_modes(repetition))
+    ):
+        raise SmokeError(f"{case.name} frozen input oracle differs")
     replay_file(f"{case.name}.r{repetition}.input.bin", input_raw)
     with torch.cuda.stream(reference_stream):
         reference_input = logical.to("cuda")
@@ -649,6 +738,26 @@ def execute_case(
     comparison, cpu_reference_raw = compare_output(
         torch, case, repetition, actual, reference
     )
+    width, code = (4, "I") if case.dtype == "float32" else (2, "H")
+    cpu_words = list(
+        struct.unpack(f"<{len(cpu_reference_raw) // width}{code}", cpu_reference_raw)
+    )
+    cpu_class_sign = [
+        {"class": classification, "sign": sign}
+        for classification, sign in (
+            base._classification(word, case.dtype) for word in cpu_words
+        )
+    ]
+    if (
+        numerical_oracle.get("element_width_bytes") != width
+        or numerical_oracle.get("cpu_reference_words") != cpu_words
+        or numerical_oracle.get("cpu_reference_word_bytes")
+        != len(cpu_reference_raw)
+        or numerical_oracle.get("cpu_reference_word_sha256")
+        != sha256_bytes(cpu_reference_raw)
+        or numerical_oracle.get("cpu_reference_class_sign") != cpu_class_sign
+    ):
+        raise SmokeError(f"{case.name} frozen CPU oracle differs")
     reference_raw = base.logical_tensor_bytes(torch, reference)
     actual_raw = base.logical_tensor_bytes(torch, actual)
     replay_file(f"{case.name}.r{repetition}.reference.bin", reference_raw)
@@ -717,6 +826,7 @@ def execute_case(
         "output_suffix_after_sha256": sha256_bytes(output_suffix_after),
         "guards_unchanged": True,
         "comparison": comparison,
+        "frozen_numerical_oracle_passed": True,
         "comparison_passed": True,
         "non_default_stream": True,
         "current_stream_launch": True,
@@ -749,6 +859,55 @@ def integrity_record(path: Path, workspace: Path) -> dict[str, object]:
     }
 
 
+def reject_preexisting_pypto_modules() -> None:
+    preexisting = sorted(
+        name for name in sys.modules if name == "pypto" or name.startswith("pypto.")
+    )
+    if preexisting:
+        raise SmokeError(
+            "PyPTO modules existed before exact bootstrap: " + ", ".join(preexisting)
+        )
+
+
+def validate_exact_module_origins(
+    workspace: Path,
+    dso: Path,
+    pypto: ModuleType,
+    compiler: ModuleType,
+    runtime: ModuleType,
+    torch: ModuleType,
+) -> None:
+    package = workspace / "projects/pypto/python/pypto"
+    expected = {
+        "pypto": package / "__init__.py",
+        "pypto.pypto_core": dso,
+        "pypto.compiler": package / "compiler/__init__.py",
+        "pypto.runtime.nvidia": package / "runtime/nvidia.py",
+        "torch": workspace
+        / "envs/pypto-nvidia/lib/python3.14/site-packages/torch/__init__.py",
+    }
+    modules = {
+        "pypto": pypto,
+        "pypto.pypto_core": sys.modules.get("pypto.pypto_core"),
+        "pypto.compiler": compiler,
+        "pypto.runtime.nvidia": runtime,
+        "torch": torch,
+    }
+    for name, module in modules.items():
+        path = expected[name]
+        if (
+            not isinstance(module, ModuleType)
+            or sys.modules.get(name) is not module
+            or getattr(module, "__file__", None) != str(path)
+            or path.is_symlink()
+            or not path.is_file()
+            or path.resolve(strict=True) != path
+        ):
+            raise SmokeError(f"exact module origin differs: {name}")
+    if list(getattr(pypto, "__path__", ())) != [str(package)]:
+        raise SmokeError("exact PyPTO package search path differs")
+
+
 def run_smoke() -> tuple[dict[str, object], Path, str]:
     workspace, run_id = workspace_from_environment()
     barrier_evidence = wait_for_start_barrier(workspace, run_id)
@@ -759,10 +918,11 @@ def run_smoke() -> tuple[dict[str, object], Path, str]:
     anchors, anchor_records = load_anchors(workspace, contract_module)
     base.validate_pypto_python_source(workspace)
     site = workspace / "envs/pypto-nvidia/lib/python3.14/site-packages"
-    sys.path.insert(0, str(site.resolve(strict=True)))
+    if site.is_symlink() or not site.is_dir() or site.resolve(strict=True) != site:
+        raise SmokeError("selected row site-packages path is noncanonical")
+    sys.path.insert(0, str(site))
+    reject_preexisting_pypto_modules()
     import torch
-    from pypto import compiler
-    from pypto.runtime import nvidia as runtime
 
     if (
         str(torch.__version__) != contract_module.EXPECTED_TORCH_VERSION
@@ -773,21 +933,44 @@ def run_smoke() -> tuple[dict[str, object], Path, str]:
         raise SmokeError("row Torch identity differs")
     torch.cuda.set_device(0)
     torch.cuda.init()
+    if (
+        torch.cuda.get_device_name(0) != contract_module.EXPECTED_DEVICE_NAME
+        or tuple(torch.cuda.get_device_capability(0))
+        != contract_module.EXPECTED_COMPUTE_CAPABILITY
+    ):
+        raise SmokeError("row live Torch CUDA target differs")
+    forbidden_imports = {"triton", "sglang", "flashinfer"} & set(sys.modules)
+    if forbidden_imports:
+        raise SmokeError(f"forbidden row provider imported: {sorted(forbidden_imports)}")
+    maps_lower = Path("/proc/self/maps").read_text(errors="replace").lower()
+    for marker in ("libamdhip64", "libhsa-runtime64", "gemsim"):
+        if marker in maps_lower:
+            raise SmokeError(f"forbidden row runtime mapping: {marker}")
     expected_runtime = str(
         (workspace / contract_module.CUDA_RUNTIME_RELATIVE_PATH).resolve(strict=True)
     )
     if base.mapped_library_paths("libcudart.so") != [expected_runtime]:
         raise SmokeError("row libcudart provider differs")
-    dso = (workspace / contract_module.PYPTO_DSO_RELATIVE_PATH).resolve(strict=True)
+    reject_preexisting_pypto_modules()
+    dso = workspace / contract_module.PYPTO_DSO_RELATIVE_PATH
     if (
-        dso.stat().st_size != contract_module.PYPTO_DSO_SIZE
+        dso.is_symlink()
+        or not dso.is_file()
+        or dso.resolve(strict=True) != dso
+        or dso.stat().st_size != contract_module.PYPTO_DSO_SIZE
         or sha256_file(dso) != contract_module.PYPTO_DSO_SHA256
     ):
-        raise SmokeError("row PyPTO DSO differs")
+        raise SmokeError("row PyPTO DSO differs before exact bootstrap")
     pypto = base.bootstrap_exact_pypto(workspace, dso.parent)
+    from pypto import compiler
+    from pypto.runtime import nvidia as runtime
+
+    validate_exact_module_origins(workspace, dso, pypto, compiler, runtime, torch)
     info = compiler.get_nvidia_backend_build_info()
     if (
-        info.pypto_revision != contract_module.PYPTO_HEAD
+        not info.compiled
+        or not info.compiler_factory_available
+        or info.pypto_revision != contract_module.PYPTO_HEAD
         or info.tensor_ir_revision != contract_module.TENSOR_IR_HEAD
         or info.cuda_tile_revision != contract_module.CUDA_TILE_HEAD
         or info.llvm_revision != contract_module.LLVM_HEAD
@@ -877,6 +1060,7 @@ def run_smoke() -> tuple[dict[str, object], Path, str]:
                     reference_stream,
                     case,
                     repetition,
+                    anchor_records[case.name]["numerical_oracles"][repetition],
                     replay_file,
                 )
             )
@@ -891,6 +1075,8 @@ def run_smoke() -> tuple[dict[str, object], Path, str]:
         "control_validator": workspace
         / contract_module.CONTROL_VALIDATOR_RELATIVE_PATH,
         "preflight": workspace / contract_module.PREFLIGHT_ADAPTER_RELATIVE_PATH,
+        "python": workspace / contract_module.PYTHON_REAL_RELATIVE_PATH,
+        "cuda_runtime": workspace / contract_module.CUDA_RUNTIME_RELATIVE_PATH,
         "pypto_dso": workspace / contract_module.PYPTO_DSO_RELATIVE_PATH,
         "environment_lock": workspace / "ENVIRONMENT.lock",
         "versions_lock": workspace / "VERSIONS.lock",

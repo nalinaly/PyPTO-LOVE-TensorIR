@@ -11,52 +11,52 @@
       "cuda_visible_devices": "",
       "nvidia_visible_devices": "void",
       "preflight": {
-        "bytes": 4528,
+        "bytes": 4184,
         "mode": 384,
-        "path": "runs/pypto-20260826T094510Z-1519364-ce19bd/preflight.json",
-        "sha256": "942095e95001592e3be3d5f7e000b0d168f093d56484f2d92fa746de5b864719"
+        "path": "runs/pypto-20260826T110849Z-17249-b18e99/preflight.json",
+        "sha256": "e9e2fa099d23edad275285d12dbce5be77f5f9301d4bfd60123e3c0c8cb98156"
       },
       "process": {
-        "bytes": 1873,
+        "bytes": 1907,
         "mode": 384,
-        "path": "runs/pypto-20260826T094510Z-1519364-ce19bd/process.json",
-        "sha256": "6cfd9607d314158b0a84aebebcb7e9858e784061de4e941c9600f5c827d877b8"
+        "path": "runs/pypto-20260826T110849Z-17249-b18e99/process.json",
+        "sha256": "c90543fd9609915401a17a017f52509fc68b76aa7aa00b9e543a370a6cbf003a"
       },
       "record": {
-        "bytes": 28864,
+        "bytes": 122324,
         "mode": 292,
-        "path": "runs/pypto-20260826T094510Z-1519364-ce19bd/row-reduction-compile-anchor-record.json",
-        "records_sha256": "c2ef43de60c70f452a718abf437913310144c694fea8955d0ace138143deb8b4",
-        "sha256": "5ced4369567cdb59b414dfd8af2aa5912b32bacd0d9b7639e1f8200add6d85e0"
+        "path": "runs/pypto-20260826T110849Z-17249-b18e99/row-reduction-compile-anchor-record.json",
+        "records_sha256": "304894e9348f2883de99ff1d5dd22cf30204f5b06bc28ebb3e12a3dee9e83628",
+        "sha256": "4f69ad5d6cfb80a39becde623e4e7886e52d8ee75c25d49a349a170f8c5427ae"
       },
       "return_code": 0,
-      "run_id": "pypto-20260826T094510Z-1519364-ce19bd",
+      "run_id": "pypto-20260826T110849Z-17249-b18e99",
       "torch_cuda_initialized_before_and_after": false
     },
     {
       "cuda_visible_devices": "",
       "nvidia_visible_devices": "void",
       "preflight": {
-        "bytes": 4528,
+        "bytes": 4184,
         "mode": 384,
-        "path": "runs/pypto-20260826T094530Z-1519654-79c7b7/preflight.json",
-        "sha256": "cf35428bd3e9d72fcd67c650a5248cf2f6186dfa826f57fc2ea7eb90bfe62363"
+        "path": "runs/pypto-20260826T110905Z-17569-3de174/preflight.json",
+        "sha256": "2901ae2364ca52f6085acd1f32c0866f9279f811ee828acceba324500f7e9f14"
       },
       "process": {
-        "bytes": 1873,
+        "bytes": 1907,
         "mode": 384,
-        "path": "runs/pypto-20260826T094530Z-1519654-79c7b7/process.json",
-        "sha256": "11348e389614d77c61253732b3a05f96b7a9248125b4662cf1308aa64e2e1efe"
+        "path": "runs/pypto-20260826T110905Z-17569-3de174/process.json",
+        "sha256": "7343febb8317fd20c120a938d716413f62dfe38de955639ae538d5b16fd8b4b9"
       },
       "record": {
-        "bytes": 28864,
+        "bytes": 122324,
         "mode": 292,
-        "path": "runs/pypto-20260826T094530Z-1519654-79c7b7/row-reduction-compile-anchor-record.json",
-        "records_sha256": "c2ef43de60c70f452a718abf437913310144c694fea8955d0ace138143deb8b4",
-        "sha256": "33e1358d7c6282636905b022d9a51b7c41a46b5bbd90f6a8d561dc5d09324eff"
+        "path": "runs/pypto-20260826T110905Z-17569-3de174/row-reduction-compile-anchor-record.json",
+        "records_sha256": "304894e9348f2883de99ff1d5dd22cf30204f5b06bc28ebb3e12a3dee9e83628",
+        "sha256": "d1fcbad2ce0e4c739522132ca3643b1e7c99e4b5589545bbd785784516b5847e"
       },
       "return_code": 0,
-      "run_id": "pypto-20260826T094530Z-1519654-79c7b7",
+      "run_id": "pypto-20260826T110905Z-17569-3de174",
       "torch_cuda_initialized_before_and_after": false
     }
   ],
@@ -76,9 +76,9 @@
     "sha256": "e1213cf31972664a66012f95f1ebf003623dfebb54accdff3ab47cd6ca3e4220"
   },
   "generator": {
-    "bytes": 21172,
+    "bytes": 28363,
     "path": "tools/generate_pypto_row_reduction_anchors.py",
-    "sha256": "2bbfa3dce913412ef6226e1518eb0004469b70c9f2b62ce2181add33979d9861"
+    "sha256": "a270b9c632f01d9ce47821bb9a8c96505e37b8e557a643c7c1a409047e3025ac"
   },
   "kind": "pypto-row-reduction-compile-anchors-v1",
   "matrix_policy": {
@@ -87,7 +87,7 @@
     "executions": 20,
     "fresh_executable_lifetimes": 20,
     "input_guard_elements_per_side": 4096,
-    "maximum_required_input_guard_elements": 3967,
+    "maximum_required_input_guard_elements": 3840,
     "maximum_required_output_guard_elements": 15,
     "output_guard_elements_per_side": 16,
     "sentinel_words": {
@@ -105,8 +105,8 @@
       ]
     }
   },
-  "normalized_records_bytes": 16027,
-  "normalized_records_sha256": "447feaec3c9ecf39bc00de143653a8f3df5d726f22fdfd345237e9731f7f733d",
+  "normalized_records_bytes": 109591,
+  "normalized_records_sha256": "33da464f0d34142a911416f233ec26262b0fdf2da814ab35e32db2892b04f5b5",
   "pypto": {
     "clean": true,
     "head": "62eb88251df5bdad95277a9d619d20da9bf121eb",
@@ -121,6 +121,14 @@
       "build_spec_sha256": "f5f653f85e9aa2cda3981542cf895e68eceda30e3eb61f8b7f80821255522e95",
       "case": "rank1_fp32_sum_n1",
       "comparison": "fp32-sum-ulp16-relative",
+      "comparison_modes": [
+        [
+          "exact-word"
+        ],
+        [
+          "special-classification-sign"
+        ]
+      ],
       "contraction_chunks": 1,
       "contraction_tile": 1,
       "cp48_case": null,
@@ -136,7 +144,52 @@
       "hir_sha256": "90afc51a1085ed11ba3ab444cff59055d1cae8b755070934b174cc99968507e4",
       "kernel_build_spec_digest": "f5f653f85e9aa2cda3981542cf895e68eceda30e3eb61f8b7f80821255522e95",
       "max_ulp": 16,
+      "numerical_oracles": [
+        {
+          "comparison_modes": [
+            "exact-word"
+          ],
+          "cpu_reference_class_sign": [
+            {
+              "class": "finite",
+              "sign": 1
+            }
+          ],
+          "cpu_reference_word_bytes": 4,
+          "cpu_reference_word_sha256": "c68830a25204a09f8e77aada6bc5807f607cccaaa0ebb2a7122d317584478a8b",
+          "cpu_reference_words": [
+            3212836864
+          ],
+          "element_width_bytes": 4,
+          "input_elements": 1,
+          "input_word_bytes": 4,
+          "input_word_sha256": "c68830a25204a09f8e77aada6bc5807f607cccaaa0ebb2a7122d317584478a8b",
+          "repetition": 0
+        },
+        {
+          "comparison_modes": [
+            "special-classification-sign"
+          ],
+          "cpu_reference_class_sign": [
+            {
+              "class": "zero",
+              "sign": 0
+            }
+          ],
+          "cpu_reference_word_bytes": 4,
+          "cpu_reference_word_sha256": "df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119",
+          "cpu_reference_words": [
+            0
+          ],
+          "element_width_bytes": 4,
+          "input_elements": 1,
+          "input_word_bytes": 4,
+          "input_word_sha256": "6d58692645c9d1cfaf13541cbd258f86193ef63c2f1d38f6bbca9617372d7bd6",
+          "repetition": 1
+        }
+      ],
       "op_name": "tensor.row_sum",
+      "repetition0_policy": "exact-all",
       "required_input_guard_elements": 0,
       "required_output_guard_elements": 0,
       "result_shape": [
@@ -144,6 +197,124 @@
       ],
       "row_tile": 1,
       "rtol": 2e-06,
+      "semantic_abi": {
+        "argument_layout": {
+          "input_operand_count": 1,
+          "operand_descriptors": [
+            {
+              "dynamic_size_count": 0,
+              "dynamic_stride_count": 0,
+              "explicit_strides": false,
+              "kind": "Tensor",
+              "rank": 1,
+              "scalar_size_bytes": 0,
+              "shape": [
+                1
+              ],
+              "strides": []
+            },
+            {
+              "dynamic_size_count": 0,
+              "dynamic_stride_count": 0,
+              "explicit_strides": false,
+              "kind": "Tensor",
+              "rank": 1,
+              "scalar_size_bytes": 0,
+              "shape": [
+                1
+              ],
+              "strides": []
+            }
+          ],
+          "total_kernel_argument_count": 2,
+          "uniform_signature": false
+        },
+        "argument_packing_policy": "PointerOnly",
+        "artifact_identities": {
+          "argument_abi_digest": "149f0a8d4f2c0caa73dd139d87b68c70dcedea6ff876bf2b59be9f744ae26886",
+          "callable_abi_digest": "18b80cb36d6aa89fb5e430d9200f4dc15b6603b750cad124f0b4561719a026b5",
+          "compile_request_byte_identity_digest": "f550d15203327ac24eb72c4293d5132cc63afebced06f140e67dbca1dbc1d9ee",
+          "kernel_build_spec_digest": "f5f653f85e9aa2cda3981542cf895e68eceda30e3eb61f8b7f80821255522e95",
+          "mutation_abi_digest": "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99",
+          "result_abi_digest": "3ccbb062875190dfab01de8929d3df1cfb8322a70ad6977bf17d482c68e087f0",
+          "source_ir_digest": "70a0f4bc90dea3a7f5e149b235ee0235e408a0d3397878bb94816bd920dd9cee",
+          "static_specialization_digest": "06b90eba03dae266ad1248ffc36371b0a5b27df7ea2f8803fb9cc1e782954196",
+          "symbolic_specialization_digest": "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862"
+        },
+        "build_spec": {
+          "argument_abi_digest": "149f0a8d4f2c0caa73dd139d87b68c70dcedea6ff876bf2b59be9f744ae26886",
+          "callable_abi_digest": "18b80cb36d6aa89fb5e430d9200f4dc15b6603b750cad124f0b4561719a026b5",
+          "catalog_provenance": null,
+          "compile_request_byte_identity_digest": "f550d15203327ac24eb72c4293d5132cc63afebced06f140e67dbca1dbc1d9ee",
+          "mutation_abi_digest": "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99",
+          "pipeline_revision": "46610e0415598d010981e4bd07d0660c592401ac",
+          "result_abi_digest": "3ccbb062875190dfab01de8929d3df1cfb8322a70ad6977bf17d482c68e087f0",
+          "schema_version": 1,
+          "source_ir_digest": "70a0f4bc90dea3a7f5e149b235ee0235e408a0d3397878bb94816bd920dd9cee",
+          "static_specialization_digest": "06b90eba03dae266ad1248ffc36371b0a5b27df7ea2f8803fb9cc1e782954196",
+          "symbolic_specialization_digest": "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862"
+        },
+        "cache_key_digest": "06f7a59ce0a0663a9a61501a209b9f1bae8b863a27c5c38d2c81dffb935d5db7",
+        "entry_function_name": "pypto_row_reduction_v3",
+        "fallback_used": false,
+        "frontend_metadata_schema_version": 3,
+        "grid_abi": {
+          "policy": "Static",
+          "shape_operand_index": 0,
+          "static_dimensions": [
+            1,
+            1,
+            1
+          ],
+          "tile_sizes": [
+            1
+          ]
+        },
+        "kernel_abi_identity_digest": "18b80cb36d6aa89fb5e430d9200f4dc15b6603b750cad124f0b4561719a026b5",
+        "launch_abi": {
+          "block_dimensions": [
+            1,
+            1,
+            1
+          ],
+          "cluster_scheduling_policy": "Spread",
+          "dynamic_shared_memory_bytes": 0,
+          "kernel_argument_slot_bytes": 8,
+          "version": 1
+        },
+        "loader_compatibility_digest": "aa846ef55a849b47305dc67be4bae5103027028db62d3e1435ca0090754e6fc1",
+        "lowered_access": {
+          "contraction": 1,
+          "contraction_chunks": 1,
+          "contraction_tile": 1,
+          "input_guard_max_index": -1,
+          "input_logical_elements": 1,
+          "materialized_rows": 1,
+          "output_guard_max_index": -1,
+          "output_logical_elements": 1,
+          "reduction_tile_budget": 128,
+          "required_input_guard_elements": 0,
+          "required_output_guard_elements": 0,
+          "row_tile": 1,
+          "rows": 1
+        },
+        "producer": {
+          "artifact_fallback_allowed": false,
+          "environment_overrides_enabled": false,
+          "kind": "TensorIrCudaTile",
+          "options_identity_digest": "c47c48ceac9bca734d25e0a14a1f8ab4a97769afa74c53fc676df575eea1a3b8",
+          "pipeline_revision": "46610e0415598d010981e4bd07d0660c592401ac",
+          "producer_result_contract": "tensorir.cuda_tile_compiled_artifact.v1"
+        },
+        "runtime_kernel_name": "tensor_ir_rtk",
+        "semantic_route": "StructuredTensorIr",
+        "workspace_abi": {
+          "alignment_bytes": 1,
+          "kind": "Static",
+          "size_bytes": 0,
+          "version": 1
+        }
+      },
       "shape": [
         1
       ],
@@ -159,6 +330,14 @@
       "build_spec_sha256": "2aab9cba0bbe5b90fd633ad8bc175ca8412ebfccfb747fde77ce7f7ee5bfda8b",
       "case": "rank1_fp32_sum_n7",
       "comparison": "fp32-sum-ulp16-relative",
+      "comparison_modes": [
+        [
+          "exact-word"
+        ],
+        [
+          "special-classification-sign"
+        ]
+      ],
       "contraction_chunks": 7,
       "contraction_tile": 1,
       "cp48_case": "rank1_fp32_sum",
@@ -174,7 +353,52 @@
       "hir_sha256": "e80bed5a12dff4fc218d253687ce10d9e811826f81c598b49ca7693f2ff5a892",
       "kernel_build_spec_digest": "2aab9cba0bbe5b90fd633ad8bc175ca8412ebfccfb747fde77ce7f7ee5bfda8b",
       "max_ulp": 16,
+      "numerical_oracles": [
+        {
+          "comparison_modes": [
+            "exact-word"
+          ],
+          "cpu_reference_class_sign": [
+            {
+              "class": "finite",
+              "sign": 1
+            }
+          ],
+          "cpu_reference_word_bytes": 4,
+          "cpu_reference_word_sha256": "c68830a25204a09f8e77aada6bc5807f607cccaaa0ebb2a7122d317584478a8b",
+          "cpu_reference_words": [
+            3212836864
+          ],
+          "element_width_bytes": 4,
+          "input_elements": 7,
+          "input_word_bytes": 28,
+          "input_word_sha256": "c1616c3913c76422908b81ffb5bbc72e7b2e6299509d5a2454cfb8b5b192afe4",
+          "repetition": 0
+        },
+        {
+          "comparison_modes": [
+            "special-classification-sign"
+          ],
+          "cpu_reference_class_sign": [
+            {
+              "class": "zero",
+              "sign": 0
+            }
+          ],
+          "cpu_reference_word_bytes": 4,
+          "cpu_reference_word_sha256": "df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119",
+          "cpu_reference_words": [
+            0
+          ],
+          "element_width_bytes": 4,
+          "input_elements": 7,
+          "input_word_bytes": 28,
+          "input_word_sha256": "85937d3b23601a18e24e59540aadcb0c4ad68879c51d8f76901d4c15b11a4314",
+          "repetition": 1
+        }
+      ],
       "op_name": "tensor.row_sum",
+      "repetition0_policy": "exact-all",
       "required_input_guard_elements": 0,
       "required_output_guard_elements": 0,
       "result_shape": [
@@ -182,6 +406,124 @@
       ],
       "row_tile": 1,
       "rtol": 2e-06,
+      "semantic_abi": {
+        "argument_layout": {
+          "input_operand_count": 1,
+          "operand_descriptors": [
+            {
+              "dynamic_size_count": 0,
+              "dynamic_stride_count": 0,
+              "explicit_strides": false,
+              "kind": "Tensor",
+              "rank": 1,
+              "scalar_size_bytes": 0,
+              "shape": [
+                7
+              ],
+              "strides": []
+            },
+            {
+              "dynamic_size_count": 0,
+              "dynamic_stride_count": 0,
+              "explicit_strides": false,
+              "kind": "Tensor",
+              "rank": 1,
+              "scalar_size_bytes": 0,
+              "shape": [
+                1
+              ],
+              "strides": []
+            }
+          ],
+          "total_kernel_argument_count": 2,
+          "uniform_signature": false
+        },
+        "argument_packing_policy": "PointerOnly",
+        "artifact_identities": {
+          "argument_abi_digest": "84efcd578fcf26e2342b71555ad377813786718e6d491bae47d1f8d77dded666",
+          "callable_abi_digest": "ca4dc3fe39a29179a748af2356a2b4a1c9ada60acbbd4bf531103c25d3a6c671",
+          "compile_request_byte_identity_digest": "f550d15203327ac24eb72c4293d5132cc63afebced06f140e67dbca1dbc1d9ee",
+          "kernel_build_spec_digest": "2aab9cba0bbe5b90fd633ad8bc175ca8412ebfccfb747fde77ce7f7ee5bfda8b",
+          "mutation_abi_digest": "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99",
+          "result_abi_digest": "3ccbb062875190dfab01de8929d3df1cfb8322a70ad6977bf17d482c68e087f0",
+          "source_ir_digest": "ecc1bb444f0118aa8aa2e7b6c3e75c42ee86eb97328b169f29dba540f2f39223",
+          "static_specialization_digest": "1136da1087d36f338002085126681194a53dea75a5cb0bb7734316c464c6e9db",
+          "symbolic_specialization_digest": "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862"
+        },
+        "build_spec": {
+          "argument_abi_digest": "84efcd578fcf26e2342b71555ad377813786718e6d491bae47d1f8d77dded666",
+          "callable_abi_digest": "ca4dc3fe39a29179a748af2356a2b4a1c9ada60acbbd4bf531103c25d3a6c671",
+          "catalog_provenance": null,
+          "compile_request_byte_identity_digest": "f550d15203327ac24eb72c4293d5132cc63afebced06f140e67dbca1dbc1d9ee",
+          "mutation_abi_digest": "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99",
+          "pipeline_revision": "46610e0415598d010981e4bd07d0660c592401ac",
+          "result_abi_digest": "3ccbb062875190dfab01de8929d3df1cfb8322a70ad6977bf17d482c68e087f0",
+          "schema_version": 1,
+          "source_ir_digest": "ecc1bb444f0118aa8aa2e7b6c3e75c42ee86eb97328b169f29dba540f2f39223",
+          "static_specialization_digest": "1136da1087d36f338002085126681194a53dea75a5cb0bb7734316c464c6e9db",
+          "symbolic_specialization_digest": "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862"
+        },
+        "cache_key_digest": "7596d82d8ec7e24ba10587469ddb695349d6b6e33ffdc45d2a9b53d7d392e757",
+        "entry_function_name": "pypto_row_reduction_v3",
+        "fallback_used": false,
+        "frontend_metadata_schema_version": 3,
+        "grid_abi": {
+          "policy": "Static",
+          "shape_operand_index": 0,
+          "static_dimensions": [
+            1,
+            1,
+            1
+          ],
+          "tile_sizes": [
+            1
+          ]
+        },
+        "kernel_abi_identity_digest": "ca4dc3fe39a29179a748af2356a2b4a1c9ada60acbbd4bf531103c25d3a6c671",
+        "launch_abi": {
+          "block_dimensions": [
+            1,
+            1,
+            1
+          ],
+          "cluster_scheduling_policy": "Spread",
+          "dynamic_shared_memory_bytes": 0,
+          "kernel_argument_slot_bytes": 8,
+          "version": 1
+        },
+        "loader_compatibility_digest": "aa846ef55a849b47305dc67be4bae5103027028db62d3e1435ca0090754e6fc1",
+        "lowered_access": {
+          "contraction": 7,
+          "contraction_chunks": 7,
+          "contraction_tile": 1,
+          "input_guard_max_index": -1,
+          "input_logical_elements": 7,
+          "materialized_rows": 1,
+          "output_guard_max_index": -1,
+          "output_logical_elements": 1,
+          "reduction_tile_budget": 128,
+          "required_input_guard_elements": 0,
+          "required_output_guard_elements": 0,
+          "row_tile": 1,
+          "rows": 1
+        },
+        "producer": {
+          "artifact_fallback_allowed": false,
+          "environment_overrides_enabled": false,
+          "kind": "TensorIrCudaTile",
+          "options_identity_digest": "c47c48ceac9bca734d25e0a14a1f8ab4a97769afa74c53fc676df575eea1a3b8",
+          "pipeline_revision": "46610e0415598d010981e4bd07d0660c592401ac",
+          "producer_result_contract": "tensorir.cuda_tile_compiled_artifact.v1"
+        },
+        "runtime_kernel_name": "tensor_ir_rtk",
+        "semantic_route": "StructuredTensorIr",
+        "workspace_abi": {
+          "alignment_bytes": 1,
+          "kind": "Static",
+          "size_bytes": 0,
+          "version": 1
+        }
+      },
       "shape": [
         7
       ],
@@ -197,6 +539,46 @@
       "build_spec_sha256": "8be6ff5bc2914a0906cc6051b7da3718a719273549c4afe9f129c61f556a2672",
       "case": "rank2_bf16_sum_n256_tail",
       "comparison": "bf16-fp32-sum-ulp1-relative",
+      "comparison_modes": [
+        [
+          "exact-word",
+          "sum-tolerance",
+          "sum-tolerance",
+          "sum-tolerance",
+          "sum-tolerance",
+          "sum-tolerance",
+          "sum-tolerance",
+          "sum-tolerance",
+          "sum-tolerance",
+          "sum-tolerance",
+          "sum-tolerance",
+          "sum-tolerance",
+          "sum-tolerance",
+          "sum-tolerance",
+          "sum-tolerance",
+          "sum-tolerance",
+          "sum-tolerance"
+        ],
+        [
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign"
+        ]
+      ],
       "contraction_chunks": 2,
       "contraction_tile": 128,
       "cp48_case": null,
@@ -212,8 +594,245 @@
       "hir_sha256": "06e1f69a77fec5692a9a2ff19fd879c344dec589fd0f5ab8ff488c949ba82fc1",
       "kernel_build_spec_digest": "8be6ff5bc2914a0906cc6051b7da3718a719273549c4afe9f129c61f556a2672",
       "max_ulp": 1,
+      "numerical_oracles": [
+        {
+          "comparison_modes": [
+            "exact-word",
+            "sum-tolerance",
+            "sum-tolerance",
+            "sum-tolerance",
+            "sum-tolerance",
+            "sum-tolerance",
+            "sum-tolerance",
+            "sum-tolerance",
+            "sum-tolerance",
+            "sum-tolerance",
+            "sum-tolerance",
+            "sum-tolerance",
+            "sum-tolerance",
+            "sum-tolerance",
+            "sum-tolerance",
+            "sum-tolerance",
+            "sum-tolerance"
+          ],
+          "cpu_reference_class_sign": [
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            }
+          ],
+          "cpu_reference_word_bytes": 34,
+          "cpu_reference_word_sha256": "246224290d46f585de9d6d4a91f39bb28168d821ee16d0d112118da32d2868e9",
+          "cpu_reference_words": [
+            16384,
+            17417,
+            17418,
+            17417,
+            17417,
+            17417,
+            17417,
+            17418,
+            17417,
+            17417,
+            17417,
+            17418,
+            17417,
+            17417,
+            17417,
+            17417,
+            17417
+          ],
+          "element_width_bytes": 2,
+          "input_elements": 4352,
+          "input_word_bytes": 8704,
+          "input_word_sha256": "f500db5f3b06b3b352f1932985e404cabdda7d37b71da079f5121200deb7d523",
+          "repetition": 0
+        },
+        {
+          "comparison_modes": [
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign"
+          ],
+          "cpu_reference_class_sign": [
+            {
+              "class": "zero",
+              "sign": 0
+            },
+            {
+              "class": "inf",
+              "sign": 0
+            },
+            {
+              "class": "inf",
+              "sign": 1
+            },
+            {
+              "class": "nan",
+              "sign": 0
+            },
+            {
+              "class": "nan",
+              "sign": 0
+            },
+            {
+              "class": "zero",
+              "sign": 0
+            },
+            {
+              "class": "inf",
+              "sign": 0
+            },
+            {
+              "class": "inf",
+              "sign": 1
+            },
+            {
+              "class": "nan",
+              "sign": 0
+            },
+            {
+              "class": "nan",
+              "sign": 0
+            },
+            {
+              "class": "zero",
+              "sign": 0
+            },
+            {
+              "class": "inf",
+              "sign": 0
+            },
+            {
+              "class": "inf",
+              "sign": 1
+            },
+            {
+              "class": "nan",
+              "sign": 0
+            },
+            {
+              "class": "nan",
+              "sign": 0
+            },
+            {
+              "class": "zero",
+              "sign": 0
+            },
+            {
+              "class": "inf",
+              "sign": 0
+            }
+          ],
+          "cpu_reference_word_bytes": 34,
+          "cpu_reference_word_sha256": "8eb72f75e6b68ed6ecc0a5b89b9af29fd5188f1d7ebf59b3835283ca43f56b12",
+          "cpu_reference_words": [
+            0,
+            32640,
+            65408,
+            32704,
+            32704,
+            0,
+            32640,
+            65408,
+            32704,
+            32704,
+            0,
+            32640,
+            65408,
+            32704,
+            32704,
+            0,
+            32640
+          ],
+          "element_width_bytes": 2,
+          "input_elements": 4352,
+          "input_word_bytes": 8704,
+          "input_word_sha256": "11e06e1af9b134d82aaa5dad6bd622d82799993260c5117fada812129dfcf9f9",
+          "repetition": 1
+        }
+      ],
       "op_name": "tensor.row_sum",
-      "required_input_guard_elements": 3967,
+      "repetition0_policy": "bf16-discriminator-row0-then-finite-tolerance",
+      "required_input_guard_elements": 3840,
       "required_output_guard_elements": 15,
       "result_shape": [
         17,
@@ -221,6 +840,132 @@
       ],
       "row_tile": 16,
       "rtol": 0.0078125,
+      "semantic_abi": {
+        "argument_layout": {
+          "input_operand_count": 1,
+          "operand_descriptors": [
+            {
+              "dynamic_size_count": 0,
+              "dynamic_stride_count": 0,
+              "explicit_strides": true,
+              "kind": "Tensor",
+              "rank": 2,
+              "scalar_size_bytes": 0,
+              "shape": [
+                17,
+                256
+              ],
+              "strides": [
+                256,
+                1
+              ]
+            },
+            {
+              "dynamic_size_count": 0,
+              "dynamic_stride_count": 0,
+              "explicit_strides": true,
+              "kind": "Tensor",
+              "rank": 2,
+              "scalar_size_bytes": 0,
+              "shape": [
+                17,
+                1
+              ],
+              "strides": [
+                1,
+                1
+              ]
+            }
+          ],
+          "total_kernel_argument_count": 2,
+          "uniform_signature": false
+        },
+        "argument_packing_policy": "PointerOnly",
+        "artifact_identities": {
+          "argument_abi_digest": "b17aaf02807bacbddfbc8446be4068d96e7652facad5f0eb2329305f4a4abad5",
+          "callable_abi_digest": "8700608bbfe7b5d826f1fe107c5329040267c0f26a0882b797a34c7557c16cf1",
+          "compile_request_byte_identity_digest": "f550d15203327ac24eb72c4293d5132cc63afebced06f140e67dbca1dbc1d9ee",
+          "kernel_build_spec_digest": "8be6ff5bc2914a0906cc6051b7da3718a719273549c4afe9f129c61f556a2672",
+          "mutation_abi_digest": "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99",
+          "result_abi_digest": "15dd2a77aaf42f22b49060be05c5d449f76c46a355e191eb6167c1293299d13c",
+          "source_ir_digest": "bd4a4fb0bdfa891f027c21c176166fba6a098fb4192e15472b8c09278e69cab5",
+          "static_specialization_digest": "c63f3dcaf4786aee103123c7a1884b70508865cc445dca52b22cc691f30ed3a4",
+          "symbolic_specialization_digest": "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862"
+        },
+        "build_spec": {
+          "argument_abi_digest": "b17aaf02807bacbddfbc8446be4068d96e7652facad5f0eb2329305f4a4abad5",
+          "callable_abi_digest": "8700608bbfe7b5d826f1fe107c5329040267c0f26a0882b797a34c7557c16cf1",
+          "catalog_provenance": null,
+          "compile_request_byte_identity_digest": "f550d15203327ac24eb72c4293d5132cc63afebced06f140e67dbca1dbc1d9ee",
+          "mutation_abi_digest": "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99",
+          "pipeline_revision": "46610e0415598d010981e4bd07d0660c592401ac",
+          "result_abi_digest": "15dd2a77aaf42f22b49060be05c5d449f76c46a355e191eb6167c1293299d13c",
+          "schema_version": 1,
+          "source_ir_digest": "bd4a4fb0bdfa891f027c21c176166fba6a098fb4192e15472b8c09278e69cab5",
+          "static_specialization_digest": "c63f3dcaf4786aee103123c7a1884b70508865cc445dca52b22cc691f30ed3a4",
+          "symbolic_specialization_digest": "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862"
+        },
+        "cache_key_digest": "af57fcaa20bbfc868e8a9c4bdbc660961b9bddb833db2b168eb3508bf83ba551",
+        "entry_function_name": "pypto_row_reduction_v3",
+        "fallback_used": false,
+        "frontend_metadata_schema_version": 3,
+        "grid_abi": {
+          "policy": "Static",
+          "shape_operand_index": 0,
+          "static_dimensions": [
+            2,
+            1,
+            1
+          ],
+          "tile_sizes": [
+            16
+          ]
+        },
+        "kernel_abi_identity_digest": "8700608bbfe7b5d826f1fe107c5329040267c0f26a0882b797a34c7557c16cf1",
+        "launch_abi": {
+          "block_dimensions": [
+            1,
+            1,
+            1
+          ],
+          "cluster_scheduling_policy": "Spread",
+          "dynamic_shared_memory_bytes": 0,
+          "kernel_argument_slot_bytes": 8,
+          "version": 1
+        },
+        "loader_compatibility_digest": "aa846ef55a849b47305dc67be4bae5103027028db62d3e1435ca0090754e6fc1",
+        "lowered_access": {
+          "contraction": 256,
+          "contraction_chunks": 2,
+          "contraction_tile": 128,
+          "input_guard_max_index": 3839,
+          "input_logical_elements": 4352,
+          "materialized_rows": 32,
+          "output_guard_max_index": 14,
+          "output_logical_elements": 17,
+          "reduction_tile_budget": 128,
+          "required_input_guard_elements": 3840,
+          "required_output_guard_elements": 15,
+          "row_tile": 16,
+          "rows": 17
+        },
+        "producer": {
+          "artifact_fallback_allowed": false,
+          "environment_overrides_enabled": false,
+          "kind": "TensorIrCudaTile",
+          "options_identity_digest": "ae725de9705b41eb63dd4150d37d12efbce1690b9d3c323af485fb1e22025d86",
+          "pipeline_revision": "46610e0415598d010981e4bd07d0660c592401ac",
+          "producer_result_contract": "tensorir.cuda_tile_compiled_artifact.v1"
+        },
+        "runtime_kernel_name": "tensor_ir_rtk",
+        "semantic_route": "StructuredTensorIr",
+        "workspace_abi": {
+          "alignment_bytes": 1,
+          "kind": "Static",
+          "size_bytes": 0,
+          "version": 1
+        }
+      },
       "shape": [
         17,
         256
@@ -237,6 +982,16 @@
       "build_spec_sha256": "731a908f8486a6cae98e0776b1d1320c45f8631651f6fe9aa91898dea14df888",
       "case": "rank2_bf16_max_n17",
       "comparison": "exact-max-classification-sign",
+      "comparison_modes": [
+        [
+          "exact-word",
+          "exact-word"
+        ],
+        [
+          "special-classification-sign",
+          "special-classification-sign"
+        ]
+      ],
       "contraction_chunks": 17,
       "contraction_tile": 1,
       "cp48_case": "rank2_bf16_max",
@@ -252,15 +1007,198 @@
       "hir_sha256": "dcd983fa270e791a9c4e4077aa3e673d242a7647668aa7fa90d3d75db1caa50e",
       "kernel_build_spec_digest": "731a908f8486a6cae98e0776b1d1320c45f8631651f6fe9aa91898dea14df888",
       "max_ulp": 1,
+      "numerical_oracles": [
+        {
+          "comparison_modes": [
+            "exact-word",
+            "exact-word"
+          ],
+          "cpu_reference_class_sign": [
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            }
+          ],
+          "cpu_reference_word_bytes": 4,
+          "cpu_reference_word_sha256": "7b980229a835922c6d5863d92b5ec8fb5b35d87dbf9f8f5282e38207e7d4b70d",
+          "cpu_reference_words": [
+            16896,
+            16900
+          ],
+          "element_width_bytes": 2,
+          "input_elements": 34,
+          "input_word_bytes": 68,
+          "input_word_sha256": "60170df42201cd2fc6309e1bae5fe3883de72a0196f06d93be54375d544fb90a",
+          "repetition": 0
+        },
+        {
+          "comparison_modes": [
+            "special-classification-sign",
+            "special-classification-sign"
+          ],
+          "cpu_reference_class_sign": [
+            {
+              "class": "zero",
+              "sign": 0
+            },
+            {
+              "class": "zero",
+              "sign": 1
+            }
+          ],
+          "cpu_reference_word_bytes": 4,
+          "cpu_reference_word_sha256": "6d58692645c9d1cfaf13541cbd258f86193ef63c2f1d38f6bbca9617372d7bd6",
+          "cpu_reference_words": [
+            0,
+            32768
+          ],
+          "element_width_bytes": 2,
+          "input_elements": 34,
+          "input_word_bytes": 68,
+          "input_word_sha256": "8ed0731456469ed4451c52213f9262bd0dc03dfcd05b464a574b63d1538aa31a",
+          "repetition": 1
+        }
+      ],
       "op_name": "tensor.row_max",
+      "repetition0_policy": "exact-all",
       "required_input_guard_elements": 0,
-      "required_output_guard_elements": 1,
+      "required_output_guard_elements": 0,
       "result_shape": [
         2,
         1
       ],
       "row_tile": 2,
       "rtol": 0.0078125,
+      "semantic_abi": {
+        "argument_layout": {
+          "input_operand_count": 1,
+          "operand_descriptors": [
+            {
+              "dynamic_size_count": 0,
+              "dynamic_stride_count": 0,
+              "explicit_strides": true,
+              "kind": "Tensor",
+              "rank": 2,
+              "scalar_size_bytes": 0,
+              "shape": [
+                2,
+                17
+              ],
+              "strides": [
+                17,
+                1
+              ]
+            },
+            {
+              "dynamic_size_count": 0,
+              "dynamic_stride_count": 0,
+              "explicit_strides": true,
+              "kind": "Tensor",
+              "rank": 2,
+              "scalar_size_bytes": 0,
+              "shape": [
+                2,
+                1
+              ],
+              "strides": [
+                1,
+                1
+              ]
+            }
+          ],
+          "total_kernel_argument_count": 2,
+          "uniform_signature": false
+        },
+        "argument_packing_policy": "PointerOnly",
+        "artifact_identities": {
+          "argument_abi_digest": "43ffe429233663b4ab9a8f0daf3e6fb93337b0f77f95d0098d98ab33bfa39a9c",
+          "callable_abi_digest": "e9d2fc6aff3c61420725bcf84629eb44ec91b650246b84c0356ae339b6483c3f",
+          "compile_request_byte_identity_digest": "f550d15203327ac24eb72c4293d5132cc63afebced06f140e67dbca1dbc1d9ee",
+          "kernel_build_spec_digest": "731a908f8486a6cae98e0776b1d1320c45f8631651f6fe9aa91898dea14df888",
+          "mutation_abi_digest": "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99",
+          "result_abi_digest": "d933df69d01266abf6f8679aef7ac25ee9c7771b7ce8e1d802ebf823b25a9878",
+          "source_ir_digest": "2f361dd45776471086d209fcdc7208faea877ce005eb13d2afeda7ff42cd67b3",
+          "static_specialization_digest": "d027a44c2aea5399a385b517b08a3cf33d9bfa5bb026ce67b2f12881194d52cf",
+          "symbolic_specialization_digest": "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862"
+        },
+        "build_spec": {
+          "argument_abi_digest": "43ffe429233663b4ab9a8f0daf3e6fb93337b0f77f95d0098d98ab33bfa39a9c",
+          "callable_abi_digest": "e9d2fc6aff3c61420725bcf84629eb44ec91b650246b84c0356ae339b6483c3f",
+          "catalog_provenance": null,
+          "compile_request_byte_identity_digest": "f550d15203327ac24eb72c4293d5132cc63afebced06f140e67dbca1dbc1d9ee",
+          "mutation_abi_digest": "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99",
+          "pipeline_revision": "46610e0415598d010981e4bd07d0660c592401ac",
+          "result_abi_digest": "d933df69d01266abf6f8679aef7ac25ee9c7771b7ce8e1d802ebf823b25a9878",
+          "schema_version": 1,
+          "source_ir_digest": "2f361dd45776471086d209fcdc7208faea877ce005eb13d2afeda7ff42cd67b3",
+          "static_specialization_digest": "d027a44c2aea5399a385b517b08a3cf33d9bfa5bb026ce67b2f12881194d52cf",
+          "symbolic_specialization_digest": "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862"
+        },
+        "cache_key_digest": "ed1b0502402f4ca231a7b6c7ed3ee872083fc58315836fd965c256c40337c4a4",
+        "entry_function_name": "pypto_row_reduction_v3",
+        "fallback_used": false,
+        "frontend_metadata_schema_version": 3,
+        "grid_abi": {
+          "policy": "Static",
+          "shape_operand_index": 0,
+          "static_dimensions": [
+            1,
+            1,
+            1
+          ],
+          "tile_sizes": [
+            2
+          ]
+        },
+        "kernel_abi_identity_digest": "e9d2fc6aff3c61420725bcf84629eb44ec91b650246b84c0356ae339b6483c3f",
+        "launch_abi": {
+          "block_dimensions": [
+            1,
+            1,
+            1
+          ],
+          "cluster_scheduling_policy": "Spread",
+          "dynamic_shared_memory_bytes": 0,
+          "kernel_argument_slot_bytes": 8,
+          "version": 1
+        },
+        "loader_compatibility_digest": "aa846ef55a849b47305dc67be4bae5103027028db62d3e1435ca0090754e6fc1",
+        "lowered_access": {
+          "contraction": 17,
+          "contraction_chunks": 17,
+          "contraction_tile": 1,
+          "input_guard_max_index": -1,
+          "input_logical_elements": 34,
+          "materialized_rows": 2,
+          "output_guard_max_index": -1,
+          "output_logical_elements": 2,
+          "reduction_tile_budget": 128,
+          "required_input_guard_elements": 0,
+          "required_output_guard_elements": 0,
+          "row_tile": 2,
+          "rows": 2
+        },
+        "producer": {
+          "artifact_fallback_allowed": false,
+          "environment_overrides_enabled": false,
+          "kind": "TensorIrCudaTile",
+          "options_identity_digest": "99a8f95edbd6a0db92eb6c94d3b81bc9651c00bec601bec66392494d4e121b74",
+          "pipeline_revision": "46610e0415598d010981e4bd07d0660c592401ac",
+          "producer_result_contract": "tensorir.cuda_tile_compiled_artifact.v1"
+        },
+        "runtime_kernel_name": "tensor_ir_rtk",
+        "semantic_route": "StructuredTensorIr",
+        "workspace_abi": {
+          "alignment_bytes": 1,
+          "kind": "Static",
+          "size_bytes": 0,
+          "version": 1
+        }
+      },
       "shape": [
         2,
         17
@@ -277,6 +1215,22 @@
       "build_spec_sha256": "93da767b52f34847be5f8dec0942c784cf2eb0b389c4edcfc096fad1b3cccbb2",
       "case": "rank2_fp32_max_n128_tail",
       "comparison": "exact-max-classification-sign",
+      "comparison_modes": [
+        [
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word"
+        ],
+        [
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign"
+        ]
+      ],
       "contraction_chunks": 1,
       "contraction_tile": 128,
       "cp48_case": null,
@@ -292,8 +1246,101 @@
       "hir_sha256": "d34faf60ffef3910cd07ae6312e66d74676bf86449fa6d4df8aa29c3627f2377",
       "kernel_build_spec_digest": "93da767b52f34847be5f8dec0942c784cf2eb0b389c4edcfc096fad1b3cccbb2",
       "max_ulp": 16,
+      "numerical_oracles": [
+        {
+          "comparison_modes": [
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word"
+          ],
+          "cpu_reference_class_sign": [
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            }
+          ],
+          "cpu_reference_word_bytes": 20,
+          "cpu_reference_word_sha256": "21764944039149fc93a02295c4973e8adbff2c8a6c97d07f2f0846c7cc7a6d62",
+          "cpu_reference_words": [
+            1108344832,
+            1108344832,
+            1108344832,
+            1108344832,
+            1108344832
+          ],
+          "element_width_bytes": 4,
+          "input_elements": 640,
+          "input_word_bytes": 2560,
+          "input_word_sha256": "d22b92eec3ed649914c83d0b5a7368417899db0092fbecb87076ade8ca8a3eb2",
+          "repetition": 0
+        },
+        {
+          "comparison_modes": [
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign"
+          ],
+          "cpu_reference_class_sign": [
+            {
+              "class": "zero",
+              "sign": 0
+            },
+            {
+              "class": "zero",
+              "sign": 1
+            },
+            {
+              "class": "inf",
+              "sign": 0
+            },
+            {
+              "class": "inf",
+              "sign": 1
+            },
+            {
+              "class": "nan",
+              "sign": 0
+            }
+          ],
+          "cpu_reference_word_bytes": 20,
+          "cpu_reference_word_sha256": "a4f8d7caa5c71901003461f59a5f4e74073749a7a4e5d5d757813bff654ba5e8",
+          "cpu_reference_words": [
+            0,
+            2147483648,
+            2139095040,
+            4286578688,
+            2143289344
+          ],
+          "element_width_bytes": 4,
+          "input_elements": 640,
+          "input_word_bytes": 2560,
+          "input_word_sha256": "5b3f787095f71860d5d1064e7cf7e9250825ae498598f4d4b64cc66b76632b12",
+          "repetition": 1
+        }
+      ],
       "op_name": "tensor.row_max",
-      "required_input_guard_elements": 511,
+      "repetition0_policy": "exact-all",
+      "required_input_guard_elements": 384,
       "required_output_guard_elements": 3,
       "result_shape": [
         5,
@@ -301,6 +1348,132 @@
       ],
       "row_tile": 4,
       "rtol": 2e-06,
+      "semantic_abi": {
+        "argument_layout": {
+          "input_operand_count": 1,
+          "operand_descriptors": [
+            {
+              "dynamic_size_count": 0,
+              "dynamic_stride_count": 0,
+              "explicit_strides": true,
+              "kind": "Tensor",
+              "rank": 2,
+              "scalar_size_bytes": 0,
+              "shape": [
+                5,
+                128
+              ],
+              "strides": [
+                128,
+                1
+              ]
+            },
+            {
+              "dynamic_size_count": 0,
+              "dynamic_stride_count": 0,
+              "explicit_strides": true,
+              "kind": "Tensor",
+              "rank": 2,
+              "scalar_size_bytes": 0,
+              "shape": [
+                5,
+                1
+              ],
+              "strides": [
+                1,
+                1
+              ]
+            }
+          ],
+          "total_kernel_argument_count": 2,
+          "uniform_signature": false
+        },
+        "argument_packing_policy": "PointerOnly",
+        "artifact_identities": {
+          "argument_abi_digest": "a82be4e1c7589befed673a66e2d235f966c7452051adf3b89835069d7daf4f88",
+          "callable_abi_digest": "c77498613f122a3b01c46756927bbffbbde3096358f9615acd8bdb1d118954dd",
+          "compile_request_byte_identity_digest": "f550d15203327ac24eb72c4293d5132cc63afebced06f140e67dbca1dbc1d9ee",
+          "kernel_build_spec_digest": "93da767b52f34847be5f8dec0942c784cf2eb0b389c4edcfc096fad1b3cccbb2",
+          "mutation_abi_digest": "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99",
+          "result_abi_digest": "8961ffb33ea01040b9e3ac78522a497d6a0cc4a84a7d3708d1459c1ae2e12ea0",
+          "source_ir_digest": "ed4b4b8da81695887065ca40d1d8cbad4ec26ddf3f1821456aa3c463071200cc",
+          "static_specialization_digest": "59d2f3f07fa7974a203621ab99cefeca4c3320ff4caf8020dd91953766571b37",
+          "symbolic_specialization_digest": "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862"
+        },
+        "build_spec": {
+          "argument_abi_digest": "a82be4e1c7589befed673a66e2d235f966c7452051adf3b89835069d7daf4f88",
+          "callable_abi_digest": "c77498613f122a3b01c46756927bbffbbde3096358f9615acd8bdb1d118954dd",
+          "catalog_provenance": null,
+          "compile_request_byte_identity_digest": "f550d15203327ac24eb72c4293d5132cc63afebced06f140e67dbca1dbc1d9ee",
+          "mutation_abi_digest": "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99",
+          "pipeline_revision": "46610e0415598d010981e4bd07d0660c592401ac",
+          "result_abi_digest": "8961ffb33ea01040b9e3ac78522a497d6a0cc4a84a7d3708d1459c1ae2e12ea0",
+          "schema_version": 1,
+          "source_ir_digest": "ed4b4b8da81695887065ca40d1d8cbad4ec26ddf3f1821456aa3c463071200cc",
+          "static_specialization_digest": "59d2f3f07fa7974a203621ab99cefeca4c3320ff4caf8020dd91953766571b37",
+          "symbolic_specialization_digest": "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862"
+        },
+        "cache_key_digest": "e84e42fed7599be646c837a2e1e51142c562197d7405760869e1b0ce0f62b30b",
+        "entry_function_name": "pypto_row_reduction_v3",
+        "fallback_used": false,
+        "frontend_metadata_schema_version": 3,
+        "grid_abi": {
+          "policy": "Static",
+          "shape_operand_index": 0,
+          "static_dimensions": [
+            2,
+            1,
+            1
+          ],
+          "tile_sizes": [
+            4
+          ]
+        },
+        "kernel_abi_identity_digest": "c77498613f122a3b01c46756927bbffbbde3096358f9615acd8bdb1d118954dd",
+        "launch_abi": {
+          "block_dimensions": [
+            1,
+            1,
+            1
+          ],
+          "cluster_scheduling_policy": "Spread",
+          "dynamic_shared_memory_bytes": 0,
+          "kernel_argument_slot_bytes": 8,
+          "version": 1
+        },
+        "loader_compatibility_digest": "aa846ef55a849b47305dc67be4bae5103027028db62d3e1435ca0090754e6fc1",
+        "lowered_access": {
+          "contraction": 128,
+          "contraction_chunks": 1,
+          "contraction_tile": 128,
+          "input_guard_max_index": 383,
+          "input_logical_elements": 640,
+          "materialized_rows": 8,
+          "output_guard_max_index": 2,
+          "output_logical_elements": 5,
+          "reduction_tile_budget": 128,
+          "required_input_guard_elements": 384,
+          "required_output_guard_elements": 3,
+          "row_tile": 4,
+          "rows": 5
+        },
+        "producer": {
+          "artifact_fallback_allowed": false,
+          "environment_overrides_enabled": false,
+          "kind": "TensorIrCudaTile",
+          "options_identity_digest": "b2320afba1ba882961d69f3230ff10a06011fafe478fe64e80308dbbb3e589b6",
+          "pipeline_revision": "46610e0415598d010981e4bd07d0660c592401ac",
+          "producer_result_contract": "tensorir.cuda_tile_compiled_artifact.v1"
+        },
+        "runtime_kernel_name": "tensor_ir_rtk",
+        "semantic_route": "StructuredTensorIr",
+        "workspace_abi": {
+          "alignment_bytes": 1,
+          "kind": "Static",
+          "size_bytes": 0,
+          "version": 1
+        }
+      },
       "shape": [
         5,
         128
@@ -317,6 +1490,22 @@
       "build_spec_sha256": "6109901f4748c1e8ae7ad1a8637fb5a8d839f59e0039a065429734e002961184",
       "case": "rank2_fp32_max_n96_tail",
       "comparison": "exact-max-classification-sign",
+      "comparison_modes": [
+        [
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word"
+        ],
+        [
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign"
+        ]
+      ],
       "contraction_chunks": 3,
       "contraction_tile": 32,
       "cp48_case": null,
@@ -332,8 +1521,101 @@
       "hir_sha256": "96cb95e504b4de609856b6bf174eca41d9fcefd21f7954b905722e8d48839fb9",
       "kernel_build_spec_digest": "6109901f4748c1e8ae7ad1a8637fb5a8d839f59e0039a065429734e002961184",
       "max_ulp": 16,
+      "numerical_oracles": [
+        {
+          "comparison_modes": [
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word"
+          ],
+          "cpu_reference_class_sign": [
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            }
+          ],
+          "cpu_reference_word_bytes": 20,
+          "cpu_reference_word_sha256": "153ce1c98b2a840e4433e738e8b0693c8442e79e063035d513a788015dbcb47e",
+          "cpu_reference_words": [
+            1108344832,
+            1108344832,
+            1108344832,
+            1108082688,
+            1108344832
+          ],
+          "element_width_bytes": 4,
+          "input_elements": 480,
+          "input_word_bytes": 1920,
+          "input_word_sha256": "0c5b44558e02f344570d318420269a24c186024ba2f14f74530436b898c35959",
+          "repetition": 0
+        },
+        {
+          "comparison_modes": [
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign"
+          ],
+          "cpu_reference_class_sign": [
+            {
+              "class": "zero",
+              "sign": 0
+            },
+            {
+              "class": "zero",
+              "sign": 1
+            },
+            {
+              "class": "inf",
+              "sign": 0
+            },
+            {
+              "class": "inf",
+              "sign": 1
+            },
+            {
+              "class": "nan",
+              "sign": 0
+            }
+          ],
+          "cpu_reference_word_bytes": 20,
+          "cpu_reference_word_sha256": "a4f8d7caa5c71901003461f59a5f4e74073749a7a4e5d5d757813bff654ba5e8",
+          "cpu_reference_words": [
+            0,
+            2147483648,
+            2139095040,
+            4286578688,
+            2143289344
+          ],
+          "element_width_bytes": 4,
+          "input_elements": 480,
+          "input_word_bytes": 1920,
+          "input_word_sha256": "09bd9b896d06f3af5abac9263bdda4b52fdba4b1e9ef4e521d57d5456e145002",
+          "repetition": 1
+        }
+      ],
       "op_name": "tensor.row_max",
-      "required_input_guard_elements": 319,
+      "repetition0_policy": "exact-all",
+      "required_input_guard_elements": 288,
       "required_output_guard_elements": 3,
       "result_shape": [
         5,
@@ -341,6 +1623,132 @@
       ],
       "row_tile": 4,
       "rtol": 2e-06,
+      "semantic_abi": {
+        "argument_layout": {
+          "input_operand_count": 1,
+          "operand_descriptors": [
+            {
+              "dynamic_size_count": 0,
+              "dynamic_stride_count": 0,
+              "explicit_strides": true,
+              "kind": "Tensor",
+              "rank": 2,
+              "scalar_size_bytes": 0,
+              "shape": [
+                5,
+                96
+              ],
+              "strides": [
+                96,
+                1
+              ]
+            },
+            {
+              "dynamic_size_count": 0,
+              "dynamic_stride_count": 0,
+              "explicit_strides": true,
+              "kind": "Tensor",
+              "rank": 2,
+              "scalar_size_bytes": 0,
+              "shape": [
+                5,
+                1
+              ],
+              "strides": [
+                1,
+                1
+              ]
+            }
+          ],
+          "total_kernel_argument_count": 2,
+          "uniform_signature": false
+        },
+        "argument_packing_policy": "PointerOnly",
+        "artifact_identities": {
+          "argument_abi_digest": "02fd52fce8bfe541c12266fa247c7fa795c94e7f8277e5be0a71489697d8ffa5",
+          "callable_abi_digest": "eb8e6576e62fd6c0c84277dc5742b68b27033b4c9f13e10d5cbbb60fb94cb781",
+          "compile_request_byte_identity_digest": "f550d15203327ac24eb72c4293d5132cc63afebced06f140e67dbca1dbc1d9ee",
+          "kernel_build_spec_digest": "6109901f4748c1e8ae7ad1a8637fb5a8d839f59e0039a065429734e002961184",
+          "mutation_abi_digest": "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99",
+          "result_abi_digest": "8961ffb33ea01040b9e3ac78522a497d6a0cc4a84a7d3708d1459c1ae2e12ea0",
+          "source_ir_digest": "5833b2878941747503839ee94cdc685263b8d302af62da15b00d2f737ae12ce0",
+          "static_specialization_digest": "383d60a614be2f4264ac72d67d1b0f85fd34eabb835f8626e3e216d47b6a7331",
+          "symbolic_specialization_digest": "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862"
+        },
+        "build_spec": {
+          "argument_abi_digest": "02fd52fce8bfe541c12266fa247c7fa795c94e7f8277e5be0a71489697d8ffa5",
+          "callable_abi_digest": "eb8e6576e62fd6c0c84277dc5742b68b27033b4c9f13e10d5cbbb60fb94cb781",
+          "catalog_provenance": null,
+          "compile_request_byte_identity_digest": "f550d15203327ac24eb72c4293d5132cc63afebced06f140e67dbca1dbc1d9ee",
+          "mutation_abi_digest": "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99",
+          "pipeline_revision": "46610e0415598d010981e4bd07d0660c592401ac",
+          "result_abi_digest": "8961ffb33ea01040b9e3ac78522a497d6a0cc4a84a7d3708d1459c1ae2e12ea0",
+          "schema_version": 1,
+          "source_ir_digest": "5833b2878941747503839ee94cdc685263b8d302af62da15b00d2f737ae12ce0",
+          "static_specialization_digest": "383d60a614be2f4264ac72d67d1b0f85fd34eabb835f8626e3e216d47b6a7331",
+          "symbolic_specialization_digest": "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862"
+        },
+        "cache_key_digest": "832f4e575aae618034a28cd532ecf2b7ac84547665a107b4b3da91564c9e0359",
+        "entry_function_name": "pypto_row_reduction_v3",
+        "fallback_used": false,
+        "frontend_metadata_schema_version": 3,
+        "grid_abi": {
+          "policy": "Static",
+          "shape_operand_index": 0,
+          "static_dimensions": [
+            2,
+            1,
+            1
+          ],
+          "tile_sizes": [
+            4
+          ]
+        },
+        "kernel_abi_identity_digest": "eb8e6576e62fd6c0c84277dc5742b68b27033b4c9f13e10d5cbbb60fb94cb781",
+        "launch_abi": {
+          "block_dimensions": [
+            1,
+            1,
+            1
+          ],
+          "cluster_scheduling_policy": "Spread",
+          "dynamic_shared_memory_bytes": 0,
+          "kernel_argument_slot_bytes": 8,
+          "version": 1
+        },
+        "loader_compatibility_digest": "aa846ef55a849b47305dc67be4bae5103027028db62d3e1435ca0090754e6fc1",
+        "lowered_access": {
+          "contraction": 96,
+          "contraction_chunks": 3,
+          "contraction_tile": 32,
+          "input_guard_max_index": 287,
+          "input_logical_elements": 480,
+          "materialized_rows": 8,
+          "output_guard_max_index": 2,
+          "output_logical_elements": 5,
+          "reduction_tile_budget": 128,
+          "required_input_guard_elements": 288,
+          "required_output_guard_elements": 3,
+          "row_tile": 4,
+          "rows": 5
+        },
+        "producer": {
+          "artifact_fallback_allowed": false,
+          "environment_overrides_enabled": false,
+          "kind": "TensorIrCudaTile",
+          "options_identity_digest": "b2320afba1ba882961d69f3230ff10a06011fafe478fe64e80308dbbb3e589b6",
+          "pipeline_revision": "46610e0415598d010981e4bd07d0660c592401ac",
+          "producer_result_contract": "tensorir.cuda_tile_compiled_artifact.v1"
+        },
+        "runtime_kernel_name": "tensor_ir_rtk",
+        "semantic_route": "StructuredTensorIr",
+        "workspace_abi": {
+          "alignment_bytes": 1,
+          "kind": "Static",
+          "size_bytes": 0,
+          "version": 1
+        }
+      },
       "shape": [
         5,
         96
@@ -357,6 +1765,28 @@
       "build_spec_sha256": "fb754117ea8c8831b8e6f160ee2711455e6317a1e757fe628f1d15151d01bba2",
       "case": "rank2_bf16_sum_n129",
       "comparison": "bf16-fp32-sum-ulp1-relative",
+      "comparison_modes": [
+        [
+          "exact-word",
+          "sum-tolerance",
+          "sum-tolerance",
+          "sum-tolerance",
+          "sum-tolerance",
+          "sum-tolerance",
+          "sum-tolerance",
+          "sum-tolerance"
+        ],
+        [
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign"
+        ]
+      ],
       "contraction_chunks": 129,
       "contraction_tile": 1,
       "cp48_case": null,
@@ -372,15 +1802,270 @@
       "hir_sha256": "083c4ed03125a32c48c68f0069061d35c7c64c11b81d9f65292f7c76d6c36d77",
       "kernel_build_spec_digest": "fb754117ea8c8831b8e6f160ee2711455e6317a1e757fe628f1d15151d01bba2",
       "max_ulp": 1,
+      "numerical_oracles": [
+        {
+          "comparison_modes": [
+            "exact-word",
+            "sum-tolerance",
+            "sum-tolerance",
+            "sum-tolerance",
+            "sum-tolerance",
+            "sum-tolerance",
+            "sum-tolerance",
+            "sum-tolerance"
+          ],
+          "cpu_reference_class_sign": [
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            }
+          ],
+          "cpu_reference_word_bytes": 16,
+          "cpu_reference_word_sha256": "c8a59475150cb18b5375607632ad1843fa85c43588bdc4371dbd00d73d041653",
+          "cpu_reference_words": [
+            16320,
+            17291,
+            17290,
+            17290,
+            17292,
+            17289,
+            17291,
+            17290
+          ],
+          "element_width_bytes": 2,
+          "input_elements": 1032,
+          "input_word_bytes": 2064,
+          "input_word_sha256": "9e8923528a5478e4380b8eec943bef4d7a04f759570fb428e9331c65e487becc",
+          "repetition": 0
+        },
+        {
+          "comparison_modes": [
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign"
+          ],
+          "cpu_reference_class_sign": [
+            {
+              "class": "zero",
+              "sign": 0
+            },
+            {
+              "class": "inf",
+              "sign": 0
+            },
+            {
+              "class": "inf",
+              "sign": 1
+            },
+            {
+              "class": "nan",
+              "sign": 0
+            },
+            {
+              "class": "nan",
+              "sign": 0
+            },
+            {
+              "class": "zero",
+              "sign": 0
+            },
+            {
+              "class": "inf",
+              "sign": 0
+            },
+            {
+              "class": "inf",
+              "sign": 1
+            }
+          ],
+          "cpu_reference_word_bytes": 16,
+          "cpu_reference_word_sha256": "289b7598ef7f3a05b43235e0a46c80bacadddc01f71ffba01517959e50af3584",
+          "cpu_reference_words": [
+            0,
+            32640,
+            65408,
+            32704,
+            32704,
+            0,
+            32640,
+            65408
+          ],
+          "element_width_bytes": 2,
+          "input_elements": 1032,
+          "input_word_bytes": 2064,
+          "input_word_sha256": "9393072299f8ee5868a002704b17d3fd4543ec0f7d6ed92dbce051ba32675d74",
+          "repetition": 1
+        }
+      ],
       "op_name": "tensor.row_sum",
+      "repetition0_policy": "bf16-discriminator-row0-then-finite-tolerance",
       "required_input_guard_elements": 0,
-      "required_output_guard_elements": 7,
+      "required_output_guard_elements": 0,
       "result_shape": [
         8,
         1
       ],
       "row_tile": 8,
       "rtol": 0.0078125,
+      "semantic_abi": {
+        "argument_layout": {
+          "input_operand_count": 1,
+          "operand_descriptors": [
+            {
+              "dynamic_size_count": 0,
+              "dynamic_stride_count": 0,
+              "explicit_strides": true,
+              "kind": "Tensor",
+              "rank": 2,
+              "scalar_size_bytes": 0,
+              "shape": [
+                8,
+                129
+              ],
+              "strides": [
+                129,
+                1
+              ]
+            },
+            {
+              "dynamic_size_count": 0,
+              "dynamic_stride_count": 0,
+              "explicit_strides": true,
+              "kind": "Tensor",
+              "rank": 2,
+              "scalar_size_bytes": 0,
+              "shape": [
+                8,
+                1
+              ],
+              "strides": [
+                1,
+                1
+              ]
+            }
+          ],
+          "total_kernel_argument_count": 2,
+          "uniform_signature": false
+        },
+        "argument_packing_policy": "PointerOnly",
+        "artifact_identities": {
+          "argument_abi_digest": "afd95c8eb72ef3b39feb89bbb2b9b7b74516dbd062108e879ec9ff97b379ad97",
+          "callable_abi_digest": "6cec4ddcdfddd61174e7f2c9216c7932b634bfa2a0fbf673e77458f1169bf546",
+          "compile_request_byte_identity_digest": "f550d15203327ac24eb72c4293d5132cc63afebced06f140e67dbca1dbc1d9ee",
+          "kernel_build_spec_digest": "fb754117ea8c8831b8e6f160ee2711455e6317a1e757fe628f1d15151d01bba2",
+          "mutation_abi_digest": "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99",
+          "result_abi_digest": "4a3694faca0298462d3a21ab7a465e0bdba67178d4304c4be83a0d0f4e409b5c",
+          "source_ir_digest": "2efa6b359cba0c7f12ad4767bf9ac0f002bb1499474a29b79cf5dddd22cc6b9d",
+          "static_specialization_digest": "f9efef384db44b78778f1da3a958e4b798a29300b29db31fc3812fdfe45b9f42",
+          "symbolic_specialization_digest": "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862"
+        },
+        "build_spec": {
+          "argument_abi_digest": "afd95c8eb72ef3b39feb89bbb2b9b7b74516dbd062108e879ec9ff97b379ad97",
+          "callable_abi_digest": "6cec4ddcdfddd61174e7f2c9216c7932b634bfa2a0fbf673e77458f1169bf546",
+          "catalog_provenance": null,
+          "compile_request_byte_identity_digest": "f550d15203327ac24eb72c4293d5132cc63afebced06f140e67dbca1dbc1d9ee",
+          "mutation_abi_digest": "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99",
+          "pipeline_revision": "46610e0415598d010981e4bd07d0660c592401ac",
+          "result_abi_digest": "4a3694faca0298462d3a21ab7a465e0bdba67178d4304c4be83a0d0f4e409b5c",
+          "schema_version": 1,
+          "source_ir_digest": "2efa6b359cba0c7f12ad4767bf9ac0f002bb1499474a29b79cf5dddd22cc6b9d",
+          "static_specialization_digest": "f9efef384db44b78778f1da3a958e4b798a29300b29db31fc3812fdfe45b9f42",
+          "symbolic_specialization_digest": "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862"
+        },
+        "cache_key_digest": "389e47d03882713b78827106cd286d69fb8c21be12177825c455d0770a79fd75",
+        "entry_function_name": "pypto_row_reduction_v3",
+        "fallback_used": false,
+        "frontend_metadata_schema_version": 3,
+        "grid_abi": {
+          "policy": "Static",
+          "shape_operand_index": 0,
+          "static_dimensions": [
+            1,
+            1,
+            1
+          ],
+          "tile_sizes": [
+            8
+          ]
+        },
+        "kernel_abi_identity_digest": "6cec4ddcdfddd61174e7f2c9216c7932b634bfa2a0fbf673e77458f1169bf546",
+        "launch_abi": {
+          "block_dimensions": [
+            1,
+            1,
+            1
+          ],
+          "cluster_scheduling_policy": "Spread",
+          "dynamic_shared_memory_bytes": 0,
+          "kernel_argument_slot_bytes": 8,
+          "version": 1
+        },
+        "loader_compatibility_digest": "aa846ef55a849b47305dc67be4bae5103027028db62d3e1435ca0090754e6fc1",
+        "lowered_access": {
+          "contraction": 129,
+          "contraction_chunks": 129,
+          "contraction_tile": 1,
+          "input_guard_max_index": -1,
+          "input_logical_elements": 1032,
+          "materialized_rows": 8,
+          "output_guard_max_index": -1,
+          "output_logical_elements": 8,
+          "reduction_tile_budget": 128,
+          "required_input_guard_elements": 0,
+          "required_output_guard_elements": 0,
+          "row_tile": 8,
+          "rows": 8
+        },
+        "producer": {
+          "artifact_fallback_allowed": false,
+          "environment_overrides_enabled": false,
+          "kind": "TensorIrCudaTile",
+          "options_identity_digest": "01547f511dee642be707ce2044fd4a7b5db3c703b7e83a7a264e48894650d56e",
+          "pipeline_revision": "46610e0415598d010981e4bd07d0660c592401ac",
+          "producer_result_contract": "tensorir.cuda_tile_compiled_artifact.v1"
+        },
+        "runtime_kernel_name": "tensor_ir_rtk",
+        "semantic_route": "StructuredTensorIr",
+        "workspace_abi": {
+          "alignment_bytes": 1,
+          "kind": "Static",
+          "size_bytes": 0,
+          "version": 1
+        }
+      },
       "shape": [
         8,
         129
@@ -397,6 +2082,24 @@
       "build_spec_sha256": "8b1fcca35fa69860a4975443b73c6645f4bc3103d72aa82f90b46d9133636fa0",
       "case": "rank3_fp32_sum_n17_tail",
       "comparison": "fp32-sum-ulp16-relative",
+      "comparison_modes": [
+        [
+          "sum-tolerance",
+          "sum-tolerance",
+          "sum-tolerance",
+          "sum-tolerance",
+          "sum-tolerance",
+          "sum-tolerance"
+        ],
+        [
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign"
+        ]
+      ],
       "contraction_chunks": 17,
       "contraction_tile": 1,
       "cp48_case": "rank3_fp32_sum",
@@ -412,9 +2115,114 @@
       "hir_sha256": "27c7d9c5a5aebfb1dbe4a84aac996724e0bb5aabaa546f070f272a5c3e86387b",
       "kernel_build_spec_digest": "8b1fcca35fa69860a4975443b73c6645f4bc3103d72aa82f90b46d9133636fa0",
       "max_ulp": 16,
+      "numerical_oracles": [
+        {
+          "comparison_modes": [
+            "sum-tolerance",
+            "sum-tolerance",
+            "sum-tolerance",
+            "sum-tolerance",
+            "sum-tolerance",
+            "sum-tolerance"
+          ],
+          "cpu_reference_class_sign": [
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            }
+          ],
+          "cpu_reference_word_bytes": 24,
+          "cpu_reference_word_sha256": "3ff09830499b2b9b6e3434ce191d64fe1fec9778e2bd1f856de7f8599724ea57",
+          "cpu_reference_words": [
+            1107783095,
+            1108457179,
+            1109131264,
+            1107633298,
+            1109393408,
+            1107895442
+          ],
+          "element_width_bytes": 4,
+          "input_elements": 102,
+          "input_word_bytes": 408,
+          "input_word_sha256": "738483dd566b5e6bfac0f88040ce063ffd0c53371cf5897ab63cd86e455cbdd1",
+          "repetition": 0
+        },
+        {
+          "comparison_modes": [
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign"
+          ],
+          "cpu_reference_class_sign": [
+            {
+              "class": "zero",
+              "sign": 0
+            },
+            {
+              "class": "inf",
+              "sign": 0
+            },
+            {
+              "class": "inf",
+              "sign": 1
+            },
+            {
+              "class": "nan",
+              "sign": 0
+            },
+            {
+              "class": "nan",
+              "sign": 0
+            },
+            {
+              "class": "zero",
+              "sign": 0
+            }
+          ],
+          "cpu_reference_word_bytes": 24,
+          "cpu_reference_word_sha256": "70fc4c4e221dd0239326a4bf4d3b90eb34a9ae378b5acafff1ba6fc5ce5b9dd3",
+          "cpu_reference_words": [
+            0,
+            2139095040,
+            4286578688,
+            2143289344,
+            2143289344,
+            0
+          ],
+          "element_width_bytes": 4,
+          "input_elements": 102,
+          "input_word_bytes": 408,
+          "input_word_sha256": "4f77df1c3c7f954c2876d9ffa00bc8bef63bc7e4f962d5166248d57183641d10",
+          "repetition": 1
+        }
+      ],
       "op_name": "tensor.row_sum",
+      "repetition0_policy": "finite-tolerance-all",
       "required_input_guard_elements": 34,
-      "required_output_guard_elements": 3,
+      "required_output_guard_elements": 2,
       "result_shape": [
         2,
         3,
@@ -422,6 +2230,136 @@
       ],
       "row_tile": 4,
       "rtol": 2e-06,
+      "semantic_abi": {
+        "argument_layout": {
+          "input_operand_count": 1,
+          "operand_descriptors": [
+            {
+              "dynamic_size_count": 0,
+              "dynamic_stride_count": 0,
+              "explicit_strides": true,
+              "kind": "Tensor",
+              "rank": 3,
+              "scalar_size_bytes": 0,
+              "shape": [
+                2,
+                3,
+                17
+              ],
+              "strides": [
+                51,
+                17,
+                1
+              ]
+            },
+            {
+              "dynamic_size_count": 0,
+              "dynamic_stride_count": 0,
+              "explicit_strides": true,
+              "kind": "Tensor",
+              "rank": 3,
+              "scalar_size_bytes": 0,
+              "shape": [
+                2,
+                3,
+                1
+              ],
+              "strides": [
+                3,
+                1,
+                1
+              ]
+            }
+          ],
+          "total_kernel_argument_count": 2,
+          "uniform_signature": false
+        },
+        "argument_packing_policy": "PointerOnly",
+        "artifact_identities": {
+          "argument_abi_digest": "f176136796fd3f7676d715a7bf38b7c9207da4e7c2e89116ec42f7be9d035138",
+          "callable_abi_digest": "f460ba7ce791501f642d45313b3ea488cb2093d7ea59f2a5add828a5f77ab874",
+          "compile_request_byte_identity_digest": "f550d15203327ac24eb72c4293d5132cc63afebced06f140e67dbca1dbc1d9ee",
+          "kernel_build_spec_digest": "8b1fcca35fa69860a4975443b73c6645f4bc3103d72aa82f90b46d9133636fa0",
+          "mutation_abi_digest": "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99",
+          "result_abi_digest": "36e6bbf58084d4cb46a142a37620982e04f917a9216e065cbd1e5cbbf8a79f14",
+          "source_ir_digest": "87ed7b6e1e0828508e45a5597d19daebdc26233932912e6b0f3b8918bc4e63bc",
+          "static_specialization_digest": "64471bfb5879e4aed6b540fbd12ea6531ed4c9be41d9af61d3a680cd1914cbf1",
+          "symbolic_specialization_digest": "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862"
+        },
+        "build_spec": {
+          "argument_abi_digest": "f176136796fd3f7676d715a7bf38b7c9207da4e7c2e89116ec42f7be9d035138",
+          "callable_abi_digest": "f460ba7ce791501f642d45313b3ea488cb2093d7ea59f2a5add828a5f77ab874",
+          "catalog_provenance": null,
+          "compile_request_byte_identity_digest": "f550d15203327ac24eb72c4293d5132cc63afebced06f140e67dbca1dbc1d9ee",
+          "mutation_abi_digest": "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99",
+          "pipeline_revision": "46610e0415598d010981e4bd07d0660c592401ac",
+          "result_abi_digest": "36e6bbf58084d4cb46a142a37620982e04f917a9216e065cbd1e5cbbf8a79f14",
+          "schema_version": 1,
+          "source_ir_digest": "87ed7b6e1e0828508e45a5597d19daebdc26233932912e6b0f3b8918bc4e63bc",
+          "static_specialization_digest": "64471bfb5879e4aed6b540fbd12ea6531ed4c9be41d9af61d3a680cd1914cbf1",
+          "symbolic_specialization_digest": "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862"
+        },
+        "cache_key_digest": "d939e6c77f78362deff2a4e1b1583aaad34902a5fc241506ec1d254fa7e4c10e",
+        "entry_function_name": "pypto_row_reduction_v3",
+        "fallback_used": false,
+        "frontend_metadata_schema_version": 3,
+        "grid_abi": {
+          "policy": "Static",
+          "shape_operand_index": 0,
+          "static_dimensions": [
+            2,
+            1,
+            1
+          ],
+          "tile_sizes": [
+            4
+          ]
+        },
+        "kernel_abi_identity_digest": "f460ba7ce791501f642d45313b3ea488cb2093d7ea59f2a5add828a5f77ab874",
+        "launch_abi": {
+          "block_dimensions": [
+            1,
+            1,
+            1
+          ],
+          "cluster_scheduling_policy": "Spread",
+          "dynamic_shared_memory_bytes": 0,
+          "kernel_argument_slot_bytes": 8,
+          "version": 1
+        },
+        "loader_compatibility_digest": "aa846ef55a849b47305dc67be4bae5103027028db62d3e1435ca0090754e6fc1",
+        "lowered_access": {
+          "contraction": 17,
+          "contraction_chunks": 17,
+          "contraction_tile": 1,
+          "input_guard_max_index": 33,
+          "input_logical_elements": 102,
+          "materialized_rows": 8,
+          "output_guard_max_index": 1,
+          "output_logical_elements": 6,
+          "reduction_tile_budget": 128,
+          "required_input_guard_elements": 34,
+          "required_output_guard_elements": 2,
+          "row_tile": 4,
+          "rows": 6
+        },
+        "producer": {
+          "artifact_fallback_allowed": false,
+          "environment_overrides_enabled": false,
+          "kind": "TensorIrCudaTile",
+          "options_identity_digest": "b2320afba1ba882961d69f3230ff10a06011fafe478fe64e80308dbbb3e589b6",
+          "pipeline_revision": "46610e0415598d010981e4bd07d0660c592401ac",
+          "producer_result_contract": "tensorir.cuda_tile_compiled_artifact.v1"
+        },
+        "runtime_kernel_name": "tensor_ir_rtk",
+        "semantic_route": "StructuredTensorIr",
+        "workspace_abi": {
+          "alignment_bytes": 1,
+          "kind": "Static",
+          "size_bytes": 0,
+          "version": 1
+        }
+      },
       "shape": [
         2,
         3,
@@ -439,6 +2377,76 @@
       "build_spec_sha256": "f96aa6ed0850d2fb01247e62ced274a1ece4d47c8393edc9352c23cffdef4684",
       "case": "rank3_bf16_max_n17",
       "comparison": "exact-max-classification-sign",
+      "comparison_modes": [
+        [
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word"
+        ],
+        [
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign"
+        ]
+      ],
       "contraction_chunks": 17,
       "contraction_tile": 1,
       "cp48_case": "rank3_bf16_max",
@@ -454,9 +2462,426 @@
       "hir_sha256": "9d474fb2dbda7e0bc9e84b8fa246d36452d227cc053af6151c02c35b5efa5e01",
       "kernel_build_spec_digest": "f96aa6ed0850d2fb01247e62ced274a1ece4d47c8393edc9352c23cffdef4684",
       "max_ulp": 1,
+      "numerical_oracles": [
+        {
+          "comparison_modes": [
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word"
+          ],
+          "cpu_reference_class_sign": [
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            }
+          ],
+          "cpu_reference_word_bytes": 64,
+          "cpu_reference_word_sha256": "65f3ddc9573f7278b4adccf56faaf73a70c02169cccaed4cab98a5d3a8bb7d25",
+          "cpu_reference_words": [
+            16896,
+            16900,
+            16904,
+            16908,
+            16912,
+            16916,
+            16920,
+            16924,
+            16928,
+            16932,
+            16936,
+            16940,
+            16944,
+            16948,
+            16952,
+            16956,
+            16960,
+            16964,
+            16968,
+            16972,
+            16976,
+            16980,
+            16984,
+            16988,
+            16992,
+            16996,
+            17000,
+            17004,
+            17008,
+            17012,
+            17016,
+            17020
+          ],
+          "element_width_bytes": 2,
+          "input_elements": 544,
+          "input_word_bytes": 1088,
+          "input_word_sha256": "98d054326e0d5955fe6927e4425973c51940082834c1af4f7cc1cf03d2647f23",
+          "repetition": 0
+        },
+        {
+          "comparison_modes": [
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign"
+          ],
+          "cpu_reference_class_sign": [
+            {
+              "class": "zero",
+              "sign": 0
+            },
+            {
+              "class": "zero",
+              "sign": 1
+            },
+            {
+              "class": "inf",
+              "sign": 0
+            },
+            {
+              "class": "inf",
+              "sign": 1
+            },
+            {
+              "class": "nan",
+              "sign": 0
+            },
+            {
+              "class": "zero",
+              "sign": 0
+            },
+            {
+              "class": "zero",
+              "sign": 1
+            },
+            {
+              "class": "inf",
+              "sign": 0
+            },
+            {
+              "class": "inf",
+              "sign": 1
+            },
+            {
+              "class": "nan",
+              "sign": 0
+            },
+            {
+              "class": "zero",
+              "sign": 0
+            },
+            {
+              "class": "zero",
+              "sign": 1
+            },
+            {
+              "class": "inf",
+              "sign": 0
+            },
+            {
+              "class": "inf",
+              "sign": 1
+            },
+            {
+              "class": "nan",
+              "sign": 0
+            },
+            {
+              "class": "zero",
+              "sign": 0
+            },
+            {
+              "class": "zero",
+              "sign": 1
+            },
+            {
+              "class": "inf",
+              "sign": 0
+            },
+            {
+              "class": "inf",
+              "sign": 1
+            },
+            {
+              "class": "nan",
+              "sign": 0
+            },
+            {
+              "class": "zero",
+              "sign": 0
+            },
+            {
+              "class": "zero",
+              "sign": 1
+            },
+            {
+              "class": "inf",
+              "sign": 0
+            },
+            {
+              "class": "inf",
+              "sign": 1
+            },
+            {
+              "class": "nan",
+              "sign": 0
+            },
+            {
+              "class": "zero",
+              "sign": 0
+            },
+            {
+              "class": "zero",
+              "sign": 1
+            },
+            {
+              "class": "inf",
+              "sign": 0
+            },
+            {
+              "class": "inf",
+              "sign": 1
+            },
+            {
+              "class": "nan",
+              "sign": 0
+            },
+            {
+              "class": "zero",
+              "sign": 0
+            },
+            {
+              "class": "zero",
+              "sign": 1
+            }
+          ],
+          "cpu_reference_word_bytes": 64,
+          "cpu_reference_word_sha256": "bda3ac0c2747db5b86f647a35f1e87909e916f699765d801ab0ab6c79d971925",
+          "cpu_reference_words": [
+            0,
+            32768,
+            32640,
+            65408,
+            32704,
+            0,
+            32768,
+            32640,
+            65408,
+            32704,
+            0,
+            32768,
+            32640,
+            65408,
+            32704,
+            0,
+            32768,
+            32640,
+            65408,
+            32704,
+            0,
+            32768,
+            32640,
+            65408,
+            32704,
+            0,
+            32768,
+            32640,
+            65408,
+            32704,
+            0,
+            32768
+          ],
+          "element_width_bytes": 2,
+          "input_elements": 544,
+          "input_word_bytes": 1088,
+          "input_word_sha256": "b2be3ce70a9ed40bce2785e41797cd011e8d4e7bc27d820f1cf219d2b38e479d",
+          "repetition": 1
+        }
+      ],
       "op_name": "tensor.row_max",
+      "repetition0_policy": "exact-all",
       "required_input_guard_elements": 0,
-      "required_output_guard_elements": 15,
+      "required_output_guard_elements": 0,
       "result_shape": [
         2,
         16,
@@ -464,6 +2889,136 @@
       ],
       "row_tile": 16,
       "rtol": 0.0078125,
+      "semantic_abi": {
+        "argument_layout": {
+          "input_operand_count": 1,
+          "operand_descriptors": [
+            {
+              "dynamic_size_count": 0,
+              "dynamic_stride_count": 0,
+              "explicit_strides": true,
+              "kind": "Tensor",
+              "rank": 3,
+              "scalar_size_bytes": 0,
+              "shape": [
+                2,
+                16,
+                17
+              ],
+              "strides": [
+                272,
+                17,
+                1
+              ]
+            },
+            {
+              "dynamic_size_count": 0,
+              "dynamic_stride_count": 0,
+              "explicit_strides": true,
+              "kind": "Tensor",
+              "rank": 3,
+              "scalar_size_bytes": 0,
+              "shape": [
+                2,
+                16,
+                1
+              ],
+              "strides": [
+                16,
+                1,
+                1
+              ]
+            }
+          ],
+          "total_kernel_argument_count": 2,
+          "uniform_signature": false
+        },
+        "argument_packing_policy": "PointerOnly",
+        "artifact_identities": {
+          "argument_abi_digest": "35a520e44ac20611464fe762a96db1188f37c2827183046bea4e853461b60a4c",
+          "callable_abi_digest": "f9a8c3d0ed4686ab025d60e9a922c5de3a1a0b914ae4ece4153262cbec435daa",
+          "compile_request_byte_identity_digest": "f550d15203327ac24eb72c4293d5132cc63afebced06f140e67dbca1dbc1d9ee",
+          "kernel_build_spec_digest": "f96aa6ed0850d2fb01247e62ced274a1ece4d47c8393edc9352c23cffdef4684",
+          "mutation_abi_digest": "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99",
+          "result_abi_digest": "362c4385c16d5b3fdf2a59476623026e80d424029a6b15ccdaedf0f0b4e3c339",
+          "source_ir_digest": "4f851e9e17a14be2a7b5e1c134a5c31a5b97a1895fd07d0b62831373fc36270c",
+          "static_specialization_digest": "06f03999dfb0f180a45f84a56311b8e8f6c203913a3dae66708bccfeb9f813a6",
+          "symbolic_specialization_digest": "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862"
+        },
+        "build_spec": {
+          "argument_abi_digest": "35a520e44ac20611464fe762a96db1188f37c2827183046bea4e853461b60a4c",
+          "callable_abi_digest": "f9a8c3d0ed4686ab025d60e9a922c5de3a1a0b914ae4ece4153262cbec435daa",
+          "catalog_provenance": null,
+          "compile_request_byte_identity_digest": "f550d15203327ac24eb72c4293d5132cc63afebced06f140e67dbca1dbc1d9ee",
+          "mutation_abi_digest": "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99",
+          "pipeline_revision": "46610e0415598d010981e4bd07d0660c592401ac",
+          "result_abi_digest": "362c4385c16d5b3fdf2a59476623026e80d424029a6b15ccdaedf0f0b4e3c339",
+          "schema_version": 1,
+          "source_ir_digest": "4f851e9e17a14be2a7b5e1c134a5c31a5b97a1895fd07d0b62831373fc36270c",
+          "static_specialization_digest": "06f03999dfb0f180a45f84a56311b8e8f6c203913a3dae66708bccfeb9f813a6",
+          "symbolic_specialization_digest": "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862"
+        },
+        "cache_key_digest": "1125fb37974f25d52a458b5e8c097fe4c279abfc5fd424264676f343a8540aa7",
+        "entry_function_name": "pypto_row_reduction_v3",
+        "fallback_used": false,
+        "frontend_metadata_schema_version": 3,
+        "grid_abi": {
+          "policy": "Static",
+          "shape_operand_index": 0,
+          "static_dimensions": [
+            2,
+            1,
+            1
+          ],
+          "tile_sizes": [
+            16
+          ]
+        },
+        "kernel_abi_identity_digest": "f9a8c3d0ed4686ab025d60e9a922c5de3a1a0b914ae4ece4153262cbec435daa",
+        "launch_abi": {
+          "block_dimensions": [
+            1,
+            1,
+            1
+          ],
+          "cluster_scheduling_policy": "Spread",
+          "dynamic_shared_memory_bytes": 0,
+          "kernel_argument_slot_bytes": 8,
+          "version": 1
+        },
+        "loader_compatibility_digest": "aa846ef55a849b47305dc67be4bae5103027028db62d3e1435ca0090754e6fc1",
+        "lowered_access": {
+          "contraction": 17,
+          "contraction_chunks": 17,
+          "contraction_tile": 1,
+          "input_guard_max_index": -1,
+          "input_logical_elements": 544,
+          "materialized_rows": 32,
+          "output_guard_max_index": -1,
+          "output_logical_elements": 32,
+          "reduction_tile_budget": 128,
+          "required_input_guard_elements": 0,
+          "required_output_guard_elements": 0,
+          "row_tile": 16,
+          "rows": 32
+        },
+        "producer": {
+          "artifact_fallback_allowed": false,
+          "environment_overrides_enabled": false,
+          "kind": "TensorIrCudaTile",
+          "options_identity_digest": "ae725de9705b41eb63dd4150d37d12efbce1690b9d3c323af485fb1e22025d86",
+          "pipeline_revision": "46610e0415598d010981e4bd07d0660c592401ac",
+          "producer_result_contract": "tensorir.cuda_tile_compiled_artifact.v1"
+        },
+        "runtime_kernel_name": "tensor_ir_rtk",
+        "semantic_route": "StructuredTensorIr",
+        "workspace_abi": {
+          "alignment_bytes": 1,
+          "kind": "Static",
+          "size_bytes": 0,
+          "version": 1
+        }
+      },
       "shape": [
         2,
         16,
@@ -481,6 +3036,24 @@
       "build_spec_sha256": "e976117bfa6e75d67631c75ec073f745434f03f843d159bfeabf3f3bdde96336",
       "case": "rank3_fp32_max_n257_tail",
       "comparison": "exact-max-classification-sign",
+      "comparison_modes": [
+        [
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word",
+          "exact-word"
+        ],
+        [
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign",
+          "special-classification-sign"
+        ]
+      ],
       "contraction_chunks": 257,
       "contraction_tile": 1,
       "cp48_case": null,
@@ -496,9 +3069,114 @@
       "hir_sha256": "9dec2d9b85636e7ef4c2e42396ea42e6b4d7587a72c399e5eefcf5f8755ea788",
       "kernel_build_spec_digest": "e976117bfa6e75d67631c75ec073f745434f03f843d159bfeabf3f3bdde96336",
       "max_ulp": 16,
+      "numerical_oracles": [
+        {
+          "comparison_modes": [
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word",
+            "exact-word"
+          ],
+          "cpu_reference_class_sign": [
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            },
+            {
+              "class": "finite",
+              "sign": 0
+            }
+          ],
+          "cpu_reference_word_bytes": 24,
+          "cpu_reference_word_sha256": "b795cea4eb5e5cc1128a6488c396ccc4bec78563c181339939e1f34cf5e0d3c3",
+          "cpu_reference_words": [
+            1108344832,
+            1108344832,
+            1108344832,
+            1108344832,
+            1108344832,
+            1108606976
+          ],
+          "element_width_bytes": 4,
+          "input_elements": 1542,
+          "input_word_bytes": 6168,
+          "input_word_sha256": "6f6e32c47ac25309658b1635c2790e53181c6f77a97c830968e71ebcd03f1a05",
+          "repetition": 0
+        },
+        {
+          "comparison_modes": [
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign",
+            "special-classification-sign"
+          ],
+          "cpu_reference_class_sign": [
+            {
+              "class": "zero",
+              "sign": 0
+            },
+            {
+              "class": "zero",
+              "sign": 1
+            },
+            {
+              "class": "inf",
+              "sign": 0
+            },
+            {
+              "class": "inf",
+              "sign": 1
+            },
+            {
+              "class": "nan",
+              "sign": 0
+            },
+            {
+              "class": "zero",
+              "sign": 0
+            }
+          ],
+          "cpu_reference_word_bytes": 24,
+          "cpu_reference_word_sha256": "21d5209e8fc24ba7377db28f1433405693130086705058bd606a601e530f43d7",
+          "cpu_reference_words": [
+            0,
+            2147483648,
+            2139095040,
+            4286578688,
+            2143289344,
+            0
+          ],
+          "element_width_bytes": 4,
+          "input_elements": 1542,
+          "input_word_bytes": 6168,
+          "input_word_sha256": "153ffba13dfbef373753c1100e568fa530460beb9a3d51f96f8f37a76ae76633",
+          "repetition": 1
+        }
+      ],
       "op_name": "tensor.row_max",
+      "repetition0_policy": "exact-all",
       "required_input_guard_elements": 514,
-      "required_output_guard_elements": 3,
+      "required_output_guard_elements": 2,
       "result_shape": [
         2,
         3,
@@ -506,6 +3184,136 @@
       ],
       "row_tile": 4,
       "rtol": 2e-06,
+      "semantic_abi": {
+        "argument_layout": {
+          "input_operand_count": 1,
+          "operand_descriptors": [
+            {
+              "dynamic_size_count": 0,
+              "dynamic_stride_count": 0,
+              "explicit_strides": true,
+              "kind": "Tensor",
+              "rank": 3,
+              "scalar_size_bytes": 0,
+              "shape": [
+                2,
+                3,
+                257
+              ],
+              "strides": [
+                771,
+                257,
+                1
+              ]
+            },
+            {
+              "dynamic_size_count": 0,
+              "dynamic_stride_count": 0,
+              "explicit_strides": true,
+              "kind": "Tensor",
+              "rank": 3,
+              "scalar_size_bytes": 0,
+              "shape": [
+                2,
+                3,
+                1
+              ],
+              "strides": [
+                3,
+                1,
+                1
+              ]
+            }
+          ],
+          "total_kernel_argument_count": 2,
+          "uniform_signature": false
+        },
+        "argument_packing_policy": "PointerOnly",
+        "artifact_identities": {
+          "argument_abi_digest": "65d69b447141838602407e8ef45dfe21b859701f63b9988552f3ff79db53fc4d",
+          "callable_abi_digest": "aa607713d05be29ddfe6f873a76286e1cb1db8fb9b64e8c4866d08fcc8d78006",
+          "compile_request_byte_identity_digest": "f550d15203327ac24eb72c4293d5132cc63afebced06f140e67dbca1dbc1d9ee",
+          "kernel_build_spec_digest": "e976117bfa6e75d67631c75ec073f745434f03f843d159bfeabf3f3bdde96336",
+          "mutation_abi_digest": "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99",
+          "result_abi_digest": "36e6bbf58084d4cb46a142a37620982e04f917a9216e065cbd1e5cbbf8a79f14",
+          "source_ir_digest": "95feb13487688b1c673071ef1c3a1e33f759a70ac58c4430b184ccec52b4600e",
+          "static_specialization_digest": "f5e41428431f05fb19de95dd7f5d8647433eceaf42613170854527a586a6f596",
+          "symbolic_specialization_digest": "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862"
+        },
+        "build_spec": {
+          "argument_abi_digest": "65d69b447141838602407e8ef45dfe21b859701f63b9988552f3ff79db53fc4d",
+          "callable_abi_digest": "aa607713d05be29ddfe6f873a76286e1cb1db8fb9b64e8c4866d08fcc8d78006",
+          "catalog_provenance": null,
+          "compile_request_byte_identity_digest": "f550d15203327ac24eb72c4293d5132cc63afebced06f140e67dbca1dbc1d9ee",
+          "mutation_abi_digest": "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99",
+          "pipeline_revision": "46610e0415598d010981e4bd07d0660c592401ac",
+          "result_abi_digest": "36e6bbf58084d4cb46a142a37620982e04f917a9216e065cbd1e5cbbf8a79f14",
+          "schema_version": 1,
+          "source_ir_digest": "95feb13487688b1c673071ef1c3a1e33f759a70ac58c4430b184ccec52b4600e",
+          "static_specialization_digest": "f5e41428431f05fb19de95dd7f5d8647433eceaf42613170854527a586a6f596",
+          "symbolic_specialization_digest": "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862"
+        },
+        "cache_key_digest": "ccd74b212ea16992213aa726d73419d793ebb368eb1635acb00c55827af1b9ad",
+        "entry_function_name": "pypto_row_reduction_v3",
+        "fallback_used": false,
+        "frontend_metadata_schema_version": 3,
+        "grid_abi": {
+          "policy": "Static",
+          "shape_operand_index": 0,
+          "static_dimensions": [
+            2,
+            1,
+            1
+          ],
+          "tile_sizes": [
+            4
+          ]
+        },
+        "kernel_abi_identity_digest": "aa607713d05be29ddfe6f873a76286e1cb1db8fb9b64e8c4866d08fcc8d78006",
+        "launch_abi": {
+          "block_dimensions": [
+            1,
+            1,
+            1
+          ],
+          "cluster_scheduling_policy": "Spread",
+          "dynamic_shared_memory_bytes": 0,
+          "kernel_argument_slot_bytes": 8,
+          "version": 1
+        },
+        "loader_compatibility_digest": "aa846ef55a849b47305dc67be4bae5103027028db62d3e1435ca0090754e6fc1",
+        "lowered_access": {
+          "contraction": 257,
+          "contraction_chunks": 257,
+          "contraction_tile": 1,
+          "input_guard_max_index": 513,
+          "input_logical_elements": 1542,
+          "materialized_rows": 8,
+          "output_guard_max_index": 1,
+          "output_logical_elements": 6,
+          "reduction_tile_budget": 128,
+          "required_input_guard_elements": 514,
+          "required_output_guard_elements": 2,
+          "row_tile": 4,
+          "rows": 6
+        },
+        "producer": {
+          "artifact_fallback_allowed": false,
+          "environment_overrides_enabled": false,
+          "kind": "TensorIrCudaTile",
+          "options_identity_digest": "b2320afba1ba882961d69f3230ff10a06011fafe478fe64e80308dbbb3e589b6",
+          "pipeline_revision": "46610e0415598d010981e4bd07d0660c592401ac",
+          "producer_result_contract": "tensorir.cuda_tile_compiled_artifact.v1"
+        },
+        "runtime_kernel_name": "tensor_ir_rtk",
+        "semantic_route": "StructuredTensorIr",
+        "workspace_abi": {
+          "alignment_bytes": 1,
+          "kind": "Static",
+          "size_bytes": 0,
+          "version": 1
+        }
+      },
       "shape": [
         2,
         3,
@@ -516,6 +3324,6 @@
       "source_sha256": "95feb13487688b1c673071ef1c3a1e33f759a70ac58c4430b184ccec52b4600e"
     }
   ],
-  "records_sha256": "c2ef43de60c70f452a718abf437913310144c694fea8955d0ace138143deb8b4",
+  "records_sha256": "304894e9348f2883de99ff1d5dd22cf30204f5b06bc28ebb3e12a3dee9e83628",
   "schema_version": 1
 }

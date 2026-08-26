@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -63,21 +64,30 @@ ANCHOR_REQUEST_SIZE = 1_583
 ANCHOR_REQUEST_SHA256 = (
     "13c319b832c51188678b51a32b155253a6f896bfd1395044832611df0843adda"
 )
+EXPECTED_COMPILE_REQUEST_BYTE_IDENTITY_DIGEST = (
+    "f550d15203327ac24eb72c4293d5132cc63afebced06f140e67dbca1dbc1d9ee"
+)
+EXPECTED_LOADER_COMPATIBILITY_INPUT_DIGEST = (
+    "c1397051b8fff67ea69e94a0c452ea1f8253a400d32036e15f4f3817591b7eb5"
+)
+EXPECTED_DEVICE_AUTOTUNE_IDENTITY_DIGEST = (
+    "3a739499edecb156a29202ec77ece6600df468732f7e758472b4af86af4b8b98"
+)
 
 RUNNER_RELATIVE_PATH = Path("benchmarks/operators/pypto_row_reduction_sm120.py")
-RUNNER_SIZE = 42_637
-RUNNER_SHA256 = "0b99dbc6b0b1f32ae0379362e2aa50ed4a0a913d9ea4875f1f76cbffee7efa55"
+RUNNER_SIZE = 50_499
+RUNNER_SHA256 = "3d23ad60c19b09cae5fee46f021dcc51115f00a0e43641e3973cca23c53f8cd5"
 ANCHOR_GENERATOR_RELATIVE_PATH = Path("tools/generate_pypto_row_reduction_anchors.py")
-ANCHOR_GENERATOR_SIZE = 21_172
+ANCHOR_GENERATOR_SIZE = 28_363
 ANCHOR_GENERATOR_SHA256 = (
-    "2bbfa3dce913412ef6226e1518eb0004469b70c9f2b62ce2181add33979d9861"
+    "a270b9c632f01d9ce47821bb9a8c96505e37b8e557a643c7c1a409047e3025ac"
 )
 COMPILE_ANCHORS_RELATIVE_PATH = Path(
     "state/contracts/pypto_row_reduction_compile_anchors_v1.json"
 )
-COMPILE_ANCHORS_SIZE = 18_276
+COMPILE_ANCHORS_SIZE = 111_827
 COMPILE_ANCHORS_SHA256 = (
-    "f54b008b216ff8f98e9cdcb42a7fe1b332474fe9354fb45b643d9c4811fa4689"
+    "14af24e4929fd629475cf70a871c1f8400daa59ed22b6f988c9d4a00968418a0"
 )
 PREFLIGHT_ADAPTER_RELATIVE_PATH = Path("tools/preflight_gpu_smoke_v2.py")
 CONTROLLER_RELATIVE_PATH = Path("tools/run_pypto_row_reduction_sm120_isolated.py")
@@ -115,6 +125,15 @@ FP32_SUM_RTOL = 2.0e-6
 BF16_SUM_MAX_ULP = 1
 BF16_SUM_RTOL = 1.0 / 128.0
 REDUCTION_ATOL = 0.0
+REDUCTION_TILE_BUDGET = 128
+COMPARISON_MODE_EXACT = "exact-word"
+COMPARISON_MODE_TOLERANCE = "sum-tolerance"
+COMPARISON_MODE_SPECIAL = "special-classification-sign"
+COMPARISON_MODES = (
+    COMPARISON_MODE_EXACT,
+    COMPARISON_MODE_TOLERANCE,
+    COMPARISON_MODE_SPECIAL,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +144,7 @@ class CaseSpec:
     op_name: str
     row_tile: int
     special_mode: str = "none"
+    repetition0_policy: str = "exact-all"
     cp48_case: str | None = None
 
     @property
@@ -166,10 +186,35 @@ class CaseSpec:
     def rtol(self) -> float:
         return BF16_SUM_RTOL if self.dtype == "bfloat16" else FP32_SUM_RTOL
 
+    def exact_output_indices(self, repetition: int) -> tuple[int, ...]:
+        return exact_output_indices(self, repetition)
+
+    def tolerance_output_indices(self, repetition: int) -> tuple[int, ...]:
+        return tolerance_output_indices(self, repetition)
+
+    def special_output_indices(self, repetition: int) -> tuple[int, ...]:
+        return special_output_indices(self, repetition)
+
+    def output_comparison_modes(self, repetition: int) -> tuple[str, ...]:
+        return output_comparison_modes(self, repetition)
+
+
+REPETITION0_EXACT_ALL = "exact-all"
+REPETITION0_BF16_DISCRIMINATOR_THEN_TOLERANCE = (
+    "bf16-discriminator-row0-then-finite-tolerance"
+)
+REPETITION0_FINITE_TOLERANCE_ALL = "finite-tolerance-all"
+
 
 CASE_SPECS = (
     CaseSpec(
-        "rank1_fp32_sum_n1", "float32", (1,), "tensor.row_sum", 1, "negative-zero"
+        "rank1_fp32_sum_n1",
+        "float32",
+        (1,),
+        "tensor.row_sum",
+        1,
+        special_mode="negative-zero",
+        repetition0_policy=REPETITION0_EXACT_ALL,
     ),
     CaseSpec(
         "rank1_fp32_sum_n7",
@@ -177,6 +222,7 @@ CASE_SPECS = (
         (7,),
         "tensor.row_sum",
         1,
+        repetition0_policy=REPETITION0_EXACT_ALL,
         cp48_case="rank1_fp32_sum",
     ),
     CaseSpec(
@@ -185,7 +231,8 @@ CASE_SPECS = (
         (17, 256),
         "tensor.row_sum",
         16,
-        "bf16-accumulation",
+        special_mode="bf16-accumulation",
+        repetition0_policy=REPETITION0_BF16_DISCRIMINATOR_THEN_TOLERANCE,
     ),
     CaseSpec(
         "rank2_bf16_max_n17",
@@ -193,18 +240,42 @@ CASE_SPECS = (
         (2, 17),
         "tensor.row_max",
         2,
-        "max-infinities",
-        "rank2_bf16_max",
+        special_mode="max-infinities",
+        repetition0_policy=REPETITION0_EXACT_ALL,
+        cp48_case="rank2_bf16_max",
     ),
-    CaseSpec("rank2_fp32_max_n128_tail", "float32", (5, 128), "tensor.row_max", 4),
-    CaseSpec("rank2_fp32_max_n96_tail", "float32", (5, 96), "tensor.row_max", 4),
-    CaseSpec("rank2_bf16_sum_n129", "bfloat16", (8, 129), "tensor.row_sum", 8),
+    CaseSpec(
+        "rank2_fp32_max_n128_tail",
+        "float32",
+        (5, 128),
+        "tensor.row_max",
+        4,
+        repetition0_policy=REPETITION0_EXACT_ALL,
+    ),
+    CaseSpec(
+        "rank2_fp32_max_n96_tail",
+        "float32",
+        (5, 96),
+        "tensor.row_max",
+        4,
+        repetition0_policy=REPETITION0_EXACT_ALL,
+    ),
+    CaseSpec(
+        "rank2_bf16_sum_n129",
+        "bfloat16",
+        (8, 129),
+        "tensor.row_sum",
+        8,
+        special_mode="bf16-accumulation",
+        repetition0_policy=REPETITION0_BF16_DISCRIMINATOR_THEN_TOLERANCE,
+    ),
     CaseSpec(
         "rank3_fp32_sum_n17_tail",
         "float32",
         (2, 3, 17),
         "tensor.row_sum",
         4,
+        repetition0_policy=REPETITION0_FINITE_TOLERANCE_ALL,
         cp48_case="rank3_fp32_sum",
     ),
     CaseSpec(
@@ -213,16 +284,88 @@ CASE_SPECS = (
         (2, 16, 17),
         "tensor.row_max",
         16,
+        repetition0_policy=REPETITION0_EXACT_ALL,
         cp48_case="rank3_bf16_max",
     ),
-    CaseSpec("rank3_fp32_max_n257_tail", "float32", (2, 3, 257), "tensor.row_max", 4),
+    CaseSpec(
+        "rank3_fp32_max_n257_tail",
+        "float32",
+        (2, 3, 257),
+        "tensor.row_max",
+        4,
+        repetition0_policy=REPETITION0_EXACT_ALL,
+    ),
 )
 CASE_ORDER = tuple(case.name for case in CASE_SPECS)
 
 
+def output_comparison_modes(case: CaseSpec, repetition: int) -> tuple[str, ...]:
+    """Return the authoritative, complete comparison mode for every output row."""
+
+    if repetition < 0 or repetition >= REPETITIONS:
+        raise RuntimeError(f"unsupported repetition for {case.name}: {repetition}")
+    if repetition == 1:
+        return (COMPARISON_MODE_SPECIAL,) * case.rows
+    if case.op_name == "tensor.row_max":
+        return (COMPARISON_MODE_EXACT,) * case.rows
+    if case.repetition0_policy == REPETITION0_EXACT_ALL:
+        return (COMPARISON_MODE_EXACT,) * case.rows
+    if (
+        case.repetition0_policy
+        == REPETITION0_BF16_DISCRIMINATOR_THEN_TOLERANCE
+    ):
+        return (COMPARISON_MODE_EXACT,) + (COMPARISON_MODE_TOLERANCE,) * (
+            case.rows - 1
+        )
+    if case.repetition0_policy == REPETITION0_FINITE_TOLERANCE_ALL:
+        return (COMPARISON_MODE_TOLERANCE,) * case.rows
+    raise RuntimeError(f"unsupported repetition-zero policy: {case.name}")
+
+
+def _indices_for_mode(
+    case: CaseSpec, repetition: int, mode: str
+) -> tuple[int, ...]:
+    modes = output_comparison_modes(case, repetition)
+    if len(modes) != case.rows or any(value not in COMPARISON_MODES for value in modes):
+        raise RuntimeError(f"incomplete comparison partition: {case.name}")
+    return tuple(index for index, value in enumerate(modes) if value == mode)
+
+
+def exact_output_indices(case: CaseSpec, repetition: int) -> tuple[int, ...]:
+    return _indices_for_mode(case, repetition, COMPARISON_MODE_EXACT)
+
+
+def tolerance_output_indices(case: CaseSpec, repetition: int) -> tuple[int, ...]:
+    return _indices_for_mode(case, repetition, COMPARISON_MODE_TOLERANCE)
+
+
+def special_output_indices(case: CaseSpec, repetition: int) -> tuple[int, ...]:
+    return _indices_for_mode(case, repetition, COMPARISON_MODE_SPECIAL)
+
+
+for _case in CASE_SPECS:
+    for _repetition in range(REPETITIONS):
+        _modes = _case.output_comparison_modes(_repetition)
+        _partition = (
+            set(_case.exact_output_indices(_repetition)),
+            set(_case.tolerance_output_indices(_repetition)),
+            set(_case.special_output_indices(_repetition)),
+        )
+        if (
+            len(_modes) != _case.rows
+            or any(
+                _partition[left] & _partition[right]
+                for left in range(3)
+                for right in range(left + 1, 3)
+            )
+            or set().union(*_partition) != set(range(_case.rows))
+        ):
+            raise RuntimeError(f"comparison partition differs: {_case.name} r{_repetition}")
+
+
 def contraction_tile(case: CaseSpec) -> int:
     lowbit = case.contraction & -case.contraction
-    return min(128, lowbit)
+    return min(REDUCTION_TILE_BUDGET, lowbit)
 
 
 def contraction_chunks(case: CaseSpec) -> int:
@@ -230,14 +373,51 @@ def contraction_chunks(case: CaseSpec) -> int:
     return (case.contraction + tile - 1) // tile
 
 
-def required_input_guard_elements(case: CaseSpec) -> int:
+def speculative_row_count(case: CaseSpec) -> int:
     tail_rows = case.rows % case.row_tile
-    speculative_rows = 0 if tail_rows == 0 else case.row_tile - tail_rows
-    return speculative_rows * case.contraction + contraction_tile(case) - 1
+    return 0 if tail_rows == 0 else case.row_tile - tail_rows
+
+
+def input_guard_max_index(case: CaseSpec) -> int:
+    """Largest zero-based suffix-guard index addressable by a full lowered tile."""
+
+    materialized_rows = case.grid[0] * case.row_tile
+    logical_elements = case.rows * case.contraction
+    maximum_linear_index = materialized_rows * case.contraction - 1
+    return maximum_linear_index - logical_elements
+
+
+def output_guard_max_index(case: CaseSpec) -> int:
+    materialized_rows = case.grid[0] * case.row_tile
+    return materialized_rows - case.rows - 1
+
+
+def required_input_guard_elements(case: CaseSpec) -> int:
+    return max(0, input_guard_max_index(case) + 1)
 
 
 def required_output_guard_elements(case: CaseSpec) -> int:
-    return case.row_tile - 1
+    return max(0, output_guard_max_index(case) + 1)
+
+
+def lowered_access_projection(case: CaseSpec) -> dict[str, int]:
+    """Freeze the reviewed RowReductionV3 tile/access arithmetic."""
+
+    return {
+        "reduction_tile_budget": REDUCTION_TILE_BUDGET,
+        "rows": case.rows,
+        "row_tile": case.row_tile,
+        "materialized_rows": case.grid[0] * case.row_tile,
+        "contraction": case.contraction,
+        "contraction_tile": contraction_tile(case),
+        "contraction_chunks": contraction_chunks(case),
+        "input_logical_elements": case.rows * case.contraction,
+        "input_guard_max_index": input_guard_max_index(case),
+        "required_input_guard_elements": required_input_guard_elements(case),
+        "output_logical_elements": case.rows,
+        "output_guard_max_index": output_guard_max_index(case),
+        "required_output_guard_elements": required_output_guard_elements(case),
+    }
 
 
 MAXIMUM_REQUIRED_INPUT_GUARD_ELEMENTS = max(
@@ -246,7 +426,7 @@ MAXIMUM_REQUIRED_INPUT_GUARD_ELEMENTS = max(
 MAXIMUM_REQUIRED_OUTPUT_GUARD_ELEMENTS = max(
     required_output_guard_elements(case) for case in CASE_SPECS
 )
-if MAXIMUM_REQUIRED_INPUT_GUARD_ELEMENTS != 3_967:
+if MAXIMUM_REQUIRED_INPUT_GUARD_ELEMENTS != 3_840:
     raise RuntimeError("row-reduction input speculative-span bound differs")
 if MAXIMUM_REQUIRED_OUTPUT_GUARD_ELEMENTS != 15:
     raise RuntimeError("row-reduction output speculative-span bound differs")
@@ -312,6 +492,210 @@ def dense_strides(shape: tuple[int, ...]) -> tuple[int, ...]:
         output[index] = running
         running *= shape[index]
     return tuple(output)
+
+
+def artifact_semantic_abi(
+    compiler: Any,
+    request: Any,
+    build_spec: Any,
+    artifact: Any,
+    case: CaseSpec,
+) -> dict[str, Any]:
+    """Validate and project the complete reviewed RowReductionV3 Artifact ABI."""
+
+    kernel = artifact.kernel_abi
+    layout = kernel.argument_layout
+    descriptors = list(layout.operand_descriptors)
+    grid = kernel.grid_abi
+    workspace = kernel.workspace_abi
+    launch = kernel.launch_abi
+    identities = artifact.identities
+    producer = artifact.producer_identity
+    expected_shapes = (case.shape, case.result_shape)
+    descriptor_records: list[dict[str, Any]] = []
+    for descriptor, shape in zip(descriptors, expected_shapes, strict=True):
+        expected_strides = () if len(shape) == 1 else dense_strides(shape)
+        expected_explicit = len(shape) > 1
+        if (
+            descriptor.kind != compiler.ArtifactOperandKind.Tensor
+            or descriptor.rank != len(shape)
+            or tuple(descriptor.shape) != shape
+            or tuple(descriptor.strides) != expected_strides
+            or descriptor.dynamic_size_count != 0
+            or descriptor.dynamic_stride_count != 0
+            or descriptor.explicit_strides is not expected_explicit
+            or descriptor.scalar_size_bytes != 0
+        ):
+            raise RuntimeError(f"{case.name} Artifact operand descriptor differs")
+        descriptor_records.append(
+            {
+                "kind": "Tensor",
+                "rank": descriptor.rank,
+                "shape": list(descriptor.shape),
+                "strides": list(descriptor.strides),
+                "dynamic_size_count": descriptor.dynamic_size_count,
+                "dynamic_stride_count": descriptor.dynamic_stride_count,
+                "explicit_strides": descriptor.explicit_strides,
+                "scalar_size_bytes": descriptor.scalar_size_bytes,
+            }
+        )
+
+    projection_names = (
+        "static_specialization_digest",
+        "symbolic_specialization_digest",
+        "argument_abi_digest",
+        "result_abi_digest",
+        "mutation_abi_digest",
+    )
+    projection_digests = {
+        name: getattr(build_spec, name) for name in projection_names
+    }
+    if any(
+        getattr(identities, name) != digest
+        for name, digest in projection_digests.items()
+    ):
+        raise RuntimeError(f"{case.name} Artifact projection digest join differs")
+
+    kernel_identity = kernel.serialize_identity()
+    options_identity = compiler.Artifact.serialize_producer_options_identity(
+        request, build_spec
+    )
+    cache_identity = artifact.serialize_cache_key_identity()
+    loader_identity = artifact.serialize_loader_compatibility()
+    if (
+        build_spec.build_spec_schema_version != 1
+        or build_spec.semantic_route != compiler.SemanticRoute.StructuredTensorIr
+        or artifact.semantic_route != compiler.SemanticRoute.StructuredTensorIr
+        or artifact.fallback_used
+        or artifact.actual_target.compute_capability != 120
+        or kernel.runtime_kernel_name != "tensor_ir_rtk"
+        or kernel.entry_function_name != "pypto_row_reduction_v3"
+        or kernel.argument_packing_policy
+        != compiler.ArtifactArgumentPackingPolicy.PointerOnly
+        or layout.input_operand_count != 1
+        or layout.total_kernel_argument_count != 2
+        or layout.uniform_signature is not False
+        or len(descriptors) != 2
+        or grid.policy != compiler.ArtifactGridPolicy.Static
+        or grid.shape_operand_index != 0
+        or tuple(grid.static_dimensions) != case.grid
+        or list(grid.tile_sizes) != [case.row_tile]
+        or workspace.workspace_abi_version != 1
+        or workspace.kind != compiler.ArtifactWorkspaceKind.Static
+        or workspace.size_bytes != 0
+        or workspace.alignment_bytes != 1
+        or launch.launch_abi_version != 1
+        or tuple(launch.block_dimensions) != (1, 1, 1)
+        or launch.cluster_scheduling_policy
+        != compiler.ArtifactClusterSchedulingPolicy.Spread
+        or launch.dynamic_shared_memory_bytes != 0
+        or launch.kernel_argument_slot_bytes != 8
+        or build_spec.callable_abi_digest != kernel.identity_digest
+        or identities.callable_abi_digest != kernel.identity_digest
+        or identities.kernel_build_spec_digest != build_spec.identity_digest
+        or identities.source_ir_digest != build_spec.source_ir_digest
+        or identities.compile_request_byte_identity_digest
+        != build_spec.compile_request_byte_identity_digest
+        or identities.compile_request_byte_identity_digest
+        != request.byte_compile_identity_digest
+        or request.byte_compile_identity_digest
+        != EXPECTED_COMPILE_REQUEST_BYTE_IDENTITY_DIGEST
+        or request.loader_compatibility_input_digest
+        != EXPECTED_LOADER_COMPATIBILITY_INPUT_DIGEST
+        or request.device_autotune_identity_digest
+        != EXPECTED_DEVICE_AUTOTUNE_IDENTITY_DIGEST
+        or build_spec.catalog_provenance is not None
+        or producer.kind != compiler.ArtifactProducerKind.TensorIrCudaTile
+        or producer.pipeline_revision != build_spec.pipeline_revision
+        or producer.producer_result_contract
+        != "tensorir.cuda_tile_compiled_artifact.v1"
+        or producer.environment_overrides_enabled
+        or producer.artifact_fallback_allowed
+        or producer.options_identity_digest
+        != compiler.Artifact.get_producer_options_identity_digest(request, build_spec)
+        or producer.options_identity_digest
+        != hashlib.sha256(options_identity).hexdigest()
+        or kernel.identity_digest
+        != hashlib.sha256(kernel_identity).hexdigest()
+        or artifact.cache_key_digest
+        != hashlib.sha256(cache_identity).hexdigest()
+        or artifact.cache_key_digest
+        != compiler.Artifact.get_cache_key_digest_for(request, build_spec)
+        or cache_identity
+        != compiler.Artifact.serialize_cache_key_identity_for(request, build_spec)
+        or artifact.loader_compatibility_digest
+        != hashlib.sha256(loader_identity).hexdigest()
+    ):
+        raise RuntimeError(f"{case.name} Artifact semantic ABI differs")
+
+    return {
+        "frontend_metadata_schema_version": 3,
+        "semantic_route": "StructuredTensorIr",
+        "runtime_kernel_name": kernel.runtime_kernel_name,
+        "entry_function_name": kernel.entry_function_name,
+        "argument_packing_policy": "PointerOnly",
+        "argument_layout": {
+            "input_operand_count": layout.input_operand_count,
+            "total_kernel_argument_count": layout.total_kernel_argument_count,
+            "uniform_signature": layout.uniform_signature,
+            "operand_descriptors": descriptor_records,
+        },
+        "grid_abi": {
+            "policy": "Static",
+            "shape_operand_index": grid.shape_operand_index,
+            "static_dimensions": list(grid.static_dimensions),
+            "tile_sizes": list(grid.tile_sizes),
+        },
+        "workspace_abi": {
+            "version": workspace.workspace_abi_version,
+            "kind": "Static",
+            "size_bytes": workspace.size_bytes,
+            "alignment_bytes": workspace.alignment_bytes,
+        },
+        "launch_abi": {
+            "version": launch.launch_abi_version,
+            "block_dimensions": list(launch.block_dimensions),
+            "cluster_scheduling_policy": "Spread",
+            "dynamic_shared_memory_bytes": launch.dynamic_shared_memory_bytes,
+            "kernel_argument_slot_bytes": launch.kernel_argument_slot_bytes,
+        },
+        "lowered_access": lowered_access_projection(case),
+        "build_spec": {
+            "schema_version": build_spec.build_spec_schema_version,
+            "pipeline_revision": build_spec.pipeline_revision,
+            "source_ir_digest": build_spec.source_ir_digest,
+            "callable_abi_digest": build_spec.callable_abi_digest,
+            "compile_request_byte_identity_digest": (
+                build_spec.compile_request_byte_identity_digest
+            ),
+            "catalog_provenance": None,
+            **projection_digests,
+        },
+        "artifact_identities": {
+            "kernel_build_spec_digest": identities.kernel_build_spec_digest,
+            "source_ir_digest": identities.source_ir_digest,
+            "callable_abi_digest": identities.callable_abi_digest,
+            "compile_request_byte_identity_digest": (
+                identities.compile_request_byte_identity_digest
+            ),
+            **{
+                name: getattr(identities, name)
+                for name in projection_names
+            },
+        },
+        "kernel_abi_identity_digest": kernel.identity_digest,
+        "producer": {
+            "kind": "TensorIrCudaTile",
+            "pipeline_revision": producer.pipeline_revision,
+            "producer_result_contract": producer.producer_result_contract,
+            "options_identity_digest": producer.options_identity_digest,
+            "environment_overrides_enabled": producer.environment_overrides_enabled,
+            "artifact_fallback_allowed": producer.artifact_fallback_allowed,
+        },
+        "cache_key_digest": artifact.cache_key_digest,
+        "loader_compatibility_digest": artifact.loader_compatibility_digest,
+        "fallback_used": artifact.fallback_used,
+    }
 
 
 def tensor_type(shape: tuple[int, ...], dtype: str) -> str:

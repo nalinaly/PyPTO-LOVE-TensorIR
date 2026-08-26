@@ -79,6 +79,16 @@ control = load_exact(
     ROOT / "tools/_pypto_row_reduction_sm120_control_manifest.py",
 )
 control.reject_control_bytecode_cache(ROOT)
+if (
+    contract.PYTHON_REAL_RELATIVE_PATH != base.contract.PYTHON_REAL_RELATIVE_PATH
+    or contract.PYTHON_SIZE != base.contract.PYTHON_SIZE
+    or contract.PYTHON_SHA256 != base.contract.PYTHON_SHA256
+    or contract.CUDA_RUNTIME_RELATIVE_PATH
+    != base.contract.CUDA_RUNTIME_RELATIVE_PATH
+    or contract.CUDA_RUNTIME_SIZE != base.contract.CUDA_RUNTIME_SIZE
+    or contract.CUDA_RUNTIME_SHA256 != base.contract.CUDA_RUNTIME_SHA256
+):
+    raise FinalizeError("row/base Python or CUDA-runtime identity differs")
 
 
 def require_exact_keys(
@@ -93,6 +103,42 @@ def require_sha(value: object, description: str) -> str:
     if not isinstance(value, str) or SHA256_PATTERN.fullmatch(value) is None:
         raise FinalizeError(f"{description} is not a SHA-256")
     return value
+
+
+def validate_compile_request_identity(
+    value: object, anchor_records: dict[str, object]
+) -> dict[str, object]:
+    request = require_exact_keys(
+        value,
+        {
+            "byte_identity_digest",
+            "loader_compatibility_input_digest",
+            "device_autotune_identity_digest",
+        },
+        "row CompileRequest identity",
+    )
+    expected = {
+        "byte_identity_digest": (
+            contract.EXPECTED_COMPILE_REQUEST_BYTE_IDENTITY_DIGEST
+        ),
+        "loader_compatibility_input_digest": (
+            contract.EXPECTED_LOADER_COMPATIBILITY_INPUT_DIGEST
+        ),
+        "device_autotune_identity_digest": (
+            contract.EXPECTED_DEVICE_AUTOTUNE_IDENTITY_DIGEST
+        ),
+    }
+    anchor_byte_digests = {
+        anchor_records[case.name]["semantic_abi"]["build_spec"][
+            "compile_request_byte_identity_digest"
+        ]
+        for case in contract.CASE_SPECS
+    }
+    if request != expected or anchor_byte_digests != {
+        expected["byte_identity_digest"]
+    }:
+        raise FinalizeError("row CompileRequest identity join differs")
+    return request
 
 
 def load_canonical(path: Path, description: str) -> tuple[dict[str, object], bytes]:
@@ -146,8 +192,28 @@ def word_value(word: int, dtype: str) -> float:
     )[0]
 
 
+def classify_word(word: int, dtype: str) -> tuple[str, int]:
+    fraction_bits = 23 if dtype == "float32" else 7
+    sign = word >> (fraction_bits + 8)
+    exponent = (word >> fraction_bits) & 0xFF
+    fraction = word & ((1 << fraction_bits) - 1)
+    if exponent == 0xFF:
+        return ("nan" if fraction else "inf", sign)
+    if exponent == 0:
+        return ("zero" if fraction == 0 else "subnormal", sign)
+    return ("finite", sign)
+
+
+def ordered_word(word: int, dtype: str) -> int:
+    bits = 32 if dtype == "float32" else 16
+    sign = 1 << (bits - 1)
+    return (~word & ((1 << bits) - 1)) if word & sign else word | sign
+
+
 def unpack_words(raw: bytes, dtype: str) -> list[int]:
     width, code = (4, "I") if dtype == "float32" else (2, "H")
+    if len(raw) % width:
+        raise FinalizeError("row logical byte count is not dtype-aligned")
     return list(struct.unpack(f"<{len(raw) // width}{code}", raw))
 
 
@@ -158,13 +224,20 @@ def pack_words(words: list[int], dtype: str) -> bytes:
 
 def input_values(case: object, repetition: int) -> list[float]:
     values: list[float] = []
+    tolerance_rows = set(tolerance_output_indices(case, repetition))
     for row in range(case.rows):
         if (
             repetition == 0
             and case.dtype == "bfloat16"
             and case.op_name == "tensor.row_sum"
+            and row == 0
         ):
             values.extend([1.0, *([2.0**-8] * (case.contraction - 1))])
+        elif row in tolerance_rows:
+            values.extend(
+                (1.0 + ((row * 13 + column * 11) % 29)) / 7.0
+                for column in range(case.contraction)
+            )
         elif repetition == 0 and case.op_name == "tensor.row_sum":
             values.extend(
                 float(((row * 3 + column * 5) % 9) - 4) / 4
@@ -248,29 +321,69 @@ def cpu_reference(case: object, repetition: int) -> list[int]:
     return output
 
 
+def exact_output_indices(case: object, repetition: int) -> tuple[int, ...]:
+    return tuple(case.exact_output_indices(repetition))
+
+
+def tolerance_output_indices(case: object, repetition: int) -> tuple[int, ...]:
+    return tuple(case.tolerance_output_indices(repetition))
+
+
+def special_output_indices(case: object, repetition: int) -> tuple[int, ...]:
+    return tuple(case.special_output_indices(repetition))
+
+
+def comparison_modes(case: object, repetition: int) -> tuple[str, ...]:
+    modes = tuple(case.output_comparison_modes(repetition))
+    exact = set(exact_output_indices(case, repetition))
+    tolerance = set(tolerance_output_indices(case, repetition))
+    special = set(special_output_indices(case, repetition))
+    if (
+        len(modes) != case.rows
+        or any(mode not in contract.COMPARISON_MODES for mode in modes)
+        or exact & tolerance
+        or exact & special
+        or tolerance & special
+        or exact | tolerance | special != set(range(case.rows))
+    ):
+        raise FinalizeError("row comparison partition differs")
+    return modes
+
+
 def compare(
-    case: object, actual: list[int], expected: list[int], *, exact: bool
+    case: object,
+    actual: list[int],
+    expected: list[int],
+    *,
+    modes: tuple[str, ...],
 ) -> dict[str, object]:
+    if len(actual) != case.rows or len(expected) != case.rows or len(modes) != case.rows:
+        raise FinalizeError("row comparison cardinality differs")
     max_ulp, max_rel, max_abs = 0, 0.0, 0.0
-    for lhs, rhs in zip(actual, expected, strict=True):
-        lhs_class = base.base._classification(lhs, case.dtype)
-        rhs_class = base.base._classification(rhs, case.dtype)
-        if rhs_class[0] == "nan":
-            if lhs_class[0] != "nan":
-                raise FinalizeError("NaN classification differs")
-            continue
-        if rhs_class[0] != "finite":
-            if lhs_class != rhs_class:
-                raise FinalizeError("special sign/classification differs")
-            continue
-        if case.op_name == "tensor.row_max" or exact:
+    for index, (lhs, rhs, mode) in enumerate(zip(actual, expected, modes, strict=True)):
+        lhs_class = classify_word(lhs, case.dtype)
+        rhs_class = classify_word(rhs, case.dtype)
+        if mode == contract.COMPARISON_MODE_EXACT:
             if lhs != rhs:
                 raise FinalizeError("exact reduction output differs")
             continue
-        ulp = abs(
-            base.base._ordered_word(lhs, case.dtype)
-            - base.base._ordered_word(rhs, case.dtype)
-        )
+        if mode == contract.COMPARISON_MODE_SPECIAL:
+            if rhs_class[0] not in {"nan", "inf", "zero"}:
+                raise FinalizeError("special policy reached a nonspecial output")
+            if rhs_class[0] == "nan":
+                if lhs_class[0] != "nan":
+                    raise FinalizeError("NaN classification differs")
+            elif lhs_class != rhs_class:
+                raise FinalizeError("special sign/classification differs")
+            continue
+        if mode != contract.COMPARISON_MODE_TOLERANCE:
+            raise FinalizeError("row comparison mode differs")
+        if rhs_class[0] not in {"finite", "subnormal"} or lhs_class[0] not in {
+            "finite",
+            "subnormal",
+        }:
+            raise FinalizeError("sum tolerance classification differs")
+        ulp = abs(ordered_word(lhs, case.dtype) - ordered_word(rhs, case.dtype))
         left, right = word_value(lhs, case.dtype), word_value(rhs, case.dtype)
         absolute = abs(left - right)
         relative = (
@@ -311,6 +424,11 @@ def comparison_metadata(case: object, repetition: int) -> dict[str, object]:
             raise FinalizeError("BF16 sequential-accumulator negative control differs")
     return {
         "policy": case.comparison,
+        "repetition0_policy": case.repetition0_policy,
+        "comparison_modes": list(comparison_modes(case, repetition)),
+        "exact_output_indices": list(exact_output_indices(case, repetition)),
+        "tolerance_output_indices": list(tolerance_output_indices(case, repetition)),
+        "special_output_indices": list(special_output_indices(case, repetition)),
         "max_ulp_limit": case.max_ulp,
         "rtol": case.rtol,
         "atol": 0.0,
@@ -328,6 +446,11 @@ def validate_comparison_metadata(
         value,
         {
             "policy",
+            "repetition0_policy",
+            "comparison_modes",
+            "exact_output_indices",
+            "tolerance_output_indices",
+            "special_output_indices",
             "max_ulp_limit",
             "rtol",
             "atol",
@@ -351,6 +474,7 @@ def validate_frontend(
     provisional: dict[str, object], anchor_records: dict[str, object]
 ) -> None:
     runtime = provisional["runtime"]
+    validate_compile_request_identity(runtime.get("compile_request"), anchor_records)
     if (
         runtime.get("case_order") != list(contract.CASE_ORDER)
         or runtime.get("case_count") != 10
@@ -360,22 +484,86 @@ def validate_frontend(
         or runtime.get("explicit_packet_releases") != 20
         or runtime.get("explicit_unloads") != 20
         or runtime.get("external_reference_synchronizations") != 20
+        or runtime.get("non_default_current_stream") is not True
+        or runtime.get("distinct_nondefault_reference_stream") is not True
+        or runtime.get("reference_compute_outside_candidate_coverage") is not True
+        or runtime.get("external_synchronization") is not True
         or runtime.get("fallback_used") is not False
         or runtime.get("forbidden_provider_imports") != []
     ):
         raise FinalizeError("row runtime aggregate differs")
+    hir_programs = runtime.get("hir_programs")
+    if not isinstance(hir_programs, list) or len(hir_programs) != 10:
+        raise FinalizeError("row HIR program set differs")
+    for record, case in zip(hir_programs, contract.CASE_SPECS, strict=True):
+        record = require_exact_keys(
+            record,
+            {
+                "case",
+                "bytes",
+                "sha256",
+                "canonical_roundtrip",
+                "input_count",
+                "operator",
+            },
+            "row HIR program",
+        )
+        anchor = anchor_records[case.name]
+        if record != {
+            "case": case.name,
+            "bytes": anchor["hir_bytes"],
+            "sha256": anchor["hir_sha256"],
+            "canonical_roundtrip": True,
+            "input_count": 1,
+            "operator": case.op_name,
+        }:
+            raise FinalizeError("row HIR anchor differs")
     artifacts = runtime.get("artifacts")
     if not isinstance(artifacts, list) or len(artifacts) != 10:
         raise FinalizeError("row Artifact set differs")
     for record, case in zip(artifacts, contract.CASE_SPECS, strict=True):
+        record = require_exact_keys(
+            record,
+            {
+                "case",
+                "hir_bytes",
+                "hir_sha256",
+                "source_ir_bytes",
+                "source_ir_sha256",
+                "source_ir_digest",
+                "build_spec_bytes",
+                "build_spec_identity_digest",
+                "artifact_bytes",
+                "artifact_identity_digest",
+                "device_code_bytes",
+                "device_code_sha256",
+                "grid",
+                "row_tile",
+                "semantic_abi",
+                "fallback_used",
+            },
+            "row Artifact record",
+        )
         anchor = anchor_records[case.name]
-        if (
-            record.get("case") != case.name
-            or record.get("build_spec_identity_digest") != anchor["build_spec_sha256"]
-            or record.get("artifact_identity_digest") != anchor["artifact_sha256"]
-            or record.get("device_code_sha256") != anchor["device_code_sha256"]
-            or record.get("fallback_used") is not False
-        ):
+        expected = {
+            "case": case.name,
+            "hir_bytes": anchor["hir_bytes"],
+            "hir_sha256": anchor["hir_sha256"],
+            "source_ir_bytes": anchor["source_bytes"],
+            "source_ir_sha256": anchor["source_sha256"],
+            "source_ir_digest": anchor["source_ir_digest"],
+            "build_spec_bytes": anchor["build_spec_bytes"],
+            "build_spec_identity_digest": anchor["build_spec_sha256"],
+            "artifact_bytes": anchor["artifact_bytes"],
+            "artifact_identity_digest": anchor["artifact_sha256"],
+            "device_code_bytes": anchor["device_code_bytes"],
+            "device_code_sha256": anchor["device_code_sha256"],
+            "grid": list(case.grid),
+            "row_tile": case.row_tile,
+            "semantic_abi": anchor["semantic_abi"],
+            "fallback_used": False,
+        }
+        if record != expected:
             raise FinalizeError("row Artifact anchor differs")
     executions = runtime.get("executions")
     if not isinstance(executions, list) or len(executions) != 20:
@@ -402,8 +590,55 @@ def validate_frontend(
         for repetition in range(2):
             execution = executions[execution_index]
             execution_index += 1
-            if not isinstance(execution, dict):
-                raise FinalizeError("row execution record is malformed")
+            execution = require_exact_keys(
+                execution,
+                {
+                    "case",
+                    "repetition",
+                    "fresh_executable",
+                    "artifact_identity_digest",
+                    "expected_logical_bytes_sha256",
+                    "actual_logical_bytes_sha256",
+                    "cpu_reference_bytes_sha256",
+                    "frozen_numerical_oracle_passed",
+                    "input_before_sha256",
+                    "input_after_sha256",
+                    "input_unchanged",
+                    "input_guard_elements",
+                    "output_guard_elements",
+                    "input_prefix_before_sha256",
+                    "input_prefix_after_sha256",
+                    "input_suffix_before_sha256",
+                    "input_suffix_after_sha256",
+                    "output_prefix_before_sha256",
+                    "output_prefix_after_sha256",
+                    "output_suffix_before_sha256",
+                    "output_suffix_after_sha256",
+                    "guards_unchanged",
+                    "comparison",
+                    "comparison_passed",
+                    "non_default_stream",
+                    "current_stream_launch",
+                    "raw_current_stream",
+                    "raw_reference_stream",
+                    "distinct_nondefault_reference_stream",
+                    "reference_stream_synchronized_before_candidate",
+                    "reference_stream_policy",
+                    "candidate_stream_policy",
+                    "reference_compute_boundary",
+                    "capture_free_before",
+                    "capture_free_at_launch",
+                    "external_stream_synchronized",
+                    "packet_released_after_synchronization",
+                    "explicit_unload",
+                    "terminal_state",
+                    "bound_context_before_unload",
+                    "bound_context_id_before_unload",
+                    "bound_context_after_unload",
+                    "bound_context_id_after_unload",
+                },
+                "row execution record",
+            )
             expected_guards = {
                 "input_prefix_before_sha256": input_prefix,
                 "input_prefix_after_sha256": input_prefix,
@@ -418,11 +653,13 @@ def validate_frontend(
                 execution.get(name) != value for name, value in expected_guards.items()
             ):
                 raise FinalizeError("row canary hash differs")
+            validate_comparison_metadata(execution.get("comparison"), case, repetition)
             if (
                 execution.get("case") != case.name
                 or execution.get("repetition") != repetition
                 or execution.get("artifact_identity_digest")
                 != anchor["artifact_sha256"]
+                or execution.get("frozen_numerical_oracle_passed") is not True
                 or execution.get("fresh_executable") is not True
                 or execution.get("input_unchanged") is not True
                 or execution.get("input_before_sha256")
@@ -501,6 +738,13 @@ def validate_replay(
     records = provisional["inputs"]["replay_files"]
     names = expected_replay_names()
     replay = contract.replay_directory(ROOT, run_id)
+    if (
+        replay.is_symlink()
+        or not replay.is_dir()
+        or replay.resolve(strict=True) != replay
+        or stat.S_IMODE(replay.stat().st_mode) != 0o700
+    ):
+        raise FinalizeError("row replay directory is noncanonical")
     if not isinstance(records, list) or len(records) != len(names):
         raise FinalizeError("row replay set differs")
     if sorted(path.name for path in replay.iterdir()) != sorted(
@@ -508,11 +752,15 @@ def validate_replay(
     ):
         raise FinalizeError("row replay directory differs")
     for record, name in zip(records, names, strict=True):
+        record = require_exact_keys(
+            record, {"path", "bytes", "sha256"}, "row replay record"
+        )
         path = replay / name
         if (
             record.get("path") != path.relative_to(ROOT).as_posix()
             or path.is_symlink()
             or not path.is_file()
+            or path.resolve(strict=True) != path
             or path.stat().st_size != record.get("bytes")
             or stat.S_IMODE(path.stat().st_mode) != 0o444
             or sha256_file(path) != record.get("sha256")
@@ -522,13 +770,19 @@ def validate_replay(
 
 
 def audit_numerical(
-    provisional: dict[str, object], run_id: str
+    provisional: dict[str, object],
+    run_id: str,
+    anchor_records: dict[str, object],
 ) -> list[dict[str, object]]:
     replay = contract.replay_directory(ROOT, run_id)
     executions = provisional["runtime"]["executions"]
     output: list[dict[str, object]] = []
     index = 0
     for case in contract.CASE_SPECS:
+        anchor = anchor_records[case.name]
+        oracles = anchor.get("numerical_oracles")
+        if not isinstance(oracles, list) or len(oracles) != contract.REPETITIONS:
+            raise FinalizeError("row numerical oracle set differs")
         for repetition in range(2):
             execution = executions[index]
             index += 1
@@ -559,10 +813,52 @@ def audit_numerical(
             reference_words = unpack_words(reference_raw, case.dtype)
             actual_words = unpack_words(actual_raw, case.dtype)
             cpu_words = unpack_words(cpu_raw, case.dtype)
-            exact = repetition == 0 and case.op_name == "tensor.row_sum"
-            candidate_torch = compare(case, actual_words, reference_words, exact=exact)
-            candidate_cpu = compare(case, actual_words, cpu_words, exact=exact)
-            torch_cpu = compare(case, reference_words, cpu_words, exact=exact)
+            modes = comparison_modes(case, repetition)
+            oracle = require_exact_keys(
+                oracles[repetition],
+                {
+                    "repetition",
+                    "input_elements",
+                    "input_word_bytes",
+                    "input_word_sha256",
+                    "cpu_reference_words",
+                    "cpu_reference_word_bytes",
+                    "cpu_reference_word_sha256",
+                    "cpu_reference_class_sign",
+                    "comparison_modes",
+                    "element_width_bytes",
+                },
+                "row numerical oracle",
+            )
+            reconstructed_oracle = {
+                "repetition": repetition,
+                "input_elements": len(expected_input) // (4 if case.dtype == "float32" else 2),
+                "input_word_bytes": len(expected_input),
+                "input_word_sha256": sha256_bytes(expected_input),
+                "cpu_reference_words": reconstructed_cpu,
+                "cpu_reference_word_bytes": len(cpu_raw),
+                "cpu_reference_word_sha256": sha256_bytes(cpu_raw),
+                "cpu_reference_class_sign": [
+                    {
+                        "class": classify_word(word, case.dtype)[0],
+                        "sign": classify_word(word, case.dtype)[1],
+                    }
+                    for word in reconstructed_cpu
+                ],
+                "comparison_modes": list(modes),
+                "element_width_bytes": 4 if case.dtype == "float32" else 2,
+            }
+            if oracle != reconstructed_oracle:
+                raise FinalizeError("row frozen numerical oracle differs")
+            candidate_torch = compare(
+                case, actual_words, reference_words, modes=modes
+            )
+            candidate_cpu = compare(
+                case, actual_words, cpu_words, modes=modes
+            )
+            torch_cpu = compare(
+                case, reference_words, cpu_words, modes=modes
+            )
             recorded = validate_comparison_metadata(
                 execution.get("comparison"), case, repetition
             )
@@ -586,6 +882,7 @@ def audit_numerical(
                     "torch_vs_cpu": torch_cpu,
                     "input_reconstructed": True,
                     "cpu_reference_reconstructed": True,
+                    "frozen_oracle_joined": True,
                 }
             )
     return output
@@ -606,20 +903,25 @@ import torch
 from pypto import compiler
 assert not torch.cuda.is_initialized()
 request=compiler.CompileRequest.deserialize((replay/"compile-request.msgpack").read_bytes())
+request_record={"byte_identity_digest":request.byte_compile_identity_digest,"loader_compatibility_input_digest":request.loader_compatibility_input_digest,"device_autotune_identity_digest":request.device_autotune_identity_digest}
 records=[]
 for case in contract.CASE_SPECS:
  hir=(replay/f"{case.name}.hir.msgpack").read_bytes(); program=pypto.ir.deserialize(hir); assert bytes(pypto.ir.serialize(program))==hir
  build_raw=(replay/f"{case.name}.build-spec.msgpack").read_bytes(); build=compiler.KernelBuildSpec.deserialize(build_raw); assert build.serialize()==build_raw
  artifact_raw=(replay/f"{case.name}.artifact.msgpack").read_bytes(); artifact=compiler.Artifact.deserialize(artifact_raw,request,build); assert artifact.serialize()==artifact_raw
  cubin=(replay/f"{case.name}.cubin").read_bytes(); assert cubin==bytes(artifact.device_code) and hashlib.sha256(cubin).hexdigest()==artifact.device_code_sha256 and not artifact.fallback_used
- records.append({"case":case.name,"hir_sha256":hashlib.sha256(hir).hexdigest(),"build_spec_sha256":hashlib.sha256(build_raw).hexdigest(),"artifact_sha256":hashlib.sha256(artifact_raw).hexdigest(),"device_code_sha256":hashlib.sha256(cubin).hexdigest()})
+ source=(replay/f"{case.name}.source.mlir").read_bytes(); assert source==contract.canonical_tensor_ir_source(case) and build.source_ir_digest==hashlib.sha256(source).hexdigest()
+ semantic=contract.artifact_semantic_abi(compiler,request,build,artifact,case)
+ records.append({"case":case.name,"hir_sha256":hashlib.sha256(hir).hexdigest(),"source_sha256":hashlib.sha256(source).hexdigest(),"source_ir_digest":build.source_ir_digest,"build_spec_sha256":hashlib.sha256(build_raw).hexdigest(),"artifact_sha256":hashlib.sha256(artifact_raw).hexdigest(),"device_code_sha256":hashlib.sha256(cubin).hexdigest(),"semantic_abi":semantic})
 assert not torch.cuda.is_initialized()
-print(json.dumps({"torch_cuda_initialized":False,"records":records},sort_keys=True))
+print(json.dumps({"torch_cuda_initialized":False,"compile_request":request_record,"records":records},sort_keys=True))
 """
 
 
 def replay_semantics(
-    run_id: str, anchor_records: dict[str, object]
+    run_id: str,
+    anchor_records: dict[str, object],
+    expected_request: dict[str, object],
 ) -> dict[str, object]:
     python = (ROOT / contract.PYTHON_REAL_RELATIVE_PATH).resolve(strict=True)
     replay = contract.replay_directory(ROOT, run_id)
@@ -651,13 +953,34 @@ def replay_semantics(
         raise FinalizeError(
             "row CPU-only DSO replay failed: " + completed.stderr[-2048:]
         )
-    value = json.loads(completed.stdout)
-    if value.get("torch_cuda_initialized") is not False:
-        raise FinalizeError("row CPU-only replay initialized CUDA")
-    for record in value["records"]:
-        anchor = anchor_records[record["case"]]
-        if any(record[name] != anchor[name] for name in record if name != "case"):
-            raise FinalizeError("row CPU-only replay anchor differs")
+    try:
+        value = json.loads(
+            completed.stdout, object_pairs_hook=base.base.duplicate_key_guard
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, base.base.FinalizeError) as error:
+        raise FinalizeError("row CPU-only replay output is not JSON") from error
+    expected_records = [
+        {
+            "case": case.name,
+            "hir_sha256": anchor_records[case.name]["hir_sha256"],
+            "source_sha256": anchor_records[case.name]["source_sha256"],
+            "source_ir_digest": anchor_records[case.name]["source_ir_digest"],
+            "build_spec_sha256": anchor_records[case.name]["build_spec_sha256"],
+            "artifact_sha256": anchor_records[case.name]["artifact_sha256"],
+            "device_code_sha256": anchor_records[case.name]["device_code_sha256"],
+            "semantic_abi": anchor_records[case.name]["semantic_abi"],
+        }
+        for case in contract.CASE_SPECS
+    ]
+    expected = {
+        "torch_cuda_initialized": False,
+        "compile_request": validate_compile_request_identity(
+            expected_request, anchor_records
+        ),
+        "records": expected_records,
+    }
+    if value != expected:
+        raise FinalizeError("row CPU-only replay schema or anchor order differs")
     return {
         "command_sha256": sha256_bytes("\0".join(command).encode()),
         "stdout_sha256": sha256_bytes(completed.stdout.encode()),
@@ -747,19 +1070,19 @@ def validate_run_documents(
             process["gpu_smoke_pre_release_audit"],
             description="row pre-release",
             authorized=requested,
-            require_zero_owned=True,
+            zero_owned=True,
         )
         base.validate_audit(
             process["gpu_smoke_last_audit"],
             description="row periodic",
             authorized=requested,
-            require_zero_owned=False,
+            zero_owned=False,
         )
         base.validate_audit(
             process["gpu_smoke_post_exit_audit"],
             description="row post-exit",
             authorized=requested,
-            require_zero_owned=True,
+            zero_owned=True,
         )
     except base.FinalizeV2Error as error:
         raise FinalizeError(str(error)) from error
@@ -783,6 +1106,7 @@ def validate_run_documents(
     }
     if (
         process.get("schema") != 4
+        or process.get("workspace") != str(ROOT)
         or process.get("status") != "exited"
         or process.get("return_code") != 0
         or process.get("command") != contract.fixed_child_command(ROOT)
@@ -798,6 +1122,7 @@ def validate_run_documents(
         != {"path": str(preflight_path), "sha256": sha256_bytes(preflight_raw)}
         or any(gate.get(name) != value for name, value in identity.items())
         or any(barrier.get(name) != value for name, value in identity.items())
+        or gate.get("command") != contract.fixed_child_command(ROOT)
         or gate.get("control_manifest") != control_identity
         or gate.get("runtime_isolation") != process.get("gpu_smoke_pre_release_audit")
         or gate.get("initial_preflight") != process.get("initial_preflight")
@@ -839,6 +1164,11 @@ def validate_run_documents(
             requested=requested,
             control_identity=control_identity,
         )
+        if (
+            provisional["runtime"]["child_pre_cuda_gate"].get("static_identity")
+            != gate.get("static_identity")
+        ):
+            raise FinalizeError("row parent/child static identity differs")
         base.validate_child_parent_joins(
             provisional["runtime"]["child_pre_cuda_gate"], preflight, process
         )
@@ -858,6 +1188,8 @@ def validate_integrity(provisional: dict[str, object]) -> None:
         "control_validator": ROOT / contract.CONTROL_VALIDATOR_RELATIVE_PATH,
         "preflight": ROOT / contract.PREFLIGHT_ADAPTER_RELATIVE_PATH,
         "pypto_dso": ROOT / contract.PYPTO_DSO_RELATIVE_PATH,
+        "python": ROOT / contract.PYTHON_REAL_RELATIVE_PATH,
+        "cuda_runtime": ROOT / contract.CUDA_RUNTIME_RELATIVE_PATH,
         "environment_lock": ROOT / "ENVIRONMENT.lock",
         "versions_lock": ROOT / "VERSIONS.lock",
         "workspace_lock": ROOT / "WORKSPACE.lock",
@@ -875,6 +1207,34 @@ def validate_integrity(provisional: dict[str, object]) -> None:
         }
         if integrity.get(name) != record:
             raise FinalizeError(f"row integrity record differs: {name}")
+    pinned = {
+        "pypto_dso": (contract.PYPTO_DSO_SIZE, contract.PYPTO_DSO_SHA256),
+        "python": (contract.PYTHON_SIZE, contract.PYTHON_SHA256),
+        "cuda_runtime": (
+            contract.CUDA_RUNTIME_SIZE,
+            contract.CUDA_RUNTIME_SHA256,
+        ),
+    }
+    for name, (size, digest) in pinned.items():
+        if (
+            integrity[name]["bytes"] != size
+            or integrity[name]["sha256"] != digest
+        ):
+            raise FinalizeError(f"row pinned executable integrity differs: {name}")
+    runtime = provisional["runtime"]
+    static = runtime["child_pre_cuda_gate"]["static_identity"]
+    expected_python = str(expected["python"].resolve(strict=True))
+    expected_runtime = str(expected["cuda_runtime"].resolve(strict=True))
+    if (
+        static.get("python_executable") != expected_python
+        or static.get("libcudart_path") != expected_runtime
+        or static.get("libcudart_size") != contract.CUDA_RUNTIME_SIZE
+        or static.get("libcudart_sha256") != contract.CUDA_RUNTIME_SHA256
+        or runtime.get("libcudart_paths") != [expected_runtime]
+        or runtime["observation"].get("cuda_runtime_library_path")
+        != expected_runtime
+    ):
+        raise FinalizeError("row executable/static/runtime identity join differs")
 
 
 def validate_provisional_schema(provisional: dict[str, object]) -> None:
@@ -1031,8 +1391,10 @@ def finalize(
     validate_integrity(provisional)
     validate_frontend(provisional, anchor_records)
     replay_files = validate_replay(provisional, run_id)
-    numerical = audit_numerical(provisional, run_id)
-    semantics = replay_semantics(run_id, anchor_records)
+    numerical = audit_numerical(provisional, run_id, anchor_records)
+    semantics = replay_semantics(
+        run_id, anchor_records, provisional["runtime"]["compile_request"]
+    )
     if base.base.git_identity(ROOT / "projects/pypto") != {
         "head": contract.PYPTO_HEAD,
         "tree": contract.PYPTO_TREE,
