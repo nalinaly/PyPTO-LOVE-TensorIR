@@ -162,3 +162,17 @@ time; no dirty-source override may mint a strict Artifact under locked commit
 names. This remains runtime-free validation. It does not replace the future
 trusted producer bridge, disassemble arbitrary SASS, load CUDA or prove kernel
 execution.
+
+## D-0016: A 22 GiB CPU threshold requires a new policy layer
+
+The user clarified that roughly 22 GiB of available host memory is sufficient
+for bounded CPU-heavy work and that the existing 24 GiB value is approximate.
+The accepted `preflight.py` and `run_isolated.py` bytes remain unchanged because
+GPU-smoke adapters and historical evidence pin them exactly. A future CPU-only
+coexistence policy v2 may use 22 GiB for admission and resume, but it must be a
+new source/manifest family rather than mutating accepted module globals.
+
+That layer must retain the 16 GiB owned-run pause floor, CUDA-hidden child,
+NVIDIA/action-boundary/periodic audits, disk and timeout controls, and verified
+workspace-owned PGID signalling. It never applies to GPU-smoke or performance
+runs and never authorizes signalling an amdgpu-sim/zcode process.

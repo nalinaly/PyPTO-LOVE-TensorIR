@@ -274,6 +274,11 @@ upstream checkouts and their optional/manual suites.
   seven protected heavy processes with no protected NVIDIA compute PID or
   pause/abort. This accepts the control path only; TargetInfo still needed no
   waiver, and no GPU/model/performance claim follows.
+- The user subsequently authorized about 22 GiB for bounded CPU-heavy work.
+  Do not patch the exact-hashed `preflight.py`/`run_isolated.py`: that breaks the
+  accepted GPU adapters. Direct attempt `df738f7` was reverted by `7ecc197`.
+  D-0016 requires a new CPU-only policy-v2 adapter; policy v1 remains in force
+  until that separate layer is reviewed.
 - D-0009 and `docs/compile_request_artifact_design.md` ordered data-only
   CompileRequest, per-region KernelBuildSpec, exact LLVM/tileiras producer
   identity, complete bytes-plus-metadata Artifact, compiler-owned persistent

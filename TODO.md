@@ -197,3 +197,9 @@ The isolated root control suite has now passed live beside seven protected
 heavy processes with no protected NVIDIA compute PID, no pause/abort and no
 external signal; EV-0035 binds that run. This is control evidence only, not a
 GPU/compiler/model/performance result.
+
+The user has additionally authorized an approximate 22 GiB admission/resume
+threshold for bounded CPU-heavy work. Implement it only as a separately
+versioned CPU-coexistence adapter and manifest; do not edit the exact-hashed
+policy-v1 modules or reinterpret EV-0035. Until that adapter is reviewed, the
+existing executable control continues to enforce 24 GiB.

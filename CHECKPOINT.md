@@ -640,6 +640,11 @@ remains open.
   suite beside seven protected heavy processes with waiver=true, no protected
   NVIDIA compute PID, no pause/abort and no external signal. EV-0035 binds the
   log/preflight/process hashes; this is not GPU or performance evidence.
+- On 2026-08-26 the user clarified that about 22 GiB is sufficient for bounded
+  CPU-heavy work. A direct base-policy edit was immediately rejected by the
+  exact GPU-adapter hash gate and reverted in `7ecc197`; D-0016 now requires a
+  separate CPU-only policy-v2 adapter. Existing 24 GiB controls and evidence are
+  unchanged and remain authoritative until that adapter is implemented.
 
 ## Resume action
 
