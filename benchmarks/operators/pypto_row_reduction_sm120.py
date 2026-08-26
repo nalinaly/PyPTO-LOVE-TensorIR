@@ -421,59 +421,86 @@ def cpu_reference_words(case: Any, repetition: int) -> list[int]:
 
 def compare_word_sequences(
     case: Any,
-    actual_words: list[int],
-    reference_words: list[int],
+    subject_words: list[int],
+    peer_words: list[int],
+    contract_words: list[int],
     *,
     comparison_modes: tuple[str, ...],
+    subject_is_candidate: bool,
 ) -> dict[str, object]:
     if (
-        len(actual_words) != case.rows
-        or len(reference_words) != case.rows
+        len(subject_words) != case.rows
+        or len(peer_words) != case.rows
+        or len(contract_words) != case.rows
         or len(comparison_modes) != case.rows
     ):
         raise SmokeError(f"{case.name} comparison cardinality differs")
     max_ulp = 0
     max_relative = 0.0
     max_absolute = 0.0
-    for index, (actual_word, reference_word, mode) in enumerate(
-        zip(actual_words, reference_words, comparison_modes, strict=True)
+    zero_sign_divergences: list[int] = []
+    for index, (subject_word, peer_word, contract_word, mode) in enumerate(
+        zip(subject_words, peer_words, contract_words, comparison_modes, strict=True)
     ):
-        actual_class = base._classification(actual_word, case.dtype)
-        reference_class = base._classification(reference_word, case.dtype)
+        subject_class = base._classification(subject_word, case.dtype)
+        peer_class = base._classification(peer_word, case.dtype)
+        contract_class = base._classification(contract_word, case.dtype)
         if mode == COMPARISON_MODE_EXACT:
-            if actual_word != reference_word:
+            if (
+                subject_word != peer_word
+                or subject_word != contract_word
+                or peer_word != contract_word
+            ):
                 raise SmokeError(f"{case.name} exact word differs at {index}")
             continue
         if mode == COMPARISON_MODE_SPECIAL:
-            if reference_class[0] not in {"nan", "inf", "zero"}:
+            if contract_class[0] not in {"nan", "inf", "zero"}:
                 raise SmokeError(
                     f"{case.name} special policy reached a nonspecial row at {index}"
                 )
-            if reference_class[0] == "nan":
-                if actual_class[0] != "nan":
+            if contract_class[0] == "nan":
+                if subject_class[0] != "nan" or peer_class[0] != "nan":
                     raise SmokeError(
                         f"{case.name} NaN classification differs at {index}"
                     )
-            elif actual_class != reference_class:
-                raise SmokeError(
-                    f"{case.name} special sign/classification differs at {index}"
-                )
+            else:
+                if (
+                    subject_class[0] != contract_class[0]
+                    or peer_class[0] != contract_class[0]
+                ):
+                    raise SmokeError(
+                        f"{case.name} special classification differs at {index}"
+                    )
+                subject_strict = subject_class == contract_class
+                peer_strict = peer_class == contract_class
+                if contract_class[0] != "zero":
+                    if not subject_strict or not peer_strict:
+                        raise SmokeError(
+                            f"{case.name} special sign/classification differs at {index}"
+                        )
+                elif subject_is_candidate and not subject_strict:
+                    raise SmokeError(
+                        f"{case.name} special sign/classification differs at {index}"
+                    )
+                elif not subject_strict or not peer_strict:
+                    zero_sign_divergences.append(index)
             continue
         if mode != COMPARISON_MODE_TOLERANCE:
             raise SmokeError(f"{case.name} comparison mode differs at {index}")
-        if reference_class[0] not in {"finite", "subnormal"} or actual_class[0] not in {
-            "finite",
-            "subnormal",
-        }:
+        if (
+            contract_class[0] not in {"finite", "subnormal"}
+            or subject_class[0] not in {"finite", "subnormal"}
+            or peer_class[0] not in {"finite", "subnormal"}
+        ):
             raise SmokeError(f"{case.name} tolerance class differs at {index}")
         distance = abs(
-            base._ordered_word(actual_word, case.dtype)
-            - base._ordered_word(reference_word, case.dtype)
+            base._ordered_word(subject_word, case.dtype)
+            - base._ordered_word(peer_word, case.dtype)
         )
-        actual_value = word_value(actual_word, case.dtype)
-        reference_value = word_value(reference_word, case.dtype)
-        absolute = abs(actual_value - reference_value)
-        denominator = abs(reference_value)
+        subject_value = word_value(subject_word, case.dtype)
+        peer_value = word_value(peer_word, case.dtype)
+        absolute = abs(subject_value - peer_value)
+        denominator = abs(peer_value)
         relative = (
             0.0
             if denominator == 0.0 and absolute == 0.0
@@ -488,6 +515,7 @@ def compare_word_sequences(
         "observed_max_ulp": max_ulp,
         "observed_max_relative_error": max_relative,
         "observed_max_absolute_error": max_absolute,
+        "special_zero_sign_divergence_indices": sorted(zero_sign_divergences),
     }
 
 
@@ -536,6 +564,7 @@ def compare_output(
         {
             "policy": case.comparison,
             "repetition0_policy": case.repetition0_policy,
+            "comparison_schema": 2,
             "comparison_modes": list(comparison_modes),
             "exact_output_indices": list(exact_indices),
             "tolerance_output_indices": list(tolerance_indices),
@@ -547,15 +576,28 @@ def compare_output(
                 case,
                 actual_words,
                 reference_words,
+                cpu_words,
                 comparison_modes=comparison_modes,
+                subject_is_candidate=True,
             ),
             "candidate_vs_cpu": compare_word_sequences(
-                case, actual_words, cpu_words, comparison_modes=comparison_modes
+                case,
+                actual_words,
+                cpu_words,
+                cpu_words,
+                comparison_modes=comparison_modes,
+                subject_is_candidate=True,
             ),
             "torch_vs_cpu": compare_word_sequences(
-                case, reference_words, cpu_words, comparison_modes=comparison_modes
+                case,
+                reference_words,
+                cpu_words,
+                cpu_words,
+                comparison_modes=comparison_modes,
+                subject_is_candidate=False,
             ),
             "special_classification_and_sign_passed": True,
+            "special_zero_sign_provider_tolerance": True,
             "bf16_fp32_accumulation_discriminator_passed": discriminator,
             "bf16_expected_output_word": expected_discriminator_word,
             "bf16_sequential_accumulator_word": sequential_bf16_word,
@@ -735,9 +777,19 @@ def execute_case(
         executable.launch(packet, raw_stream)
     candidate_stream.synchronize()
     actual = output.cpu()
-    comparison, cpu_reference_raw = compare_output(
+    reference_raw = base.logical_tensor_bytes(torch, reference)
+    actual_raw = base.logical_tensor_bytes(torch, actual)
+    cpu_reference_raw = pack_words(
+        cpu_reference_words(case, repetition), case.dtype
+    )
+    replay_file(f"{case.name}.r{repetition}.reference.bin", reference_raw)
+    replay_file(f"{case.name}.r{repetition}.actual.bin", actual_raw)
+    replay_file(f"{case.name}.r{repetition}.cpu-reference.bin", cpu_reference_raw)
+    comparison, cpu_reference_returned = compare_output(
         torch, case, repetition, actual, reference
     )
+    if cpu_reference_returned != cpu_reference_raw:
+        raise SmokeError(f"{case.name} frozen CPU oracle bytes differ")
     width, code = (4, "I") if case.dtype == "float32" else (2, "H")
     cpu_words = list(
         struct.unpack(f"<{len(cpu_reference_raw) // width}{code}", cpu_reference_raw)
@@ -758,11 +810,6 @@ def execute_case(
         or numerical_oracle.get("cpu_reference_class_sign") != cpu_class_sign
     ):
         raise SmokeError(f"{case.name} frozen CPU oracle differs")
-    reference_raw = base.logical_tensor_bytes(torch, reference)
-    actual_raw = base.logical_tensor_bytes(torch, actual)
-    replay_file(f"{case.name}.r{repetition}.reference.bin", reference_raw)
-    replay_file(f"{case.name}.r{repetition}.actual.bin", actual_raw)
-    replay_file(f"{case.name}.r{repetition}.cpu-reference.bin", cpu_reference_raw)
     input_storage_after = input_storage.cpu()
     input_after = base.logical_tensor_bytes(torch, input_view.cpu())
     input_prefix_after = base.logical_tensor_bytes(

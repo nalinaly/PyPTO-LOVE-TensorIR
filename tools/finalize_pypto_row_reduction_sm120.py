@@ -352,36 +352,58 @@ def comparison_modes(case: object, repetition: int) -> tuple[str, ...]:
 
 def compare(
     case: object,
-    actual: list[int],
-    expected: list[int],
+    subject: list[int],
+    peer: list[int],
+    contract_words: list[int],
     *,
     modes: tuple[str, ...],
+    subject_is_candidate: bool,
 ) -> dict[str, object]:
-    if len(actual) != case.rows or len(expected) != case.rows or len(modes) != case.rows:
+    if (
+        len(subject) != case.rows
+        or len(peer) != case.rows
+        or len(contract_words) != case.rows
+        or len(modes) != case.rows
+    ):
         raise FinalizeError("row comparison cardinality differs")
     max_ulp, max_rel, max_abs = 0, 0.0, 0.0
-    for index, (lhs, rhs, mode) in enumerate(zip(actual, expected, modes, strict=True)):
+    zero_sign_divergences: list[int] = []
+    for index, (lhs, rhs, base_word, mode) in enumerate(
+        zip(subject, peer, contract_words, modes, strict=True)
+    ):
         lhs_class = classify_word(lhs, case.dtype)
         rhs_class = classify_word(rhs, case.dtype)
+        base_class = classify_word(base_word, case.dtype)
         if mode == contract.COMPARISON_MODE_EXACT:
-            if lhs != rhs:
+            if lhs != rhs or lhs != base_word or rhs != base_word:
                 raise FinalizeError("exact reduction output differs")
             continue
         if mode == contract.COMPARISON_MODE_SPECIAL:
-            if rhs_class[0] not in {"nan", "inf", "zero"}:
+            if base_class[0] not in {"nan", "inf", "zero"}:
                 raise FinalizeError("special policy reached a nonspecial output")
-            if rhs_class[0] == "nan":
-                if lhs_class[0] != "nan":
+            if base_class[0] == "nan":
+                if lhs_class[0] != "nan" or rhs_class[0] != "nan":
                     raise FinalizeError("NaN classification differs")
-            elif lhs_class != rhs_class:
-                raise FinalizeError("special sign/classification differs")
+            else:
+                if lhs_class[0] != base_class[0] or rhs_class[0] != base_class[0]:
+                    raise FinalizeError("special classification differs")
+                lhs_strict = lhs_class == base_class
+                rhs_strict = rhs_class == base_class
+                if base_class[0] != "zero":
+                    if not lhs_strict or not rhs_strict:
+                        raise FinalizeError("special sign/classification differs")
+                elif subject_is_candidate and not lhs_strict:
+                    raise FinalizeError("special sign/classification differs")
+                elif not lhs_strict or not rhs_strict:
+                    zero_sign_divergences.append(index)
             continue
         if mode != contract.COMPARISON_MODE_TOLERANCE:
             raise FinalizeError("row comparison mode differs")
-        if rhs_class[0] not in {"finite", "subnormal"} or lhs_class[0] not in {
-            "finite",
-            "subnormal",
-        }:
+        if (
+            base_class[0] not in {"finite", "subnormal"}
+            or lhs_class[0] not in {"finite", "subnormal"}
+            or rhs_class[0] not in {"finite", "subnormal"}
+        ):
             raise FinalizeError("sum tolerance classification differs")
         ulp = abs(ordered_word(lhs, case.dtype) - ordered_word(rhs, case.dtype))
         left, right = word_value(lhs, case.dtype), word_value(rhs, case.dtype)
@@ -402,6 +424,7 @@ def compare(
         "observed_max_ulp": max_ulp,
         "observed_max_relative_error": max_rel,
         "observed_max_absolute_error": max_abs,
+        "special_zero_sign_divergence_indices": sorted(zero_sign_divergences),
     }
 
 
@@ -425,6 +448,7 @@ def comparison_metadata(case: object, repetition: int) -> dict[str, object]:
     return {
         "policy": case.comparison,
         "repetition0_policy": case.repetition0_policy,
+        "comparison_schema": 2,
         "comparison_modes": list(comparison_modes(case, repetition)),
         "exact_output_indices": list(exact_output_indices(case, repetition)),
         "tolerance_output_indices": list(tolerance_output_indices(case, repetition)),
@@ -433,6 +457,7 @@ def comparison_metadata(case: object, repetition: int) -> dict[str, object]:
         "rtol": case.rtol,
         "atol": 0.0,
         "special_classification_and_sign_passed": True,
+        "special_zero_sign_provider_tolerance": True,
         "bf16_fp32_accumulation_discriminator_passed": discriminator,
         "bf16_expected_output_word": expected,
         "bf16_sequential_accumulator_word": negative,
@@ -447,6 +472,7 @@ def validate_comparison_metadata(
         {
             "policy",
             "repetition0_policy",
+            "comparison_schema",
             "comparison_modes",
             "exact_output_indices",
             "tolerance_output_indices",
@@ -458,6 +484,7 @@ def validate_comparison_metadata(
             "candidate_vs_cpu",
             "torch_vs_cpu",
             "special_classification_and_sign_passed",
+            "special_zero_sign_provider_tolerance",
             "bf16_fp32_accumulation_discriminator_passed",
             "bf16_expected_output_word",
             "bf16_sequential_accumulator_word",
@@ -851,13 +878,28 @@ def audit_numerical(
             if oracle != reconstructed_oracle:
                 raise FinalizeError("row frozen numerical oracle differs")
             candidate_torch = compare(
-                case, actual_words, reference_words, modes=modes
+                case,
+                actual_words,
+                reference_words,
+                cpu_words,
+                modes=modes,
+                subject_is_candidate=True,
             )
             candidate_cpu = compare(
-                case, actual_words, cpu_words, modes=modes
+                case,
+                actual_words,
+                cpu_words,
+                cpu_words,
+                modes=modes,
+                subject_is_candidate=True,
             )
             torch_cpu = compare(
-                case, reference_words, cpu_words, modes=modes
+                case,
+                reference_words,
+                cpu_words,
+                cpu_words,
+                modes=modes,
+                subject_is_candidate=False,
             )
             recorded = validate_comparison_metadata(
                 execution.get("comparison"), case, repetition

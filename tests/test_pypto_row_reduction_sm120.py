@@ -4,6 +4,7 @@ import copy
 import contextlib
 import hashlib
 import json
+import math
 import os
 import pathlib
 import secrets
@@ -559,20 +560,26 @@ class NumericalPolicyTest(unittest.TestCase):
             sum_case,
             [word],
             [word],
+            [word],
             comparison_modes=(contract.COMPARISON_MODE_EXACT,),
+            subject_is_candidate=True,
         )
         with self.assertRaises(runner.SmokeError):
             runner.compare_word_sequences(
                 sum_case,
                 [word + 1],
                 [word],
+                [word],
                 comparison_modes=(contract.COMPARISON_MODE_EXACT,),
+                subject_is_candidate=True,
             )
         runner.compare_word_sequences(
             sum_case,
             [word + 1],
             [word],
+            [word],
             comparison_modes=(contract.COMPARISON_MODE_TOLERANCE,),
+            subject_is_candidate=True,
         )
         negative_zero = runner.float32_word(-0.0)
         positive_zero = runner.float32_word(0.0)
@@ -580,14 +587,18 @@ class NumericalPolicyTest(unittest.TestCase):
             sum_case,
             [negative_zero],
             [negative_zero],
+            [negative_zero],
             comparison_modes=(contract.COMPARISON_MODE_SPECIAL,),
+            subject_is_candidate=True,
         )
         with self.assertRaises(runner.SmokeError):
             runner.compare_word_sequences(
                 sum_case,
                 [positive_zero],
                 [negative_zero],
+                [negative_zero],
                 comparison_modes=(contract.COMPARISON_MODE_SPECIAL,),
+                subject_is_candidate=True,
             )
         self.assertEqual(contract.FP32_SUM_MAX_ULP, 16)
 
@@ -600,28 +611,36 @@ class NumericalPolicyTest(unittest.TestCase):
             case,
             [near_two + contract.FP32_SUM_MAX_ULP],
             [near_two],
+            [near_two],
             comparison_modes=(contract.COMPARISON_MODE_TOLERANCE,),
+            subject_is_candidate=True,
         )
         with self.assertRaises(runner.SmokeError):
             runner.compare_word_sequences(
                 case,
                 [near_two + contract.FP32_SUM_MAX_ULP + 1],
                 [near_two],
+                [near_two],
                 comparison_modes=(contract.COMPARISON_MODE_TOLERANCE,),
+                subject_is_candidate=True,
             )
         subnormal = 1_000
         runner.compare_word_sequences(
             case,
             [subnormal],
             [subnormal],
+            [subnormal],
             comparison_modes=(contract.COMPARISON_MODE_TOLERANCE,),
+            subject_is_candidate=True,
         )
         with self.assertRaises(runner.SmokeError):
             runner.compare_word_sequences(
                 case,
                 [subnormal + 1],
                 [subnormal],
+                [subnormal],
                 comparison_modes=(contract.COMPARISON_MODE_TOLERANCE,),
+                subject_is_candidate=True,
             )
         max_probe = contract.CaseSpec(
             "subnormal_max_probe",
@@ -634,47 +653,61 @@ class NumericalPolicyTest(unittest.TestCase):
             max_probe,
             [subnormal],
             [subnormal],
+            [subnormal],
             comparison_modes=(contract.COMPARISON_MODE_EXACT,),
+            subject_is_candidate=True,
         )
         with self.assertRaises(runner.SmokeError):
             runner.compare_word_sequences(
                 max_probe,
                 [subnormal + 1],
                 [subnormal],
+                [subnormal],
                 comparison_modes=(contract.COMPARISON_MODE_EXACT,),
+                subject_is_candidate=True,
             )
         with self.assertRaises(runner.SmokeError):
             runner.compare_word_sequences(
                 max_probe,
                 [subnormal],
                 [subnormal],
+                [subnormal],
                 comparison_modes=(contract.COMPARISON_MODE_SPECIAL,),
+                subject_is_candidate=True,
             )
         finalizer.compare(
             case,
             [subnormal],
             [subnormal],
+            [subnormal],
             modes=(contract.COMPARISON_MODE_TOLERANCE,),
+            subject_is_candidate=True,
         )
         with self.assertRaises(finalizer.FinalizeError):
             finalizer.compare(
                 case,
                 [subnormal + 1],
                 [subnormal],
+                [subnormal],
                 modes=(contract.COMPARISON_MODE_TOLERANCE,),
+                subject_is_candidate=True,
             )
         finalizer.compare(
             max_probe,
             [subnormal],
             [subnormal],
+            [subnormal],
             modes=(contract.COMPARISON_MODE_EXACT,),
+            subject_is_candidate=True,
         )
         with self.assertRaises(finalizer.FinalizeError):
             finalizer.compare(
                 max_probe,
                 [subnormal + 1],
                 [subnormal],
+                [subnormal],
                 modes=(contract.COMPARISON_MODE_EXACT,),
+                subject_is_candidate=True,
             )
 
     def test_real_fp32_and_bf16_tolerance_rows_accept_one_ulp_only(self) -> None:
@@ -692,7 +725,9 @@ class NumericalPolicyTest(unittest.TestCase):
                 case,
                 actual,
                 reference,
+                reference,
                 comparison_modes=case.output_comparison_modes(0),
+                subject_is_candidate=True,
             )
             actual[index] += case.max_ulp
             with self.assertRaises(runner.SmokeError):
@@ -700,8 +735,111 @@ class NumericalPolicyTest(unittest.TestCase):
                     case,
                     actual,
                     reference,
+                    reference,
                     comparison_modes=case.output_comparison_modes(0),
+                    subject_is_candidate=True,
                 )
+
+    def test_signed_zero_special_rows_are_contract_anchored_v2(self) -> None:
+        sum_case = next(
+            case for case in contract.CASE_SPECS if case.name == "rank1_fp32_sum_n1"
+        )
+        positive_zero = runner.float32_word(0.0)
+        negative_zero = runner.float32_word(-0.0)
+        modes = (contract.COMPARISON_MODE_SPECIAL,)
+        contract_zero_sign_divergence = runner.compare_word_sequences(
+            sum_case,
+            [positive_zero],
+            [negative_zero],
+            [positive_zero],
+            comparison_modes=modes,
+            subject_is_candidate=True,
+        )
+        self.assertEqual(
+            contract_zero_sign_divergence["special_zero_sign_divergence_indices"],
+            [0],
+        )
+        self.assertEqual(
+            finalizer.compare(
+                sum_case,
+                [positive_zero],
+                [negative_zero],
+                [positive_zero],
+                modes=modes,
+                subject_is_candidate=True,
+            )["special_zero_sign_divergence_indices"],
+            [0],
+        )
+        with self.assertRaises(runner.SmokeError):
+            runner.compare_word_sequences(
+                sum_case,
+                [negative_zero],
+                [negative_zero],
+                [positive_zero],
+                comparison_modes=modes,
+                subject_is_candidate=True,
+            )
+        with self.assertRaises(finalizer.FinalizeError):
+            finalizer.compare(
+                sum_case,
+                [negative_zero],
+                [negative_zero],
+                [positive_zero],
+                modes=modes,
+                subject_is_candidate=True,
+            )
+        provider_lane = runner.compare_word_sequences(
+            sum_case,
+            [negative_zero],
+            [positive_zero],
+            [positive_zero],
+            comparison_modes=modes,
+            subject_is_candidate=False,
+        )
+        self.assertEqual(
+            provider_lane["special_zero_sign_divergence_indices"], [0]
+        )
+        positive_inf = runner.float32_word(math.inf)
+        negative_inf = runner.float32_word(-math.inf)
+        with self.assertRaises(runner.SmokeError):
+            runner.compare_word_sequences(
+                sum_case,
+                [positive_inf],
+                [negative_inf],
+                [positive_inf],
+                comparison_modes=modes,
+                subject_is_candidate=True,
+            )
+        with self.assertRaises(finalizer.FinalizeError):
+            finalizer.compare(
+                sum_case,
+                [positive_inf],
+                [negative_inf],
+                [positive_inf],
+                modes=modes,
+                subject_is_candidate=True,
+            )
+
+    def test_v2_special_matrix_contract_signs_are_positive_zero_for_sum(self) -> None:
+        for case in contract.CASE_SPECS:
+            if case.op_name != "tensor.row_sum":
+                continue
+            for repetition in range(2):
+                cpu_words = runner.cpu_reference_words(case, repetition)
+                modes = case.output_comparison_modes(repetition)
+                for index, (word, mode) in enumerate(zip(cpu_words, modes)):
+                    if mode != contract.COMPARISON_MODE_SPECIAL:
+                        continue
+                    kind, sign = runner.base._classification(word, case.dtype)
+                    if kind == "zero":
+                        row = runner.input_values(case, repetition)[
+                            index * case.contraction : (index + 1) * case.contraction
+                        ]
+                        self.assertTrue(
+                            all(value == 0.0 and math.copysign(1.0, value) < 0 for value in row),
+                            f"{case.name} r{repetition} row {index}",
+                        )
+                        self.assertEqual(sign, 0)
 
     def test_finalizer_rejects_misaligned_logical_bytes_as_finalize_error(self) -> None:
         for dtype, raw in (("float32", b"\x00"), ("bfloat16", b"\x00")):
@@ -776,6 +914,7 @@ class NumericalPolicyTest(unittest.TestCase):
             {
                 "policy",
                 "repetition0_policy",
+                "comparison_schema",
                 "comparison_modes",
                 "exact_output_indices",
                 "tolerance_output_indices",
@@ -787,6 +926,7 @@ class NumericalPolicyTest(unittest.TestCase):
                 "candidate_vs_cpu",
                 "torch_vs_cpu",
                 "special_classification_and_sign_passed",
+                "special_zero_sign_provider_tolerance",
                 "bf16_fp32_accumulation_discriminator_passed",
                 "bf16_expected_output_word",
                 "bf16_sequential_accumulator_word",
@@ -1958,7 +2098,9 @@ class SyntheticFinalizerTransactionTest(unittest.TestCase):
                         case,
                         cpu_words,
                         cpu_words,
+                        cpu_words,
                         modes=finalizer.comparison_modes(case, repetition),
+                        subject_is_candidate=True,
                     )
                     execution.update(
                         {

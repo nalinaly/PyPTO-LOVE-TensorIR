@@ -54,6 +54,21 @@ special-class shortcut. The special matrix covers both dtypes and both
 operators: max `+0 > -0`, all `-0 -> -0`, and sum all `-0 -> +0`, sole signed
 infinity, mixed infinities and NaN propagation.
 
+Control revision 2 (after diagnostic run
+`pypto-20260826T161547Z-146383-954cc0` failed on the rank-1 repetition-1
+signed-zero row) anchors every special class/sign comparison to the frozen
+CPU contract rather than the eager provider word: the candidate output must
+match the contract class and sign exactly (NaN class-only), the eager torch
+lane must match the contract class, and only a signed-zero sign divergence on
+the provider lanes is recorded non-fatally in
+`special_zero_sign_divergence_indices` — the eager GPU sum of an
+all-negative-zero row may legitimately preserve `-0` where the contract, the
+CPU oracle and CPU eager summation produce `+0`. Exact rows now require
+three-way word equality (candidate, provider, contract). All three word
+vectors are dumped to replay files before any comparison, so a failing
+repetition always preserves its candidate, provider and contract bytes.
+Comparison records carry `comparison_schema: 2`.
+
 The compile anchors also freeze two independently generated input-byte hashes,
 CPU-reference word vectors/hashes, output class/sign vectors and comparison
 partitions per case. The runner and CPU-only finalizer each reconstruct and
