@@ -2,7 +2,7 @@ PYPTO-NVIDIA-QWEN35-V1 IMPLEMENTATION MAP
 =========================================
 
 Generated from the local checkouts on 2026-08-24 and refreshed through
-CP-0044 on 2026-08-25. Paths are relative to
+CP-0045 on 2026-08-26. Paths are relative to
 /home/zhaosiying/pypto-love-tensor-ir unless explicitly stated otherwise.
 This is an ownership/implementation map, not a runtime-support claim.
 
@@ -11,7 +11,7 @@ This is an ownership/implementation map, not a runtime-support claim.
 --------------------------------------
 
 projects/pypto
-  Head: 642ff5bd79ee96b9e5a279a2bc945ad7a78362b7 on
+  Head: b83fcd3ddc497d585bcc45883eede179aff7d4d2 on
   feature/nvidia-sm120. In addition to the accepted single-DSO/SM120 TargetInfo
   boundary, it now owns canonical CompileRequest, KernelBuildSpec,
   CanonicalSchedule and Artifact contracts; the private TensorIR/CUDA Tile
@@ -24,7 +24,10 @@ projects/pypto
   one-producer joined BuildSpec/Artifact facade. CP-0043 accepts the separate
   manifest-bound frontend FP32/BF16 smoke controls and CPU replay finalizer.
   CP-0044 accepts their finalized two-fixture real-SM120 correctness result.
-  Generic fused pointwise, reduction and structured matmul remain open.
+  CP-0045 accepts bounded FusedPointwiseV2 source/identity/ABI and filtered
+  backend-OFF/ON SM120 Cubin production; its GPU numerical gate remains open.
+  RowReductionV3 is source-review GO at `17b2b3c` but unbuilt. Structured
+  matmul remains open.
 
 projects/pypto-kernels
   Head: 6f73857b52c86dd98e25d23fbc825a675fb25b6a. Contains framework-neutral
@@ -494,9 +497,10 @@ No restart, driver/kernel change or WSL shutdown is authorized.
   7. [done] Canonical ABI/specialization projections, the one-producer frontend
      compile facade, separate smoke controls and finalized HIR-authored
      vector-add -> Artifact -> SM120 non-default-stream correctness.
-  8. [current] Extend the accepted frontend path to fused pointwise, row
-     reduction and structured matmul, then implement generic fused-loop memory
-     lowering.
+  8. [current] CP-0045 accepts bounded fused-pointwise compiler/Cubin
+     production. Close its separate real-SM120 numerical gate, then build the
+     reviewed row-reduction and structured-matmul families before generic
+     fused-loop memory lowering.
   9. Implement the already-frozen operator ABIs as executable attention and
      GDN decode/prefill providers in the standalone kernel project.
  10. Activate zero-diff TorchInductor/SGLang plugins and strict audit.

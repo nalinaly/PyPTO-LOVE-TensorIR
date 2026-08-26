@@ -41,13 +41,13 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
-- The active, not-yet-accepted fused-pointwise candidate is PyPTO commit
+- CP-0045/EV-0058 accepts the fused-pointwise compiler candidate at PyPTO commit
   `b83fcd3ddc497d585bcc45883eede179aff7d4d2`, tree
   `49eda98f3ed8d72bfd14d5a5900cdc0e71ca699d`, on
   `feature/fused-pointwise-v2`. It changes exactly ten tracked source/test/doc
   files, preserves all six exact clean gitlinks and the legacy add source,
   projection and Cubin anchors, and has independent source-review verdict GO
-  with P0/P1/P2 = 0.
+  with P0/P1/P2 = 0. It does not accept V2 GPU numerical correctness.
 - Fresh clean-commit backend-OFF configure run
   `pypto-20260826T001612Z-1262389-4b0314` passed. Initial build run
   `pypto-20260826T001705Z-1262860-cb4c7a` paused only its verified owned PGID
@@ -60,14 +60,14 @@ upstream checkouts and their optional/manual suites.
   `pypto-20260826T013335Z-1302159-5819e7` passes 1/1 with exact source/core
   origins, JUnit SHA `958b4f7a...c4dfc`. The complete OFF build is retained at
   `builds/pypto-fused-pointwise-v2-off-b83fcd3-final`.
-- After that atomic move, the fused source worktree and all six initialized
-  gitlinks were literally clean at `b83fcd3`. Fresh backend-ON configure run
-  `pypto-20260826T013615Z-1303454-52279f` passed and binds the exact PyPTO,
-  TensorIR, CUDA Tile, LLVM, pipeline and tileiras identities. Its build has
-  not started: the first attempt failed closed at the action-boundary memory
-  recheck before a child or run ID existed. Wait for stable memory above the
-  recorded 21.5 GiB floor; never bypass the 16/24 GiB living watchdog or signal
-  an external PID.
+- An in-source ON configure passed, but its build correctly failed the strict
+  clean-source guard and is retained as a diagnostic. Fresh external configure
+  `pypto-20260826T014519Z-1311481-aca1c7`, build
+  `pypto-20260826T014637Z-1313235-7ee7ee`, native 3/3
+  `pypto-20260826T020956Z-1338874-b4a5db` and exact-product Python 1/1
+  `pypto-20260826T021126Z-1339184-d74bfa` pass. ON DSO SHA is
+  `0e8f33c2...facbe`; JUnits are `b3a57b2c...81140` and
+  `44a155a6...9431d`. The source worktree remained literally clean.
 - Read-only reduction reconnaissance selected a separate private
   `RowReductionV3` family rather than weakening `FusedPointwiseV2`. The first
   safe contract is dense static rank-1-through-32 reduce-last/keep-dim
@@ -97,7 +97,7 @@ upstream checkouts and their optional/manual suites.
   static grid metadata is output-driven and must select descriptor index 2.
   Dynamic shapes, rank mixing, batch broadcast, direct BF16 TensorIR result,
   `c_matrix_nz` and accumulator forms remain fail-closed until later contracts.
-- Read `state/checkpoints/CP-0044.md` and evidence `EV-0005` through `EV-0057`.
+- Read `state/checkpoints/CP-0045.md` and evidence `EV-0005` through `EV-0058`.
 - Root `5564008` plus manifest-only `7639d82` owns the current v4
   correctness-only SM120 smoke. The manifest SHA is `a079c4d2...98bf` and
   binds seven exact control blobs to the Layer-A commit/tree. Controller and
@@ -107,7 +107,7 @@ upstream checkouts and their optional/manual suites.
   `727362d7...272a9`; it joins six real non-default-stream lifetimes, references,
   sidecars, compiler inputs, TargetInfo, Artifacts and Cubins with no fallback.
   V3 run `073624` remains an unfinalized diagnostic and is never reused.
-- `projects/pypto` is clean at `642ff5b...`. Single-DSO, immutable SM120
+- `projects/pypto` is clean at `b83fcd3...`. Single-DSO, immutable SM120
   TargetInfo, Artifact v1, strict canonical-source production, ArtifactCache
   v1, the CPU/fake-driver NvidiaExecutable v1 and the parent runtime-observation
   value are accepted. The observation queries every live TargetInfo field via
@@ -169,6 +169,10 @@ upstream checkouts and their optional/manual suites.
   Final report SHA is `8dbbfbf3...28e8`; independent reconstruction and
   expected no-replace retry rejection are confirmed. This is only two-fixture
   vector-add correctness.
+- CP-0045/EV-0058 accepts bounded FusedPointwiseV2 compiler/Cubin production,
+  both exact OFF/ON products, native 3/3 and Python 1/1 gates, the maximum
+  producer boundary and exact CP44 V1 byte preservation. V2 GPU launch,
+  numerical correctness and performance remain separate.
 - TensorIR `1dcb38c...` is a local committed feature revision and is fully
   pinned by the PyPTO gitlink/build guards. It has not been published to the
   configured NVIDIA remote; push or otherwise materialize that commit before
@@ -247,11 +251,12 @@ upstream checkouts and their optional/manual suites.
   controls and final report; do not rerun it merely to change evidence. CP-0042
   closes the single-call frontend Artifact transaction under `pypto.compiler`.
   CP-0043 accepts the separately versioned frontend controller/finalizer and
-  CP-0044 accepts its HIR-authored FP32/BF16 SM120 result. Generalize the
-  emitter/preparation boundary to bounded fused pointwise next; preserve the
-  accepted add controls and report byte-for-byte. Row reduction and structured
-  matmul follow. Operator algorithms, framework registration, online tuning and
-  model work remain after these compiler gates.
+  CP-0044 accepts its HIR-authored FP32/BF16 SM120 result. CP-0045 accepts
+  bounded fused-pointwise compiler/Cubin production while preserving those add
+  controls byte-for-byte. Next close the separate fused real-SM120 numerical
+  gate and run OFF/ON compiler gates for reviewed RowReductionV3 `17b2b3c`;
+  structured matmul follows. Operator algorithms, framework registration,
+  online tuning and model work remain after these compiler gates.
 - `docs/coverage_collector_map.md` is the pinned collector implementation map.
   Do not claim `closed_world=true` from ordinary Kineto/NVTX or from the first
   CUPTI-monitor development trace.

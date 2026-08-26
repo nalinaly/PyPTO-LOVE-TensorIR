@@ -12,9 +12,11 @@ private producer call returns a joined final `KernelBuildSpec` and immutable
 CP-0043 accepts the separately versioned, manifest-bound FP32/BF16 frontend
 correctness-smoke controls. CP-0044 now accepts their finalized real-SM120
 result: two HIR programs, two one-producer Artifacts and four non-default-stream
-correctness lifetimes with no fallback. The current compiler transaction is a
-bounded generic fused-pointwise extension; reduction and structured matmul
-remain separate following gates.
+correctness lifetimes with no fallback. CP-0045 advances PyPTO to `b83fcd3` and
+accepts the bounded generic fused-pointwise V2 source/identity/ABI plus
+backend-OFF/ON TensorIR/CUDA Tile Cubin production. Fused-pointwise GPU
+numerical correctness remains a separate gate. RowReductionV3 is source-review
+GO at `17b2b3c` but unbuilt; structured matmul follows.
 Generic operators, framework routes and model execution remain later. The exact
 PyTorch-pinned Triton reference wheel stays audited/frozen and deliberately
 uninstalled as baseline-only infrastructure. The full objective and acceptance

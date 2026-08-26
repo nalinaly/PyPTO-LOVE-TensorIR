@@ -120,8 +120,11 @@
 - [x] Execute separately versioned HIR-authored FP32/BF16 vector add through the
       returned Artifact on real SM120 and finalize it in a CPU-only replay at
       run `pypto-20260825T145519Z-1142938-70ac73`.
-- [ ] Extend the accepted frontend path to fused pointwise, row reduction and
-      simple structured matmul before Inductor integration.
+- [x] Extend the accepted frontend compiler path to bounded fused pointwise at
+      PyPTO `b83fcd3`, preserving CP44 V1 bytes and producing SM120 Cubins.
+- [ ] Run a separately versioned real-SM120 fused-pointwise numerical gate.
+- [ ] Build and gate the source-reviewed RowReductionV3 head `17b2b3c`.
+- [ ] Implement and gate simple StructuredMatmulV4 before Inductor integration.
 - [x] Implement bounded canonical PyPTO Artifact v1 serialization with bytes,
       ABI, request/build-spec/producer digests and malformed-input rejection.
 - [x] Isolate the TensorIR/LLVM ABI bridge, hide every non-Python DSO export,

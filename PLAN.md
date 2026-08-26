@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `40`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `41`
 
 ## Current phase: P2 frontend-HIR SM120 execution; R0 baseline remains open
 
@@ -19,15 +19,14 @@ accepts the finalized real-SM120 run: two one-producer frontend compilations and
 four fresh non-default-stream lifetimes are numerically correct with no
 fallback. The current transaction generalizes the add-only emitter and frontend
 identity boundary to a bounded fused-pointwise chain while preserving every
-accepted vector-add byte and control.
+accepted vector-add byte and control. CP-0045 now accepts that compiler/Cubin
+transaction at PyPTO `b83fcd3`; V2 GPU numerical correctness is still open.
 
-The fused-pointwise source candidate is committed at PyPTO `b83fcd3`, with
-independent source review GO. Fresh clean-commit backend-OFF build, native 3/3
-and exact-product Python 1/1 now pass and are retained; fresh backend-ON
-configure also passes. The ON build is waiting for a stable action-boundary
-memory admission after one pre-child fail-closed attempt. This is not CP-0045
-and does not accept backend-ON Cubin or GPU behavior yet. In parallel,
-read-only reconnaissance fixed the next separate
+The fused-pointwise compiler/Cubin gate is complete. Fresh backend-OFF and
+external backend-ON builds, native 3/3 and exact-product Python 1/1 pass; EV-0058
+binds both DSOs, four JUnits, all sidecars and diagnostic lineage. Independent
+review is GO with P0/P1/P2 = 0. This is CP-0045, not V2 GPU correctness. The
+next separate compiler family is
 `RowReductionV3` boundary: dense static rank-1-through-32
 reduce-last/keep-dim, one flattened outer-row tile/grid (frozen by direct
 rank-1/rank-2/rank-3 producer fixtures), and explicit BF16-to-FP32
@@ -36,7 +35,8 @@ Its two source-only commits end at PyPTO `17b2b3c`: the follow-up closes CUDA
 Tile element-count and i32 contraction-loop bounds, adds actual no-loop/looped
 producer fixtures and complete source/projection goldens. Independent static
 re-review is GO with P0/P1/P2 = 0. Reduction build, Cubin and runtime gates
-remain pending behind the current fused-pointwise transaction.
+remain pending and can proceed alongside the separate fused-pointwise GPU
+correctness-control work.
 The following structured-matmul source map is also frozen: bounded static BF16
 rank-2/equal-batch-rank-3 HIR, TensorIR BF16-by-BF16-to-FP32 matmul, explicit
 FP32-to-BF16 output conversion, explicit transpose views, normalization-driven
@@ -52,8 +52,9 @@ all controls, sidecars, serialized compiler inputs, Artifacts, Cubins and live
 TargetInfo with no fallback. This closes only the low-level compiler/runtime
 launch gate. CP-0042 closes the one-producer frontend Artifact facade, CP-0043
 closes its separate smoke controls, and CP-0044 closes HIR-authored vector-add
-real-SM120 correctness. Fused pointwise is current, followed by row reduction
-and structured matmul.
+real-SM120 correctness. CP-0045 closes fused-pointwise compiler/Cubin evidence;
+its real-SM120 numerical gate and RowReductionV3 compiler gate are current,
+followed by structured matmul.
 
 Checkpoint `CP-0037` records, but does not accept, v3 run
 `pypto-20260825T073624Z-900485-7df250`. Its real GPU child completed six

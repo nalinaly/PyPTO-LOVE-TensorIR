@@ -1,6 +1,6 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0044`
+**Checkpoint:** `CP-0045`
 
 **Status:** R0 remains open. P2 accepts finalized minimal real-SM120
 `NvidiaExecutable` correctness v1: exact PyPTO/TensorIR/CUDA Tile Artifacts load,
@@ -13,9 +13,11 @@ construction. CP-0042 now accepts the public one-producer joined BuildSpec/
 Artifact transaction at PyPTO `642ff5b`. CP-0043 accepts the separately
 versioned frontend FP32/BF16 correctness-smoke controls and CPU-only exact-DSO
 replay boundary at root `47a0c15`. CP-0044 accepts the finalized two-fixture
-frontend HIR vector-add result on real SM120 with no fallback. Generic fused
-pointwise, reduction, matmul, framework, model, CUDA Graph, coverage and
-performance milestones remain open.
+frontend HIR vector-add result on real SM120 with no fallback. CP-0045 accepts
+bounded `FusedPointwiseV2` source/identity/ABI and filtered backend-OFF/ON
+TensorIR/CUDA Tile Cubin production at PyPTO `b83fcd3`, while its GPU numerical
+correctness remains open. Reduction, matmul, framework, model, CUDA Graph,
+coverage and performance milestones remain open.
 
 ## Current truth
 
@@ -562,6 +564,15 @@ performance milestones remain open.
   and after the run. Final report SHA is `8dbbfbf3...28e8`; independent review
   returns GO with P0/P1/P2 zero. This is not general operator or performance
   evidence.
+- PyPTO `b83fcd3ddc497d585bcc45883eede179aff7d4d2` adds private bounded
+  `FusedPointwiseV2`: 1-16 inputs, 1-64 linear assignments, ten registered
+  tensor operations, exact scalar/source/projection identity, flattened static
+  grid, N+1 pointer ABI and zero workspace. Fresh OFF and external ON products
+  pass native 3/3 and exact-product Python 1/1. ON compiles FP32/BF16 all-op and
+  maximum 16-input/64-op graphs to nonempty SM120 Cubins while preserving both
+  CP44 legacy Cubins exactly. EV-0058 binds all source/product/run/JUnit hashes
+  and the rejected in-source provenance diagnostic. Independent review is GO
+  with P0/P1/P2 zero. No V2 GPU or numerical claim is accepted.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact
@@ -607,10 +618,10 @@ change evidence. CP-0039 through CP-0041 close compile-free HIR emission,
 standalone schedule identity and final frontend BuildSpec identity. CP-0042
 closes the one-producer joined BuildSpec/Artifact facade, CP-0043 closes the
 separate fixed frontend smoke control/finalizer boundary, and CP-0044 closes its
-real-SM120 FP32/BF16 correctness result. Next generalize the accepted emitter
-and structured preparation to bounded fused pointwise while preserving all
-vector-add source, identity, Cubin and control bytes. Row reduction and
-structured matmul follow.
+real-SM120 FP32/BF16 correctness result. CP-0045 closes bounded fused-pointwise
+compiler/Cubin production while preserving all vector-add bytes. Next add its
+separately versioned real-SM120 numerical gate and build the source-reviewed
+RowReductionV3 head `17b2b3c`; structured matmul follows.
 Defer the separate exclusive Triton replacement/reference-smoke gate until the
 unmodified SGLang baseline needs it.
 Use explicit CPU-only coexistence only for non-GPU build/test work. The single

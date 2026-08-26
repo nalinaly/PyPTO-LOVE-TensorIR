@@ -108,6 +108,8 @@
     "build_path": "builds/pypto-fused-pointwise-v2-on-b83fcd3-final",
     "rejected_in_tree_build_path": "builds/pypto-fused-pointwise-v2-on-b83fcd3-rejected-in-tree-provenance",
     "in_tree_configure_run": "pypto-20260826T013615Z-1303454-52279f",
+    "in_tree_configure_preflight_sha256": "0b8a613b8f66b1e8bcaf49917d4a6c0686a260ed01f90047923008748c7f8866",
+    "in_tree_configure_process_sha256": "583c5c56d66dab0f36b8b7b768e556945265a43ed7ccd5bfdecaa77b56829094",
     "preflight_only_refusal_run": "pypto-20260826T013806Z-1305343-7f7e76",
     "preflight_only_refusal_sha256": "91dcf9effe573aee5ca9ca51181b6abc66818fc399927ac86886dfd808151b81",
     "in_tree_rejection_run": "pypto-20260826T014218Z-1306810-778da1",

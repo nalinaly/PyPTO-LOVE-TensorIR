@@ -1,14 +1,16 @@
-PyPTO NVIDIA source implementation: 642ff5bd79ee96b9e5a279a2bc945ad7a78362b7
+PyPTO NVIDIA source implementation: b83fcd3ddc497d585bcc45883eede179aff7d4d2
 TensorIR private implementation: 1dcb38c20e53d07c97d3781cae538e33901bae30
 CUDA Tile: af2417041cc939b87ef56d92cfdcf61737c5457e (v13.3.3)
 LLVM/MLIR: 57109befac92811d2253109242ca6fa69c961fb2
 Structured TensorIR pipeline blob: 46610e0415598d010981e4bd07d0660c592401ac
 PyPTO accepted runtime-v1 backend-ON DSO (source 206447c): 15675c471f507b97190b0a770bb16e821c5e99353b65bbbc019988490f59018c
 PyPTO accepted runtime-v1 backend-OFF DSO (source 206447c): 32c2dea03e13ea49937df239ed1e7bc2b8a931594c41dcfc0cc6de8375464109
-PyPTO HIR-to-TensorIR emitter: accepted compile-free v1 at 07ab9ea; Artifact integration accepted through structured facade 642ff5b; two-fixture GPU correctness accepted separately below
+PyPTO HIR-to-TensorIR emitter: accepted compile-free add v1 at 07ab9ea and bounded fused-pointwise compiler/Cubin v2 at b83fcd3; two-fixture legacy GPU correctness accepted separately below; fused v2 GPU correctness pending
 PyPTO CanonicalSchedule: accepted standalone bounded identity v1 at fa85e5a
 PyPTO structured frontend identity: accepted compile-free projections/final BuildSpec v1 at c4cf755
 PyPTO structured compile facade: accepted one-producer joined BuildSpec/Artifact v1 at 642ff5b; two-fixture SM120 correctness accepted separately below
+PyPTO fused pointwise: accepted bounded compiler/Cubin v2 at b83fcd3; ON DSO 0e8f33c263e06777aec06263bf32ca59ac554868529f3fa085212cf27e2facbe; OFF DSO eb4225cc741fb992a8715419c021770a1ea2bac323382d73b3d452c7f3d7ab80; GPU numerical correctness pending
+PyPTO row reduction candidate: source-review GO at 17b2b3c655d97076ac6d968ff2e45969da5161a2; build/Cubin/runtime pending
 PyPTO frontend SM120 smoke controls: accepted reviewed v1 at root 1d1fce4 + manifest 47a0c15, SHA-256 f16c4fbac14f4ec4d2a26fef9df3c4e7d1d3c412fbaf3c48f200a61a118d8eed
 PyPTO frontend SM120 vector-add: accepted finalized FP32/BF16 correctness v1 at run pypto-20260825T145519Z-1142938-70ac73, report SHA-256 8dbbfbf3ed791cc38d552fbd8f37e34f60d1d0262e9626195ab084b530f228e8
 PyPTO ArtifactCache: accepted trusted-local persistent v1
