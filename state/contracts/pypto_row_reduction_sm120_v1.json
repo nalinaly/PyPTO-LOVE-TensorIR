@@ -9,28 +9,28 @@
       "sha256": "7f01356fbe18c99fb688e15d50f64fa81628ed5eb4952d8a940b57ff4d76bf09"
     },
     {
-      "bytes": 30333,
+      "bytes": 30935,
       "mode": 420,
       "path": "tools/_pypto_row_reduction_sm120_contract.py",
-      "sha256": "f9efde05c30a1a30b97a670f3fcb28ae2381a8d7706aebe910da0a5363798ecd"
+      "sha256": "bd3fd9769c58cd88f2364bec964b54f2151ca9cf105f40856a4c8a9f72bde2cc"
     },
     {
-      "bytes": 28363,
+      "bytes": 29218,
       "mode": 420,
       "path": "tools/generate_pypto_row_reduction_anchors.py",
-      "sha256": "a270b9c632f01d9ce47821bb9a8c96505e37b8e557a643c7c1a409047e3025ac"
+      "sha256": "aa59e72741d36e8c32170dd1b362ebdc911299398628816aa17197f00eb821fb"
     },
     {
-      "bytes": 111827,
+      "bytes": 112915,
       "mode": 420,
       "path": "state/contracts/pypto_row_reduction_compile_anchors_v1.json",
-      "sha256": "14af24e4929fd629475cf70a871c1f8400daa59ed22b6f988c9d4a00968418a0"
+      "sha256": "994da1c7f04157c381cd0093f88fbc9e0d335d7fe8a2a6c4f7b74a46a16ecd47"
     },
     {
-      "bytes": 40047,
+      "bytes": 41163,
       "mode": 420,
       "path": "tools/_pypto_row_reduction_sm120_control_manifest.py",
-      "sha256": "1a75d4c9060d3ffccfe6668edf183479287adcd8b65515b2e52fdc8466c6178b"
+      "sha256": "5c9615e54c6e101c8ef4980323a2a02c5d9cea4ba401439ccef7bcf153bd2a1f"
     },
     {
       "bytes": 18853,
@@ -45,8 +45,8 @@
       "sha256": "c2897d47e86807fc04361258f5e33ac9aef4178d124ca2ce8417b2600cd9d1a3"
     }
   ],
-  "implementation_commit": "da3ca04e7b0950bf7e3b86a7580d241fc1238d34",
-  "implementation_tree": "98c6813b03bc5444ed6ce7ee7bb2287b56e9377c",
+  "implementation_commit": "6a4101cdefb1775a32d9f119bc10cd08017ccdc8",
+  "implementation_tree": "eda1b67d986299316dd35e3bdc43d288be24ccf3",
   "kind": "pypto-row-reduction-sm120-controls-v1",
   "schema_version": 1
 }
