@@ -1,0 +1,190 @@
+{
+  "id": "EV-0059",
+  "kind": "fused_pointwise_sm120_correctness_controls_v1",
+  "status": "accepted_control_only_gpu_execution_pending",
+  "implementation": {
+    "commit": "c98f984ddc4df7cd3354f5fbddadb12df072ed48",
+    "tree": "38b991779d84020f3bbe48944c98df604cf92c2c",
+    "parent": "c99f7c33276d40110b4f80212549dfca70b9280a",
+    "changed_file_count": 9,
+    "insertions": 8403,
+    "files": {
+      "runner": {
+        "path": "benchmarks/operators/pypto_fused_pointwise_sm120.py",
+        "bytes": 66999,
+        "sha256": "b7960cc894834b3ba05476943e774cfc8602891faa5b9137b3d97a6aac40ab15"
+      },
+      "contract": {
+        "path": "tools/_pypto_fused_pointwise_sm120_contract.py",
+        "bytes": 20186,
+        "sha256": "7c812ccd3d9a76f2e5a258cf53fd029df776a67dfaf42c631363332fb9f8811c"
+      },
+      "generator": {
+        "path": "tools/generate_pypto_fused_pointwise_anchors.py",
+        "bytes": 11387,
+        "sha256": "89f06a416622e1d78595c0a086db4dce66bebbf70f3867b2601885767e85c54e"
+      },
+      "compile_anchors": {
+        "path": "state/contracts/pypto_fused_pointwise_compile_anchors_v1.json",
+        "bytes": 21490,
+        "sha256": "584f6755bbd248de5bb6ddd3ff610da8082667bc892a6cff6583ea42d4c44c97"
+      },
+      "validator": {
+        "path": "tools/_pypto_fused_pointwise_sm120_control_manifest.py",
+        "bytes": 29977,
+        "sha256": "299356cf6361fd1372e1fb77ddd626c2d4f84609abd565a3ea3be0bbe26c98c9"
+      },
+      "controller": {
+        "path": "tools/run_pypto_fused_pointwise_sm120_isolated.py",
+        "bytes": 4353,
+        "sha256": "484ec6e5c773f1cc912ae447b1319e3f3b7610fd9cf5d8e7eafb29a71e2b5e32"
+      },
+      "finalizer": {
+        "path": "tools/finalize_pypto_fused_pointwise_sm120.py",
+        "bytes": 95465,
+        "sha256": "c1724d138a6385d293ba5e79dcbf3208ebb0bac1f0dd734af738dddda5d26a37"
+      },
+      "tests": {
+        "path": "tests/test_pypto_fused_pointwise_sm120.py",
+        "sha256": "8ab9ac5ff7312f8583f7a970f7c060ea00f22637348755dce42cee747cd88c3f"
+      },
+      "docs": {
+        "path": "docs/pypto_fused_pointwise_sm120_smoke.md",
+        "sha256": "c35772024d22956668d2637d489fd4af5a3993d664f21272b0d214bfaf4da70d"
+      }
+    }
+  },
+  "manifest": {
+    "commit": "438c25f5db0b3e40c79604352df81e536dcdf137",
+    "tree": "55f52ab550bdeff89c3a08dec19b52a848624f8c",
+    "parent": "c98f984ddc4df7cd3354f5fbddadb12df072ed48",
+    "path": "state/contracts/pypto_fused_pointwise_sm120_v1.json",
+    "bytes": 2193,
+    "mode": "0644",
+    "sha256": "ce20dd3ac6796bee16235913b8b296ae8c4781167c35f08de7c19ac7977a6896",
+    "kind": "pypto-fused-pointwise-sm120-controls-v1",
+    "schema_version": 1,
+    "only_file_in_commit": true
+  },
+  "fixed_inputs": {
+    "pypto_commit": "b83fcd3ddc497d585bcc45883eede179aff7d4d2",
+    "pypto_tree": "49eda98f3ed8d72bfd14d5a5900cdc0e71ca699d",
+    "pypto_dso_sha256": "0e8f33c263e06777aec06263bf32ca59ac554868529f3fa085212cf27e2facbe",
+    "parent_v4_manifest_sha256": "a079c4d252aa346bb19a64a6ad3947867b76e7c778f7234125078fb16b2598bf",
+    "cp43_manifest_sha256": "f16c4fbac14f4ec4d2a26fef9df3c4e7d1d3c412fbaf3c48f200a61a118d8eed",
+    "cp44_report_sha256": "8dbbfbf3ed791cc38d552fbd8f37e34f60d1d0262e9626195ab084b530f228e8",
+    "compile_anchor_records_sha256": "01e8f99dfb0a1aa0e5788177b7d41cc6ed62983037aa57ed8628bb0a1594b844"
+  },
+  "cases": [
+    "arith_fp32_tail",
+    "arith_bf16_rank3_tail",
+    "exp_fp32_tail1",
+    "exp_bf16_exact_tile",
+    "recip_fp32_tail",
+    "recip_bf16_tail1",
+    "rsqrt_fp32_rank3_tail",
+    "rsqrt_bf16_exact_tile",
+    "max16x64_fp32_tail1"
+  ],
+  "numerical_contract": {
+    "case_count": 9,
+    "repetitions_per_case": 2,
+    "fresh_executable_lifetimes": 18,
+    "input_counts": [1, 4, 16],
+    "guard_elements": 16,
+    "arithmetic_reciprocal_maximum_exact_words": true,
+    "fp32_exp_rsqrt_max_ulp": 4,
+    "bf16_exp_rsqrt_max_ulp": 1,
+    "candidate_vs_torch": true,
+    "candidate_vs_independent_cpu": true,
+    "torch_vs_independent_cpu": true,
+    "special_classification_and_sign_exact": true,
+    "nan_payload_or_sign_compared": false,
+    "subnormal_behavior_claimed": false,
+    "high_precision_claimed": false,
+    "reference_compute_outside_candidate_coverage": true
+  },
+  "anchor_runs": [
+    {
+      "run_id": "pypto-20260826T042728Z-1382280-ce1fa0",
+      "return_code": 0,
+      "cuda_hidden": true,
+      "torch_cuda_initialized": false
+    },
+    {
+      "run_id": "pypto-20260826T042750Z-1382496-07c3e7",
+      "return_code": 0,
+      "cuda_hidden": true,
+      "torch_cuda_initialized": false
+    }
+  ],
+  "tests": {
+    "focused_premanifest": {
+      "run_id": "pypto-20260826T043003Z-1383581-2ec0af",
+      "preflight_sha256": "8c31f10eb1d7d0b19c1327a00512f7a75ef2a75dd2b0673470baac653d6d3021",
+      "process_sha256": "e314743824157e28fd2e659a35022962f68614429bcd0cd90eadbbc32875bc84",
+      "result": "32 passed 24 subtests"
+    },
+    "full_clean_implementation": {
+      "run_id": "pypto-20260826T043713Z-1387790-c4b79d",
+      "preflight_sha256": "fef19d949f7a19cc86ea82a073c89f91545cbdeff53ad1a9ed35096da6c2aeb0",
+      "process_sha256": "700885c220fcd53f5ed924e24ee8ad91465c5ffb3b4fa0a164e4694f2942",
+      "result": "278 passed 150 subtests"
+    },
+    "focused_postmanifest": {
+      "run_id": "pypto-20260826T044207Z-1390691-3e1356",
+      "preflight_sha256": "b91873c9642edffabfb7443b3d736acc9fd755c444a46a9fa790f2e87c27618d",
+      "process_sha256": "3a3a490f3dee9aca1a69d71cb82a9a40fa8e268475b894f98b204ee368e92509",
+      "result": "32 passed 24 subtests"
+    },
+    "full_clean_manifest": {
+      "run_id": "pypto-20260826T044227Z-1390915-2e4b1c",
+      "preflight_sha256": "0d28680918f24977a992635c301cfa201747255902781df7ef4e3dd2029feca2",
+      "process_sha256": "f56ccb196de66fad26f48ee660bc156a1457bc4c5ffb3b4fa0a164e4694f2942",
+      "result": "278 passed 150 subtests"
+    }
+  },
+  "reviews": [
+    {
+      "reviewer": "/root/frontend_gpu_evidence_review",
+      "decision": "GO",
+      "p0": 0,
+      "p1": 0,
+      "p2": 0,
+      "report_path": "logs/cp46-fused-pointwise-control-source-review.md",
+      "report_sha256": "12298367ab2db17993172fc0ff9844623803f77305d5c7ddc1224028081d29c1"
+    },
+    {
+      "reviewer": "/root/fused_pointwise_tensorir_audit",
+      "decision": "GO",
+      "p0": 0,
+      "p1": 0,
+      "p2": 0,
+      "report_path": "logs/cp46-fused-pointwise-control-source-review.md",
+      "report_sha256": "12298367ab2db17993172fc0ff9844623803f77305d5c7ddc1224028081d29c1"
+    },
+    {
+      "reviewer": "/root/frontend_gpu_evidence_review",
+      "decision": "GO_MANIFEST",
+      "p0": 0,
+      "p1": 0,
+      "p2": 0,
+      "report_path": "logs/cp46-fused-pointwise-control-manifest-review.md",
+      "report_sha256": "7b1caacbdc12ce1890072aa10e04181c7dcc85e23dc9db34c33aeeca49b935ec"
+    }
+  ],
+  "accepted_scope": [
+    "reviewed fixed nine-case GPU-smoke controller and CPU finalizer",
+    "two deterministic CUDA-hidden compiler-anchor transactions",
+    "exact v4 primitive reuse and CP43 CP44 preservation",
+    "source-only numerical reconstruction ULP special-value canary and lifecycle contracts",
+    "canonical manifest and postmanifest root regression"
+  ],
+  "not_claimed": [
+    "real GPU launch or fused-pointwise numerical correctness",
+    "provisional or finalized GPU result",
+    "general FusedPointwiseV2 correctness",
+    "subnormal or high-precision math behavior",
+    "performance CUDA Graph framework model or strict coverage"
+  ]
+}
