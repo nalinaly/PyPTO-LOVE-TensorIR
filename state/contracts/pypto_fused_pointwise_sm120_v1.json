@@ -1,0 +1,68 @@
+{
+  "files": [
+    {
+      "bytes": 66999,
+      "mode": 420,
+      "path": "benchmarks/operators/pypto_fused_pointwise_sm120.py",
+      "sha256": "b7960cc894834b3ba05476943e774cfc8602891faa5b9137b3d97a6aac40ab15"
+    },
+    {
+      "bytes": 20186,
+      "mode": 420,
+      "path": "tools/_pypto_fused_pointwise_sm120_contract.py",
+      "sha256": "7c812ccd3d9a76f2e5a258cf53fd029df776a67dfaf42c631363332fb9f8811c"
+    },
+    {
+      "bytes": 11387,
+      "mode": 420,
+      "path": "tools/generate_pypto_fused_pointwise_anchors.py",
+      "sha256": "89f06a416622e1d78595c0a086db4dce66bebbf70f3867b2601885767e85c54e"
+    },
+    {
+      "bytes": 21490,
+      "mode": 420,
+      "path": "state/contracts/pypto_fused_pointwise_compile_anchors_v1.json",
+      "sha256": "584f6755bbd248de5bb6ddd3ff610da8082667bc892a6cff6583ea42d4c44c97"
+    },
+    {
+      "bytes": 29977,
+      "mode": 420,
+      "path": "tools/_pypto_fused_pointwise_sm120_control_manifest.py",
+      "sha256": "299356cf6361fd1372e1fb77ddd626c2d4f84609abd565a3ea3be0bbe26c98c9"
+    },
+    {
+      "bytes": 4353,
+      "mode": 420,
+      "path": "tools/run_pypto_fused_pointwise_sm120_isolated.py",
+      "sha256": "484ec6e5c773f1cc912ae447b1319e3f3b7610fd9cf5d8e7eafb29a71e2b5e32"
+    },
+    {
+      "bytes": 95465,
+      "mode": 420,
+      "path": "tools/finalize_pypto_fused_pointwise_sm120.py",
+      "sha256": "c1724d138a6385d293ba5e79dcbf3208ebb0bac1f0dd734af738dddda5d26a37"
+    },
+    {
+      "bytes": 27684,
+      "mode": 493,
+      "path": "tools/preflight.py",
+      "sha256": "0b9884f8dbd34337a85f62c351b1e19dda3a8b84ec9a88c835d8701af053e3d1"
+    },
+    {
+      "bytes": 76558,
+      "mode": 493,
+      "path": "tools/run_isolated.py",
+      "sha256": "978686ac09743a98233c9616d23b04e57d3a257bd643d5db3b8a71eaac7465c8"
+    },
+    {
+      "bytes": 7885,
+      "mode": 493,
+      "path": "tools/stop_run.py",
+      "sha256": "879a2e3863671531a548c71d788d56298500eab989bd1420d2c7ae01717ddfe4"
+    }
+  ],
+  "implementation_commit": "c98f984ddc4df7cd3354f5fbddadb12df072ed48",
+  "implementation_tree": "38b991779d84020f3bbe48944c98df604cf92c2c",
+  "kind": "pypto-fused-pointwise-sm120-controls-v1",
+  "schema_version": 1
+}
