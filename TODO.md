@@ -214,3 +214,6 @@ existing executable control continues to enforce 24 GiB.
       the clean postmanifest full CPU suite.
 - [ ] Only then run the fixed RowReductionV3 GPU controller, CPU finalizer, and
       unchanged no-replace retry; preserve the provisional/final report.
+- [x] Freeze the read-only StructuredMatmulV4 replay/conflict/build map.
+- [ ] After RowReduction acceptance, replay `6ee412a` then `d755117` exactly as
+      documented in `docs/structured_matmul_v4_replay_map.md`.

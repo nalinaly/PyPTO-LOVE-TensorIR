@@ -303,6 +303,11 @@ upstream checkouts and their optional/manual suites.
   CPU finalizer, and unchanged no-replace retry. StructuredMatmulV4 `d755117`
   then needs replay onto `62eb882` before its build. Operator algorithms, framework registration,
   online tuning and model work remain after these compiler gates.
+- The read-only StructuredMatmulV4 replay audit is frozen in
+  `docs/structured_matmul_v4_replay_map.md`: exact commits, patch IDs, ten paths,
+  expected intermediate/final trees, the single descriptor-fixture conflict,
+  semantic invariants, and sequential OFF/ON evidence ladder. Preparation is
+  complete; actual replay remains ordered after RowReduction acceptance.
 - `docs/coverage_collector_map.md` is the pinned collector implementation map.
   Do not claim `closed_world=true` from ordinary Kineto/NVTX or from the first
   CUPTI-monitor development trace.
