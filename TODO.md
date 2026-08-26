@@ -126,7 +126,10 @@
       fused-pointwise SM120 controller/finalizer at root `c98f984`/`438c25f`.
 - [x] Run, CPU-finalize and independently review the policy-2 real-SM120
       fused-pointwise numerical gate at run `pypto-20260826T073309Z-1451510-e48ced`.
-- [ ] Build and gate the source-reviewed RowReductionV3 head `17b2b3c`.
+- [x] Build and gate RowReductionV3 at clean PyPTO `62eb882`, including OFF/ON
+      products, native/Python tests and four exact nonfallback SM120 Cubins.
+- [ ] Execute and independently gate RowReductionV3 FP32/BF16 numerical
+      correctness on real SM120 before claiming runtime coverage.
 - [x] Implement and independently source-review StructuredMatmulV4 at
       `d755117`, including transpose, FP32 accumulation and normalized ABI.
 - [ ] Build, produce Cubins and gate StructuredMatmulV4 before Inductor

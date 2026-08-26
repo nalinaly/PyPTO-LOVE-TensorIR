@@ -1,6 +1,6 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0047`
+**Checkpoint:** `CP-0048`
 
 **Status:** R0 remains open. P2 accepts finalized minimal real-SM120
 `NvidiaExecutable` correctness v1: exact PyPTO/TensorIR/CUDA Tile Artifacts load,
@@ -20,7 +20,11 @@ fixed nine-case control/finalizer boundary. CP-0047 now accepts the separately
 versioned policy-2 real-SM120 result and immutable CPU-finalized report SHA
 `d4ffafc0...2eeedf0`: all eighteen fixed lifetimes pass with no fallback,
 intact canaries and explicit unload. Reduction, matmul, framework, model, CUDA
-Graph, coverage and performance milestones remain open.
+Graph, coverage and performance milestones remain open. CP-0048 advances the
+primary PyPTO checkout to `62eb882` and accepts RowReductionV3 host compiler/
+Cubin production: clean OFF/ON DSOs, native/Python gates and four exact
+nonfallback rank-1/2/3 SM120 Cubin records. Reduction GPU numerical correctness
+remains open.
 
 ## Current truth
 
@@ -593,6 +597,14 @@ Graph, coverage and performance milestones remain open.
   joins are at most one ULP, all canaries/lifecycles pass and no fallback or
   protected/external NVIDIA activity occurs. EV-0060 and two independent GO
   reviews close only this frozen nine-case correctness claim.
+- PyPTO `62eb88251df5bdad95277a9d619d20da9bf121eb` closes the first real
+  RowReductionV3 build defect without weakening its negative fixtures. Fresh
+  OFF/ON products pass CTest 11/11 and 13/13 plus exact-product Python 1/1.
+  Four rank-1/2/3 FP32/BF16 sum/max cases produce nonempty self-hashed SM120
+  Cubins with route `structured-tensorir`, two-pointer ABI, zero workspace and
+  no fallback. Report SHA is `d06765be...38abb`; independent CUDA-hidden
+  recompilation matches every field. EV-0061 accepts compiler/Cubin evidence,
+  not GPU load, numerical correctness or performance.
 - The single-DSO runbook has been repaired and independently approved: it now
   performs a real venv install, audits all wheel DSOs and installed dependency
   closure, verifies every native/binding compile row and enforces the exact
@@ -641,8 +653,10 @@ separate fixed frontend smoke control/finalizer boundary, and CP-0044 closes its
 real-SM120 FP32/BF16 correctness result. CP-0045 closes bounded fused-pointwise
 compiler/Cubin production while preserving all vector-add bytes. CP-0046 closes
 the separate numerical gate's reviewed controls and CP-0047 closes the matching
-real-SM120 fixed-fixture correctness result. Build and gate the source-reviewed
-RowReductionV3 head `17b2b3c` next; StructuredMatmulV4 `d755117` follows.
+real-SM120 fixed-fixture correctness result. CP-0048 closes RowReductionV3 host
+compiler/Cubin production. Build its separate real-SM120 numerical gate next;
+StructuredMatmulV4 `d755117` follows after replaying its commits onto
+`62eb882`.
 Defer the separate exclusive Triton replacement/reference-smoke gate until the
 unmodified SGLang baseline needs it.
 Use explicit CPU-only coexistence only for non-GPU build/test work. The single

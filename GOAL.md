@@ -18,9 +18,11 @@ backend-OFF/ON TensorIR/CUDA Tile Cubin production. CP-0046 accepts its frozen
 nine-case controls, and CP-0047/EV-0060 now accepts the separately versioned
 22 GiB policy-2 real-SM120 result: eighteen fresh lifetimes pass exact/ULP,
 special-value, canary, stream and unload checks with no fallback. The immutable
-final report SHA is `d4ffafc0...2eeedf0`. RowReductionV3 is source-review GO at
-`17b2b3c` but unbuilt; StructuredMatmulV4 is source-review GO at `d755117` and
-follows reduction.
+final report SHA is `d4ffafc0...2eeedf0`. CP-0048/EV-0061 advances
+RowReductionV3 to clean PyPTO `62eb882`: OFF/ON products, native/Python tests
+and four exact nonfallback SM120 Cubin records are accepted; GPU numerical
+correctness remains separate. StructuredMatmulV4 is source-review GO at
+`d755117` and follows reduction.
 Generic operators, framework routes and model execution remain later. The exact
 PyTorch-pinned Triton reference wheel stays audited/frozen and deliberately
 uninstalled as baseline-only infrastructure. The full objective and acceptance

@@ -41,6 +41,14 @@ upstream checkouts and their optional/manual suites.
 
 ## Current resume point
 
+- CP-0048/EV-0061 advances the primary PyPTO checkout to clean `62eb882`, tree
+  `04d3bca3`, and accepts RowReductionV3 host compiler/Cubin production. Fresh
+  OFF/ON DSO SHAs are `95fc6579...93451` and `e1213cf3...e4220`; native tests
+  pass 11/11 and 13/13, exact-product Python passes 1/1 on both, and neither DSO
+  has RPATH/RUNPATH. Four rank-1/2/3 FP32/BF16 sum/max fixtures produce exact
+  nonfallback SM120 Cubins; report SHA is `d06765be...38abb`, and independent
+  CUDA-hidden recompilation matches every field. No reduction GPU launch or
+  numerical claim exists yet.
 - CP-0047/EV-0060 accepts the finalized policy-2 real-SM120 fused-pointwise
   result. Additive control commits end at `6cf5f958`, manifest-only commit
   `f6a064b` binds six v2 controls with SHA `d3b16079...d467036`, and GPU run
@@ -94,8 +102,9 @@ upstream checkouts and their optional/manual suites.
   the actual contraction tile, bounds the full CUDA Tile element count and i32
   loop trip count, adds N=128/N=256 producer fixtures and completes exact
   source/projection goldens. Independent static re-review returns GO with
-  P0/P1/P2 = 0. This is source-only: no reduction build, Cubin, runtime,
-  numerical correctness or performance claim exists yet.
+  P0/P1/P2 = 0. Commit `62eb882` later fixes immutable negative-fixture
+  construction; CP-0048 accepts clean OFF/ON products and four Cubin records.
+  Runtime, numerical correctness and performance remain open.
 - Read-only structured-matmul reconnaissance selected a later private
   `StructuredMatmulV4` contract: static dense BF16 rank-2 or equal-batch rank-3
   `tensor.matmul`, BF16 physical result ABI, TensorIR BF16-by-BF16-to-FP32
@@ -114,7 +123,7 @@ upstream checkouts and their optional/manual suites.
   exact rank-2/rank-3 transpose/projection goldens and representative producer
   fixtures. It remains unbuilt with no Cubin, runtime, numerical or performance
   claim.
-- Read `state/checkpoints/CP-0047.md` and evidence `EV-0005` through `EV-0060`.
+- Read `state/checkpoints/CP-0048.md` and evidence `EV-0005` through `EV-0061`.
 - Root `5564008` plus manifest-only `7639d82` owns the current v4
   correctness-only SM120 smoke. The manifest SHA is `a079c4d2...98bf` and
   binds seven exact control blobs to the Layer-A commit/tree. Controller and
@@ -278,9 +287,10 @@ upstream checkouts and their optional/manual suites.
   CP-0044 accepts its HIR-authored FP32/BF16 SM120 result. CP-0045 accepts
   bounded fused-pointwise compiler/Cubin production while preserving those add
   controls byte-for-byte. CP-0046 accepts the separate fused numerical controls
-  and CP-0047 accepts the finalized fixed-fixture result. Run fresh OFF/ON
-  compiler/Cubin gates for reviewed RowReductionV3 `17b2b3c`; StructuredMatmulV4
-  `d755117` follows. Operator algorithms, framework registration,
+  and CP-0047 accepts the finalized fixed-fixture result. CP-0048 accepts
+  RowReductionV3 compiler/Cubin production at `62eb882`; build its separate
+  real-SM120 correctness family next. StructuredMatmulV4 `d755117` then needs
+  replay onto `62eb882` before its build. Operator algorithms, framework registration,
   online tuning and model work remain after these compiler gates.
 - `docs/coverage_collector_map.md` is the pinned collector implementation map.
   Do not claim `closed_world=true` from ordinary Kineto/NVTX or from the first
