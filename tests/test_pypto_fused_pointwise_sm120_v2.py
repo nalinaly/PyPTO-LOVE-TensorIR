@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import contextlib
 import hashlib
 import os
 import pathlib
@@ -257,6 +258,228 @@ class AdmissionBoundaryTest(unittest.TestCase):
 
 
 class CompositionAndPublicationTest(unittest.TestCase):
+    def test_controller_main_executes_full_mocked_transaction_in_order(self) -> None:
+        events: list[str] = []
+        report = AdmissionBoundaryTest()._report(available=23_068_672, requested=True)
+
+        class Lease:
+            descriptor = 9
+            path = ROOT / "runs/environment-pypto-nvidia.lock"
+            mode = "shared"
+            device = 1
+            inode = 2
+
+            def close(self) -> None:
+                events.append("lease-close")
+
+        class Process:
+            pid = 1234
+
+            @staticmethod
+            def poll() -> int:
+                return 0
+
+        process = Process()
+        metadata = {
+            "run_id": "fixture",
+            "pgid": 1234,
+            "start_ticks": 55,
+            "command": contract.fixed_child_command(ROOT),
+            "gpu_smoke": {},
+            "status": "running",
+        }
+
+        def preflight_side_effect(**kwargs):
+            description = kwargs["description"]
+            event = (
+                "initial-preflight"
+                if description.startswith("initial")
+                else "action-preflight"
+            )
+            events.append(event)
+            return 0, copy.deepcopy(report), b"preflight"
+
+        def atomic_side_effect(path, _value):
+            events.append(f"metadata:{path.name}")
+
+        def popen_side_effect(*_args, **_kwargs):
+            events.append("popen")
+            return process
+
+        def build_metadata_side_effect(*_args, **_kwargs):
+            events.append("build-metadata")
+            return copy.deepcopy(metadata)
+
+        def gate_side_effect(**_kwargs):
+            events.append("gate-release")
+            return True, None
+
+        def watchdog_side_effect(*_args, **_kwargs):
+            events.append("watchdog")
+            return 0, False
+
+        def audit_side_effect(_metadata):
+            events.append("post-exit-audit")
+            return {"post": True}, None
+
+        def survivor_side_effect(_process, _metadata):
+            events.append("survivor-check")
+            return True
+
+        fake_flags = SimpleNamespace(
+            ignore_environment=1, no_site=1, dont_write_bytecode=1
+        )
+        fake_disk = SimpleNamespace(free=1 << 50)
+        terminate = mock.Mock(side_effect=AssertionError("unexpected termination"))
+        signal_verified = mock.Mock(side_effect=AssertionError("unexpected signal"))
+        argv = [
+            "run_pypto_fused_pointwise_sm120_v2_isolated.py",
+            "--allow-protected-zero-nvidia-gpu-smoke",
+            "--run-id-file",
+            str(ROOT / "runs/mock-v2-run-id.json"),
+        ]
+        patches = (
+            mock.patch.object(
+                controller.control,
+                "validate_control_manifest",
+                side_effect=lambda _root: events.append("manifest") or {"v2": True},
+            ),
+            mock.patch.object(
+                controller.isolation,
+                "validate_exact_nvidia_smoke_command",
+                side_effect=lambda _command: events.append("command"),
+            ),
+            mock.patch.object(
+                controller,
+                "acquire_shared_environment_lease",
+                side_effect=lambda: events.append("lease") or Lease(),
+            ),
+            mock.patch.object(
+                controller.isolation,
+                "validate_exact_nvidia_smoke_inputs",
+                side_effect=lambda: events.append("inputs"),
+            ),
+            mock.patch.object(
+                controller, "run_preflight", side_effect=preflight_side_effect
+            ),
+            mock.patch.object(controller, "_write_run_id"),
+            mock.patch.object(controller.pathlib.Path, "mkdir"),
+            mock.patch.object(
+                controller.isolation,
+                "isolated_environment",
+                side_effect=lambda *_args, **_kwargs: events.append("environment")
+                or {},
+            ),
+            mock.patch.object(
+                controller.isolation, "environment_lock_markers", return_value={}
+            ),
+            mock.patch.object(
+                controller.isolation, "atomic_json", side_effect=atomic_side_effect
+            ),
+            mock.patch.object(
+                controller.isolation, "sha256_file", return_value="a" * 64
+            ),
+            mock.patch.object(controller.shutil, "disk_usage", return_value=fake_disk),
+            mock.patch.object(
+                controller.subprocess, "Popen", side_effect=popen_side_effect
+            ),
+            mock.patch.object(
+                controller.isolation,
+                "build_run_metadata",
+                side_effect=build_metadata_side_effect,
+            ),
+            mock.patch.object(
+                controller, "_gate_and_release", side_effect=gate_side_effect
+            ),
+            mock.patch.object(
+                controller.isolation,
+                "wait_with_gpu_smoke_watchdog",
+                side_effect=watchdog_side_effect,
+            ),
+            mock.patch.object(
+                controller.isolation,
+                "audit_gpu_smoke_runtime_state",
+                side_effect=audit_side_effect,
+            ),
+            mock.patch.object(
+                controller,
+                "enforce_no_surviving_owned_processes",
+                side_effect=survivor_side_effect,
+            ),
+            mock.patch.object(
+                controller.stop_run, "process_group_members", return_value=[]
+            ),
+            mock.patch.object(
+                controller.isolation, "terminate_owned_process", terminate
+            ),
+            mock.patch.object(controller.stop_run, "signal_verified", signal_verified),
+            mock.patch.object(controller.signal, "getsignal", return_value=None),
+            mock.patch.object(controller.signal, "signal"),
+            mock.patch.object(controller, "print", create=True),
+            mock.patch.object(
+                controller.signal,
+                "pthread_sigmask",
+                side_effect=[set(), None],
+            ),
+            mock.patch.object(controller.sys, "flags", fake_flags),
+            mock.patch.object(controller.sys, "argv", argv),
+        )
+        with contextlib.ExitStack() as stack:
+            for patcher in patches:
+                stack.enter_context(patcher)
+            self.assertEqual(controller.main(), 0)
+        expected_order = (
+            "manifest",
+            "command",
+            "lease",
+            "inputs",
+            "initial-preflight",
+            "environment",
+            "action-preflight",
+            "popen",
+            "build-metadata",
+            "metadata:process.json",
+            "gate-release",
+            "watchdog",
+            "post-exit-audit",
+            "survivor-check",
+            "lease-close",
+        )
+        positions = [events.index(name) for name in expected_order]
+        self.assertEqual(positions, sorted(positions))
+        terminate.assert_not_called()
+        signal_verified.assert_not_called()
+
+    def test_direct_child_admission_precedes_torch_import(self) -> None:
+        source = (
+            ROOT / "benchmarks/operators/pypto_fused_pointwise_sm120_v2.py"
+        ).read_text()
+        run_start = source.index("def run_smoke()")
+        run_source = source[run_start:]
+        run_markers = (
+            "workspace, run_id = workspace_from_environment()",
+            "barrier_evidence = wait_for_start_barrier(workspace, run_id)",
+            "contract, child_gate = load_contract_and_child_gate(",
+            "import torch",
+        )
+        run_positions = [run_source.index(marker) for marker in run_markers]
+        self.assertEqual(run_positions, sorted(run_positions))
+        gate_start = source.index("def load_contract_and_child_gate(")
+        gate_end = source.index("def integrity_record(", gate_start)
+        gate_source = source[gate_start:gate_end]
+        gate_markers = (
+            "control.validate_control_manifest(workspace)",
+            "static_torch_identity()",
+            "available = preflight.mem_available_kib()",
+            "gpu = preflight.nvidia_identity()",
+            "compute_pids = preflight.nvidia_compute_pids()",
+            "preflight.process_table()",
+            "protected_runtime, unreadable = preflight.protected_nvidia_runtime_mappings(",
+        )
+        gate_positions = [gate_source.index(marker) for marker in gate_markers]
+        self.assertEqual(gate_positions, sorted(gate_positions))
+        self.assertNotIn("import torch", gate_source)
+
     def test_exact_case_helpers_and_injected_dependencies_are_frozen(self) -> None:
         self.assertIs(contract.CASE_SPECS, contract._BASE.CASE_SPECS)
         self.assertIs(contract.CASE_ORDER, contract._BASE.CASE_ORDER)
