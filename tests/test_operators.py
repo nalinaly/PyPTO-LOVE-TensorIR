@@ -180,6 +180,13 @@ def test_paged_attention_decode_gathers_physical_kv_rows_in_one_graph():
     assert "pl.tile.row_max" in rendered and "pl.tile.row_sum" in rendered
     assert rendered.count("pl.tile.store") == 1
 
+    wide_program = attention.build_paged_decode(8, 2, 512, 256, 1024)
+    wide_rendered = str(wide_program)
+    assert "pl.range(512)" in wide_rendered
+    assert "pl.tile.ci" in wide_rendered
+    assert "pl.tile.cmps" in wide_rendered
+    assert "pl.tile.sels" in wide_rendered
+
 
 def test_linear_is_one_native_tile_graph():
     program = linear.build(2, 128, 256)

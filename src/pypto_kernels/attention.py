@@ -336,7 +336,12 @@ def paged_attention_decode(
     kv_heads: int,
     stream: Any = None,
 ) -> Any:
-    """Run one request's GQA decode over physical SGLang KV-pool rows."""
+    """Run one request's GQA decode over a padded physical KV bucket.
+
+    ``valid_tokens`` is the one-element device view of the live sequence
+    length. Its value must be in ``[1, physical_indices.shape[0]]``; keeping it
+    on-device avoids a decode-time host synchronization.
+    """
 
     import torch
 
