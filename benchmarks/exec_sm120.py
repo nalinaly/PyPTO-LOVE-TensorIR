@@ -366,6 +366,105 @@ def main() -> int:
         }
     )
 
+    def run_paged_decode_case(
+        *, q_heads: int, kv_heads: int, valid_count: int, label: str
+    ) -> None:
+        bucket_tokens = 16
+        paged_head_dim = 256
+        cache_rows = 1024
+        request_rows = 65
+        max_context_len = 4096
+        request_row = 7
+        paged_query = (
+            torch.randn(
+                q_heads,
+                paged_head_dim,
+                device="cuda",
+                dtype=torch.bfloat16,
+            )
+            * 0.2
+        )
+        key_cache = (
+            torch.randn(
+                cache_rows,
+                kv_heads * paged_head_dim,
+                device="cuda",
+                dtype=torch.bfloat16,
+            )
+            * 0.2
+        )
+        value_cache = torch.randn_like(key_cache) * 0.2
+        req_to_token = torch.zeros(
+            request_rows,
+            max_context_len,
+            device="cuda",
+            dtype=torch.int32,
+        )
+        selected = torch.randperm(cache_rows - 1, device="cuda")[:valid_count] + 1
+        req_to_token[request_row, :valid_count] = selected.to(torch.int32)
+        request_index = torch.tensor(
+            [request_row], device="cuda", dtype=torch.int64
+        )
+        valid_tokens = torch.tensor(
+            [valid_count], device="cuda", dtype=torch.int64
+        )
+        torch.cuda.synchronize()
+        paged_out = attention.paged_attention_decode(
+            paged_query,
+            key_cache,
+            value_cache,
+            req_to_token,
+            request_index,
+            valid_tokens,
+            kv_heads=kv_heads,
+            bucket_tokens=bucket_tokens,
+            stream=stream,
+        )
+        stream.synchronize()
+
+        key_heads = key_cache.view(cache_rows, kv_heads, paged_head_dim)
+        value_heads = value_cache.view(cache_rows, kv_heads, paged_head_dim)
+        queries_per_kv = q_heads // kv_heads
+        reference_heads = []
+        for q_head in range(q_heads):
+            kv_head = q_head // queries_per_kv
+            selected_keys = key_heads[selected, kv_head].float()
+            selected_values = value_heads[selected, kv_head].float()
+            scores = (
+                paged_query[q_head].float() @ selected_keys.T
+            ) / math.sqrt(paged_head_dim)
+            reference_heads.append(torch.softmax(scores, dim=-1) @ selected_values)
+        paged_ref = torch.stack(reference_heads)
+        max_abs_diff = float((paged_out.float() - paged_ref).abs().max())
+        cases.append(
+            {
+                "case": label,
+                "implementation": "native-tile-dsl-request-table",
+                "launches": 1,
+                "bucket_tokens": bucket_tokens,
+                "valid_tokens": valid_count,
+                "max_abs_diff": max_abs_diff,
+                "correct": bool(
+                    torch.allclose(
+                        paged_out.float(), paged_ref, rtol=1e-1, atol=8e-2
+                    )
+                ),
+            }
+        )
+
+    run_paged_decode_case(
+        q_heads=8,
+        kv_heads=2,
+        valid_count=13,
+        label="attention_paged_decode_0_8b 8q2kv bucket16 valid13 d256",
+    )
+    run_paged_decode_case(
+        q_heads=16,
+        kv_heads=4,
+        valid_count=16,
+        label="attention_paged_decode_9b 16q4kv bucket16 valid16 d256",
+    )
+
     linear_input = torch.randn(32, 1024, device="cuda", dtype=torch.bfloat16) * 0.1
     linear_weight = torch.randn(1024, 1024, device="cuda", dtype=torch.bfloat16) * 0.1
     linear_out = linear.linear(linear_input, linear_weight, stream=stream)
@@ -461,6 +560,7 @@ def main() -> int:
             "causal_conv1d",
             "rope",
             "attention",
+            "attention_paged_decode",
             "linear",
             "gdn_read",
             "gdn_state_update",
