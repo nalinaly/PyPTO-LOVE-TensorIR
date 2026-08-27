@@ -40,7 +40,10 @@ below. It records work in progress, **not** CP-0084 acceptance.
   `feature/paged-decode-sm120@91b3fee`; it recognizes the exact native
   `tile.gather_row`/GQA/softmax graph and emits a four-input TensorIR candidate.
   It now pins TensorIR `4407530` and archives that dependency as patch `0033`.
-  That branch is source-only and has not compiled or linked.
+  That branch is source-only and has not compiled or linked; all six submodule
+  directories in this secondary worktree are intentionally uninitialized, so
+  do not configure it until their exact gitlinks are materialized from the
+  canonical local sources (or the branch is tested in an initialized checkout).
 - The emitted one-head paged-decode graph exposes a second generic TensorIR
   gap: after graph splitting, its explicit unit-M query source remains
   `[1,256]` while the normalized matmul view omits M. The old tool fails exactly
