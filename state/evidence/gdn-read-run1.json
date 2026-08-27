@@ -1,0 +1,29 @@
+{
+ "all_correct": true,
+ "case_count": 4,
+ "cases": [
+  {
+   "case": "gdn-read B=4 H=16 Dk=128 Dv=128",
+   "max_abs_diff": 0.5,
+   "output_correct": true
+  },
+  {
+   "case": "gdn-read B=128 H=16 Dk=128 Dv=128",
+   "max_abs_diff": 0.75,
+   "output_correct": true
+  },
+  {
+   "case": "gdn-read B=1 H=8 Dk=128 Dv=128",
+   "max_abs_diff": 0.28125,
+   "output_correct": true
+  },
+  {
+   "case": "gdn-read B=7 H=16 Dk=128 Dv=128",
+   "max_abs_diff": 0.5,
+   "output_correct": true
+  }
+ ],
+ "failures": [],
+ "kind": "pypto-kernels-gdn-read-sm120",
+ "schema": 1
+}
