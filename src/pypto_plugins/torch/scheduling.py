@@ -191,9 +191,10 @@ def _graph_name() -> str:
 class _OpsRecorder:
     """Record the ops sequence of one pointwise body for HIR translation.
 
-    Every handler attribute is a callable returning a proxy value; the
-    ten registered FusedPointwiseV2 ops build the chain, loads become
-    inputs, stores become outputs, and anything else fails closed.
+    Every handler attribute is a callable returning a proxy value; loads and
+    registered tensor ops append ordered events (loads may interleave with
+    ops, so replay follows the event order rather than assuming all loads
+    come first), stores become outputs, and anything else fails closed.
     """
 
     _BINARY = {
@@ -219,11 +220,12 @@ class _OpsRecorder:
         "sin": "tensor.sin",
         "cos": "tensor.cos",
     }
+    _COMPOSED = ("sigmoid", "relu", "tanh")
 
     def __init__(self) -> None:
         self.inputs: list[str] = []
         self.outputs: list[str] = []
-        self.ops: list[tuple[str, list[object]]] = []
+        self.events: list[tuple[object, ...]] = []
         self.proxies: dict[int, object] = {}
         self._counter = 0
 
@@ -239,6 +241,10 @@ class _OpsRecorder:
         self.proxies[proxy.key] = proxy
         return proxy
 
+    def _emit(self, op_name: str, operands: list[object]) -> "_OpsRecorder._Proxy":
+        self.events.append(("op", op_name, operands))
+        return self._next_proxy()
+
     @staticmethod
     def _is_constant(value: object) -> bool:
         import sympy
@@ -248,34 +254,84 @@ class _OpsRecorder:
     def _constant_float(self, value: object) -> float:
         return float(value)
 
+    def _compose(self, name: str, operand: object) -> "_OpsRecorder._Proxy":
+        if name == "sigmoid":
+            # 1 / (1 + exp(-x)) over registered primitives.
+            value = self._emit("tensor.neg", [operand])
+            value = self._emit("tensor.exp", [value])
+            value = self._emit("tensor.adds", [value, 1.0])
+            return self._emit("tensor.recip", [value])
+        if name == "relu":
+            # (x + |x|) * 0.5 is bitwise-identical to max(x, 0): positive x
+            # doubles then halves exactly, non-positive x cancels to +0.
+            magnitude = self._emit("tensor.abs", [operand])
+            doubled = self._emit("tensor.add", [magnitude, operand])
+            return self._emit("tensor.muls", [doubled, 0.5])
+        # tanh(x) = 2 / (1 + exp(-2x)) - 1 over registered primitives
+        # (tolerance-level, like division, versus the libdevice intrinsic).
+        scaled = self._emit("tensor.muls", [operand, -2.0])
+        activated = self._emit("tensor.exp", [scaled])
+        denominator = self._emit("tensor.adds", [activated, 1.0])
+        reciprocal = self._emit("tensor.recip", [denominator])
+        doubled = self._emit("tensor.muls", [reciprocal, 2.0])
+        return self._emit("tensor.adds", [doubled, -1.0])
+
     def __getattr__(self, name: str) -> Any:
         def handler(*args: object, **kwargs: object) -> object:
             if name == "load":
                 buffer_name = str(args[0])
                 if buffer_name not in self.inputs:
                     self.inputs.append(buffer_name)
+                self.events.append(("load", buffer_name))
                 return self._next_proxy()
             if name == "store":
+                value = args[2] if len(args) > 2 else None
                 self.outputs.append(str(args[0]))
+                self.events.append(
+                    ("store", str(args[0]), getattr(value, "key", None))
+                )
                 return None
-            if name in self._BINARY:
-                first, second = args[0], args[1]
-                if self._is_constant(first) or self._is_constant(second):
-                    if self._is_constant(first):
-                        raise StrictCoverageError(
-                            "scalar-left binary op is not a registered form"
-                        )
-                    self.ops.append(
-                        (self._BINARY[name] + "s", [first, self._constant_float(second)])
-                    )
-                else:
-                    self.ops.append((self._BINARY[name], [first, second]))
-                return self._next_proxy()
-            if name in self._UNARY and len(args) == 1:
-                self.ops.append((self._UNARY[name], [args[0]]))
-                return self._next_proxy()
             if name == "constant":
                 return args[0]
+            if name in self._COMPOSED and len(args) == 1 and not self._is_constant(args[0]):
+                return self._compose(name, args[0])
+            if name in self._BINARY:
+                first, second = args[0], args[1]
+                if self._is_constant(first) and self._is_constant(second):
+                    raise StrictCoverageError(
+                        "binary op with two constant operands is not a "
+                        "registered form"
+                    )
+                if self._is_constant(first):
+                    # Scalar-left forms commute or decompose over registered
+                    # scalar-right ops; each emitted op pairs with exactly
+                    # one proxy so the replay keys stay aligned.
+                    if name in ("add", "mul", "maximum", "minimum", "max", "min"):
+                        self.events.append(
+                            ("op", self._BINARY[name] + "s",
+                             [second, self._constant_float(first)])
+                        )
+                        return self._next_proxy()
+                    if name in ("truediv", "div", "fdiv"):
+                        numerator = self._constant_float(first)
+                        reciprocal = self._emit("tensor.recip", [second])
+                        if numerator == 1.0:
+                            return reciprocal
+                        return self._emit("tensor.muls", [reciprocal, numerator])
+                    raise StrictCoverageError(
+                        "scalar-left binary op is not a registered form"
+                    )
+                if self._is_constant(second):
+                    self.events.append(
+                        ("op", self._BINARY[name] + "s",
+                         [first, self._constant_float(second)])
+                    )
+                else:
+                    self.events.append(("op", self._BINARY[name], [first, second]))
+                return self._next_proxy()
+            if name in self._UNARY and len(args) == 1:
+                self.events.append(("op", self._UNARY[name], [args[0]]))
+                return self._next_proxy()
             raise StrictCoverageError(
                 f"strict PyPTO pointwise translation has no op {name!r} yet"
             )
@@ -286,9 +342,10 @@ class _OpsRecorder:
 def _translate_pointwise(node: Any) -> tuple[Any, dict[str, str | int]]:
     """Translate a pointwise node's real ops sequence into FusedPointwiseV2 HIR.
 
-    The node body executes once against the recording ops handler; loads
-    become inputs, the ten registered tensor ops rebuild the exact chain,
-    stores become outputs, and any other operator fails closed.
+    The node body executes once against the recording ops handler; loads and
+    registered ops rebuild the exact chain in event order (loads may
+    interleave with ops and one buffer may be loaded repeatedly), stores
+    become outputs, and any other operator fails closed.
     """
 
     import sympy
@@ -310,33 +367,48 @@ def _translate_pointwise(node: Any) -> tuple[Any, dict[str, str | int]]:
     index_vars = [[sympy.Symbol(f"i{index}") for index in range(len(ranges))]]
     with V.set_ops_handler(recorder):
         body(*index_vars)
-    if not recorder.inputs or not recorder.outputs or not recorder.ops:
+    if not recorder.inputs or not recorder.outputs or not recorder.events:
         raise StrictCoverageError(
             "pointwise body did not produce a translatable chain "
-            f"(inputs={len(recorder.inputs)}, ops={len(recorder.ops)}, "
+            f"(inputs={len(recorder.inputs)}, events={len(recorder.events)}, "
             f"outputs={len(recorder.outputs)})"
         )
     dtype_name = "float32"
     builder = pointwise_codegen.PointwiseProgramBuilder(
         tuple(ranges[-1:]), dtype_name
     )
-    input_proxies = {}
-    # Loads were recorded first in creation order; replay proxy keys from 1.
+    values: dict[int, Any] = {}
+    variables: dict[str, Any] = {}
+    stored_keys: list[int] = []
+    last_op_key: int | None = None
     next_key = 1
-    for name in recorder.inputs:
-        input_proxies[next_key] = builder.add_input(name)
-        next_key += 1
-    key = len(recorder.inputs) + 1
-    for op_name, operands in recorder.ops:
-        arguments = []
-        for operand in operands:
-            if isinstance(operand, _OpsRecorder._Proxy):
-                arguments.append(input_proxies[operand.key])
-            else:
-                arguments.append(builder.scalar(operand))
-        input_proxies[key] = builder.emit(op_name, arguments)
-        key += 1
-    last_key = key - 1
-    if recorder.outputs:
-        builder.mark_output(input_proxies[last_key])
+    for event in recorder.events:
+        kind = event[0]
+        if kind == "load":
+            buffer_name = str(event[1])
+            variable = variables.get(buffer_name)
+            if variable is None:
+                variable = builder.add_input(buffer_name)
+                variables[buffer_name] = variable
+            values[next_key] = variable
+            next_key += 1
+        elif kind == "op":
+            op_name = event[1]
+            operands = event[2]
+            arguments = []
+            for operand in operands:
+                if isinstance(operand, _OpsRecorder._Proxy):
+                    arguments.append(values[operand.key])
+                else:
+                    arguments.append(builder.scalar(operand))
+            values[next_key] = builder.emit(op_name, arguments)
+            last_op_key = next_key
+            next_key += 1
+        elif kind == "store":
+            if event[2] is not None:
+                stored_keys.append(int(event[2]))
+    output_keys = stored_keys if stored_keys else [last_op_key]
+    for output_key in output_keys:
+        if output_key is not None:
+            builder.mark_output(values[output_key])
     return builder.build(), {"tile": 128}

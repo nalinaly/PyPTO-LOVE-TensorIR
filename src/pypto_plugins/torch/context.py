@@ -44,6 +44,11 @@ def activate_mode(*, strict: bool = True) -> Iterator[PyPTOInductorMode]:
     Nested contexts may strengthen a development context to strict mode, but
     cannot weaken an already-strict compilation. ``ContextVar`` propagates to
     asyncio tasks and copied contexts without changing unrelated threads.
+
+    While the mode is active, Inductor's FX-graph cache is disabled: a cache
+    replay would restore a cached wrapper whose ``pypto_launch`` call needs a
+    kernel this fresh process never registered. The compiled Cubins are
+    byte-stable, so recompiling reproduces the identical artifact.
     """
 
     requested = PyPTOInductorMode(strict=strict)
@@ -54,9 +59,19 @@ def activate_mode(*, strict: bool = True) -> Iterator[PyPTOInductorMode]:
         strict=requested.strict or (outer.strict if outer is not None else False)
     )
     token = _CURRENT_MODE.set(effective)
+    previous_cache_setting: bool | None = None
     try:
+        import torch._inductor.config as inductor_config
+
+        if getattr(inductor_config, "fx_graph_cache", None) is not None:
+            previous_cache_setting = inductor_config.fx_graph_cache
+            inductor_config.fx_graph_cache = False
         yield effective
     finally:
+        if previous_cache_setting is not None:
+            import torch._inductor.config as inductor_config
+
+            inductor_config.fx_graph_cache = previous_cache_setting
         _CURRENT_MODE.reset(token)
 
 
