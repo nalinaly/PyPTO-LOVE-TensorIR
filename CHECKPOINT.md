@@ -1,6 +1,25 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0080`
+**Checkpoint:** `CP-0081`
+
+**Status:** `torch.compile(backend="pypto")` now installs the real reversible
+CUDA scheduling/wrapper transaction and executes its generated native tile
+kernel instead of failing at the public readiness gate. Framework-plugin
+`8d44753` also orders the one PyPTO launch through a reusable non-default CUDA
+stream that waits on and rejoins the caller stream. PyPTO commits `9e40c5f` and
+`5cbd9d6` remove producer-generation suffixes from active pointwise, reduction
+and matmul names and refresh the canonical source goldens. SM120 run
+`pypto-20260827T155844Z-540966-14746c` executes BF16 `[256,1024]` through the
+literal backend name with one kernel, one launch, no fallback and max absolute
+difference 0; the entry is `pypto_fused_pointwise`. Plugin run
+`pypto-20260827T155858Z-541092-fdcb8f` passes 91/91, PyPTO CTest run
+`pypto-20260827T155804Z-540337-c5fd09` passes 13/13, and rebuilt DSO SHA-256 is
+`c7c65aa3905417c46ac7f12a5b808178ad6780c76fb827288dc42511f86922cf`.
+Evidence is `state/evidence/pypto-torch-backend-native-cp0081.json`. This closes
+the public generated-pointwise execution seam, not full Qwen operator routing
+or either model gate.
+
+## Previous checkpoint (CP-0080)
 
 **Status:** The framework no longer binds the deleted operator repository's
 development-version ABI manifest, source-tree digest or retired GDN symbols.

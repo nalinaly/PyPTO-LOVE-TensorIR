@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "checkpoint": "CP-0081",
+  "status": "accepted-torch-backend-native-execution",
+  "component": "torch.compile backend pypto native tile execution",
+  "implementation": {
+    "framework_plugin_commit": "8d447533a9b945d6fa90cfe53bcdc23e9c4c5299",
+    "compiler_commits": [
+      "9e40c5f24bddce612d2f978b6fd70b4c0d9b5cba",
+      "5cbd9d641277b12724e9eef26bd582833892cba0"
+    ],
+    "registration": "public torch_inductor.install uses the reversible CUDA registration transaction",
+    "stream_ordering": "one reusable non-default execution stream waits on and rejoins the caller stream",
+    "canonical_entries": [
+      "pypto_fused_pointwise",
+      "pypto_row_reduction",
+      "pypto_structured_matmul"
+    ],
+    "retired_generation_suffixes_in_active_entries": false
+  },
+  "gpu": {
+    "run_id": "pypto-20260827T155844Z-540966-14746c",
+    "result_file": "projects/pypto-framework-plugins/benchmarks/torch_compile_results.json",
+    "backend": "pypto",
+    "shape": [256, 1024],
+    "dtype": "bfloat16",
+    "kernel_count": 1,
+    "launch_count": 1,
+    "entry": "pypto_fused_pointwise",
+    "cubin_sha256": "fffb74e06c00bfa19cfc4bb119f0e36944942e0f7e72d996f19e8b7efe59498d",
+    "max_abs_diff": 0.0,
+    "all_correct": true,
+    "fallback_used": false
+  },
+  "tests": {
+    "plugin_run_id": "pypto-20260827T155858Z-541092-fdcb8f",
+    "plugin_result": "91 passed",
+    "compiler_build_run_id": "pypto-20260827T155711Z-538699-dff908",
+    "compiler_ctest_run_id": "pypto-20260827T155804Z-540337-c5fd09",
+    "compiler_ctest_result": "13/13 passed",
+    "dso_sha256": "c7c65aa3905417c46ac7f12a5b808178ad6780c76fb827288dc42511f86922cf"
+  },
+  "remaining_scope": [
+    "route canonical model operators instead of only generic pointwise and reductions",
+    "implement embedding and state/cache operators",
+    "implement causal paged attention",
+    "run Qwen3.5 0.8B then 9B"
+  ],
+  "safety": {
+    "protected_processes_signalled": false,
+    "upstream_modified": false,
+    "model_harness_modified": false
+  }
+}
