@@ -18,10 +18,17 @@ LINEAR_BACKEND_RESOLVER_TARGET = (
 )
 
 
-def _attention_factory(_runner):
-    raise BackendNotReadyError(
-        "PyPTOAttentionBackend is not implemented yet; refusing SGLang compute fallback."
-    )
+def _attention_factory(runner):
+    from pypto_kernels import attention
+
+    if attention.PAGED_DECODE_STATUS != "native-tile executable":
+        raise BackendNotReadyError(
+            "PyPTO paged attention remains a source candidate; refusing SGLang "
+            "compute fallback before its compiler and numerical gates pass."
+        )
+    from .sglang.attention_backend import create_attention_backend
+
+    return create_attention_backend(runner)
 
 
 def _resolve_linear_backends_around(original_fn, prefill_default=None):
