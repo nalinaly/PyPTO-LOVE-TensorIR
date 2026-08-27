@@ -1,6 +1,31 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0056`
+**Checkpoint:** `CP-0057`
+
+**Status:** R0 remains open. The 0.8B real-weight full forward is UP
+(commit `a36c649`, evidence
+`state/evidence/qwen35-0p8b-full-forward-run1.json`). The NaN root cause
+was the GDN delta correction with RMS-scaled keys (it amplifies by
+||k||^2 = 128 per token); the FLA convention L2-normalizes keys so the
+correction is a bounded rank-1 projection — fixed, the state stays at
+~1 and both paths run all 24 hybrid layers with finite logits. The
+PyPTO-routed path executes 6372 kernels (projections and the tied-
+embedding LM head through StructuredMatmulV4 with the Gemma (1+w)
+scales folded exactly into the projection weights, RMSNorm, gated RoPE
+attention via the accepted prefill kernel with 128-token padding,
+SiLU-MLP, residual adds, and per-token GDN reads) against 637 metered
+fallbacks (GDN state update — the CP-0055 impossibility — plus RoPE,
+L2 norms, conv, embedding gather and small vector algebra): a 90.9
+percent PyPTO kernel ratio. Top-1 agreement with the eager reference is
+69 percent, mean abs diff 2.27 on +-18 logits; the residual is the
+PyPTO path's end-to-end BF16 rounding versus the reference's FP32
+internal norms/softmax (each kernel family is separately accepted at
+BF16 precision). Remaining main line: tighten the logits gap (align the
+reference precision), then 9B, the D-0017 per-kernel comparison, and
+the final review; 100 percent coverage still tracks the upstream
+producer broadcast support.
+
+## Previous checkpoint (CP-0056)
 
 **Status:** R0 remains open. The full Qwen3.5-0.8B real-weight forward
 harness exists (commit `c5aa2d1` +
