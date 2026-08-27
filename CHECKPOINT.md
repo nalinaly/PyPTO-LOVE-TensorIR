@@ -1,6 +1,25 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0077`
+**Checkpoint:** `CP-0078`
+
+**Status:** TorchInductor-generated pointwise kernels no longer construct
+whole-tensor `tensor.*` HIR. Framework-plugin commit `1d75936` records the FX
+value chain, then generates real `@pl.jit` source with static `pl.range`
+tiling, one `pl.load` per input, tile arithmetic and one `pl.store`; only that
+native specialized IR reaches the strict compiler. The output dtype is derived
+from the Inductor buffer instead of being forced to FP32. Focused run
+`pypto-20260827T152714Z-518307-ac6117` passes 3/3 structural, deterministic
+Cubin and fail-closed tests. SM120 run
+`pypto-20260827T152735Z-518560-e7305e` executes a generated BF16
+`[256,1024]` add/scale/neg graph in one launch with bit-exact output, no
+fallback and no `tensor.*` in generated source; its source has `@pl.jit`, two
+ranges, two loads and one store. Evidence is
+`state/evidence/pypto-inductor-native-pointwise-cp0078.json`. This closes the
+generated pointwise core only: generated reductions, canonical operator
+routing, full `torch.compile` wrapper execution and removal of the retired
+operator-library ABI guard remain open.
+
+## Previous checkpoint (CP-0077)
 
 **Status:** GDN's zero-initial-state prefill causal convolution is now a
 single native tile graph. Canonical operator `43f3334` loads 128-channel

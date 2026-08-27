@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "checkpoint": "CP-0078",
+  "status": "accepted-generated-pointwise-core",
+  "component": "TorchInductor pointwise code generation",
+  "implementation": {
+    "repository": "projects/pypto-framework-plugins",
+    "commit": "1d759367d9a83ff61e7201511072bf8bfd4a3d5c",
+    "source": "src/pypto_plugins/torch/pointwise_codegen.py",
+    "flow": [
+      "record FX/Inductor pointwise values",
+      "generate @pl.jit Python source",
+      "emit explicit static pl.range loops",
+      "load each input tile exactly once",
+      "emit tile arithmetic and one tile store",
+      "specialize native IR and compile strict TensorIR artifact"
+    ],
+    "whole_tensor_hir_removed": true,
+    "dtype_selection": ["bfloat16", "float32"],
+    "backend_hash": "pypto-sm120-native-tile-pointwise"
+  },
+  "tests": {
+    "run_id": "pypto-20260827T152714Z-518307-ac6117",
+    "result": "3 passed",
+    "assertions": [
+      "generated source contains @pl.jit, pl.load and pl.store",
+      "specialized IR contains pl.at, pl.range and pl.tile.load/store",
+      "no tensor.* operation appears in specialized generated IR",
+      "deterministic Cubin and artifact identities",
+      "bounds and unsupported dtype fail closed"
+    ]
+  },
+  "gpu": {
+    "run_id": "pypto-20260827T152735Z-518560-e7305e",
+    "result_file": "projects/pypto-framework-plugins/benchmarks/pointwise_results.json",
+    "shape": [256, 1024],
+    "dtype": "bfloat16",
+    "tile": [1, 128],
+    "launches": 1,
+    "max_abs_diff": 0.0,
+    "all_correct": true,
+    "fallback_used": false,
+    "native_source": {
+      "jit": true,
+      "range_count": 2,
+      "load_count": 2,
+      "store_count": 1,
+      "whole_tensor_ops": false
+    }
+  },
+  "compiler": {
+    "pypto_commit": "8d4c66d6cafdf0fae8e5cbcf17b5180bc9ea3119",
+    "dso_sha256": "f0d5d1da7eb03699f30c69f879228ee3cf811f9652fc1c20487e8ce7b60b26b8"
+  },
+  "remaining_inductor_scope": [
+    "native tile code generation for reductions",
+    "matmul and model-operator routing through canonical pypto-kernels",
+    "full torch.compile wrapper and allocation gate",
+    "remove obsolete operator-library ABI guard tied to the retired implementation"
+  ],
+  "safety": {
+    "protected_processes_signalled": false,
+    "upstream_modified": false,
+    "model_harness_modified": false
+  }
+}
