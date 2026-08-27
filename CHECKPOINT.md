@@ -2,6 +2,67 @@
 
 **Checkpoint:** `CP-0083`
 
+## Active unaccepted continuation after CP-0083 (2026-08-28)
+
+This section is the current resume boundary and supersedes older resume text
+below. It records work in progress, **not** CP-0084 acceptance.
+
+- Root `d042530` freezes PLAN revision 47: Qwen3.5-0.8B then 9B, exact prompt
+  `为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？`, 100% PyPTO
+  handwritten-plus-Inductor model-forward compute, zero compute fallback,
+  repeated stability and logits/token/text reference comparison.
+- TensorIR `a48606b` and PyPTO parent `d1b90b7` contain the generic fused-graph
+  repairs: one-shot layout conversion with captured result layouts, consumer-
+  owned input materialization, fused rank-N-to-rank-2 gather projection,
+  reduction result-rank restoration, and fused gather-index producer layouts.
+  PyPTO vendors format patches `0023` through `0032` and pins the exact final
+  TensorIR SHA.
+- Final-source TensorIR FileCheck gates pass for `lazy_input_load.mlir`,
+  `gather_rows_layout.mlir`, `reduction_float.mlir`, and
+  `reduction_ud_float.mlir`. The exact QK canonical graph also passes full
+  TensorIR-to-CUDA-Tile lowering for tile `[1,1,1,1,1,32]`; the independent
+  TensorIR compiler produces an `sm_120a` Cubin. These are compiler-only facts.
+- The last exact PyPTO DSO build and CTest 13/13 are at parent `011d0f7` /
+  TensorIR `032d67a`, immediately before final gather-index commit `a48606b`.
+  Therefore **no DSO at final parent `d1b90b7` exists yet**, and the standalone
+  Cubin is not PyPTO Artifact, launch, numerical, framework or model evidence.
+- `pypto-kernels@5fbf813` adds the source-level Qwen3.5-0.8B fused QK
+  GemmaRMSNorm + partial NeoX RoPE + gate-deinterleave candidate and its
+  actual-configuration numerical reference. `pypto-framework-plugins@0e09d51`
+  tracks the canonical module. Operator structure passes 13/13, plugin tests
+  pass 91/91, and Ruff/diff checks pass. README deliberately says
+  `待 run-pass`; GPU numerical correctness is unproven.
+- Two temporary untracked diagnostics remain in `projects/pypto-kernels`:
+  `benchmarks/probe_qk_compile_sm120.py` (final target tile/current model cache
+  shape) and `benchmarks/probe_qk_gdb.py`. Do not commit them; remove them only
+  after the focused gate closes. `benchmarks/classify_results.json` still
+  records the earlier failed candidate and must be regenerated, not promoted.
+
+The final DSO rebuild did not start because the protected external ZCode
+9B/TP4 and gem5 lanes held `MemAvailable` near 19.5 GiB. The reviewed CPU-v2
+controller and canonical manifest pass 55/55 tests, but its exact admission is
+22 GiB; a ten-minute read-only monitor never reached it. No external PID was
+signalled. Resume only after `MemAvailable >= 23068672 KiB` with:
+
+```bash
+env -i PATH=/usr/bin:/bin \
+  envs/pypto-nvidia/bin/python -E -B -S \
+  tools/run_pypto_cpu_coexistence_v2_isolated.py \
+  --run-id-file runs/next-qk-final-build.json \
+  --timeout-seconds 500 --minimum-free-disk-gib 64 -- \
+  cmake --build \
+  /home/zhaosiying/pypto-love-tensor-ir/builds/pypto-opext-on-a589f79 \
+  --parallel 2
+```
+
+Then require final-head CTest 13/13, run the focused QK compile probe through
+`run_pypto_gpu_smoke_generic.py --allow-protected-zero-nvidia-gpu-smoke`, and
+run the canonical classification and execution scripts. Only a successful
+single launch with Q/K BF16 reference tolerance and exact gate copy may advance
+CP-0084. Afterward remove both temporary probes, regenerate both JSON result
+files, update the README status, commit the result boundary, and continue to
+causal paged attention. Do not claim QK performance or either model gate.
+
 **Status:** Qwen3.5 token embedding is now a real native tile row gather, not
 one-hot matmul. Canonical operator `426e373` uses explicit `@pl.jit` row/block
 ranges, `pl.read` of INT64 token IDs, dynamic `pl.load([1,128])`, one store and

@@ -1,5 +1,15 @@
 # Zero-context handover: PyPTO NVIDIA/Qwen3.5 goal
 
+> **2026-08-28 current override:** the historical 2026-08-26 resume sequence
+> below is complete and must not be replayed. Read the top section of
+> `CHECKPOINT.md` first. The live unaccepted implementation bases are root plan
+> commit `d042530` plus this later handover commit, PyPTO `d1b90b7`, TensorIR
+> `a48606b`, kernels `5fbf813`, and plugins `0e09d51`.
+> Final-source TensorIR/FileCheck/standalone-Cubin gates pass, but the exact
+> final PyPTO DSO rebuild and QK GPU numerical gate are pending a reviewed
+> 22-GiB CPU-v2 admission window. Never promote the standalone Cubin to a
+> PyPTO/runtime/model claim, and never signal the protected ZCode/gem5 lanes.
+
 Date: 2026-08-26 Asia/Shanghai. The persistent goal is active and far from
 complete. This document records the exact pause boundary; it does not narrow
 the requested end state.
