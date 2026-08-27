@@ -1,6 +1,26 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0057`
+**Checkpoint:** `CP-0058`
+
+**Status:** R0 remains open. The 0.8B precision question is partially
+resolved: BF16-aligning the eager reference at the softmax and GDN
+state boundaries moves top-1 agreement only from 69 to 72 percent
+(mean abs diff ~2.26 on +-18 logits), so the residual is NOT purely
+softmax/state rounding — the next probe is a per-layer bisection with
+the attention kernel's BF16 score path as prime suspect (commit
+`5774c3f`). The harness is now model-parameterized (derived dims,
+sharded safetensors load). 9B loads but its GDN layout differs — in_proj
+qkv 8192 = q 2048 + k 2048 + v 4096 with 32 gate groups against 16
+k-heads — so the contiguous v-head-group mapping (per the GDN V1 head
+mapping already specified in pypto-kernels) must be implemented before
+its forward runs. The D-0017 report skeleton is published
+(`docs/d0017_kernel_comparison.md`, commit `d9b3aa3`): census and
+correctness sections carry the current evidence; the performance
+section awaits exclusive-GPU timing runs. The 100 percent coverage
+dependency (upstream pinned-producer broadcast lowering) remains
+tracked at CP-0055.
+
+## Previous checkpoint (CP-0057)
 
 **Status:** R0 remains open. The 0.8B real-weight full forward is UP
 (commit `a36c649`, evidence
