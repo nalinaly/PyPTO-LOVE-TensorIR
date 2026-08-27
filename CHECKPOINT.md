@@ -1,6 +1,21 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0058`
+**Checkpoint:** `CP-0059`
+
+**Status:** R0 remains open. The 0.8B logits-residual bisection is now
+conclusive about WHERE it is not: env-switched swaps of the PyPTO path's
+attention, GDN reads, projections, and rmsnorm to eager math each move
+the gap by under 0.007 (noise), while the new per-layer trace shows the
+divergence is already 100 percent of the signal at layer 0 (maxdiff
+0.36 on absmax 0.37) — it is born inside the first GDN layer's delta
+composition. That block's output is dominated by the beta*(q.k)*v term
+(beta = softplus(b) reaches ~7 on real weights), so term-level printing
+of oR, kS, qk and beta against the eager einsums at layer-0 token-0 is
+the single recorded next step. The bisection switches and trace stay in
+the harness (commit on top of `5774c3f`). 9B's contiguous-value-head-
+groups mapping and the D-0017 timing section remain queued behind this.
+
+## Previous checkpoint (CP-0058)
 
 **Status:** R0 remains open. The 0.8B precision question is partially
 resolved: BF16-aligning the eager reference at the softmax and GDN
