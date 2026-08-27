@@ -16,10 +16,11 @@ _VALUE_TILE = 64
 _lock = threading.RLock()
 _cache: dict[tuple[int, int, int, int], str] = {}
 _paged_decode_cache: dict[tuple[int, int, int, int, int, int, int], str] = {}
+_paged_cache_write_cache: dict[tuple[int, int], str] = {}
 
 STATUS = "native-tile executable"
 PAGED_DECODE_STATUS = "native-tile source candidate"
-GRAPHS = 2
+GRAPHS = 3
 
 
 @pl.jit
@@ -175,6 +176,33 @@ def paged_attention_decode_kernel(
             mixed = pl.matmul(probability_bf16, values, out_dtype=pl.FP32)
             result = pl.cast(mixed, target_type=pl.BF16)
             pl.store(result, [q_head, 0], out)
+    return out
+
+
+@pl.jit
+def paged_cache_write_kernel(
+    key_cache: pl.InOut[pl.Tensor],
+    value_cache: pl.InOut[pl.Tensor],
+    physical_row: pl.Tensor,
+    key: pl.Tensor,
+    value: pl.Tensor,
+    out: pl.Out[pl.Tensor],
+):
+    """Write one flattened GQA K/V row to the selected physical cache slot."""
+
+    with pl.at(level=pl.Level.CORE_GROUP):
+        physical_row_i64 = pl.read(physical_row, [0, 0])
+        physical_row_i32 = pl.cast(physical_row_i64, pl.INT32)
+        key_tile = pl.load(
+            key, [0, 0], [1, key.shape[1]], target_memory=pl.MemorySpace.Vec
+        )
+        value_tile = pl.load(
+            value, [0, 0], [1, value.shape[1]], target_memory=pl.MemorySpace.Vec
+        )
+        pl.store(key_tile, [physical_row_i32, 0], key_cache)
+        pl.store(value_tile, [physical_row_i32, 0], value_cache)
+        anchor = pl.add(key_tile, value_tile)
+        pl.store(anchor, [0, 0], out)
     return out
 
 
@@ -337,6 +365,43 @@ def compile_paged_decode_for(
     return graph_key
 
 
+def _validate_paged_cache_write_shape(cache_rows: int, row_width: int) -> None:
+    if cache_rows <= 0 or row_width <= 0 or row_width % 128:
+        raise ValueError(
+            "paged cache write needs positive dimensions and row width "
+            "divisible by 128"
+        )
+
+
+def build_paged_cache_write(cache_rows: int, row_width: int) -> Any:
+    _validate_paged_cache_write_shape(cache_rows, row_width)
+    import torch
+
+    key_cache = torch.empty(
+        (cache_rows, row_width), dtype=torch.bfloat16, device="meta"
+    )
+    value_cache = torch.empty_like(key_cache)
+    physical_row = torch.empty((1, row_width), dtype=torch.int64, device="meta")
+    key = torch.empty((1, row_width), dtype=torch.bfloat16, device="meta")
+    value = torch.empty_like(key)
+    out = torch.empty_like(key)
+    return paged_cache_write_kernel.specialize(
+        key_cache, value_cache, physical_row, key, value, out
+    )
+
+
+def compile_paged_cache_write_for(cache_rows: int, row_width: int) -> str:
+    _validate_paged_cache_write_shape(cache_rows, row_width)
+    shape_key = (cache_rows, row_width)
+    cached = _paged_cache_write_cache.get(shape_key)
+    if cached is not None:
+        return cached
+    graph_key = compile_graph(build_paged_cache_write(*shape_key), [128])
+    with _lock:
+        _paged_cache_write_cache[shape_key] = graph_key
+    return graph_key
+
+
 def attention(query: Any, key: Any, value: Any, stream: Any = None) -> Any:
     """Return dense attention from one native tile graph launch."""
 
@@ -464,6 +529,74 @@ def paged_attention_decode(
             req_to_token,
             request_index.as_strided((1, tokens), (0, 0)),
             valid_tokens.as_strided((1, tokens), (0, 0)),
+            out,
+        ),
+        stream.cuda_stream,
+    )
+    return out
+
+
+def paged_cache_write(
+    key_cache: Any,
+    value_cache: Any,
+    physical_row: Any,
+    key: Any,
+    value: Any,
+    *,
+    stream: Any = None,
+) -> Any:
+    """Write one K/V row through a mutation-declared PyPTO graph."""
+
+    import torch
+
+    if (
+        key_cache.ndim != 2
+        or value_cache.ndim != 2
+        or key_cache.dtype is not torch.bfloat16
+        or value_cache.dtype is not torch.bfloat16
+        or not key_cache.is_contiguous()
+        or not value_cache.is_contiguous()
+        or tuple(key_cache.shape) != tuple(value_cache.shape)
+    ):
+        raise ValueError("paged cache write needs matching contiguous rank-2 BF16 caches")
+    if (
+        key.ndim != 2
+        or value.ndim != 2
+        or key.dtype is not torch.bfloat16
+        or value.dtype is not torch.bfloat16
+        or not key.is_contiguous()
+        or not value.is_contiguous()
+        or tuple(key.shape) != tuple(value.shape)
+        or int(key.shape[0]) != 1
+    ):
+        raise ValueError("paged cache write needs matching one-row contiguous BF16 updates")
+    if (
+        physical_row.ndim != 1
+        or physical_row.numel() != 1
+        or physical_row.dtype is not torch.int64
+        or not physical_row.is_contiguous()
+    ):
+        raise ValueError("paged cache write physical row must be one INT64 element")
+    cache_rows, row_width = map(int, key_cache.shape)
+    if tuple(key.shape) != (1, row_width):
+        raise ValueError("paged cache write update width must match the cache row")
+    if any(
+        tensor.device != key_cache.device
+        for tensor in (value_cache, physical_row, key, value)
+    ):
+        raise ValueError("paged cache write tensors must share one device")
+    if stream is None:
+        stream = torch.cuda.current_stream(key_cache.device)
+    graph_key = compile_paged_cache_write_for(cache_rows, row_width)
+    out = torch.empty_like(key)
+    launch_graph(
+        graph_key,
+        (
+            key_cache,
+            value_cache,
+            physical_row.as_strided((1, row_width), (0, 0)),
+            key,
+            value,
             out,
         ),
         stream.cuda_stream,

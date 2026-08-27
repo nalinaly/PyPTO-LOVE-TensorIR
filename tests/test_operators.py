@@ -23,7 +23,7 @@ from pypto_kernels import (
 
 
 def test_each_operator_is_one_program():
-    assert attention.GRAPHS == 2  # dense control + paged decode
+    assert attention.GRAPHS == 3  # dense + paged decode + paged cache write
     assert all(
         graphs == 1
         for graphs in (
@@ -195,6 +195,19 @@ def test_paged_attention_decode_gathers_physical_kv_rows_in_one_graph():
     assert "pl.range(16)" in large_model_rendered
     assert large_model_rendered.count("pl.tile.gather_row") == 2
     assert large_model_rendered.count("pl.tile.matmul") == 2
+
+
+def test_paged_cache_write_declares_mutation_and_one_graph():
+    program = attention.build_paged_cache_write(1024, 512)
+    rendered = str(program)
+    fn = _one_program(program)
+    assert len(fn.body.stmts) == 2
+    assert rendered.count("pl.InOut[") == 2
+    assert rendered.count("pl.tensor.read") == 1
+    assert "pl.cast" in rendered
+    assert rendered.count("pl.tile.load") == 2
+    assert rendered.count("pl.tile.store") == 3
+    assert "pl.tile.add" in rendered
 
 
 def test_linear_is_one_native_tile_graph():
