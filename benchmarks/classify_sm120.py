@@ -17,6 +17,7 @@ sys.path.insert(
 from pypto_kernels._boot import DSO_PATH, bootstrap, classify  # noqa: E402
 from pypto_kernels import (  # noqa: E402
     attention,
+    causal_conv1d,
     fused_add_rmsnorm,
     gdn,
     gated_rmsnorm,
@@ -35,6 +36,7 @@ def main() -> int:
             [1, 128],
         ),
         ("gated_rmsnorm", gated_rmsnorm.build(256, 128), [1, 128]),
+        ("causal_conv1d", causal_conv1d.build(2048, 64), [128, 1]),
         ("rope", rope.build(256, 64), [1, 1, 64]),
         ("attention", attention.build(32, 128, 128, 128), [1, 64]),
         ("linear", linear.build(32, 1024, 1024), [1, 128]),

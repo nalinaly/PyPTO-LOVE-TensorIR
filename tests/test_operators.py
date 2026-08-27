@@ -8,6 +8,7 @@ import torch
 
 from pypto_kernels import (
     attention,
+    causal_conv1d,
     fused_add,
     fused_add_rmsnorm,
     gdn,
@@ -30,6 +31,7 @@ def test_each_operator_is_one_program():
             rmsnorm.GRAPHS,
             rope.GRAPHS,
             attention.GRAPHS,
+            causal_conv1d.GRAPHS,
             linear.GRAPHS,
             gdn.GRAPHS,
             gdn.UPDATE_GRAPHS,
@@ -94,6 +96,21 @@ def test_gated_rmsnorm_is_one_complete_native_tile_graph():
     assert rendered.count("pl.tile.store") == 1
     assert "tensor." not in rendered
     result = gated_rmsnorm.status(rows=2, columns=128)
+    assert result["status"] == "compiled", result
+
+
+def test_causal_conv1d_prefill_is_one_native_tile_graph():
+    program = causal_conv1d.build(128, 8)
+    rendered = str(program)
+    assert len(_one_program(program).body.stmts) == 2
+    assert rendered.count("pl.tile.load") == 2
+    assert rendered.count("pl.tile.full") == 3
+    assert rendered.count("pl.tile.concat") == 3
+    assert rendered.count("pl.tile.row_expand_mul") == 4
+    assert "pl.tile.exp" in rendered and "pl.tile.recip" in rendered
+    assert rendered.count("pl.tile.store") == 1
+    assert "tensor." not in rendered
+    result = causal_conv1d.status(channels=128, tokens=8)
     assert result["status"] == "compiled", result
 
 
@@ -184,6 +201,7 @@ if __name__ == "__main__":
     test_rmsnorm_uses_native_tile_reduction()
     test_fused_add_rmsnorm_is_one_native_tile_graph_with_two_outputs()
     test_gated_rmsnorm_is_one_complete_native_tile_graph()
+    test_causal_conv1d_prefill_is_one_native_tile_graph()
     test_rope_is_one_native_tile_graph_and_compiled()
     test_attention_is_one_native_tile_graph_and_compiled()
     test_linear_is_one_native_tile_graph_and_compiled()

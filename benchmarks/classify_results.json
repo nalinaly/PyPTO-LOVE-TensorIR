@@ -29,6 +29,15 @@
    ]
   },
   {
+   "case": "causal_conv1d",
+   "key": "86ab50e64abbcd6f",
+   "status": "compiled",
+   "tiles": [
+    128,
+    1
+   ]
+  },
+  {
    "case": "rope",
    "key": "3579a519c398d778",
    "status": "compiled",
@@ -76,9 +85,9 @@
    ]
   }
  ],
- "dso_sha256": "9b3c26b481d8ef62f257062d27aa2d4882b524d03734fdbd6777150ce659593b",
+ "dso_sha256": "f0d5d1da7eb03699f30c69f879228ee3cf811f9652fc1c20487e8ce7b60b26b8",
  "kind": "pypto-kernels-classify-sm120",
- "pypto_commit": "e364baefc4a76c8b87b9c870a7b490a8aab40dd9",
- "run_id": "pypto-20260827T145543Z-495219-577efd",
+ "pypto_commit": "8d4c66d6cafdf0fae8e5cbcf17b5180bc9ea3119",
+ "run_id": "pypto-20260827T151438Z-509384-8c64ca",
  "schema": 2
 }

@@ -21,6 +21,7 @@ ones-matmul 广播展开。仅仅用整张量 `tensor.*` graph 再附加 schedul
 | `gdn_state_update` | 1 | **原生 tile** ✅ | state/decay/beta/value 分块 load，tile 内 outer-product 更新，一次 launch |
 | `gated_rmsnorm` | 1 | **原生 tile** ✅ | GDN `RMSNorm(x,weight) * SiLU(gate)` 单图/单 launch |
 | `attention` | 1 | **原生 tile 核心** ✅ | QK→稳定 softmax→PV 全在一个图；一次 launch；paged/causal serving 扩展仍待接入 |
+| `causal_conv1d` | 1 | **原生 tile** ✅ | GDN width-4 zero-initial prefill conv + SiLU；一次 launch |
 
 CP-0062 已关闭 broadcast producer 阻塞；分类证据在
 `benchmarks/classify_results.json`。`compiled` 与 GPU 数值 `all_correct`

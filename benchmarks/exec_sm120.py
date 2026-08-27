@@ -15,6 +15,7 @@ import torch
 from pypto_kernels._boot import DSO_PATH, bootstrap
 from pypto_kernels import (
     attention,
+    causal_conv1d,
     fused_add,
     fused_add_rmsnorm,
     gdn,
@@ -139,6 +140,40 @@ def main() -> int:
             "max_abs_diff": float((gated_out.float() - gated_ref).abs().max()),
             "correct": bool(
                 torch.allclose(gated_out.float(), gated_ref, rtol=5e-2, atol=5e-2)
+            ),
+        }
+    )
+
+    conv_channels, conv_tokens = 2048, 64
+    conv_x = (
+        torch.randn(
+            conv_channels,
+            conv_tokens,
+            device="cuda",
+            dtype=torch.bfloat16,
+        )
+        * 0.2
+    )
+    conv_weight = (
+        torch.randn(conv_channels, 4, device="cuda", dtype=torch.bfloat16) * 0.2
+    )
+    conv_out = causal_conv1d.causal_conv1d(conv_x, conv_weight, stream=stream)
+    stream.synchronize()
+    conv_linear = torch.nn.functional.conv1d(
+        conv_x.float().unsqueeze(0),
+        conv_weight.float().unsqueeze(1),
+        padding=3,
+        groups=conv_channels,
+    )[..., :conv_tokens].squeeze(0)
+    conv_ref = torch.nn.functional.silu(conv_linear)
+    cases.append(
+        {
+            "case": "causal_conv1d_bf16 2048x64 width4",
+            "implementation": "native-tile-dsl",
+            "launches": 1,
+            "max_abs_diff": float((conv_out.float() - conv_ref).abs().max()),
+            "correct": bool(
+                torch.allclose(conv_out.float(), conv_ref, rtol=5e-2, atol=5e-2)
             ),
         }
     )
@@ -285,6 +320,7 @@ def main() -> int:
             "rmsnorm",
             "fused_add_rmsnorm",
             "gated_rmsnorm",
+            "causal_conv1d",
             "rope",
             "attention",
             "linear",
