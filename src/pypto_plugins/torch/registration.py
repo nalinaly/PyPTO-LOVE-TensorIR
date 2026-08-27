@@ -26,6 +26,45 @@ from .dispatch import (
 _lock = threading.Lock()
 _snapshot: DeviceCodegenSnapshot | None = None
 _installed = False
+_original_triton_hash_with_backend: Any = None
+
+PYPTO_BACKEND_HASH = "pypto-sm120-fused-pointwise-v2-v1"
+
+
+def _pypto_triton_hash_with_backend() -> str:
+    """Stable backend hash inside PyPTO mode; original outside it."""
+
+    from .context import current_mode
+
+    if current_mode() is None:
+        assert _original_triton_hash_with_backend is not None
+        return _original_triton_hash_with_backend()
+    return PYPTO_BACKEND_HASH
+
+
+def _install_triton_hash_guard() -> None:
+    """Stop inductor's autotune-cache backend hash from touching Triton."""
+
+    global _original_triton_hash_with_backend
+    import torch.utils._triton as torch_triton
+
+    if getattr(torch_triton, "_pypto_hash_guard", False):
+        return
+    _original_triton_hash_with_backend = torch_triton.triton_hash_with_backend
+    torch_triton.triton_hash_with_backend = _pypto_triton_hash_with_backend
+    torch_triton._pypto_hash_guard = True
+
+
+def _uninstall_triton_hash_guard() -> None:
+    global _original_triton_hash_with_backend
+    import torch.utils._triton as torch_triton
+
+    if not getattr(torch_triton, "_pypto_hash_guard", False):
+        return
+    assert _original_triton_hash_with_backend is not None
+    torch_triton.triton_hash_with_backend = _original_triton_hash_with_backend
+    delattr(torch_triton, "_pypto_hash_guard")
+    _original_triton_hash_with_backend = None
 
 
 def _common_module() -> Any:
@@ -106,6 +145,7 @@ def install() -> DeviceCodegenSnapshot:
             dispatch.cpp_wrapper_codegen,
             dispatch.fx_wrapper_codegen,
         )
+        _install_triton_hash_guard()
         _snapshot = snapshot
         _installed = True
         return snapshot
@@ -125,6 +165,7 @@ def uninstall() -> None:
             _snapshot.cpp_wrapper_codegen,
             _snapshot.fx_wrapper_codegen,
         )
+        _uninstall_triton_hash_guard()
         _snapshot = None
         _installed = False
 
