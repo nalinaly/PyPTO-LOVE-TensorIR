@@ -648,6 +648,21 @@ production; its report stays immutable.
   exact GPU-adapter hash gate and reverted in `7ecc197`; D-0016 now requires a
   separate CPU-only policy-v2 adapter. Existing 24 GiB controls and evidence are
   unchanged and remain authoritative until that adapter is implemented.
+- The TorchInductor PyPTO plugin now has its first two executable layers
+  under D-0018 gates. `pypto_plugins.torch.pointwise_codegen` (plugin
+  commit 6b5553a) binds the exact pypto_core DSO, builds bounded
+  FusedPointwiseV2 HIR programs from the plugin side, and compiles
+  deterministic non-fallback SM120 Cubin artifacts (FP32/BF16, three
+  focused tests green). `pypto_plugins.torch.registration` (f3ccfb2)
+  captures the pinned CUDA DeviceCodegen after init_backend_registration,
+  resolves the configured scheduling class through its closure, subclasses
+  it with strict PyPTO pointwise routing (other templates fail closed),
+  and swaps the CUDA slot through the reviewed dispatcher pair with exact
+  uninstall (two registration tests green; delegation outside PyPTO mode
+  is the untouched original). A CPU torch.compile smoke confirms the
+  registration is inert outside PyPTO mode; the CUDA scheduling route
+  needs the GPU lane for its first real exercise, and the expression-tree
+  translation currently compiles the identity chain (marked gap).
 - StructuredMatmulV4 host compiler/Cubin evidence is complete under D-0018
   gates. The replay worktree (branch feature/structured-matmul-v4-replay)
   cherry-picked 6ee412a then d755117 onto 62eb882 with the one documented
