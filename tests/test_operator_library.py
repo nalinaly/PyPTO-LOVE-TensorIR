@@ -28,7 +28,7 @@ def test_canonical_operator_package_is_native_tile_only() -> None:
         "embedding": 1,
         "fused_add_rmsnorm": 1,
         "gated_rmsnorm": 1,
-        "gdn": 2,
+        "gdn": 1,
         "linear": 1,
         "qk_rmsnorm_rope": 1,
         "rmsnorm": 1,

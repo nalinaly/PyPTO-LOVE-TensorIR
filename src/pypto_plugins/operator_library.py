@@ -98,9 +98,9 @@ def _graph_count(module: object, source: Path) -> int:
             f"{module.__name__} has an invalid update graph count"
         )
     if module.__name__.endswith(".gdn"):
-        if update != 1:
+        if update != 0:
             raise FrameworkCompatibilityError(
-                "pypto_kernels.gdn must expose one read graph and one update graph"
+                "pypto_kernels.gdn must expose one mutation-declared recurrent graph"
             )
     elif update:
         raise FrameworkCompatibilityError(
