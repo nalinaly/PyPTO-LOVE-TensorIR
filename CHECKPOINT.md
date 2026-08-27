@@ -648,6 +648,20 @@ production; its report stays immutable.
   exact GPU-adapter hash gate and reverted in `7ecc197`; D-0016 now requires a
   separate CPU-only policy-v2 adapter. Existing 24 GiB controls and evidence are
   unchanged and remain authoritative until that adapter is implemented.
+- The pointwise expression-tree translation is live. An ops recorder
+  replays the Inductor node body against a recording handler: loads become
+  FusedPointwiseV2 inputs, the ten registered tensor ops rebuild the exact
+  chain (scalar forms for constants), stores become outputs, richer
+  operators fail closed. The wrapper emission allocates output buffers and
+  passes real argument names with the raw current stream. GPU runs
+  `pypto-20260827T004233Z-28000-301f59`, `004308Z-28273-6a576f` and
+  `004345Z-28659-88f0d1` (policy-2 lane) compile `(x+y)*2.0` with zero
+  Triton into entry `pypto_fused_pointwise_v2`, Cubin SHA
+  `c4ffcb54b53c3ccb24a833e5670bcf4aed49ebd429d526a49ed51d57f215a050` —
+  distinct from the identity-chain Cubin `23433918...` and byte-stable
+  across runs — and the executed wrapper reaches
+  `pypto_launch(arg0_1, arg1_1, buf0, raw_stream0)`, which fails closed
+  through the pending runtime bridge by design. Five plugin tests green.
 - `torch.compile(x+y)` on CUDA now compiles with ZERO Triton in strict
   PyPTO mode. The residual Triton touch was not a kernel node: the pinned
   `autotune_cache.inductor_meta_from_config ->
