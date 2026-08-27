@@ -1,6 +1,34 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0054`
+**Checkpoint:** `CP-0055`
+
+**Status:** R0 remains open. Two results this round. First, the GDN
+state update S' = diag(decay) S + (beta k) (x) v has now been argued
+UNDECOMPOSABLE under the verified primitive set: the update's terms are
+rank-1 (outer product) and row-scale (diag) shapes, and both equal
+matmuls with K=1, which the structured matmul's K % 128 == 0 constraint
+excludes; pointwise cannot change shape and reductions only contract.
+The chunked 128-token K^T @ V form satisfies the matmul constraint for
+the outer-product SUM, but the within-chunk cumulative decay weights and
+the cross-chunk carry still reduce to the same K=1 broadcasts (the
+ones-matmul row-sum expansion replicates sums, not per-element values).
+Lifting this requires broadcast-capable lowering in the pinned TensorIR
+producer — a pinned-3rdparty change outside this workspace's authority —
+so the GDN state update remains the single metered torch fallback.
+Second, the Qwen3.5-0.8B real-shape layer composition harness
+(`benchmarks/operators/pypto_qwen35_layer_forward_sm120.py`, commit
+`72fe3ed`) runs one full-attention layer and one GDN layer end-to-end on
+the model's actual dimensions (hidden 1024, 8x128 attention heads, 16
+kv-heads x 128 GDN, 24 layers at 3:1): 1313 PyPTO kernels execute, 256
+GDN-update fallbacks, a 83.7 percent PyPTO kernel ratio, with per-shape
+compile caching added to the GDN module. Per-kernel numerical
+acceptance lives in the family harnesses (CP-0052/0053/0054); the
+composition gate proves execution and census on real shapes (synthetic
+random weights compound beyond BF16 range, recorded as informational).
+Next: the SGLang plugin routing on top of this census, the full 0.8B
+forward, then 9B and the D-0017 comparison.
+
+## Previous checkpoint (CP-0054)
 
 **Status:** R0 remains open. pypto-kernels now covers the GDN decode
 READ path (commit `67f0765`): out = (q*decay) @ S + (q . (softplus(g)*k))
