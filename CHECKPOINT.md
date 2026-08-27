@@ -28,7 +28,7 @@ below. It records work in progress, **not** CP-0084 acceptance.
   Cubin is not PyPTO Artifact, launch, numerical, framework or model evidence.
 - `pypto-kernels@5fbf813` adds the source-level Qwen3.5-0.8B fused QK
   GemmaRMSNorm + partial NeoX RoPE + gate-deinterleave candidate and its
-  actual-configuration numerical reference. Current kernels `59da538` add a
+  actual-configuration numerical reference. Current kernels `a477db8` add a
   static-batch paged-decode source candidate that reads virtual slots directly
   from SGLang's INT32 request table, resolves them through an INT64
   virtual-to-physical table inside the same PyPTO graph and applies a separate
@@ -40,7 +40,7 @@ below. It records work in progress, **not** CP-0084 acceptance.
   static cache-write loop family. A fourth attention graph expresses
   one-request causal prefill over a radix prefix, reusing gathered K/V per KV
   head and translating all page-size-one slots in graph.
-  Current plugins `28b16b7` add a pinned-source SGLang adapter for those three
+  Current plugins `eba17b7` add a pinned-source SGLang adapter for those three
   paged phases. It routes cache-write plus batch decode or cache-write plus
   one-request causal prefill, but the factory remains fail-closed while the
   operators are source candidates. Direct pools use a startup identity table;
@@ -48,7 +48,7 @@ below. It records work in progress, **not** CP-0084 acceptance.
   external GPU translation, restricted to page size and kernel multiplier one.
   Quantized/non-NHD caches, speculative or mixed modes and CUDA graphs still
   fail rather than fall back. Operator structure passes 17/17, plugin tests
-  pass 96/96, and focused Ruff/diff checks pass.
+  pass 98/98, and focused Ruff/diff checks pass.
   Classification now includes both `8Q/2KV` and `16Q/4KV`; the future
   execution gate includes a non-full `valid=13/bucket=16` case, the 9B geometry
   and a two-request `(valid13,valid7)` case with distinct request rows. Slot 0
@@ -63,7 +63,7 @@ below. It records work in progress, **not** CP-0084 acceptance.
 - Primary `projects/pypto` remains clean at `d1b90b7` for the pending QK DSO
   rebuild. Paged-decode compiler work is isolated in
   `worktrees/pypto-paged-decode` on
-  `feature/paged-decode-sm120@17dae49`; it preserves non-dense runtime strides
+  `feature/paged-decode-sm120@e85c1ed`; it preserves non-dense runtime strides
   in JIT TensorMeta, generated ND TensorViews and cache keys, then recognizes the native
   request-table-read/`tile.gather_row`/GQA/masked-softmax graph under an outer
   static batch loop, the strict static-loop `InOut` cache-write graph and the
@@ -115,6 +115,22 @@ below. It records work in progress, **not** CP-0084 acceptance.
   masks, mixed batches and CUDA-graph metadata remain absent. All three
   compiler paths and the SGLang adapter are source-only; none is an
   SGLang/model attention result.
+- The same isolated PyPTO branch now contains source-only single-graph GDN and
+  stateful causal-convolution emitters. Current kernels replace the former
+  split BF16 read/update approximation with one `[B,T]` recurrent graph that
+  matches pinned SGLang ordering: Q/K L2 normalization, stable
+  `-exp(A_log)*softplus(a+dt_bias)` decay, BF16-rounded sigmoid beta, FP32
+  `[V,K]` state correction/outer-product InOut update and BF16 output. `T=1`
+  covers batch decode and `B=1` covers ordered prefill. The width-four conv
+  graph likewise reads and updates the nonzero BF16 `[D,3]` slot history with
+  FP32 accumulation and SiLU in one launch. Future SM120 gates compare both
+  outputs and final states, with INT32/INT64 slot-index cases and row-pitched
+  state pools; none has run. Plugin `eba17b7` adds a zero-diff GDN wrapper but
+  keeps it closed until both operator statuses become executable. Its first
+  supported lane explicitly disables CUDA graphs, speculative decoding,
+  radix/state checkpoints and ReplaySSM; generic StateBundle zero/copy and
+  broader prefill batching remain open. This is not GDN, state-continuity or
+  model evidence.
 - Two temporary untracked diagnostics remain in `projects/pypto-kernels`:
   `benchmarks/probe_qk_compile_sm120.py` (final target tile/current model cache
   shape) and `benchmarks/probe_qk_gdb.py`. Do not commit them; remove them only
