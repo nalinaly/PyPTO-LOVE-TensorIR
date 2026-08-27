@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "kind": "pypto-v2-broadcast-into-pointwise-l0",
+  "generated_at": "2026-08-27T19:11:53+08:00",
+  "tensor_ir": {
+    "branch": "feature/pypto-broadcast-pointwise",
+    "commit": "d540d54760de9ed5e112088d27cc0eded9ccbb14",
+    "patch": "projects/pypto/3rdparty/nvidia/0001-Lower-zero-stride-broadcast-view-tensor-ir-broadcast.patch",
+    "patch_reverse_apply_check": true
+  },
+  "pypto": {
+    "branch": "feature/nvidia-sm120",
+    "commit": "5ddf1e7f231d946af6b5e38eccb8955f71d71b3f",
+    "broadcast_source_form": "physical unit-extent input plus explicit TensorIR broadcast",
+    "fused_pointwise_schedule": "one flattened tile or one tile per static tensor dimension",
+    "producer_cubin_golden": true
+  },
+  "dso": {
+    "path": "builds/pypto-opext-on-a589f79/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "sha256": "2078af34ffb20ce5db24dd28a563a4663b404430dcbf55cc10449421e9502489",
+    "bytes": 784988328,
+    "build_run_id": "pypto-20260827T110853Z-373962-294400"
+  },
+  "regression": {
+    "build_all_run_id": "pypto-20260827T110959Z-374524-5e0f11",
+    "ctest_run_id": "pypto-20260827T111036Z-374944-150825",
+    "ctest_passed": 13,
+    "ctest_total": 13,
+    "broadcast_goldens": [
+      "PyPTO explicit broadcast canonical source",
+      "multidimensional FusedPointwiseV2 schedule and grid ABI",
+      "private producer BF16 broadcast-into-pointwise Cubin"
+    ]
+  },
+  "push": {
+    "remote": "https://github.com/hw-native-sys/pypto.git",
+    "attempted": true,
+    "succeeded": false,
+    "exit_code": 128,
+    "error": "GnuTLS, handshake failed: The TLS connection was non-properly terminated.",
+    "owner": "user or environment network credentials"
+  },
+  "safety": {
+    "protected_processes_signalled": false,
+    "upstream_zero_diff": true,
+    "v1_modified": false,
+    "model_harness_modified": false
+  }
+}

@@ -1,6 +1,25 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0061`
+**Checkpoint:** `CP-0062`
+
+**Status:** The v2 operator lane's T1 broadcast critical path is closed. TensorIR
+`d540d54` on `feature/pypto-broadcast-pointwise` accepts zero-stride broadcast
+views and carries dialect/lowering goldens; PyPTO `5ddf1e7` emits the preferred
+physical-unit-extent plus explicit `broadcast` form, accepts either one flattened
+FusedPointwiseV2 tile or one tile per static tensor dimension, and binds the
+producer's Input0/Result0 grid-owner choices without weakening other families.
+The distributable patch is
+`projects/pypto/3rdparty/nvidia/0001-Lower-zero-stride-broadcast-view-tensor-ir-broadcast.patch`;
+the parent commit includes it plus the gitlink bump. The rebuilt exact DSO stays
+at the established path with SHA-256 `2078af34...02489`; a clean full build and
+CTest pass 13/13, including the BF16 producer Cubin broadcast golden (evidence
+`state/evidence/pypto-v2-broadcast-lowering-cp0062.json`). Parent push was
+attempted and failed before authentication with a GnuTLS handshake error, so
+remote publication remains user/environment-owned. v1, model harnesses and all
+three upstream checkouts remain untouched. Next is v2-only T2 classification
+and one-launch GPU numerical acceptance.
+
+## Previous checkpoint (CP-0061)
 
 **Status:** R0 closed for the delivered scope. The layer-23 probe
 settled the last numerical question: replacing that layer's attention
