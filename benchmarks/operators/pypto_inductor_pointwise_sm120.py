@@ -27,6 +27,9 @@ from pypto_plugins.torch.context import activate_mode  # noqa: E402
 
 
 def main() -> int:
+    import torch._inductor.config as inductor_config
+
+    inductor_config.compile_threads = 1
     common.init_backend_registration()
     registration.install()
     try:
@@ -35,7 +38,7 @@ def main() -> int:
         rhs = torch.randn(1024, device="cuda", dtype=torch.float32)
 
         def fn(x, y):
-            return x + y
+            return (x + y) * 2.0
 
         expected = fn(lhs, rhs)
         compiled = torch.compile(fn, backend="inductor", dynamic=False)

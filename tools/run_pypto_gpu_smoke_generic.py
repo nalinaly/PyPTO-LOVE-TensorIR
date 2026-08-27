@@ -214,11 +214,16 @@ def main() -> int:
         try:
             previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, handled)
             try:
+
+                def restore_child_mask() -> None:
+                    signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+
                 process = subprocess.Popen(
                     command,
                     cwd=ROOT,
                     env=environment,
                     start_new_session=True,
+                    preexec_fn=restore_child_mask,
                     pass_fds=(lease.descriptor,),
                 )
                 metadata["pid"] = process.pid
@@ -232,13 +237,27 @@ def main() -> int:
                 f"PYPTO_RUN_ID={run_id} PID={process.pid} PGID={metadata['pgid']}",
                 flush=True,
             )
-            child_code, aborted = isolation.wait_with_gpu_smoke_watchdog(
-                process,
-                metadata,
-                timeout_seconds=args.timeout_seconds,
-                minimum_free_disk_bytes=minimum_free_disk_bytes,
-                metadata_path=metadata_path,
-            )
+            try:
+                child_code, aborted = isolation.wait_with_gpu_smoke_watchdog(
+                    process,
+                    metadata,
+                    timeout_seconds=args.timeout_seconds,
+                    minimum_free_disk_bytes=minimum_free_disk_bytes,
+                    metadata_path=metadata_path,
+                )
+            except (OSError, RuntimeError) as watchdog_race:
+                # The frozen stop primitive can lose a /proc/<pid>/environ
+                # race when the leader exits between member enumeration and
+                # env verification. Treat an already-dead leader as a normal
+                # exit and re-check survivors below; never signal blindly.
+                if process.poll() is None:
+                    raise
+                print(
+                    f"generic-smoke watchdog race (leader exited): {watchdog_race}",
+                    file=sys.stderr,
+                )
+                child_code = process.wait()
+                aborted = False
             metadata["return_code"] = child_code
             metadata["aborted"] = aborted
             snapshot, violation = isolation.audit_gpu_smoke_runtime_state(metadata)
