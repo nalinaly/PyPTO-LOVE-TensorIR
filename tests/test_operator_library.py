@@ -30,6 +30,7 @@ def test_canonical_operator_package_is_native_tile_only() -> None:
         "gated_rmsnorm": 1,
         "gdn": 2,
         "linear": 1,
+        "qk_rmsnorm_rope": 1,
         "rmsnorm": 1,
         "rope": 1,
         "sigmoid_mul": 1,
