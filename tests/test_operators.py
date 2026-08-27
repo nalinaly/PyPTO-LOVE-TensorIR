@@ -171,7 +171,8 @@ def test_paged_attention_decode_gathers_physical_kv_rows_in_one_graph():
     rendered = str(program)
     assert len(_one_program(program).body.stmts) == 2
     assert "pl.range(8)" in rendered and "pl.range(16)" in rendered
-    assert rendered.count("pl.tensor.read") == 3
+    assert rendered.count("pl.tensor.read") == 4
+    assert "physical_i64" in rendered and "virtual_to_physical" in rendered
     assert "pl.cast" in rendered
     assert rendered.count("pl.tile.gather_row") == 2
     assert "transpose=True" in rendered
@@ -233,7 +234,8 @@ def test_paged_cache_write_declares_mutation_and_one_graph():
     fn = _one_program(program)
     assert len(fn.body.stmts) == 2
     assert rendered.count("pl.InOut[") == 2
-    assert rendered.count("pl.tensor.read") == 1
+    assert rendered.count("pl.tensor.read") == 2
+    assert "virtual_row_i64" in rendered and "virtual_to_physical" in rendered
     assert "pl.cast" in rendered
     assert rendered.count("pl.tile.load") == 2
     assert rendered.count("pl.tile.store") == 3
@@ -255,7 +257,8 @@ def test_paged_prefill_is_one_causal_gqa_graph():
     assert "pl.range(queries_per_kv)" in rendered
     assert "pl.range(13)" in rendered
     assert "pl.range(16)" in rendered
-    assert rendered.count("pl.tensor.read") == 3
+    assert rendered.count("pl.tensor.read") == 4
+    assert "physical_i64" in rendered and "virtual_to_physical" in rendered
     assert rendered.count("pl.tile.gather_row") == 2
     assert rendered.count("pl.tile.matmul") == 2
     assert "pl.tile.cmps" in rendered and "pl.tile.sels" in rendered

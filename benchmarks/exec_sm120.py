@@ -421,18 +421,30 @@ def main() -> int:
         request_index = torch.arange(
             7, 7 + batch_size, device="cuda", dtype=torch.int64
         )
-        selected_pool = (
+        physical_pool = (
             torch.randperm(cache_rows - 1, device="cuda")[: sum(valid_counts)] + 1
         )
+        virtual_pool = torch.arange(
+            1, 1 + sum(valid_counts), device="cuda", dtype=torch.int64
+        )
+        virtual_to_physical = torch.arange(
+            cache_rows, device="cuda", dtype=torch.int64
+        )
+        virtual_to_physical[virtual_pool] = physical_pool
         selected_by_batch = []
+        virtual_by_batch = []
         selected_offset = 0
         for batch_row, valid_count in enumerate(valid_counts):
-            selected = selected_pool[
+            selected = physical_pool[
+                selected_offset : selected_offset + valid_count
+            ].contiguous()
+            virtual = virtual_pool[
                 selected_offset : selected_offset + valid_count
             ].contiguous()
             selected_offset += valid_count
             selected_by_batch.append(selected)
-            req_to_token[7 + batch_row, :valid_count] = selected.to(torch.int32)
+            virtual_by_batch.append(virtual)
+            req_to_token[7 + batch_row, :valid_count] = virtual.to(torch.int32)
         valid_tokens = torch.tensor(
             valid_counts, device="cuda", dtype=torch.int64
         )
@@ -448,14 +460,16 @@ def main() -> int:
             )
             * 0.2
         )
-        physical_row = torch.stack(
-            [selected[-1] for selected in selected_by_batch]
+        virtual_row = torch.stack(
+            [selected[-1] for selected in virtual_by_batch]
         ).contiguous()
+        physical_row = virtual_to_physical[virtual_row]
         torch.cuda.synchronize()
         write_anchor = attention.paged_cache_write(
             key_cache,
             value_cache,
-            physical_row,
+            virtual_row,
+            virtual_to_physical,
             current_key,
             current_value,
             stream=stream,
@@ -494,6 +508,7 @@ def main() -> int:
             req_to_token,
             request_index,
             valid_tokens,
+            virtual_to_physical,
             kv_heads=kv_heads,
             bucket_tokens=bucket_tokens,
             stream=stream,
@@ -564,6 +579,7 @@ def main() -> int:
     )
     prefill_value_cache = torch.randn_like(prefill_key_cache)
     prefill_physical = torch.randperm(1023, device="cuda")[:prefill_rows] + 1
+    prefill_v2p = torch.arange(1024, device="cuda", dtype=torch.int64)
     prefill_key = torch.randn(
         prefill_rows, prefill_width, device="cuda", dtype=torch.bfloat16
     )
@@ -573,6 +589,7 @@ def main() -> int:
         prefill_key_cache,
         prefill_value_cache,
         prefill_physical,
+        prefill_v2p,
         prefill_key,
         prefill_value,
         stream=stream,
@@ -655,7 +672,14 @@ def main() -> int:
         )
         valid_total = prefix_count + query_rows
         selected = torch.randperm(cache_rows - 1, device="cuda")[:valid_total] + 1
-        req_to_token[request_row, :valid_total] = selected.to(torch.int32)
+        virtual = torch.arange(
+            1, valid_total + 1, device="cuda", dtype=torch.int64
+        )
+        virtual_to_physical = torch.arange(
+            cache_rows, device="cuda", dtype=torch.int64
+        )
+        virtual_to_physical[virtual] = selected
+        req_to_token[request_row, :valid_total] = virtual.to(torch.int32)
         current_key = (
             torch.randn(
                 query_rows,
@@ -666,7 +690,7 @@ def main() -> int:
             * 0.2
         )
         current_value = torch.randn_like(current_key) * 0.2
-        current_rows = selected[prefix_count:valid_total].contiguous()
+        current_rows = virtual[prefix_count:valid_total].contiguous()
         request_index = torch.tensor(
             [request_row], device="cuda", dtype=torch.int64
         )
@@ -678,6 +702,7 @@ def main() -> int:
             key_cache,
             value_cache,
             current_rows,
+            virtual_to_physical,
             current_key,
             current_value,
             stream=stream,
@@ -690,6 +715,7 @@ def main() -> int:
             req_to_token,
             request_index,
             prefix_tokens,
+            virtual_to_physical,
             kv_heads=kv_heads,
             bucket_tokens=bucket_tokens,
             stream=stream,

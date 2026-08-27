@@ -15,9 +15,9 @@ _ROW_TILE = 1
 _VALUE_TILE = 64
 _lock = threading.RLock()
 _cache: dict[tuple[int, int, int, int], str] = {}
-_paged_decode_cache: dict[tuple[int, int, int, int, int, int, int, int, int], str] = {}
-_paged_cache_write_cache: dict[tuple[int, int, int, int], str] = {}
-_paged_prefill_cache: dict[tuple[int, int, int, int, int, int, int, int, int], str] = {}
+_paged_decode_cache: dict[tuple[int, int, int, int, int, int, int, int, int, int], str] = {}
+_paged_cache_write_cache: dict[tuple[int, int, int, int, int], str] = {}
+_paged_prefill_cache: dict[tuple[int, int, int, int, int, int, int, int, int, int], str] = {}
 
 STATUS = "native-tile executable"
 PAGED_DECODE_STATUS = "native-tile source candidate"
@@ -91,6 +91,7 @@ def paged_attention_decode_kernel(
     req_to_token: pl.Tensor,
     request_index: pl.Tensor,
     valid_tokens: pl.Tensor,
+    virtual_to_physical: pl.Tensor,
     scale: pl.FP32,
     out: pl.Out[pl.Tensor],
 ):
@@ -118,7 +119,9 @@ def paged_attention_decode_kernel(
                     target_memory=pl.MemorySpace.Mat,
                 )
                 for slot in pl.range(request_index.shape[1]):
-                    physical = pl.read(req_to_token, [request_id, slot])
+                    virtual = pl.read(req_to_token, [request_id, slot])
+                    physical_i64 = pl.read(virtual_to_physical, [virtual, 0])
+                    physical = pl.cast(physical_i64, pl.INT32)
                     cache_column = kv_head * query.shape[2]
                     keys = pl.tile.gather_row(
                         keys,
@@ -187,7 +190,8 @@ def paged_attention_decode_kernel(
 def paged_cache_write_kernel(
     key_cache: pl.InOut[pl.Tensor],
     value_cache: pl.InOut[pl.Tensor],
-    physical_row: pl.Tensor,
+    virtual_row: pl.Tensor,
+    virtual_to_physical: pl.Tensor,
     key: pl.Tensor,
     value: pl.Tensor,
     out: pl.Out[pl.Tensor],
@@ -196,7 +200,10 @@ def paged_cache_write_kernel(
 
     with pl.at(level=pl.Level.CORE_GROUP):
         for row in pl.range(key.shape[0]):
-            physical_row_i64 = pl.read(physical_row, [row, 0])
+            virtual_row_i64 = pl.read(virtual_row, [row, 0])
+            physical_row_i64 = pl.read(
+                virtual_to_physical, [virtual_row_i64, 0]
+            )
             physical_row_i32 = pl.cast(physical_row_i64, pl.INT32)
             key_tile = pl.load(
                 key,
@@ -225,6 +232,7 @@ def paged_attention_prefill_kernel(
     req_to_token: pl.Tensor,
     request_index: pl.Tensor,
     prefix_tokens: pl.Tensor,
+    virtual_to_physical: pl.Tensor,
     scale: pl.FP32,
     out: pl.Out[pl.Tensor],
 ):
@@ -255,7 +263,9 @@ def paged_attention_prefill_kernel(
                 target_memory=pl.MemorySpace.Mat,
             )
             for slot in pl.range(request_index.shape[1]):
-                physical = pl.read(req_to_token, [request_id, slot])
+                virtual = pl.read(req_to_token, [request_id, slot])
+                physical_i64 = pl.read(virtual_to_physical, [virtual, 0])
+                physical = pl.cast(physical_i64, pl.INT32)
                 cache_column = kv_head * head_dim
                 keys = pl.tile.gather_row(
                     keys,
@@ -354,6 +364,7 @@ def _validate_paged_decode_shape(
     request_rows: int,
     max_context_len: int,
     cache_row_stride: int,
+    mapping_rows: int,
 ) -> None:
     if (
         batch_size <= 0
@@ -365,6 +376,7 @@ def _validate_paged_decode_shape(
         or request_rows <= 0
         or max_context_len < tokens
         or cache_row_stride < kv_heads * head_dim
+        or mapping_rows <= 0
         or q_heads % kv_heads
         or head_dim % 128
         or tokens % 16
@@ -397,6 +409,24 @@ def _paged_cache_row_stride(
             "rows and a non-overlapping static row pitch"
         )
     return int(key_cache.stride(0))
+
+
+def _mapping_rows(virtual_to_physical: Any, *, device: Any, operation: str) -> int:
+    """Validate the page-size-one virtual-to-physical table."""
+
+    import torch
+
+    if (
+        virtual_to_physical.ndim != 1
+        or virtual_to_physical.dtype is not torch.int64
+        or not virtual_to_physical.is_contiguous()
+        or virtual_to_physical.device != device
+        or virtual_to_physical.numel() <= 0
+    ):
+        raise ValueError(
+            f"{operation} needs one contiguous device INT64 virtual-to-physical table"
+        )
+    return int(virtual_to_physical.numel())
 
 
 def build(rows: int, tokens: int, head_dim: int, value_dim: int) -> Any:
@@ -445,10 +475,13 @@ def build_paged_decode(
     request_rows: int,
     max_context_len: int,
     cache_row_stride: int | None = None,
+    mapping_rows: int | None = None,
 ) -> Any:
     cache_width = kv_heads * head_dim
     if cache_row_stride is None:
         cache_row_stride = cache_width
+    if mapping_rows is None:
+        mapping_rows = cache_rows
     _validate_paged_decode_shape(
         batch_size,
         q_heads,
@@ -459,6 +492,7 @@ def build_paged_decode(
         request_rows,
         max_context_len,
         cache_row_stride,
+        mapping_rows,
     )
     import torch
 
@@ -486,6 +520,9 @@ def build_paged_decode(
     valid_tokens = torch.empty(
         (batch_size, tokens), dtype=torch.int64, device="meta"
     )
+    virtual_to_physical = torch.empty(
+        (mapping_rows, 1), dtype=torch.int64, device="meta"
+    )
     out = torch.empty_like(query)
     return paged_attention_decode_kernel.specialize(
         query,
@@ -494,6 +531,7 @@ def build_paged_decode(
         req_to_token,
         request_index,
         valid_tokens,
+        virtual_to_physical,
         1.0 / math.sqrt(head_dim),
         out,
     )
@@ -509,10 +547,13 @@ def compile_paged_decode_for(
     request_rows: int,
     max_context_len: int,
     cache_row_stride: int | None = None,
+    mapping_rows: int | None = None,
 ) -> str:
     cache_width = kv_heads * head_dim
     if cache_row_stride is None:
         cache_row_stride = cache_width
+    if mapping_rows is None:
+        mapping_rows = cache_rows
     _validate_paged_decode_shape(
         batch_size,
         q_heads,
@@ -523,6 +564,7 @@ def compile_paged_decode_for(
         request_rows,
         max_context_len,
         cache_row_stride,
+        mapping_rows,
     )
     shape_key = (
         batch_size,
@@ -534,6 +576,7 @@ def compile_paged_decode_for(
         request_rows,
         max_context_len,
         cache_row_stride,
+        mapping_rows,
     )
     cached = _paged_decode_cache.get(shape_key)
     if cached is not None:
@@ -546,7 +589,11 @@ def compile_paged_decode_for(
 
 
 def _validate_paged_cache_write_shape(
-    cache_rows: int, update_rows: int, row_width: int, cache_row_stride: int
+    cache_rows: int,
+    update_rows: int,
+    row_width: int,
+    cache_row_stride: int,
+    mapping_rows: int,
 ) -> None:
     if (
         cache_rows <= 0
@@ -554,6 +601,7 @@ def _validate_paged_cache_write_shape(
         or row_width <= 0
         or row_width % 128
         or cache_row_stride < row_width
+        or mapping_rows <= 0
     ):
         raise ValueError(
             "paged cache write needs positive dimensions and row width "
@@ -566,11 +614,14 @@ def build_paged_cache_write(
     update_rows: int,
     row_width: int,
     cache_row_stride: int | None = None,
+    mapping_rows: int | None = None,
 ) -> Any:
     if cache_row_stride is None:
         cache_row_stride = row_width
+    if mapping_rows is None:
+        mapping_rows = cache_rows
     _validate_paged_cache_write_shape(
-        cache_rows, update_rows, row_width, cache_row_stride
+        cache_rows, update_rows, row_width, cache_row_stride, mapping_rows
     )
     import torch
 
@@ -589,13 +640,22 @@ def build_paged_cache_write(
     physical_row = torch.empty(
         (update_rows, row_width), dtype=torch.int64, device="meta"
     )
+    virtual_to_physical = torch.empty(
+        (mapping_rows, 1), dtype=torch.int64, device="meta"
+    )
     key = torch.empty(
         (update_rows, row_width), dtype=torch.bfloat16, device="meta"
     )
     value = torch.empty_like(key)
     out = torch.empty_like(key)
     return paged_cache_write_kernel.specialize(
-        key_cache, value_cache, physical_row, key, value, out
+        key_cache,
+        value_cache,
+        physical_row,
+        virtual_to_physical,
+        key,
+        value,
+        out,
     )
 
 
@@ -604,13 +664,22 @@ def compile_paged_cache_write_for(
     update_rows: int,
     row_width: int,
     cache_row_stride: int | None = None,
+    mapping_rows: int | None = None,
 ) -> str:
     if cache_row_stride is None:
         cache_row_stride = row_width
+    if mapping_rows is None:
+        mapping_rows = cache_rows
     _validate_paged_cache_write_shape(
-        cache_rows, update_rows, row_width, cache_row_stride
+        cache_rows, update_rows, row_width, cache_row_stride, mapping_rows
     )
-    shape_key = (cache_rows, update_rows, row_width, cache_row_stride)
+    shape_key = (
+        cache_rows,
+        update_rows,
+        row_width,
+        cache_row_stride,
+        mapping_rows,
+    )
     cached = _paged_cache_write_cache.get(shape_key)
     if cached is not None:
         return cached
@@ -631,6 +700,7 @@ def _validate_paged_prefill_shape(
     request_rows: int,
     max_context_len: int,
     cache_row_stride: int,
+    mapping_rows: int,
 ) -> None:
     if (
         query_rows <= 0
@@ -645,6 +715,7 @@ def _validate_paged_prefill_shape(
         or request_rows <= 0
         or max_context_len < bucket_tokens
         or cache_row_stride < kv_heads * head_dim
+        or mapping_rows <= 0
     ):
         raise ValueError(
             "paged prefill needs positive GQA geometry, a 16-token bucket, "
@@ -662,10 +733,13 @@ def build_paged_prefill(
     request_rows: int,
     max_context_len: int,
     cache_row_stride: int | None = None,
+    mapping_rows: int | None = None,
 ) -> Any:
     cache_width = kv_heads * head_dim
     if cache_row_stride is None:
         cache_row_stride = cache_width
+    if mapping_rows is None:
+        mapping_rows = cache_rows
     _validate_paged_prefill_shape(
         query_rows,
         q_heads,
@@ -676,6 +750,7 @@ def build_paged_prefill(
         request_rows,
         max_context_len,
         cache_row_stride,
+        mapping_rows,
     )
     import torch
 
@@ -703,6 +778,9 @@ def build_paged_prefill(
     prefix_tokens = torch.empty(
         (1, bucket_tokens), dtype=torch.int32, device="meta"
     )
+    virtual_to_physical = torch.empty(
+        (mapping_rows, 1), dtype=torch.int64, device="meta"
+    )
     out = torch.empty_like(query)
     return paged_attention_prefill_kernel.specialize(
         query,
@@ -711,6 +789,7 @@ def build_paged_prefill(
         req_to_token,
         request_index,
         prefix_tokens,
+        virtual_to_physical,
         1.0 / math.sqrt(head_dim),
         out,
     )
@@ -726,10 +805,13 @@ def compile_paged_prefill_for(
     request_rows: int,
     max_context_len: int,
     cache_row_stride: int | None = None,
+    mapping_rows: int | None = None,
 ) -> str:
     cache_width = kv_heads * head_dim
     if cache_row_stride is None:
         cache_row_stride = cache_width
+    if mapping_rows is None:
+        mapping_rows = cache_rows
     shape_key = (
         query_rows,
         q_heads,
@@ -740,6 +822,7 @@ def compile_paged_prefill_for(
         request_rows,
         max_context_len,
         cache_row_stride,
+        mapping_rows,
     )
     _validate_paged_prefill_shape(*shape_key)
     cached = _paged_prefill_cache.get(shape_key)
@@ -784,6 +867,7 @@ def paged_attention_decode(
     req_to_token: Any,
     request_index: Any,
     valid_tokens: Any,
+    virtual_to_physical: Any,
     *,
     kv_heads: int,
     bucket_tokens: int,
@@ -807,6 +891,9 @@ def paged_attention_decode(
         raise ValueError("paged decode query must be contiguous rank-2 BF16")
     cache_row_stride = _paged_cache_row_stride(
         key_cache, value_cache, operation="paged decode"
+    )
+    mapping_rows = _mapping_rows(
+        virtual_to_physical, device=query.device, operation="paged decode"
     )
     if (
         req_to_token.ndim != 2
@@ -861,6 +948,7 @@ def paged_attention_decode(
         request_rows,
         max_context_len,
         cache_row_stride,
+        mapping_rows,
     )
     expected_cache_shape = (cache_rows, kv_heads * head_dim)
     if tuple(key_cache.shape) != expected_cache_shape or tuple(
@@ -879,6 +967,7 @@ def paged_attention_decode(
         request_rows,
         max_context_len,
         cache_row_stride,
+        mapping_rows,
     )
     query_view = query.view(batch_size, q_heads, head_dim)
     out = torch.empty_like(query_view)
@@ -891,6 +980,7 @@ def paged_attention_decode(
             req_to_token,
             request_index.as_strided((batch_size, tokens), (1, 0)),
             valid_tokens.as_strided((batch_size, tokens), (1, 0)),
+            virtual_to_physical.view(mapping_rows, 1),
             out,
         ),
         stream.cuda_stream,
@@ -902,6 +992,7 @@ def paged_cache_write(
     key_cache: Any,
     value_cache: Any,
     physical_row: Any,
+    virtual_to_physical: Any,
     key: Any,
     value: Any,
     *,
@@ -913,6 +1004,11 @@ def paged_cache_write(
 
     cache_row_stride = _paged_cache_row_stride(
         key_cache, value_cache, operation="paged cache write"
+    )
+    mapping_rows = _mapping_rows(
+        virtual_to_physical,
+        device=key_cache.device,
+        operation="paged cache write",
     )
     if (
         key.ndim != 2
@@ -938,13 +1034,23 @@ def paged_cache_write(
         raise ValueError("paged cache write needs one physical row per update row")
     if any(
         tensor.device != key_cache.device
-        for tensor in (value_cache, physical_row, key, value)
+        for tensor in (
+            value_cache,
+            physical_row,
+            virtual_to_physical,
+            key,
+            value,
+        )
     ):
         raise ValueError("paged cache write tensors must share one device")
     if stream is None:
         stream = torch.cuda.current_stream(key_cache.device)
     graph_key = compile_paged_cache_write_for(
-        cache_rows, update_rows, row_width, cache_row_stride
+        cache_rows,
+        update_rows,
+        row_width,
+        cache_row_stride,
+        mapping_rows,
     )
     out = torch.empty_like(key)
     launch_graph(
@@ -953,6 +1059,7 @@ def paged_cache_write(
             key_cache,
             value_cache,
             physical_row.as_strided((update_rows, row_width), (1, 0)),
+            virtual_to_physical.view(mapping_rows, 1),
             key,
             value,
             out,
@@ -969,6 +1076,7 @@ def paged_attention_prefill(
     req_to_token: Any,
     request_index: Any,
     prefix_tokens: Any,
+    virtual_to_physical: Any,
     *,
     kv_heads: int,
     bucket_tokens: int,
@@ -986,6 +1094,9 @@ def paged_attention_prefill(
         raise ValueError("paged prefill query must be contiguous rank-2 BF16")
     cache_row_stride = _paged_cache_row_stride(
         key_cache, value_cache, operation="paged prefill"
+    )
+    mapping_rows = _mapping_rows(
+        virtual_to_physical, device=query.device, operation="paged prefill"
     )
     if (
         req_to_token.ndim != 2
@@ -1014,6 +1125,7 @@ def paged_attention_prefill(
             req_to_token,
             request_index,
             prefix_tokens,
+            virtual_to_physical,
         )
     ):
         raise ValueError("paged prefill tensors must share one device")
@@ -1036,6 +1148,7 @@ def paged_attention_prefill(
         request_rows,
         max_context_len,
         cache_row_stride,
+        mapping_rows,
     )
     if stream is None:
         stream = torch.cuda.current_stream(query.device)
@@ -1050,6 +1163,7 @@ def paged_attention_prefill(
             req_to_token,
             request_index.as_strided((1, bucket_tokens), (0, 0)),
             prefix_tokens.as_strided((1, bucket_tokens), (0, 0)),
+            virtual_to_physical.view(mapping_rows, 1),
             out,
         ),
         stream.cuda_stream,
