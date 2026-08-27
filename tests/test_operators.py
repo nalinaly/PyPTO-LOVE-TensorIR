@@ -11,6 +11,7 @@ from pypto_kernels import (
     fused_add,
     fused_add_rmsnorm,
     gdn,
+    gated_rmsnorm,
     linear,
     rmsnorm,
     rope,
@@ -25,6 +26,7 @@ def test_each_operator_is_one_program():
             silu_and_mul.GRAPHS,
             fused_add.GRAPHS,
             fused_add_rmsnorm.GRAPHS,
+            gated_rmsnorm.GRAPHS,
             rmsnorm.GRAPHS,
             rope.GRAPHS,
             attention.GRAPHS,
@@ -78,6 +80,20 @@ def test_fused_add_rmsnorm_is_one_native_tile_graph_with_two_outputs():
     assert rendered.count("pl.tile.store") == 2
     assert "tensor." not in rendered
     result = fused_add_rmsnorm.status(rows=2, columns=256)
+    assert result["status"] == "compiled", result
+
+
+def test_gated_rmsnorm_is_one_complete_native_tile_graph():
+    program = gated_rmsnorm.build(2, 128)
+    rendered = str(program)
+    assert len(_one_program(program).body.stmts) == 2
+    assert rendered.count("pl.tile.load") == 3
+    assert "pl.tile.row_sum" in rendered
+    assert "pl.tile.row_expand_mul" in rendered
+    assert "pl.tile.exp" in rendered and "pl.tile.recip" in rendered
+    assert rendered.count("pl.tile.store") == 1
+    assert "tensor." not in rendered
+    result = gated_rmsnorm.status(rows=2, columns=128)
     assert result["status"] == "compiled", result
 
 
@@ -167,6 +183,7 @@ if __name__ == "__main__":
     test_pointwise_operators_use_native_tile_dsl()
     test_rmsnorm_uses_native_tile_reduction()
     test_fused_add_rmsnorm_is_one_native_tile_graph_with_two_outputs()
+    test_gated_rmsnorm_is_one_complete_native_tile_graph()
     test_rope_is_one_native_tile_graph_and_compiled()
     test_attention_is_one_native_tile_graph_and_compiled()
     test_linear_is_one_native_tile_graph_and_compiled()

@@ -19,6 +19,7 @@ ones-matmul 广播展开。仅仅用整张量 `tensor.*` graph 再附加 schedul
 | `rope` | 1 | **原生 tile** ✅ | 低/高半旋转在一个图内，两个 store 合成一个结果；一次 launch |
 | `gdn_read` | 1 | **原生 tile** ✅ | state matmul、softplus、dot、delta 与相加在一个图；一次 launch |
 | `gdn_state_update` | 1 | **原生 tile** ✅ | state/decay/beta/value 分块 load，tile 内 outer-product 更新，一次 launch |
+| `gated_rmsnorm` | 1 | **原生 tile** ✅ | GDN `RMSNorm(x,weight) * SiLU(gate)` 单图/单 launch |
 | `attention` | 1 | **原生 tile 核心** ✅ | QK→稳定 softmax→PV 全在一个图；一次 launch；paged/causal serving 扩展仍待接入 |
 
 CP-0062 已关闭 broadcast producer 阻塞；分类证据在

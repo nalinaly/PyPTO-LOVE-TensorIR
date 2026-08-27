@@ -20,6 +20,15 @@
    ]
   },
   {
+   "case": "gated_rmsnorm",
+   "key": "bc50c874402f00c3",
+   "status": "compiled",
+   "tiles": [
+    1,
+    128
+   ]
+  },
+  {
    "case": "rope",
    "key": "3579a519c398d778",
    "status": "compiled",
@@ -67,9 +76,9 @@
    ]
   }
  ],
- "dso_sha256": "0478359deef35b36679153d43e171f9ef508371f544f6f5def276c4478a478e8",
+ "dso_sha256": "9b3c26b481d8ef62f257062d27aa2d4882b524d03734fdbd6777150ce659593b",
  "kind": "pypto-kernels-classify-sm120",
- "pypto_commit": "225cb32f7df59a98b0f33460eece88c4e6ab89f4",
- "run_id": "pypto-20260827T144615Z-488141-94c95e",
+ "pypto_commit": "e364baefc4a76c8b87b9c870a7b490a8aab40dd9",
+ "run_id": "pypto-20260827T145543Z-495219-577efd",
  "schema": 2
 }

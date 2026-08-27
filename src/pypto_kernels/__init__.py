@@ -8,6 +8,7 @@ __all__ = (
     "fused_add",
     "fused_add_rmsnorm",
     "gdn",
+    "gated_rmsnorm",
     "linear",
     "rmsnorm",
     "rope",

@@ -18,6 +18,7 @@ from pypto_kernels import (
     fused_add,
     fused_add_rmsnorm,
     gdn,
+    gated_rmsnorm,
     linear,
     rmsnorm,
     rope,
@@ -113,6 +114,31 @@ def main() -> int:
                     rtol=5e-2,
                     atol=5e-2,
                 )
+            ),
+        }
+    )
+
+    gated_x = torch.randn(256, 128, device="cuda", dtype=torch.bfloat16) * 0.5
+    gated_gate = torch.randn(256, 128, device="cuda", dtype=torch.bfloat16) * 0.5
+    gated_weight = 1.0 + torch.randn(128, device="cuda", dtype=torch.bfloat16) * 0.1
+    gated_out = gated_rmsnorm.gated_rmsnorm(
+        gated_x, gated_gate, gated_weight, stream=stream
+    )
+    stream.synchronize()
+    gated_ref = (
+        gated_x.float()
+        * torch.rsqrt(gated_x.float().square().mean(-1, keepdim=True) + 1.0e-6)
+        * gated_weight.float()
+        * torch.nn.functional.silu(gated_gate.float())
+    )
+    cases.append(
+        {
+            "case": "gated_rmsnorm_bf16 256x128",
+            "implementation": "native-tile-dsl",
+            "launches": 1,
+            "max_abs_diff": float((gated_out.float() - gated_ref).abs().max()),
+            "correct": bool(
+                torch.allclose(gated_out.float(), gated_ref, rtol=5e-2, atol=5e-2)
             ),
         }
     )
@@ -258,6 +284,7 @@ def main() -> int:
             "fused_add",
             "rmsnorm",
             "fused_add_rmsnorm",
+            "gated_rmsnorm",
             "rope",
             "attention",
             "linear",
