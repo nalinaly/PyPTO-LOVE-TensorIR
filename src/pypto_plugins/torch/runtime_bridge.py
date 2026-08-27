@@ -23,7 +23,7 @@ _EXPECTED_RUNTIME_LIBRARY = (
     "python3.14/site-packages/nvidia/cu13/lib/libcudart.so.13"
 )
 
-_lock = threading.Lock()
+_lock = threading.RLock()
 _observation: Any = None
 _executables: dict[str, Any] = {}
 
