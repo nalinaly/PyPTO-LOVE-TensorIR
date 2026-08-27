@@ -28,15 +28,18 @@ below. It records work in progress, **not** CP-0084 acceptance.
   Cubin is not PyPTO Artifact, launch, numerical, framework or model evidence.
 - `pypto-kernels@5fbf813` adds the source-level Qwen3.5-0.8B fused QK
   GemmaRMSNorm + partial NeoX RoPE + gate-deinterleave candidate and its
-  actual-configuration numerical reference. Current kernels `cc87409` also add
+  actual-configuration numerical reference. Current kernels `988f05d` also add
   a one-request paged-decode source candidate that reads physical slots
   directly from SGLang's INT32 request table and applies a device-side
   valid-length mask (`tile.ci/cmps/sels`) from existing INT64 GPU metadata. It
   needs neither a decode-time host sync nor an intermediate `kv_indices`
   kernel. Current plugins `d3505bf` track two attention graphs. Operator
   structure passes 14/14, plugin tests pass 91/91, and Ruff/diff checks pass.
-  README deliberately keeps QK at `待 run-pass` and paged decode at
-  source-candidate status; GPU numerical correctness is unproven.
+  Classification now includes both `8Q/2KV` and `16Q/4KV`; the future
+  execution gate includes a non-full `valid=13/bucket=16` case plus the 9B
+  geometry. Neither has run. README deliberately keeps QK at `待 run-pass` and
+  paged decode at source-candidate status; GPU numerical correctness is
+  unproven.
 - Primary `projects/pypto` remains clean at `d1b90b7` for the pending QK DSO
   rebuild. Paged-decode compiler work is isolated in
   `worktrees/pypto-paged-decode` on
