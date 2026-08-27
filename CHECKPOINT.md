@@ -1,6 +1,24 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0071`
+**Checkpoint:** `CP-0072`
+
+**Status:** Complete Gated DeltaNet read and recurrent-state update now each
+use one visible native tile graph and one launch. Canonical operator commit
+`74b36ae` adds the per-head `@pl.jit` state-update loop (`pl.load` state,
+decay, beta-key and value tiles; row/column expansion for the outer product;
+one `pl.store`) and deletes the final 394-line whole-tensor `_graph.py`
+implementation. PyPTO `6054392` lowers both GDN native patterns. On SM120,
+run `pypto-20260827T135257Z-450642-2366a8` passes all 11 current numerical
+cases; GDN read collapses five launches to one at max absolute difference
+`0.00105605`, and state update is one launch at `0.000892878`. Classification
+is all-compiled, the native-source structure suite passes, the exact DSO
+SHA-256 is `73f58162c89fe168d69e13b1c88cc174c5c93b333bc47953c234722d0865b81e`,
+and PyPTO CTest is 13/13. Evidence is
+`state/evidence/pypto-native-gdn-cp0072.json`. The overall goal remains open:
+matmul/LM head, embedding, causal convolution/projections, causal-paged
+attention, Inductor native generation, then 0.8B and 9B model gates remain.
+
+## Previous checkpoint (CP-0071)
 
 **Status:** The dense Attention core is now a single native tile graph and one
 launch. Canonical kernels commit `1b92117` replaces the old post-exp
