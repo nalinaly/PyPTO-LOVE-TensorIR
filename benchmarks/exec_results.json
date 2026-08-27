@@ -1,9 +1,9 @@
 {
  "schema": 2,
  "kind": "pypto-kernels-exec-sm120",
- "run_id": "pypto-20260827T143836Z-481978-0c37c6",
- "dso_sha256": "7d6274729638f19cb110da6c6e3d318acae566c9ae5ec35c837c565b74e568d7",
- "pypto_commit": "39ac068670263e2d944ff7c60465c047e06b5315",
+ "run_id": "pypto-20260827T144548Z-487747-621ca7",
+ "dso_sha256": "0478359deef35b36679153d43e171f9ef508371f544f6f5def276c4478a478e8",
+ "pypto_commit": "225cb32f7df59a98b0f33460eece88c4e6ab89f4",
  "native_tile_ops": [
   "silu_and_mul",
   "fused_add",
