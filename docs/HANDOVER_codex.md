@@ -33,7 +33,11 @@ TensorIR 第三方源码（`projects/pypto/3rdparty/nvidia/tensor-ir`）并在
   `3rdparty/nvidia/tensor-ir-broadcast.patch`）——submodule 提交只存在
   本机，补丁是唯一可随父仓分发/恢复的载体；(3) `git add
   3rdparty/nvidia/tensor-ir` 更新父仓 gitlink 并 commit；(4) push 父仓
-  到 origin（`github.com/hw-native-sys/pypto.git`，可写）。submodule
+  到 origin（`github.com/hw-native-sys/pypto.git`，可写；**注意：当前
+  环境没有配置该 remote 的认证，push 会报 access rights 错误**——
+  zcode 于 2026-08-27 实测失败。先检查 `git remote -v` 与凭据；如果
+  环境仍无认证，把 push 记为待用户处理，本地 commit + 补丁文件仍然
+  是完整交付）。submodule
   本身无法 push 到 NVIDIA，不要尝试。(5) 改后必须重建 DSO：注意
   strict clean-source guard 会把脏 submodule 视为未提交修改——**先
   commit 再 configure/build**。
