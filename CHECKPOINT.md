@@ -1,6 +1,30 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0055`
+**Checkpoint:** `CP-0056`
+
+**Status:** R0 remains open. The full Qwen3.5-0.8B real-weight forward
+harness exists (commit `c5aa2d1` +
+`benchmarks/operators/pypto_qwen35_0p8b_forward_sm120.py`): it loads the
+checkpoint safetensors (488 tensors; embed 248320x1024, 24 hybrid layers
+3:1 GDN:full, full-attn 8x256 with 2 KV heads and output gates, GDN
+in_proj qkv/a/b/z + conv1d(4) + A_log/dt_bias + out_proj, SiLU MLP
+3584) and runs the complete eager path: Gemma RMSNorm, conv + GatedDelta
+recurrence (per-head scalar decay exp(-softplus(A+dt)exp(A_log)),
+softplus beta, delta-corrected state update, RMS-normalized q/k), gated
+RoPE attention with GQA, final norm and tied-embedding logits over 32
+tokens. Instrumentation localizes the remaining defect precisely: layer
+0's GDN recurrence is finite through every probed intermediate (qkv 4.6,
+state 11.9), and NaN first appears between the GDN output projection and
+the layer end (z-gate / MLP / residual) — a formula-debugging pass
+there (silu placement, gate application order) is the immediate next
+step, after which the PyPTO-routed path (pmatmul/p_rms/silu_mul/
+attention kernels + metered GDN update, all already accepted on SM120)
+runs the same graph for the logits comparison. The transformer library
+is not installable offline, so the pure-torch eager path is the
+reference. 100 percent PyPTO coverage still tracks the upstream
+producer broadcast support (CP-0055).
+
+## Previous checkpoint (CP-0055)
 
 **Status:** R0 remains open. Two results this round. First, the GDN
 state update S' = diag(decay) S + (beta k) (x) v has now been argued
