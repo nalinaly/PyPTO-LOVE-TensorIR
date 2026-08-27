@@ -28,37 +28,46 @@ below. It records work in progress, **not** CP-0084 acceptance.
   Cubin is not PyPTO Artifact, launch, numerical, framework or model evidence.
 - `pypto-kernels@5fbf813` adds the source-level Qwen3.5-0.8B fused QK
   GemmaRMSNorm + partial NeoX RoPE + gate-deinterleave candidate and its
-  actual-configuration numerical reference. Current kernels `7c4ddd5` also add
-  a one-request paged-decode source candidate that reads physical slots
-  directly from SGLang's INT32 request table and applies a device-side
-  valid-length mask (`tile.ci/cmps/sels`) from existing INT64 GPU metadata. It
-  needs neither a decode-time host sync nor an intermediate `kv_indices`
-  kernel. A third attention graph declares both flattened K/V caches `InOut`
-  and writes one or more dynamic physical rows in a separate same-stream
-  launch. Decode N=1 and prefill N>1 use the same static cache-write loop
-  family. A fourth attention graph expresses one-request causal prefill over a
-  radix prefix, reusing gathered K/V per KV head. Current plugins `8bec48c`
-  track all four attention graphs. Operator structure passes 16/16, plugin
-  tests pass 91/91, and Ruff/diff checks pass.
+  actual-configuration numerical reference. Current kernels `4b6c1b4` also add
+  a static-batch paged-decode source candidate that reads physical slots
+  directly from SGLang's INT32 request table and applies a separate device-side
+  valid-length mask (`tile.ci/cmps/sels`) for each batch row from existing
+  INT64 GPU metadata. It needs neither a decode-time host sync nor an
+  intermediate `kv_indices` kernel. A third attention graph declares both
+  flattened K/V caches `InOut` and writes one or more dynamic physical rows in
+  a separate same-stream launch. Decode N=1 and prefill N>1 use the same static
+  cache-write loop family. A fourth attention graph expresses one-request
+  causal prefill over a radix prefix, reusing gathered K/V per KV head.
+  Current plugins `60916bb` add a pinned-source SGLang adapter for those three
+  paged phases. It routes cache-write plus batch decode or cache-write plus
+  one-request causal prefill, but the factory remains fail-closed while the
+  operators are source candidates. It also rejects unified-memory translation,
+  quantized/non-NHD caches, speculative or mixed modes and CUDA graphs rather
+  than falling back. Operator structure passes 16/16, plugin tests pass 95/95,
+  and focused Ruff/diff checks pass.
   Classification now includes both `8Q/2KV` and `16Q/4KV`; the future
-  execution gate includes a non-full `valid=13/bucket=16` case plus the 9B
-  geometry. Slot 0 carries adversarial K/V values so a missing padding mask
-  fails loudly. The future execution gate also requires cache rows to equal the
-  input K/V exactly before decode reads them, a 13-row prefill cache-write case,
-  and causal prefill with `prefix=2/extend=13/bucket=16` for both geometries.
-  None of these cases has run.
+  execution gate includes a non-full `valid=13/bucket=16` case, the 9B geometry
+  and a two-request `(valid13,valid7)` case with distinct request rows. Slot 0
+  carries adversarial K/V values so a missing padding mask fails loudly. The
+  future execution gate also requires cache rows to equal the input K/V exactly
+  before decode reads them, a 13-row prefill cache-write case, and causal
+  prefill with `prefix=2/extend=13/bucket=16` for both geometries. None of these
+  cases has run.
   README deliberately keeps QK at
   `待 run-pass` and paged decode at source-candidate status; GPU numerical
   correctness is unproven.
 - Primary `projects/pypto` remains clean at `d1b90b7` for the pending QK DSO
   rebuild. Paged-decode compiler work is isolated in
   `worktrees/pypto-paged-decode` on
-  `feature/paged-decode-sm120@40f5f3e`; it recognizes the native
-  request-table-read/`tile.gather_row`/GQA/masked-softmax graph and the strict
-  static-loop `InOut` cache-write graph and the four-level static causal
-  prefill graph. The prefill emitter gathers each KV head once, materializes
-  per-query causal masks and reconstructs `[tokens,Q,D]` through two-level
-  concatenation. Argument direction survives
+  `feature/paged-decode-sm120@55412d3`; it recognizes the native
+  request-table-read/`tile.gather_row`/GQA/masked-softmax graph under an outer
+  static batch loop, the strict static-loop `InOut` cache-write graph and the
+  four-level static causal prefill graph. Decode metadata is projected per
+  batch row and the emitter reconstructs `[B,Q,D]` through head then batch
+  concatenation; matcher checks bind metadata reads and query/output offsets to
+  the exact batch and head iterators. The prefill emitter gathers each KV head
+  once, materializes per-query causal masks and reconstructs `[tokens,Q,D]`
+  through two-level concatenation. Argument direction survives
   through argument and mutation ABI projections (`inout` / `read-write`)
   instead of being silently rewritten read-only. It pins TensorIR `6b7599a`,
   whose generic
@@ -87,14 +96,15 @@ below. It records work in progress, **not** CP-0084 acceptance.
   compiler-control evidence, not the emitted candidate. Static diff checks
   pass, but
   it has **not** built, linked, passed FileCheck or produced a Cubin.
-- The current paged operator remains a one-request decode candidate. Its
-  device-side valid-length mask supports static 16-aligned buckets and its
-  direct request-table lookup keeps padded reads in-range at source level.
-  Source-level cache write now covers decode and multirow prefill as a separate
-  mutation-declared PyPTO graph, but it has not compiled or executed.
-  Unified-memory virtual-to-physical translation, batching and verify metadata
-  remain absent. Decode, cache-write and causal-prefill compiler paths are all
-  still source-only. None is an SGLang/model attention claim.
+- The current paged decode candidate supports static batches, per-request
+  device-side valid-length masks and 16-aligned buckets; direct request-table
+  lookup keeps padded reads in-range at source level. Source-level cache write
+  covers decode and multirow prefill as a separate mutation-declared PyPTO
+  graph, but none has compiled or executed. Causal prefill remains one-request.
+  Unified-memory virtual-to-physical translation, strided unified cache views,
+  verify/tree masks, mixed batches and CUDA-graph metadata remain absent. All
+  three compiler paths and the SGLang adapter are source-only; none is an
+  SGLang/model attention result.
 - Two temporary untracked diagnostics remain in `projects/pypto-kernels`:
   `benchmarks/probe_qk_compile_sm120.py` (final target tile/current model cache
   shape) and `benchmarks/probe_qk_gdb.py`. Do not commit them; remove them only
@@ -102,7 +112,7 @@ below. It records work in progress, **not** CP-0084 acceptance.
   records the earlier failed candidate and must be regenerated, not promoted.
 
 The final DSO rebuild did not start because the protected external ZCode
-9B/TP4 and gem5 lanes held `MemAvailable` near 18.7--19.5 GiB. The reviewed
+9B/TP4 and gem5 lanes held `MemAvailable` near 18.7--19.9 GiB. The reviewed
 CPU-v2 controller and canonical manifest pass 55/55 tests, but its exact
 admission is 22 GiB; a ten-minute read-only monitor never reached it. No
 external PID was signalled. A later source-only TensorIR validation monitor
