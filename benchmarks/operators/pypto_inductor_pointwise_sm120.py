@@ -46,7 +46,12 @@ def main() -> int:
                 torch.cuda.synchronize()
                 correct = bool(torch.equal(output, expected))
             except Exception as error:  # noqa: BLE001 - recorded as marker
-                wrapper_error = f"{type(error).__name__}: {error}"[:200]
+                import traceback
+
+                wrapper_error = (
+                    f"{type(error).__name__}: {error}\n"
+                    + traceback.format_exc()
+                )
                 correct = False
 
         kernels = {

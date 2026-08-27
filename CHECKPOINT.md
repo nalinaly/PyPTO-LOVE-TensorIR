@@ -648,6 +648,17 @@ production; its report stays immutable.
   exact GPU-adapter hash gate and reverted in `7ecc197`; D-0016 now requires a
   separate CPU-only policy-v2 adapter. Existing 24 GiB controls and evidence are
   unchanged and remain authoritative until that adapter is implemented.
+- `torch.compile(x+y)` on CUDA now compiles with ZERO Triton in strict
+  PyPTO mode. The residual Triton touch was not a kernel node: the pinned
+  `autotune_cache.inductor_meta_from_config ->
+  torch.utils._triton.triton_hash_with_backend` activates the external
+  editable Triton driver (cuda_utils gcc build) on every inductor
+  compile. `registration.install()` now wraps that function with a
+  mode-aware guard (stable PyPTO backend hash inside strict mode, the
+  untouched original outside; reversible on uninstall). GPU run
+  `pypto-20260827T003807Z-26412-0c22f5` (policy-2 lane): one non-fallback
+  PyPTO SM120 Cubin, controller return code 0, no post-exit violation,
+  no gcc/Triton invocation. Five plugin tests stay green.
 - The first Inductor-scheduled PyPTO SM120 Cubin exists. Plugin commit
   (after f3ccfb2) moves the routing hook to `codegen_node`: strict mode
   unwraps `ComputedBuffer` to the Pointwise loops, compiles the
