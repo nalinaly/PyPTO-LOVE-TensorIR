@@ -1,6 +1,22 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0079`
+**Checkpoint:** `CP-0080`
+
+**Status:** The framework no longer binds the deleted operator repository's
+development-version ABI manifest, source-tree digest or retired GDN symbols.
+Canonical operator commit `e95cf59` declares package version `0.1.0`;
+framework-plugin commit `91c4845` validates the exact current Qwen operator
+source inventory without executing operator DSOs, and requires every graph to
+contain explicit `@pl.jit`, `pl.at`, `pl.range`, `pl.load`, `pl.store`, one
+primary model graph and one launch wrapper. It also rejects the retired
+whole-tensor compatibility builder and version labels in active operator
+sources. Focused run `pypto-20260827T154250Z-529244-b28a63` passes 8/8 and the
+complete plugin CPU suite `pypto-20260827T154359Z-529714-a2c710` passes 90/90.
+Evidence is `state/evidence/pypto-canonical-operator-guard-cp0080.json`.
+This checkpoint closes repository/ABI cleanup only; real `torch.compile`
+registration, remaining Qwen state/cache operators and model gates stay open.
+
+## Previous checkpoint (CP-0079)
 
 **Status:** Inductor trailing-axis reductions now use the same native tile DSL
 as hand-written operators. PyPTO `f7dae4f` recognizes a canonical native

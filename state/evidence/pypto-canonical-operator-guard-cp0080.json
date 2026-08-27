@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "checkpoint": "CP-0080",
+  "status": "accepted-canonical-operator-guard",
+  "component": "canonical PyPTO operator package identity",
+  "implementation": {
+    "operator_commit": "e95cf596f2b944ddb329c02e15e7805ed92a98a3",
+    "framework_plugin_commit": "91c4845eb215e2a098c8e166c37a7dbc41ecaf91",
+    "package": "projects/pypto-kernels/src/pypto_kernels",
+    "package_version": "0.1.0",
+    "retired_abi_manifest_removed": true,
+    "retired_operator_symbols_removed": true,
+    "structural_requirements": [
+      "one canonical exported Qwen operator inventory",
+      "one primary graph per model operator",
+      "explicit @pl.jit, pl.at, pl.range, pl.load and pl.store",
+      "one launch wrapper per graph",
+      "no whole-tensor compatibility builder",
+      "no retired version label in active operator sources"
+    ],
+    "inspection_mode": "AST and source structure without importing operator DSOs"
+  },
+  "tests": {
+    "focused_run_id": "pypto-20260827T154250Z-529244-b28a63",
+    "focused_result": "8 passed",
+    "full_plugin_run_id": "pypto-20260827T154359Z-529714-a2c710",
+    "full_plugin_result": "90 passed"
+  },
+  "remaining_scope": [
+    "wire the real torch.compile registration path",
+    "remove remaining historical scope labels from active framework code",
+    "implement missing Qwen embedding, cache/state and causal-paged operators",
+    "run the 0.8B then 9B model gates"
+  ],
+  "safety": {
+    "protected_processes_signalled": false,
+    "upstream_modified": false,
+    "model_harness_modified": false
+  }
+}
