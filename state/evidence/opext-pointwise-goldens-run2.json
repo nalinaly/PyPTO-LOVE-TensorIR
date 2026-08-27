@@ -1,0 +1,267 @@
+{
+ "all_correct": true,
+ "case_count": 15,
+ "cases": [
+  {
+   "argument_count": 3,
+   "arity": 2,
+   "cubin_bytes": 13912,
+   "cubin_sha256": "929af4055a5c86d1613ee143595686ca2a4cf88fe70ee5f98532fb3dd1a29242",
+   "entry": "pypto_vector_add",
+   "fallback_used": false,
+   "grid": [
+    32,
+    1,
+    1
+   ],
+   "op": "add",
+   "output_correct": true,
+   "output_exact": true,
+   "registry_name": "tensor.add"
+  },
+  {
+   "argument_count": 3,
+   "arity": 2,
+   "cubin_bytes": 13912,
+   "cubin_sha256": "59bba557cb15a31362bb3a81f1b75050e6c50de972c6249985c231821364acd3",
+   "entry": "pypto_fused_pointwise_v2",
+   "fallback_used": false,
+   "grid": [
+    32,
+    1,
+    1
+   ],
+   "op": "sub",
+   "output_correct": true,
+   "output_exact": true,
+   "registry_name": "tensor.sub"
+  },
+  {
+   "argument_count": 3,
+   "arity": 2,
+   "cubin_bytes": 13912,
+   "cubin_sha256": "834082d0d141bb5e051e59b4f01ec254127940f09a72136f08670b8d5fe17160",
+   "entry": "pypto_fused_pointwise_v2",
+   "fallback_used": false,
+   "grid": [
+    32,
+    1,
+    1
+   ],
+   "op": "mul",
+   "output_correct": true,
+   "output_exact": true,
+   "registry_name": "tensor.mul"
+  },
+  {
+   "argument_count": 3,
+   "arity": 2,
+   "comparison": "tolerance-2ulp-div",
+   "cubin_bytes": 14040,
+   "cubin_sha256": "82a803268722bfe3834acfdb9bb4a1b62aacce35b759a6ad8cb6b439393c5827",
+   "entry": "pypto_fused_pointwise_v2",
+   "fallback_used": false,
+   "grid": [
+    32,
+    1,
+    1
+   ],
+   "max_abs_diff": 4.76837158203125e-07,
+   "op": "div",
+   "output_correct": true,
+   "output_exact": false,
+   "registry_name": "tensor.div"
+  },
+  {
+   "argument_count": 2,
+   "arity": 1,
+   "cubin_bytes": 13552,
+   "cubin_sha256": "376024758245282e70adedb9b1036709bf94cee03fac525e27bc64beffb8b3de",
+   "entry": "pypto_fused_pointwise_v2",
+   "fallback_used": false,
+   "grid": [
+    32,
+    1,
+    1
+   ],
+   "op": "neg",
+   "output_correct": true,
+   "output_exact": true,
+   "registry_name": "tensor.neg"
+  },
+  {
+   "argument_count": 2,
+   "arity": 1,
+   "cubin_bytes": 13832,
+   "cubin_sha256": "7362c57a45896a2a5e801ce7c2de7cb131f36232f7416f5e365b57da879da377",
+   "entry": "pypto_fused_pointwise_v2",
+   "fallback_used": false,
+   "grid": [
+    32,
+    1,
+    1
+   ],
+   "op": "exp",
+   "output_correct": true,
+   "output_exact": true,
+   "registry_name": "tensor.exp"
+  },
+  {
+   "argument_count": 2,
+   "arity": 1,
+   "cubin_bytes": 16496,
+   "cubin_sha256": "ca86fc76eb26195dfe23e6d176c4b244ec01a88669a77589be2225ad3f27e150",
+   "entry": "pypto_fused_pointwise_v2",
+   "fallback_used": false,
+   "grid": [
+    32,
+    1,
+    1
+   ],
+   "op": "recip",
+   "output_correct": true,
+   "output_exact": true,
+   "registry_name": "tensor.recip"
+  },
+  {
+   "argument_count": 2,
+   "arity": 1,
+   "cubin_bytes": 13680,
+   "cubin_sha256": "0731d13434d38ce0163cefe66b67cadd3f7de0b293ea03b128cca406f4cd7af4",
+   "entry": "pypto_fused_pointwise_v2",
+   "fallback_used": false,
+   "grid": [
+    32,
+    1,
+    1
+   ],
+   "op": "rsqrt",
+   "output_correct": true,
+   "output_exact": true,
+   "registry_name": "tensor.rsqrt"
+  },
+  {
+   "argument_count": 2,
+   "arity": 1,
+   "cubin_bytes": 13552,
+   "cubin_sha256": "fcf268f37ea6eda452f0b34c3ec1d8358e46ee678809b7dd5cb0154b01d70a22",
+   "entry": "pypto_fused_pointwise_v2",
+   "fallback_used": false,
+   "grid": [
+    32,
+    1,
+    1
+   ],
+   "op": "abs",
+   "output_correct": true,
+   "output_exact": true,
+   "registry_name": "tensor.abs"
+  },
+  {
+   "argument_count": 2,
+   "arity": 1,
+   "cubin_bytes": 15112,
+   "cubin_sha256": "ce3a249f63cf47a48068fbb66d93e6c4c37608af64924ca0bec1d2631f1ccabc",
+   "entry": "pypto_fused_pointwise_v2",
+   "fallback_used": false,
+   "grid": [
+    32,
+    1,
+    1
+   ],
+   "op": "sqrt",
+   "output_correct": true,
+   "output_exact": true,
+   "registry_name": "tensor.sqrt"
+  },
+  {
+   "argument_count": 2,
+   "arity": 1,
+   "cubin_bytes": 14096,
+   "cubin_sha256": "d70297eaee92a1574b2ebfff86080f022666627949ea085f0ee995f97582dc5a",
+   "entry": "pypto_fused_pointwise_v2",
+   "fallback_used": false,
+   "grid": [
+    32,
+    1,
+    1
+   ],
+   "op": "log",
+   "output_correct": true,
+   "output_exact": true,
+   "registry_name": "tensor.log"
+  },
+  {
+   "argument_count": 2,
+   "arity": 1,
+   "cubin_bytes": 16064,
+   "cubin_sha256": "36d2b68a5a28799ac93b7c0feb70c5276f072ed2be7ba49aaa5c079c3dc215a7",
+   "entry": "pypto_fused_pointwise_v2",
+   "fallback_used": false,
+   "grid": [
+    32,
+    1,
+    1
+   ],
+   "op": "sin",
+   "output_correct": true,
+   "output_exact": true,
+   "registry_name": "tensor.sin"
+  },
+  {
+   "argument_count": 2,
+   "arity": 1,
+   "cubin_bytes": 16072,
+   "cubin_sha256": "a410436454f43f92d2fc6087e05bdfe2ad0805c28c554931892adf86001b6d45",
+   "entry": "pypto_fused_pointwise_v2",
+   "fallback_used": false,
+   "grid": [
+    32,
+    1,
+    1
+   ],
+   "op": "cos",
+   "output_correct": true,
+   "output_exact": true,
+   "registry_name": "tensor.cos"
+  },
+  {
+   "argument_count": 3,
+   "arity": 2,
+   "cubin_bytes": 13912,
+   "cubin_sha256": "af8415e05f53ae686dbcbf0d782fb7d3f7f6d05e50a88eb440e2b86c7afb075f",
+   "entry": "pypto_fused_pointwise_v2",
+   "fallback_used": false,
+   "grid": [
+    32,
+    1,
+    1
+   ],
+   "op": "maximum",
+   "output_correct": true,
+   "output_exact": true,
+   "registry_name": "tensor.maximum"
+  },
+  {
+   "argument_count": 3,
+   "arity": 2,
+   "cubin_bytes": 13912,
+   "cubin_sha256": "ac2e0c9b0bdde24a709842a4860a25112c5d5cb6ceb510d9c1180d5a6387e13d",
+   "entry": "pypto_fused_pointwise_v2",
+   "fallback_used": false,
+   "grid": [
+    32,
+    1,
+    1
+   ],
+   "op": "minimum",
+   "output_correct": true,
+   "output_exact": true,
+   "registry_name": "tensor.minimum"
+  }
+ ],
+ "dso": "/home/zhaosiying/pypto-love-tensor-ir/builds/pypto-opext-on-a589f79/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+ "failures": [],
+ "kind": "opext-pointwise-goldens",
+ "schema": 1
+}

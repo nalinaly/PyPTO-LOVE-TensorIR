@@ -1,5 +1,39 @@
 # CHECKPOINT
 
+**Checkpoint:** `CP-0050`
+
+**Status:** R0 remains open. Under the relaxed D-0018 discipline (tests plus
+golden comparisons green; one consolidated review after the models run) this
+checkpoint closes three gates. First, the extended fused-pointwise operator
+table: PyPTO `a589f79` legalized nine further registry ops
+(div/divs/abs/sqrt/log/sin/cos/maximum/minimum; table now 19), the stale
+rejection list and two negative fixtures moved to `tensor.fmod`
+(`397c946` plus fixture/test-print follow-ups), and the ON rebuild at
+`builds/pypto-opext-on-a589f79` passes 13/13 CTest with DSO SHA-256
+`4b7423d3525acef9b8f6a243f852dfa9ab9470ae0fdbec5995ca490904282bc1`.
+Second, the Inductor full-chain smoke
+`benchmarks/operators/pypto_inductor_pointwise_sm120.py` returns
+`output_correct: true` with `wrapper_error: null` both in a direct run and
+through the reviewed policy-2 GPU lane (retry attempt 7, after the external
+co-tenant burst source disappeared): scheduling routed to PyPTO, Cubin
+`c4ffcb54...` byte-stable, `fallback_used` false. The blocker was a genuine
+self-deadlock in the wrapper bridge — the launch lock was a plain Lock
+re-acquired through the observation helper; the probe had exercised the
+lifecycle functions directly and never hit the nesting (plugin `c8991f8`).
+Third, the extended-op golden producer
+`benchmarks/operators/pypto_pointwise_opext_goldens.py` compiled, launched
+and compared fifteen single-op chains through the real bridge on live
+SM120: fourteen bitwise-exact versus eager torch and `div` within a
+documented two-ulp tolerance (the pinned TensorIR lowering does not emit
+round-to-nearest division); two independent runs produced byte-identical
+Cubin identities (`state/evidence/opext-pointwise-goldens-run{1,2}.json`).
+The plugin now defaults to the opext DSO (`5487d54`) and its suite is
+133/133 green after two distribution-shape fixtures were made
+environment-stable (the environment legitimately carries the
+editable-plus-egg-info pair).
+
+## Previous checkpoint (CP-0049)
+
 **Checkpoint:** `CP-0049`
 
 **Status:** R0 remains open. P2 accepts the finalized RowReductionV3
