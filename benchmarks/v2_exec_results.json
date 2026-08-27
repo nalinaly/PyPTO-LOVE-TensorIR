@@ -1,6 +1,9 @@
 {
  "schema": 1,
  "kind": "pypto-kernels-v2-exec-sm120",
+ "run_id": "pypto-20260827T112406Z-381644-24ab81",
+ "dso_sha256": "ecc6ec6ddc123b092779f8c7cfe6ce38139d6bec62c8d92b8a0400e8f188c639",
+ "pypto_commit": "1b47d71415c100791e57bb48d350c538b27f69fe",
  "all_correct": true,
  "cases": [
   {
@@ -55,6 +58,36 @@
    "case": "gdn_compose 16x128",
    "launches": 1,
    "max_abs_diff": 0.030257225036621094,
+   "correct": true
+  },
+  {
+   "case": "rmsnorm_bf16 256x1024",
+   "launches": 1,
+   "max_abs_diff": 0.015537738800048828,
+   "correct": true
+  },
+  {
+   "case": "rope_even_bf16 256x128",
+   "launches": 1,
+   "max_abs_diff": 0.0166015625,
+   "correct": true
+  },
+  {
+   "case": "rope_odd_bf16 256x128",
+   "launches": 1,
+   "max_abs_diff": 0.01654052734375,
+   "correct": true
+  },
+  {
+   "case": "attention_softmax_scale_bf16 256x128",
+   "launches": 1,
+   "max_abs_diff": 0.001953125,
+   "correct": true
+  },
+  {
+   "case": "gdn_delta_bf16 16x128",
+   "launches": 1,
+   "max_abs_diff": 0.00775146484375,
    "correct": true
   }
  ]

@@ -71,25 +71,27 @@ def row_reduction_epilogue_graph(rows: int, cols: int, eps: float,
     This is the Ascend-style single-kernel RMSNorm shape: the reduction,
     the [M,1] epilogue, the broadcast back over columns and the final
     scale all live in ONE graph (`x * rsqrt(mean(x^2) + eps)`), the
-    direct analog of torch_npu.npu_rms_norm. FP32 rank-2 today (the
-    epilogue analyzer's dtype bound); the HIR is accepted by EmitTensorIr
-    and only the pinned producer's broadcast lowering rejects it.
+    direct analog of torch_npu.npu_rms_norm. BF16 input/output are widened to
+    FP32 inside the graph for square, reduction and epilogue arithmetic.
     """
 
     ir = bootstrap()["ir"]
     pypto = bootstrap()["pypto"]
     span = ir.Span(SPAN_FILE, 1, 1)
-    dtype = pypto.DataType.FP32
+    dtype = pypto.DataType.BF16
     full = ir.TensorType([rows, cols], dtype)
     row = ir.TensorType([rows, 1], dtype)
     x = ir.Var("x", full, span)
+    square = ir.Var("square", full, span)
     acc = ir.Var("acc", row, span)
     t1 = ir.Var("t1", row, span)
     t2 = ir.Var("t2", row, span)
     t3 = ir.Var("t3", row, span)
     out = ir.Var("out", full, span)
     statements = [
-        ir.AssignStmt(acc, ir.Call(ir.get_op("tensor.row_sum"), [x], row, span),
+        ir.AssignStmt(square, ir.Call(ir.get_op("tensor.mul"), [x, x], full,
+                                      span), span),
+        ir.AssignStmt(acc, ir.Call(ir.get_op("tensor.row_sum"), [square], row, span),
                       span),
         ir.AssignStmt(t1, ir.Call(
             ir.get_op("tensor.muls"),

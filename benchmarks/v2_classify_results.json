@@ -1,15 +1,15 @@
 {
   "schema": 1,
   "kind": "pypto-kernels-v2-classify-sm120",
-  "run_id": "pypto-20260827T111524Z-376482-a08304",
-  "dso_sha256": "2078af34ffb20ce5db24dd28a563a4663b404430dcbf55cc10449421e9502489",
+  "run_id": "pypto-20260827T112153Z-380866-8c1765",
+  "dso_sha256": "ecc6ec6ddc123b092779f8c7cfe6ce38139d6bec62c8d92b8a0400e8f188c639",
   "all_compiled": true,
   "cases": [
     {
       "case": "rmsnorm",
       "tiles": [32, 32],
       "status": "compiled",
-      "key": "0907e7e985342616"
+      "key": "490599ee4132efc6"
     },
     {
       "case": "rope_even",

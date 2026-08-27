@@ -13,10 +13,10 @@ block/tiling"的形态。不做 Python 侧多 launch 编排，不用 ones-matmul
 |---|---|---|---|
 | `silu_and_mul`（SwiGLU） | 1 | **可执行** ✅ | 纯 pointwise 链；GPU 验收 vs eager 全绿（benchmarks/v2_exec_sm120.py） |
 | `fused_add`（残差加） | 1 | **可执行** ✅ | 同上；fused_add_rmsnorm 的前半 |
-| `rmsnorm` | 1 | **可编译** ✅ | 单 graph：sum→scale→+eps→rsqrt→broadcast→mul；CP-0062 后 classify=compiled，GPU 数值验收待补 |
-| `rope` | 2（偶/奇各一） | **可编译** ✅ | 每半一个 pointwise graph（row_expand_mul×2 + sub/add）；偶/奇均 classify=compiled，GPU 数值验收待补 |
-| `gdn` read | 5 | **部分可编译** | compose 与 delta 广播均 classify=compiled；完整 read 与状态更新待补 |
-| `attention` softmax 段 | 3（sum/recip/broadcast） | **广播段可编译** | p = e·inv_sum 的单 graph classify=compiled；完整 softmax 段和值混合待补；真单核 FA 需专用 graph kind（FUTURE） |
+| `rmsnorm` | 1 | **可执行** ✅ | BF16 单 graph：square→sum→scale→+eps→rsqrt→broadcast→mul；GPU eager 对拍全绿 |
+| `rope` | 2（偶/奇各一） | **可执行** ✅ | 每半一个 pointwise graph（row_expand_mul×2 + sub/add）；偶/奇 GPU eager 对拍全绿 |
+| `gdn` read | 5 | **部分可执行** | compose 与 delta 广播均 GPU eager 对拍全绿；完整 read 与状态更新待补 |
+| `attention` softmax 段 | 3（sum/recip/broadcast） | **广播段可执行** | p = e·inv_sum 的单 graph GPU eager 对拍全绿；完整 softmax 段和值混合待补；真单核 FA 需专用 graph kind（FUTURE） |
 
 CP-0062 已关闭 broadcast producer 阻塞；分类证据在
 `benchmarks/v2_classify_results.json`。`compiled` 与 GPU 数值 `all_correct`
