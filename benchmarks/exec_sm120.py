@@ -16,13 +16,13 @@ from pypto_kernels._boot import DSO_PATH, bootstrap
 from pypto_kernels import (
     attention,
     causal_conv1d,
-    fused_add,
     fused_add_rmsnorm,
     gdn,
     gated_rmsnorm,
     linear,
     rmsnorm,
     rope,
+    sigmoid_mul,
     silu_and_mul,
 )
 
@@ -46,14 +46,14 @@ def main() -> int:
                 "correct": bool(torch.allclose(out.float(), ref, rtol=5e-2, atol=5e-2)),
             }
         )
-        a = torch.randn(m, n, device="cuda", dtype=torch.bfloat16)
-        b = torch.randn(m, n, device="cuda", dtype=torch.bfloat16)
-        out2 = fused_add.fused_add(a, b, stream=stream)
+        value = torch.randn(m, n, device="cuda", dtype=torch.bfloat16)
+        gate = torch.randn(m, n, device="cuda", dtype=torch.bfloat16)
+        out2 = sigmoid_mul.sigmoid_mul(value, gate, stream=stream)
         stream.synchronize()
-        ref2 = a.float() + b.float()
+        ref2 = value.float() * torch.sigmoid(gate.float())
         cases.append(
             {
-                "case": f"fused_add {m}x{n}",
+                "case": f"sigmoid_mul {m}x{n}",
                 "implementation": "native-tile-dsl",
                 "launches": 1,
                 "max_abs_diff": float((out2.float() - ref2).abs().max()),
@@ -316,7 +316,7 @@ def main() -> int:
         .pypto_revision,
         "native_tile_ops": [
             "silu_and_mul",
-            "fused_add",
+            "sigmoid_mul",
             "rmsnorm",
             "fused_add_rmsnorm",
             "gated_rmsnorm",

@@ -9,6 +9,8 @@ import os
 import pathlib
 import sys
 
+import torch
+
 sys.path.insert(
     0,
     "/home/zhaosiying/pypto-love-tensor-ir/projects/pypto-kernels/src",
@@ -24,11 +26,24 @@ from pypto_kernels import (  # noqa: E402
     linear,
     rmsnorm,
     rope,
+    sigmoid_mul,
+    silu_and_mul,
 )
 
 
 def main() -> int:
+    sample = torch.empty((256, 1024), dtype=torch.bfloat16, device="meta")
     cases = (
+        (
+            "silu_and_mul",
+            silu_and_mul.silu_and_mul_kernel.specialize(sample, sample, sample),
+            [128],
+        ),
+        (
+            "sigmoid_mul",
+            sigmoid_mul.sigmoid_mul_kernel.specialize(sample, sample, sample),
+            [128],
+        ),
         ("rmsnorm", rmsnorm.build(256, 1024), [1, 128]),
         (
             "fused_add_rmsnorm",

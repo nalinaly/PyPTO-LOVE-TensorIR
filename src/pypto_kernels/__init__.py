@@ -8,12 +8,12 @@ __version__ = "0.1.0"
 __all__ = (
     "attention",
     "causal_conv1d",
-    "fused_add",
     "fused_add_rmsnorm",
     "gdn",
     "gated_rmsnorm",
     "linear",
     "rmsnorm",
     "rope",
+    "sigmoid_mul",
     "silu_and_mul",
 )

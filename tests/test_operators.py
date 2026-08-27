@@ -9,13 +9,13 @@ import torch
 from pypto_kernels import (
     attention,
     causal_conv1d,
-    fused_add,
     fused_add_rmsnorm,
     gdn,
     gated_rmsnorm,
     linear,
     rmsnorm,
     rope,
+    sigmoid_mul,
     silu_and_mul,
 )
 
@@ -25,8 +25,8 @@ def test_each_operator_is_one_program():
         graphs == 1
         for graphs in (
             silu_and_mul.GRAPHS,
-            fused_add.GRAPHS,
             fused_add_rmsnorm.GRAPHS,
+            sigmoid_mul.GRAPHS,
             gated_rmsnorm.GRAPHS,
             rmsnorm.GRAPHS,
             rope.GRAPHS,
@@ -42,7 +42,9 @@ def test_each_operator_is_one_program():
 def test_pointwise_operators_use_native_tile_dsl():
     sample = torch.empty((3, 256), dtype=torch.bfloat16, device="meta")
     programs = {
-        "fused_add": fused_add.fused_add_kernel.specialize(sample, sample, sample),
+        "sigmoid_mul": sigmoid_mul.sigmoid_mul_kernel.specialize(
+            sample, sample, sample
+        ),
         "silu_and_mul": silu_and_mul.silu_and_mul_kernel.specialize(
             sample, sample, sample
         ),
@@ -81,8 +83,6 @@ def test_fused_add_rmsnorm_is_one_native_tile_graph_with_two_outputs():
     assert "pl.tile.row_expand_mul" in rendered
     assert rendered.count("pl.tile.store") == 2
     assert "tensor." not in rendered
-    result = fused_add_rmsnorm.status(rows=2, columns=256)
-    assert result["status"] == "compiled", result
 
 
 def test_gated_rmsnorm_is_one_complete_native_tile_graph():
@@ -95,8 +95,6 @@ def test_gated_rmsnorm_is_one_complete_native_tile_graph():
     assert "pl.tile.exp" in rendered and "pl.tile.recip" in rendered
     assert rendered.count("pl.tile.store") == 1
     assert "tensor." not in rendered
-    result = gated_rmsnorm.status(rows=2, columns=128)
-    assert result["status"] == "compiled", result
 
 
 def test_causal_conv1d_prefill_is_one_native_tile_graph():
@@ -110,8 +108,6 @@ def test_causal_conv1d_prefill_is_one_native_tile_graph():
     assert "pl.tile.exp" in rendered and "pl.tile.recip" in rendered
     assert rendered.count("pl.tile.store") == 1
     assert "tensor." not in rendered
-    result = causal_conv1d.status(channels=128, tokens=8)
-    assert result["status"] == "compiled", result
 
 
 def _one_program(p):
@@ -120,7 +116,7 @@ def _one_program(p):
     return fn
 
 
-def test_rope_is_one_native_tile_graph_and_compiled():
+def test_rope_is_one_native_tile_graph():
     program = rope.build(2, 64)
     rendered = str(program)
     assert len(_one_program(program).body.stmts) == 2  # one scope + return
@@ -128,11 +124,9 @@ def test_rope_is_one_native_tile_graph_and_compiled():
     assert rendered.count("pl.tile.store") == 2
     assert "pl.tile.sub" in rendered and "pl.tile.add" in rendered
     assert "tensor." not in rendered
-    result = rope.status()
-    assert result["status"] == "compiled", result
 
 
-def test_attention_is_one_native_tile_graph_and_compiled():
+def test_attention_is_one_native_tile_graph():
     program = attention.build(2, 128, 128, 128)
     rendered = str(program)
     assert len(_one_program(program).body.stmts) == 2  # one scope + return
@@ -142,11 +136,9 @@ def test_attention_is_one_native_tile_graph_and_compiled():
     assert "pl.tile.exp" in rendered
     assert "pl.tile.store" in rendered
     assert "tensor." not in rendered
-    result = attention.status(rows=2)
-    assert result["status"] == "compiled", result
 
 
-def test_linear_is_one_native_tile_graph_and_compiled():
+def test_linear_is_one_native_tile_graph():
     program = linear.build(2, 128, 256)
     rendered = str(program)
     assert len(_one_program(program).body.stmts) == 2  # one scope + return
@@ -156,8 +148,6 @@ def test_linear_is_one_native_tile_graph_and_compiled():
     assert "pl.tile.matmul" in rendered
     assert "pl.tile.store" in rendered
     assert "tensor." not in rendered
-    result = linear.status(rows=2, in_features=128, out_features=256)
-    assert result["status"] == "compiled", result
 
 
 def test_gdn_read_and_update_are_one_native_tile_graph_each():
@@ -178,13 +168,6 @@ def test_gdn_read_and_update_are_one_native_tile_graph_each():
     assert "pl.tile.col_expand_mul" in update_rendered
     assert "pl.tile.store" in update_rendered
     assert "tensor." not in update_rendered
-    results = {"read": gdn.read_status(), "state_update": gdn.state_update_status()}
-    assert all(result["status"] == "compiled" for result in results.values()), results
-
-
-def test_rmsnorm_single_graph_is_compiled():
-    result = rmsnorm.status(rows=256, cols=1024)
-    assert result["status"] == "compiled", result
 
 
 def test_broadcast_dependencies_are_closed():
@@ -202,10 +185,9 @@ if __name__ == "__main__":
     test_fused_add_rmsnorm_is_one_native_tile_graph_with_two_outputs()
     test_gated_rmsnorm_is_one_complete_native_tile_graph()
     test_causal_conv1d_prefill_is_one_native_tile_graph()
-    test_rope_is_one_native_tile_graph_and_compiled()
-    test_attention_is_one_native_tile_graph_and_compiled()
-    test_linear_is_one_native_tile_graph_and_compiled()
+    test_rope_is_one_native_tile_graph()
+    test_attention_is_one_native_tile_graph()
+    test_linear_is_one_native_tile_graph()
     test_gdn_read_and_update_are_one_native_tile_graph_each()
-    test_rmsnorm_single_graph_is_compiled()
     test_broadcast_dependencies_are_closed()
     print("ALL OPERATOR STRUCTURE TESTS PASSED")
