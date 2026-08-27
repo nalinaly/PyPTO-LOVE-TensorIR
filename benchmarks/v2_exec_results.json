@@ -1,0 +1,43 @@
+{
+ "schema": 1,
+ "kind": "pypto-kernels-v2-exec-sm120",
+ "all_correct": true,
+ "cases": [
+  {
+   "case": "silu_and_mul 256x1024",
+   "launches": 1,
+   "max_abs_diff": 0.22481918334960938,
+   "correct": true
+  },
+  {
+   "case": "fused_add 256x1024",
+   "launches": 1,
+   "max_abs_diff": 0.015625,
+   "correct": true
+  },
+  {
+   "case": "silu_and_mul 4096x1024",
+   "launches": 1,
+   "max_abs_diff": 0.26763916015625,
+   "correct": true
+  },
+  {
+   "case": "fused_add 4096x1024",
+   "launches": 1,
+   "max_abs_diff": 0.015625,
+   "correct": true
+  },
+  {
+   "case": "silu_and_mul 1x3584",
+   "launches": 1,
+   "max_abs_diff": 0.14316940307617188,
+   "correct": true
+  },
+  {
+   "case": "fused_add 1x3584",
+   "launches": 1,
+   "max_abs_diff": 0.015625,
+   "correct": true
+  }
+ ]
+}
