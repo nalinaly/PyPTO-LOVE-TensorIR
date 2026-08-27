@@ -1,6 +1,24 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0064`
+**Checkpoint:** `CP-0065`
+
+**Status:** v2 C-class attention/GDN construction is run-pass at PyPTO
+`fb888ae` and v2 `a58d890`. The accepted attention boundary is two explicit
+graphs after exponentiation: BF16 row normalization (sum -> reciprocal ->
+broadcast-mul) and value-mix StructuredMatmulV4; both launch once and compare
+correctly, while QK/max-shift/exp and true one-kernel FA remain explicitly
+FUTURE. GDN read is five visible one-launch graphs (q-decay, state matmul,
+compose, dot reduction, delta+read) with no wrapper hiding them as one launch;
+the full path max error is 0.00216. GDN state update is the required single
+rank-3 broadcast graph `decay*state + beta_key*value`, one launch, max error
+0.000902. All 12 classification cases are `compiled`, the structure suite is
+green, two GPU runs have identical error profiles, and the rebuilt PyPTO suite
+passes 13/13. Evidence is
+`state/evidence/pypto-v2-attention-gdn-runpass-cp0065.json` and the two tracked
+v2 benchmark result JSON files. Parent push was retried and is blocked only by
+missing GitHub HTTPS credentials.
+
+## Previous checkpoint (CP-0064)
 
 **Status:** The former v2 B-class operators now pass the separate one-launch
 SM120 numerical gate. PyPTO `1b47d71` extends the fused reduction-epilogue

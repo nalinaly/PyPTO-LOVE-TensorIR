@@ -1,0 +1,60 @@
+{
+  "schema": 1,
+  "kind": "pypto-kernels-v2-attention-gdn-run-pass",
+  "pypto_commit": "fb888ae8c30d8e228aa2085ea8ae12a6f4826d10",
+  "tensor_ir_commit": "d540d54760de9ed5e112088d27cc0eded9ccbb14",
+  "v2_commit": "a58d890",
+  "dso": {
+    "path": "builds/pypto-opext-on-a589f79/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "sha256": "4190b9d9eefa581e09cbe193c31f9e98d96c3a6ff4f855fa7ef31fc6e18280e4"
+  },
+  "classification": {
+    "run_id": "pypto-20260827T113222Z-385520-4a93a9",
+    "all_compiled": true,
+    "case_count": 12,
+    "producer_blocked": 0,
+    "hir_rejected": 0
+  },
+  "structure_tests": {
+    "run_id": "pypto-20260827T113415Z-385971-c82839",
+    "passed": true
+  },
+  "gpu_numerical": {
+    "run_id": "pypto-20260827T113503Z-386427-f6321f",
+    "repeat_run_id": "pypto-20260827T113434Z-386164-a9c887",
+    "all_correct": true,
+    "deterministic_error_profile": true,
+    "attention": {
+      "boundary": "post-exp normalize plus value mix; QK, max-shift and exp are FUTURE dedicated-FA scope",
+      "graphs": 2,
+      "normalize_launches": 1,
+      "normalize_max_abs_diff": 0.000030516646802425385,
+      "value_mix_launches": 1,
+      "value_mix_max_abs_diff": 0.0003326684236526489
+    },
+    "gdn_read": {
+      "graphs": 5,
+      "launches": 5,
+      "hidden_multi_launch_wrapper": false,
+      "max_abs_diff": 0.0021614134311676025
+    },
+    "gdn_state_update": {
+      "graphs": 1,
+      "launches": 1,
+      "shape": [16, 128, 128],
+      "max_abs_diff": 0.0009016990661621094
+    }
+  },
+  "pypto_regression": {
+    "build_run_id": "pypto-20260827T113708Z-387158-371f40",
+    "ctest_run_id": "pypto-20260827T113729Z-387443-289fc6",
+    "passed": 13,
+    "total": 13
+  },
+  "push": {
+    "attempted": true,
+    "succeeded": false,
+    "error": "could not read Username for https://github.com: No such device or address",
+    "owner": "user credentials"
+  }
+}
