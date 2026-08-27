@@ -648,6 +648,20 @@ production; its report stays immutable.
   exact GPU-adapter hash gate and reverted in `7ecc197`; D-0016 now requires a
   separate CPU-only policy-v2 adapter. Existing 24 GiB controls and evidence are
   unchanged and remain authoritative until that adapter is implemented.
+- The first Inductor-scheduled PyPTO SM120 Cubin exists. Plugin commit
+  (after f3ccfb2) moves the routing hook to `codegen_node`: strict mode
+  unwraps `ComputedBuffer` to the Pointwise loops, compiles the
+  FusedPointwiseV2 program through the exact-DSO facade and emits the
+  fail-closed runtime-bridge call. GPU run
+  `pypto-20260827T003537Z-25511-9b98db` on the new generic policy-2
+  lane (`tools/run_pypto_gpu_smoke_generic.py`) proves the route:
+  scheduling_routed=true, one non-fallback SM120 Cubin (13,912 bytes,
+  SHA-256 234339182a5300160ac39a98b4ac4e8370f480db505ba7e584de4375cd278aca,
+  entry pypto_vector_add, three pointers, zero workspace). Known gaps:
+  the wrapper launch fails closed through the pending runtime bridge,
+  a residual non-pointwise node still touches the external Triton
+  driver, and the expression-tree translation is the bounded identity
+  chain. Five plugin tests stay green.
 - The TorchInductor PyPTO plugin now has its first two executable layers
   under D-0018 gates. `pypto_plugins.torch.pointwise_codegen` (plugin
   commit 6b5553a) binds the exact pypto_core DSO, builds bounded
