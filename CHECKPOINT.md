@@ -1,6 +1,25 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0067`
+**Checkpoint:** `CP-0068`
+
+**Status:** The operator tree now has one canonical identity with no version
+suffix. The old clean `projects/pypto-kernels` repository at `226101f` was
+removed from the workspace into the recoverable system-trash path
+`/home/zhaosiying/.local/share/Trash/files/pypto-kernels`; the native-tile
+repository took over the exact path `projects/pypto-kernels`, renamed its
+Python package to `pypto_kernels`, flattened the required operator modules to
+the package root, and renamed all active tests/benchmarks/results. Canonical
+repository commit `a1a8084` has zero current path/source/comment matches for
+the retired version labels or package name, and focused import/native-tile
+structure tests pass 2/2. The retained Qwen3.5 inventory is embedding,
+matmul/LM head, RMSNorm/fused residual norm, QK norm+RoPE, full attention, the
+complete GDN/causal-convolution path, SwiGLU/gates, pointwise residual algebra,
+and logits postprocessing; no current business operator was discarded because
+each existing family belongs to that set. Evidence is
+`state/evidence/pypto-kernels-canonical-cleanup-cp0068.json`. The overall goal
+remains active; native RMSNorm compilation is the next operator gate.
+
+## Previous checkpoint (CP-0067)
 
 **Status:** The new native-tile definition is now executable end to end for
 the first two v2 Qwen operators. PyPTO `41dc7ab` adds the public

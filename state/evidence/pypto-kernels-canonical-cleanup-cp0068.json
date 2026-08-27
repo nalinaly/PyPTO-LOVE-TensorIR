@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "checkpoint": "CP-0068",
+  "status": "complete",
+  "canonical_repository": {
+    "path": "projects/pypto-kernels",
+    "commit": "a1a8084",
+    "python_package": "pypto_kernels"
+  },
+  "removed_legacy_repository": {
+    "former_path": "projects/pypto-kernels",
+    "commit": "226101f",
+    "working_tree_was_clean": true,
+    "workspace_path_removed": true,
+    "recoverable_trash_path": "/home/zhaosiying/.local/share/Trash/files/pypto-kernels"
+  },
+  "removed_versioned_path": "projects/pypto-kernels-v2",
+  "renamed_active_files": [
+    "tests/test_operators.py",
+    "benchmarks/classify_sm120.py",
+    "benchmarks/classify_results.json",
+    "benchmarks/exec_sm120.py",
+    "benchmarks/exec_results.json"
+  ],
+  "source_scan": {
+    "version_suffix_paths": 0,
+    "version_labels_in_current_repository": 0,
+    "old_python_package_references": 0
+  },
+  "qwen35_required_operator_inventory": [
+    "embedding",
+    "dense and LM-head matmul",
+    "Gemma RMSNorm and fused residual RMSNorm",
+    "QK RMSNorm plus RoPE",
+    "full attention",
+    "GDN projection split, causal convolution, gating, state read and state update",
+    "SwiGLU and sigmoid gates",
+    "residual and generic pointwise algebra",
+    "logit selection and optional softcap"
+  ],
+  "focused_validation": {
+    "command": "pytest -q tests/test_operators.py -k 'each_operator or native_tile_dsl'",
+    "result": "2 passed"
+  },
+  "safety": {
+    "protected_processes_signalled": false,
+    "upstream_modified": false,
+    "model_harness_modified": false
+  }
+}
