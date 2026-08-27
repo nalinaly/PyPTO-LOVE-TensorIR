@@ -367,7 +367,12 @@ def main() -> int:
     )
 
     def run_paged_decode_case(
-        *, q_heads: int, kv_heads: int, valid_counts: tuple[int, ...], label: str
+        *,
+        q_heads: int,
+        kv_heads: int,
+        valid_counts: tuple[int, ...],
+        label: str,
+        cache_row_stride: int | None = None,
     ) -> None:
         bucket_tokens = 16
         paged_head_dim = 256
@@ -375,6 +380,9 @@ def main() -> int:
         request_rows = 65
         max_context_len = 4096
         batch_size = len(valid_counts)
+        row_width = kv_heads * paged_head_dim
+        if cache_row_stride is None:
+            cache_row_stride = row_width
         assert batch_size > 0
         assert all(0 < count <= bucket_tokens for count in valid_counts)
         paged_query = (
@@ -386,16 +394,20 @@ def main() -> int:
             )
             * 0.2
         )
-        key_cache = (
-            torch.randn(
-                cache_rows,
-                kv_heads * paged_head_dim,
-                device="cuda",
-                dtype=torch.bfloat16,
-            )
-            * 0.2
+        key_cache = torch.empty_strided(
+            (cache_rows, row_width),
+            (cache_row_stride, 1),
+            device="cuda",
+            dtype=torch.bfloat16,
         )
-        value_cache = torch.randn_like(key_cache) * 0.2
+        value_cache = torch.empty_strided(
+            (cache_rows, row_width),
+            (cache_row_stride, 1),
+            device="cuda",
+            dtype=torch.bfloat16,
+        )
+        key_cache.normal_().mul_(0.2)
+        value_cache.normal_().mul_(0.2)
         # Every padded request-table entry remains slot 0. Make that row
         # adversarial so a missing valid-length mask produces an obvious error.
         key_cache[0].zero_()
@@ -424,7 +436,6 @@ def main() -> int:
         valid_tokens = torch.tensor(
             valid_counts, device="cuda", dtype=torch.int64
         )
-        row_width = kv_heads * paged_head_dim
         current_key = (
             torch.randn(
                 batch_size, row_width, device="cuda", dtype=torch.bfloat16
@@ -516,6 +527,7 @@ def main() -> int:
                 "launches": 1,
                 "batch_size": batch_size,
                 "bucket_tokens": bucket_tokens,
+                "cache_row_stride": cache_row_stride,
                 "valid_tokens": list(valid_counts),
                 "max_abs_diff": max_abs_diff,
                 "correct": bool(
@@ -543,6 +555,7 @@ def main() -> int:
         kv_heads=2,
         valid_counts=(13, 7),
         label="attention_paged_decode_batch2_0_8b 8q2kv bucket16 valid13_7 d256",
+        cache_row_stride=2048,
     )
 
     prefill_rows, prefill_width = 13, 512

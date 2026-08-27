@@ -73,8 +73,10 @@ def main() -> int:
             [1, 1, 64],
         ),
         (
-            "attention_paged_decode_batch2_0_8b",
-            attention.build_paged_decode(2, 8, 2, 16, 256, 1024, 65, 4096),
+            "attention_paged_decode_batch2_strided_0_8b",
+            attention.build_paged_decode(
+                2, 8, 2, 16, 256, 1024, 65, 4096, 2048
+            ),
             [1, 1, 64],
         ),
         (
@@ -88,13 +90,15 @@ def main() -> int:
             [128],
         ),
         (
-            "attention_paged_cache_write_prefill_0_8b",
-            attention.build_paged_cache_write(1024, 13, 512),
+            "attention_paged_cache_write_prefill_strided_0_8b",
+            attention.build_paged_cache_write(1024, 13, 512, 2048),
             [1, 128],
         ),
         (
-            "attention_paged_prefill_0_8b",
-            attention.build_paged_prefill(13, 8, 2, 16, 256, 1024, 65, 4096),
+            "attention_paged_prefill_strided_0_8b",
+            attention.build_paged_prefill(
+                13, 8, 2, 16, 256, 1024, 65, 4096, 2048
+            ),
             [1, 1, 128],
         ),
         (

@@ -4,6 +4,7 @@ import sys
 
 sys.path.insert(0, "/home/zhaosiying/pypto-love-tensor-ir/projects/pypto-kernels/src")
 
+import pytest
 import torch
 
 from pypto_kernels import (
@@ -204,6 +205,26 @@ def test_paged_attention_decode_gathers_physical_kv_rows_in_one_graph():
     batched_rendered = str(batched_program)
     assert "pl.range(2)" in batched_rendered
     assert batched_rendered.count("pl.tile.gather_row") == 2
+
+
+def test_paged_cache_layout_accepts_static_row_pitch() -> None:
+    key_cache = torch.empty_strided(
+        (1024, 512), (2048, 1), dtype=torch.bfloat16, device="meta"
+    )
+    value_cache = torch.empty_strided(
+        (1024, 512), (2048, 1), dtype=torch.bfloat16, device="meta"
+    )
+    assert (
+        attention._paged_cache_row_stride(
+            key_cache, value_cache, operation="test"
+        )
+        == 2048
+    )
+    overlap = torch.empty_strided(
+        (1024, 512), (256, 1), dtype=torch.bfloat16, device="meta"
+    )
+    with pytest.raises(ValueError, match="non-overlapping static row pitch"):
+        attention._paged_cache_row_stride(overlap, overlap, operation="test")
 
 
 def test_paged_cache_write_declares_mutation_and_one_graph():
