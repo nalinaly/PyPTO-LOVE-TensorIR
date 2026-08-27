@@ -149,18 +149,25 @@ def create_attention_backend(model_runner: Any) -> Any:
                 or value_cache.ndim != 3
                 or key_cache.dtype is not torch.bfloat16
                 or value_cache.dtype is not torch.bfloat16
-                or not key_cache.is_contiguous()
-                or not value_cache.is_contiguous()
                 or key_cache.shape != value_cache.shape
+                or key_cache.stride() != value_cache.stride()
                 or key_cache.shape[1] != layer.tp_k_head_num
                 or key_cache.shape[2] != layer.qk_head_dim
+                or key_cache.stride(2) != 1
+                or key_cache.stride(1) != layer.qk_head_dim
             ):
                 raise BackendNotReadyError(
-                    "PyPTO attention requires contiguous [slots, KV heads, head dim] "
-                    "BF16 cache tensors."
+                    "PyPTO attention requires matching [slots, KV heads, head dim] "
+                    "BF16 caches with contiguous head rows."
                 )
             rows = int(key_cache.shape[0])
-            return key_cache.view(rows, -1), value_cache.view(rows, -1)
+            key_flat = key_cache.view(rows, -1)
+            value_flat = value_cache.view(rows, -1)
+            if key_flat.stride(0) < key_flat.shape[1]:
+                raise BackendNotReadyError(
+                    "PyPTO attention cache rows overlap in physical storage."
+                )
+            return key_flat, value_flat
 
         def _write_cache(
             self,
