@@ -138,8 +138,10 @@
       EV-0062; run 175445Z-218543; report 564ae535...; +0 accumulator fix.)
 - [x] Implement and independently source-review StructuredMatmulV4 at
       `d755117`, including transpose, FP32 accumulation and normalized ABI.
-- [ ] Build, produce Cubins and gate StructuredMatmulV4 before Inductor
-      integration.
+- [x] Build, produce Cubins and gate StructuredMatmulV4 before Inductor
+      integration. (Replay trees verified; OFF 11/11, ON 13/13, ON Python
+      green; five-case two-process determinism probe byte-identical; DSO
+      audit clean.)
 - [x] Implement bounded canonical PyPTO Artifact v1 serialization with bytes,
       ABI, request/build-spec/producer digests and malformed-input rejection.
 - [x] Isolate the TensorIR/LLVM ABI bridge, hide every non-Python DSO export,

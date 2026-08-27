@@ -648,6 +648,22 @@ production; its report stays immutable.
   exact GPU-adapter hash gate and reverted in `7ecc197`; D-0016 now requires a
   separate CPU-only policy-v2 adapter. Existing 24 GiB controls and evidence are
   unchanged and remain authoritative until that adapter is implemented.
+- StructuredMatmulV4 host compiler/Cubin evidence is complete under D-0018
+  gates. The replay worktree (branch feature/structured-matmul-v4-replay)
+  cherry-picked 6ee412a then d755117 onto 62eb882 with the one documented
+  descriptor-fixture conflict resolved theirs; both expected trees
+  ec921f0d/cd1b51f5 verified, exact ten-path inventory. Build-discovered
+  test repairs are commit 4b61e3b (three negative fixtures aborted at
+  construction). Fresh backend-OFF ctest is 11/11 and backend-ON is 13/13;
+  the worktree ON Python suite passes (five-case producer matrix); a
+  two-process CUDA-hidden determinism probe produced byte-identical
+  BuildSpec/Artifact/Cubin digests for all five rank-2/rank-3
+  transpose/decode/batched cases (entry pypto_structured_matmul_v4,
+  descriptor-2 static grid, three pointers, zero workspace, no
+  fallback). ON DSO is 784,670,624 bytes, SHA-256
+  981897033953c606bce7f0050fa0efbcff1feae2b205c6133f2203291400ce8c,
+  RPATH-free with the five standard dependencies. GPU numerical
+  correctness and performance for matmul remain later gates.
 - CP-0049/EV-0062 closes RowReductionV3 real-SM120 correctness. PyPTO
   `faefd0a` (on `62eb882`) adds the explicit `+0` accumulator epilogue to
   every FP32-domain row_sum reduction after two diagnostic GPU runs proved
