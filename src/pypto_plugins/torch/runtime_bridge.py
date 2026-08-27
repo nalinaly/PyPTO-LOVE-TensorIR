@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .errors import StrictCoverageError
+from ..errors import StrictCoverageError
 
 
 def pypto_launch(kernel_name: str, args: tuple[Any, ...], stream: int) -> None:

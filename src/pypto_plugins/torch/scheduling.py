@@ -66,6 +66,12 @@ def make_pypto_triton_scheduling(triton_scheduling_class: Any) -> Any:
                     "from pypto_plugins.torch.runtime_bridge import pypto_launch"
                 )
                 wrapper._pypto_header_written = True
+            for output in node.get_outputs():
+                buffer = getattr(output, "node", output)
+                if not hasattr(buffer, "get_defining_op"):
+                    buffer = getattr(output, "buffer", None)
+                if buffer is not None and hasattr(buffer, "get_defining_op"):
+                    wrapper.codegen_allocation(buffer)
             stream = type(wrapper).write_get_raw_stream(wrapper, 0, _graph_name())
             call_args = _node_call_args(node)
             joined = ", ".join(call_args)
@@ -138,11 +144,13 @@ def _is_pointwise_node(inner: Any) -> bool:
 
 def _node_call_args(node: Any) -> list[str]:
     args: list[str] = []
-    for dep in sorted(
-        (str(item) for item in node.read_writes.reads), key=str
-    ):
-        name = dep if isinstance(dep, str) else str(getattr(dep, "name", dep))
-        if name not in args:
+    for dep in node.read_writes.reads:
+        name = getattr(dep, "name", None)
+        if not isinstance(name, str):
+            name = getattr(
+                getattr(dep, "buffer", None), "get_name", lambda: None
+            )()
+        if isinstance(name, str) and name not in args:
             args.append(name)
     for output in node.get_outputs():
         args.append(output.get_name())
@@ -171,36 +179,143 @@ def _graph_name() -> str:
     return V.graph.name
 
 
-def _translate_pointwise(node: Any) -> tuple[Any, dict[str, str | int]]:
-    """Translate a pointwise node into a FusedPointwiseV2 HIR program.
+class _OpsRecorder:
+    """Record the ops sequence of one pointwise body for HIR translation.
 
-    The first routed revision compiles the bounded identity chain over
-    the node's static extent; the full expression-tree walk is the
-    next layer and its absence is visible in the smoke evidence.
+    Every handler attribute is a callable returning a proxy value; the
+    ten registered FusedPointwiseV2 ops build the chain, loads become
+    inputs, stores become outputs, and anything else fails closed.
     """
+
+    _BINARY = {
+        "add": "tensor.add",
+        "sub": "tensor.sub",
+        "mul": "tensor.mul",
+    }
+    _UNARY = {
+        "neg": "tensor.neg",
+        "exp": "tensor.exp",
+        "recip": "tensor.recip",
+        "rsqrt": "tensor.rsqrt",
+    }
+
+    def __init__(self) -> None:
+        self.inputs: list[str] = []
+        self.outputs: list[str] = []
+        self.ops: list[tuple[str, list[object]]] = []
+        self.proxies: dict[int, object] = {}
+        self._counter = 0
+
+    class _Proxy:
+        __slots__ = ("key",)
+
+        def __init__(self, key: int) -> None:
+            self.key = key
+
+    def _next_proxy(self) -> "_OpsRecorder._Proxy":
+        self._counter += 1
+        proxy = self._Proxy(self._counter)
+        self.proxies[proxy.key] = proxy
+        return proxy
+
+    @staticmethod
+    def _is_constant(value: object) -> bool:
+        import sympy
+
+        return isinstance(value, (int, float, sympy.Integer, sympy.Float, sympy.Rational))
+
+    def _constant_float(self, value: object) -> float:
+        return float(value)
+
+    def __getattr__(self, name: str) -> Any:
+        def handler(*args: object, **kwargs: object) -> object:
+            if name == "load":
+                buffer_name = str(args[0])
+                if buffer_name not in self.inputs:
+                    self.inputs.append(buffer_name)
+                return self._next_proxy()
+            if name == "store":
+                self.outputs.append(str(args[0]))
+                return None
+            if name in self._BINARY:
+                first, second = args[0], args[1]
+                if self._is_constant(first) or self._is_constant(second):
+                    if self._is_constant(first):
+                        raise StrictCoverageError(
+                            "scalar-left binary op is not a registered form"
+                        )
+                    self.ops.append(
+                        (self._BINARY[name] + "s", [first, self._constant_float(second)])
+                    )
+                else:
+                    self.ops.append((self._BINARY[name], [first, second]))
+                return self._next_proxy()
+            if name in self._UNARY and len(args) == 1:
+                self.ops.append((self._UNARY[name], [args[0]]))
+                return self._next_proxy()
+            if name == "constant":
+                return args[0]
+            raise StrictCoverageError(
+                f"strict PyPTO pointwise translation has no op {name!r} yet"
+            )
+
+        return handler
+
+
+def _translate_pointwise(node: Any) -> tuple[Any, dict[str, str | int]]:
+    """Translate a pointwise node's real ops sequence into FusedPointwiseV2 HIR.
+
+    The node body executes once against the recording ops handler; loads
+    become inputs, the ten registered tensor ops rebuild the exact chain,
+    stores become outputs, and any other operator fails closed.
+    """
+
+    import sympy
+    from torch._inductor.virtualized import V
 
     inner_node = getattr(node, "node", None)
     data = getattr(inner_node, "data", None)
     size_source = data if data is not None else node
     ranges = [int(s) for s in getattr(size_source, "get_size", lambda: [])()]
     if not ranges:
-        from torch._inductor.virtualized import V
-
-        ranges = [
-            int(s)
-            for s in (
-                V.graph.sizevars.size_hints
-                if hasattr(V.graph.sizevars, "size_hints")
-                else []
-            )
-        ]
-    if not ranges:
         raise StrictCoverageError("pointwise kernel has no static size hints")
-    shape = ranges[-1:]
+    body = getattr(node, "_body", None)
+    if body is None:
+        body = getattr(data, "get_reduction_size", None)
+    body = getattr(node, "_body", None) or getattr(data, "_body", None)
+    if body is None:
+        raise StrictCoverageError("pointwise node has no executable body")
+    recorder = _OpsRecorder()
+    index_vars = [[sympy.Symbol(f"i{index}") for index in range(len(ranges))]]
+    with V.set_ops_handler(recorder):
+        body(*index_vars)
+    if not recorder.inputs or not recorder.outputs or not recorder.ops:
+        raise StrictCoverageError(
+            "pointwise body did not produce a translatable chain "
+            f"(inputs={len(recorder.inputs)}, ops={len(recorder.ops)}, "
+            f"outputs={len(recorder.outputs)})"
+        )
+    dtype_name = "float32"
     builder = pointwise_codegen.PointwiseProgramBuilder(
-        tuple(shape[-1:]), "float32"
+        tuple(ranges[-1:]), dtype_name
     )
-    x = builder.add_input("x")
-    y = builder.add_input("y")
-    builder.mark_output(builder.emit("tensor.add", [x, y]))
+    input_proxies = {}
+    # Loads were recorded first in creation order; replay proxy keys from 1.
+    next_key = 1
+    for name in recorder.inputs:
+        input_proxies[next_key] = builder.add_input(name)
+        next_key += 1
+    key = len(recorder.inputs) + 1
+    for op_name, operands in recorder.ops:
+        arguments = []
+        for operand in operands:
+            if isinstance(operand, _OpsRecorder._Proxy):
+                arguments.append(input_proxies[operand.key])
+            else:
+                arguments.append(builder.scalar(operand))
+        input_proxies[key] = builder.emit(op_name, arguments)
+        key += 1
+    last_key = key - 1
+    if recorder.outputs:
+        builder.mark_output(input_proxies[last_key])
     return builder.build(), {"tile": 128}
