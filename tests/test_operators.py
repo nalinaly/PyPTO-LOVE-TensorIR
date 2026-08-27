@@ -23,6 +23,7 @@ from pypto_kernels import (
 
 
 def test_each_operator_is_one_program():
+    assert attention.GRAPHS == 2  # dense control + paged decode
     assert all(
         graphs == 1
         for graphs in (
@@ -32,7 +33,6 @@ def test_each_operator_is_one_program():
             gated_rmsnorm.GRAPHS,
             rmsnorm.GRAPHS,
             rope.GRAPHS,
-            attention.GRAPHS,
             causal_conv1d.GRAPHS,
             embedding.GRAPHS,
             linear.GRAPHS,
@@ -165,6 +165,19 @@ def test_attention_is_one_native_tile_graph():
     assert "tensor." not in rendered
 
 
+def test_paged_attention_decode_gathers_physical_kv_rows_in_one_graph():
+    program = attention.build_paged_decode(8, 2, 16, 256, 1024)
+    rendered = str(program)
+    assert len(_one_program(program).body.stmts) == 2
+    assert "pl.range(8)" in rendered and "pl.range(16)" in rendered
+    assert "pl.tensor.read" in rendered
+    assert rendered.count("pl.tile.gather_row") == 2
+    assert "transpose=True" in rendered
+    assert rendered.count("pl.tile.matmul") == 2
+    assert "pl.tile.row_max" in rendered and "pl.tile.row_sum" in rendered
+    assert rendered.count("pl.tile.store") == 1
+
+
 def test_linear_is_one_native_tile_graph():
     program = linear.build(2, 128, 256)
     rendered = str(program)
@@ -216,6 +229,7 @@ if __name__ == "__main__":
     test_qk_norm_partial_rope_gate_is_one_native_graph()
     test_rope_is_one_native_tile_graph()
     test_attention_is_one_native_tile_graph()
+    test_paged_attention_decode_gathers_physical_kv_rows_in_one_graph()
     test_linear_is_one_native_tile_graph()
     test_gdn_read_and_update_are_one_native_tile_graph_each()
     test_broadcast_dependencies_are_closed()

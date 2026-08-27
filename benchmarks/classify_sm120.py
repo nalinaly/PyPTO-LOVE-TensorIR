@@ -62,6 +62,11 @@ def main() -> int:
         ("causal_conv1d", causal_conv1d.build(2048, 64), [128, 1]),
         ("rope", rope.build(256, 64), [1, 1, 64]),
         ("attention", attention.build(32, 128, 128, 128), [1, 64]),
+        (
+            "attention_paged_decode",
+            attention.build_paged_decode(8, 2, 16, 256, 1024),
+            [1, 64],
+        ),
         ("linear", linear.build(32, 1024, 1024), [1, 128]),
         ("gdn_read", gdn.build_read(16, 128, 128), [1, 64]),
         (
