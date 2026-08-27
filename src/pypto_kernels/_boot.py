@@ -1,8 +1,4 @@
-"""Self-contained exact-DSO bootstrap for the v2 operator library.
-
-Deliberately independent of pypto-kernels v1: codex is actively modifying
-v1 and the pypto compiler; v2 only shares the immutable DSO product.
-"""
+"""Self-contained exact-DSO bootstrap for the operator library."""
 
 from __future__ import annotations
 
@@ -33,7 +29,8 @@ def bootstrap() -> dict[str, Any]:
     resolved = pathlib.Path(DSO_PATH).resolve(strict=True)
     package_root = pathlib.Path(PYPTO_PACKAGE).resolve(strict=True)
     spec = importlib.util.spec_from_file_location(
-        "pypto", package_root / "__init__.py",
+        "pypto",
+        package_root / "__init__.py",
         submodule_search_locations=[str(package_root)],
     )
     assert spec is not None and spec.loader is not None
@@ -63,7 +60,7 @@ EXPECTED_RUNTIME = (
 def compile_graph(program: Any, tiles: list[int]) -> str:
     """Compile one graph through the strict facade; return its cache key.
 
-    The whole v2 premise is "one operator = one graph", so compilation is
+    The library premise is "one operator = one graph", so compilation is
     per-graph and cached by (program identity, tiles).
     """
 
@@ -88,13 +85,21 @@ def compile_graph(program: Any, tiles: list[int]) -> str:
     from pypto.runtime import nvidia as runtime
 
     observation = runtime.observe_current_nvidia_runtime(
-        EXPECTED_DRIVER, EXPECTED_RUNTIME)
+        EXPECTED_DRIVER, EXPECTED_RUNTIME
+    )
     from pypto.compiler import ToolchainIdentity
 
     toolchain = ToolchainIdentity(
-        info.pypto_revision, info.tensor_ir_revision, info.cuda_tile_revision,
-        info.llvm_revision, info.cuda_toolkit_root, info.cuda_toolkit_version,
-        info.tileiras_real_path, info.tileiras_version, info.tileiras_sha256)
+        info.pypto_revision,
+        info.tensor_ir_revision,
+        info.cuda_tile_revision,
+        info.llvm_revision,
+        info.cuda_toolkit_root,
+        info.cuda_toolkit_version,
+        info.tileiras_real_path,
+        info.tileiras_version,
+        info.tileiras_sha256,
+    )
     request = CompileRequest(observation.target_info, toolchain)
     parameter = ScheduleParameter
     unsigned = ScheduleValueKind.UnsignedInteger
@@ -103,16 +108,21 @@ def compile_graph(program: Any, tiles: list[int]) -> str:
         for index, tile in enumerate(tiles)
     ]
     schedule = CanonicalSchedule(
-        [parameter("codegen_strategy", ScheduleValueKind.Text,
-                   "layout-propagation")],
-        tile_parameters, [], [],
+        [parameter("codegen_strategy", ScheduleValueKind.Text, "layout-propagation")],
+        tile_parameters,
+        [],
+        [],
         [parameter("count", unsigned, "1")],
-        [parameter("count", unsigned, "4")], [],
-        [parameter("bytecode_major", unsigned, "13"),
-         parameter("bytecode_minor", unsigned, "3"),
-         parameter("bytecode_tag", unsigned, "0"),
-         parameter("max_candidates", unsigned, "0"),
-         parameter("uniform_signature", ScheduleValueKind.Boolean, "false")])
+        [parameter("count", unsigned, "4")],
+        [],
+        [
+            parameter("bytecode_major", unsigned, "13"),
+            parameter("bytecode_minor", unsigned, "3"),
+            parameter("bytecode_tag", unsigned, "0"),
+            parameter("max_candidates", unsigned, "0"),
+            parameter("uniform_signature", ScheduleValueKind.Boolean, "false"),
+        ],
+    )
     result = compiler.compile_structured_strict(program, request, schedule)
     artifact = result.artifact
     key = hashlib.sha256(bytes(artifact.device_code)).hexdigest()[:16]
@@ -120,11 +130,10 @@ def compile_graph(program: Any, tiles: list[int]) -> str:
     return key
 
 
-def compile_jit_kernel(kernel: Any, samples: tuple[Any, ...],
-                       tiles: list[int]) -> str:
+def compile_jit_kernel(kernel: Any, samples: tuple[Any, ...], tiles: list[int]) -> str:
     """Specialize a native ``@pl.jit`` tile kernel and compile that IR.
 
-    Unlike the legacy v2 graph builders, this boundary preserves the user's
+    This boundary preserves the user's
     ``pl.at`` / ``pl.range`` / ``tile.load`` / ``tile.store`` source.  The
     NVIDIA frontend lifts the statically complete tile loop nest into one
     TensorIR graph and the resulting operator still launches exactly once.
@@ -144,11 +153,13 @@ def launch_graph(key: str, tensors: tuple[Any, ...], stream: Any) -> None:
     artifact, request = _GRAPHS[key]
     executable = runtime.NvidiaExecutable(artifact, request)
     observation = runtime.observe_current_nvidia_runtime(
-        EXPECTED_DRIVER, EXPECTED_RUNTIME)
+        EXPECTED_DRIVER, EXPECTED_RUNTIME
+    )
     executable.prewarm(observation.cuda_runtime_api_version)
     arguments = [
         runtime.NvidiaLaunchArgument.tensor(
-            int(t.data_ptr()), list(t.shape), list(t.stride()))
+            int(t.data_ptr()), list(t.shape), list(t.stride())
+        )
         for t in tensors
     ]
     packet = executable.prepare_launch(arguments)
@@ -163,7 +174,7 @@ def classify(program: Any, tiles: list[int]) -> dict[str, str]:
     'producer-blocked'— the HIR graph is VALID (emission accepted it) and
                         only the pinned producer lowering rejects it; this
                         is exactly the codex L0 (broadcast lowering) marker.
-    'hir-rejected'    — the graph itself is invalid (a v2 bug).
+    'hir-rejected'    — the graph itself is invalid.
     """
 
     try:

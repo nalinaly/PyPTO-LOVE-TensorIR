@@ -1,4 +1,4 @@
-# pypto-kernels v2 — 原生 tile DSL 融合算子库
+# pypto-kernels — Qwen3.5 原生 tile DSL 融合算子库
 
 唯一合格形态是 `examples/beginner/03_scalar_ops.py` 的原生写法：每个模型
 算子用 `@pl.jit`，在 `pl.at(CORE_GROUP)` 内显式写 `pl.range`、
@@ -19,14 +19,14 @@ ones-matmul 广播展开。仅仅用整张量 `tensor.*` graph 再附加 schedul
 | `attention` | 2（不完整） | **待迁移并补齐** | 旧 post-exp 分解仅作基线，目标是原生 tile attention graph |
 
 CP-0062 已关闭 broadcast producer 阻塞；分类证据在
-`benchmarks/v2_classify_results.json`。`compiled` 与 GPU 数值 `all_correct`
+`benchmarks/classify_results.json`。`compiled` 与 GPU 数值 `all_correct`
 仍是两个独立门，后者不得由分类结果代替。
 
 ## 运行
 
 ```
-envs/pypto-nvidia/bin/python -B tests/test_v2_operators.py      # 结构：单 graph + 状态分类
-envs/pypto-nvidia/bin/python -B benchmarks/v2_exec_sm120.py     # 可执行算子 GPU 验收
+envs/pypto-nvidia/bin/python -B tests/test_operators.py      # 结构：单 graph + 状态分类
+envs/pypto-nvidia/bin/python -B benchmarks/exec_sm120.py     # 可执行算子 GPU 验收
 ```
 
-本仓只包含新的 v2 实现；模型接入也只允许引用这些原生 tile 算子。
+本仓是唯一算子实现；模型接入只允许引用这些原生 tile 算子。

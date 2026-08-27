@@ -2,14 +2,13 @@
 
 import sys
 
-sys.path.insert(0, "/home/zhaosiying/pypto-love-tensor-ir/projects/pypto-kernels-v2/src")
+sys.path.insert(0, "/home/zhaosiying/pypto-love-tensor-ir/projects/pypto-kernels/src")
 
 import torch
 
-from pypto_kernels_v2._boot import bootstrap
-from pypto_kernels_v2._graph import gdn_state_update_graph, pointwise_graph
-from pypto_kernels_v2.ops import (attention_design, fused_add, gdn,
-                                 rmsnorm, rope, silu_and_mul)
+from pypto_kernels._boot import bootstrap
+from pypto_kernels._graph import gdn_state_update_graph, pointwise_graph
+from pypto_kernels import attention, fused_add, gdn, rmsnorm, rope, silu_and_mul
 
 
 def test_each_operator_is_one_program():
@@ -66,15 +65,15 @@ def test_gdn_compose_and_delta_compile():
 
 
 def test_attention_softmax_scale_is_single_graph_compiled():
-    program = attention_design.build_softmax_scale(256, 1024)
+    program = attention.build_softmax_scale(256, 1024)
     assert len(_one_program(program).body.stmts) == 2  # 1 assignment + return
-    result = attention_design.softmax_status()
+    result = attention.softmax_status()
     assert result["status"] == "compiled", result
 
 
 def test_attention_normalize_and_value_mix_compile():
-    normalize = attention_design.softmax_normalize_status()
-    value_mix = attention_design.value_mix_status()
+    normalize = attention.softmax_normalize_status()
+    value_mix = attention.value_mix_status()
     assert normalize["status"] == "compiled", normalize
     assert value_mix["status"] == "compiled", value_mix
 
@@ -88,8 +87,7 @@ def test_gdn_complete_read_components_and_update_compile():
         "delta_combine": gdn.delta_combine_status(),
         "state_update": gdn.state_update_status(),
     }
-    assert all(result["status"] == "compiled"
-               for result in results.values()), results
+    assert all(result["status"] == "compiled" for result in results.values()), results
     update = _one_program(gdn_state_update_graph(16, 128, 128))
     assert len(update.body.stmts) == 6  # 5 fused assignments + return
 
@@ -117,4 +115,4 @@ if __name__ == "__main__":
     test_gdn_complete_read_components_and_update_compile()
     test_rmsnorm_single_graph_is_compiled()
     test_broadcast_dependencies_are_closed()
-    print("ALL V2 STRUCTURE TESTS PASSED")
+    print("ALL OPERATOR STRUCTURE TESTS PASSED")

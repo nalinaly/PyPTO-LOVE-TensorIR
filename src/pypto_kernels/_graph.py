@@ -1,4 +1,4 @@
-"""Single-graph HIR builders shared by the v2 operators.
+"""Temporary whole-tensor baselines pending native tile migration.
 
 One operator = one PyPTO TensorIR graph. A builder returns exactly one
 `ir.Program`; running an operator is at most "compile once per shape,
@@ -12,13 +12,16 @@ from typing import Any
 
 from ._boot import bootstrap
 
-SPAN_FILE = "pypto_kernels_v2"
+SPAN_FILE = "pypto_kernels"
 
 
-def pointwise_graph(shape: list[int], dtype: Any,
-                    ops: list[tuple[str, list[Any]]],
-                    broadcast_inputs: list[str] | None = None,
-                    broadcast_shapes: dict[str, list[int]] | None = None) -> Any:
+def pointwise_graph(
+    shape: list[int],
+    dtype: Any,
+    ops: list[tuple[str, list[Any]]],
+    broadcast_inputs: list[str] | None = None,
+    broadcast_shapes: dict[str, list[int]] | None = None,
+) -> Any:
     """Build one FusedPointwiseV2 graph from a DAG op chain.
 
     Names listed in ``broadcast_inputs`` get the [M, 1, ...] row type so
@@ -29,15 +32,17 @@ def pointwise_graph(shape: list[int], dtype: Any,
     broadcast_inputs = broadcast_inputs or []
     resolved_broadcast_shapes = dict(broadcast_shapes or {})
     for name in broadcast_inputs:
-        resolved_broadcast_shapes.setdefault(
-            name, [shape[0]] + [1] * (len(shape) - 1))
+        resolved_broadcast_shapes.setdefault(name, [shape[0]] + [1] * (len(shape) - 1))
     for name, input_shape in resolved_broadcast_shapes.items():
-        if len(input_shape) != len(shape) or not any(
-            source == 1 and target > 1
-            for source, target in zip(input_shape, shape)
-        ) or any(
-            source != target and source != 1
-            for source, target in zip(input_shape, shape)
+        if (
+            len(input_shape) != len(shape)
+            or not any(
+                source == 1 and target > 1 for source, target in zip(input_shape, shape)
+            )
+            or any(
+                source != target and source != 1
+                for source, target in zip(input_shape, shape)
+            )
         ):
             raise ValueError(
                 f"broadcast input {name} shape {input_shape} is incompatible "
@@ -62,9 +67,9 @@ def pointwise_graph(shape: list[int], dtype: Any,
                 if operand not in inputs:
                     if operand in resolved_broadcast_shapes:
                         broadcast_type = ir.TensorType(
-                            resolved_broadcast_shapes[operand], dtype)
-                        inputs[operand] = ir.Var(
-                            operand, broadcast_type, span)
+                            resolved_broadcast_shapes[operand], dtype
+                        )
+                        inputs[operand] = ir.Var(operand, broadcast_type, span)
                     else:
                         inputs[operand] = ir.Var(operand, tensor_type, span)
                 args.append(inputs[operand])
@@ -77,13 +82,18 @@ def pointwise_graph(shape: list[int], dtype: Any,
         previous = result
     statements.append(ir.ReturnStmt([previous], span))
     function = ir.Function(
-        "ignored_fused_pointwise", list(inputs.values()), [tensor_type],
-        ir.SeqStmts(statements, span), span)
+        "ignored_fused_pointwise",
+        list(inputs.values()),
+        [tensor_type],
+        ir.SeqStmts(statements, span),
+        span,
+    )
     return ir.Program([function], SPAN_FILE, span)
 
 
-def row_reduction_epilogue_graph(rows: int, cols: int, eps: float,
-                                 mean_scale: float) -> Any:
+def row_reduction_epilogue_graph(
+    rows: int, cols: int, eps: float, mean_scale: float
+) -> Any:
     """One graph: sum -> scale -> shift -> rsqrt -> broadcast-mul.
 
     This is the Ascend-style single-kernel RMSNorm shape: the reduction,
@@ -107,25 +117,45 @@ def row_reduction_epilogue_graph(rows: int, cols: int, eps: float,
     t3 = ir.Var("t3", row, span)
     out = ir.Var("out", full, span)
     statements = [
-        ir.AssignStmt(square, ir.Call(ir.get_op("tensor.mul"), [x, x], full,
-                                      span), span),
-        ir.AssignStmt(acc, ir.Call(ir.get_op("tensor.row_sum"), [square], row, span),
-                      span),
-        ir.AssignStmt(t1, ir.Call(
-            ir.get_op("tensor.muls"),
-            [acc, ir.ConstFloat(mean_scale, dtype, span)], row, span), span),
-        ir.AssignStmt(t2, ir.Call(
-            ir.get_op("tensor.adds"),
-            [t1, ir.ConstFloat(eps, dtype, span)], row, span), span),
-        ir.AssignStmt(t3, ir.Call(ir.get_op("tensor.rsqrt"), [t2], row, span),
-                      span),
-        ir.AssignStmt(out, ir.Call(ir.get_op("tensor.row_expand_mul"),
-                                   [x, t3], full, span), span),
+        ir.AssignStmt(
+            square, ir.Call(ir.get_op("tensor.mul"), [x, x], full, span), span
+        ),
+        ir.AssignStmt(
+            acc, ir.Call(ir.get_op("tensor.row_sum"), [square], row, span), span
+        ),
+        ir.AssignStmt(
+            t1,
+            ir.Call(
+                ir.get_op("tensor.muls"),
+                [acc, ir.ConstFloat(mean_scale, dtype, span)],
+                row,
+                span,
+            ),
+            span,
+        ),
+        ir.AssignStmt(
+            t2,
+            ir.Call(
+                ir.get_op("tensor.adds"),
+                [t1, ir.ConstFloat(eps, dtype, span)],
+                row,
+                span,
+            ),
+            span,
+        ),
+        ir.AssignStmt(t3, ir.Call(ir.get_op("tensor.rsqrt"), [t2], row, span), span),
+        ir.AssignStmt(
+            out, ir.Call(ir.get_op("tensor.row_expand_mul"), [x, t3], full, span), span
+        ),
         ir.ReturnStmt([out], span),
     ]
     function = ir.Function(
-        "ignored_row_reduction_epilogue", [x], [full],
-        ir.SeqStmts(statements, span), span)
+        "ignored_row_reduction_epilogue",
+        [x],
+        [full],
+        ir.SeqStmts(statements, span),
+        span,
+    )
     return ir.Program([function], SPAN_FILE, span)
 
 
@@ -145,12 +175,15 @@ def matmul_graph(lhs_shape: list[int], rhs_shape: list[int]) -> Any:
     result = ir.Var("result", ot, span)
     call = ir.Call(ir.get_op("tensor.matmul"), [lhs, rhs], ot, span)
     function = ir.Function(
-        "structured_matmul", [lhs, rhs], [ot],
-        ir.SeqStmts([ir.AssignStmt(result, call, span),
-                     ir.ReturnStmt([result], span)], span), span)
+        "structured_matmul",
+        [lhs, rhs],
+        [ot],
+        ir.SeqStmts(
+            [ir.AssignStmt(result, call, span), ir.ReturnStmt([result], span)], span
+        ),
+        span,
+    )
     return ir.Program([function], SPAN_FILE, span)
-
-
 
 
 def rope_half_graph(rows: int, half: int) -> Any:
@@ -162,15 +195,18 @@ def rope_half_graph(rows: int, half: int) -> Any:
     halves back is layout prep, not compute.
     """
 
-    ir = bootstrap()["ir"]
     pypto = bootstrap()["pypto"]
     dtype = pypto.DataType.BF16
     return pointwise_graph(
-        [rows, half], dtype,
-        [("tensor.row_expand_mul", ["x1", "cos"]),
-         ("tensor.row_expand_mul", ["x2", "sin"]),
-         ("tensor.sub", ["$0", "prev"])],
-        broadcast_inputs=["cos", "sin"])
+        [rows, half],
+        dtype,
+        [
+            ("tensor.row_expand_mul", ["x1", "cos"]),
+            ("tensor.row_expand_mul", ["x2", "sin"]),
+            ("tensor.sub", ["$0", "prev"]),
+        ],
+        broadcast_inputs=["cos", "sin"],
+    )
 
 
 def softmax_scale_graph(rows: int, tokens: int) -> Any:
@@ -181,13 +217,14 @@ def softmax_scale_graph(rows: int, tokens: int) -> Any:
     row_sum and its reciprocal are separate (compilable) graphs.
     """
 
-    ir = bootstrap()["ir"]
     pypto = bootstrap()["pypto"]
     dtype = pypto.DataType.BF16
     return pointwise_graph(
-        [rows, tokens], dtype,
+        [rows, tokens],
+        dtype,
         [("tensor.row_expand_mul", ["e", "inv_sum"])],
-        broadcast_inputs=["inv_sum"])
+        broadcast_inputs=["inv_sum"],
+    )
 
 
 def row_normalize_graph(rows: int, columns: int) -> Any:
@@ -204,17 +241,32 @@ def row_normalize_graph(rows: int, columns: int) -> Any:
     inverse = ir.Var("inverse", row, span)
     out = ir.Var("out", full, span)
     function = ir.Function(
-        "ignored_row_normalize", [x], [full],
-        ir.SeqStmts([
-            ir.AssignStmt(total, ir.Call(
-                ir.get_op("tensor.row_sum"), [x], row, span), span),
-            ir.AssignStmt(inverse, ir.Call(
-                ir.get_op("tensor.recip"), [total], row, span), span),
-            ir.AssignStmt(out, ir.Call(
-                ir.get_op("tensor.row_expand_mul"), [x, inverse], full,
-                span), span),
-            ir.ReturnStmt([out], span),
-        ], span), span)
+        "ignored_row_normalize",
+        [x],
+        [full],
+        ir.SeqStmts(
+            [
+                ir.AssignStmt(
+                    total, ir.Call(ir.get_op("tensor.row_sum"), [x], row, span), span
+                ),
+                ir.AssignStmt(
+                    inverse,
+                    ir.Call(ir.get_op("tensor.recip"), [total], row, span),
+                    span,
+                ),
+                ir.AssignStmt(
+                    out,
+                    ir.Call(
+                        ir.get_op("tensor.row_expand_mul"), [x, inverse], full, span
+                    ),
+                    span,
+                ),
+                ir.ReturnStmt([out], span),
+            ],
+            span,
+        ),
+        span,
+    )
     return ir.Program([function], SPAN_FILE, span)
 
 
@@ -230,12 +282,20 @@ def row_sum_graph(rows: int, columns: int) -> Any:
     x = ir.Var("x", full, span)
     total = ir.Var("total", row, span)
     function = ir.Function(
-        "ignored_row_sum", [x], [row],
-        ir.SeqStmts([
-            ir.AssignStmt(total, ir.Call(
-                ir.get_op("tensor.row_sum"), [x], row, span), span),
-            ir.ReturnStmt([total], span),
-        ], span), span)
+        "ignored_row_sum",
+        [x],
+        [row],
+        ir.SeqStmts(
+            [
+                ir.AssignStmt(
+                    total, ir.Call(ir.get_op("tensor.row_sum"), [x], row, span), span
+                ),
+                ir.ReturnStmt([total], span),
+            ],
+            span,
+        ),
+        span,
+    )
     return ir.Program([function], SPAN_FILE, span)
 
 
@@ -246,13 +306,14 @@ def gdn_delta_graph(heads: int, dv: int) -> Any:
     dependent single graph of the GDN read path.
     """
 
-    ir = bootstrap()["ir"]
     pypto = bootstrap()["pypto"]
     dtype = pypto.DataType.BF16
     return pointwise_graph(
-        [heads, dv], dtype,
+        [heads, dv],
+        dtype,
         [("tensor.row_expand_mul", ["v", "dot"])],
-        broadcast_inputs=["dot"])
+        broadcast_inputs=["dot"],
+    )
 
 
 def gdn_delta_combine_graph(heads: int, dv: int) -> Any:
@@ -260,10 +321,11 @@ def gdn_delta_combine_graph(heads: int, dv: int) -> Any:
 
     pypto = bootstrap()["pypto"]
     return pointwise_graph(
-        [heads, dv], pypto.DataType.BF16,
-        [("tensor.row_expand_mul", ["value", "dot"]),
-         ("tensor.add", ["prev", "read"])],
-        broadcast_inputs=["dot"])
+        [heads, dv],
+        pypto.DataType.BF16,
+        [("tensor.row_expand_mul", ["value", "dot"]), ("tensor.add", ["prev", "read"])],
+        broadcast_inputs=["dot"],
+    )
 
 
 def gdn_q_decay_graph(heads: int, dk: int) -> Any:
@@ -271,8 +333,8 @@ def gdn_q_decay_graph(heads: int, dk: int) -> Any:
 
     pypto = bootstrap()["pypto"]
     return pointwise_graph(
-        [heads, dk], pypto.DataType.BF16,
-        [("tensor.mul", ["q", "decay"])])
+        [heads, dk], pypto.DataType.BF16, [("tensor.mul", ["q", "decay"])]
+    )
 
 
 def gdn_state_read_graph(heads: int, dk: int, dv: int) -> Any:
@@ -286,17 +348,21 @@ def gdn_state_update_graph(heads: int, dk: int, dv: int) -> Any:
 
     pypto = bootstrap()["pypto"]
     return pointwise_graph(
-        [heads, dk, dv], pypto.DataType.BF16,
-        [("tensor.row_expand_mul", ["state", "decay"]),
-         ("tensor.row_expand", ["state", "beta_key"]),
-         ("tensor.row_expand", ["state", "value"]),
-         ("tensor.mul", ["$1", "$2"]),
-         ("tensor.add", ["$0", "$3"])],
+        [heads, dk, dv],
+        pypto.DataType.BF16,
+        [
+            ("tensor.row_expand_mul", ["state", "decay"]),
+            ("tensor.row_expand", ["state", "beta_key"]),
+            ("tensor.row_expand", ["state", "value"]),
+            ("tensor.mul", ["$1", "$2"]),
+            ("tensor.add", ["$0", "$3"]),
+        ],
         broadcast_shapes={
             "decay": [heads, dk, 1],
             "beta_key": [heads, dk, 1],
             "value": [heads, 1, dv],
-        })
+        },
+    )
 
 
 def gdn_compose_graph(heads: int, dk: int) -> Any:
@@ -306,16 +372,19 @@ def gdn_compose_graph(heads: int, dk: int) -> Any:
     EXECUTABLE today; only the broadcast consumers are blocked.
     """
 
-    ir = bootstrap()["ir"]
     pypto = bootstrap()["pypto"]
     dtype = pypto.DataType.BF16
     return pointwise_graph(
-        [heads, dk], dtype,
-        [("tensor.exp", ["g"]),
-         ("tensor.adds", ["prev", 1.0]),
-         ("tensor.log", ["prev"]),
-         ("tensor.mul", ["prev", "k"]),
-         ("tensor.mul", ["prev", "q"])])
+        [heads, dk],
+        dtype,
+        [
+            ("tensor.exp", ["g"]),
+            ("tensor.adds", ["prev", 1.0]),
+            ("tensor.log", ["prev"]),
+            ("tensor.mul", ["prev", "k"]),
+            ("tensor.mul", ["prev", "q"]),
+        ],
+    )
 
 
 def tiles_for(*extents: int) -> list[int]:

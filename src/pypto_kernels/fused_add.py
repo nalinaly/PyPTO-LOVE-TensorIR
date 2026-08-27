@@ -6,7 +6,7 @@ import math
 import threading
 from typing import Any
 
-from .._boot import bootstrap, compile_jit_kernel, launch_graph
+from ._boot import bootstrap, compile_jit_kernel, launch_graph
 
 bootstrap()
 import pypto.language as pl  # noqa: E402
@@ -39,12 +39,12 @@ def fused_add_kernel(
 
 def _matrix_shape(shape: tuple[int, ...]) -> tuple[int, int]:
     if not shape or any(extent <= 0 for extent in shape):
-        raise ValueError("fused_add v2 needs a non-empty positive shape")
+        raise ValueError("fused_add needs a non-empty positive shape")
     rows = math.prod(shape[:-1]) if len(shape) > 1 else 1
     columns = shape[-1]
     if columns % _TILE_WIDTH:
         raise ValueError(
-            f"fused_add v2 trailing extent must be divisible by {_TILE_WIDTH}; "
+            f"fused_add trailing extent must be divisible by {_TILE_WIDTH}; "
             f"got {columns}"
         )
     return rows, columns
@@ -79,9 +79,9 @@ def fused_add(a: Any, b: Any, stream: Any = None) -> Any:
     if stream is None:
         stream = torch.cuda.current_stream(a.device)
     if a.dtype is not torch.bfloat16 or tuple(a.shape) != tuple(b.shape):
-        raise ValueError("fused_add v2 needs matching BF16 operands")
+        raise ValueError("fused_add needs matching BF16 operands")
     if not a.is_contiguous() or not b.is_contiguous():
-        raise ValueError("fused_add v2 needs contiguous operands")
+        raise ValueError("fused_add needs contiguous operands")
     shape = tuple(a.shape)
     matrix_shape = _matrix_shape(shape)
     graph_key = compile_for(shape, "bfloat16")

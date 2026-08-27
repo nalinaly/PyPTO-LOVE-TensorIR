@@ -15,17 +15,20 @@ needs a dedicated graph kind.
 
 from __future__ import annotations
 
+from ._boot import classify
+from ._graph import (
+    matmul_graph,
+    row_normalize_graph,
+    softmax_scale_graph,
+    tiles_for,
+)
+
 STATUS = "post-exp normalization/value-mix path executable"
 GRAPHS = 2
-FUTURE = ("a dedicated flash-attention graph kind (KV-block loops inside "
-          "one graph) for true single-kernel parity with Ascend")
-
-
-# --- single-graph builder for the softmax broadcast stage ---
-
-from .._boot import classify  # noqa: E402
-from .._graph import (matmul_graph, row_normalize_graph, softmax_scale_graph,
-                      tiles_for)  # noqa: E402
+FUTURE = (
+    "a dedicated flash-attention graph kind (KV-block loops inside "
+    "one graph) for true single-kernel parity with Ascend"
+)
 
 
 def build_softmax_scale(rows: int, tokens: int):
@@ -44,10 +47,8 @@ def build_softmax_normalize(rows: int, tokens: int):
     return row_normalize_graph(rows, tokens)
 
 
-def softmax_normalize_status(rows: int = 256,
-                             tokens: int = 128) -> dict[str, str]:
-    return classify(build_softmax_normalize(rows, tokens),
-                    tiles_for(rows, tokens))
+def softmax_normalize_status(rows: int = 256, tokens: int = 128) -> dict[str, str]:
+    return classify(build_softmax_normalize(rows, tokens), tiles_for(rows, tokens))
 
 
 def build_value_mix(rows: int, tokens: int, value_dim: int):
@@ -56,7 +57,9 @@ def build_value_mix(rows: int, tokens: int, value_dim: int):
     return matmul_graph([rows, tokens], [tokens, value_dim])
 
 
-def value_mix_status(rows: int = 256, tokens: int = 128,
-                     value_dim: int = 128) -> dict[str, str]:
-    return classify(build_value_mix(rows, tokens, value_dim),
-                    tiles_for(rows, value_dim))
+def value_mix_status(
+    rows: int = 256, tokens: int = 128, value_dim: int = 128
+) -> dict[str, str]:
+    return classify(
+        build_value_mix(rows, tokens, value_dim), tiles_for(rows, value_dim)
+    )

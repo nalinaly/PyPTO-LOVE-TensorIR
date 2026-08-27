@@ -6,7 +6,7 @@ import math
 import threading
 from typing import Any
 
-from .._boot import bootstrap, compile_jit_kernel, launch_graph
+from ._boot import bootstrap, compile_jit_kernel, launch_graph
 
 bootstrap()
 import pypto.language as pl  # noqa: E402
@@ -44,12 +44,12 @@ def silu_and_mul_kernel(
 
 def _matrix_shape(shape: tuple[int, ...]) -> tuple[int, int]:
     if not shape or any(extent <= 0 for extent in shape):
-        raise ValueError("silu_and_mul v2 needs a non-empty positive shape")
+        raise ValueError("silu_and_mul needs a non-empty positive shape")
     rows = math.prod(shape[:-1]) if len(shape) > 1 else 1
     columns = shape[-1]
     if columns % _TILE_WIDTH:
         raise ValueError(
-            "silu_and_mul v2 trailing extent must be divisible by "
+            "silu_and_mul trailing extent must be divisible by "
             f"{_TILE_WIDTH}; got {columns}"
         )
     return rows, columns
@@ -84,10 +84,10 @@ def silu_and_mul(gate: Any, up: Any, stream: Any = None) -> Any:
     if stream is None:
         stream = torch.cuda.current_stream(gate.device)
     if gate.dtype is not torch.bfloat16 or up.dtype is not torch.bfloat16:
-        raise ValueError("silu_and_mul v2 needs BF16 operands")
+        raise ValueError("silu_and_mul needs BF16 operands")
     shape = tuple(gate.shape)
     if tuple(up.shape) != shape or not gate.is_contiguous() or not up.is_contiguous():
-        raise ValueError("silu_and_mul v2 needs matching contiguous operands")
+        raise ValueError("silu_and_mul needs matching contiguous operands")
     matrix_shape = _matrix_shape(shape)
     graph_key = compile_for(shape, "bfloat16")
     out = torch.empty_like(gate)
