@@ -1,6 +1,26 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0069`
+**Checkpoint:** `CP-0070`
+
+**Status:** RoPE is the fourth accepted native tile operator and is now one
+model graph instead of two half-graph launches. Canonical kernels commit
+`318ac08` takes full-width BF16 `x/cos/sin`, explicitly loads the low/high
+`[1,64]` halves per row, computes both rotations, and writes both halves to one
+output inside the same `@pl.jit` graph. PyPTO `5f9aa08` emits one TensorIR
+slice/concat graph and generically accepts factored iteration schedules whose
+rank differs from the tensor ABI while preserving total elements; RoPE's
+iteration shape is `[rows,2,64]` and schedule `[1,1,64]`. TensorIR `f8e9272`
+preserves bounded MLIR failure diagnostics without enabling ambient overrides;
+its format patch and parent gitlink are committed. The final DSO SHA-256 is
+`6e7773804960212562ea2e41301bfe62ad24eefca1b6d9bc5ec5f1da15dd7a38`,
+CTest passes 13/13, all classification cases compile, and SM120 run
+`pypto-20260827T131733Z-434661-d058cc` accepts the fused `256x128` RoPE in one
+launch at max absolute difference `0.0218506`; the consolidated suite is now
+17/17 correct because the former two half cases collapsed into one. Evidence
+is `state/evidence/pypto-native-rope-cp0070.json`. Attention is next, followed
+by complete GDN, matmul/embedding/conv, Inductor generation and model gates.
+
+## Previous checkpoint (CP-0069)
 
 **Status:** RMSNorm is the third accepted native tile operator. Canonical
 operator commit `fc5ddfc` writes one visible `@pl.jit` graph whose per-row

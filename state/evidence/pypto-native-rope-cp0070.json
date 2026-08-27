@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "checkpoint": "CP-0070",
+  "status": "accepted",
+  "operator": "rope",
+  "implementation": {
+    "repository": "projects/pypto-kernels",
+    "commit": "318ac08e6194c371359a9f11bc2909e78476df0d",
+    "source": "src/pypto_kernels/rope.py",
+    "graph_count": 1,
+    "launches": 1,
+    "removed_split_graphs": ["even half graph", "odd half graph"],
+    "tile_source": {
+      "logical_tile": [1, 64],
+      "loads_per_row": 4,
+      "stores_per_row": 2,
+      "schedule": [1, 1, 64]
+    }
+  },
+  "compiler": {
+    "pypto_commit": "5f9aa0810e04ddf28ab5afc55f6284d5ba023a5f",
+    "tensor_ir_commit": "f8e9272e14b7176ca10f43419db305cd46e88979",
+    "tensor_ir_patch": "projects/pypto/3rdparty/nvidia/0001-Preserve-bounded-diagnostics-in-strict-compilation-e.patch",
+    "diagnostics_behavior": "bounded MLIR diagnostics are returned in strict failure status without enabling environment overrides",
+    "factored_iteration_shape": [256, 2, 64],
+    "structured_test_run_id": "pypto-20260827T131527Z-434014-9b79c9",
+    "structured_test_result": "1 passed",
+    "ctest_run_id": "pypto-20260827T131942Z-436073-3b31dc",
+    "ctest_result": "13/13 passed"
+  },
+  "dso": {
+    "path": "builds/pypto-opext-on-a589f79/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "sha256": "6e7773804960212562ea2e41301bfe62ad24eefca1b6d9bc5ec5f1da15dd7a38"
+  },
+  "gpu": {
+    "run_id": "pypto-20260827T131733Z-434661-d058cc",
+    "shape": [256, 128],
+    "dtype": "bfloat16",
+    "max_abs_diff": 0.0218505859375,
+    "correct": true,
+    "all_17_cases_correct": true,
+    "result_file": "projects/pypto-kernels/benchmarks/exec_results.json"
+  },
+  "classification": {
+    "run_id": "pypto-20260827T131906Z-435790-558bc2",
+    "all_compiled": true,
+    "result_file": "projects/pypto-kernels/benchmarks/classify_results.json"
+  },
+  "safety": {
+    "protected_processes_signalled": false,
+    "upstream_modified": false,
+    "model_harness_modified": false
+  }
+}
