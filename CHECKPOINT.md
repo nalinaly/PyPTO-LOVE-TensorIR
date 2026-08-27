@@ -28,31 +28,34 @@ below. It records work in progress, **not** CP-0084 acceptance.
   Cubin is not PyPTO Artifact, launch, numerical, framework or model evidence.
 - `pypto-kernels@5fbf813` adds the source-level Qwen3.5-0.8B fused QK
   GemmaRMSNorm + partial NeoX RoPE + gate-deinterleave candidate and its
-  actual-configuration numerical reference. Current kernels `ebbba80` also add
+  actual-configuration numerical reference. Current kernels `39eef5e` also add
   a one-request paged-decode source candidate that reads physical slots
   directly from SGLang's INT32 request table and applies a device-side
   valid-length mask (`tile.ci/cmps/sels`) from existing INT64 GPU metadata. It
   needs neither a decode-time host sync nor an intermediate `kv_indices`
   kernel. A third attention graph declares both flattened K/V caches `InOut`
-  and writes one dynamic physical row in a separate same-stream launch. Current
+  and writes one or more dynamic physical rows in a separate same-stream
+  launch. Decode N=1 and prefill N>1 use the same static loop family. Current
   plugins `88cb69b` track all three attention graphs. Operator structure passes
   15/15, plugin tests pass 91/91, and Ruff/diff checks pass.
   Classification now includes both `8Q/2KV` and `16Q/4KV`; the future
   execution gate includes a non-full `valid=13/bucket=16` case plus the 9B
   geometry. Slot 0 carries adversarial K/V values so a missing padding mask
   fails loudly. The future execution gate also requires cache rows to equal the
-  input K/V exactly before decode reads them. None of these cases has run.
+  input K/V exactly before decode reads them, plus a 13-row prefill cache-write
+  case. None of these cases has run.
   README deliberately keeps QK at
   `待 run-pass` and paged decode at source-candidate status; GPU numerical
   correctness is unproven.
 - Primary `projects/pypto` remains clean at `d1b90b7` for the pending QK DSO
   rebuild. Paged-decode compiler work is isolated in
   `worktrees/pypto-paged-decode` on
-  `feature/paged-decode-sm120@013ad3c`; it recognizes both the native
+  `feature/paged-decode-sm120@a78bc3f`; it recognizes both the native
   request-table-read/`tile.gather_row`/GQA/masked-softmax graph and the strict
-  `InOut` cache-write graph. Argument direction now survives through argument
-  and mutation ABI projections (`inout` / `read-write`) instead of being
-  silently rewritten read-only. It pins TensorIR `6b7599a`, whose generic
+  static-loop `InOut` cache-write graph. Argument direction now survives
+  through argument and mutation ABI projections (`inout` / `read-write`)
+  instead of being silently rewritten read-only. It pins TensorIR `6b7599a`,
+  whose generic
   `scatter_rows` lowers through a CUDA Tile gather/scatter store, and archives
   dependencies as patches `0033` through `0037`.
   That branch is source-only and has not compiled or linked; all six submodule
@@ -81,10 +84,11 @@ below. It records work in progress, **not** CP-0084 acceptance.
 - The current paged operator remains a one-request decode candidate. Its
   device-side valid-length mask supports static 16-aligned buckets and its
   direct request-table lookup keeps padded reads in-range at source level.
-  Source-level cache write now exists as a separate mutation-declared PyPTO
-  graph, but it has not compiled or executed. Unified-memory
-  virtual-to-physical translation, prefill, batching and causal/verify metadata
-  remain absent. None of these candidates is an SGLang/model attention claim.
+  Source-level cache write now covers decode and multirow prefill as a separate
+  mutation-declared PyPTO graph, but it has not compiled or executed.
+  Unified-memory virtual-to-physical translation, causal prefill attention,
+  batching and verify metadata remain absent. None of these candidates is an
+  SGLang/model attention claim.
 - Two temporary untracked diagnostics remain in `projects/pypto-kernels`:
   `benchmarks/probe_qk_compile_sm120.py` (final target tile/current model cache
   shape) and `benchmarks/probe_qk_gdb.py`. Do not commit them; remove them only
