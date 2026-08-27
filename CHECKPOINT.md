@@ -65,7 +65,11 @@ below. It records work in progress, **not** CP-0084 acceptance.
   failure and exposes a separate scalar-row gather projection rejection;
   `be77cc9` permits an omitted data row axis only for a logical one-row gather
   whose repeated index has all-zero strides, while multi-row gathers remain
-  strict. Static diff checks pass, but
+  strict. A second M=2 control using already-materialized physical indices
+  compiles an `sm_120a` Cubin with the full valid-length mask, softmax and both
+  matmuls on the old tools. This isolates the two pending fixes but is only
+  compiler-control evidence, not the emitted candidate. Static diff checks
+  pass, but
   it has **not** built, linked, passed FileCheck or produced a Cubin.
 - The current paged operator remains a one-request decode candidate. Its
   device-side valid-length mask supports static 16-aligned buckets and its
