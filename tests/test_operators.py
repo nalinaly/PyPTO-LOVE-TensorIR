@@ -198,7 +198,7 @@ def test_paged_attention_decode_gathers_physical_kv_rows_in_one_graph():
 
 
 def test_paged_cache_write_declares_mutation_and_one_graph():
-    program = attention.build_paged_cache_write(1024, 512)
+    program = attention.build_paged_cache_write(1024, 1, 512)
     rendered = str(program)
     fn = _one_program(program)
     assert len(fn.body.stmts) == 2
@@ -208,6 +208,11 @@ def test_paged_cache_write_declares_mutation_and_one_graph():
     assert rendered.count("pl.tile.load") == 2
     assert rendered.count("pl.tile.store") == 3
     assert "pl.tile.add" in rendered
+
+    prefill_program = attention.build_paged_cache_write(1024, 13, 512)
+    prefill_rendered = str(prefill_program)
+    assert "pl.range(13)" in prefill_rendered
+    assert prefill_rendered.count("pl.tile.store") == 3
 
 
 def test_linear_is_one_native_tile_graph():

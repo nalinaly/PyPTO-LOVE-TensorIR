@@ -74,13 +74,18 @@ def main() -> int:
         ),
         (
             "attention_paged_cache_write_0_8b",
-            attention.build_paged_cache_write(1024, 512),
+            attention.build_paged_cache_write(1024, 1, 512),
             [128],
         ),
         (
             "attention_paged_cache_write_9b",
-            attention.build_paged_cache_write(1024, 1024),
+            attention.build_paged_cache_write(1024, 1, 1024),
             [128],
+        ),
+        (
+            "attention_paged_cache_write_prefill_0_8b",
+            attention.build_paged_cache_write(1024, 13, 512),
+            [1, 128],
         ),
         ("linear", linear.build(32, 1024, 1024), [1, 128]),
         ("gdn_read", gdn.build_read(16, 128, 128), [1, 64]),

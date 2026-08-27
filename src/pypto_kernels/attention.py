@@ -16,7 +16,7 @@ _VALUE_TILE = 64
 _lock = threading.RLock()
 _cache: dict[tuple[int, int, int, int], str] = {}
 _paged_decode_cache: dict[tuple[int, int, int, int, int, int, int], str] = {}
-_paged_cache_write_cache: dict[tuple[int, int], str] = {}
+_paged_cache_write_cache: dict[tuple[int, int, int], str] = {}
 
 STATUS = "native-tile executable"
 PAGED_DECODE_STATUS = "native-tile source candidate"
@@ -188,21 +188,28 @@ def paged_cache_write_kernel(
     value: pl.Tensor,
     out: pl.Out[pl.Tensor],
 ):
-    """Write one flattened GQA K/V row to the selected physical cache slot."""
+    """Write flattened GQA K/V rows to selected physical cache slots."""
 
     with pl.at(level=pl.Level.CORE_GROUP):
-        physical_row_i64 = pl.read(physical_row, [0, 0])
-        physical_row_i32 = pl.cast(physical_row_i64, pl.INT32)
-        key_tile = pl.load(
-            key, [0, 0], [1, key.shape[1]], target_memory=pl.MemorySpace.Vec
-        )
-        value_tile = pl.load(
-            value, [0, 0], [1, value.shape[1]], target_memory=pl.MemorySpace.Vec
-        )
-        pl.store(key_tile, [physical_row_i32, 0], key_cache)
-        pl.store(value_tile, [physical_row_i32, 0], value_cache)
-        anchor = pl.add(key_tile, value_tile)
-        pl.store(anchor, [0, 0], out)
+        for row in pl.range(key.shape[0]):
+            physical_row_i64 = pl.read(physical_row, [row, 0])
+            physical_row_i32 = pl.cast(physical_row_i64, pl.INT32)
+            key_tile = pl.load(
+                key,
+                [row, 0],
+                [1, key.shape[1]],
+                target_memory=pl.MemorySpace.Vec,
+            )
+            value_tile = pl.load(
+                value,
+                [row, 0],
+                [1, value.shape[1]],
+                target_memory=pl.MemorySpace.Vec,
+            )
+            pl.store(key_tile, [physical_row_i32, 0], key_cache)
+            pl.store(value_tile, [physical_row_i32, 0], value_cache)
+            anchor = pl.add(key_tile, value_tile)
+            pl.store(anchor, [row, 0], out)
     return out
 
 
@@ -365,24 +372,32 @@ def compile_paged_decode_for(
     return graph_key
 
 
-def _validate_paged_cache_write_shape(cache_rows: int, row_width: int) -> None:
-    if cache_rows <= 0 or row_width <= 0 or row_width % 128:
+def _validate_paged_cache_write_shape(
+    cache_rows: int, update_rows: int, row_width: int
+) -> None:
+    if cache_rows <= 0 or update_rows <= 0 or row_width <= 0 or row_width % 128:
         raise ValueError(
             "paged cache write needs positive dimensions and row width "
             "divisible by 128"
         )
 
 
-def build_paged_cache_write(cache_rows: int, row_width: int) -> Any:
-    _validate_paged_cache_write_shape(cache_rows, row_width)
+def build_paged_cache_write(
+    cache_rows: int, update_rows: int, row_width: int
+) -> Any:
+    _validate_paged_cache_write_shape(cache_rows, update_rows, row_width)
     import torch
 
     key_cache = torch.empty(
         (cache_rows, row_width), dtype=torch.bfloat16, device="meta"
     )
     value_cache = torch.empty_like(key_cache)
-    physical_row = torch.empty((1, row_width), dtype=torch.int64, device="meta")
-    key = torch.empty((1, row_width), dtype=torch.bfloat16, device="meta")
+    physical_row = torch.empty(
+        (update_rows, row_width), dtype=torch.int64, device="meta"
+    )
+    key = torch.empty(
+        (update_rows, row_width), dtype=torch.bfloat16, device="meta"
+    )
     value = torch.empty_like(key)
     out = torch.empty_like(key)
     return paged_cache_write_kernel.specialize(
@@ -390,13 +405,16 @@ def build_paged_cache_write(cache_rows: int, row_width: int) -> Any:
     )
 
 
-def compile_paged_cache_write_for(cache_rows: int, row_width: int) -> str:
-    _validate_paged_cache_write_shape(cache_rows, row_width)
-    shape_key = (cache_rows, row_width)
+def compile_paged_cache_write_for(
+    cache_rows: int, update_rows: int, row_width: int
+) -> str:
+    _validate_paged_cache_write_shape(cache_rows, update_rows, row_width)
+    shape_key = (cache_rows, update_rows, row_width)
     cached = _paged_cache_write_cache.get(shape_key)
     if cached is not None:
         return cached
-    graph_key = compile_graph(build_paged_cache_write(*shape_key), [128])
+    tile_shape = [128] if update_rows == 1 else [1, 128]
+    graph_key = compile_graph(build_paged_cache_write(*shape_key), tile_shape)
     with _lock:
         _paged_cache_write_cache[shape_key] = graph_key
     return graph_key
@@ -545,7 +563,7 @@ def paged_cache_write(
     *,
     stream: Any = None,
 ) -> Any:
-    """Write one K/V row through a mutation-declared PyPTO graph."""
+    """Write K/V rows through one mutation-declared PyPTO graph."""
 
     import torch
 
@@ -567,19 +585,20 @@ def paged_cache_write(
         or not key.is_contiguous()
         or not value.is_contiguous()
         or tuple(key.shape) != tuple(value.shape)
-        or int(key.shape[0]) != 1
     ):
-        raise ValueError("paged cache write needs matching one-row contiguous BF16 updates")
+        raise ValueError("paged cache write needs matching contiguous BF16 update rows")
     if (
         physical_row.ndim != 1
-        or physical_row.numel() != 1
         or physical_row.dtype is not torch.int64
         or not physical_row.is_contiguous()
     ):
-        raise ValueError("paged cache write physical row must be one INT64 element")
+        raise ValueError("paged cache write physical rows must be contiguous INT64")
     cache_rows, row_width = map(int, key_cache.shape)
-    if tuple(key.shape) != (1, row_width):
+    update_rows = int(key.shape[0])
+    if tuple(key.shape) != (update_rows, row_width):
         raise ValueError("paged cache write update width must match the cache row")
+    if physical_row.numel() != update_rows:
+        raise ValueError("paged cache write needs one physical row per update row")
     if any(
         tensor.device != key_cache.device
         for tensor in (value_cache, physical_row, key, value)
@@ -587,14 +606,14 @@ def paged_cache_write(
         raise ValueError("paged cache write tensors must share one device")
     if stream is None:
         stream = torch.cuda.current_stream(key_cache.device)
-    graph_key = compile_paged_cache_write_for(cache_rows, row_width)
+    graph_key = compile_paged_cache_write_for(cache_rows, update_rows, row_width)
     out = torch.empty_like(key)
     launch_graph(
         graph_key,
         (
             key_cache,
             value_cache,
-            physical_row.as_strided((1, row_width), (0, 0)),
+            physical_row.as_strided((update_rows, row_width), (1, 0)),
             key,
             value,
             out,
