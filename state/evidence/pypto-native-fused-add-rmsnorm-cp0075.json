@@ -1,0 +1,88 @@
+{
+  "schema": 1,
+  "checkpoint": "CP-0075",
+  "status": "accepted",
+  "operator": "fused-add-weighted-rmsnorm",
+  "source_formula": {
+    "file": "upstream/sglang/python/sglang/srt/layers/layernorm.py",
+    "lines": "1056-1067",
+    "outputs": [
+      "weighted RMS-normalized residual sum",
+      "BF16 residual sum"
+    ]
+  },
+  "implementation": {
+    "repository": "projects/pypto-kernels",
+    "implementation_commit": "4c3973f",
+    "final_evidence_commit": "3a0f24c22cbb5264bc9d0d42863341fcce00761d",
+    "source": "src/pypto_kernels/fused_add_rmsnorm.py",
+    "graph_count": 1,
+    "launches": 1,
+    "inputs": 3,
+    "outputs": 2,
+    "tile_algorithm": [
+      "load input, residual and weight row tiles",
+      "BF16 residual add",
+      "FP32 square, row_sum, mean, epsilon and rsqrt",
+      "row-expand normalization",
+      "multiply by FP32 (1 + weight)",
+      "store normalized output and residual output"
+    ]
+  },
+  "compiler": {
+    "pypto_commit": "225cb32f7df59a98b0f33460eece88c4e6ab89f4",
+    "tensor_ir_commit": "ec57ae0879462086495b5121abb10e8719ec21d4",
+    "tensor_ir_changes": [
+      "compatible multi-output layout normalization",
+      "multi-result graph splitting in Result0 launch domain",
+      "variadic layout-propagation verifier",
+      "one ordered store per result",
+      "corrected rank-normalized conversion golden"
+    ],
+    "tensor_ir_patches": [
+      "projects/pypto/3rdparty/nvidia/0002-Support-compatible-multi-output-layout-fusion.patch",
+      "projects/pypto/3rdparty/nvidia/0003-Materialize-compatible-multi-output-graphs.patch",
+      "projects/pypto/3rdparty/nvidia/0004-Lower-compatible-multi-output-layout-graphs.patch",
+      "projects/pypto/3rdparty/nvidia/0005-Store-every-layout-propagation-result.patch",
+      "projects/pypto/3rdparty/nvidia/0006-Fix-multi-output-golden-tile-rank.patch"
+    ],
+    "filecheck_run_id": "pypto-20260827T144418Z-485606-8059e4",
+    "filecheck_result": "three multi-output goldens passed",
+    "focused_test_run_id": "pypto-20260827T144705Z-488779-feec58",
+    "focused_test_result": "1 passed; artifact ABI is 3 inputs, 2 outputs, 5 pointers",
+    "ctest_run_id": "pypto-20260827T144440Z-485959-bf7e8e",
+    "ctest_result": "13/13 passed"
+  },
+  "dso": {
+    "path": "builds/pypto-opext-on-a589f79/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "sha256": "0478359deef35b36679153d43e171f9ef508371f544f6f5def276c4478a478e8"
+  },
+  "gpu": {
+    "run_id": "pypto-20260827T144548Z-487747-621ca7",
+    "shape": [256, 1024],
+    "dtype": "bfloat16",
+    "normalized_max_abs_diff": 0.015612125396728516,
+    "residual_max_abs_diff": 0.0,
+    "correct": true,
+    "all_13_cases_correct": true,
+    "result_file": "projects/pypto-kernels/benchmarks/exec_results.json"
+  },
+  "classification": {
+    "run_id": "pypto-20260827T144615Z-488141-94c95e",
+    "all_compiled": true,
+    "structure_run_id": "pypto-20260827T144637Z-488432-2ee8db",
+    "structure_result": "ALL OPERATOR STRUCTURE TESTS PASSED"
+  },
+  "publication": {
+    "parent_remote": "https://github.com/hw-native-sys/pypto.git",
+    "branch": "feature/nvidia-sm120",
+    "push_attempted": true,
+    "push_result": "blocked: GitHub HTTPS credentials unavailable and terminal prompts disabled",
+    "nvidia_origin_pushed": false
+  },
+  "safety": {
+    "protected_processes_signalled": false,
+    "upstream_modified": false,
+    "model_harness_modified": false
+  }
+}

@@ -1,6 +1,30 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0074`
+**Checkpoint:** `CP-0075`
+
+**Status:** Qwen's residual-present GemmaRMSNorm path is now one native tile
+graph and one launch with two ordered outputs. Canonical operator commits
+`4c3973f`/`3a0f24c` load input, residual and weight row tiles, form the BF16
+residual sum, compute weighted RMSNorm in FP32, then store both normalized and
+residual outputs inside the same `@pl.jit` scope. PyPTO `225cb32` extends the
+strict ABI to 1-2 results. TensorIR `ec57ae0` generically supports compatible
+multi-output layout normalization, graph splitting, validation and one store
+per result; five format-patches plus the parent gitlink/lock commits make the
+third-party work recoverable. All three new FileCheck goldens pass in run
+`pypto-20260827T144418Z-485606-8059e4`. Final SM120 run
+`pypto-20260827T144548Z-487747-621ca7` executes `[256,1024]` in one launch:
+normalized max absolute difference `0.0156121`, residual difference exactly
+zero, and all 13 consolidated cases correct. Classification is all-compiled,
+the native structure suite and focused 3-input/2-output ABI test pass, CTest is
+13/13, and exact DSO SHA-256 is
+`0478359deef35b36679153d43e171f9ef508371f544f6f5def276c4478a478e8`.
+Evidence is `state/evidence/pypto-native-fused-add-rmsnorm-cp0075.json`.
+Parent push was attempted and is blocked only by unavailable GitHub HTTPS
+credentials; NVIDIA origin was not pushed. Embedding, GDN gated norm/conv,
+causal-paged attention, logits processing, Inductor generation and model gates
+remain open.
+
+## Previous checkpoint (CP-0074)
 
 **Status:** The previously accepted unweighted RMSNorm probe has been replaced
 by the actual Qwen3.5 Gemma-weight formula from read-only SGLang
