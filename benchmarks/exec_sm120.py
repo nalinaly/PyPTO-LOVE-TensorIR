@@ -21,6 +21,7 @@ from pypto_kernels import (
     gdn,
     gated_rmsnorm,
     linear,
+    qk_rmsnorm_rope,
     rmsnorm,
     rope,
     sigmoid_mul,
@@ -91,6 +92,111 @@ def main() -> int:
                 (embedding_out.float() - embedding_ref.float()).abs().max()
             ),
             "correct": bool(torch.equal(embedding_out, embedding_ref)),
+        }
+    )
+
+    # Qwen3.5-0.8B full-attention preparation: per-head Q/Gate interleave,
+    # Gemma RMSNorm, partial NeoX RoPE and gate deinterleave in one graph.
+    qk_tokens, q_heads, kv_heads = 2, 8, 2
+    qk_head_dim, qk_rotary_dim, qk_max_positions = 256, 64, 262144
+    q_gate = torch.randn(
+        qk_tokens,
+        2 * q_heads * qk_head_dim,
+        device="cuda",
+        dtype=torch.bfloat16,
+    )
+    qk_key = torch.randn(
+        qk_tokens,
+        kv_heads * qk_head_dim,
+        device="cuda",
+        dtype=torch.bfloat16,
+    )
+    q_weight = torch.randn(
+        qk_head_dim, device="cuda", dtype=torch.bfloat16
+    ) * 0.1
+    k_weight = torch.randn(
+        qk_head_dim, device="cuda", dtype=torch.bfloat16
+    ) * 0.1
+    rope_angles = torch.randn(
+        qk_max_positions,
+        qk_rotary_dim // 2,
+        device="cuda",
+        dtype=torch.float32,
+    )
+    cos_sin_cache = torch.cat(
+        (torch.cos(rope_angles), torch.sin(rope_angles)), dim=1
+    ).to(torch.bfloat16)
+    positions = torch.tensor([0, 17], device="cuda", dtype=torch.int64)
+    q_out, k_out, gate_out = qk_rmsnorm_rope.qk_rmsnorm_rope_gate(
+        q_gate,
+        qk_key,
+        q_weight,
+        k_weight,
+        cos_sin_cache,
+        positions,
+        q_heads=q_heads,
+        kv_heads=kv_heads,
+        stream=stream,
+    )
+    stream.synchronize()
+
+    q_gate_heads = q_gate.view(qk_tokens, q_heads, 2 * qk_head_dim)
+    q_input = q_gate_heads[..., :qk_head_dim]
+    gate_ref = q_gate_heads[..., qk_head_dim:]
+    k_input = qk_key.view(qk_tokens, kv_heads, qk_head_dim)
+
+    def qk_norm_reference(value, weight):
+        normalized = (
+            value.float()
+            * torch.rsqrt(value.float().square().mean(-1, keepdim=True) + 1.0e-6)
+            * (1.0 + weight.float())
+        )
+        return normalized.to(torch.bfloat16).float()
+
+    def partial_neox_reference(value):
+        half = qk_rotary_dim // 2
+        low = value[..., :half]
+        high = value[..., half:qk_rotary_dim]
+        tail = value[..., qk_rotary_dim:]
+        selected = cos_sin_cache[positions].float()
+        cos = selected[:, :half].unsqueeze(1)
+        sin = selected[:, half:].unsqueeze(1)
+        return torch.cat(
+            (low * cos - high * sin, high * cos + low * sin, tail), dim=-1
+        ).to(torch.bfloat16)
+
+    q_ref = partial_neox_reference(qk_norm_reference(q_input, q_weight))
+    k_ref = partial_neox_reference(qk_norm_reference(k_input, k_weight))
+    q_diff = float(
+        (q_out.view_as(q_ref).float() - q_ref.float()).abs().max()
+    )
+    k_diff = float(
+        (k_out.view_as(k_ref).float() - k_ref.float()).abs().max()
+    )
+    cases.append(
+        {
+            "case": "qk_rmsnorm_partial_rope_gate_bf16 2x8x2x256x64",
+            "implementation": "native-tile-dsl",
+            "launches": 1,
+            "q_max_abs_diff": q_diff,
+            "k_max_abs_diff": k_diff,
+            "gate_exact": bool(torch.equal(gate_out, gate_ref)),
+            "max_abs_diff": max(q_diff, k_diff),
+            "correct": bool(
+                torch.equal(gate_out, gate_ref)
+                and torch.allclose(
+                    q_out.view_as(q_ref).float(),
+                    q_ref.float(),
+                    rtol=5e-2,
+                    atol=5e-2,
+                )
+                and torch.allclose(
+                    k_out.view_as(k_ref).float(),
+                    k_ref.float(),
+                    rtol=5e-2,
+                    atol=5e-2,
+                )
+            ),
         }
     )
 
@@ -348,6 +454,7 @@ def main() -> int:
             "silu_and_mul",
             "sigmoid_mul",
             "embedding",
+            "qk_rmsnorm_rope",
             "rmsnorm",
             "fused_add_rmsnorm",
             "gated_rmsnorm",

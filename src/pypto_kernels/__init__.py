@@ -13,6 +13,7 @@ __all__ = (
     "gdn",
     "gated_rmsnorm",
     "linear",
+    "qk_rmsnorm_rope",
     "rmsnorm",
     "rope",
     "sigmoid_mul",

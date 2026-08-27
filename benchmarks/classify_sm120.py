@@ -25,6 +25,7 @@ from pypto_kernels import (  # noqa: E402
     gdn,
     gated_rmsnorm,
     linear,
+    qk_rmsnorm_rope,
     rmsnorm,
     rope,
     sigmoid_mul,
@@ -46,6 +47,11 @@ def main() -> int:
             [128],
         ),
         ("embedding", embedding.build(32, 248320, 1024), [8, 128]),
+        (
+            "qk_rmsnorm_rope",
+            qk_rmsnorm_rope.build(2, 8, 2, 256, 64, 262144),
+            [1, 1, 1, 1, 1, 32],
+        ),
         ("rmsnorm", rmsnorm.build(256, 1024), [1, 128]),
         (
             "fused_add_rmsnorm",

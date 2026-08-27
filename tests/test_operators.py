@@ -14,6 +14,7 @@ from pypto_kernels import (
     gdn,
     gated_rmsnorm,
     linear,
+    qk_rmsnorm_rope,
     rmsnorm,
     rope,
     sigmoid_mul,
@@ -35,6 +36,7 @@ def test_each_operator_is_one_program():
             causal_conv1d.GRAPHS,
             embedding.GRAPHS,
             linear.GRAPHS,
+            qk_rmsnorm_rope.GRAPHS,
             gdn.GRAPHS,
             gdn.UPDATE_GRAPHS,
         )
@@ -123,6 +125,18 @@ def test_embedding_is_one_dynamic_row_gather_graph():
     assert "pl.tile.store" in rendered
 
 
+def test_qk_norm_partial_rope_gate_is_one_native_graph():
+    program = qk_rmsnorm_rope.build(2, 8, 2, 256, 64, 1024)
+    rendered = str(program)
+    assert len(_one_program(program).body.stmts) == 2
+    assert "pl.range(8)" in rendered and "pl.range(2)" in rendered
+    assert rendered.count("pl.tile.row_sum") == 2
+    assert "pl.tensor.read" in rendered
+    assert "pl.tile.slice" in rendered
+    assert "pl.tile.concat" in rendered
+    assert rendered.count("pl.tile.store") == 3
+
+
 def _one_program(p):
     assert len(p.functions) == 1
     fn = list(p.functions.values())[0]
@@ -199,6 +213,7 @@ if __name__ == "__main__":
     test_gated_rmsnorm_is_one_complete_native_tile_graph()
     test_causal_conv1d_prefill_is_one_native_tile_graph()
     test_embedding_is_one_dynamic_row_gather_graph()
+    test_qk_norm_partial_rope_gate_is_one_native_graph()
     test_rope_is_one_native_tile_graph()
     test_attention_is_one_native_tile_graph()
     test_linear_is_one_native_tile_graph()
