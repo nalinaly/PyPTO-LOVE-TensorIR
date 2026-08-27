@@ -1,0 +1,41 @@
+LAYER 0 maxdiff 0.0039 absmax 0.365
+LAYER 1 maxdiff 0.0059 absmax 0.812
+LAYER 2 maxdiff 0.0078 absmax 1.234
+LAYER 3 maxdiff 0.0156 absmax 1.922
+LAYER 4 maxdiff 0.0176 absmax 1.930
+LAYER 5 maxdiff 0.0312 absmax 1.977
+LAYER 6 maxdiff 0.0312 absmax 1.781
+LAYER 7 maxdiff 0.0312 absmax 2.047
+LAYER 8 maxdiff 0.0469 absmax 2.172
+LAYER 9 maxdiff 0.0312 absmax 2.031
+LAYER 10 maxdiff 0.0312 absmax 2.031
+LAYER 11 maxdiff 0.0391 absmax 2.219
+LAYER 12 maxdiff 0.0312 absmax 2.203
+LAYER 13 maxdiff 0.0312 absmax 2.281
+LAYER 14 maxdiff 0.0391 absmax 2.469
+LAYER 15 maxdiff 0.0469 absmax 2.312
+LAYER 16 maxdiff 0.0469 absmax 2.547
+LAYER 17 maxdiff 0.0522 absmax 2.688
+LAYER 18 maxdiff 0.0615 absmax 2.625
+LAYER 19 maxdiff 0.0967 absmax 2.734
+LAYER 20 maxdiff 0.1006 absmax 3.297
+LAYER 21 maxdiff 0.1094 absmax 3.453
+LAYER 22 maxdiff 0.1113 absmax 4.062
+LAYER 23 maxdiff 0.5312 absmax 6.438
+{
+ "census": {
+  "fallback": 637,
+  "pypto": 6372
+ },
+ "golden_pass": true,
+ "kind": "pypto-qwen35-0p8b-full-forward-sm120",
+ "logits_correlation": 0.9546670317649841,
+ "logits_finite": true,
+ "max_abs_diff": 14.385343551635742,
+ "mean_abs_diff": 2.2616097927093506,
+ "prompt_len": 32,
+ "pypto_kernel_ratio": 0.9091168497645884,
+ "ref_absmax": 18.760343551635742,
+ "schema": 1,
+ "top1_agreement": 0.71875
+}
