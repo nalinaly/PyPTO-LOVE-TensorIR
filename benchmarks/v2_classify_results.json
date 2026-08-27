@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "kind": "pypto-kernels-v2-classify-sm120",
-  "run_id": "pypto-20260827T113222Z-385520-4a93a9",
+  "run_id": "pypto-20260827T113903Z-388007-913ac3",
   "dso_sha256": "4190b9d9eefa581e09cbe193c31f9e98d96c3a6ff4f855fa7ef31fc6e18280e4",
   "all_compiled": true,
   "cases": [
