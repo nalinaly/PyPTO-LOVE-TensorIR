@@ -262,6 +262,7 @@ if __name__ == "__main__":
     test_rope_is_one_native_tile_graph()
     test_attention_is_one_native_tile_graph()
     test_paged_attention_decode_gathers_physical_kv_rows_in_one_graph()
+    test_paged_cache_write_declares_mutation_and_one_graph()
     test_linear_is_one_native_tile_graph()
     test_gdn_read_and_update_are_one_native_tile_graph_each()
     test_broadcast_dependencies_are_closed()
