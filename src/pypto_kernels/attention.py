@@ -87,10 +87,11 @@ def paged_attention_decode_kernel(
     key_cache: pl.Tensor,
     value_cache: pl.Tensor,
     physical_indices: pl.Tensor,
+    valid_tokens: pl.Tensor,
     scale: pl.FP32,
     out: pl.Out[pl.Tensor],
 ):
-    """Gather one request's paged KV rows and run GQA decode attention."""
+    """Gather one request's paged KV rows and mask its static KV bucket."""
 
     with pl.at(level=pl.Level.CORE_GROUP):
         for q_head in pl.range(query.shape[0]):
@@ -136,13 +137,29 @@ def paged_attention_decode_kernel(
             )
             score = pl.matmul(query_tile, keys, out_dtype=pl.FP32)
             scaled = pl.mul(score, scale)
+            positions = pl.tile.ci(
+                0,
+                [1, physical_indices.shape[0]],
+                dtype=pl.INT32,
+            )
+            valid_token_count = pl.read(valid_tokens, [0, 0])
+            valid_mask = pl.cmps(positions, valid_token_count, cmp_type=2)
+            mask_scratch = pl.tile.create(
+                [1, 32], dtype=pl.UINT8, target_memory=pl.MemorySpace.Vec
+            )
+            masked_scaled = pl.sels(
+                valid_mask,
+                scaled,
+                mask_scratch,
+                -3.4028234663852886e38,
+            )
             max_scratch = pl.create_tile(
                 [1, physical_indices.shape[0]],
                 dtype=pl.FP32,
                 target_memory=pl.MemorySpace.Vec,
             )
-            row_max = pl.row_max(scaled, max_scratch)
-            centered = pl.row_expand_sub(scaled, row_max)
+            row_max = pl.row_max(masked_scaled, max_scratch)
+            centered = pl.row_expand_sub(masked_scaled, row_max)
             exponent = pl.exp(centered)
             sum_scratch = pl.create_tile(
                 [1, physical_indices.shape[0]],
@@ -251,12 +268,14 @@ def build_paged_decode(
     physical_indices = torch.empty(
         (tokens, head_dim), dtype=torch.int32, device="meta"
     )
+    valid_tokens = torch.empty((1, tokens), dtype=torch.int32, device="meta")
     out = torch.empty_like(query)
     return paged_attention_decode_kernel.specialize(
         query,
         key_cache,
         value_cache,
         physical_indices,
+        valid_tokens,
         1.0 / math.sqrt(head_dim),
         out,
     )
@@ -312,6 +331,7 @@ def paged_attention_decode(
     key_cache: Any,
     value_cache: Any,
     physical_indices: Any,
+    valid_tokens: Any,
     *,
     kv_heads: int,
     stream: Any = None,
@@ -336,6 +356,17 @@ def paged_attention_decode(
         or not physical_indices.is_contiguous()
     ):
         raise ValueError("paged decode physical indices must be contiguous rank-1 INT32")
+    if (
+        valid_tokens.ndim != 1
+        or valid_tokens.numel() != 1
+        or valid_tokens.dtype is not torch.int32
+        or not valid_tokens.is_contiguous()
+    ):
+        raise ValueError(
+            "paged decode valid token count must be one contiguous INT32 element"
+        )
+    if valid_tokens.device != query.device or physical_indices.device != query.device:
+        raise ValueError("paged decode metadata must be on the query device")
     q_heads, head_dim = map(int, query.shape)
     cache_rows = int(key_cache.shape[0])
     tokens = int(physical_indices.shape[0])
@@ -358,6 +389,7 @@ def paged_attention_decode(
             key_cache,
             value_cache,
             physical_indices.as_strided((tokens, head_dim), (1, 0)),
+            valid_tokens.as_strided((1, tokens), (0, 0)),
             out,
         ),
         stream.cuda_stream,

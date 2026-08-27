@@ -170,10 +170,13 @@ def test_paged_attention_decode_gathers_physical_kv_rows_in_one_graph():
     rendered = str(program)
     assert len(_one_program(program).body.stmts) == 2
     assert "pl.range(8)" in rendered and "pl.range(16)" in rendered
-    assert "pl.tensor.read" in rendered
+    assert rendered.count("pl.tensor.read") == 2
     assert rendered.count("pl.tile.gather_row") == 2
     assert "transpose=True" in rendered
     assert rendered.count("pl.tile.matmul") == 2
+    assert "pl.tile.ci" in rendered
+    assert "pl.tile.cmps" in rendered
+    assert "pl.tile.sels" in rendered
     assert "pl.tile.row_max" in rendered and "pl.tile.row_sum" in rendered
     assert rendered.count("pl.tile.store") == 1
 
