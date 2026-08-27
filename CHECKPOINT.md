@@ -1,6 +1,28 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0066`
+**Checkpoint:** `CP-0067`
+
+**Status:** The new native-tile definition is now executable end to end for
+the first two v2 Qwen operators. PyPTO `41dc7ab` adds the public
+`JITFunction.specialize()` pre-pass boundary and teaches the strict NVIDIA
+emitter to accept the standard `@pl.jit` shape
+`Orchestration(CHIP) -> pl.at(CORE_GROUP) -> static pl.range -> tile.load /
+tile ops / tile.store`, including BF16 kernels with Python FP32 literals. A
+`[64,128]` tensor written as 64 explicit `[1,128]` tiles compiles to one
+TensorIR artifact with grid `[64,1,1]`; the focused producer Python test passes
+and the final rebuilt DSO SHA-256 is
+`877ea11eb4baf0adb762b41ba4b5073b2372f3f83faa02244f3169df2597122e`, with
+CTest 13/13 green. v2 `65141ec` migrates `fused_add` and `silu_and_mul` away
+from `_graph.py` to visible `@pl.jit` source with nested ranges and `[1,128]`
+loads/stores. Final SM120 run `pypto-20260827T123744Z-410998-d97a06` proves
+both operators at `256x1024`, `4096x1024`, and decode `1x3584`: one launch per
+case, eager BF16 tolerance green; the complete 18-case legacy-plus-native
+suite remains `all_correct=true`. Evidence is
+`state/evidence/pypto-v2-native-tile-pointwise-cp0067.json`. The overall goal
+is explicitly still open: RMSNorm, RoPE, Attention, GDN, Inductor emission and
+the 0.8B then 9B full-model gates remain to migrate and verify.
+
+## Previous checkpoint (CP-0066)
 
 **Status:** The v2 operator assignment is complete under its stated acceptance
 and honesty boundaries. Final post-commit policy-2 runs prove 12/12

@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "checkpoint": "CP-0067",
+  "status": "partial-goal-progress",
+  "scope": "native @pl.jit tile frontend plus fused_add and silu_and_mul",
+  "commits": {
+    "pypto": "41dc7ab63880d184908587b1e72afdb957e8a18f",
+    "pypto_native_frontend_base": "2351bd533e2232c6cc2a7035c8dbb784e19469cb",
+    "pypto_kernels_v2": "baaa1ff",
+    "v2_implementation": "65141ec",
+    "v2_gpu_evidence": "baaa1ff"
+  },
+  "dso": {
+    "path": "builds/pypto-opext-on-a589f79/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "sha256": "877ea11eb4baf0adb762b41ba4b5073b2372f3f83faa02244f3169df2597122e"
+  },
+  "compiler_acceptance": {
+    "jit_specialize_preserves": [
+      "pl.at(level=pl.Level.CORE_GROUP)",
+      "pl.range",
+      "pl.tile.load",
+      "pl.tile.store"
+    ],
+    "native_tile_shape": [1, 128],
+    "static_loop_case": {
+      "tensor_shape": [64, 128],
+      "tile_count": 64,
+      "producer_grid": [64, 1, 1]
+    },
+    "structured_python_test": {
+      "run_id": "pypto-20260827T123720Z-410745-171252",
+      "result": "1 passed"
+    },
+    "ctest": {
+      "run_id": "pypto-20260827T123608Z-408955-cafc97",
+      "result": "13/13 passed"
+    }
+  },
+  "v2_acceptance": {
+    "structure_run_id": "pypto-20260827T123358Z-408030-d6366a",
+    "structure_result": "ALL V2 STRUCTURE TESTS PASSED",
+    "gpu_run_id": "pypto-20260827T123744Z-410998-d97a06",
+    "all_correct": true,
+    "native_tile_ops": ["silu_and_mul", "fused_add"],
+    "shapes": [[256, 1024], [4096, 1024], [1, 3584]],
+    "launches_per_case": 1,
+    "result_file": "projects/pypto-kernels-v2/benchmarks/v2_exec_results.json"
+  },
+  "remaining_noncompliant": [
+    "rmsnorm",
+    "rope",
+    "attention",
+    "gdn read and state update",
+    "Inductor generated kernels",
+    "Qwen3.5 0.8B full forward",
+    "Qwen3.5 9B full forward"
+  ],
+  "safety": {
+    "protected_processes_signalled": false,
+    "upstream_modified": false,
+    "model_harness_modified": false
+  }
+}
