@@ -37,8 +37,9 @@ below. It records work in progress, **not** CP-0084 acceptance.
 - Primary `projects/pypto` remains clean at `d1b90b7` for the pending QK DSO
   rebuild. Paged-decode compiler work is isolated in
   `worktrees/pypto-paged-decode` on
-  `feature/paged-decode-sm120@dad8bcf`; it recognizes the exact native
+  `feature/paged-decode-sm120@91b3fee`; it recognizes the exact native
   `tile.gather_row`/GQA/softmax graph and emits a four-input TensorIR candidate.
+  It now pins TensorIR `4407530` and archives that dependency as patch `0033`.
   That branch is source-only and has not compiled or linked.
 - The emitted one-head paged-decode graph exposes a second generic TensorIR
   gap: after graph splitting, its explicit unit-M query source remains
