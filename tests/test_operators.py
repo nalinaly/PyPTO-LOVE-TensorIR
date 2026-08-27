@@ -6,20 +6,22 @@ sys.path.insert(0, "/home/zhaosiying/pypto-love-tensor-ir/projects/pypto-kernels
 
 import torch
 
-from pypto_kernels._boot import bootstrap
-from pypto_kernels._graph import gdn_state_update_graph, pointwise_graph
 from pypto_kernels import attention, fused_add, gdn, rmsnorm, rope, silu_and_mul
 
 
 def test_each_operator_is_one_program():
-    m = bootstrap()
-    bf16 = m["pypto"].DataType.BF16
-    p = pointwise_graph([64, 128], bf16, [("tensor.add", ["a", "b"])])
-    assert len(p.functions) == 1
-    fn = list(p.functions.values())[0]
-    assert len(fn.body.stmts) == 2  # one assignment + one return
-    assert silu_and_mul.GRAPHS == 1 and fused_add.GRAPHS == 1
-    assert rmsnorm.GRAPHS == 1 and rope.GRAPHS == 1
+    assert all(
+        graphs == 1
+        for graphs in (
+            silu_and_mul.GRAPHS,
+            fused_add.GRAPHS,
+            rmsnorm.GRAPHS,
+            rope.GRAPHS,
+            attention.GRAPHS,
+            gdn.GRAPHS,
+            gdn.UPDATE_GRAPHS,
+        )
+    )
 
 
 def test_pointwise_operators_use_native_tile_dsl():
@@ -83,7 +85,7 @@ def test_attention_is_one_native_tile_graph_and_compiled():
     assert result["status"] == "compiled", result
 
 
-def test_gdn_read_is_one_native_tile_graph_and_update_compiles():
+def test_gdn_read_and_update_are_one_native_tile_graph_each():
     program = gdn.build_read(2, 128, 128)
     rendered = str(program)
     assert len(_one_program(program).body.stmts) == 2  # one scope + return
@@ -92,10 +94,17 @@ def test_gdn_read_is_one_native_tile_graph_and_update_compiles():
     assert "pl.tile.row_expand_mul" in rendered
     assert "pl.tile.store" in rendered
     assert "tensor." not in rendered
+    update_program = gdn.build_state_update(2, 128, 128)
+    update_rendered = str(update_program)
+    assert len(_one_program(update_program).body.stmts) == 2  # one scope + return
+    assert update_rendered.count("pl.tile.load") == 4
+    assert "pl.tile.row_expand_mul" in update_rendered
+    assert "pl.tile.row_expand" in update_rendered
+    assert "pl.tile.col_expand_mul" in update_rendered
+    assert "pl.tile.store" in update_rendered
+    assert "tensor." not in update_rendered
     results = {"read": gdn.read_status(), "state_update": gdn.state_update_status()}
     assert all(result["status"] == "compiled" for result in results.values()), results
-    update = _one_program(gdn_state_update_graph(16, 128, 128))
-    assert len(update.body.stmts) == 6  # 5 fused assignments + return
 
 
 def test_rmsnorm_single_graph_is_compiled():
@@ -117,7 +126,7 @@ if __name__ == "__main__":
     test_rmsnorm_uses_native_tile_reduction()
     test_rope_is_one_native_tile_graph_and_compiled()
     test_attention_is_one_native_tile_graph_and_compiled()
-    test_gdn_read_is_one_native_tile_graph_and_update_compiles()
+    test_gdn_read_and_update_are_one_native_tile_graph_each()
     test_rmsnorm_single_graph_is_compiled()
     test_broadcast_dependencies_are_closed()
     print("ALL OPERATOR STRUCTURE TESTS PASSED")

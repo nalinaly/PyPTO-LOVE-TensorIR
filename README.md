@@ -16,7 +16,7 @@ ones-matmul 广播展开。仅仅用整张量 `tensor.*` graph 再附加 schedul
 | `rmsnorm` | 1 | **原生 tile** ✅ | 行 tile 内 FP32 square/reduce/rsqrt/broadcast；一次 launch |
 | `rope` | 1 | **原生 tile** ✅ | 低/高半旋转在一个图内，两个 store 合成一个结果；一次 launch |
 | `gdn_read` | 1 | **原生 tile** ✅ | state matmul、softplus、dot、delta 与相加在一个图；一次 launch |
-| `gdn_state_update` | 1 | **待迁移** | 整张量图数值已通过，仍需改为原生 tile 并与 stateful 边界合并 |
+| `gdn_state_update` | 1 | **原生 tile** ✅ | state/decay/beta/value 分块 load，tile 内 outer-product 更新，一次 launch |
 | `attention` | 1 | **原生 tile 核心** ✅ | QK→稳定 softmax→PV 全在一个图；一次 launch；paged/causal serving 扩展仍待接入 |
 
 CP-0062 已关闭 broadcast producer 阻塞；分类证据在

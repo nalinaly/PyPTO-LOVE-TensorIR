@@ -12,11 +12,7 @@ sys.path.insert(0, "/home/zhaosiying/pypto-love-tensor-ir/projects/pypto-kernels
 
 import torch
 
-from pypto_kernels._boot import DSO_PATH, bootstrap, compile_graph, launch_graph
-from pypto_kernels._graph import (
-    gdn_state_update_graph,
-    tiles_for,
-)
+from pypto_kernels._boot import DSO_PATH, bootstrap
 from pypto_kernels import attention, fused_add, gdn, rmsnorm, rope, silu_and_mul
 
 
@@ -158,20 +154,17 @@ def main() -> int:
         }
     )
 
-    # GDN state update is one rank-3 pointwise graph and one launch.
+    # GDN state update is one native tile graph and one launch.
     state = torch.randn(heads, dk, dv, device="cuda", dtype=torch.bfloat16) * 0.05
     state_decay = torch.rand(heads, dk, 1, device="cuda", dtype=torch.bfloat16)
     beta_key = torch.randn(heads, dk, 1, device="cuda", dtype=torch.bfloat16) * 0.05
     update_value = torch.randn(heads, 1, dv, device="cuda", dtype=torch.bfloat16) * 0.1
-    updated = torch.empty_like(state)
-    update_key = compile_graph(
-        gdn_state_update_graph(heads, dk, dv), tiles_for(heads, dk, dv)
-    )
-    # state-update input order: state, decay, beta_key, value.
-    launch_graph(
-        update_key,
-        (state, state_decay, beta_key, update_value, updated),
-        stream.cuda_stream,
+    updated = gdn.gdn_state_update(
+        state,
+        state_decay,
+        beta_key,
+        update_value,
+        stream=stream,
     )
     stream.synchronize()
     update_ref = (
@@ -180,6 +173,7 @@ def main() -> int:
     cases.append(
         {
             "case": "gdn_state_update_bf16 16x128x128",
+            "implementation": "native-tile-dsl",
             "launches": 1,
             "max_abs_diff": float((updated.float() - update_ref).abs().max()),
             "correct": bool(
@@ -204,6 +198,7 @@ def main() -> int:
             "rope",
             "attention",
             "gdn_read",
+            "gdn_state_update",
         ],
         "all_correct": ok,
         "cases": cases,

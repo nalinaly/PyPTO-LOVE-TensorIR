@@ -21,9 +21,6 @@ from pypto_kernels import (  # noqa: E402
     rmsnorm,
     rope,
 )
-from pypto_kernels._graph import (  # noqa: E402
-    gdn_state_update_graph,
-)
 
 
 def main() -> int:
@@ -34,8 +31,8 @@ def main() -> int:
         ("gdn_read", gdn.build_read(16, 128, 128), [1, 64]),
         (
             "gdn_state_update",
-            gdn_state_update_graph(16, 128, 128),
-            [16, 32, 32],
+            gdn.build_state_update(16, 128, 128),
+            [1, 32, 32],
         ),
     )
     results = []
