@@ -1,6 +1,26 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0076`
+**Checkpoint:** `CP-0077`
+
+**Status:** GDN's zero-initial-state prefill causal convolution is now a
+single native tile graph. Canonical operator `43f3334` loads 128-channel
+sequence/weight tiles, explicitly constructs the three left-padded windows
+with `tile.full/slice/concat`, performs four FP32 depthwise taps, SiLU and one
+BF16 store. PyPTO `8d4c66d` lowers the graph by computing boundary tokens
+0/1/2 and the complete body as four segments, then one result concat; the
+producer-required schedule is `[128 channels,1 token]`. SM120 run
+`pypto-20260827T151406Z-509073-283193` passes Qwen-oriented
+`[2048 channels,64 tokens]` against grouped FP32 `torch.conv1d` with max
+absolute difference `0.000827491`; all 15 consolidated cases are correct.
+Classification, native structure and focused producer tests pass, CTest is
+13/13, and exact DSO SHA-256 is
+`f0d5d1da7eb03699f30c69f879228ee3cf811f9652fc1c20487e8ce7b60b26b8`.
+Evidence is `state/evidence/pypto-native-causal-conv-prefill-cp0077.json`.
+This checkpoint deliberately does not claim stateful coverage: nonzero
+prefill state/writeback, decode update/cache indexing and varlen metadata are
+still required before the GDN/model gate.
+
+## Previous checkpoint (CP-0076)
 
 **Status:** GDN's output `RMSNormGated` is now its real single native tile
 operator rather than a Python chain. Read-only SGLang

@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "checkpoint": "CP-0077",
+  "status": "accepted-zero-initial-prefill",
+  "operator": "gdn-causal-conv1d-prefill",
+  "source_contract": {
+    "file": "upstream/sglang/python/sglang/kernels/ops/mamba/causal_conv1d_triton.py",
+    "state_and_weight_lines": "115-190",
+    "accumulation_and_activation_lines": "304-385",
+    "layout": "input [channels,tokens], weight [channels,4]",
+    "formula": "FP32 depthwise causal width-4 convolution followed by SiLU"
+  },
+  "implementation": {
+    "repository": "projects/pypto-kernels",
+    "commit": "43f3334ba564ac41a6de4c4e125e838500a918f2",
+    "source": "src/pypto_kernels/causal_conv1d.py",
+    "graph_count": 1,
+    "launches": 1,
+    "schedule": [128, 1],
+    "tile_algorithm": [
+      "load 128-channel input and four-tap weight tiles",
+      "construct three zero-prefixed causal windows with tile full/slice/concat",
+      "broadcast one weight per channel for each tap",
+      "FP32 four-tap accumulation",
+      "SiLU and BF16 tile store"
+    ]
+  },
+  "compiler": {
+    "pypto_commit": "8d4c66d6cafdf0fae8e5cbcf17b5180bc9ea3119",
+    "tensor_ir_commit": "ec57ae0879462086495b5121abb10e8719ec21d4",
+    "lowering": "compute tokens 0,1,2 and full-width body as segments, then one result concatenate",
+    "build_run_id": "pypto-20260827T151207Z-506504-e9183f",
+    "compile_run_id": "pypto-20260827T151304Z-508263-749c03",
+    "focused_test_run_id": "pypto-20260827T151534Z-509987-76ca31",
+    "focused_test_result": "1 passed",
+    "ctest_run_id": "pypto-20260827T151624Z-510541-fa107b",
+    "ctest_result": "13/13 passed"
+  },
+  "dso": {
+    "path": "builds/pypto-opext-on-a589f79/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "sha256": "f0d5d1da7eb03699f30c69f879228ee3cf811f9652fc1c20487e8ce7b60b26b8"
+  },
+  "gpu": {
+    "run_id": "pypto-20260827T151406Z-509073-283193",
+    "input_shape": [2048, 64],
+    "weight_shape": [2048, 4],
+    "dtype": "bfloat16",
+    "reference": "grouped torch.conv1d FP32 accumulation, causal padding, SiLU",
+    "max_abs_diff": 0.000827491283416748,
+    "correct": true,
+    "all_15_cases_correct": true,
+    "result_file": "projects/pypto-kernels/benchmarks/exec_results.json"
+  },
+  "classification": {
+    "run_id": "pypto-20260827T151438Z-509384-8c64ca",
+    "all_compiled": true,
+    "structure_run_id": "pypto-20260827T151503Z-509687-34ce5c",
+    "structure_result": "ALL OPERATOR STRUCTURE TESTS PASSED"
+  },
+  "remaining_causal_conv_scope": [
+    "prefill with nonzero initial convolution state and state writeback",
+    "decode causal_conv1d_update with cache-slot selection and state writeback",
+    "variable-length batch metadata"
+  ],
+  "safety": {
+    "protected_processes_signalled": false,
+    "upstream_modified": false,
+    "model_harness_modified": false
+  }
+}
