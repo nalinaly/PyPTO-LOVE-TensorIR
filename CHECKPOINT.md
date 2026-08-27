@@ -1,6 +1,23 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0063`
+**Checkpoint:** `CP-0064`
+
+**Status:** The former v2 B-class operators now pass the separate one-launch
+SM120 numerical gate. PyPTO `1b47d71` extends the fused reduction-epilogue
+analyzer to the true BF16 RMSNorm graph (`square -> FP32 sum/mean/eps/rsqrt ->
+broadcast-mul -> BF16`) and its source/producer CTests pass. v2 `68a2c90`
+adds eager comparisons for RMSNorm, both RoPE halves, attention softmax scale
+and GDN delta; every case compiles once, launches once and passes BF16 tolerance.
+Two seeded GPU runs produced identical max-error profiles, with the five new
+max absolute errors 0.01554, 0.01660, 0.01654, 0.001953 and 0.007751
+respectively. The v2 structure suite remains green on the rebuilt DSO SHA-256
+`ecc6ec6d...8c639`. Evidence is
+`state/evidence/pypto-v2-broadcast-runpass-cp0064.json` and
+`projects/pypto-kernels-v2/benchmarks/v2_exec_results.json`. Next is T3's
+remaining C-class construction: complete attention softmax/value mix and GDN
+read/state update graphs.
+
+## Previous checkpoint (CP-0063)
 
 **Status:** v2 T2 classification is closed at independent v2 commit `18b3f5e`.
 Against the CP-0062 DSO, RMSNorm, both RoPE halves, attention softmax scale and

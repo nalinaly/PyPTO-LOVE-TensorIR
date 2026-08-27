@@ -1,0 +1,60 @@
+{
+  "schema": 1,
+  "kind": "pypto-kernels-v2-broadcast-run-pass",
+  "pypto_commit": "1b47d71415c100791e57bb48d350c538b27f69fe",
+  "v2_commit": "68a2c90",
+  "dso": {
+    "path": "builds/pypto-opext-on-a589f79/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "sha256": "ecc6ec6ddc123b092779f8c7cfe6ce38139d6bec62c8d92b8a0400e8f188c639",
+    "build_run_id": "pypto-20260827T112038Z-378641-433535"
+  },
+  "pypto_targeted_ctest": {
+    "run_id": "pypto-20260827T112127Z-380199-1dedca",
+    "passed": 2,
+    "total": 2,
+    "tests": [
+      "pypto_tensor_ir_codegen_test",
+      "pypto_structured_compile_test"
+    ]
+  },
+  "classification": {
+    "run_id": "pypto-20260827T112153Z-380866-8c1765",
+    "all_compiled": true
+  },
+  "gpu_numerical": {
+    "run_id": "pypto-20260827T112406Z-381644-24ab81",
+    "all_correct": true,
+    "deterministic_repeat": true,
+    "cases": {
+      "rmsnorm_bf16": {
+        "shape": [256, 1024],
+        "launches": 1,
+        "max_abs_diff": 0.015537738800048828
+      },
+      "rope_even_bf16": {
+        "shape": [256, 128],
+        "launches": 1,
+        "max_abs_diff": 0.0166015625
+      },
+      "rope_odd_bf16": {
+        "shape": [256, 128],
+        "launches": 1,
+        "max_abs_diff": 0.01654052734375
+      },
+      "attention_softmax_scale_bf16": {
+        "shape": [256, 128],
+        "launches": 1,
+        "max_abs_diff": 0.001953125
+      },
+      "gdn_delta_bf16": {
+        "shape": [16, 128],
+        "launches": 1,
+        "max_abs_diff": 0.00775146484375
+      }
+    }
+  },
+  "structure_tests": {
+    "run_id": "pypto-20260827T112434Z-381887-31169a",
+    "passed": true
+  }
+}
