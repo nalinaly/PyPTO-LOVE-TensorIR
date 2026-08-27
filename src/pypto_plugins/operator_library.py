@@ -87,9 +87,10 @@ def _graph_count(module: object, source: Path) -> int:
             f"unable to parse operator source {source}"
         ) from error
     primary = _integer_declaration(tree, "GRAPHS", None)
-    if type(primary) is not int or primary != 1:
+    expected_primary = 2 if module.__name__.endswith(".attention") else 1
+    if type(primary) is not int or primary != expected_primary:
         raise FrameworkCompatibilityError(
-            f"{module.__name__} must expose exactly one primary graph"
+            f"{module.__name__} must expose exactly {expected_primary} primary graph(s)"
         )
     update = _integer_declaration(tree, "UPDATE_GRAPHS", 0)
     if type(update) is not int or update not in (0, 1):

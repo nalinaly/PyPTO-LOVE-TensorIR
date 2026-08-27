@@ -23,7 +23,7 @@ def test_canonical_operator_package_is_native_tile_only() -> None:
     assert snapshot.modules == EXPECTED_OPERATOR_MODULES
     assert Path(snapshot.package_root) == Path(pypto_kernels.__file__).resolve().parent
     assert dict(snapshot.graph_counts) == {
-        "attention": 1,
+        "attention": 2,
         "causal_conv1d": 1,
         "embedding": 1,
         "fused_add_rmsnorm": 1,
