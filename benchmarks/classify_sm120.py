@@ -34,22 +34,8 @@ def main() -> int:
     cases = (
         ("rmsnorm", rmsnorm.build(256, 1024), [1, 128]),
         ("rope", rope.build(256, 64), [1, 1, 64]),
-        (
-            "attention_softmax_scale",
-            attention.build_softmax_scale(256, 1024),
-            [32, 32],
-        ),
+        ("attention", attention.build(32, 128, 128, 128), [1, 64]),
         ("gdn_delta", gdn_delta_graph(16, 128), [16, 32]),
-        (
-            "attention_softmax_normalize",
-            attention.build_softmax_normalize(256, 128),
-            [32, 32],
-        ),
-        (
-            "attention_value_mix",
-            attention.build_value_mix(256, 128, 128),
-            [32, 32],
-        ),
         ("gdn_q_decay", gdn_q_decay_graph(16, 128), [128]),
         ("gdn_dot", row_sum_graph(16, 128), [16]),
         ("gdn_state_read", gdn_state_read_graph(16, 128, 128), [16, 32]),

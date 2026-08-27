@@ -21,12 +21,12 @@
    ]
   },
   {
-   "case": "attention_softmax_scale",
-   "key": "61617aca10b3b78c",
+   "case": "attention",
+   "key": "ab43065e05a80e8a",
    "status": "compiled",
    "tiles": [
-    32,
-    32
+    1,
+    64
    ]
   },
   {
@@ -35,24 +35,6 @@
    "status": "compiled",
    "tiles": [
     16,
-    32
-   ]
-  },
-  {
-   "case": "attention_softmax_normalize",
-   "key": "3667f3e6084d61a6",
-   "status": "compiled",
-   "tiles": [
-    32,
-    32
-   ]
-  },
-  {
-   "case": "attention_value_mix",
-   "key": "4c031a587f6d166c",
-   "status": "compiled",
-   "tiles": [
-    32,
     32
    ]
   },
@@ -101,9 +83,9 @@
    ]
   }
  ],
- "dso_sha256": "6e7773804960212562ea2e41301bfe62ad24eefca1b6d9bc5ec5f1da15dd7a38",
+ "dso_sha256": "d700ab61fca834343afa843c162a69c5572fe1c8cf8b27efbd32157541cae129",
  "kind": "pypto-kernels-classify-sm120",
- "pypto_commit": "5f9aa0810e04ddf28ab5afc55f6284d5ba023a5f",
- "run_id": "pypto-20260827T131906Z-435790-558bc2",
+ "pypto_commit": "5e3611bc1336fb89e8a517e5a11b139ae3b39509",
+ "run_id": "pypto-20260827T133213Z-440900-de9712",
  "schema": 2
 }

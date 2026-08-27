@@ -76,18 +76,18 @@ def test_gdn_compose_and_delta_compile():
     assert delta["status"] == "compiled", delta
 
 
-def test_attention_softmax_scale_is_single_graph_compiled():
-    program = attention.build_softmax_scale(256, 1024)
-    assert len(_one_program(program).body.stmts) == 2  # 1 assignment + return
-    result = attention.softmax_status()
+def test_attention_is_one_native_tile_graph_and_compiled():
+    program = attention.build(2, 128, 128, 128)
+    rendered = str(program)
+    assert len(_one_program(program).body.stmts) == 2  # one scope + return
+    assert rendered.count("pl.tile.matmul") == 2
+    assert "pl.tile.row_max" in rendered
+    assert "pl.tile.row_sum" in rendered
+    assert "pl.tile.exp" in rendered
+    assert "pl.tile.store" in rendered
+    assert "tensor." not in rendered
+    result = attention.status(rows=2)
     assert result["status"] == "compiled", result
-
-
-def test_attention_normalize_and_value_mix_compile():
-    normalize = attention.softmax_normalize_status()
-    value_mix = attention.value_mix_status()
-    assert normalize["status"] == "compiled", normalize
-    assert value_mix["status"] == "compiled", value_mix
 
 
 def test_gdn_complete_read_components_and_update_compile():
@@ -123,8 +123,7 @@ if __name__ == "__main__":
     test_rmsnorm_uses_native_tile_reduction()
     test_rope_is_one_native_tile_graph_and_compiled()
     test_gdn_compose_and_delta_compile()
-    test_attention_softmax_scale_is_single_graph_compiled()
-    test_attention_normalize_and_value_mix_compile()
+    test_attention_is_one_native_tile_graph_and_compiled()
     test_gdn_complete_read_components_and_update_compile()
     test_rmsnorm_single_graph_is_compiled()
     test_broadcast_dependencies_are_closed()

@@ -3,6 +3,7 @@
 
 import json
 import hashlib
+import math
 import os
 import pathlib
 import sys
@@ -134,24 +135,26 @@ def main() -> int:
         }
     )
 
-    rows, tokens = 256, 128
-    exponent = torch.rand(rows, tokens, device="cuda", dtype=torch.bfloat16)
-    inverse_sum = torch.rand(rows, 1, device="cuda", dtype=torch.bfloat16)
-    scaled = torch.empty_like(exponent)
-    scale_key = compile_graph(
-        attention.build_softmax_scale(rows, tokens),
-        tiles_for(rows, tokens),
+    rows, tokens, head_dim, value_dim = 32, 128, 128, 128
+    query_attn = torch.randn(rows, head_dim, device="cuda", dtype=torch.bfloat16) * 0.25
+    key_attn = torch.randn(tokens, head_dim, device="cuda", dtype=torch.bfloat16) * 0.25
+    value_attn = (
+        torch.randn(tokens, value_dim, device="cuda", dtype=torch.bfloat16) * 0.25
     )
-    launch_graph(scale_key, (exponent, inverse_sum, scaled), stream.cuda_stream)
+    attention_out = attention.attention(query_attn, key_attn, value_attn, stream=stream)
     stream.synchronize()
-    scale_ref = exponent.float() * inverse_sum.float()
+    score_ref = query_attn.float() @ key_attn.float().T / math.sqrt(head_dim)
+    attention_ref = torch.softmax(score_ref, dim=-1) @ value_attn.float()
     cases.append(
         {
-            "case": "attention_softmax_scale_bf16 256x128",
+            "case": "attention_bf16 32x128x128",
+            "implementation": "native-tile-dsl",
             "launches": 1,
-            "max_abs_diff": float((scaled.float() - scale_ref).abs().max()),
+            "max_abs_diff": float((attention_out.float() - attention_ref).abs().max()),
             "correct": bool(
-                torch.allclose(scaled.float(), scale_ref, rtol=5e-2, atol=5e-2)
+                torch.allclose(
+                    attention_out.float(), attention_ref, rtol=1e-1, atol=8e-2
+                )
             ),
         }
     )
@@ -171,55 +174,6 @@ def main() -> int:
             "max_abs_diff": float((delta.float() - delta_ref).abs().max()),
             "correct": bool(
                 torch.allclose(delta.float(), delta_ref, rtol=5e-2, atol=5e-2)
-            ),
-        }
-    )
-
-    # Complete attention floor: one normalize graph plus one value-mix matmul.
-    rows, tokens, value_dim = 256, 128, 128
-    exponent = torch.rand(rows, tokens, device="cuda", dtype=torch.bfloat16) + 0.125
-    probabilities = torch.empty_like(exponent)
-    normalize_key = compile_graph(
-        attention.build_softmax_normalize(rows, tokens),
-        tiles_for(rows, tokens),
-    )
-    launch_graph(normalize_key, (exponent, probabilities), stream.cuda_stream)
-    stream.synchronize()
-    probability_ref = exponent.float() / exponent.float().sum(-1, keepdim=True)
-    probability_ok = torch.allclose(
-        probabilities.float(), probability_ref, rtol=5e-2, atol=5e-3
-    )
-    cases.append(
-        {
-            "case": "attention_softmax_normalize_bf16 256x128",
-            "launches": 1,
-            "max_abs_diff": float(
-                (probabilities.float() - probability_ref).abs().max()
-            ),
-            "correct": bool(probability_ok),
-        }
-    )
-
-    value_matrix = (
-        torch.randn(tokens, value_dim, device="cuda", dtype=torch.bfloat16) * 0.25
-    )
-    mixed = torch.empty(rows, value_dim, device="cuda", dtype=torch.bfloat16)
-    mix_key = compile_graph(
-        attention.build_value_mix(rows, tokens, value_dim),
-        tiles_for(rows, value_dim),
-    )
-    launch_graph(mix_key, (probabilities, value_matrix, mixed), stream.cuda_stream)
-    stream.synchronize()
-    mixed_ref = probability_ref @ value_matrix.float()
-    cases.append(
-        {
-            "case": "attention_value_mix_bf16 256x128x128",
-            "launches": 1,
-            "path_launches": 2,
-            "max_abs_diff": float((mixed.float() - mixed_ref).abs().max()),
-            "correct": bool(
-                probability_ok
-                and torch.allclose(mixed.float(), mixed_ref, rtol=8e-2, atol=5e-2)
             ),
         }
     )
@@ -331,7 +285,13 @@ def main() -> int:
         "pypto_commit": bootstrap()["compiler"]
         .get_nvidia_backend_build_info()
         .pypto_revision,
-        "native_tile_ops": ["silu_and_mul", "fused_add", "rmsnorm", "rope"],
+        "native_tile_ops": [
+            "silu_and_mul",
+            "fused_add",
+            "rmsnorm",
+            "rope",
+            "attention",
+        ],
         "all_correct": ok,
         "cases": cases,
     }
