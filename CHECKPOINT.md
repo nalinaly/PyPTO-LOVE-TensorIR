@@ -1,6 +1,33 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0050`
+**Checkpoint:** `CP-0051`
+
+**Status:** R0 remains open. Under D-0018 this checkpoint records the
+Inductor-backend deepening on top of CP-0050. Activation functions
+(sigmoid/silu/relu/tanh/swish) now compile and launch end-to-end through
+Inductor strict mode: the recorder composes the native body ops over
+registered primitives (relu via bitwise-exact (x+|x|)*0.5), replays an
+ordered event log so loads may interleave with ops, handles scalar-left
+commuting and constant-numerator division, and PyPTO mode disables the
+FX-graph cache (a replay would restore a wrapper whose kernel the fresh
+process never registered). Reduction nodes route to RowReductionV3
+(keepdim outer unit slots stripped from the input rank) and
+FusedSchedulerNodes split into per-buffer PyPTO kernels with dense
+pinned layouts. PyPTO codegen gained DAG operand chains (any earlier SSA
+result), row-expand fused ops, broadcast input validation, and a
+row-reduction-epilogue graph family — 13/13 CTest green throughout.
+The RMSNorm-shaped chain is blocked at the pinned TensorIR producer:
+no broadcast-into-pointwise lowering configuration was accepted (dense
+unit-extent, stride-0 unit-extent, full-extent stride-0, and the
+documented post-reduce broadcast all fail with the producer's
+diagnostics suppressed by the strict bridge), so broadcast programs
+fail closed today. The documented unblocked path for norms is a
+five-kernel decomposition over supported primitives: square (pointwise),
+row_sum (V3), [M,1] epilogue (pointwise), row expansion via
+StructuredMatmulV4 `row @ ones` (BF16), and the final multiply
+(pointwise) — to be wired through the SGLang plugin and pypto-kernels.
+
+## Previous checkpoint (CP-0050)
 
 **Status:** R0 remains open. Under the relaxed D-0018 discipline (tests plus
 golden comparisons green; one consolidated review after the models run) this
