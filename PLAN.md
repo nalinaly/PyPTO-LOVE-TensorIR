@@ -1,8 +1,49 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `46`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `47`
 
 ## Current phase: full-stack execution to Qwen3.5 (D-0018 lightweight gates)
+
+## Authoritative final model gate (2026-08-28)
+
+The final objective is stable inference for **both Qwen3.5-0.8B and
+Qwen3.5-9B**, in that order, with model-forward compute coverage exactly 100%
+PyPTO. The accepted provider set consists only of handwritten
+`pypto-kernels` operators and TorchInductor-fused regions lowered through the
+PyPTO CUDA backend. Final strict runs permit no Triton, FlashInfer, CuTeDSL,
+sgl-kernel, eager ATen CUDA, cuBLAS/cuBLASLt or unknown compute fallback;
+machine-readable coverage must report a non-vacuous denominator,
+`coverage = 100%` and `fallback_compute_kernels = 0`.
+
+Both model gates use the exact prompt below; changing, shortening or replacing
+it is not acceptance evidence:
+
+```text
+为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？
+```
+
+For each model, acceptance requires all of the following on the same pinned
+weights and tokenizer:
+
+1. compare candidate and unmodified reference-path prefill/decode logits with
+   thresholds frozen before the candidate measurement, and publish the full
+   max-absolute/max-relative and token-margin evidence rather than only a
+   readable answer;
+2. use deterministic greedy decoding and require exact generated token IDs and
+   decoded text against the reference path;
+3. pass at least three fresh model/server starts, each followed by at least ten
+   consecutive warm requests using the exact prompt, without crash, hang,
+   fallback, coverage drift, state/cache leakage or output drift; and
+4. preserve separate machine-readable correctness, stability, coverage and
+   performance reports. A compile, Cubin, operator smoke, layer test or one
+   successful generation cannot substitute for this model gate.
+
+The immediate path to that gate is to finish the current single-graph,
+single-launch fused QK RMSNorm plus partial RoPE compiler transaction, then
+close causal paged attention, stateful convolution and single-graph GDN,
+complete the zero-diff SGLang route, bring up and stabilize 0.8B, and only then
+repeat the full gate for 9B. No model-name, hidden-size or fixed benchmark-shape
+special case may be used to satisfy either model.
 
 CP-0039 accepts compile-free HIR-to-TensorIR emission, CP-0040 accepts the
 standalone canonical schedule, and CP-0041 accepts compiler-owned frontend
