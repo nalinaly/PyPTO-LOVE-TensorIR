@@ -17,13 +17,13 @@ EXPECTED_OPERATOR_LIBRARY_VERSION = "0.1.0"
 EXPECTED_OPERATOR_MODULES = (
     "attention",
     "causal_conv1d",
-    "fused_add",
     "fused_add_rmsnorm",
     "gdn",
     "gated_rmsnorm",
     "linear",
     "rmsnorm",
     "rope",
+    "sigmoid_mul",
     "silu_and_mul",
 )
 

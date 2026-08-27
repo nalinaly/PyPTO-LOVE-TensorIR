@@ -25,13 +25,13 @@ def test_canonical_operator_package_is_native_tile_only() -> None:
     assert dict(snapshot.graph_counts) == {
         "attention": 1,
         "causal_conv1d": 1,
-        "fused_add": 1,
         "fused_add_rmsnorm": 1,
         "gated_rmsnorm": 1,
         "gdn": 2,
         "linear": 1,
         "rmsnorm": 1,
         "rope": 1,
+        "sigmoid_mul": 1,
         "silu_and_mul": 1,
     }
     with pytest.raises(FrozenInstanceError):
