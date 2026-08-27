@@ -87,6 +87,16 @@ def main() -> int:
             attention.build_paged_cache_write(1024, 13, 512),
             [1, 128],
         ),
+        (
+            "attention_paged_prefill_0_8b",
+            attention.build_paged_prefill(13, 8, 2, 16, 256, 1024, 65, 4096),
+            [1, 1, 128],
+        ),
+        (
+            "attention_paged_prefill_9b",
+            attention.build_paged_prefill(13, 16, 4, 16, 256, 1024, 65, 4096),
+            [1, 1, 128],
+        ),
         ("linear", linear.build(32, 1024, 1024), [1, 128]),
         ("gdn_read", gdn.build_read(16, 128, 128), [1, 64]),
         (

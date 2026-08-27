@@ -23,7 +23,7 @@ from pypto_kernels import (
 
 
 def test_each_operator_is_one_program():
-    assert attention.GRAPHS == 3  # dense + paged decode + paged cache write
+    assert attention.GRAPHS == 4  # dense + decode + cache write + prefill
     assert all(
         graphs == 1
         for graphs in (
@@ -215,6 +215,31 @@ def test_paged_cache_write_declares_mutation_and_one_graph():
     assert prefill_rendered.count("pl.tile.store") == 3
 
 
+def test_paged_prefill_is_one_causal_gqa_graph():
+    program = attention.build_paged_prefill(13, 8, 2, 16, 256, 1024, 65, 4096)
+    rendered = str(program)
+    assert len(_one_program(program).body.stmts) == 2
+    assert "kv_heads: pl.Scalar[pl.INDEX] = 2" in rendered
+    assert "queries_per_kv: pl.Scalar[pl.INDEX] = 8 // kv_heads" in rendered
+    assert "pl.range(kv_heads)" in rendered
+    assert "pl.range(queries_per_kv)" in rendered
+    assert "pl.range(13)" in rendered
+    assert "pl.range(16)" in rendered
+    assert rendered.count("pl.tensor.read") == 3
+    assert rendered.count("pl.tile.gather_row") == 2
+    assert rendered.count("pl.tile.matmul") == 2
+    assert "pl.tile.cmps" in rendered and "pl.tile.sels" in rendered
+    assert rendered.count("pl.tile.store") == 1
+
+    large_model = attention.build_paged_prefill(
+        13, 16, 4, 16, 256, 1024, 65, 4096
+    )
+    large_rendered = str(large_model)
+    assert "kv_heads: pl.Scalar[pl.INDEX] = 4" in large_rendered
+    assert "queries_per_kv: pl.Scalar[pl.INDEX] = 16 // kv_heads" in large_rendered
+    assert large_rendered.count("pl.tile.gather_row") == 2
+
+
 def test_linear_is_one_native_tile_graph():
     program = linear.build(2, 128, 256)
     rendered = str(program)
@@ -268,6 +293,7 @@ if __name__ == "__main__":
     test_attention_is_one_native_tile_graph()
     test_paged_attention_decode_gathers_physical_kv_rows_in_one_graph()
     test_paged_cache_write_declares_mutation_and_one_graph()
+    test_paged_prefill_is_one_causal_gqa_graph()
     test_linear_is_one_native_tile_graph()
     test_gdn_read_and_update_are_one_native_tile_graph_each()
     test_broadcast_dependencies_are_closed()

@@ -17,10 +17,11 @@ _lock = threading.RLock()
 _cache: dict[tuple[int, int, int, int], str] = {}
 _paged_decode_cache: dict[tuple[int, int, int, int, int, int, int], str] = {}
 _paged_cache_write_cache: dict[tuple[int, int, int], str] = {}
+_paged_prefill_cache: dict[tuple[int, int, int, int, int, int, int, int], str] = {}
 
 STATUS = "native-tile executable"
 PAGED_DECODE_STATUS = "native-tile source candidate"
-GRAPHS = 3
+GRAPHS = 4
 
 
 @pl.jit
@@ -210,6 +211,117 @@ def paged_cache_write_kernel(
             pl.store(value_tile, [physical_row_i32, 0], value_cache)
             anchor = pl.add(key_tile, value_tile)
             pl.store(anchor, [row, 0], out)
+    return out
+
+
+@pl.jit
+def paged_attention_prefill_kernel(
+    query: pl.Tensor,
+    key_cache: pl.Tensor,
+    value_cache: pl.Tensor,
+    req_to_token: pl.Tensor,
+    request_index: pl.Tensor,
+    prefix_tokens: pl.Tensor,
+    scale: pl.FP32,
+    out: pl.Out[pl.Tensor],
+):
+    """Run one request's causal GQA prefill over its physical KV rows."""
+
+    with pl.at(level=pl.Level.CORE_GROUP):
+        request_id = pl.read(request_index, [0, 0])
+        prefix_token_count = pl.read(prefix_tokens, [0, 0])
+        positions = pl.tile.ci(
+            0,
+            [1, request_index.shape[1]],
+            dtype=pl.INT32,
+        )
+        q_heads = query.shape[1]
+        head_dim = query.shape[2]
+        kv_heads = value_cache.shape[1] // head_dim
+        queries_per_kv = q_heads // kv_heads
+        for kv_head in pl.range(kv_heads):
+            keys = pl.tile.create(
+                [head_dim, request_index.shape[1]],
+                dtype=pl.BF16,
+                target_memory=pl.MemorySpace.Mat,
+                transpose=True,
+            )
+            values = pl.tile.create(
+                [request_index.shape[1], head_dim],
+                dtype=pl.BF16,
+                target_memory=pl.MemorySpace.Mat,
+            )
+            for slot in pl.range(request_index.shape[1]):
+                physical = pl.read(req_to_token, [request_id, slot])
+                cache_column = kv_head * head_dim
+                keys = pl.tile.gather_row(
+                    keys,
+                    key_cache,
+                    [0, slot],
+                    [physical, cache_column],
+                    [1, head_dim],
+                    transpose=True,
+                )
+                values = pl.tile.gather_row(
+                    values,
+                    value_cache,
+                    [slot, 0],
+                    [physical, cache_column],
+                    [1, head_dim],
+                )
+            for q_group in pl.range(queries_per_kv):
+                q_head = kv_head * queries_per_kv + q_group
+                for query_row in pl.range(query.shape[0]):
+                    query_box = pl.load(
+                        query,
+                        [query_row, q_head, 0],
+                        [1, 1, head_dim],
+                        target_memory=pl.MemorySpace.Mat,
+                    )
+                    query_tile = pl.reshape(query_box, [1, head_dim])
+                    score = pl.matmul(query_tile, keys, out_dtype=pl.FP32)
+                    scaled = pl.mul(score, scale)
+                    query_row_i32 = pl.cast(query_row, pl.INT32)
+                    valid_token_count = prefix_token_count + query_row_i32
+                    valid_token_count = valid_token_count + pl.cast(1, pl.INT32)
+                    valid_mask = pl.cmps(
+                        positions, valid_token_count, cmp_type=2
+                    )
+                    mask_scratch = pl.tile.create(
+                        [1, 32],
+                        dtype=pl.UINT8,
+                        target_memory=pl.MemorySpace.Vec,
+                    )
+                    masked_scaled = pl.sels(
+                        valid_mask,
+                        scaled,
+                        mask_scratch,
+                        -3.4028234663852886e38,
+                    )
+                    max_scratch = pl.create_tile(
+                        [1, request_index.shape[1]],
+                        dtype=pl.FP32,
+                        target_memory=pl.MemorySpace.Vec,
+                    )
+                    row_max = pl.row_max(masked_scaled, max_scratch)
+                    centered = pl.row_expand_sub(masked_scaled, row_max)
+                    exponent = pl.exp(centered)
+                    sum_scratch = pl.create_tile(
+                        [1, request_index.shape[1]],
+                        dtype=pl.FP32,
+                        target_memory=pl.MemorySpace.Vec,
+                    )
+                    row_sum = pl.row_sum(exponent, sum_scratch)
+                    probability = pl.row_expand_div(exponent, row_sum)
+                    probability_bf16 = pl.cast(
+                        probability, target_type=pl.BF16
+                    )
+                    mixed = pl.matmul(
+                        probability_bf16, values, out_dtype=pl.FP32
+                    )
+                    result = pl.cast(mixed, target_type=pl.BF16)
+                    result_box = pl.reshape(result, [1, 1, head_dim])
+                    pl.store(result_box, [query_row, q_head, 0], out)
     return out
 
 
@@ -420,6 +532,116 @@ def compile_paged_cache_write_for(
     return graph_key
 
 
+def _validate_paged_prefill_shape(
+    query_rows: int,
+    q_heads: int,
+    kv_heads: int,
+    bucket_tokens: int,
+    head_dim: int,
+    cache_rows: int,
+    request_rows: int,
+    max_context_len: int,
+) -> None:
+    if (
+        query_rows <= 0
+        or q_heads <= 0
+        or kv_heads <= 0
+        or q_heads % kv_heads
+        or bucket_tokens <= 0
+        or bucket_tokens % 16
+        or head_dim <= 0
+        or head_dim % 128
+        or cache_rows <= 0
+        or request_rows <= 0
+        or max_context_len < bucket_tokens
+    ):
+        raise ValueError(
+            "paged prefill needs positive GQA geometry, a 16-token bucket, "
+            "head_dim divisible by 128 and a covering request table"
+        )
+
+
+def build_paged_prefill(
+    query_rows: int,
+    q_heads: int,
+    kv_heads: int,
+    bucket_tokens: int,
+    head_dim: int,
+    cache_rows: int,
+    request_rows: int,
+    max_context_len: int,
+) -> Any:
+    _validate_paged_prefill_shape(
+        query_rows,
+        q_heads,
+        kv_heads,
+        bucket_tokens,
+        head_dim,
+        cache_rows,
+        request_rows,
+        max_context_len,
+    )
+    import torch
+
+    query = torch.empty(
+        (query_rows, q_heads, head_dim), dtype=torch.bfloat16, device="meta"
+    )
+    key_cache = torch.empty(
+        (cache_rows, kv_heads * head_dim), dtype=torch.bfloat16, device="meta"
+    )
+    value_cache = torch.empty_like(key_cache)
+    req_to_token = torch.empty(
+        (request_rows, max_context_len), dtype=torch.int32, device="meta"
+    )
+    request_index = torch.empty(
+        (1, bucket_tokens), dtype=torch.int64, device="meta"
+    )
+    prefix_tokens = torch.empty(
+        (1, bucket_tokens), dtype=torch.int32, device="meta"
+    )
+    out = torch.empty_like(query)
+    return paged_attention_prefill_kernel.specialize(
+        query,
+        key_cache,
+        value_cache,
+        req_to_token,
+        request_index,
+        prefix_tokens,
+        1.0 / math.sqrt(head_dim),
+        out,
+    )
+
+
+def compile_paged_prefill_for(
+    query_rows: int,
+    q_heads: int,
+    kv_heads: int,
+    bucket_tokens: int,
+    head_dim: int,
+    cache_rows: int,
+    request_rows: int,
+    max_context_len: int,
+) -> str:
+    shape_key = (
+        query_rows,
+        q_heads,
+        kv_heads,
+        bucket_tokens,
+        head_dim,
+        cache_rows,
+        request_rows,
+        max_context_len,
+    )
+    _validate_paged_prefill_shape(*shape_key)
+    cached = _paged_prefill_cache.get(shape_key)
+    if cached is not None:
+        return cached
+    graph_key = compile_graph(build_paged_prefill(*shape_key), [1, 1, 128])
+    with _lock:
+        _paged_prefill_cache[shape_key] = graph_key
+    return graph_key
+
+
 def attention(query: Any, key: Any, value: Any, stream: Any = None) -> Any:
     """Return dense attention from one native tile graph launch."""
 
@@ -621,6 +843,104 @@ def paged_cache_write(
         stream.cuda_stream,
     )
     return out
+
+
+def paged_attention_prefill(
+    query: Any,
+    key_cache: Any,
+    value_cache: Any,
+    req_to_token: Any,
+    request_index: Any,
+    prefix_tokens: Any,
+    *,
+    kv_heads: int,
+    bucket_tokens: int,
+    stream: Any = None,
+) -> Any:
+    """Run causal GQA prefill after the same-stream cache-write graph."""
+
+    import torch
+
+    if (
+        query.ndim != 2
+        or query.dtype is not torch.bfloat16
+        or not query.is_contiguous()
+        or key_cache.ndim != 2
+        or value_cache.ndim != 2
+        or key_cache.dtype is not torch.bfloat16
+        or value_cache.dtype is not torch.bfloat16
+        or not key_cache.is_contiguous()
+        or not value_cache.is_contiguous()
+        or tuple(key_cache.shape) != tuple(value_cache.shape)
+    ):
+        raise ValueError("paged prefill needs contiguous BF16 query and K/V caches")
+    if (
+        req_to_token.ndim != 2
+        or req_to_token.dtype is not torch.int32
+        or not req_to_token.is_contiguous()
+    ):
+        raise ValueError("paged prefill request table must be contiguous rank-2 INT32")
+    if (
+        request_index.ndim != 1
+        or request_index.numel() != 1
+        or request_index.dtype is not torch.int64
+        or not request_index.is_contiguous()
+        or prefix_tokens.ndim != 1
+        or prefix_tokens.numel() != 1
+        or prefix_tokens.dtype is not torch.int32
+        or not prefix_tokens.is_contiguous()
+    ):
+        raise ValueError(
+            "paged prefill needs one INT64 request index and one INT32 prefix length"
+        )
+    if any(
+        tensor.device != query.device
+        for tensor in (
+            key_cache,
+            value_cache,
+            req_to_token,
+            request_index,
+            prefix_tokens,
+        )
+    ):
+        raise ValueError("paged prefill tensors must share one device")
+    query_rows, query_width = map(int, query.shape)
+    cache_rows, cache_width = map(int, key_cache.shape)
+    if cache_width % kv_heads:
+        raise ValueError("paged prefill cache width must divide into KV heads")
+    head_dim = cache_width // kv_heads
+    if query_width % head_dim:
+        raise ValueError("paged prefill query width must divide into Q heads")
+    q_heads = query_width // head_dim
+    request_rows, max_context_len = map(int, req_to_token.shape)
+    graph_key = compile_paged_prefill_for(
+        query_rows,
+        q_heads,
+        kv_heads,
+        int(bucket_tokens),
+        head_dim,
+        cache_rows,
+        request_rows,
+        max_context_len,
+    )
+    if stream is None:
+        stream = torch.cuda.current_stream(query.device)
+    query_view = query.view(query_rows, q_heads, head_dim)
+    out = torch.empty_like(query_view)
+    launch_graph(
+        graph_key,
+        (
+            query_view,
+            key_cache,
+            value_cache,
+            req_to_token,
+            request_index.as_strided((1, bucket_tokens), (0, 0)),
+            prefix_tokens.as_strided((1, bucket_tokens), (0, 0)),
+            out,
+        ),
+        stream.cuda_stream,
+    )
+    return out.view(query_rows, query_width)
 
 
 def status(
