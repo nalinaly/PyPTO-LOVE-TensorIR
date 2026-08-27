@@ -1,6 +1,22 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0059`
+**Checkpoint:** `CP-0060`
+
+**Status:** R0 remains open. The GDN delta composition is verified
+EXACT: at layer-0 token-0 the composed output matches the eager einsums
+to 6e-8, and the earlier layer-0 100-percent divergence was a misaligned
+per-layer trace (eager recorded post-MLP, PyPTO post-attention). With
+aligned trace points the divergence is a clean stochastic accumulation
+(0.004 at layer 0 to 0.11 by layer 22, ~1-2 percent BF16 rounding per
+layer) with one anomaly: layer 23 jumps to 0.53 and the final norm plus
+LM head amplify it to logits correlation 0.955 against the 0.97 gate
+(top-1 72 percent, evidence `state/evidence/qwen35-0p8b-golden-run1.json`).
+The distribution-level gate (correlation + top-1 + finiteness) is in
+the harness. Next probes, in order: the layer-23 jump (it is a
+full-attention layer), then 9B's v-head-group mapping, then the D-0017
+timing section and the final review.
+
+## Previous checkpoint (CP-0059)
 
 **Status:** R0 remains open. The 0.8B logits-residual bisection is now
 conclusive about WHERE it is not: env-switched swaps of the PyPTO path's
