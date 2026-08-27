@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "checkpoint": "CP-0076",
+  "status": "accepted",
+  "operator": "gdn-gated-rmsnorm",
+  "source_formula": {
+    "file": "upstream/sglang/python/sglang/kernels/ops/attention/fla/layernorm_gated.py",
+    "reference_lines": "41-71",
+    "kernel_lines": "155-176",
+    "formula": "RMSNorm(x, weight) * SiLU(gate)",
+    "weight_semantics": "direct weight, not Gemma 1+weight"
+  },
+  "implementation": {
+    "repository": "projects/pypto-kernels",
+    "commit": "0fe71cdc20b09f7abe4ad9c7e133d929f4c6d2c5",
+    "source": "src/pypto_kernels/gated_rmsnorm.py",
+    "graph_count": 1,
+    "launches": 1,
+    "tile_algorithm": [
+      "load x, gate and weight row tiles",
+      "FP32 RMS reduction and normalization",
+      "multiply direct FP32 weight",
+      "compute gate SiLU with exp and reciprocal",
+      "multiply gate and store BF16 result"
+    ]
+  },
+  "compiler": {
+    "pypto_commit": "e364baefc4a76c8b87b9c870a7b490a8aab40dd9",
+    "tensor_ir_commit": "ec57ae0879462086495b5121abb10e8719ec21d4",
+    "build_run_id": "pypto-20260827T145305Z-491741-507d0f",
+    "compile_run_id": "pypto-20260827T145408Z-493776-63de46",
+    "focused_test_run_id": "pypto-20260827T145637Z-496220-f6d67f",
+    "focused_test_result": "1 passed",
+    "ctest_run_id": "pypto-20260827T145725Z-496766-060cf0",
+    "ctest_result": "13/13 passed"
+  },
+  "dso": {
+    "path": "builds/pypto-opext-on-a589f79/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "sha256": "9b3c26b481d8ef62f257062d27aa2d4882b524d03734fdbd6777150ce659593b"
+  },
+  "gpu": {
+    "run_id": "pypto-20260827T145510Z-494860-641d44",
+    "shape": [256, 128],
+    "dtype": "bfloat16",
+    "max_abs_diff": 0.013971328735351562,
+    "correct": true,
+    "all_14_cases_correct": true,
+    "result_file": "projects/pypto-kernels/benchmarks/exec_results.json"
+  },
+  "classification": {
+    "run_id": "pypto-20260827T145543Z-495219-577efd",
+    "all_compiled": true,
+    "structure_run_id": "pypto-20260827T145612Z-495558-766c2d",
+    "structure_result": "ALL OPERATOR STRUCTURE TESTS PASSED"
+  },
+  "safety": {
+    "protected_processes_signalled": false,
+    "upstream_modified": false,
+    "model_harness_modified": false
+  }
+}

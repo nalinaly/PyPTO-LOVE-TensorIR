@@ -1,6 +1,25 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0075`
+**Checkpoint:** `CP-0076`
+
+**Status:** GDN's output `RMSNormGated` is now its real single native tile
+operator rather than a Python chain. Read-only SGLang
+`layernorm_gated.py:41-71,155-176` establishes the exact formula
+`RMSNorm(x, weight) * SiLU(gate)` with direct weight semantics. Canonical
+operator `0fe71cd` expresses three row loads, FP32 RMS reduction, direct weight
+multiply, the gate `exp/reciprocal` SiLU chain and one BF16 store inside one
+`@pl.jit` graph. PyPTO `e364bae` lowers that graph generically. SM120 run
+`pypto-20260827T145510Z-494860-641d44` passes `[256,128]` in one launch with
+max absolute difference `0.0139713`; all 14 consolidated cases are correct.
+Classification is all-compiled, the native structure and focused producer
+tests pass, CTest is 13/13, and the exact DSO SHA-256 is
+`9b3c26b481d8ef62f257062d27aa2d4882b524d03734fdbd6777150ce659593b`.
+Evidence is `state/evidence/pypto-native-gated-rmsnorm-cp0076.json`. Remaining
+critical operator families are embedding gather, causal convolution/state
+integration, causal-paged attention and logits processing, followed by
+Inductor generation and the 0.8B/9B model gates.
+
+## Previous checkpoint (CP-0075)
 
 **Status:** Qwen's residual-present GemmaRMSNorm path is now one native tile
 graph and one launch with two ordered outputs. Canonical operator commits
