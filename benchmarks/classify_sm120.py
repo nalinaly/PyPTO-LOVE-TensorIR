@@ -17,16 +17,12 @@ sys.path.insert(
 from pypto_kernels._boot import DSO_PATH, bootstrap, classify  # noqa: E402
 from pypto_kernels import (  # noqa: E402
     attention,
+    gdn,
     rmsnorm,
     rope,
 )
 from pypto_kernels._graph import (  # noqa: E402
-    gdn_delta_combine_graph,
-    gdn_delta_graph,
-    gdn_q_decay_graph,
-    gdn_state_read_graph,
     gdn_state_update_graph,
-    row_sum_graph,
 )
 
 
@@ -35,15 +31,7 @@ def main() -> int:
         ("rmsnorm", rmsnorm.build(256, 1024), [1, 128]),
         ("rope", rope.build(256, 64), [1, 1, 64]),
         ("attention", attention.build(32, 128, 128, 128), [1, 64]),
-        ("gdn_delta", gdn_delta_graph(16, 128), [16, 32]),
-        ("gdn_q_decay", gdn_q_decay_graph(16, 128), [128]),
-        ("gdn_dot", row_sum_graph(16, 128), [16]),
-        ("gdn_state_read", gdn_state_read_graph(16, 128, 128), [16, 32]),
-        (
-            "gdn_delta_combine",
-            gdn_delta_combine_graph(16, 128),
-            [16, 32],
-        ),
+        ("gdn_read", gdn.build_read(16, 128, 128), [1, 64]),
         (
             "gdn_state_update",
             gdn_state_update_graph(16, 128, 128),

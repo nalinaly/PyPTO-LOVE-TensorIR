@@ -14,16 +14,10 @@ import torch
 
 from pypto_kernels._boot import DSO_PATH, bootstrap, compile_graph, launch_graph
 from pypto_kernels._graph import (
-    gdn_compose_graph,
-    gdn_delta_combine_graph,
-    gdn_delta_graph,
-    gdn_q_decay_graph,
-    gdn_state_read_graph,
     gdn_state_update_graph,
-    row_sum_graph,
     tiles_for,
 )
-from pypto_kernels import attention, fused_add, rmsnorm, rope, silu_and_mul
+from pypto_kernels import attention, fused_add, gdn, rmsnorm, rope, silu_and_mul
 
 
 def main() -> int:
@@ -61,31 +55,6 @@ def main() -> int:
                 ),
             }
         )
-        # gdn compose: the executable half of the GDN read path.
-        # NOTE operand order = builder input order (g, k, q), not call order.
-        hh, dk = 16, 128
-        q = torch.randn(hh, dk, device="cuda", dtype=torch.bfloat16)
-        g = torch.randn(hh, dk, device="cuda", dtype=torch.bfloat16) * 0.5
-        k = torch.randn(hh, dk, device="cuda", dtype=torch.bfloat16)
-        out3 = torch.empty_like(q)
-        key = compile_graph(gdn_compose_graph(hh, dk), [128])
-        launch_graph(key, (g, k, q, out3), stream.cuda_stream)
-        stream.synchronize()
-        ref3 = q.float() * (
-            torch.nn.functional.silu(g.float()) * 0  # noqa
-            + torch.nn.functional.softplus(g.float()) * k.float()
-        )
-        cases.append(
-            {
-                "case": "gdn_compose 16x128",
-                "launches": 1,
-                "max_abs_diff": float((out3.float() - ref3).abs().max()),
-                "correct": bool(
-                    torch.allclose(out3.float(), ref3, rtol=5e-2, atol=5e-2)
-                ),
-            }
-        )
-
     # Every broadcast-dependent former B-class operator below is one compile
     # and one launch. Launch arguments follow builder input discovery order.
     rows, cols = 256, 1024
@@ -159,27 +128,6 @@ def main() -> int:
         }
     )
 
-    heads, dv = 16, 128
-    value = torch.randn(heads, dv, device="cuda", dtype=torch.bfloat16)
-    dot = torch.randn(heads, 1, device="cuda", dtype=torch.bfloat16)
-    delta = torch.empty_like(value)
-    delta_key = compile_graph(gdn_delta_graph(heads, dv), tiles_for(heads, dv))
-    launch_graph(delta_key, (value, dot, delta), stream.cuda_stream)
-    stream.synchronize()
-    delta_ref = value.float() * dot.float()
-    cases.append(
-        {
-            "case": "gdn_delta_bf16 16x128",
-            "launches": 1,
-            "max_abs_diff": float((delta.float() - delta_ref).abs().max()),
-            "correct": bool(
-                torch.allclose(delta.float(), delta_ref, rtol=5e-2, atol=5e-2)
-            ),
-        }
-    )
-
-    # Complete five-graph GDN read path. Each component is independently one
-    # graph/one launch; no wrapper presents the five launches as one operator.
     heads, dk, dv = 16, 128, 128
     query = torch.randn(heads, dk, device="cuda", dtype=torch.bfloat16) * 0.2
     decay = torch.rand(heads, dk, device="cuda", dtype=torch.bfloat16)
@@ -188,37 +136,7 @@ def main() -> int:
     value = torch.randn(heads, dv, device="cuda", dtype=torch.bfloat16) * 0.2
     state = torch.randn(heads, dk, dv, device="cuda", dtype=torch.bfloat16) * 0.05
 
-    query_decay = torch.empty_like(query)
-    qd_key = compile_graph(gdn_q_decay_graph(heads, dk), [128])
-    launch_graph(qd_key, (query, decay, query_decay), stream.cuda_stream)
-
-    state_read = torch.empty(heads, 1, dv, device="cuda", dtype=torch.bfloat16)
-    read_key = compile_graph(gdn_state_read_graph(heads, dk, dv), tiles_for(heads, dv))
-    launch_graph(
-        read_key,
-        (query_decay.view(heads, 1, dk), state, state_read),
-        stream.cuda_stream,
-    )
-
-    composed = torch.empty_like(query)
-    compose_key = compile_graph(gdn_compose_graph(heads, dk), [128])
-    # gdn_compose_graph input order: gate, key, query.
-    launch_graph(compose_key, (gate, key, query, composed), stream.cuda_stream)
-
-    dot = torch.empty(heads, 1, device="cuda", dtype=torch.bfloat16)
-    dot_key = compile_graph(row_sum_graph(heads, dk), tiles_for(heads))
-    launch_graph(dot_key, (composed, dot), stream.cuda_stream)
-
-    gdn_out = torch.empty(heads, dv, device="cuda", dtype=torch.bfloat16)
-    combine_key = compile_graph(
-        gdn_delta_combine_graph(heads, dv), tiles_for(heads, dv)
-    )
-    # combine input order: value, dot, read.
-    launch_graph(
-        combine_key,
-        (value, dot, state_read.view(heads, dv), gdn_out),
-        stream.cuda_stream,
-    )
+    gdn_out = gdn.gdn_read(query, decay, gate, key, value, state, stream=stream)
     stream.synchronize()
 
     qd_ref = query.float() * decay.float()
@@ -231,14 +149,8 @@ def main() -> int:
     cases.append(
         {
             "case": "gdn_complete_read_bf16 16x128x128",
-            "launches": 5,
-            "component_launches": {
-                "q_decay": 1,
-                "state_read": 1,
-                "compose": 1,
-                "dot": 1,
-                "delta_combine": 1,
-            },
+            "implementation": "native-tile-dsl",
+            "launches": 1,
             "max_abs_diff": float((gdn_out.float() - gdn_ref).abs().max()),
             "correct": bool(
                 torch.allclose(gdn_out.float(), gdn_ref, rtol=8e-2, atol=8e-2)
@@ -291,6 +203,7 @@ def main() -> int:
             "rmsnorm",
             "rope",
             "attention",
+            "gdn_read",
         ],
         "all_correct": ok,
         "cases": cases,

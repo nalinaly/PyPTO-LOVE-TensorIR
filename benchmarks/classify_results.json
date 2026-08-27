@@ -30,46 +30,12 @@
    ]
   },
   {
-   "case": "gdn_delta",
-   "key": "fd39123e31274922",
+   "case": "gdn_read",
+   "key": "69e833c426d2ac6d",
    "status": "compiled",
    "tiles": [
-    16,
-    32
-   ]
-  },
-  {
-   "case": "gdn_q_decay",
-   "key": "7d09d6c62b414a2d",
-   "status": "compiled",
-   "tiles": [
-    128
-   ]
-  },
-  {
-   "case": "gdn_dot",
-   "key": "91c5737833eefed2",
-   "status": "compiled",
-   "tiles": [
-    16
-   ]
-  },
-  {
-   "case": "gdn_state_read",
-   "key": "5c7d32a05aafe5b0",
-   "status": "compiled",
-   "tiles": [
-    16,
-    32
-   ]
-  },
-  {
-   "case": "gdn_delta_combine",
-   "key": "822efc12c4df64f2",
-   "status": "compiled",
-   "tiles": [
-    16,
-    32
+    1,
+    64
    ]
   },
   {
@@ -83,9 +49,9 @@
    ]
   }
  ],
- "dso_sha256": "d700ab61fca834343afa843c162a69c5572fe1c8cf8b27efbd32157541cae129",
+ "dso_sha256": "0d13f513d68cbba86b48ef6518c708e3c417fd34d1128f64389065a3623a7fed",
  "kind": "pypto-kernels-classify-sm120",
- "pypto_commit": "5e3611bc1336fb89e8a517e5a11b139ae3b39509",
- "run_id": "pypto-20260827T133213Z-440900-de9712",
+ "pypto_commit": "835c1e6a9a03c89fe89dd54d8b809d10f275329d",
+ "run_id": "pypto-20260827T134420Z-446761-2e7b25",
  "schema": 2
 }

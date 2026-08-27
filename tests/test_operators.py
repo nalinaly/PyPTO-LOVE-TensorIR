@@ -69,13 +69,6 @@ def test_rope_is_one_native_tile_graph_and_compiled():
     assert result["status"] == "compiled", result
 
 
-def test_gdn_compose_and_delta_compile():
-    compose = gdn.compose_status()
-    assert compose["status"] == "compiled", compose
-    delta = gdn.delta_status()
-    assert delta["status"] == "compiled", delta
-
-
 def test_attention_is_one_native_tile_graph_and_compiled():
     program = attention.build(2, 128, 128, 128)
     rendered = str(program)
@@ -90,15 +83,16 @@ def test_attention_is_one_native_tile_graph_and_compiled():
     assert result["status"] == "compiled", result
 
 
-def test_gdn_complete_read_components_and_update_compile():
-    results = {
-        "q_decay": gdn.q_decay_status(),
-        "compose": gdn.compose_status(),
-        "dot": gdn.dot_status(),
-        "state_read": gdn.state_read_status(),
-        "delta_combine": gdn.delta_combine_status(),
-        "state_update": gdn.state_update_status(),
-    }
+def test_gdn_read_is_one_native_tile_graph_and_update_compiles():
+    program = gdn.build_read(2, 128, 128)
+    rendered = str(program)
+    assert len(_one_program(program).body.stmts) == 2  # one scope + return
+    assert "pl.tile.matmul" in rendered
+    assert "pl.tile.row_sum" in rendered
+    assert "pl.tile.row_expand_mul" in rendered
+    assert "pl.tile.store" in rendered
+    assert "tensor." not in rendered
+    results = {"read": gdn.read_status(), "state_update": gdn.state_update_status()}
     assert all(result["status"] == "compiled" for result in results.values()), results
     update = _one_program(gdn_state_update_graph(16, 128, 128))
     assert len(update.body.stmts) == 6  # 5 fused assignments + return
@@ -122,9 +116,8 @@ if __name__ == "__main__":
     test_pointwise_operators_use_native_tile_dsl()
     test_rmsnorm_uses_native_tile_reduction()
     test_rope_is_one_native_tile_graph_and_compiled()
-    test_gdn_compose_and_delta_compile()
     test_attention_is_one_native_tile_graph_and_compiled()
-    test_gdn_complete_read_components_and_update_compile()
+    test_gdn_read_is_one_native_tile_graph_and_update_compiles()
     test_rmsnorm_single_graph_is_compiled()
     test_broadcast_dependencies_are_closed()
     print("ALL OPERATOR STRUCTURE TESTS PASSED")
