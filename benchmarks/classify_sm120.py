@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
+import pathlib
 import sys
 
 sys.path.insert(
@@ -12,7 +14,7 @@ sys.path.insert(
     "/home/zhaosiying/pypto-love-tensor-ir/projects/pypto-kernels/src",
 )
 
-from pypto_kernels._boot import classify  # noqa: E402
+from pypto_kernels._boot import DSO_PATH, bootstrap, classify  # noqa: E402
 from pypto_kernels import (  # noqa: E402
     attention,
     rmsnorm,
@@ -31,8 +33,7 @@ from pypto_kernels._graph import (  # noqa: E402
 def main() -> int:
     cases = (
         ("rmsnorm", rmsnorm.build(256, 1024), [1, 128]),
-        ("rope_even", rope.build_even(256, 512), [32, 32]),
-        ("rope_odd", rope.build_odd(256, 512), [32, 32]),
+        ("rope", rope.build(256, 64), [1, 1, 64]),
         (
             "attention_softmax_scale",
             attention.build_softmax_scale(256, 1024),
@@ -68,19 +69,23 @@ def main() -> int:
         result = classify(program, tiles)
         results.append({"case": name, "tiles": tiles, **result})
     all_compiled = all(item["status"] == "compiled" for item in results)
-    print(
-        json.dumps(
-            {
-                "schema": 1,
-                "kind": "pypto-kernels-classify-sm120",
-                "run_id": os.environ.get("PYPTO_RUN_ID"),
-                "all_compiled": all_compiled,
-                "cases": results,
-            },
-            sort_keys=True,
-            indent=1,
-        )
+    dso = pathlib.Path(DSO_PATH)
+    result = {
+        "schema": 2,
+        "kind": "pypto-kernels-classify-sm120",
+        "run_id": os.environ.get("PYPTO_RUN_ID"),
+        "dso_sha256": hashlib.sha256(dso.read_bytes()).hexdigest(),
+        "pypto_commit": bootstrap()["compiler"]
+        .get_nvidia_backend_build_info()
+        .pypto_revision,
+        "all_compiled": all_compiled,
+        "cases": results,
+    }
+    rendered = json.dumps(result, sort_keys=True, indent=1)
+    pathlib.Path(__file__).with_name("classify_results.json").write_text(
+        rendered + "\n", encoding="utf-8"
     )
+    print(rendered)
     return 0 if all_compiled else 75
 
 

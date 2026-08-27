@@ -106,41 +106,30 @@ def main() -> int:
         }
     )
 
-    rows, half = 256, 128
-    x1 = torch.randn(rows, half, device="cuda", dtype=torch.bfloat16)
-    x2 = torch.randn(rows, half, device="cuda", dtype=torch.bfloat16)
-    cos = torch.rand(rows, 1, device="cuda", dtype=torch.bfloat16)
-    sin = torch.rand(rows, 1, device="cuda", dtype=torch.bfloat16)
-    even_out = torch.empty_like(x1)
-    even_key = compile_graph(rope.build_even(rows, half), tiles_for(rows, half))
-    # build_even input order: x1, cos, x2, sin.
-    launch_graph(even_key, (x1, cos, x2, sin, even_out), stream.cuda_stream)
+    rows, half = 256, 64
+    x_rope = torch.randn(rows, 2 * half, device="cuda", dtype=torch.bfloat16)
+    cos_half = torch.rand(rows, half, device="cuda", dtype=torch.bfloat16)
+    sin_half = torch.rand(rows, half, device="cuda", dtype=torch.bfloat16)
+    cos = torch.cat((cos_half, cos_half), dim=1).contiguous()
+    sin = torch.cat((sin_half, sin_half), dim=1).contiguous()
+    rope_out = rope.rope(x_rope, cos, sin, stream=stream)
     stream.synchronize()
-    even_ref = x1.float() * cos.float() - x2.float() * sin.float()
-    cases.append(
-        {
-            "case": "rope_even_bf16 256x128",
-            "launches": 1,
-            "max_abs_diff": float((even_out.float() - even_ref).abs().max()),
-            "correct": bool(
-                torch.allclose(even_out.float(), even_ref, rtol=5e-2, atol=5e-2)
-            ),
-        }
+    x_low, x_high = x_rope.float().chunk(2, dim=1)
+    rope_ref = torch.cat(
+        (
+            x_low * cos_half.float() - x_high * sin_half.float(),
+            x_high * cos_half.float() + x_low * sin_half.float(),
+        ),
+        dim=1,
     )
-
-    odd_out = torch.empty_like(x1)
-    odd_key = compile_graph(rope.build_odd(rows, half), tiles_for(rows, half))
-    # build_odd input order: x1, sin, x2, cos.
-    launch_graph(odd_key, (x1, sin, x2, cos, odd_out), stream.cuda_stream)
-    stream.synchronize()
-    odd_ref = x1.float() * sin.float() + x2.float() * cos.float()
     cases.append(
         {
-            "case": "rope_odd_bf16 256x128",
+            "case": "rope_bf16 256x128",
+            "implementation": "native-tile-dsl",
             "launches": 1,
-            "max_abs_diff": float((odd_out.float() - odd_ref).abs().max()),
+            "max_abs_diff": float((rope_out.float() - rope_ref).abs().max()),
             "correct": bool(
-                torch.allclose(odd_out.float(), odd_ref, rtol=5e-2, atol=5e-2)
+                torch.allclose(rope_out.float(), rope_ref, rtol=5e-2, atol=5e-2)
             ),
         }
     )
@@ -342,7 +331,7 @@ def main() -> int:
         "pypto_commit": bootstrap()["compiler"]
         .get_nvidia_backend_build_info()
         .pypto_revision,
-        "native_tile_ops": ["silu_and_mul", "fused_add", "rmsnorm"],
+        "native_tile_ops": ["silu_and_mul", "fused_add", "rmsnorm", "rope"],
         "all_correct": ok,
         "cases": cases,
     }

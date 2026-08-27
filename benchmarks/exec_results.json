@@ -1,13 +1,14 @@
 {
  "schema": 2,
  "kind": "pypto-kernels-exec-sm120",
- "run_id": "pypto-20260827T125639Z-419386-a535d3",
- "dso_sha256": "bb5dd85a0398e5bfdd96617bb15824038cfcd28dfbcf66236227be2578e647db",
- "pypto_commit": "c45a51765c8378a8455efeff8d6314969315f015",
+ "run_id": "pypto-20260827T131733Z-434661-d058cc",
+ "dso_sha256": "6e7773804960212562ea2e41301bfe62ad24eefca1b6d9bc5ec5f1da15dd7a38",
+ "pypto_commit": "5f9aa0810e04ddf28ab5afc55f6284d5ba023a5f",
  "native_tile_ops": [
   "silu_and_mul",
   "fused_add",
-  "rmsnorm"
+  "rmsnorm",
+  "rope"
  ],
  "all_correct": true,
  "cases": [
@@ -79,15 +80,10 @@
    "correct": true
   },
   {
-   "case": "rope_even_bf16 256x128",
+   "case": "rope_bf16 256x128",
+   "implementation": "native-tile-dsl",
    "launches": 1,
-   "max_abs_diff": 0.0166015625,
-   "correct": true
-  },
-  {
-   "case": "rope_odd_bf16 256x128",
-   "launches": 1,
-   "max_abs_diff": 0.01654052734375,
+   "max_abs_diff": 0.0218505859375,
    "correct": true
   },
   {
@@ -99,20 +95,20 @@
   {
    "case": "gdn_delta_bf16 16x128",
    "launches": 1,
-   "max_abs_diff": 0.00775146484375,
+   "max_abs_diff": 0.0078125,
    "correct": true
   },
   {
    "case": "attention_softmax_normalize_bf16 256x128",
    "launches": 1,
-   "max_abs_diff": 3.0516646802425385e-05,
+   "max_abs_diff": 5.902722477912903e-05,
    "correct": true
   },
   {
    "case": "attention_value_mix_bf16 256x128x128",
    "launches": 1,
    "path_launches": 2,
-   "max_abs_diff": 0.0003326684236526489,
+   "max_abs_diff": 0.00032401829957962036,
    "correct": true
   },
   {
@@ -125,13 +121,13 @@
     "dot": 1,
     "delta_combine": 1
    },
-   "max_abs_diff": 0.0021614134311676025,
+   "max_abs_diff": 0.002661079168319702,
    "correct": true
   },
   {
    "case": "gdn_state_update_bf16 16x128x128",
    "launches": 1,
-   "max_abs_diff": 0.0009016990661621094,
+   "max_abs_diff": 0.0009498894214630127,
    "correct": true
   }
  ]

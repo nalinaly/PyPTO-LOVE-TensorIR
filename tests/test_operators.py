@@ -19,7 +19,7 @@ def test_each_operator_is_one_program():
     fn = list(p.functions.values())[0]
     assert len(fn.body.stmts) == 2  # one assignment + one return
     assert silu_and_mul.GRAPHS == 1 and fused_add.GRAPHS == 1
-    assert rmsnorm.GRAPHS == 1 and rope.GRAPHS == 2  # even/odd halves
+    assert rmsnorm.GRAPHS == 1 and rope.GRAPHS == 1
 
 
 def test_pointwise_operators_use_native_tile_dsl():
@@ -57,15 +57,16 @@ def _one_program(p):
     return fn
 
 
-def test_rope_halves_are_single_graphs_and_compiled():
-    even = rope.build_even(256, 512)
-    odd = rope.build_odd(256, 512)
-    assert len(_one_program(even).body.stmts) == 4  # 3 assignments + return
-    assert len(_one_program(odd).body.stmts) == 4
-    even_result = rope.status()
-    odd_result = rope.odd_status()
-    assert even_result["status"] == "compiled", even_result
-    assert odd_result["status"] == "compiled", odd_result
+def test_rope_is_one_native_tile_graph_and_compiled():
+    program = rope.build(2, 64)
+    rendered = str(program)
+    assert len(_one_program(program).body.stmts) == 2  # one scope + return
+    assert rendered.count("pl.tile.load") == 4
+    assert rendered.count("pl.tile.store") == 2
+    assert "pl.tile.sub" in rendered and "pl.tile.add" in rendered
+    assert "tensor." not in rendered
+    result = rope.status()
+    assert result["status"] == "compiled", result
 
 
 def test_gdn_compose_and_delta_compile():
@@ -109,8 +110,8 @@ def test_rmsnorm_single_graph_is_compiled():
 
 
 def test_broadcast_dependencies_are_closed():
-    assert rmsnorm.STATUS == "executable"
-    assert rope.STATUS == "executable"
+    assert rmsnorm.STATUS.endswith("executable")
+    assert rope.STATUS.endswith("executable")
     assert not hasattr(rmsnorm, "BLOCKED_ON")
     assert not hasattr(rope, "BLOCKED_ON")
     assert not hasattr(gdn, "BLOCKED_ON")
@@ -120,7 +121,7 @@ if __name__ == "__main__":
     test_each_operator_is_one_program()
     test_pointwise_operators_use_native_tile_dsl()
     test_rmsnorm_uses_native_tile_reduction()
-    test_rope_halves_are_single_graphs_and_compiled()
+    test_rope_is_one_native_tile_graph_and_compiled()
     test_gdn_compose_and_delta_compile()
     test_attention_softmax_scale_is_single_graph_compiled()
     test_attention_normalize_and_value_mix_compile()
