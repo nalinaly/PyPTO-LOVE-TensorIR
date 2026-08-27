@@ -28,46 +28,49 @@ def _one_program(p):
     return fn
 
 
-def test_rope_halves_are_single_graphs_and_producer_blocked():
+def test_rope_halves_are_single_graphs_and_compiled():
     even = rope.build_even(256, 512)
     odd = rope.build_odd(256, 512)
     assert len(_one_program(even).body.stmts) == 4  # 3 assignments + return
     assert len(_one_program(odd).body.stmts) == 4
-    result = rope.status()
-    assert result["status"] == "producer-blocked", result
+    even_result = rope.status()
+    odd_result = rope.odd_status()
+    assert even_result["status"] == "compiled", even_result
+    assert odd_result["status"] == "compiled", odd_result
 
 
-def test_gdn_compose_compiles_and_delta_is_producer_blocked():
+def test_gdn_compose_and_delta_compile():
     compose = gdn.compose_status()
     assert compose["status"] == "compiled", compose
     delta = gdn.delta_status()
-    assert delta["status"] == "producer-blocked", delta
+    assert delta["status"] == "compiled", delta
 
 
-def test_attention_softmax_scale_is_single_graph_producer_blocked():
+def test_attention_softmax_scale_is_single_graph_compiled():
     program = attention_design.build_softmax_scale(256, 1024)
     assert len(_one_program(program).body.stmts) == 2  # 1 assignment + return
     result = attention_design.softmax_status()
-    assert result["status"] == "producer-blocked", result
+    assert result["status"] == "compiled", result
 
 
-def test_rmsnorm_single_graph_is_producer_blocked_not_hir_rejected():
+def test_rmsnorm_single_graph_is_compiled():
     result = rmsnorm.status(rows=256, cols=1024)
-    assert result["status"] == "producer-blocked", result
-    assert "producer" in result["error"]
+    assert result["status"] == "compiled", result
 
 
-def test_blocked_dependencies_are_declared():
-    assert "L0" in rmsnorm.BLOCKED_ON
-    assert "L0" in rope.BLOCKED_ON
-    assert "L0" in gdn.BLOCKED_ON
+def test_broadcast_dependencies_are_closed():
+    assert rmsnorm.STATUS == "executable"
+    assert rope.STATUS == "executable"
+    assert not hasattr(rmsnorm, "BLOCKED_ON")
+    assert not hasattr(rope, "BLOCKED_ON")
+    assert not hasattr(gdn, "BLOCKED_ON")
 
 
 if __name__ == "__main__":
     test_each_operator_is_one_program()
-    test_rope_halves_are_single_graphs_and_producer_blocked()
-    test_gdn_compose_compiles_and_delta_is_producer_blocked()
-    test_attention_softmax_scale_is_single_graph_producer_blocked()
-    test_rmsnorm_single_graph_is_producer_blocked_not_hir_rejected()
-    test_blocked_dependencies_are_declared()
+    test_rope_halves_are_single_graphs_and_compiled()
+    test_gdn_compose_and_delta_compile()
+    test_attention_softmax_scale_is_single_graph_compiled()
+    test_rmsnorm_single_graph_is_compiled()
+    test_broadcast_dependencies_are_closed()
     print("ALL V2 STRUCTURE TESTS PASSED")

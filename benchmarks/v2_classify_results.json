@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "kind": "pypto-kernels-v2-classify-sm120",
+  "run_id": "pypto-20260827T111524Z-376482-a08304",
+  "dso_sha256": "2078af34ffb20ce5db24dd28a563a4663b404430dcbf55cc10449421e9502489",
+  "all_compiled": true,
+  "cases": [
+    {
+      "case": "rmsnorm",
+      "tiles": [32, 32],
+      "status": "compiled",
+      "key": "0907e7e985342616"
+    },
+    {
+      "case": "rope_even",
+      "tiles": [32, 32],
+      "status": "compiled",
+      "key": "9a7241dc4c18425e"
+    },
+    {
+      "case": "rope_odd",
+      "tiles": [32, 32],
+      "status": "compiled",
+      "key": "23a7e7f3719b3caa"
+    },
+    {
+      "case": "attention_softmax_scale",
+      "tiles": [32, 32],
+      "status": "compiled",
+      "key": "61617aca10b3b78c"
+    },
+    {
+      "case": "gdn_delta",
+      "tiles": [16, 32],
+      "status": "compiled",
+      "key": "fd39123e31274922"
+    }
+  ]
+}

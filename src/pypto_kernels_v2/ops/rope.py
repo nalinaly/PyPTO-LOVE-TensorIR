@@ -2,18 +2,17 @@
 
 Each output half is ONE pointwise graph with [M,1] row-broadcast cos/sin
 inputs (rotate_half layout); interleaving the halves is layout prep.
-Status: BLOCKED-ON-L0 — classify() shows the graphs are valid HIR and
-only the producer broadcast lowering rejects them.
+Status: EXECUTABLE after CP-0062; each half compiles with a two-dimensional
+CanonicalSchedule and remains one graph/one launch.
 """
 
 from __future__ import annotations
 
 from .._boot import classify
-from .._graph import rope_half_graph
+from .._graph import rope_half_graph, tiles_for
 
-STATUS = "blocked-on-L0"
+STATUS = "executable"
 GRAPHS = 2  # even half + odd half; each is a single graph
-BLOCKED_ON = "broadcast lowering in the pinned TensorIR producer (codex L0)"
 
 
 def build_even(rows: int, half: int):
@@ -45,4 +44,8 @@ def build_odd(rows: int, half: int):
 
 
 def status(rows: int = 256, half: int = 512) -> dict[str, str]:
-    return classify(build_even(rows, half), [128])
+    return classify(build_even(rows, half), tiles_for(rows, half))
+
+
+def odd_status(rows: int = 256, half: int = 512) -> dict[str, str]:
+    return classify(build_odd(rows, half), tiles_for(rows, half))

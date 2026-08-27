@@ -7,19 +7,15 @@ yet, so the honest Ascend-style floor is:
   graph 1  softmax(QK^T * scale)  — row reduction + broadcast epilogue
   graph 2  probs @ V              — StructuredMatmulV4
 
-Both halves are EXPRESSIBLE today (graph 1 needs the generalized epilogue
-analyzer in the pypto compiler — codex territory; broadcast lowering L0).
-This module records the design and the dependency; v1's accepted kernels
-remain the executable stand-in until then.
+The broadcast scale graph is executable after CP-0062. Composing the complete
+softmax segment and the value-mix graph is the next v2 task; true one-kernel FA
+still needs a dedicated graph kind.
 """
 
 from __future__ import annotations
 
-STATUS = "blocked-on-L0 (graph 1 needs generalized epilogue + broadcast)"
+STATUS = "softmax scale executable; complete two-graph attention pending"
 GRAPHS = 2
-BLOCKED_ON = ("pypto epilogue analyzer generalization (softmax: "
-              "sum -> 1/sum -> broadcast-mul) + producer broadcast "
-              "lowering (codex L0); graph 2 is plain StructuredMatmulV4")
 FUTURE = ("a dedicated flash-attention graph kind (KV-block loops inside "
           "one graph) for true single-kernel parity with Ascend")
 
@@ -27,7 +23,7 @@ FUTURE = ("a dedicated flash-attention graph kind (KV-block loops inside "
 # --- single-graph builder for the softmax broadcast stage ---
 
 from .._boot import classify  # noqa: E402
-from .._graph import softmax_scale_graph  # noqa: E402
+from .._graph import softmax_scale_graph, tiles_for  # noqa: E402
 
 
 def build_softmax_scale(rows: int, tokens: int):
@@ -37,4 +33,4 @@ def build_softmax_scale(rows: int, tokens: int):
 
 
 def softmax_status(rows: int = 256, tokens: int = 1024) -> dict[str, str]:
-    return classify(build_softmax_scale(rows, tokens), [128])
+    return classify(build_softmax_scale(rows, tokens), tiles_for(rows, tokens))
