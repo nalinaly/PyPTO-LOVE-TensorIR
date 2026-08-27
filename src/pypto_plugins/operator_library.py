@@ -22,7 +22,7 @@ EXPECTED_OPERATOR_ABI_DIGEST = (
     "5a72b08f914c352885111b1a929bcb92c561b98980dede3c344227b7719a2ac4"
 )
 EXPECTED_OPERATOR_PACKAGE_TREE_DIGEST = (
-    "0d7057c62e5df2df9adc8b565e8672f6c95dec0d06db7cf4a1ab2a23f6a48400"
+    "ef02b500a1ec687a468dbf9ec5d55ff36422a0d68339ee89d5f02c6030495536"
 )
 _EXPECTED_DISTRIBUTION_NAME = "pypto-kernels"
 _MANIFEST_KEYS = frozenset({"abi", "abi_digest", "package_version", "schema_version"})
