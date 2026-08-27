@@ -40,7 +40,7 @@ def prepare_process_strict() -> None:
     fx_compile_mode = os.environ.get("TORCHINDUCTOR_FX_COMPILE_MODE", "NORMAL")
     if fx_compile_mode.upper() != "NORMAL":
         raise SystemExit(
-            "PyPTO v1 requires in-process FX compilation; "
+            "PyPTO requires in-process FX compilation; "
             f"got TORCHINDUCTOR_FX_COMPILE_MODE={fx_compile_mode!r}"
         )
     from torch._dynamo import config as dynamo_config
@@ -95,7 +95,8 @@ def mode(*, strict: bool = True) -> Iterator[None]:
         inductor_patches.update(STRICT_INDUCTOR_PATCHES)
         dynamo_patches.update(STRICT_DYNAMO_PATCHES)
     with activate_mode(strict=strict):
-        with dynamo_config.patch(dynamo_patches), inductor_config.patch(
-            inductor_patches
+        with (
+            dynamo_config.patch(dynamo_patches),
+            inductor_config.patch(inductor_patches),
         ):
             yield

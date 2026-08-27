@@ -1,19 +1,10 @@
-"""FX-graph-to-PyPTO FusedPointwiseV2 code generation core.
-
-This module owns the plugin's first real Inductor-facing capability: it
-translates a bounded chain of pointwise elementwise operators into the
-exact PyPTO ``FusedPointwiseV2`` HIR program, compiles it through
-``pypto.compiler.compile_structured_strict`` against the pinned exact-DSO
-backend, and exposes the immutable artifact identity plus a generated
-Python launcher source for the wrapper layer. The plugin contains no
-kernel algorithms; all code generation and execution semantics live in
-the PyPTO compiler product.
-"""
+"""FX pointwise chains lowered to native PyPTO tile-DSL graphs."""
 
 from __future__ import annotations
 
 import hashlib
 import importlib.util
+import linecache
 import os
 import pathlib
 import sys
@@ -30,9 +21,7 @@ _DEFAULT_DSO = (
     "pypto-opext-on-a589f79/product/"
     "pypto_core.cpython-314-x86_64-linux-gnu.so"
 )
-_PYPTO_PACKAGE = (
-    "/home/zhaosiying/pypto-love-tensor-ir/projects/pypto/python/pypto"
-)
+_PYPTO_PACKAGE = "/home/zhaosiying/pypto-love-tensor-ir/projects/pypto/python/pypto"
 
 _lock = threading.Lock()
 _pypto_modules: dict[str, ModuleType] | None = None
@@ -82,8 +71,168 @@ def bootstrap_pypto(
     return _pypto_modules
 
 
+@dataclass(frozen=True, slots=True)
+class _Value:
+    key: int
+
+
+@dataclass(frozen=True, slots=True)
+class _Scalar:
+    value: float
+
+
+@dataclass(frozen=True, slots=True)
+class _Input:
+    name: str
+    shape: tuple[int, ...]
+    value: _Value
+
+
+@dataclass(frozen=True, slots=True)
+class _Instruction:
+    op_name: str
+    arguments: tuple[_Value | _Scalar, ...]
+    result: _Value
+
+
+@dataclass(frozen=True, slots=True)
+class NativePointwiseProgram:
+    """Immutable native tile program waiting for its schedule tile."""
+
+    shape: tuple[int, ...]
+    dtype_name: str
+    inputs: tuple[_Input, ...]
+    instructions: tuple[_Instruction, ...]
+    output: _Value
+
+    _OPS = {
+        "tensor.add": "add",
+        "tensor.adds": "add",
+        "tensor.sub": "sub",
+        "tensor.subs": "sub",
+        "tensor.mul": "mul",
+        "tensor.muls": "mul",
+        "tensor.div": "div",
+        "tensor.divs": "div",
+        "tensor.neg": "neg",
+        "tensor.exp": "exp",
+        "tensor.recip": "recip",
+        "tensor.rsqrt": "rsqrt",
+        "tensor.abs": "abs",
+        "tensor.sqrt": "sqrt",
+        "tensor.log": "log",
+        "tensor.sin": "sin",
+        "tensor.cos": "cos",
+        "tensor.maximum": "maximum",
+        "tensor.minimum": "minimum",
+        "tensor.row_expand": "row_expand",
+        "tensor.row_expand_add": "row_expand_add",
+        "tensor.row_expand_sub": "row_expand_sub",
+        "tensor.row_expand_mul": "row_expand_mul",
+        "tensor.row_expand_div": "row_expand_div",
+        "tensor.row_expand_max": "row_expand_max",
+        "tensor.row_expand_min": "row_expand_min",
+    }
+
+    def native_source(self, tile: int) -> str:
+        """Return the generated ``@pl.jit`` source for inspection/evidence."""
+
+        key = (self, tile)
+        if key not in _NATIVE_SOURCE_CACHE:
+            self.specialize(tile)
+        return _NATIVE_SOURCE_CACHE[key]
+
+    def specialize(self, tile: int) -> Any:
+        if tile <= 0 or tile & (tile - 1):
+            raise StrictCoverageError("native pointwise tile must be a power of two")
+        if self.shape[-1] % tile:
+            raise StrictCoverageError(
+                f"native pointwise trailing extent {self.shape[-1]} "
+                f"is not divisible by tile {tile}"
+            )
+        bootstrap_pypto()
+        import torch
+        import pypto.language as pl
+
+        dtype = torch.float32 if self.dtype_name == "float32" else torch.bfloat16
+        parameters = [f"input_{index}: pl.Tensor" for index in range(len(self.inputs))]
+        parameters.append("out: pl.Out[pl.Tensor]")
+        lines = [
+            "@pl.jit",
+            "def generated_pointwise_kernel(" + ", ".join(parameters) + "):",
+            "    with pl.at(level=pl.Level.CORE_GROUP):",
+        ]
+        indent = "        "
+        offsets: list[str] = []
+        for dimension, extent in enumerate(self.shape[:-1]):
+            loop_name = f"index_{dimension}"
+            lines.append(f"{indent}for {loop_name} in pl.range({extent}):")
+            offsets.append(loop_name)
+            indent += "    "
+        lines.append(f"{indent}for block in pl.range({self.shape[-1] // tile}):")
+        indent += "    "
+        output_offsets = [*offsets, f"block * {tile}"]
+        output_tile = [1] * (len(self.shape) - 1) + [tile]
+        names: dict[int, str] = {}
+        for index, input_spec in enumerate(self.inputs):
+            input_offsets = [
+                offset if input_spec.shape[axis] != 1 else "0"
+                for axis, offset in enumerate(output_offsets)
+            ]
+            input_tile = [
+                output_tile[axis] if input_spec.shape[axis] != 1 else 1
+                for axis in range(len(self.shape))
+            ]
+            name = f"value_{input_spec.value.key}"
+            lines.append(
+                f"{indent}{name} = pl.load(input_{index}, "
+                f"[{', '.join(input_offsets)}], {input_tile})"
+            )
+            names[input_spec.value.key] = name
+        for instruction in self.instructions:
+            op = self._OPS.get(instruction.op_name)
+            if op is None:
+                raise StrictCoverageError(
+                    f"native pointwise has no tile op for {instruction.op_name!r}"
+                )
+            arguments: list[str] = []
+            for argument in instruction.arguments:
+                if isinstance(argument, _Scalar):
+                    arguments.append(repr(argument.value))
+                else:
+                    arguments.append(names[argument.key])
+            name = f"value_{instruction.result.key}"
+            lines.append(f"{indent}{name} = pl.{op}({', '.join(arguments)})")
+            names[instruction.result.key] = name
+        lines.append(
+            f"{indent}pl.store({names[self.output.key]}, "
+            f"[{', '.join(output_offsets)}], out)"
+        )
+        lines.append("    return out")
+        source = "\n".join(lines) + "\n"
+        _NATIVE_SOURCE_CACHE[(self, tile)] = source
+        filename = "<pypto_inductor_native_pointwise>"
+        linecache.cache[filename] = (
+            len(source),
+            None,
+            source.splitlines(keepends=True),
+            filename,
+        )
+        namespace: dict[str, Any] = {"pl": pl}
+        exec(compile(source, filename, "exec"), namespace)
+        kernel = namespace["generated_pointwise_kernel"]
+        samples = [
+            torch.empty(item.shape, dtype=dtype, device="meta") for item in self.inputs
+        ]
+        samples.append(torch.empty(self.shape, dtype=dtype, device="meta"))
+        return kernel.specialize(*samples)
+
+
+_NATIVE_SOURCE_CACHE: dict[tuple[NativePointwiseProgram, int], str] = {}
+
+
 class PointwiseProgramBuilder:
-    """Build the bounded FusedPointwiseV2 HIR chain from a flat op list."""
+    """Record a bounded FX chain for later native tile specialization."""
 
     MAX_ASSIGNMENTS = 64
     MAX_INPUTS = 16
@@ -94,76 +243,71 @@ class PointwiseProgramBuilder:
             raise StrictCoverageError(
                 f"unsupported fused pointwise dtype: {dtype_name!r}"
             )
-        modules = bootstrap_pypto()
-        self._pypto = modules["pypto"]
-        self._ir = modules["ir"]
-        self._dtype = {
-            "float32": self._pypto.DataType.FP32,
-            "bfloat16": self._pypto.DataType.BF16,
-        }[dtype_name]
-        self._tensor_type = self._ir.TensorType(list(shape), self._dtype)
         self._shape_tuple = tuple(int(dim) for dim in shape)
-        self._span = self._ir.Span("pypto_plugins.pointwise_codegen", 1, 1)
-        self._statements: list[Any] = []
-        self._previous: Any | None = None
-        self.inputs: list[Any] = []
-        self.outputs: list[Any] = []
+        if not self._shape_tuple or any(dim <= 0 for dim in self._shape_tuple):
+            raise StrictCoverageError("native pointwise shape must be positive")
+        self._dtype_name = dtype_name
+        self._instructions: list[_Instruction] = []
+        self._next_key = 0
+        self.inputs: list[_Input] = []
+        self.outputs: list[_Value] = []
+
+    def _value(self) -> _Value:
+        value = _Value(self._next_key)
+        self._next_key += 1
+        return value
 
     def add_input(self, name: str) -> Any:
         if len(self.inputs) >= self.MAX_INPUTS:
             raise StrictCoverageError("fused pointwise chain exceeds 16 inputs")
-        var = self._ir.Var(name, self._tensor_type, self._span)
-        self.inputs.append(var)
-        return var
+        value = self._value()
+        self.inputs.append(_Input(name, self._shape_tuple, value))
+        return value
 
     def add_broadcast_input(self, name: str) -> Any:
         """Add a [M,1,...] row input for row-expand fused operands."""
         if len(self.inputs) >= self.MAX_INPUTS:
             raise StrictCoverageError("fused pointwise chain exceeds 16 inputs")
         row_shape = [dim if index == 0 else 1 for index, dim in enumerate(self.shape)]
-        row_type = self._ir.TensorType(row_shape, self._dtype)
-        var = self._ir.Var(name, row_type, self._span)
-        self.inputs.append(var)
-        return var
+        value = self._value()
+        self.inputs.append(_Input(name, tuple(row_shape), value))
+        return value
 
     @property
     def shape(self) -> tuple[int, ...]:
         return self._shape_tuple
 
     def scalar(self, value: float) -> Any:
-        return self._ir.ConstFloat(value, self._dtype, self._span)
+        return _Scalar(float(value))
 
     def emit(self, op_name: str, arguments: list[Any]) -> Any:
-        if len(self._statements) >= self.MAX_ASSIGNMENTS:
+        if len(self._instructions) >= self.MAX_ASSIGNMENTS:
             raise StrictCoverageError("fused pointwise chain exceeds 64 assignments")
-        value = self._ir.Var("ignored", self._tensor_type, self._span)
-        call = self._ir.Call(
-            self._ir.get_op(op_name), arguments, self._tensor_type, self._span
-        )
-        self._statements.append(self._ir.AssignStmt(value, call, self._span))
-        self._previous = value
+        if not all(isinstance(item, (_Value, _Scalar)) for item in arguments):
+            raise StrictCoverageError(
+                "native pointwise operand is not a recorded value"
+            )
+        value = self._value()
+        self._instructions.append(_Instruction(op_name, tuple(arguments), value))
         return value
 
     def mark_output(self, var: Any) -> None:
         self.outputs.append(var)
 
     def build(self) -> Any:
-        if not self.inputs or not self.outputs or not self._statements:
+        if not self.inputs or not self.outputs or not self._instructions:
             raise StrictCoverageError(
                 "fused pointwise program needs at least one input, one op "
                 "and one output"
             )
-        statements = list(self._statements)
-        statements.append(self._ir.ReturnStmt(list(self.outputs), self._span))
-        function = self._ir.Function(
-            "ignored_fused_pointwise",
-            list(self.inputs),
-            [self._tensor_type for _ in self.outputs],
-            self._ir.SeqStmts(statements, self._span),
-            self._span,
-        )
-        return self._ir.Program(
-            [function], "pypto_plugins_pointwise", self._span
+        if len(self.outputs) != 1:
+            raise StrictCoverageError("native pointwise currently requires one output")
+        return NativePointwiseProgram(
+            self._shape_tuple,
+            self._dtype_name,
+            tuple(self.inputs),
+            tuple(self._instructions),
+            self.outputs[0],
         )
 
 
@@ -182,7 +326,7 @@ def runtime_objects(name: str) -> tuple[Any, Any] | None:
 
 @dataclass(frozen=True, slots=True)
 class PointwiseArtifact:
-    """The compiled FusedPointwiseV2 artifact identity."""
+    """The compiled native tile artifact identity."""
 
     kernel_name: str
     entry_name: str
@@ -311,7 +455,7 @@ def _reference_schedule(tile: int) -> Any:
 def compile_pointwise(
     program: Any, *, tile: int = 128, registry_name: str | None = None
 ) -> PointwiseArtifact:
-    """Compile an HIR program through the exact-DSO strict facade."""
+    """Specialize a native tile program and compile through the strict facade."""
 
     modules = bootstrap_pypto()
     compiler = modules["compiler"]
@@ -321,6 +465,8 @@ def compile_pointwise(
         raise StrictCoverageError("PyPTO exact DSO backend is not compiled")
     request = _reference_request(compiler, pypto, info)
     schedule = _reference_schedule(tile)
+    if isinstance(program, NativePointwiseProgram):
+        program = program.specialize(tile)
     result = compiler.compile_structured_strict(program, request, schedule)
     artifact = result.artifact
     kernel_name = (
@@ -353,6 +499,7 @@ def compile_pointwise(
 
 __all__ = (
     "PointwiseArtifact",
+    "NativePointwiseProgram",
     "PointwiseProgramBuilder",
     "bootstrap_pypto",
     "compile_pointwise",

@@ -28,7 +28,7 @@ _snapshot: DeviceCodegenSnapshot | None = None
 _installed = False
 _original_triton_hash_with_backend: Any = None
 
-PYPTO_BACKEND_HASH = "pypto-sm120-fused-pointwise-v2-v1"
+PYPTO_BACKEND_HASH = "pypto-sm120-native-tile-pointwise"
 
 
 def _pypto_triton_hash_with_backend() -> str:

@@ -1,10 +1,4 @@
-"""Focused pointwise codegen tests against the exact-DSO backend.
-
-These tests run with CUDA hidden: they prove the FX-side program builder
-produces the exact FusedPointwiseV2 HIR, that the strict facade compiles
-it into a deterministic SM120 Cubin artifact, and that the plugin never
-falls back. GPU execution is a separate later gate.
-"""
+"""Focused native tile pointwise codegen tests against the exact DSO."""
 
 from __future__ import annotations
 
@@ -27,8 +21,20 @@ class PointwiseCodegenTest(unittest.TestCase):
         second = builder.emit("tensor.muls", [first, builder.scalar(2.0)])
         third = builder.emit("tensor.neg", [second])
         builder.mark_output(third)
-        artifact = pc.compile_pointwise(builder.build(), tile=128)
-        self.assertEqual(artifact.entry_name, "pypto_fused_pointwise_v2")
+        program = builder.build()
+        self.assertIsInstance(program, pc.NativePointwiseProgram)
+        native_source = program.native_source(128)
+        self.assertIn("@pl.jit", native_source)
+        self.assertIn("pl.load", native_source)
+        self.assertIn("pl.store", native_source)
+        rendered = str(program.specialize(128))
+        self.assertIn("pl.at(level=pl.Level.CORE_GROUP)", rendered)
+        self.assertIn("pl.range(2)", rendered)
+        self.assertEqual(rendered.count("pl.tile.load"), 2)
+        self.assertIn("pl.tile.store", rendered)
+        self.assertNotIn("tensor.", rendered)
+        artifact = pc.compile_pointwise(program, tile=128)
+        self.assertTrue(artifact.entry_name.startswith("pypto_fused_pointwise"))
         self.assertGreater(artifact.cubin_bytes, 0)
         self.assertEqual(artifact.argument_count, 3)
         self.assertEqual(artifact.workspace_bytes, 0)

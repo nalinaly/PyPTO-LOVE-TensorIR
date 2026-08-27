@@ -4,7 +4,7 @@
 scheduling and swaps its inner Triton scheduling for a PyPTO-routing
 subclass. Outside PyPTO mode every method is the untouched original.
 Inside strict PyPTO mode a pointwise kernel's ``define_kernel`` compiles
-the plugin-built FusedPointwiseV2 program through the exact-DSO facade
+the plugin-built native tile program through the exact DSO facade
 (no Triton source is written) and ``call_kernel`` emits a fail-closed
 bridge call; non-pointwise kernels fail closed.
 """
@@ -24,7 +24,9 @@ class PyptoKernelRegistry:
     def __init__(self) -> None:
         self._kernels: dict[str, pointwise_codegen.PointwiseArtifact] = {}
 
-    def register(self, name: str, artifact: pointwise_codegen.PointwiseArtifact) -> None:
+    def register(
+        self, name: str, artifact: pointwise_codegen.PointwiseArtifact
+    ) -> None:
         self._kernels.setdefault(name, artifact)
 
     def get(self, name: str) -> pointwise_codegen.PointwiseArtifact:
@@ -56,8 +58,10 @@ def make_pypto_triton_scheduling(triton_scheduling_class: Any) -> Any:
             for sub_node in nodes:
                 inner = getattr(sub_node, "node", None)
                 import os as _os
+
                 if _os.environ.get("PYPTO_DEBUG_NODES"):
                     import sys as _sys
+
                     data = getattr(inner, "data", None)
                     print(
                         f"NODE node={type(sub_node).__name__} "
@@ -83,7 +87,7 @@ def make_pypto_triton_scheduling(triton_scheduling_class: Any) -> Any:
                 program, tile=128, registry_name=name
             )
             REGISTRY.register(name, artifact)
-            _emit_pypto_node_launch(node, name, meta)
+            _emit_pypto_node_launch(node, name)
 
         def _codegen_pypto_pointwise_node(self, node: Any) -> None:
             program, meta = _translate_pointwise(node)
@@ -125,9 +129,7 @@ def make_pypto_triton_scheduling(triton_scheduling_class: Any) -> Any:
                     "from pypto_plugins.torch.runtime_bridge import pypto_launch"
                 )
                 wrapper.header.writeline("import torch as _pypto_torch")
-                wrapper.header.writeline(
-                    "pypto_stream = _pypto_torch.cuda.Stream()"
-                )
+                wrapper.header.writeline("pypto_stream = _pypto_torch.cuda.Stream()")
                 wrapper._pypto_header_written = True
             stream = "pypto_stream.cuda_stream"
             joined = ", ".join(str(arg) for arg in call_args)
@@ -221,9 +223,7 @@ def _node_call_args(node: Any) -> list[str]:
     for dep in node.read_writes.reads:
         name = getattr(dep, "name", None)
         if not isinstance(name, str):
-            name = getattr(
-                getattr(dep, "buffer", None), "get_name", lambda: None
-            )()
+            name = getattr(getattr(dep, "buffer", None), "get_name", lambda: None)()
         if isinstance(name, str) and name not in args:
             args.append(name)
     for output in node.get_outputs():
@@ -302,7 +302,11 @@ def _emit_pypto_node_launch(node: Any, name: str, meta: dict | None = None) -> N
             # addressing-equivalent expanded stride-zero view.
             shape_text = repr(tuple(output_shape))
             stride_text = "(1," + "0," * (len(output_shape) - 1) + ")"
-            stride_text = "(" + stride_text[1:-1].rstrip(",") + ")" if len(output_shape) > 1 else "(1,)"
+            stride_text = (
+                "(" + stride_text[1:-1].rstrip(",") + ")"
+                if len(output_shape) > 1
+                else "(1,)"
+            )
             call_args.append(
                 f"_pypto_torch.as_strided({arg}, {shape_text}, {stride_text})"
             )
@@ -406,7 +410,9 @@ class _OpsRecorder:
     def _is_constant(value: object) -> bool:
         import sympy
 
-        return isinstance(value, (int, float, sympy.Integer, sympy.Float, sympy.Rational))
+        return isinstance(
+            value, (int, float, sympy.Integer, sympy.Float, sympy.Rational)
+        )
 
     def _constant_float(self, value: object) -> float:
         return float(value)
@@ -441,11 +447,12 @@ class _OpsRecorder:
                     self.inputs.append(buffer_name)
                 proxy = self._next_proxy()
                 import os as _os
+
                 if _os.environ.get("PYPTO_DEBUG_NODES"):
                     import sys as _sys
+
                     print(
-                        f"LOAD {buffer_name!r} index={args[1:]!r} "
-                        f"kwargs={kwargs!r}",
+                        f"LOAD {buffer_name!r} index={args[1:]!r} kwargs={kwargs!r}",
                         file=_sys.stderr,
                         flush=True,
                     )
@@ -458,13 +465,15 @@ class _OpsRecorder:
             if name == "store":
                 value = args[2] if len(args) > 2 else None
                 self.outputs.append(str(args[0]))
-                self.events.append(
-                    ("store", str(args[0]), getattr(value, "key", None))
-                )
+                self.events.append(("store", str(args[0]), getattr(value, "key", None)))
                 return None
             if name == "constant":
                 return args[0]
-            if name in self._COMPOSED and len(args) == 1 and not self._is_constant(args[0]):
+            if (
+                name in self._COMPOSED
+                and len(args) == 1
+                and not self._is_constant(args[0])
+            ):
                 operand = args[0]
                 if self._is_broadcast_proxy(operand):
                     for op_name, scalar in self._COMPOSED_ROW_PRIMITIVES[name]:
@@ -477,8 +486,7 @@ class _OpsRecorder:
                 first, second = args[0], args[1]
                 if self._is_constant(first) and self._is_constant(second):
                     raise StrictCoverageError(
-                        "binary op with two constant operands is not a "
-                        "registered form"
+                        "binary op with two constant operands is not a registered form"
                     )
                 if self._is_constant(first):
                     # Scalar-left forms commute or decompose over registered
@@ -486,8 +494,11 @@ class _OpsRecorder:
                     # one proxy so the replay keys stay aligned.
                     if name in ("add", "mul", "maximum", "minimum", "max", "min"):
                         self.events.append(
-                            ("op", self._BINARY[name] + "s",
-                             [second, self._constant_float(first)])
+                            (
+                                "op",
+                                self._BINARY[name] + "s",
+                                [second, self._constant_float(first)],
+                            )
                         )
                         return self._next_proxy()
                     if name in ("truediv", "div", "fdiv"):
@@ -516,21 +527,26 @@ class _OpsRecorder:
                     # Row-expand fused ops broadcast a [M,1,...] input over
                     # the trailing extents; the row input must be the second
                     # operand, so commute only when that preserves semantics.
-                    commutative = name in ("add", "mul", "maximum", "minimum",
-                                           "max", "min")
+                    commutative = name in (
+                        "add",
+                        "mul",
+                        "maximum",
+                        "minimum",
+                        "max",
+                        "min",
+                    )
                     if self._is_broadcast_proxy(first) and not commutative:
                         # Materialize the broadcast, then apply the base op
                         # with the row on the left (e.g. row / tensor).
-                        self.events.append(
-                            ("op", "tensor.row_expand", [second, first])
-                        )
+                        self.events.append(("op", "tensor.row_expand", [second, first]))
                         expanded = self._next_proxy()
                         self.events.append(
                             ("op", self._BINARY[name], [expanded, second])
                         )
                         return self._next_proxy()
                     tensor_operand, row_operand = (
-                        (second, first) if self._is_broadcast_proxy(first)
+                        (second, first)
+                        if self._is_broadcast_proxy(first)
                         else (first, second)
                     )
                     if self._is_broadcast_proxy(tensor_operand):
@@ -541,9 +557,12 @@ class _OpsRecorder:
                     resolved_row = self._flush_pending_row(row_operand, tensor_operand)
                     if resolved_row is row_operand:
                         self.events.append(
-                            ("op", "tensor.row_expand_"
-                             + self._BINARY[name].split(".")[-1],
-                             [tensor_operand, resolved_row])
+                            (
+                                "op",
+                                "tensor.row_expand_"
+                                + self._BINARY[name].split(".")[-1],
+                                [tensor_operand, resolved_row],
+                            )
                         )
                     else:
                         # The pending composition already materialized the
@@ -554,8 +573,11 @@ class _OpsRecorder:
                     return self._next_proxy()
                 if self._is_constant(second):
                     self.events.append(
-                        ("op", self._BINARY[name] + "s",
-                         [first, self._constant_float(second)])
+                        (
+                            "op",
+                            self._BINARY[name] + "s",
+                            [first, self._constant_float(second)],
+                        )
                     )
                 else:
                     self.events.append(("op", self._BINARY[name], [first, second]))
@@ -575,9 +597,7 @@ class _OpsRecorder:
 
         return handler
 
-    def _flush_pending_row(
-        self, row_operand: object, full_operand: object
-    ) -> object:
+    def _flush_pending_row(self, row_operand: object, full_operand: object) -> object:
         """Materialize a pending row composition against a full-shape peer.
 
         The broadcast input expands via ``tensor.row_expand`` using the full
@@ -598,8 +618,7 @@ class _OpsRecorder:
 
     def _is_broadcast_proxy(self, value: object) -> bool:
         return (
-            isinstance(value, _OpsRecorder._Proxy)
-            and value.key in self.broadcast_keys
+            isinstance(value, _OpsRecorder._Proxy) and value.key in self.broadcast_keys
         )
 
     def _is_broadcast_index(self, index: object) -> bool:
@@ -633,7 +652,7 @@ class _OpsRecorder:
 
 
 def _translate_pointwise(node: Any) -> tuple[Any, dict[str, str | int]]:
-    """Translate a pointwise node's real ops sequence into FusedPointwiseV2 HIR.
+    """Translate a pointwise node's real ops sequence into native tile IR.
 
     The node body executes once against the recording ops handler; loads and
     registered ops rebuild the exact chain in event order (loads may
@@ -675,10 +694,22 @@ def _translate_pointwise(node: Any) -> tuple[Any, dict[str, str | int]]:
             f"(inputs={len(recorder.inputs)}, events={len(recorder.events)}, "
             f"outputs={len(recorder.outputs)})"
         )
-    dtype_name = "float32"
-    builder = pointwise_codegen.PointwiseProgramBuilder(
-        tuple(ranges), dtype_name
+    import torch
+
+    output_dtype = (
+        output_buffer.get_dtype()
+        if hasattr(output_buffer, "get_dtype")
+        else getattr(data, "dtype", None)
     )
+    if output_dtype is torch.bfloat16:
+        dtype_name = "bfloat16"
+    elif output_dtype is torch.float32:
+        dtype_name = "float32"
+    else:
+        raise StrictCoverageError(
+            f"native pointwise output dtype {output_dtype!r} is unsupported"
+        )
+    builder = pointwise_codegen.PointwiseProgramBuilder(tuple(ranges), dtype_name)
     values: dict[int, Any] = {}
     variables: dict[str, Any] = {}
     stored_keys: list[int] = []
@@ -687,8 +718,10 @@ def _translate_pointwise(node: Any) -> tuple[Any, dict[str, str | int]]:
     for event in recorder.events:
         kind = event[0]
         import os as _os
+
         if _os.environ.get("PYPTO_DEBUG_NODES"):
             import sys as _sys
+
             print(f"EVENT {event!r}", file=_sys.stderr, flush=True)
         if kind in ("load", "broadcast_load"):
             buffer_name = str(event[1])
@@ -721,11 +754,7 @@ def _translate_pointwise(node: Any) -> tuple[Any, dict[str, str | int]]:
         if output_key is not None:
             builder.mark_output(values[output_key])
     broadcast_buffers = sorted(
-        {
-            str(event[1])
-            for event in recorder.events
-            if event[0] == "broadcast_load"
-        }
+        {str(event[1]) for event in recorder.events if event[0] == "broadcast_load"}
     )
     return builder.build(), {
         "tile": 128,

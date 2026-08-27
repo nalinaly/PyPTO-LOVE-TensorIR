@@ -1,0 +1,30 @@
+{
+ "schema": 1,
+ "kind": "inductor-native-pointwise-sm120",
+ "run_id": "pypto-20260827T152735Z-518560-e7305e",
+ "pypto_commit": "8d4c66d6cafdf0fae8e5cbcf17b5180bc9ea3119",
+ "dso_sha256": "f0d5d1da7eb03699f30c69f879228ee3cf811f9652fc1c20487e8ce7b60b26b8",
+ "shape": [
+  256,
+  1024
+ ],
+ "dtype": "bfloat16",
+ "tile": [
+  1,
+  128
+ ],
+ "launches": 1,
+ "native_source": {
+  "jit": true,
+  "range_count": 2,
+  "load_count": 2,
+  "store_count": 1,
+  "whole_tensor_ops": false,
+  "specialized_tile_load_count": 2,
+  "specialized_tile_store_count": 1
+ },
+ "max_abs_diff": 0.0,
+ "all_correct": true,
+ "fallback_used": false,
+ "cubin_sha256": "5cb25f2e1d6ee9f961d95725d9d5677218d0f491359d3c807aa6f92cb3011bb5"
+}
