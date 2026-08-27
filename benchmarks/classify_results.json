@@ -30,6 +30,15 @@
    ]
   },
   {
+   "case": "linear",
+   "key": "9631657a59575ca4",
+   "status": "compiled",
+   "tiles": [
+    1,
+    128
+   ]
+  },
+  {
    "case": "gdn_read",
    "key": "69e833c426d2ac6d",
    "status": "compiled",
@@ -49,9 +58,9 @@
    ]
   }
  ],
- "dso_sha256": "73f58162c89fe168d69e13b1c88cc174c5c93b333bc47953c234722d0865b81e",
+ "dso_sha256": "cd90a092ee8124fc37a1fada01a81942147dfb136a419b14e9f169a7a6242eb8",
  "kind": "pypto-kernels-classify-sm120",
- "pypto_commit": "6054392ad011a036e7d2ce8d9437fc66ade9524e",
- "run_id": "pypto-20260827T135324Z-450871-2f2d91",
+ "pypto_commit": "5863644501e402f7a99db807ef123ac968712b32",
+ "run_id": "pypto-20260827T140627Z-458881-618067",
  "schema": 2
 }

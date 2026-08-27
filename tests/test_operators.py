@@ -6,7 +6,15 @@ sys.path.insert(0, "/home/zhaosiying/pypto-love-tensor-ir/projects/pypto-kernels
 
 import torch
 
-from pypto_kernels import attention, fused_add, gdn, rmsnorm, rope, silu_and_mul
+from pypto_kernels import (
+    attention,
+    fused_add,
+    gdn,
+    linear,
+    rmsnorm,
+    rope,
+    silu_and_mul,
+)
 
 
 def test_each_operator_is_one_program():
@@ -18,6 +26,7 @@ def test_each_operator_is_one_program():
             rmsnorm.GRAPHS,
             rope.GRAPHS,
             attention.GRAPHS,
+            linear.GRAPHS,
             gdn.GRAPHS,
             gdn.UPDATE_GRAPHS,
         )
@@ -85,6 +94,20 @@ def test_attention_is_one_native_tile_graph_and_compiled():
     assert result["status"] == "compiled", result
 
 
+def test_linear_is_one_native_tile_graph_and_compiled():
+    program = linear.build(2, 128, 256)
+    rendered = str(program)
+    assert len(_one_program(program).body.stmts) == 2  # one scope + return
+    assert "pl.range(2)" in rendered
+    assert rendered.count("pl.tile.load") == 2
+    assert "pl.tile.transpose_view" in rendered
+    assert "pl.tile.matmul" in rendered
+    assert "pl.tile.store" in rendered
+    assert "tensor." not in rendered
+    result = linear.status(rows=2, in_features=128, out_features=256)
+    assert result["status"] == "compiled", result
+
+
 def test_gdn_read_and_update_are_one_native_tile_graph_each():
     program = gdn.build_read(2, 128, 128)
     rendered = str(program)
@@ -126,6 +149,7 @@ if __name__ == "__main__":
     test_rmsnorm_uses_native_tile_reduction()
     test_rope_is_one_native_tile_graph_and_compiled()
     test_attention_is_one_native_tile_graph_and_compiled()
+    test_linear_is_one_native_tile_graph_and_compiled()
     test_gdn_read_and_update_are_one_native_tile_graph_each()
     test_rmsnorm_single_graph_is_compiled()
     test_broadcast_dependencies_are_closed()

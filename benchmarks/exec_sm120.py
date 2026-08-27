@@ -13,7 +13,15 @@ sys.path.insert(0, "/home/zhaosiying/pypto-love-tensor-ir/projects/pypto-kernels
 import torch
 
 from pypto_kernels._boot import DSO_PATH, bootstrap
-from pypto_kernels import attention, fused_add, gdn, rmsnorm, rope, silu_and_mul
+from pypto_kernels import (
+    attention,
+    fused_add,
+    gdn,
+    linear,
+    rmsnorm,
+    rope,
+    silu_and_mul,
+)
 
 
 def main() -> int:
@@ -124,6 +132,23 @@ def main() -> int:
         }
     )
 
+    linear_input = torch.randn(32, 1024, device="cuda", dtype=torch.bfloat16) * 0.1
+    linear_weight = torch.randn(1024, 1024, device="cuda", dtype=torch.bfloat16) * 0.1
+    linear_out = linear.linear(linear_input, linear_weight, stream=stream)
+    stream.synchronize()
+    linear_ref = linear_input.float() @ linear_weight.float().T
+    cases.append(
+        {
+            "case": "linear_bf16 32x1024x1024",
+            "implementation": "native-tile-dsl",
+            "launches": 1,
+            "max_abs_diff": float((linear_out.float() - linear_ref).abs().max()),
+            "correct": bool(
+                torch.allclose(linear_out.float(), linear_ref, rtol=5e-2, atol=5e-2)
+            ),
+        }
+    )
+
     heads, dk, dv = 16, 128, 128
     query = torch.randn(heads, dk, device="cuda", dtype=torch.bfloat16) * 0.2
     decay = torch.rand(heads, dk, device="cuda", dtype=torch.bfloat16)
@@ -197,6 +222,7 @@ def main() -> int:
             "rmsnorm",
             "rope",
             "attention",
+            "linear",
             "gdn_read",
             "gdn_state_update",
         ],

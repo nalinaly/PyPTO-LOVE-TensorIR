@@ -7,6 +7,7 @@ __all__ = (
     "attention",
     "fused_add",
     "gdn",
+    "linear",
     "rmsnorm",
     "rope",
     "silu_and_mul",

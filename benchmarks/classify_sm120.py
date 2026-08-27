@@ -18,6 +18,7 @@ from pypto_kernels._boot import DSO_PATH, bootstrap, classify  # noqa: E402
 from pypto_kernels import (  # noqa: E402
     attention,
     gdn,
+    linear,
     rmsnorm,
     rope,
 )
@@ -28,6 +29,7 @@ def main() -> int:
         ("rmsnorm", rmsnorm.build(256, 1024), [1, 128]),
         ("rope", rope.build(256, 64), [1, 1, 64]),
         ("attention", attention.build(32, 128, 128, 128), [1, 64]),
+        ("linear", linear.build(32, 1024, 1024), [1, 128]),
         ("gdn_read", gdn.build_read(16, 128, 128), [1, 64]),
         (
             "gdn_state_update",
