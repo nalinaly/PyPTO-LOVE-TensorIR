@@ -1,6 +1,22 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0065`
+**Checkpoint:** `CP-0066`
+
+**Status:** The v2 operator assignment is complete under its stated acceptance
+and honesty boundaries. Final post-commit policy-2 runs prove 12/12
+classification cases have the sole status `compiled`, the structure suite
+passes with zero `producer-blocked` assertions, and all 18 GPU numerical cases
+are correct. The exact DSO SHA matches both tracked result JSON files. PyPTO
+full CTest remains 13/13 with the broadcast source/schedule/producer goldens.
+TensorIR branch/commit, parent format-patch and gitlink are recoverable and
+consistent; parent push alone is external-user-owned because this environment
+lacks GitHub HTTPS credentials. Root, v1, framework plugins and all three
+upstream checkouts are tracked-clean, and no protected process was signalled.
+The attention post-exp/two-graph and visible five-graph GDN-read boundaries are
+explicitly recorded rather than overstated. Final audit evidence:
+`state/evidence/pypto-v2-final-audit-cp0066.json`.
+
+## Previous checkpoint (CP-0065)
 
 **Status:** v2 C-class attention/GDN construction is run-pass at PyPTO
 `fb888ae` and v2 `a58d890`. The accepted attention boundary is two explicit

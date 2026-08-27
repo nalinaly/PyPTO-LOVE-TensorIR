@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "kind": "pypto-kernels-v2-final-acceptance-audit",
+  "commits": {
+    "tensor_ir": "d540d54760de9ed5e112088d27cc0eded9ccbb14",
+    "pypto": "fb888ae8c30d8e228aa2085ea8ae12a6f4826d10",
+    "pypto_kernels_v2": "0fee72f"
+  },
+  "dso": {
+    "path": "builds/pypto-opext-on-a589f79/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "sha256": "4190b9d9eefa581e09cbe193c31f9e98d96c3a6ff4f855fa7ef31fc6e18280e4",
+    "matches_classification_json": true,
+    "matches_execution_json": true
+  },
+  "final_runs": {
+    "classification": {
+      "run_id": "pypto-20260827T113903Z-388007-913ac3",
+      "all_compiled": true,
+      "case_count": 12,
+      "unique_statuses": ["compiled"]
+    },
+    "structure_tests": {
+      "run_id": "pypto-20260827T113921Z-388195-4ad566",
+      "passed": true,
+      "producer_blocked_assertions": 0
+    },
+    "gpu_execution": {
+      "run_id": "pypto-20260827T113940Z-388413-c27820",
+      "all_correct": true,
+      "case_count": 18,
+      "incorrect_cases": 0
+    },
+    "pypto_ctest": {
+      "run_id": "pypto-20260827T113729Z-387443-289fc6",
+      "passed": 13,
+      "total": 13,
+      "broadcast_goldens_green": true
+    }
+  },
+  "delivery": {
+    "tensor_ir_branch": "feature/pypto-broadcast-pointwise",
+    "format_patch_present": true,
+    "format_patch_reverse_apply_check": true,
+    "parent_gitlink_matches": true,
+    "parent_push_attempted": true,
+    "parent_push_succeeded": false,
+    "parent_push_blocker": "missing GitHub HTTPS credentials",
+    "parent_push_owner": "user"
+  },
+  "scope_invariants": {
+    "v1_tracked_zero_diff": true,
+    "model_harness_modified": false,
+    "framework_plugins_zero_diff": true,
+    "upstream_pytorch_zero_diff": true,
+    "upstream_sglang_zero_diff": true,
+    "upstream_triton_zero_diff": true,
+    "protected_processes_signalled": false,
+    "system_restarted": false
+  },
+  "honest_boundaries": {
+    "attention": "Accepted post-exp normalization plus value mix uses two graphs; QK, max-shift, exp and true one-kernel FA remain FUTURE.",
+    "gdn_read": "Accepted full read path uses five visible graphs; no wrapper claims one launch.",
+    "gdn_state_update": "One rank-3 graph and one launch."
+  },
+  "all_requested_acceptance_gates_green": true
+}
