@@ -1,6 +1,24 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0081`
+**Checkpoint:** `CP-0082`
+
+**Status:** The canonical operator inventory now matches Qwen3.5's actual
+full-attention output gate. Operator commit `78bd379` deletes the unused
+standalone residual-add library op and adds `sigmoid_mul`, whose one native
+`@pl.jit` graph computes `value * sigmoid(gate)` with explicit `[1,128]`
+loads, tile operations and one store. Framework-plugin `8143f6f` updates the
+canonical package guard. Structure run `pypto-20260827T160615Z-544945-0ea0ea`
+passes 11/11; classification run `pypto-20260827T160658Z-545586-b63c99`
+reports every current graph compiled; SM120 run
+`pypto-20260827T160717Z-545793-76cc31` passes all 15 numerical cases, including
+three gate shapes with one launch each and worst max absolute difference
+`0.0284644`. Evidence is
+`state/evidence/pypto-attention-gate-cleanup-cp0082.json`. The evidence also
+records, rather than hides, the remaining noncompliant operators: embedding,
+paged/causal attention, fused QK norm/partial RoPE preparation, stateful
+convolution and a single recurrent GDN graph.
+
+## Previous checkpoint (CP-0081)
 
 **Status:** `torch.compile(backend="pypto")` now installs the real reversible
 CUDA scheduling/wrapper transaction and executes its generated native tile

@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "checkpoint": "CP-0082",
+  "status": "accepted-attention-gate-cleanup",
+  "component": "Qwen3.5 full-attention output gate",
+  "implementation": {
+    "operator_commit": "78bd37917e30e0b57bcf6a77125f746d43574803",
+    "framework_plugin_commit": "8143f6feb7cd6cde22ae0794e9b5f4f446237c84",
+    "added": "sigmoid_mul",
+    "removed": "standalone fused_add",
+    "formula": "value * sigmoid(gate)",
+    "graphs": 1,
+    "launches": 1,
+    "native_tile_source": true
+  },
+  "tests": {
+    "structure_run_id": "pypto-20260827T160615Z-544945-0ea0ea",
+    "structure_result": "11 passed",
+    "classification_run_id": "pypto-20260827T160658Z-545586-b63c99",
+    "classification_result": "11/11 compiled",
+    "guard_run_id": "pypto-20260827T160754Z-546758-4512a6",
+    "guard_result": "6 passed"
+  },
+  "gpu": {
+    "run_id": "pypto-20260827T160717Z-545793-76cc31",
+    "result_file": "projects/pypto-kernels/benchmarks/exec_results.json",
+    "sigmoid_mul_cases": 3,
+    "shapes": [[256, 1024], [4096, 1024], [1, 3584]],
+    "max_abs_diff_max": 0.028464317321777344,
+    "all_correct": true,
+    "fallback_used": false,
+    "dso_sha256": "c7c65aa3905417c46ac7f12a5b808178ad6780c76fb827288dc42511f86922cf"
+  },
+  "known_incomplete_operators": [
+    "embedding gather is absent",
+    "full attention lacks paged cache and causal serving semantics",
+    "QK RMSNorm, partial RoPE and gate deinterleave are not yet one fused graph",
+    "causal convolution lacks nonzero state and indexed writeback",
+    "GDN read and state update are still separate instead of one recurrent graph"
+  ],
+  "safety": {
+    "protected_processes_signalled": false,
+    "upstream_modified": false,
+    "model_harness_modified": false
+  }
+}
