@@ -133,8 +133,10 @@ def eager_forward(t, ids, prompt_len):
             A_log = t[p+"linear_attn.A_log"].float().cuda()
             dt = t[p+"linear_attn.dt_bias"].float().cuda()
             state = torch.zeros(G, DV, DV, device="cuda")
+            print('qkv', float(qkv.float().abs().max()), 'A', float(A.float().abs().max()), 'b', float(b.float().abs().max()), flush=True)
             outs = []
             for tok in range(prompt_len):
+                if tok < 2: print('tok', tok, 'q', float(q[tok].float().abs().max()), 'v', float(v[tok].float().abs().max()), 'state', float(state.float().abs().max()), flush=True)
                 o, state = gdn_eager_token(q[tok].float(), k[tok].float(),
                                            v[tok].float(), A[tok].float(),
                                            b[tok].float(), state, A_log, dt)
@@ -143,6 +145,7 @@ def eager_forward(t, ids, prompt_len):
             h = (torch.stack(outs).to(torch.bfloat16).view(prompt_len, 2048)
                  * z) @ W(t, p+"linear_attn.out_proj.weight").T
         x = x + h
+        print(layer, 'x absmax', float(x.float().abs().max()), 'finite', bool(torch.isfinite(x.float()).all()), flush=True)
         h = p_rms_eager(x, W(t, p+"post_attention_layernorm.weight"))
         h = silu(h @ W(t, p+"mlp.gate_proj.weight").T) * (h @ W(t, p+"mlp.up_proj.weight").T)
         x = x + (h @ W(t, p+"mlp.down_proj.weight").T)
@@ -166,7 +169,6 @@ def main() -> int:
     print(json.dumps({"schema": 1, "kind": "pypto-qwen35-0p8b-eager-reference",
                       "logits_shape": list(ref.shape),
                       "logits_finite": bool(torch.isfinite(ref).all())}, indent=1))
-    ref[:, 248044:] = 0  # reserve guard
     torch.save(ref.cpu(), "/tmp/qwen08_ref_logits.pt")
     return 0
 
