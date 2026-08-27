@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "checkpoint": "CP-0083",
+  "status": "accepted-native-embedding",
+  "component": "Qwen3.5 token embedding",
+  "implementation": {
+    "operator_commit": "426e37342e0e755e81296a0921abb88e36d58110",
+    "framework_plugin_commit": "7ff6a9456d9be2b19bfbf488996c17142b2a4b50",
+    "compiler_commit": "d8eaca6f6bc56b1217ad942a866e48fb4112381c",
+    "tensor_ir_commit": "9b6c0b293a32dc3fdcb2c20a05be1618ac33d084",
+    "tensor_ir_patches": [
+      "projects/pypto/3rdparty/nvidia/0007-Add-row-gather-layout-lowering.patch",
+      "projects/pypto/3rdparty/nvidia/0008-Construct-gather-index-tile-types-explicitly.patch",
+      "projects/pypto/3rdparty/nvidia/0009-Use-TensorIR-signed-indices-in-gather-golden.patch",
+      "projects/pypto/3rdparty/nvidia/0010-Admit-row-gathers-in-the-CUDA-Tile-frontend.patch",
+      "projects/pypto/3rdparty/nvidia/0011-Scale-dense-gather-coordinates-to-element-offsets.patch",
+      "projects/pypto/3rdparty/nvidia/0012-Make-gather-golden-robust-to-constant-hoisting.patch"
+    ],
+    "source_flow": [
+      "explicit @pl.jit row and hidden-block ranges",
+      "pl.read INT64 token id",
+      "dynamic pl.load of one embedding row tile",
+      "TensorIR gather_rows",
+      "CUDA Tile gather_scatter_view",
+      "one store and one launch"
+    ],
+    "one_hot_used": false,
+    "python_multi_launch_used": false
+  },
+  "tests": {
+    "structure_run_id": "pypto-20260827T164350Z-575075-6edb01",
+    "structure_result": "12 passed",
+    "compiler_python_run_id": "pypto-20260827T165254Z-581931-b95da0",
+    "compiler_python_result": "1 passed",
+    "tensor_ir_filecheck_run_id": "pypto-20260827T164504Z-575793-db0b48",
+    "tensor_ir_filecheck_result": "passed",
+    "ctest_run_id": "pypto-20260827T165043Z-580503-09bfe6",
+    "ctest_result": "13/13 passed",
+    "classification_run_id": "pypto-20260827T165121Z-581103-546b06",
+    "classification_result": "12/12 compiled"
+  },
+  "gpu": {
+    "run_id": "pypto-20260827T165142Z-581271-70339f",
+    "result_file": "projects/pypto-kernels/benchmarks/exec_results.json",
+    "tokens": 32,
+    "vocab_size": 248320,
+    "hidden_size": 1024,
+    "dtype": "bfloat16",
+    "launches": 1,
+    "max_abs_diff": 0.0,
+    "correct": true,
+    "all_operator_cases_correct": true,
+    "dso_sha256": "780062a4fa80f4676c260f660a0c41ea8ea944549a4029ee55b40b5c29f3e972"
+  },
+  "model_acceptance_target": {
+    "order": ["Qwen3.5-0.8B", "Qwen3.5-9B"],
+    "prompt": "为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？",
+    "requirements": [
+      "100 percent PyPTO handwritten plus Inductor-fused coverage",
+      "zero fallback",
+      "stable repeated inference",
+      "reference logits, token and text precision comparison"
+    ]
+  },
+  "remaining_scope": [
+    "fused QK RMSNorm plus partial RoPE plus gate deinterleave",
+    "paged causal full attention",
+    "stateful causal convolution",
+    "single-graph recurrent GDN",
+    "0.8B then 9B model acceptance"
+  ],
+  "safety": {
+    "protected_processes_signalled": false,
+    "upstream_modified": false,
+    "nvidia_origin_pushed": false
+  }
+}

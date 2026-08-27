@@ -1,6 +1,31 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0082`
+**Checkpoint:** `CP-0083`
+
+**Status:** Qwen3.5 token embedding is now a real native tile row gather, not
+one-hot matmul. Canonical operator `426e373` uses explicit `@pl.jit` row/block
+ranges, `pl.read` of INT64 token IDs, dynamic `pl.load([1,128])`, one store and
+one launch. TensorIR `9b6c0b2` adds generic `gather_rows` and lowers it through
+a CUDA Tile gather/scatter view; PyPTO `d8eaca6` recognizes the structural tile
+graph, preserves its INT64 zero-stride input view and vendors patches
+`0007` through `0012`. FileCheck run
+`pypto-20260827T164504Z-575793-db0b48` passes; final Python compiler run
+`pypto-20260827T165254Z-581931-b95da0` passes; CTest run
+`pypto-20260827T165043Z-580503-09bfe6` is 13/13. SM120 run
+`pypto-20260827T165142Z-581271-70339f` gathers 32 rows from the actual 0.8B
+`[248320,1024]` BF16 table in one launch with max difference 0, while all 16
+operator cases remain correct. Exact DSO SHA-256 is
+`780062a4fa80f4676c260f660a0c41ea8ea944549a4029ee55b40b5c29f3e972`.
+Evidence is `state/evidence/pypto-native-embedding-cp0083.json`.
+
+The final model gate is explicitly 0.8B then 9B with 100% PyPTO provenance,
+zero fallback, stable repeated inference and reference precision. Both models
+must use the exact prompt
+`为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？` for logits,
+token and generated-text comparison. QK norm/partial RoPE preparation,
+paged-causal attention, stateful convolution and single-graph GDN remain open.
+
+## Previous checkpoint (CP-0082)
 
 **Status:** The canonical operator inventory now matches Qwen3.5's actual
 full-attention output gate. Operator commit `78bd379` deletes the unused
