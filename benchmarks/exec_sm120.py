@@ -394,6 +394,10 @@ def main() -> int:
             * 0.2
         )
         value_cache = torch.randn_like(key_cache) * 0.2
+        # Every padded request-table entry remains slot 0. Make that row
+        # adversarial so a missing valid-length mask produces an obvious error.
+        key_cache[0].zero_()
+        value_cache[0].fill_(8.0)
         req_to_token = torch.zeros(
             request_rows,
             max_context_len,
