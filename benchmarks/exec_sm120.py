@@ -569,6 +569,140 @@ def main() -> int:
         }
     )
 
+    def run_paged_prefill_case(
+        *, q_heads: int, kv_heads: int, label: str
+    ) -> None:
+        query_rows = 13
+        prefix_count = 2
+        bucket_tokens = 16
+        prefill_head_dim = 256
+        cache_rows = 1024
+        request_rows = 65
+        max_context_len = 4096
+        request_row = 9
+        row_width = kv_heads * prefill_head_dim
+        prefill_query = (
+            torch.randn(
+                query_rows,
+                q_heads * prefill_head_dim,
+                device="cuda",
+                dtype=torch.bfloat16,
+            )
+            * 0.2
+        )
+        key_cache = (
+            torch.randn(
+                cache_rows,
+                row_width,
+                device="cuda",
+                dtype=torch.bfloat16,
+            )
+            * 0.2
+        )
+        value_cache = torch.randn_like(key_cache) * 0.2
+        key_cache[0].zero_()
+        value_cache[0].fill_(8.0)
+        req_to_token = torch.zeros(
+            request_rows,
+            max_context_len,
+            device="cuda",
+            dtype=torch.int32,
+        )
+        valid_total = prefix_count + query_rows
+        selected = torch.randperm(cache_rows - 1, device="cuda")[:valid_total] + 1
+        req_to_token[request_row, :valid_total] = selected.to(torch.int32)
+        current_key = (
+            torch.randn(
+                query_rows,
+                row_width,
+                device="cuda",
+                dtype=torch.bfloat16,
+            )
+            * 0.2
+        )
+        current_value = torch.randn_like(current_key) * 0.2
+        current_rows = selected[prefix_count:valid_total].contiguous()
+        request_index = torch.tensor(
+            [request_row], device="cuda", dtype=torch.int64
+        )
+        prefix_tokens = torch.tensor(
+            [prefix_count], device="cuda", dtype=torch.int32
+        )
+        torch.cuda.synchronize()
+        attention.paged_cache_write(
+            key_cache,
+            value_cache,
+            current_rows,
+            current_key,
+            current_value,
+            stream=stream,
+        )
+        stream.synchronize()
+        prefill_out = attention.paged_attention_prefill(
+            prefill_query,
+            key_cache,
+            value_cache,
+            req_to_token,
+            request_index,
+            prefix_tokens,
+            kv_heads=kv_heads,
+            bucket_tokens=bucket_tokens,
+            stream=stream,
+        )
+        stream.synchronize()
+
+        key_heads = key_cache.view(cache_rows, kv_heads, prefill_head_dim)
+        value_heads = value_cache.view(cache_rows, kv_heads, prefill_head_dim)
+        query_heads = prefill_query.view(query_rows, q_heads, prefill_head_dim)
+        queries_per_kv = q_heads // kv_heads
+        reference_rows = []
+        for query_row in range(query_rows):
+            valid_tokens = prefix_count + query_row + 1
+            physical = selected[:valid_tokens]
+            reference_heads = []
+            for q_head in range(q_heads):
+                kv_head = q_head // queries_per_kv
+                selected_keys = key_heads[physical, kv_head].float()
+                selected_values = value_heads[physical, kv_head].float()
+                scores = (
+                    query_heads[query_row, q_head].float() @ selected_keys.T
+                ) / math.sqrt(prefill_head_dim)
+                reference_heads.append(
+                    torch.softmax(scores, dim=-1) @ selected_values
+                )
+            reference_rows.append(torch.stack(reference_heads))
+        prefill_ref = torch.stack(reference_rows).reshape_as(prefill_out)
+        prefill_diff = float((prefill_out.float() - prefill_ref).abs().max())
+        cases.append(
+            {
+                "case": label,
+                "implementation": "native-tile-dsl-causal-paged-prefill",
+                "launches": 2,
+                "cache_write_launches": 1,
+                "attention_launches": 1,
+                "prefix_tokens": prefix_count,
+                "query_rows": query_rows,
+                "bucket_tokens": bucket_tokens,
+                "max_abs_diff": prefill_diff,
+                "correct": bool(
+                    torch.allclose(
+                        prefill_out.float(), prefill_ref, rtol=1e-1, atol=8e-2
+                    )
+                ),
+            }
+        )
+
+    run_paged_prefill_case(
+        q_heads=8,
+        kv_heads=2,
+        label="attention_paged_prefill_0_8b prefix2 extend13 bucket16",
+    )
+    run_paged_prefill_case(
+        q_heads=16,
+        kv_heads=4,
+        label="attention_paged_prefill_9b prefix2 extend13 bucket16",
+    )
+
     linear_input = torch.randn(32, 1024, device="cuda", dtype=torch.bfloat16) * 0.1
     linear_weight = torch.randn(1024, 1024, device="cuda", dtype=torch.bfloat16) * 0.1
     linear_out = linear.linear(linear_input, linear_weight, stream=stream)
@@ -666,6 +800,7 @@ def main() -> int:
             "attention",
             "attention_paged_decode",
             "attention_paged_cache_write",
+            "attention_paged_prefill",
             "linear",
             "gdn_read",
             "gdn_state_update",
