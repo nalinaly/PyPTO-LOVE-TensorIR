@@ -1,6 +1,24 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0068`
+**Checkpoint:** `CP-0069`
+
+**Status:** RMSNorm is the third accepted native tile operator. Canonical
+operator commit `fc5ddfc` writes one visible `@pl.jit` graph whose per-row
+body is `tile.load(BF16) -> cast FP32 -> square -> tile.row_sum -> mean/eps ->
+rsqrt -> row_expand_mul -> cast BF16 -> tile.store`; there is no whole-tensor
+builder in its execution path and the call launches once. PyPTO `c45a517`
+recognizes that exact native reduction pattern and emits the existing fused
+TensorIR reduction epilogue. The focused real-producer Python test passes,
+the rebuilt DSO SHA-256 is
+`bb5dd85a0398e5bfdd96617bb15824038cfcd28dfbcf66236227be2578e647db`, and
+CTest is 13/13. SM120 run `pypto-20260827T125639Z-419386-a535d3` accepts
+BF16 `256x1024` RMSNorm in one launch with max absolute difference
+`0.0155377388`; all 18 current regression cases remain correct. Evidence is
+`state/evidence/pypto-native-rmsnorm-cp0069.json`. Remaining native migrations
+are RoPE, complete Attention, complete GDN, matmul/embedding/conv and the
+generated Inductor path before the 0.8B and 9B model gates.
+
+## Previous checkpoint (CP-0068)
 
 **Status:** The operator tree now has one canonical identity with no version
 suffix. The old clean `projects/pypto-kernels` repository at `226101f` was

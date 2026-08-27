@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "checkpoint": "CP-0069",
+  "status": "accepted",
+  "operator": "rmsnorm",
+  "implementation": {
+    "repository": "projects/pypto-kernels",
+    "commit": "fc5ddfce1c816feea606ccd09711d71e7e0b412c",
+    "source": "src/pypto_kernels/rmsnorm.py",
+    "graph_count": 1,
+    "launches": 1,
+    "tile_source_ops": [
+      "pl.range",
+      "pl.tile.load",
+      "pl.tile.cast",
+      "pl.tile.row_sum",
+      "pl.tile.rsqrt",
+      "pl.tile.row_expand_mul",
+      "pl.tile.store"
+    ]
+  },
+  "compiler": {
+    "repository": "projects/pypto",
+    "commit": "c45a51765c8378a8455efeff8d6314969315f015",
+    "structured_test_run_id": "pypto-20260827T125537Z-418709-b0f6be",
+    "structured_test_result": "1 passed",
+    "ctest_run_id": "pypto-20260827T125738Z-420260-78385e",
+    "ctest_result": "13/13 passed"
+  },
+  "dso": {
+    "path": "builds/pypto-opext-on-a589f79/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "sha256": "bb5dd85a0398e5bfdd96617bb15824038cfcd28dfbcf66236227be2578e647db"
+  },
+  "gpu": {
+    "run_id": "pypto-20260827T125639Z-419386-a535d3",
+    "shape": [256, 1024],
+    "dtype": "bfloat16",
+    "max_abs_diff": 0.015537738800048828,
+    "correct": true,
+    "all_18_cases_correct": true,
+    "result_file": "projects/pypto-kernels/benchmarks/exec_results.json"
+  },
+  "safety": {
+    "protected_processes_signalled": false,
+    "upstream_modified": false,
+    "model_harness_modified": false
+  }
+}
