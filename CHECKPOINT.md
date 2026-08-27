@@ -28,7 +28,7 @@ below. It records work in progress, **not** CP-0084 acceptance.
   Cubin is not PyPTO Artifact, launch, numerical, framework or model evidence.
 - `pypto-kernels@5fbf813` adds the source-level Qwen3.5-0.8B fused QK
   GemmaRMSNorm + partial NeoX RoPE + gate-deinterleave candidate and its
-  actual-configuration numerical reference. Current kernels `988f05d` also add
+  actual-configuration numerical reference. Current kernels `6a1aba9` also add
   a one-request paged-decode source candidate that reads physical slots
   directly from SGLang's INT32 request table and applies a device-side
   valid-length mask (`tile.ci/cmps/sels`) from existing INT64 GPU metadata. It
@@ -43,11 +43,11 @@ below. It records work in progress, **not** CP-0084 acceptance.
 - Primary `projects/pypto` remains clean at `d1b90b7` for the pending QK DSO
   rebuild. Paged-decode compiler work is isolated in
   `worktrees/pypto-paged-decode` on
-  `feature/paged-decode-sm120@797e79b`; it recognizes the exact native
+  `feature/paged-decode-sm120@5f5f06c`; it recognizes the exact native
   request-table-read/`tile.gather_row`/GQA/masked-softmax graph and emits a
-  six-input TensorIR candidate. It now pins TensorIR `7079584` and archives the
+  six-input TensorIR candidate. It now pins TensorIR `be77cc9` and archives the
   unit-dimension, valid-mask and request-table regression dependencies as
-  patches `0033` through `0035`.
+  patches `0033` through `0036`.
   That branch is source-only and has not compiled or linked; all six submodule
   directories in this secondary worktree are intentionally uninitialized, so
   do not configure it until their exact gitlinks are materialized from the
@@ -56,12 +56,16 @@ below. It records work in progress, **not** CP-0084 acceptance.
   gap: after graph splitting, its explicit unit-M query source remains
   `[1,256]` while the normalized matmul view omits M. The old tool fails exactly
   at QK with `Cannot get LHS dimension map`. TensorIR source candidate
-  `feature/paged-unit-dimension-sm120@7079584` is isolated in
+  `feature/paged-unit-dimension-sm120@be77cc9` is isolated in
   `worktrees/tensor-ir-paged-unit-dimension`; it represents only missing unit
   operand dimensions as extent-one/zero-index mappings and adds the exact
   request-row gather/physical-index projection/QK/masked-softmax/PV regression.
   The old tools pass parse, normalization and graph splitting for this fuller
-  graph, then reproduce the same unit-M failure. Static diff checks pass, but
+  graph, then reproduce the same unit-M failure. An M=2 control bypasses that
+  failure and exposes a separate scalar-row gather projection rejection;
+  `be77cc9` permits an omitted data row axis only for a logical one-row gather
+  whose repeated index has all-zero strides, while multi-row gathers remain
+  strict. Static diff checks pass, but
   it has **not** built, linked, passed FileCheck or produced a Cubin.
 - The current paged operator remains a one-request decode candidate. Its
   device-side valid-length mask supports static 16-aligned buckets and its
@@ -106,7 +110,7 @@ files, update the README status, commit the result boundary, and continue to
 causal paged attention. Do not claim QK performance or either model gate.
 
 Keep the primary TensorIR checkout on clean `feature/pypto-broadcast-pointwise`
-at `a48606b` for that QK rebuild. Validate `7079584` from its isolated worktree
+at `a48606b` for that QK rebuild. Validate `be77cc9` from its isolated worktree
 or only after the QK gate; never silently point the QK DSO build at the paged
 source candidate. The first required paged validation is the new
 `paged_decode_attention_layout.mlir` FileCheck, followed by the full emitted
