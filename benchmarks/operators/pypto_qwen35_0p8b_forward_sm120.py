@@ -42,6 +42,10 @@ def W(t, name):
 
 
 def pmatmul(x, w, stream):
+    import os as _os
+    if _os.environ.get("PYPTO_EAGER_PROJ") == "1":
+        CENSUS["fallback"] += 1
+        return (x.float() @ w.float()).to(torch.bfloat16)
     key = _compile(_matmul_program(list(x.shape), list(w.shape)),
                    _tiles_for(x.shape[0], w.shape[1]))
     out = torch.empty(x.shape[0], w.shape[1], dtype=torch.bfloat16, device=x.device)
@@ -120,7 +124,7 @@ def model_dims(t):
     return HEADS, G
 
 
-def eager_forward(t, ids, prompt_len):
+def eager_forward(t, ids, prompt_len, trace=None):
     ids = ids[:prompt_len]
     x = t["model.language_model.embed_tokens.weight"].to(torch.bfloat16).cuda()[ids]
     positions = torch.arange(prompt_len, device="cuda")
@@ -186,6 +190,7 @@ def eager_forward(t, ids, prompt_len):
         h = silu(mg) * mu
         md = h @ W(t, p+"mlp.down_proj.weight").T
         x = x + md
+        if trace is not None: trace.append(x.float().clone())
     x = p_rms_eager(x, W(t, "model.language_model.norm.weight"))
     logits = x.float() @ t["model.language_model.embed_tokens.weight"].float().cuda().T
     return logits
@@ -197,7 +202,7 @@ def p_rms_eager(x, w):
             * (1.0 + w.float())).to(torch.bfloat16)
 
 
-def pypto_forward(t, ids, prompt_len, stream):
+def pypto_forward(t, ids, prompt_len, stream, trace=None):
     """Same graph as eager_forward with every heavy op on PyPTO kernels.
 
     Gemma (1+w) scales fold into the following projection weights (exact,
@@ -218,11 +223,21 @@ def pypto_forward(t, ids, prompt_len, stream):
         return w.t().contiguous()
 
     def normed(x, layernorm_w):
+        import os as _os
+        if _os.environ.get("PYPTO_EAGER_NORM") == "1":
+            CENSUS["fallback"] += 5
+            xf = x.float()
+            base = (xf * torch.rsqrt(xf.pow(2).mean(-1, keepdim=True) + EPS)).to(torch.bfloat16)
+            normed_scale = (1.0 + layernorm_w.float()).to(torch.bfloat16)
+            return (base.float() * normed_scale.float()).to(torch.bfloat16)
         base = rmsnorm.pypto_rmsnorm(x.contiguous(), stream=stream)
         CENSUS["pypto"] += 5
         return base
 
     def folded(layernorm_w, proj_name):
+        import os as _os
+        if _os.environ.get("PYPTO_EAGER_NORM") == "1":
+            return wt(proj_name)  # eager path scales activations instead
         return wt(proj_name, fold=(1.0 + layernorm_w.float()).to(torch.bfloat16))
 
     def p_add(a, b, stream):
@@ -264,10 +279,21 @@ def pypto_forward(t, ids, prompt_len, stream):
             mask = torch.zeros(tp, tp, device=x.device, dtype=torch.bfloat16)
             mask[:prompt_len, :prompt_len] = torch.tril(
                 torch.ones(prompt_len, prompt_len, device=x.device))
-            attn = attention.pypto_attention_prefill(
-                q_pad, kt_pad, v_pad, scale=HDIM ** -0.5, mask=mask, stream=stream)
-            CENSUS["pypto"] += 9
-            attn = attn[0, :, :prompt_len]
+            import os as _os
+            if _os.environ.get("PYPTO_EAGER_ATTN") == "1":
+                scores = (torch.einsum("hmd,htd->hmt", q.float(), kE.float())
+                          / (HDIM ** 0.5)).to(torch.bfloat16).float()
+                cmask = torch.tril(torch.ones(prompt_len, prompt_len, device="cuda"))
+                scores = scores.masked_fill(cmask == 0, float("-inf"))
+                probs = torch.softmax(scores, -1).to(torch.bfloat16).float()
+                attn = torch.einsum("hmt,htd->hmd", probs, vE.float())
+                CENSUS["fallback"] += 3
+            else:
+                attn = attention.pypto_attention_prefill(
+                    q_pad, kt_pad, v_pad, scale=HDIM ** -0.5, mask=mask,
+                    stream=stream)
+                CENSUS["pypto"] += 9
+                attn = attn[0, :, :prompt_len]
             gate_s = torch.sigmoid(gate_q.view(prompt_len, HEADS, HDIM).transpose(0, 1).float())
             CENSUS["fallback"] += 1
             h = pmatmul((attn.float() * gate_s).to(torch.bfloat16)
@@ -302,18 +328,22 @@ def pypto_forward(t, ids, prompt_len, stream):
                 decayed = g[:, None, None] * state
                 CENSUS["fallback"] += 1  # the documented state-update fallback
                 # state read of the decayed state and the k-projection via kernels
-                decayed_bf = decayed.to(torch.bfloat16)[None]
-                zero_state = torch.zeros(1, G, DV, DV, device=x.device,
-                                         dtype=torch.bfloat16)
-                kS = gdn_kernel.pypto_gdn_decode_read(
-                    kh.to(torch.bfloat16)[None], ones_d, neg8,
-                    kh.to(torch.bfloat16)[None], v[tok][None],
-                    decayed_bf, stream=stream)[0].float()
-                oR = gdn_kernel.pypto_gdn_decode_read(
-                    qh.to(torch.bfloat16)[None], ones_d, neg8,
-                    kh.to(torch.bfloat16)[None], v[tok][None],
-                    decayed_bf, stream=stream)[0].float()
-                CENSUS["pypto"] += 10
+                import os as _os
+                if _os.environ.get("PYPTO_EAGER_GDN") == "1":
+                    kS = torch.einsum("hd,hdn->hn", kh, decayed)
+                    oR = torch.einsum("hd,hdn->hn", qh, decayed)
+                    CENSUS["fallback"] += 10
+                else:
+                    decayed_bf = decayed.to(torch.bfloat16)[None]
+                    kS = gdn_kernel.pypto_gdn_decode_read(
+                        kh.to(torch.bfloat16)[None], ones_d, neg8,
+                        kh.to(torch.bfloat16)[None], v[tok][None],
+                        decayed_bf, stream=stream)[0].float()
+                    oR = gdn_kernel.pypto_gdn_decode_read(
+                        qh.to(torch.bfloat16)[None], ones_d, neg8,
+                        kh.to(torch.bfloat16)[None], v[tok][None],
+                        decayed_bf, stream=stream)[0].float()
+                    CENSUS["pypto"] += 10
                 qk = (qh * kh).sum(-1)
                 o = oR - beta[:, None] * qk[:, None] * kS \
                     + beta[:, None] * qk[:, None] * v[tok].float()
@@ -326,6 +356,7 @@ def pypto_forward(t, ids, prompt_len, stream):
             CENSUS["fallback"] += 1
             h = pmatmul((torch.stack(outs).to(torch.bfloat16).view(prompt_len, QDIM) * z),
                         wt(p+"linear_attn.out_proj.weight"), stream)
+        if trace is not None: trace.append(x.float().clone())
         x = p_add(x, h, stream)
         lnw2 = W(t, p+"post_attention_layernorm.weight")
         hn2 = normed(x, lnw2)
@@ -345,9 +376,12 @@ def main() -> int:
     ids = torch.randint(0, 240000, (32,), device="cuda")
     prompt_len = 32
     model_dims(t)
-    ref = eager_forward(t, ids, prompt_len)
+    tr, tp = [], []
+    ref = eager_forward(t, ids, prompt_len, tr)
     stream = torch.cuda.Stream()
-    got = pypto_forward(t, ids, prompt_len, stream)
+    got = pypto_forward(t, ids, prompt_len, stream, tp)
+    for i, (a, b) in enumerate(zip(tr, tp)):
+        print(f'LAYER {i} maxdiff {float((a-b).abs().max()):.4f} absmax {float(a.abs().max()):.3f}', flush=True)
     stream.synchronize()
     both_finite = bool(torch.isfinite(ref).all() and torch.isfinite(got).all())
     diff = (got - ref).abs()
