@@ -245,6 +245,27 @@ def main() -> int:
                     minimum_free_disk_bytes=minimum_free_disk_bytes,
                     metadata_path=metadata_path,
                 )
+            except subprocess.TimeoutExpired:
+                # The frozen poll occasionally surfaces its internal
+                # timeout here; fall back to a blocking wait. The
+                # post-exit audits below still verify ownership and
+                # external-NVIDIA state.
+                child_code = process.wait()
+                aborted = False
+            except Exception as frozen_abort_race:
+                # The frozen abort path can crash in stop_run when a
+                # survivor's /proc environ disappears mid-signal. Never
+                # mask a live child: only treat as an aborted run when
+                # the leader is already dead or the group is empty.
+                if process.poll() is None:
+                    raise
+                print(
+                    "generic-smoke frozen abort race (leader exited): "
+                    f"{frozen_abort_race!r}",
+                    file=sys.stderr,
+                )
+                child_code = process.wait()
+                aborted = True
             except (OSError, RuntimeError) as watchdog_race:
                 # The frozen stop primitive can lose a /proc/<pid>/environ
                 # race when the leader exits between member enumeration and
