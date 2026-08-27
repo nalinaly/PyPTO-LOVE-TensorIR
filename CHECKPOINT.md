@@ -1,6 +1,21 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0062`
+**Checkpoint:** `CP-0063`
+
+**Status:** v2 T2 classification is closed at independent v2 commit `18b3f5e`.
+Against the CP-0062 DSO, RMSNorm, both RoPE halves, attention softmax scale and
+GDN delta all compile as single broadcast-aware graphs with their normalized
+two-dimensional schedules; two classification runs returned the same five
+Cubin keys and `all_compiled=true`. The v2 structure suite now asserts
+`compiled` for every former B-class graph, contains no `producer-blocked`
+assertion or live L0 dependency marker, and passes under policy-2 run
+`pypto-20260827T111544Z-376637-d1bc0d`. Evidence is
+`state/evidence/pypto-v2-classify-cp0063.json` and
+`projects/pypto-kernels-v2/benchmarks/v2_classify_results.json`. This closes
+only compilation; one-launch BF16 numerical correctness remains the next,
+separate gate.
+
+## Previous checkpoint (CP-0062)
 
 **Status:** The v2 operator lane's T1 broadcast critical path is closed. TensorIR
 `d540d54` on `feature/pypto-broadcast-pointwise` accepts zero-stride broadcast

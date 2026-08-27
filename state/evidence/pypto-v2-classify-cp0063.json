@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "kind": "pypto-kernels-v2-broadcast-classification",
+  "v2_commit": "18b3f5e",
+  "pypto_commit": "5ddf1e7f231d946af6b5e38eccb8955f71d71b3f",
+  "tensor_ir_commit": "d540d54760de9ed5e112088d27cc0eded9ccbb14",
+  "dso_sha256": "2078af34ffb20ce5db24dd28a563a4663b404430dcbf55cc10449421e9502489",
+  "classification": {
+    "run_id": "pypto-20260827T111524Z-376482-a08304",
+    "all_compiled": true,
+    "cases": {
+      "rmsnorm": "0907e7e985342616",
+      "rope_even": "9a7241dc4c18425e",
+      "rope_odd": "23a7e7f3719b3caa",
+      "attention_softmax_scale": "61617aca10b3b78c",
+      "gdn_delta": "fd39123e31274922"
+    }
+  },
+  "structure_tests": {
+    "run_id": "pypto-20260827T111544Z-376637-d1bc0d",
+    "passed": true,
+    "output": "ALL V2 STRUCTURE TESTS PASSED",
+    "producer_blocked_assertions_remaining": 0
+  },
+  "acceptance_boundary": "Compilation only; GPU numerical correctness remains separate."
+}
