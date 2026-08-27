@@ -1,0 +1,18 @@
+{
+ "census": {
+  "fallback": 256,
+  "pypto": 1313
+ },
+ "fallback_detail": [
+  "gdn-state-update x256"
+ ],
+ "kind": "pypto-qwen35-0p8b-layer-forward-sm120",
+ "outputs_finite": false,
+ "pipeline_completed": true,
+ "pypto_kernel_ratio": 0.8368387507966858,
+ "schema": 1,
+ "shapes": {
+  "hidden": 1024,
+  "tokens": 256
+ }
+}
