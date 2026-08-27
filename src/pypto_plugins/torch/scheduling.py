@@ -83,7 +83,7 @@ def make_pypto_triton_scheduling(triton_scheduling_class: Any) -> Any:
                 program, tile=128, registry_name=name
             )
             REGISTRY.register(name, artifact)
-            _emit_pypto_node_launch(node, name)
+            _emit_pypto_node_launch(node, name, meta)
 
         def _codegen_pypto_pointwise_node(self, node: Any) -> None:
             program, meta = _translate_pointwise(node)
@@ -92,7 +92,7 @@ def make_pypto_triton_scheduling(triton_scheduling_class: Any) -> Any:
                 program, tile=meta["tile"], registry_name=name
             )
             REGISTRY.register(name, artifact)
-            _emit_pypto_node_launch(node, name)
+            _emit_pypto_node_launch(node, name, meta)
 
         def define_kernel(self, src_code: Any, node_schedule: Any, kernel: Any) -> None:
             if current_mode() is None:
@@ -275,7 +275,7 @@ def _force_dense_output_layout(output: Any) -> None:
         pass
 
 
-def _emit_pypto_node_launch(node: Any, name: str) -> None:
+def _emit_pypto_node_launch(node: Any, name: str, meta: dict | None = None) -> None:
     wrapper = _graph_wrapper_code()
     if not getattr(wrapper, "_pypto_header_written", False):
         wrapper.header.writeline(
@@ -292,7 +292,22 @@ def _emit_pypto_node_launch(node: Any, name: str) -> None:
         if buffer is not None and hasattr(buffer, "get_defining_op"):
             wrapper.codegen_allocation(buffer)
     stream = "pypto_stream.cuda_stream"
-    call_args = _node_call_args(node)
+    broadcast_buffers = set((meta or {}).get("broadcast_buffers", ()))
+    output_shape = (meta or {}).get("output_shape") or []
+    call_args = []
+    for arg in _node_call_args(node):
+        if arg in broadcast_buffers:
+            # The kernel ABI declares the full iteration-space extent with
+            # zero trailing strides for broadcast inputs; pass the
+            # addressing-equivalent expanded stride-zero view.
+            shape_text = repr(tuple(output_shape))
+            stride_text = "(1," + "0," * (len(output_shape) - 1) + ")"
+            stride_text = "(" + stride_text[1:-1].rstrip(",") + ")" if len(output_shape) > 1 else "(1,)"
+            call_args.append(
+                f"_pypto_torch.as_strided({arg}, {shape_text}, {stride_text})"
+            )
+        else:
+            call_args.append(arg)
     joined = ", ".join(call_args)
     wrapper.writeline(
         f"pypto_launch({name!r}, ({joined}{', ' if joined else ''}), {stream})"
@@ -338,6 +353,25 @@ class _OpsRecorder:
         "cos": "tensor.cos",
     }
     _COMPOSED = ("sigmoid", "relu", "tanh")
+    # Linear compositions that may replay elementwise over a materialized
+    # broadcast; relu's (x+|x|)*0.5 is not linear in the row alone and stays
+    # fail-closed on broadcast operands.
+    _COMPOSED_ROW_PRIMITIVES = {
+        "sigmoid": (
+            ("tensor.neg", None),
+            ("tensor.exp", None),
+            ("tensor.adds", 1.0),
+            ("tensor.recip", None),
+        ),
+        "tanh": (
+            ("tensor.muls", -2.0),
+            ("tensor.exp", None),
+            ("tensor.adds", 1.0),
+            ("tensor.recip", None),
+            ("tensor.muls", 2.0),
+            ("tensor.adds", -1.0),
+        ),
+    }
 
     def __init__(self, loop_arity: int = 0) -> None:
         self.inputs: list[str] = []
@@ -347,6 +381,10 @@ class _OpsRecorder:
         self.broadcast_keys: set[int] = set()
         self._loop_arity = loop_arity
         self._counter = 0
+        # Elementwise ops distribute over broadcast, so row-domain scalar and
+        # unary applications are deferred until a full-shape tensor combines
+        # with the row; they replay against the materialized broadcast.
+        self._pending_rows: dict[int, list[tuple[str, object | None]]] = {}
 
     class _Proxy:
         __slots__ = ("key",)
@@ -427,7 +465,14 @@ class _OpsRecorder:
             if name == "constant":
                 return args[0]
             if name in self._COMPOSED and len(args) == 1 and not self._is_constant(args[0]):
-                return self._compose(name, args[0])
+                operand = args[0]
+                if self._is_broadcast_proxy(operand):
+                    for op_name, scalar in self._COMPOSED_ROW_PRIMITIVES[name]:
+                        self._pending_rows.setdefault(operand.key, []).append(
+                            (op_name, scalar)
+                        )
+                    return operand
+                return self._compose(name, operand)
             if name in self._BINARY:
                 first, second = args[0], args[1]
                 if self._is_constant(first) and self._is_constant(second):
@@ -453,6 +498,19 @@ class _OpsRecorder:
                         return self._emit("tensor.muls", [reciprocal, numerator])
                     raise StrictCoverageError(
                         "scalar-left binary op is not a registered form"
+                    )
+                if self._is_broadcast_proxy(first) and self._is_constant(second):
+                    # Row-domain scalar op: defer until the row meets a full
+                    # tensor, then replay the scalar against the materialized
+                    # broadcast (elementwise ops distribute over broadcast).
+                    self._pending_rows.setdefault(first.key, []).append(
+                        (self._BINARY[name] + "s", self._constant_float(second))
+                    )
+                    return first
+                if self._is_constant(first) and self._is_broadcast_proxy(second):
+                    raise StrictCoverageError(
+                        "scalar-left binary op over a broadcast row is not a "
+                        "registered form"
                     )
                 if self._is_broadcast_proxy(first) or self._is_broadcast_proxy(second):
                     # Row-expand fused ops broadcast a [M,1,...] input over
@@ -480,10 +538,19 @@ class _OpsRecorder:
                             "binary op with two broadcast operands is not a "
                             "registered form"
                         )
-                    self.events.append(
-                        ("op", "tensor.row_expand_" + self._BINARY[name].split(".")[-1],
-                         [tensor_operand, row_operand])
-                    )
+                    resolved_row = self._flush_pending_row(row_operand, tensor_operand)
+                    if resolved_row is row_operand:
+                        self.events.append(
+                            ("op", "tensor.row_expand_"
+                             + self._BINARY[name].split(".")[-1],
+                             [tensor_operand, resolved_row])
+                        )
+                    else:
+                        # The pending composition already materialized the
+                        # broadcast; combine with the plain base op.
+                        self.events.append(
+                            ("op", self._BINARY[name], [tensor_operand, resolved_row])
+                        )
                     return self._next_proxy()
                 if self._is_constant(second):
                     self.events.append(
@@ -494,13 +561,40 @@ class _OpsRecorder:
                     self.events.append(("op", self._BINARY[name], [first, second]))
                 return self._next_proxy()
             if name in self._UNARY and len(args) == 1:
-                self.events.append(("op", self._UNARY[name], [args[0]]))
+                operand = args[0]
+                if self._is_broadcast_proxy(operand) and not self._is_constant(operand):
+                    self._pending_rows.setdefault(operand.key, []).append(
+                        (self._UNARY[name], None)
+                    )
+                    return operand
+                self.events.append(("op", self._UNARY[name], [operand]))
                 return self._next_proxy()
             raise StrictCoverageError(
                 f"strict PyPTO pointwise translation has no op {name!r} yet"
             )
 
         return handler
+
+    def _flush_pending_row(
+        self, row_operand: object, full_operand: object
+    ) -> object:
+        """Materialize a pending row composition against a full-shape peer.
+
+        The broadcast input expands via ``tensor.row_expand`` using the full
+        operand as the shape definer; any deferred row-domain scalar or unary
+        applications then replay elementwise over the materialized value.
+        """
+        pending = self._pending_rows.pop(getattr(row_operand, "key", None), [])
+        if not pending:
+            return row_operand
+        self.events.append(("op", "tensor.row_expand", [full_operand, row_operand]))
+        materialized = self._next_proxy()
+        value = materialized
+        for op_name, scalar in pending:
+            operands = [value] if scalar is None else [value, scalar]
+            self.events.append(("op", op_name, operands))
+            value = self._next_proxy()
+        return value
 
     def _is_broadcast_proxy(self, value: object) -> bool:
         return (
@@ -592,6 +686,10 @@ def _translate_pointwise(node: Any) -> tuple[Any, dict[str, str | int]]:
     next_key = 1
     for event in recorder.events:
         kind = event[0]
+        import os as _os
+        if _os.environ.get("PYPTO_DEBUG_NODES"):
+            import sys as _sys
+            print(f"EVENT {event!r}", file=_sys.stderr, flush=True)
         if kind in ("load", "broadcast_load"):
             buffer_name = str(event[1])
             variable = variables.get(buffer_name)
@@ -622,4 +720,15 @@ def _translate_pointwise(node: Any) -> tuple[Any, dict[str, str | int]]:
     for output_key in output_keys:
         if output_key is not None:
             builder.mark_output(values[output_key])
-    return builder.build(), {"tile": 128}
+    broadcast_buffers = sorted(
+        {
+            str(event[1])
+            for event in recorder.events
+            if event[0] == "broadcast_load"
+        }
+    )
+    return builder.build(), {
+        "tile": 128,
+        "broadcast_buffers": broadcast_buffers,
+        "output_shape": list(ranges),
+    }

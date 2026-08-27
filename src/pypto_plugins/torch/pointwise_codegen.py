@@ -102,6 +102,7 @@ class PointwiseProgramBuilder:
             "bfloat16": self._pypto.DataType.BF16,
         }[dtype_name]
         self._tensor_type = self._ir.TensorType(list(shape), self._dtype)
+        self._shape_tuple = tuple(int(dim) for dim in shape)
         self._span = self._ir.Span("pypto_plugins.pointwise_codegen", 1, 1)
         self._statements: list[Any] = []
         self._previous: Any | None = None
@@ -127,8 +128,7 @@ class PointwiseProgramBuilder:
 
     @property
     def shape(self) -> tuple[int, ...]:
-        shape = self._tensor_type.shape
-        return tuple(int(dim) for dim in shape)
+        return self._shape_tuple
 
     def scalar(self, value: float) -> Any:
         return self._ir.ConstFloat(value, self._dtype, self._span)
