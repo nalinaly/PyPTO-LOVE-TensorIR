@@ -79,6 +79,22 @@ def pypto_launch(kernel_name: str, args: tuple[Any, ...], stream: int) -> None:
         )
         for tensor in args
     ]
-    packet = executable.prepare_launch(arguments)
+    try:
+        packet = executable.prepare_launch(arguments)
+    except Exception as error:
+        descriptors = []
+        try:
+            for descriptor in artifact.kernel_abi.argument_layout.operand_descriptors:
+                descriptors.append(
+                    (str(descriptor.kind).rsplit(".", 1)[-1], list(descriptor.shape))
+                )
+        except Exception:  # pragma: no cover - diagnostics only
+            pass
+        raise type(error)(
+            f"{kernel_name}: {error}; args="
+            + repr([(tuple(t.shape), tuple(t.stride())) for t in args])
+            + "; abi="
+            + repr(descriptors)
+        ) from error
     executable.launch(packet, stream)
     del packet

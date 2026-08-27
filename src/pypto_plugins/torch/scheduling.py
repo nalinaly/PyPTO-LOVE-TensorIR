@@ -45,13 +45,45 @@ def make_pypto_triton_scheduling(triton_scheduling_class: Any) -> Any:
         def codegen_node(self, node: Any) -> None:
             if current_mode() is None:
                 return super().codegen_node(node)
-            inner = getattr(node, "node", None)
-            if not _is_pointwise_node(inner):
+            nodes = [node]
+            if type(node).__name__ == "FusedSchedulerNode":
+                removed = getattr(getattr(self, "scheduler", None), "removed_ops", ())
+                nodes = [
+                    sub_node
+                    for sub_node in node.get_nodes()
+                    if sub_node.get_name() not in removed
+                ]
+            for sub_node in nodes:
+                inner = getattr(sub_node, "node", None)
+                import os as _os
+                if _os.environ.get("PYPTO_DEBUG_NODES"):
+                    import sys as _sys
+                    data = getattr(inner, "data", None)
+                    print(
+                        f"NODE node={type(sub_node).__name__} "
+                        f"inner={type(inner).__name__} data={type(data).__name__}",
+                        file=_sys.stderr,
+                        flush=True,
+                    )
+                if _is_pointwise_node(inner):
+                    self._codegen_pypto_pointwise_node(sub_node)
+                    continue
+                if _is_reduction_node(inner):
+                    self._codegen_pypto_reduction_node(sub_node)
+                    continue
                 raise StrictCoverageError(
                     "strict PyPTO mode has no kernel for Inductor node "
                     f"{type(inner).__name__!r} yet"
                 )
-            self._codegen_pypto_pointwise_node(node)
+
+        def _codegen_pypto_reduction_node(self, node: Any) -> None:
+            program = _translate_reduction(node)
+            name = f"pypto_kernel_{len(REGISTRY._kernels)}"
+            artifact = pointwise_codegen.compile_pointwise(
+                program, tile=128, registry_name=name
+            )
+            REGISTRY.register(name, artifact)
+            _emit_pypto_node_launch(node, name)
 
         def _codegen_pypto_pointwise_node(self, node: Any) -> None:
             program, meta = _translate_pointwise(node)
@@ -60,28 +92,7 @@ def make_pypto_triton_scheduling(triton_scheduling_class: Any) -> Any:
                 program, tile=meta["tile"], registry_name=name
             )
             REGISTRY.register(name, artifact)
-            wrapper = _graph_wrapper_code()
-            if not getattr(wrapper, "_pypto_header_written", False):
-                wrapper.header.writeline(
-                    "from pypto_plugins.torch.runtime_bridge import pypto_launch"
-                )
-                wrapper.header.writeline("import torch as _pypto_torch")
-                wrapper.header.writeline(
-                    "pypto_stream = _pypto_torch.cuda.Stream()"
-                )
-                wrapper._pypto_header_written = True
-            for output in node.get_outputs():
-                buffer = getattr(output, "node", output)
-                if not hasattr(buffer, "get_defining_op"):
-                    buffer = getattr(output, "buffer", None)
-                if buffer is not None and hasattr(buffer, "get_defining_op"):
-                    wrapper.codegen_allocation(buffer)
-            stream = "pypto_stream.cuda_stream"
-            call_args = _node_call_args(node)
-            joined = ", ".join(call_args)
-            wrapper.writeline(
-                f"pypto_launch({name!r}, ({joined}{', ' if joined else ''}), {stream})"
-            )
+            _emit_pypto_node_launch(node, name)
 
         def define_kernel(self, src_code: Any, node_schedule: Any, kernel: Any) -> None:
             if current_mode() is None:
@@ -151,6 +162,60 @@ def _is_pointwise_node(inner: Any) -> bool:
     return isinstance(inner, Pointwise)
 
 
+def _is_reduction_node(inner: Any) -> bool:
+    try:
+        from torch._inductor.ir import ComputedBuffer, Reduction
+    except Exception:  # pragma: no cover - pinned import path
+        return False
+    if isinstance(inner, ComputedBuffer):
+        inner = inner.data
+    return isinstance(inner, Reduction)
+
+
+def _translate_reduction(node: Any) -> Any:
+    """Build the RowReductionV3 HIR for a trailing-axis Inductor reduction."""
+
+    inner = getattr(node, "node", None)
+    data = getattr(inner, "data", None)
+    if data is None:
+        data = inner
+    reduction_type = data.get_reduction_type()
+    if reduction_type == "sum":
+        op_name = "tensor.row_sum"
+    elif reduction_type == "max":
+        op_name = "tensor.row_max"
+    else:
+        raise StrictCoverageError(
+            f"strict PyPTO reduction has no mode {reduction_type!r} yet"
+        )
+    outer = [int(extent) for extent in data.get_size()]
+    reduced = [int(extent) for extent in data.get_reduction_size()]
+    if not outer or not reduced:
+        raise StrictCoverageError("reduction needs both outer and reduction extents")
+    # A keepdim reduction reports the [M,1] output extent inside the outer
+    # loop ranges; those trailing unit slots are not input dimensions.
+    while len(outer) > 1 and outer[-1] == 1:
+        outer.pop()
+    input_shape = [*outer, *reduced]
+    modules = pointwise_codegen.bootstrap_pypto()
+    ir = modules["ir"]
+    pypto = modules["pypto"]
+    dtype = pypto.DataType.FP32
+    span = ir.Span("pypto_plugins.scheduling", 1, 1)
+    input_type = ir.TensorType(input_shape, dtype)
+    result_type = ir.TensorType([*input_shape[:-1], 1], dtype)
+    input_value = ir.Var("input", input_type, span)
+    result = ir.Var("result", result_type, span)
+    call = ir.Call(ir.get_op(op_name), [input_value], result_type, span)
+    body = ir.SeqStmts(
+        [ir.AssignStmt(result, call, span), ir.ReturnStmt([result], span)], span
+    )
+    function = ir.Function(
+        "ignored_row_reduction_name", [input_value], [result_type], body, span
+    )
+    return ir.Program([function], "pypto_plugins_row_reduction", span)
+
+
 def _node_call_args(node: Any) -> list[str]:
     args: list[str] = []
     for dep in node.read_writes.reads:
@@ -180,6 +245,58 @@ def _graph_wrapper_code() -> Any:
     from torch._inductor.virtualized import V
 
     return V.graph.wrapper_code
+
+
+def _force_dense_output_layout(output: Any) -> None:
+    """Pin a PyPTO-produced buffer to dense row-major strides.
+
+    The PyPTO kernel ABI carries dense static strides in the artifact, and
+    Inductor's layout heuristics can pick exotic strides (a [M,1] row with
+    stride (1,M)) for intermediates; every layout consumer in this path is
+    index-based, so dense is always safe here.
+    """
+    buffer = getattr(output, "node", output)
+    if not hasattr(buffer, "get_size") or not hasattr(buffer, "layout"):
+        return
+    try:
+        from torch._inductor.ir import FixedLayout
+
+        size = [int(extent) for extent in buffer.get_size()]
+        strides: list[int] = []
+        running = 1
+        for extent in reversed(size):
+            strides.append(running)
+            running *= extent
+        strides.reverse()
+        buffer.layout = FixedLayout(
+            buffer.get_device(), buffer.get_dtype(), size, strides
+        )
+    except Exception:  # pragma: no cover - layout pinning is best-effort
+        pass
+
+
+def _emit_pypto_node_launch(node: Any, name: str) -> None:
+    wrapper = _graph_wrapper_code()
+    if not getattr(wrapper, "_pypto_header_written", False):
+        wrapper.header.writeline(
+            "from pypto_plugins.torch.runtime_bridge import pypto_launch"
+        )
+        wrapper.header.writeline("import torch as _pypto_torch")
+        wrapper.header.writeline("pypto_stream = _pypto_torch.cuda.Stream()")
+        wrapper._pypto_header_written = True
+    for output in node.get_outputs():
+        buffer = getattr(output, "node", output)
+        _force_dense_output_layout(buffer)
+        if not hasattr(buffer, "get_defining_op"):
+            buffer = getattr(output, "buffer", None)
+        if buffer is not None and hasattr(buffer, "get_defining_op"):
+            wrapper.codegen_allocation(buffer)
+    stream = "pypto_stream.cuda_stream"
+    call_args = _node_call_args(node)
+    joined = ", ".join(call_args)
+    wrapper.writeline(
+        f"pypto_launch({name!r}, ({joined}{', ' if joined else ''}), {stream})"
+    )
 
 
 def _graph_name() -> str:
@@ -222,11 +339,13 @@ class _OpsRecorder:
     }
     _COMPOSED = ("sigmoid", "relu", "tanh")
 
-    def __init__(self) -> None:
+    def __init__(self, loop_arity: int = 0) -> None:
         self.inputs: list[str] = []
         self.outputs: list[str] = []
         self.events: list[tuple[object, ...]] = []
         self.proxies: dict[int, object] = {}
+        self.broadcast_keys: set[int] = set()
+        self._loop_arity = loop_arity
         self._counter = 0
 
     class _Proxy:
@@ -282,8 +401,22 @@ class _OpsRecorder:
                 buffer_name = str(args[0])
                 if buffer_name not in self.inputs:
                     self.inputs.append(buffer_name)
-                self.events.append(("load", buffer_name))
-                return self._next_proxy()
+                proxy = self._next_proxy()
+                import os as _os
+                if _os.environ.get("PYPTO_DEBUG_NODES"):
+                    import sys as _sys
+                    print(
+                        f"LOAD {buffer_name!r} index={args[1:]!r} "
+                        f"kwargs={kwargs!r}",
+                        file=_sys.stderr,
+                        flush=True,
+                    )
+                if self._is_broadcast_index(args[1] if len(args) > 1 else None):
+                    self.broadcast_keys.add(proxy.key)
+                    self.events.append(("broadcast_load", buffer_name))
+                else:
+                    self.events.append(("load", buffer_name))
+                return proxy
             if name == "store":
                 value = args[2] if len(args) > 2 else None
                 self.outputs.append(str(args[0]))
@@ -321,6 +454,37 @@ class _OpsRecorder:
                     raise StrictCoverageError(
                         "scalar-left binary op is not a registered form"
                     )
+                if self._is_broadcast_proxy(first) or self._is_broadcast_proxy(second):
+                    # Row-expand fused ops broadcast a [M,1,...] input over
+                    # the trailing extents; the row input must be the second
+                    # operand, so commute only when that preserves semantics.
+                    commutative = name in ("add", "mul", "maximum", "minimum",
+                                           "max", "min")
+                    if self._is_broadcast_proxy(first) and not commutative:
+                        # Materialize the broadcast, then apply the base op
+                        # with the row on the left (e.g. row / tensor).
+                        self.events.append(
+                            ("op", "tensor.row_expand", [second, first])
+                        )
+                        expanded = self._next_proxy()
+                        self.events.append(
+                            ("op", self._BINARY[name], [expanded, second])
+                        )
+                        return self._next_proxy()
+                    tensor_operand, row_operand = (
+                        (second, first) if self._is_broadcast_proxy(first)
+                        else (first, second)
+                    )
+                    if self._is_broadcast_proxy(tensor_operand):
+                        raise StrictCoverageError(
+                            "binary op with two broadcast operands is not a "
+                            "registered form"
+                        )
+                    self.events.append(
+                        ("op", "tensor.row_expand_" + self._BINARY[name].split(".")[-1],
+                         [tensor_operand, row_operand])
+                    )
+                    return self._next_proxy()
                 if self._is_constant(second):
                     self.events.append(
                         ("op", self._BINARY[name] + "s",
@@ -338,6 +502,41 @@ class _OpsRecorder:
 
         return handler
 
+    def _is_broadcast_proxy(self, value: object) -> bool:
+        return (
+            isinstance(value, _OpsRecorder._Proxy)
+            and value.key in self.broadcast_keys
+        )
+
+    def _is_broadcast_index(self, index: object) -> bool:
+        """A broadcast row read addresses only the leading loop variable.
+
+        Inductor hands the ops handler a flat stride-composed index: a full
+        [M,N] read spans ``N*i0 + i1`` while a [M,1] row read is exactly
+        ``i0``. Any load whose flat index never mentions the trailing loop
+        variables broadcasts over those extents.
+        """
+        import sympy
+
+        if isinstance(index, (list, tuple)):
+            if len(index) != 1:
+                return False
+            expr = index[0]
+        else:
+            expr = index
+        arity = self._loop_arity
+        if not arity or not isinstance(expr, sympy.Basic):
+            return False
+        names = {symbol.name for symbol in expr.free_symbols}
+        used = [name for name in names if name.startswith("i")]
+        if not used:
+            return False
+        try:
+            positions = [int(name[1:]) for name in used]
+        except ValueError:
+            return False
+        return max(positions) < arity - 1
+
 
 def _translate_pointwise(node: Any) -> tuple[Any, dict[str, str | int]]:
     """Translate a pointwise node's real ops sequence into FusedPointwiseV2 HIR.
@@ -353,8 +552,14 @@ def _translate_pointwise(node: Any) -> tuple[Any, dict[str, str | int]]:
 
     inner_node = getattr(node, "node", None)
     data = getattr(inner_node, "data", None)
-    size_source = data if data is not None else node
-    ranges = [int(s) for s in getattr(size_source, "get_size", lambda: [])()]
+    outputs = getattr(node, "get_outputs", lambda: [])()
+    output = outputs[0] if outputs else None
+    output_buffer = getattr(output, "node", output)
+    if hasattr(output_buffer, "get_size"):
+        ranges = [int(extent) for extent in output_buffer.get_size()]
+    else:
+        size_source = data if data is not None else node
+        ranges = [int(extent) for extent in size_source.get_size()]
     if not ranges:
         raise StrictCoverageError("pointwise kernel has no static size hints")
     body = getattr(node, "_body", None)
@@ -363,8 +568,11 @@ def _translate_pointwise(node: Any) -> tuple[Any, dict[str, str | int]]:
     body = getattr(node, "_body", None) or getattr(data, "_body", None)
     if body is None:
         raise StrictCoverageError("pointwise node has no executable body")
-    recorder = _OpsRecorder()
-    index_vars = [[sympy.Symbol(f"i{index}") for index in range(len(ranges))]]
+    var_count = len(getattr(body, "var_ranges", {}) or {})
+    if var_count == 0:
+        var_count = len(ranges)
+    recorder = _OpsRecorder(loop_arity=var_count)
+    index_vars = [[sympy.Symbol(f"i{index}") for index in range(var_count)]]
     with V.set_ops_handler(recorder):
         body(*index_vars)
     if not recorder.inputs or not recorder.outputs or not recorder.events:
@@ -375,7 +583,7 @@ def _translate_pointwise(node: Any) -> tuple[Any, dict[str, str | int]]:
         )
     dtype_name = "float32"
     builder = pointwise_codegen.PointwiseProgramBuilder(
-        tuple(ranges[-1:]), dtype_name
+        tuple(ranges), dtype_name
     )
     values: dict[int, Any] = {}
     variables: dict[str, Any] = {}
@@ -384,11 +592,14 @@ def _translate_pointwise(node: Any) -> tuple[Any, dict[str, str | int]]:
     next_key = 1
     for event in recorder.events:
         kind = event[0]
-        if kind == "load":
+        if kind in ("load", "broadcast_load"):
             buffer_name = str(event[1])
             variable = variables.get(buffer_name)
             if variable is None:
-                variable = builder.add_input(buffer_name)
+                if kind == "broadcast_load":
+                    variable = builder.add_broadcast_input(buffer_name)
+                else:
+                    variable = builder.add_input(buffer_name)
                 variables[buffer_name] = variable
             values[next_key] = variable
             next_key += 1

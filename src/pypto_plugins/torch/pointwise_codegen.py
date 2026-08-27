@@ -115,6 +115,21 @@ class PointwiseProgramBuilder:
         self.inputs.append(var)
         return var
 
+    def add_broadcast_input(self, name: str) -> Any:
+        """Add a [M,1,...] row input for row-expand fused operands."""
+        if len(self.inputs) >= self.MAX_INPUTS:
+            raise StrictCoverageError("fused pointwise chain exceeds 16 inputs")
+        row_shape = [dim if index == 0 else 1 for index, dim in enumerate(self.shape)]
+        row_type = self._ir.TensorType(row_shape, self._dtype)
+        var = self._ir.Var(name, row_type, self._span)
+        self.inputs.append(var)
+        return var
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        shape = self._tensor_type.shape
+        return tuple(int(dim) for dim in shape)
+
     def scalar(self, value: float) -> Any:
         return self._ir.ConstFloat(value, self._dtype, self._span)
 
