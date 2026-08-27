@@ -40,6 +40,19 @@ below. It records work in progress, **not** CP-0084 acceptance.
   `feature/paged-decode-sm120@dad8bcf`; it recognizes the exact native
   `tile.gather_row`/GQA/softmax graph and emits a four-input TensorIR candidate.
   That branch is source-only and has not compiled or linked.
+- The emitted one-head paged-decode graph exposes a second generic TensorIR
+  gap: after graph splitting, its explicit unit-M query source remains
+  `[1,256]` while the normalized matmul view omits M. The old tool fails exactly
+  at QK with `Cannot get LHS dimension map`. TensorIR source candidate
+  `feature/paged-unit-dimension-sm120@4407530` is isolated in
+  `worktrees/tensor-ir-paged-unit-dimension`; it represents only missing unit
+  operand dimensions as extent-one/zero-index mappings and adds the exact
+  gather/QK/softmax/PV regression. Static MLIR parse and diff checks pass, but
+  it has **not** built, linked, passed FileCheck or produced a Cubin.
+- The current paged operator remains only a 16-token, one-request decode
+  candidate. It has no valid-length padding mask, KV-cache write, prefill,
+  batching or causal/verify metadata path, so neither the candidate nor the
+  unit-dimension repair is an SGLang/model attention claim.
 - Two temporary untracked diagnostics remain in `projects/pypto-kernels`:
   `benchmarks/probe_qk_compile_sm120.py` (final target tile/current model cache
   shape) and `benchmarks/probe_qk_gdb.py`. Do not commit them; remove them only
@@ -47,13 +60,17 @@ below. It records work in progress, **not** CP-0084 acceptance.
   records the earlier failed candidate and must be regenerated, not promoted.
 
 The final DSO rebuild did not start because the protected external ZCode
-9B/TP4 and gem5 lanes held `MemAvailable` near 19.5 GiB. The reviewed CPU-v2
+9B/TP4 and gem5 lanes held `MemAvailable` near 19.1--19.5 GiB. The reviewed CPU-v2
 controller and canonical manifest pass 55/55 tests, but its exact admission is
 22 GiB; a ten-minute read-only monitor never reached it. No external PID was
-signalled. Resume only after `MemAvailable >= 23068672 KiB` with:
+signalled. A later source-only TensorIR validation monitor also never admitted
+a child. Its first dry admission proved that an `env -i` PATH containing only
+`/usr/bin:/bin` cannot find WSL's `nvidia-smi`; include the canonical WSL
+directory for the controller's GPU identity audit. Resume only after
+`MemAvailable >= 23068672 KiB` with:
 
 ```bash
-env -i PATH=/usr/bin:/bin \
+env -i PATH=/usr/lib/wsl/lib:/usr/bin:/bin \
   envs/pypto-nvidia/bin/python -E -B -S \
   tools/run_pypto_cpu_coexistence_v2_isolated.py \
   --run-id-file runs/next-qk-final-build.json \
@@ -70,6 +87,13 @@ single launch with Q/K BF16 reference tolerance and exact gate copy may advance
 CP-0084. Afterward remove both temporary probes, regenerate both JSON result
 files, update the README status, commit the result boundary, and continue to
 causal paged attention. Do not claim QK performance or either model gate.
+
+Keep the primary TensorIR checkout on clean `feature/pypto-broadcast-pointwise`
+at `a48606b` for that QK rebuild. Validate `4407530` from its isolated worktree
+or only after the QK gate; never silently point the QK DSO build at the paged
+source candidate. The first required paged validation is the new
+`paged_decode_attention_layout.mlir` FileCheck, followed by the full emitted
+8-head graph through `tensor_ir-compiler --target-sm=sm_120a --tile-size=1x64`.
 
 **Status:** Qwen3.5 token embedding is now a real native tile row gather, not
 one-hot matmul. Canonical operator `426e373` uses explicit `@pl.jit` row/block
