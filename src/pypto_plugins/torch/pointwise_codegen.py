@@ -152,6 +152,19 @@ class PointwiseProgramBuilder:
         )
 
 
+_RUNTIME_OBJECTS: dict[str, tuple[Any, Any]] = {}
+
+
+def retain_runtime_objects(name: str, artifact: Any, request: Any) -> None:
+    """Keep the live artifact/request pair for the wrapper-side bridge."""
+
+    _RUNTIME_OBJECTS.setdefault(name, (artifact, request))
+
+
+def runtime_objects(name: str) -> tuple[Any, Any] | None:
+    return _RUNTIME_OBJECTS.get(name)
+
+
 @dataclass(frozen=True, slots=True)
 class PointwiseArtifact:
     """The compiled FusedPointwiseV2 artifact identity."""
@@ -169,6 +182,27 @@ class PointwiseArtifact:
     launcher_source: str
 
 
+def _live_target_or_none(compiler: Any) -> Any:
+    """Observe the live NVIDIA target when CUDA is available in-process."""
+
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return None
+        torch.zeros(1, device="cuda")  # force the primary context current
+        from pypto.runtime import nvidia as runtime
+
+        observation = runtime.observe_current_nvidia_runtime(
+            "610.74",
+            "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-nvidia/lib/"
+            "python3.14/site-packages/nvidia/cu13/lib/libcudart.so.13",
+        )
+        return observation.target_info
+    except Exception:
+        return None
+
+
 def _reference_request(compiler: Any, pypto: Any, info: Any) -> Any:
     """Build the SM120 CompileRequest from live backend build info."""
 
@@ -178,6 +212,8 @@ def _reference_request(compiler: Any, pypto: Any, info: Any) -> Any:
         TargetTraits,
         ToolchainIdentity,
     )
+
+    live_target = _live_target_or_none(compiler)
 
     traits = TargetTraits(
         compute_capability=120,
@@ -213,18 +249,20 @@ def _reference_request(compiler: Any, pypto: Any, info: Any) -> Any:
         info.tileiras_version,
         info.tileiras_sha256,
     )
-    target = NvidiaTargetInfo(
-        0,
-        "PyPTO plugins pointwise device",
-        "GPU-pypto-plugins",
-        "0000:01:00.0",
-        traits,
-        info.cuda_toolkit_version,
-        "610.74",
-        info.tensor_ir_revision,
-        info.cuda_tile_revision,
-        [pypto.DataType.BF16, pypto.DataType.FP32],
-    )
+    target = live_target
+    if target is None:
+        target = NvidiaTargetInfo(
+            0,
+            "PyPTO plugins pointwise device",
+            "GPU-pypto-plugins",
+            "0000:01:00.0",
+            traits,
+            info.cuda_toolkit_version,
+            "610.74",
+            info.tensor_ir_revision,
+            info.cuda_tile_revision,
+            [pypto.DataType.BF16, pypto.DataType.FP32],
+        )
     return CompileRequest(target, toolchain)
 
 
@@ -255,7 +293,9 @@ def _reference_schedule(tile: int) -> Any:
     )
 
 
-def compile_pointwise(program: Any, *, tile: int = 128) -> PointwiseArtifact:
+def compile_pointwise(
+    program: Any, *, tile: int = 128, registry_name: str | None = None
+) -> PointwiseArtifact:
     """Compile an HIR program through the exact-DSO strict facade."""
 
     modules = bootstrap_pypto()
@@ -268,11 +308,18 @@ def compile_pointwise(program: Any, *, tile: int = 128) -> PointwiseArtifact:
     schedule = _reference_schedule(tile)
     result = compiler.compile_structured_strict(program, request, schedule)
     artifact = result.artifact
+    kernel_name = (
+        "pypto_pointwise_"
+        + hashlib.sha256(bytes(artifact.device_code)).hexdigest()[:12]
+    )
     kernel = artifact.kernel_abi
     cubin = bytes(artifact.device_code)
     cubin_sha = hashlib.sha256(cubin).hexdigest()
+    retain_runtime_objects(kernel_name, artifact, request)
+    if registry_name is not None:
+        retain_runtime_objects(registry_name, artifact, request)
     return PointwiseArtifact(
-        kernel_name=f"pypto_pointwise_{cubin_sha[:12]}",
+        kernel_name=kernel_name,
         entry_name=kernel.entry_function_name,
         build_spec_sha256=hashlib.sha256(result.build_spec.serialize()).hexdigest(),
         artifact_sha256=hashlib.sha256(artifact.serialize()).hexdigest(),
@@ -294,4 +341,6 @@ __all__ = (
     "PointwiseProgramBuilder",
     "bootstrap_pypto",
     "compile_pointwise",
+    "retain_runtime_objects",
+    "runtime_objects",
 )

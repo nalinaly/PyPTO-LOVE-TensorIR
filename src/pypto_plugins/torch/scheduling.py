@@ -55,15 +55,19 @@ def make_pypto_triton_scheduling(triton_scheduling_class: Any) -> Any:
 
         def _codegen_pypto_pointwise_node(self, node: Any) -> None:
             program, meta = _translate_pointwise(node)
-            artifact = pointwise_codegen.compile_pointwise(
-                program, tile=meta["tile"]
-            )
             name = f"pypto_kernel_{len(REGISTRY._kernels)}"
+            artifact = pointwise_codegen.compile_pointwise(
+                program, tile=meta["tile"], registry_name=name
+            )
             REGISTRY.register(name, artifact)
             wrapper = _graph_wrapper_code()
             if not getattr(wrapper, "_pypto_header_written", False):
                 wrapper.header.writeline(
                     "from pypto_plugins.torch.runtime_bridge import pypto_launch"
+                )
+                wrapper.header.writeline("import torch as _pypto_torch")
+                wrapper.header.writeline(
+                    "pypto_stream = _pypto_torch.cuda.Stream()"
                 )
                 wrapper._pypto_header_written = True
             for output in node.get_outputs():
@@ -72,7 +76,7 @@ def make_pypto_triton_scheduling(triton_scheduling_class: Any) -> Any:
                     buffer = getattr(output, "buffer", None)
                 if buffer is not None and hasattr(buffer, "get_defining_op"):
                     wrapper.codegen_allocation(buffer)
-            stream = type(wrapper).write_get_raw_stream(wrapper, 0, _graph_name())
+            stream = "pypto_stream.cuda_stream"
             call_args = _node_call_args(node)
             joined = ", ".join(call_args)
             wrapper.writeline(
@@ -88,8 +92,9 @@ def make_pypto_triton_scheduling(triton_scheduling_class: Any) -> Any:
                     "node schedule yet"
                 )
             program, meta = _translate_pointwise(kernel)
+            name = f"pypto_kernel_{len(REGISTRY._kernels)}"
             artifact = pointwise_codegen.compile_pointwise(
-                program, tile=meta["tile"]
+                program, tile=meta["tile"], registry_name=name
             )
             REGISTRY.register(str(kernel), artifact)
 
@@ -108,8 +113,12 @@ def make_pypto_triton_scheduling(triton_scheduling_class: Any) -> Any:
                 wrapper.header.writeline(
                     "from pypto_plugins.torch.runtime_bridge import pypto_launch"
                 )
+                wrapper.header.writeline("import torch as _pypto_torch")
+                wrapper.header.writeline(
+                    "pypto_stream = _pypto_torch.cuda.Stream()"
+                )
                 wrapper._pypto_header_written = True
-            stream = type(wrapper).write_get_raw_stream(wrapper, 0, _graph_name())
+            stream = "pypto_stream.cuda_stream"
             joined = ", ".join(str(arg) for arg in call_args)
             wrapper.writeline(
                 f"pypto_launch({str(name)!r}, ({joined}{', ' if joined else ''}), {stream})"
