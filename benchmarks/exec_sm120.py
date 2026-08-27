@@ -412,7 +412,51 @@ def main() -> int:
         valid_tokens = torch.tensor(
             [valid_count], device="cuda", dtype=torch.int64
         )
+        row_width = kv_heads * paged_head_dim
+        current_key = (
+            torch.randn(1, row_width, device="cuda", dtype=torch.bfloat16) * 0.2
+        )
+        current_value = (
+            torch.randn(1, row_width, device="cuda", dtype=torch.bfloat16)
+            * 0.2
+        )
+        physical_row = selected[valid_count - 1 : valid_count].contiguous()
         torch.cuda.synchronize()
+        write_anchor = attention.paged_cache_write(
+            key_cache,
+            value_cache,
+            physical_row,
+            current_key,
+            current_value,
+            stream=stream,
+        )
+        stream.synchronize()
+        written_key = key_cache[physical_row].view(1, row_width)
+        written_value = value_cache[physical_row].view(1, row_width)
+        key_write_diff = float((written_key.float() - current_key.float()).abs().max())
+        value_write_diff = float(
+            (written_value.float() - current_value.float()).abs().max()
+        )
+        anchor_ref = current_key.float() + current_value.float()
+        anchor_diff = float((write_anchor.float() - anchor_ref).abs().max())
+        cases.append(
+            {
+                "case": f"{label} cache_write",
+                "implementation": "native-tile-dsl-scatter-rows",
+                "launches": 1,
+                "key_max_abs_diff": key_write_diff,
+                "value_max_abs_diff": value_write_diff,
+                "anchor_max_abs_diff": anchor_diff,
+                "max_abs_diff": max(key_write_diff, value_write_diff, anchor_diff),
+                "correct": bool(
+                    torch.equal(written_key, current_key)
+                    and torch.equal(written_value, current_value)
+                    and torch.allclose(
+                        write_anchor.float(), anchor_ref, rtol=5e-2, atol=5e-2
+                    )
+                ),
+            }
+        )
         paged_out = attention.paged_attention_decode(
             paged_query,
             key_cache,
@@ -565,6 +609,7 @@ def main() -> int:
             "rope",
             "attention",
             "attention_paged_decode",
+            "attention_paged_cache_write",
             "linear",
             "gdn_read",
             "gdn_state_update",
