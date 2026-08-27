@@ -28,7 +28,7 @@ below. It records work in progress, **not** CP-0084 acceptance.
   Cubin is not PyPTO Artifact, launch, numerical, framework or model evidence.
 - `pypto-kernels@5fbf813` adds the source-level Qwen3.5-0.8B fused QK
   GemmaRMSNorm + partial NeoX RoPE + gate-deinterleave candidate and its
-  actual-configuration numerical reference. Current kernels `50500ee` also add
+  actual-configuration numerical reference. Current kernels `7c4ddd5` also add
   a one-request paged-decode source candidate that reads physical slots
   directly from SGLang's INT32 request table and applies a device-side
   valid-length mask (`tile.ci/cmps/sels`) from existing INT64 GPU metadata. It
@@ -44,24 +44,26 @@ below. It records work in progress, **not** CP-0084 acceptance.
   execution gate includes a non-full `valid=13/bucket=16` case plus the 9B
   geometry. Slot 0 carries adversarial K/V values so a missing padding mask
   fails loudly. The future execution gate also requires cache rows to equal the
-  input K/V exactly before decode reads them, plus a 13-row prefill cache-write
-  case. None of these cases has run.
+  input K/V exactly before decode reads them, a 13-row prefill cache-write case,
+  and causal prefill with `prefix=2/extend=13/bucket=16` for both geometries.
+  None of these cases has run.
   README deliberately keeps QK at
   `待 run-pass` and paged decode at source-candidate status; GPU numerical
   correctness is unproven.
 - Primary `projects/pypto` remains clean at `d1b90b7` for the pending QK DSO
   rebuild. Paged-decode compiler work is isolated in
   `worktrees/pypto-paged-decode` on
-  `feature/paged-decode-sm120@a78bc3f`; it currently recognizes the native
+  `feature/paged-decode-sm120@40f5f3e`; it recognizes the native
   request-table-read/`tile.gather_row`/GQA/masked-softmax graph and the strict
-  static-loop `InOut` cache-write graph. Argument direction now survives
+  static-loop `InOut` cache-write graph and the four-level static causal
+  prefill graph. The prefill emitter gathers each KV head once, materializes
+  per-query causal masks and reconstructs `[tokens,Q,D]` through two-level
+  concatenation. Argument direction survives
   through argument and mutation ABI projections (`inout` / `read-write`)
   instead of being silently rewritten read-only. It pins TensorIR `6b7599a`,
   whose generic
   `scatter_rows` lowers through a CUDA Tile gather/scatter store, and archives
   dependencies as patches `0033` through `0037`.
-  The new causal prefill HIR has no matcher/emitter yet and is therefore not a
-  compiler candidate.
   That branch is source-only and has not compiled or linked; all six submodule
   directories in this secondary worktree are intentionally uninitialized, so
   do not configure it until their exact gitlinks are materialized from the
@@ -90,9 +92,9 @@ below. It records work in progress, **not** CP-0084 acceptance.
   direct request-table lookup keeps padded reads in-range at source level.
   Source-level cache write now covers decode and multirow prefill as a separate
   mutation-declared PyPTO graph, but it has not compiled or executed.
-  Unified-memory virtual-to-physical translation, causal prefill compiler
-  lowering, batching and verify metadata remain absent. None of these
-  candidates is an SGLang/model attention claim.
+  Unified-memory virtual-to-physical translation, batching and verify metadata
+  remain absent. Decode, cache-write and causal-prefill compiler paths are all
+  still source-only. None is an SGLang/model attention claim.
 - Two temporary untracked diagnostics remain in `projects/pypto-kernels`:
   `benchmarks/probe_qk_compile_sm120.py` (final target tile/current model cache
   shape) and `benchmarks/probe_qk_gdb.py`. Do not commit them; remove them only
