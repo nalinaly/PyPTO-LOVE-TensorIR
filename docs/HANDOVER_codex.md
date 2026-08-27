@@ -187,7 +187,11 @@ Qwen3.5-0.8B 与 9B 的**真实权重双路径前向已经端到端跑通**（Py
 
 - **L1（bug）**：层从权重推导（9B=32 层），读 config 的 `layer_types`
   而非 `layer%4==3`；重跑 9B，把结果 json 收进 `state/evidence/`。
-- **L2**：9B 用相关性主导门重跑确认 `golden_pass=true`（上次被取消）。
+- **L2**（部分完成）：被取消的重跑实际已完成并落盘证据
+  `state/evidence/qwen35-9b-golden-gate-run1.json`（golden_pass=true，
+  corr 0.973 / top-1 62.5% / 有限）——但这仍是 24/32 层的运行，
+  **L1 修完后必须重跑**，届时该证据作废替换。9B 的逐层画像也在该
+  文件头部（absmax 到 ~138，相对偏差与 0.8B 同量级）。
 - **L3（最大杠杆）**：对照 `upstream/sglang` 的 qwen3_5.py / gdn_backend.py
   逐条核对并修正 eager 参考公式（W1），然后重标定 golden 阈值（W4），
   目标 corr≥0.99 / top-1≥90%。0.8B 和 9B 都要。
