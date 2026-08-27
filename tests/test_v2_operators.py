@@ -4,16 +4,16 @@ import sys
 
 sys.path.insert(0, "/home/zhaosiying/pypto-love-tensor-ir/projects/pypto-kernels-v2/src")
 
+import torch
+
 from pypto_kernels_v2._boot import bootstrap
-from pypto_kernels_v2._graph import (gdn_state_update_graph, pointwise_graph,
-                                     tiles_for)
+from pypto_kernels_v2._graph import gdn_state_update_graph, pointwise_graph
 from pypto_kernels_v2.ops import (attention_design, fused_add, gdn,
                                  rmsnorm, rope, silu_and_mul)
 
 
 def test_each_operator_is_one_program():
     m = bootstrap()
-    ir = m["ir"]
     bf16 = m["pypto"].DataType.BF16
     p = pointwise_graph([64, 128], bf16, [("tensor.add", ["a", "b"])])
     assert len(p.functions) == 1
@@ -21,6 +21,24 @@ def test_each_operator_is_one_program():
     assert len(fn.body.stmts) == 2  # one assignment + one return
     assert silu_and_mul.GRAPHS == 1 and fused_add.GRAPHS == 1
     assert rmsnorm.GRAPHS == 1 and rope.GRAPHS == 2  # even/odd halves
+
+
+def test_pointwise_operators_use_native_tile_dsl():
+    sample = torch.empty((3, 256), dtype=torch.bfloat16, device="meta")
+    programs = {
+        "fused_add": fused_add.fused_add_kernel.specialize(sample, sample, sample),
+        "silu_and_mul": silu_and_mul.silu_and_mul_kernel.specialize(
+            sample, sample, sample
+        ),
+    }
+    for name, program in programs.items():
+        rendered = str(program)
+        assert "pl.at(level=pl.Level.CORE_GROUP)" in rendered, name
+        assert "pl.range(3)" in rendered, name
+        assert "pl.range(2)" in rendered, name
+        assert "pl.tile.load" in rendered, name
+        assert "pl.tile.store" in rendered, name
+        assert "tensor." not in rendered, name
 
 
 def _one_program(p):
@@ -91,6 +109,7 @@ def test_broadcast_dependencies_are_closed():
 
 if __name__ == "__main__":
     test_each_operator_is_one_program()
+    test_pointwise_operators_use_native_tile_dsl()
     test_rope_halves_are_single_graphs_and_compiled()
     test_gdn_compose_and_delta_compile()
     test_attention_softmax_scale_is_single_graph_compiled()

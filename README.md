@@ -1,23 +1,22 @@
-# pypto-kernels v2 — 昇腾风格的高层次算子库
+# pypto-kernels v2 — 原生 tile DSL 融合算子库
 
-依据 `docs/ascend_style_evidence.md` 的结论重写：**一个模型算子 = 一个
-PyPTO TensorIR graph**（编译一次/形状，调用即一次 launch），tile 进
-`CanonicalSchedule`（调度即 tiling）——对应昇腾"融合算子 + 算子内
-block/tiling"的形态。不做 Python 侧多 launch 编排，不用 ones-matmul
-展开。**本目录独立于 v1**（codex 正在改 v1 与 pypto 编译器），只共享
-不可变的 DSO 产物。
+唯一合格形态是 `examples/beginner/03_scalar_ops.py` 的原生写法：每个模型
+算子用 `@pl.jit`，在 `pl.at(CORE_GROUP)` 内显式写 `pl.range`、
+`pl.load(tile_shape)`、tile 运算和 `pl.store`。一个算子编译成一个
+TensorIR graph，调用时一次 launch；不做 Python 多 launch 编排，也不做
+ones-matmul 广播展开。仅仅用整张量 `tensor.*` graph 再附加 schedule
+元数据不算完成。
 
 ## 状态表
 
 | 算子 | graph 数 | 状态 | 说明 |
 |---|---|---|---|
-| `silu_and_mul`（SwiGLU） | 1 | **可执行** ✅ | 纯 pointwise 链；GPU 验收 vs eager 全绿（benchmarks/v2_exec_sm120.py） |
-| `fused_add`（残差加） | 1 | **可执行** ✅ | 同上；fused_add_rmsnorm 的前半 |
-| `rmsnorm` | 1 | **可执行** ✅ | BF16 单 graph：square→sum→scale→+eps→rsqrt→broadcast→mul；GPU eager 对拍全绿 |
-| `rope` | 2（偶/奇各一） | **可执行** ✅ | 每半一个 pointwise graph（row_expand_mul×2 + sub/add）；偶/奇 GPU eager 对拍全绿 |
-| `gdn` read | 5 | **可执行** ✅ | q-decay、state matmul、compose、dot reduce、delta+read 五个显式 graph 全部 run-pass；不隐藏为单 launch |
-| `gdn` state update | 1 | **可执行** ✅ | rank-3 broadcast DAG：decay·state + beta_key⊗value，一 graph/一 launch |
-| `attention` post-exp path | 2 | **可执行** ✅ | exponent normalize（sum→recip→broadcast-mul）+ value-mix matmul 均 run-pass；QK/max-shift/exp 与真单核 FA 仍属专用 graph kind（FUTURE） |
+| `silu_and_mul`（SwiGLU） | 1 | **原生 tile** ✅ | `[1,128]` load/compute/store；静态双层 `pl.range`；一次 launch |
+| `fused_add`（残差加） | 1 | **原生 tile** ✅ | `[1,128]` load/add/store；静态双层 `pl.range`；一次 launch |
+| `rmsnorm` | 1 | **待迁移** | 旧整张量 graph 可执行，但不再计入新验收 |
+| `rope` | 2 | **待迁移并融合** | 旧偶/奇 graph 可执行，但必须改成一个原生 tile 算子 |
+| `gdn` read/update | 5+1 | **待迁移并融合** | 旧多 graph 仅作数值基线，目标是模型算子单 graph/launch |
+| `attention` | 2（不完整） | **待迁移并补齐** | 旧 post-exp 分解仅作基线，目标是原生 tile attention graph |
 
 CP-0062 已关闭 broadcast producer 阻塞；分类证据在
 `benchmarks/v2_classify_results.json`。`compiled` 与 GPU 数值 `all_correct`
@@ -30,8 +29,4 @@ envs/pypto-nvidia/bin/python -B tests/test_v2_operators.py      # 结构：单 g
 envs/pypto-nvidia/bin/python -B benchmarks/v2_exec_sm120.py     # 可执行算子 GPU 验收
 ```
 
-## 与 v1 的关系
-
-v1（分解式）保持不动，直到 v2 全算子可执行后整体替换；届时 v2 就是
-HANDOVER L4b（融合阶段）的落点：算子边界内融合、归约/matmul 是天然
-graph 边界，与昇腾融合算子的边界划分一致。
+本仓只包含新的 v2 实现；模型接入也只允许引用这些原生 tile 算子。

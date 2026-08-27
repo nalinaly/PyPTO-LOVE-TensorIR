@@ -120,6 +120,19 @@ def compile_graph(program: Any, tiles: list[int]) -> str:
     return key
 
 
+def compile_jit_kernel(kernel: Any, samples: tuple[Any, ...],
+                       tiles: list[int]) -> str:
+    """Specialize a native ``@pl.jit`` tile kernel and compile that IR.
+
+    Unlike the legacy v2 graph builders, this boundary preserves the user's
+    ``pl.at`` / ``pl.range`` / ``tile.load`` / ``tile.store`` source.  The
+    NVIDIA frontend lifts the statically complete tile loop nest into one
+    TensorIR graph and the resulting operator still launches exactly once.
+    """
+
+    return compile_graph(kernel.specialize(*samples), tiles)
+
+
 _GRAPHS: dict[str, tuple[Any, Any]] = {}
 
 
