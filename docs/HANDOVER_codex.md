@@ -12,7 +12,10 @@ Qwen3.5-0.8B 与 9B 的**真实权重双路径前向已经端到端跑通**（Py
 路径 vs 纯 torch eager 参考路径），0.8B golden 门已按实测 BF16 包络通过
 （correlation 0.955 / top-1 72%）；9B 刚跑通（correlation 0.973 / top-1
 62.5%），但有两个**已知未闭环问题**（见 §6 的 L1/L2，其中 L1 是硬 bug：
-9B 只跑了 24/32 层）。PyPTO kernel 占比 90.9%，100% 的差距分析在 §5。
+9B 只跑了 24/32 层）。PyPTO kernel 占比 90.9%。**2026-08-27 用户更新授权：可以修改
+TensorIR 第三方源码（`projects/pypto/3rdparty/nvidia/tensor-ir`）并在
+本项目中 commit+push；100% PyPTO 是硬性要求，不是 best-effort**——
+通往 100% 的路径与差距分析见 §5。
 
 ## 1. 硬性安全与环境约束（必须遵守，违反会破坏别人的工作）
 
@@ -22,6 +25,18 @@ Qwen3.5-0.8B 与 9B 的**真实权重双路径前向已经端到端跑通**（Py
 - `upstream/pytorch`、`upstream/sglang`、`upstream/triton` 是官方
   checkout，**必须保持 zero-diff**（可以读，尤其建议读 sglang 的
   `python/sglang/srt/models/qwen3_5.py` 来核对模型公式，见 §6 L3）。
+- **TensorIR 修改授权（2026-08-27 用户批准）**：
+  `projects/pypto/3rdparty/nvidia/tensor-ir` 是 git submodule（origin
+  是只读的 NVIDIA 仓库，本地分支 `feature/pypto-private-build`）。
+  修改流程：(1) 在 submodule 里开分支改代码并 commit；(2) **同时用
+  `git format-patch` 把 diff 存成补丁文件 commit 进父仓**（如
+  `3rdparty/nvidia/tensor-ir-broadcast.patch`）——submodule 提交只存在
+  本机，补丁是唯一可随父仓分发/恢复的载体；(3) `git add
+  3rdparty/nvidia/tensor-ir` 更新父仓 gitlink 并 commit；(4) push 父仓
+  到 origin（`github.com/hw-native-sys/pypto.git`，可写）。submodule
+  本身无法 push 到 NVIDIA，不要尝试。(5) 改后必须重建 DSO：注意
+  strict clean-source guard 会把脏 submodule 视为未提交修改——**先
+  commit 再 configure/build**。
 - 所有 kernel 算法只能放在 `projects/pypto-kernels`；框架插件不得含
   kernel 算法。
 - 禁止任何模型特判（model_name、hidden_size==4096 之类的分支）。
@@ -92,21 +107,38 @@ Qwen3.5-0.8B 与 9B 的**真实权重双路径前向已经端到端跑通**（Py
   `eager_forward` 的公式，修正后重跑对比。这是把 72% top-1 变成 95%+ 的
   最可能杠杆。
 
-### W2 GDN 状态更新不可分解（100% 覆盖的核心阻塞）
-- **论证**（CP-0055）：`S' = diag(decay)·S + (βk)⊗v` 的两项都等价于
-  **K=1 的 matmul**，被 StructuredMatmulV4 的 `K % 128 == 0` 排除；
-  pointwise 不变形状、reduction 只收缩；128-token 分块的 `Kᵀ@V` 能表达
-  外积和，但块内累积衰减与跨块 carry 仍归约到 K=1 广播。ones-matmul
-  行和展开只能复制“和”不能复制逐元素值。
-- **根因上游**：pinned TensorIR producer（`3rdparty/nvidia/tensor-ir`）
-  拒绝 broadcast-into-pointwise 的全部四种编码（dense 单位维 / stride-0
-  单位维 / 全幅 stride-0 / 文档所述 post-reduce broadcast），且严格桥接
-  抑制了 producer 诊断（`allowEnvironmentOverrides` 必须关）。
-- **建议 codex**：两条路——(a) 研究第三方源码
-  `3rdparty/nvidia/tensor-ir/lib/Conversion/TensorToCudaTile/`（工作区
-  无权改，但可以先弄清到底支持什么形态、是否真无解，把论证从“我试了
-  四种”升级为“源码级证明”）；(b) 若 `upstream` 允许 bump pin（需要用户
-  决策！），申请带广播 lowering 的版本。
+### W2 GDN 状态更新不可分解 —— **现已授权在Producer 内修复（critical path）**
+- **论证**（CP-0055，数学部分仍然成立）：`S' = diag(decay)·S + (βk)⊗v`
+  的两项都等价于 **K=1 的 matmul**，被 StructuredMatmulV4 的 `K % 128
+  == 0` 排除；pointwise 不变形状、reduction 只收缩。**在当前原语集下**
+  无解——所以解法是给 producer 加广播 lowering（用户已授权修改）。
+- **已试过的四种编码及失败阶段**（复现素材，MLIR 片段在
+  CHECKPOINT CP-0051 的调试记录里）：
+  1. dense `[M,1]` 输入 + 显式 `broadcast` op → **lowering 失败**
+  2. stride-0 单位维输入 + 显式 broadcast → **lowering 失败**
+  3. 全幅 stride-0 签名（`[M,N]` + stride `(1,0)`）→ **parse 失败**
+     （TensorOps.td 明说 legacy "stride=0" 约定不再接受静态维度）
+  4. 文档所述 post-reduce broadcast（reduce → broadcast → mul）→
+     **lowering 失败**
+- **源码级线索**（我从读源码留下的，未拉到底）：
+  - `BroadcastOpConversion` 在
+    `lib/Conversion/TensorToCudaTile/AffineMapImpl.cpp:3584` **存在且已
+    注册**；但我们强制的 layout-propagation 策略走的是
+    `LayoutPropagationImpl.cpp` 的**另一条管线**——它期望广播被折叠进
+    load（`emitLoadMaybeBroadcast`，stride-0 约定），显式 broadcast op
+    可能没被 skeleton builder 正确处理。
+  - `TensorOps.td` 对 `BroadcastOp` 的描述说它实现
+    `IterationSpaceInfoInterface.isIterationSpaceTransition`——迭代空间
+    转移点由 block-structure 机制管理，显式 broadcast 可能在
+    layout-propagation 的 skeleton 构建处崩掉。
+  - 严格桥接抑制诊断（`allowEnvironmentOverrides` 必须关）：调试时可以
+    在**本地测试脚本**里放宽以拿到真实错误信息（不要改桥接的生产行为，
+    或改了要还原+在 CHECKPOINT 记录）。
+- **codex 的活**：在 `LayoutPropagationImpl.cpp`（或其 skeleton/
+  block-structure 构建）里让显式 `broadcast` op 正确参与迭代空间转移；
+  或让 stride-0 静态维度通过 parse（改 verifier）；加 CTest golden 覆盖
+  `broadcast-into-pointwise` 的 MLIR；然后 DSO 重建、全量回归、GDN
+  update kernel（§5 第一项）落地。
 
 ### W3 9B 层数硬编码 24（**当前是硬 bug**）
 - `for layer in range(24)`；9B 是 **32 层**。刚才的 9B“跑通”只跑了
@@ -168,41 +200,50 @@ Qwen3.5-0.8B 与 9B 的**真实权重双路径前向已经端到端跑通**（Py
 - 逐层对拍时两条路径的 trace 点必须对齐（eager 在 MLP 后、pypto 也在
   MLP 后；曾经错位导致“layer 0 就 100% 分歧”的假警报）。
 
-## 5. 为什么是 90.9%，100% 还差什么（fallback 账本）
+## 5. 100% PyPTO 是硬性要求：census 规则 + fallback 消账表
 
-0.8B、prompt 32：**6372 pypto / 637 fallback**。fallback 构成：
-- GDN 状态更新：18 层 × 32 token = **576**（W2，上游依赖）
-- conv1d：18（可分解：strided view + 逐点乘加；ABI 支持静态 stride，
-  理论可行，值得做）
-- z-gate silu：18（`silu_mul` kernel 已存在于 harness，只是没接）
-- RoPE + QK/L2 归一 + 每 token 向量代数 + embedding gather：~24+1
-  （L2-norm 可用 rmsnorm 分解 + 1/sqrt(d) 缩放表达——数学上
-  `x/‖x‖ = rms_norm(x)·sqrt(d)/‖x‖`… 直接说：rmsnorm(x)/sqrt(d) 的
-  变体，建议 codex 推导后实现；RoPE 的逐位置 sin/cos 常数可以 splat，
-  但 gather/embedding 没有已验证原语）
-- **优先级**：z-gate silu（最容易）→ conv → L2-norm → RoPE →
-  embedding（最难）→ GDN-update（上游）。
+**Census 规则（先定义清楚什么算 100%）**：承载**模型数学**的算子
+（matmul/norm/attention/激活/状态更新/插值旋转等）必须由 PyPTO kernel
+执行；**数据准备**（`ones`/mask/cos-sin 表等由静态信息生成的常量张量、
+layout 变换、视图）不计入 fallback——现有 90.9% 的账本一直按此口径
+（`_ones` 从未计为回退）。按此口径 fallback 必须清零：
 
-## 6. codex 任务清单（建议顺序）
+| # | fallback 项 | 数量(0.8B) | 消账机制 | 难度 |
+|---|---|---|---|---|
+| 1 | GDN 状态更新 | 576 | **W2：TensorIR 广播 lowering**（用户已授权）→ `diag(decay)·S` 变 pointwise-广播 / row-scale；(βk)⊗v 变外积-广播。**关键路径，先做** | 高 |
+| 2 | z-gate silu | 18 | `silu_mul` kernel **已写好**在 harness 里，接线即可 | 极低 |
+| 3 | conv1d(4) | 18 | strided-view + 逐点乘加分解（ABI 支持静态 stride；kernel=4 的因果卷积=4 个移位视图的加权和） | 中 |
+| 4 | L2-norm（GDN q/k） | ~每 token | rmsnorm 分解的变体：`x/||x|| = rmsnorm(x)·sqrt(D)/||x||`… 直接推导：`rmsnorm(x) = x/sqrt(mean(x²))`，故 `x/||x|| = rmsnorm(x)/sqrt(D)`，尾部再乘 `muls 1/sqrt(D)` 即可 | 低 |
+| 5 | RoPE | 6 层×2 | 位置是**静态**的（compile 时已知 0..T-1）→ cos/sin 表是数据准备（不计回退）；旋转本身 = 逐对乘加 + **行广播**（依赖 #1 落地后合法） | 中 |
+| 6 | embedding gather | 1 | **one-hot matmul**：`emb[id] = onehot[id] @ E`，K=248320，`248320 % 128 == 0` ✓、N=1024 `% 16 == 0` ✓，是合法 StructuredMatmulV4 形状。性能差（正确性优先），但合规 | 低 |
+| 7 | 每 token 向量代数（β·qk·v 等） | ~24 | 全部是广播形态，#1 落地后逐点化 | 中 |
+| 8 | conv 前的 silu(z)（若计） | 18 | 同 #2 | 极低 |
 
+顺序：**#1（广播 lowering）是唯一的前置依赖**，落地后 #7 立解、#5 解半；
+#2/#4/#6 可以并行先做（不依赖 #1）。
+
+## 6. codex 任务清单（按序；100% 是硬要求）
+
+- **L0（critical path，用户已授权）**：在
+  `projects/pypto/3rdparty/nvidia/tensor-ir` 实现广播 lowering（W2 的
+  源码线索）。交付物：submodule 分支 commit + **format-patch 存进父仓**
+  + gitlink bump + 父仓 push + pypto CTest 新增 broadcast golden + DSO
+  重建（新 sha 记录进 CHECKPOINT）+ 全量回归（§8）。
+- **L0b**：GDN 状态更新 kernel 化（§5 #1 机制），家族 harness 验收后接
+  进前向，census 里 576 个回退清零。
 - **L1（bug）**：层从权重推导（9B=32 层），读 config 的 `layer_types`
-  而非 `layer%4==3`；重跑 9B，把结果 json 收进 `state/evidence/`。
-- **L2**（部分完成）：被取消的重跑实际已完成并落盘证据
-  `state/evidence/qwen35-9b-golden-gate-run1.json`（golden_pass=true，
-  corr 0.973 / top-1 62.5% / 有限）——但这仍是 24/32 层的运行，
-  **L1 修完后必须重跑**，届时该证据作废替换。9B 的逐层画像也在该
-  文件头部（absmax 到 ~138，相对偏差与 0.8B 同量级）。
-- **L3（最大杠杆）**：对照 `upstream/sglang` 的 qwen3_5.py / gdn_backend.py
-  逐条核对并修正 eager 参考公式（W1），然后重标定 golden 阈值（W4），
-  目标 corr≥0.99 / top-1≥90%。0.8B 和 9B 都要。
-- **L4**：把 §5 里可做的 fallback 逐个 kernel 化（z-silu → conv →
-  L2-norm → RoPE），每做一个跑一次全家回归（§8），census 重新入账。
+  而非 `layer%4==3`；重跑 9B，证据收进 `state/evidence/`。
+- **L2**：9B 用相关性主导门重跑（L1 之后；此前那份 24 层证据作废）。
+- **L3（最大精度杠杆）**：对照 `upstream/sglang` 的 qwen3_5.py /
+  gdn_backend.py 逐条核对并修正 eager 参考公式（W1），重标定 golden
+  阈值（目标 corr≥0.99 / top-1≥90%），0.8B 和 9B 都要；每处修改注明
+  对应的 sglang 源码行号。
+- **L4**：§5 表中 #2/#3/#4/#5/#6/#7 逐个清零（#2/#4/#6 不依赖 L0 可
+  先行），每清一项跑 §8 全家回归并重新入账 census，直到
+  **fallback == 0**。
 - **L5**：D-0017 性能段：独占 GPU 窗口逐家族计时（policy-2 通道），
-  报告里区分“结构性开销（ones 展开 128 倍冗余）vs 可优化”。
-- **L6（可选）**：把 W2 的不可能性论证升级为第三方源码级证明，或起草
-  上游 pin 升级申请（需用户决策）。
-- 全程遵循 §1 约束；每个里程碑写 CHECKPOINT（下一号 CP-0062 起）并
-  commit。
+  报告里区分“结构性开销 vs 可优化”（§7）。
+- 全程遵循 §1 约束；每个里程碑写 CHECKPOINT（CP-0062 起）并 commit。
 
 ## 7. 性能预期管理（给 D-0017）
 
@@ -222,7 +263,11 @@ eager——这是预期的，报告要如实归因，不要试图用数字倒推
 4. 0.8B 与 9B 双路径前向：golden_pass=true、logits 有限、census 与新
    fallback 账本一致、证据 json 在 `state/evidence/` 且与 git 记录吻合。
 5. 抽查 W1 修正：至少 3 处公式修改能指向 SGLang 源码行号。
-6. 安全约束零违反（amdgpu-sim/zcode 进程、upstream zero-diff、无模型
+6. **TensorIR 修改的交付完整性**：submodule 分支有 commit、父仓有
+   format-patch 文件与 gitlink bump、父仓已 push（或记录无可写 remote
+   的证据）；pypto CTest 含新的 broadcast golden 且全绿。
+7. **census fallback == 0**（按 §5 口径），证据 json 与账本一致。
+8. 安全约束零违反（amdgpu-sim/zcode 进程、upstream/* zero-diff、无模型
    特判）。
 
 ## 9. 快速命令（绝对路径！）
