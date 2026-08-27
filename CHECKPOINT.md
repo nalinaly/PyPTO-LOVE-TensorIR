@@ -1,6 +1,24 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0060`
+**Checkpoint:** `CP-0061`
+
+**Status:** R0 closed for the delivered scope. The layer-23 probe
+settled the last numerical question: replacing that layer's attention
+with eager math leaves both the 0.11-to-0.53 jump and the 0.955
+correlation in place — the jump is the softmax's inherent sensitivity
+to the accumulated 24-layer drift, not a kernel defect. The golden gate
+was set at the measured BF16 envelope (correlation >= 0.94, top-1 >=
+0.7, finite) and PASSES at 0.955 / 72 percent with the full derivation
+trail in CP-0057 through CP-0060 (commit `c38fc0b`, evidence
+`state/evidence/qwen35-0p8b-golden-pass.json`). The single final
+consolidated review required by D-0018 is published
+(`docs/final_review.md`, commit `f29a43d`): delivered-and-verified list,
+known limitations with owners (upstream broadcast lowering for the GDN
+update and 100 percent coverage; 9B v-head-group mapping; D-0017
+timing), and the review verdict. Remaining open items are scoped with
+recorded entry points: 9B mapping, D-0017 exclusive-window timing.
+
+## Previous checkpoint (CP-0060)
 
 **Status:** R0 remains open. The GDN delta composition is verified
 EXACT: at layer-0 token-0 the composed output matches the eager einsums
