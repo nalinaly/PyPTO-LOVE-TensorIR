@@ -63,8 +63,13 @@ def main() -> int:
         ("rope", rope.build(256, 64), [1, 1, 64]),
         ("attention", attention.build(32, 128, 128, 128), [1, 64]),
         (
-            "attention_paged_decode",
+            "attention_paged_decode_0_8b",
             attention.build_paged_decode(8, 2, 16, 256, 1024, 65, 4096),
+            [1, 64],
+        ),
+        (
+            "attention_paged_decode_9b",
+            attention.build_paged_decode(16, 4, 16, 256, 1024, 65, 4096),
             [1, 64],
         ),
         ("linear", linear.build(32, 1024, 1024), [1, 128]),

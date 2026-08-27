@@ -188,6 +188,14 @@ def test_paged_attention_decode_gathers_physical_kv_rows_in_one_graph():
     assert "pl.tile.cmps" in wide_rendered
     assert "pl.tile.sels" in wide_rendered
 
+    large_model_program = attention.build_paged_decode(
+        16, 4, 16, 256, 1024, 65, 4096
+    )
+    large_model_rendered = str(large_model_program)
+    assert "pl.range(16)" in large_model_rendered
+    assert large_model_rendered.count("pl.tile.gather_row") == 2
+    assert large_model_rendered.count("pl.tile.matmul") == 2
+
 
 def test_linear_is_one_native_tile_graph():
     program = linear.build(2, 128, 256)
