@@ -1,6 +1,26 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0072`
+**Checkpoint:** `CP-0073`
+
+**Status:** Qwen's shared bias-free linear projection (QKV/O, MLP gate/up/down,
+GDN projections and LM head) is now a single native tile graph. Canonical
+operator commit `510ec47` exposes the exact beginner-style source: nested
+`pl.range` loops load one `[1,K]` activation tile and one `[128,K]` weight
+tile, form a zero-copy transpose view, run BF16 `pl.matmul` with FP32
+accumulation, cast and store one `[1,128]` output tile. PyPTO `5863644`
+generically recognizes this dataflow and lowers it to StructuredMatmul without
+shape/model special cases. SM120 run `pypto-20260827T140529Z-458297-4994a9`
+executes the representative 0.8B hidden path (`[32,1024] @ [1024,1024].T`)
+in one launch with max absolute difference `0.00389206`; all 12 consolidated
+cases are correct. The focused producer test passes, classification is
+all-compiled, the structure suite passes, CTest is 13/13, and exact DSO
+SHA-256 is `cd90a092ee8124fc37a1fada01a81942147dfb136a419b14e9f169a7a6242eb8`.
+Evidence is `state/evidence/pypto-native-linear-cp0073.json`. The overall goal
+remains open: embedding, causal convolution/complete stateful GDN boundary,
+causal-paged attention, logits postprocessing, Inductor emission, and 0.8B
+then 9B model gates remain.
+
+## Previous checkpoint (CP-0072)
 
 **Status:** Complete Gated DeltaNet read and recurrent-state update now each
 use one visible native tile graph and one launch. Canonical operator commit
