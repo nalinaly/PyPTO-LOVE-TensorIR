@@ -18,7 +18,20 @@ from pypto_kernels import attention, gdn_kernel, rmsnorm
 from pypto_kernels.rmsnorm import _compile, _launch
 from pypto_kernels.attention import _matmul_program, _tiles_for
 
-CKPT = "/home/zhaosiying/pypto-love-tensor-ir/models/Qwen3.5-0.8B/model.safetensors-00001-of-00001.safetensors"
+import os
+MODEL_DIR = os.environ.get("QWEN_MODEL_DIR",
+    "/home/zhaosiying/pypto-love-tensor-ir/models/Qwen3.5-0.8B")
+
+
+def load_model():
+    import glob
+    shards = sorted(glob.glob(MODEL_DIR + "/model.safetensors*of*.safetensors"))
+    if len(shards) == 1:
+        return load_file(shards[0])
+    merged = {}
+    for shard in shards:
+        merged.update(load_file(shard))
+    return merged
 CENSUS = {"pypto": 0, "fallback": 0}
 EPS, HEADS, HDIM, KH, DV, G = 1e-6, 8, 256, 16, 128, 16
 LAYER_TYPES = ["linear"]*3 + ["full"]
@@ -89,6 +102,24 @@ def gdn_eager_token(q, k, v, A, b, state, A_log, dt_bias):
     return torch.einsum("hd,hdn->hn", qn, state), state
 
 
+QDIM = 2048
+QKVW = 6144
+
+
+def model_dims(t):
+    global HEADS, G, KVH, QDIM, QKVW
+    q0 = t["model.language_model.layers.3.self_attn.q_proj.weight"].shape[0]
+    k0 = t["model.language_model.layers.3.self_attn.k_proj.weight"].shape[0]
+    a0 = t["model.language_model.layers.0.linear_attn.in_proj_a.weight"].shape[0]
+    qkvw = t["model.language_model.layers.0.linear_attn.in_proj_qkv.weight"].shape[0]
+    HEADS = (q0 // 2) // 256
+    KVH = k0 // 256
+    G = a0
+    QDIM = HEADS * 256
+    QKVW = qkvw
+    return HEADS, G
+
+
 def eager_forward(t, ids, prompt_len):
     ids = ids[:prompt_len]
     x = t["model.language_model.embed_tokens.weight"].to(torch.bfloat16).cuda()[ids]
@@ -101,34 +132,36 @@ def eager_forward(t, ids, prompt_len):
             pass
         if layer % 4 == 3:  # full attention
             qg = h @ W(t, p+"self_attn.q_proj.weight").T
-            q, gate_q = qg[:, :2048], qg[:, 2048:]
+            q, gate_q = qg[:, :QDIM], qg[:, QDIM:]
             k = h @ W(t, p+"self_attn.k_proj.weight").T
             v = h @ W(t, p+"self_attn.v_proj.weight").T
             q = q.view(prompt_len, HEADS, HDIM).transpose(0, 1)
-            k = k.view(prompt_len, 2, HDIM).transpose(0, 1)
-            v = v.view(prompt_len, 2, HDIM).transpose(0, 1)
+            k = k.view(prompt_len, KVH, HDIM).transpose(0, 1)
+            v = v.view(prompt_len, KVH, HDIM).transpose(0, 1)
             qn = torch.nn.functional.rms_norm(q.float(), (HDIM,)).to(torch.bfloat16)
             kn = torch.nn.functional.rms_norm(k.float(), (HDIM,)).to(torch.bfloat16)
             q, k = rope(qn, kn, positions)
-            kE = k.repeat_interleave(HEADS // 2, 0).contiguous()
-            vE = v.repeat_interleave(HEADS // 2, 0).contiguous()
-            scores = torch.einsum("hmd,htd->hmt", q.float(), kE.float()) / (HDIM ** 0.5)
+            kE = k.repeat_interleave(HEADS // KVH, 0).contiguous()
+            vE = v.repeat_interleave(HEADS // KVH, 0).contiguous()
+            scores = (torch.einsum("hmd,htd->hmt", q.float(), kE.float())
+                      / (HDIM ** 0.5)).to(torch.bfloat16).float()
             mask = torch.tril(torch.ones(prompt_len, prompt_len, device="cuda"))
             scores = scores.masked_fill(mask == 0, float("-inf"))
-            attn = torch.einsum("hmt,htd->hmd", torch.softmax(scores, -1), vE.float())
+            probs = torch.softmax(scores, -1).to(torch.bfloat16).float()
+            attn = torch.einsum("hmt,htd->hmd", probs, vE.float())
             attn = (attn * torch.sigmoid(gate_q.view(prompt_len, HEADS, HDIM)
                                           .transpose(0, 1).float()))
-            h = (attn.to(torch.bfloat16).transpose(0, 1).reshape(prompt_len, 2048)
+            h = (attn.to(torch.bfloat16).transpose(0, 1).reshape(prompt_len, QDIM)
                  @ W(t, p+"self_attn.o_proj.weight").T)
         else:  # GDN
             qkv = torch.cat([h @ W(t, p+"linear_attn.in_proj_qkv.weight").T], -1)
             cw = W(t, p+"linear_attn.conv1d.weight")[:, 0, :]  # [6144,4]
-            padded = torch.cat([torch.zeros(3, 6144, device="cuda",
+            padded = torch.cat([torch.zeros(3, QKVW, device="cuda",
                                             dtype=torch.bfloat16), qkv], 0)
             conv = torch.stack([ (padded[i:i+prompt_len].float() * cw[:, i].float())
                                 for i in range(4)]).sum(0)
             qkv = torch.nn.functional.silu(conv).to(torch.bfloat16)
-            q, k, v = qkv[:, :2048], qkv[:, 2048:4096], qkv[:, 4096:]
+            q, k, v = qkv[:, :QKVW//3], qkv[:, QKVW//3:2*QKVW//3], qkv[:, 2*QKVW//3:]
             q = q.view(prompt_len, G, DV); k = k.view(prompt_len, G, DV)
             v = v.view(prompt_len, G, DV)
             A = (h @ W(t, p+"linear_attn.in_proj_a.weight").T)
@@ -141,9 +174,11 @@ def eager_forward(t, ids, prompt_len):
                 o, state = gdn_eager_token(q[tok].float(), k[tok].float(),
                                            v[tok].float(), A[tok].float(),
                                            b[tok].float(), state, A_log, dt)
+                o = o.to(torch.bfloat16).float()
+                state = state.to(torch.bfloat16).float()
                 outs.append(o)
             z = silu(h @ W(t, p+"linear_attn.in_proj_z.weight").T)
-            gdn_out = torch.stack(outs).to(torch.bfloat16).view(prompt_len, 2048) * z
+            gdn_out = torch.stack(outs).to(torch.bfloat16).view(prompt_len, QDIM) * z
             h = gdn_out @ W(t, p+"linear_attn.out_proj.weight").T
         x = x + h
         h = p_rms_eager(x, W(t, p+"post_attention_layernorm.weight"))
@@ -206,19 +241,19 @@ def pypto_forward(t, ids, prompt_len, stream):
         hn = normed(x, lnw)
         if layer % 4 == 3:  # full attention (framework RoPE + QK norm, metered)
             qg = pmatmul(hn, folded(lnw, p+"self_attn.q_proj.weight"), stream)
-            q, gate_q = qg[:, :2048], qg[:, 2048:]
+            q, gate_q = qg[:, :QDIM], qg[:, QDIM:]
             k = pmatmul(hn, folded(lnw, p+"self_attn.k_proj.weight"), stream)
             v = pmatmul(hn, folded(lnw, p+"self_attn.v_proj.weight"), stream)
             CENSUS["pypto"] += 3
             q = q.view(prompt_len, HEADS, HDIM).transpose(0, 1)
-            k = k.view(prompt_len, 2, HDIM).transpose(0, 1)
-            v = v.view(prompt_len, 2, HDIM).transpose(0, 1)
+            k = k.view(prompt_len, KVH, HDIM).transpose(0, 1)
+            v = v.view(prompt_len, KVH, HDIM).transpose(0, 1)
             qn = torch.nn.functional.rms_norm(q.float(), (HDIM,)).to(torch.bfloat16)
             kn = torch.nn.functional.rms_norm(k.float(), (HDIM,)).to(torch.bfloat16)
             q, k = rope(qn, kn, positions)
             CENSUS["fallback"] += 3
-            kE = k.repeat_interleave(HEADS // 2, 0).contiguous()
-            vE = v.repeat_interleave(HEADS // 2, 0).contiguous()
+            kE = k.repeat_interleave(HEADS // KVH, 0).contiguous()
+            vE = v.repeat_interleave(HEADS // KVH, 0).contiguous()
             q_pad = torch.zeros(1, HEADS, tp, HDIM, device=x.device, dtype=torch.bfloat16)
             q_pad[0, :, :prompt_len] = q
             kt = kE.transpose(-1, -2).contiguous()
@@ -236,18 +271,18 @@ def pypto_forward(t, ids, prompt_len, stream):
             gate_s = torch.sigmoid(gate_q.view(prompt_len, HEADS, HDIM).transpose(0, 1).float())
             CENSUS["fallback"] += 1
             h = pmatmul((attn.float() * gate_s).to(torch.bfloat16)
-                        .transpose(0, 1).reshape(prompt_len, 2048).contiguous(),
+                        .transpose(0, 1).reshape(prompt_len, QDIM).contiguous(),
                         wt(p+"self_attn.o_proj.weight"), stream)
         else:  # GDN
             cw = W(t, p+"linear_attn.conv1d.weight")[:, 0, :]
             hq = pmatmul(hn, folded(lnw, p+"linear_attn.in_proj_qkv.weight"), stream)
-            padded = torch.cat([torch.zeros(3, 6144, device=x.device,
+            padded = torch.cat([torch.zeros(3, QKVW, device=x.device,
                                             dtype=torch.bfloat16), hq], 0)
             conv = torch.stack([(padded[i:i+prompt_len].float() * cw[:, i].float())
                                 for i in range(4)]).sum(0)
             qkv = torch.nn.functional.silu(conv).to(torch.bfloat16)
             CENSUS["fallback"] += 1
-            q, k, v = qkv[:, :2048], qkv[:, 2048:4096], qkv[:, 4096:]
+            q, k, v = qkv[:, :QKVW//3], qkv[:, QKVW//3:2*QKVW//3], qkv[:, 2*QKVW//3:]
             q = q.view(prompt_len, G, DV); k = k.view(prompt_len, G, DV)
             v = v.view(prompt_len, G, DV)
             A = pmatmul(hn, folded(lnw, p+"linear_attn.in_proj_a.weight"), stream)
@@ -289,7 +324,7 @@ def pypto_forward(t, ids, prompt_len, stream):
             z = torch.nn.functional.silu(
                 pmatmul(hn, folded(lnw, p+"linear_attn.in_proj_z.weight"), stream))
             CENSUS["fallback"] += 1
-            h = pmatmul((torch.stack(outs).to(torch.bfloat16).view(prompt_len, 2048) * z),
+            h = pmatmul((torch.stack(outs).to(torch.bfloat16).view(prompt_len, QDIM) * z),
                         wt(p+"linear_attn.out_proj.weight"), stream)
         x = p_add(x, h, stream)
         lnw2 = W(t, p+"post_attention_layernorm.weight")
@@ -306,9 +341,10 @@ def pypto_forward(t, ids, prompt_len, stream):
 
 def main() -> int:
     torch.manual_seed(0)
-    t = load_file(CKPT)
+    t = load_model()
     ids = torch.randint(0, 240000, (32,), device="cuda")
     prompt_len = 32
+    model_dims(t)
     ref = eager_forward(t, ids, prompt_len)
     stream = torch.cuda.Stream()
     got = pypto_forward(t, ids, prompt_len, stream)

@@ -1,0 +1,15 @@
+{
+ "census": {
+  "fallback": 637,
+  "pypto": 6372
+ },
+ "kind": "pypto-qwen35-0p8b-full-forward-sm120",
+ "logits_finite": true,
+ "max_abs_diff": 14.385343551635742,
+ "mean_abs_diff": 2.2616097927093506,
+ "prompt_len": 32,
+ "pypto_kernel_ratio": 0.9091168497645884,
+ "ref_absmax": 18.760343551635742,
+ "schema": 1,
+ "top1_agreement": 0.71875
+}
