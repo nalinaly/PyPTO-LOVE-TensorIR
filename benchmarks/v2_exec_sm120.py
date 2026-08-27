@@ -2,14 +2,16 @@
 """Execution acceptance for the executable v2 operators (SM120)."""
 
 import json
+import hashlib
 import os
+import pathlib
 import sys
 
 sys.path.insert(0, "/home/zhaosiying/pypto-love-tensor-ir/projects/pypto-kernels-v2/src")
 
 import torch
 
-from pypto_kernels_v2._boot import compile_graph, launch_graph
+from pypto_kernels_v2._boot import DSO_PATH, bootstrap, compile_graph, launch_graph
 from pypto_kernels_v2._graph import (gdn_compose_graph,
                                      gdn_delta_combine_graph,
                                      gdn_delta_graph, gdn_q_decay_graph,
@@ -32,6 +34,7 @@ def main() -> int:
         ref = torch.nn.functional.silu(g.float()) * u.float()
         cases.append({
             "case": f"silu_and_mul {m}x{n}",
+            "implementation": "native-tile-dsl",
             "launches": 1,
             "max_abs_diff": float((out.float() - ref).abs().max()),
             "correct": bool(torch.allclose(out.float(), ref, rtol=5e-2, atol=5e-2)),
@@ -43,6 +46,7 @@ def main() -> int:
         ref2 = a.float() + b.float()
         cases.append({
             "case": f"fused_add {m}x{n}",
+            "implementation": "native-tile-dsl",
             "launches": 1,
             "max_abs_diff": float((out2.float() - ref2).abs().max()),
             "correct": bool(torch.allclose(out2.float(), ref2, rtol=5e-2, atol=5e-2)),
@@ -291,9 +295,22 @@ def main() -> int:
                                        rtol=5e-2, atol=5e-2)),
     })
     ok = all(c["correct"] for c in cases)
-    print(json.dumps({"schema": 1, "kind": "pypto-kernels-v2-exec-sm120",
-                      "run_id": os.environ.get("PYPTO_RUN_ID"),
-                      "all_correct": ok, "cases": cases}, indent=1))
+    dso = pathlib.Path(DSO_PATH)
+    result = {
+        "schema": 2,
+        "kind": "pypto-kernels-v2-exec-sm120",
+        "run_id": os.environ.get("PYPTO_RUN_ID"),
+        "dso_sha256": hashlib.sha256(dso.read_bytes()).hexdigest(),
+        "pypto_commit": bootstrap()["compiler"].get_nvidia_backend_build_info().pypto_revision,
+        "native_tile_ops": ["silu_and_mul", "fused_add"],
+        "all_correct": ok,
+        "cases": cases,
+    }
+    rendered = json.dumps(result, indent=1)
+    pathlib.Path(__file__).with_name("v2_exec_results.json").write_text(
+        rendered + "\n", encoding="utf-8"
+    )
+    print(rendered)
     return 0 if ok else 75
 
 

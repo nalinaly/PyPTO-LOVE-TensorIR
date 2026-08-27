@@ -1,19 +1,25 @@
 {
- "schema": 1,
+ "schema": 2,
  "kind": "pypto-kernels-v2-exec-sm120",
- "run_id": "pypto-20260827T113940Z-388413-c27820",
- "dso_sha256": "4190b9d9eefa581e09cbe193c31f9e98d96c3a6ff4f855fa7ef31fc6e18280e4",
- "pypto_commit": "fb888ae8c30d8e228aa2085ea8ae12a6f4826d10",
+ "run_id": "pypto-20260827T123508Z-408536-e756f1",
+ "dso_sha256": "65639a172245492b85fa3e13f9b8d45acdefedeac57f097d10a29bddee66e939",
+ "pypto_commit": "5c91d1e17e47502931c6be7a036f8b1902457e56",
+ "native_tile_ops": [
+  "silu_and_mul",
+  "fused_add"
+ ],
  "all_correct": true,
  "cases": [
   {
    "case": "silu_and_mul 256x1024",
+   "implementation": "native-tile-dsl",
    "launches": 1,
    "max_abs_diff": 0.22481918334960938,
    "correct": true
   },
   {
    "case": "fused_add 256x1024",
+   "implementation": "native-tile-dsl",
    "launches": 1,
    "max_abs_diff": 0.015625,
    "correct": true
@@ -26,12 +32,14 @@
   },
   {
    "case": "silu_and_mul 4096x1024",
+   "implementation": "native-tile-dsl",
    "launches": 1,
    "max_abs_diff": 0.2526397705078125,
    "correct": true
   },
   {
    "case": "fused_add 4096x1024",
+   "implementation": "native-tile-dsl",
    "launches": 1,
    "max_abs_diff": 0.015625,
    "correct": true
@@ -44,12 +52,14 @@
   },
   {
    "case": "silu_and_mul 1x3584",
+   "implementation": "native-tile-dsl",
    "launches": 1,
    "max_abs_diff": 0.10128402709960938,
    "correct": true
   },
   {
    "case": "fused_add 1x3584",
+   "implementation": "native-tile-dsl",
    "launches": 1,
    "max_abs_diff": 0.015625,
    "correct": true
