@@ -28,10 +28,18 @@ below. It records work in progress, **not** CP-0084 acceptance.
   Cubin is not PyPTO Artifact, launch, numerical, framework or model evidence.
 - `pypto-kernels@5fbf813` adds the source-level Qwen3.5-0.8B fused QK
   GemmaRMSNorm + partial NeoX RoPE + gate-deinterleave candidate and its
-  actual-configuration numerical reference. `pypto-framework-plugins@0e09d51`
-  tracks the canonical module. Operator structure passes 13/13, plugin tests
-  pass 91/91, and Ruff/diff checks pass. README deliberately says
-  `待 run-pass`; GPU numerical correctness is unproven.
+  actual-configuration numerical reference. Current kernels `6242026` also add
+  a separate physical-KV-row paged-decode source candidate; current plugins
+  `d3505bf` track two attention graphs. Operator structure passes 14/14, plugin
+  tests pass 91/91, and Ruff/diff checks pass. README deliberately keeps QK at
+  `待 run-pass` and paged decode at source-candidate status; GPU numerical
+  correctness is unproven.
+- Primary `projects/pypto` remains clean at `d1b90b7` for the pending QK DSO
+  rebuild. Paged-decode compiler work is isolated in
+  `worktrees/pypto-paged-decode` on
+  `feature/paged-decode-sm120@dad8bcf`; it recognizes the exact native
+  `tile.gather_row`/GQA/softmax graph and emits a four-input TensorIR candidate.
+  That branch is source-only and has not compiled or linked.
 - Two temporary untracked diagnostics remain in `projects/pypto-kernels`:
   `benchmarks/probe_qk_compile_sm120.py` (final target tile/current model cache
   shape) and `benchmarks/probe_qk_gdb.py`. Do not commit them; remove them only
