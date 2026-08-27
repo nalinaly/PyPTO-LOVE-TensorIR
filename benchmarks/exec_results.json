@@ -1,12 +1,13 @@
 {
  "schema": 2,
  "kind": "pypto-kernels-exec-sm120",
- "run_id": "pypto-20260827T123744Z-410998-d97a06",
- "dso_sha256": "877ea11eb4baf0adb762b41ba4b5073b2372f3f83faa02244f3169df2597122e",
- "pypto_commit": "41dc7ab63880d184908587b1e72afdb957e8a18f",
+ "run_id": "pypto-20260827T125639Z-419386-a535d3",
+ "dso_sha256": "bb5dd85a0398e5bfdd96617bb15824038cfcd28dfbcf66236227be2578e647db",
+ "pypto_commit": "c45a51765c8378a8455efeff8d6314969315f015",
  "native_tile_ops": [
   "silu_and_mul",
-  "fused_add"
+  "fused_add",
+  "rmsnorm"
  ],
  "all_correct": true,
  "cases": [
@@ -72,6 +73,7 @@
   },
   {
    "case": "rmsnorm_bf16 256x1024",
+   "implementation": "native-tile-dsl",
    "launches": 1,
    "max_abs_diff": 0.015537738800048828,
    "correct": true

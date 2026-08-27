@@ -30,7 +30,7 @@ from pypto_kernels._graph import (  # noqa: E402
 
 def main() -> int:
     cases = (
-        ("rmsnorm", rmsnorm.build(256, 1024), [32, 32]),
+        ("rmsnorm", rmsnorm.build(256, 1024), [1, 128]),
         ("rope_even", rope.build_even(256, 512), [32, 32]),
         ("rope_odd", rope.build_odd(256, 512), [32, 32]),
         (

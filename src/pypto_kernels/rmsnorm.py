@@ -15,7 +15,7 @@ _EPSILON = 1.0e-6
 _lock = threading.RLock()
 _cache: dict[tuple[int, int], str] = {}
 
-STATUS = "native-tile pending compiler acceptance"
+STATUS = "native-tile executable"
 GRAPHS = 1
 
 

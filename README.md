@@ -13,7 +13,7 @@ ones-matmul 广播展开。仅仅用整张量 `tensor.*` graph 再附加 schedul
 |---|---|---|---|
 | `silu_and_mul`（SwiGLU） | 1 | **原生 tile** ✅ | `[1,128]` load/compute/store；静态双层 `pl.range`；一次 launch |
 | `fused_add`（残差加） | 1 | **原生 tile** ✅ | `[1,128]` load/add/store；静态双层 `pl.range`；一次 launch |
-| `rmsnorm` | 1 | **待迁移** | 旧整张量 graph 可执行，但不再计入新验收 |
+| `rmsnorm` | 1 | **原生 tile** ✅ | 行 tile 内 FP32 square/reduce/rsqrt/broadcast；一次 launch |
 | `rope` | 2 | **待迁移并融合** | 旧偶/奇 graph 可执行，但必须改成一个原生 tile 算子 |
 | `gdn` read/update | 5+1 | **待迁移并融合** | 旧多 graph 仅作数值基线，目标是模型算子单 graph/launch |
 | `attention` | 2（不完整） | **待迁移并补齐** | 旧 post-exp 分解仅作基线，目标是原生 tile attention graph |

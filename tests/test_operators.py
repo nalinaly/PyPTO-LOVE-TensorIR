@@ -40,6 +40,17 @@ def test_pointwise_operators_use_native_tile_dsl():
         assert "tensor." not in rendered, name
 
 
+def test_rmsnorm_uses_native_tile_reduction():
+    program = rmsnorm.build(2, 256)
+    rendered = str(program)
+    assert "pl.range(2)" in rendered
+    assert "pl.tile.load" in rendered
+    assert "pl.tile.row_sum" in rendered
+    assert "pl.tile.row_expand_mul" in rendered
+    assert "pl.tile.store" in rendered
+    assert "tensor." not in rendered
+
+
 def _one_program(p):
     assert len(p.functions) == 1
     fn = list(p.functions.values())[0]
@@ -108,6 +119,7 @@ def test_broadcast_dependencies_are_closed():
 if __name__ == "__main__":
     test_each_operator_is_one_program()
     test_pointwise_operators_use_native_tile_dsl()
+    test_rmsnorm_uses_native_tile_reduction()
     test_rope_halves_are_single_graphs_and_compiled()
     test_gdn_compose_and_delta_compile()
     test_attention_softmax_scale_is_single_graph_compiled()

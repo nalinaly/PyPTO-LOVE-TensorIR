@@ -89,9 +89,7 @@ def main() -> int:
     # and one launch. Launch arguments follow builder input discovery order.
     rows, cols = 256, 1024
     x = torch.randn(rows, cols, device="cuda", dtype=torch.bfloat16) * 0.5
-    rms_out = torch.empty_like(x)
-    rms_key = compile_graph(rmsnorm.build(rows, cols), tiles_for(rows, cols))
-    launch_graph(rms_key, (x, rms_out), stream.cuda_stream)
+    rms_out = rmsnorm.rmsnorm(x, stream=stream)
     stream.synchronize()
     rms_ref = x.float() * torch.rsqrt(
         x.float().square().mean(-1, keepdim=True) + 1.0e-6
@@ -99,6 +97,7 @@ def main() -> int:
     cases.append(
         {
             "case": "rmsnorm_bf16 256x1024",
+            "implementation": "native-tile-dsl",
             "launches": 1,
             "max_abs_diff": float((rms_out.float() - rms_ref).abs().max()),
             "correct": bool(
@@ -343,7 +342,7 @@ def main() -> int:
         "pypto_commit": bootstrap()["compiler"]
         .get_nvidia_backend_build_info()
         .pypto_revision,
-        "native_tile_ops": ["silu_and_mul", "fused_add"],
+        "native_tile_ops": ["silu_and_mul", "fused_add", "rmsnorm"],
         "all_correct": ok,
         "cases": cases,
     }
