@@ -1,6 +1,26 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0070`
+**Checkpoint:** `CP-0071`
+
+**Status:** The dense Attention core is now a single native tile graph and one
+launch. Canonical kernels commit `1b92117` replaces the old post-exp
+normalization/value-mix split with visible `@pl.jit` source containing both
+tile matmuls and the complete stable softmax (`scale -> row_max -> subtract ->
+exp -> row_sum -> normalize`) before one output store. PyPTO `5e3611b` accepts
+heterogeneous Q/K/V tensor shapes in the strict fused graph ABI and emits the
+composite TensorIR matmul/reduction graph. The final DSO SHA-256 is
+`d700ab61fca834343afa843c162a69c5572fe1c8cf8b27efbd32157541cae129`,
+focused producer compilation passes, CTest is 13/13, and the canonical
+structure suite passes. SM120 run `pypto-20260827T133125Z-440603-9c280a`
+executes BF16 Q `[32,128]`, K/V `[128,128]` in one launch with max absolute
+difference `0.000235181`; the consolidated suite is 15/15 correct after three
+old attention fragments collapsed into one case. Evidence is
+`state/evidence/pypto-native-attention-cp0071.json`. This closes the dense
+attention math core only; causal masking and paged/decode serving metadata
+remain mandatory before the model gate. Complete GDN is the next native
+operator family.
+
+## Previous checkpoint (CP-0070)
 
 **Status:** RoPE is the fourth accepted native tile operator and is now one
 model graph instead of two half-graph launches. Canonical kernels commit

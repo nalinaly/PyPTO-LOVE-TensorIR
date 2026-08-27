@@ -1,0 +1,64 @@
+{
+  "schema": 1,
+  "checkpoint": "CP-0071",
+  "status": "dense-core-accepted",
+  "operator": "attention",
+  "implementation": {
+    "repository": "projects/pypto-kernels",
+    "commit": "1b92117",
+    "source": "src/pypto_kernels/attention.py",
+    "graph_count": 1,
+    "launches": 1,
+    "tile_algorithm": [
+      "QK tile.matmul",
+      "scale",
+      "row_max",
+      "subtract and exp",
+      "row_sum and normalize",
+      "probability/value tile.matmul",
+      "tile.store"
+    ]
+  },
+  "compiler": {
+    "pypto_commit": "5e3611bc1336fb89e8a517e5a11b139ae3b39509",
+    "tensor_ir_commit": "f8e9272e14b7176ca10f43419db305cd46e88979",
+    "structured_test_run_id": "pypto-20260827T132909Z-439845-40bf94",
+    "structured_test_result": "1 passed",
+    "ctest_run_id": "pypto-20260827T133249Z-441178-7b719f",
+    "ctest_result": "13/13 passed"
+  },
+  "dso": {
+    "path": "builds/pypto-opext-on-a589f79/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "sha256": "d700ab61fca834343afa843c162a69c5572fe1c8cf8b27efbd32157541cae129"
+  },
+  "gpu": {
+    "run_id": "pypto-20260827T133125Z-440603-9c280a",
+    "shape": {
+      "query": [32, 128],
+      "key": [128, 128],
+      "value": [128, 128],
+      "output": [32, 128]
+    },
+    "dtype": "bfloat16",
+    "max_abs_diff": 0.0002351813018321991,
+    "correct": true,
+    "all_15_cases_correct": true,
+    "result_file": "projects/pypto-kernels/benchmarks/exec_results.json"
+  },
+  "classification": {
+    "run_id": "pypto-20260827T133213Z-440900-de9712",
+    "all_compiled": true,
+    "structure_run_id": "pypto-20260827T133328Z-441667-15e2c7",
+    "structure_result": "ALL OPERATOR STRUCTURE TESTS PASSED"
+  },
+  "remaining_attention_scope": [
+    "causal masking",
+    "paged KV addressing",
+    "decode and extend serving metadata"
+  ],
+  "safety": {
+    "protected_processes_signalled": false,
+    "upstream_modified": false,
+    "model_harness_modified": false
+  }
+}
