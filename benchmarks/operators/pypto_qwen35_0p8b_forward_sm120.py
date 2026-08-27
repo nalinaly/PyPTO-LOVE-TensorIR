@@ -10,7 +10,7 @@ constraint.
 """
 
 from __future__ import annotations
-import json, sys
+import json, os, sys
 sys.path.insert(0, "/home/zhaosiying/pypto-love-tensor-ir/projects/pypto-kernels/src")
 import torch
 from safetensors.torch import load_file
@@ -347,6 +347,16 @@ def pypto_forward(t, ids, prompt_len, stream, trace=None):
                 qk = (qh * kh).sum(-1)
                 o = oR - beta[:, None] * qk[:, None] * kS \
                     + beta[:, None] * qk[:, None] * v[tok].float()
+                if layer == 0 and tok == 0 and os.environ.get("GDN_TRACE"):
+                    state_post = decayed - beta[:, None, None] * torch.einsum(
+                        "hd,hn->hdn", kh, torch.einsum("hd,hdn->hn", kh, decayed)) \
+                        + beta[:, None, None] * torch.einsum("hd,hn->hdn", kh, v[tok].float())
+                    o_ref = torch.einsum("hd,hdn->hn", qh, state_post)
+                    print("GDNTRACE o_pypto[0,:4]", o[0, :4].tolist(), flush=True)
+                    print("GDNTRACE o_eager [0,:4]", o_ref[0, :4].tolist(), flush=True)
+                    print("GDNTRACE oR", oR[0, :3].tolist(), "kS", kS[0, :3].tolist(),
+                          "qk", qk[:3].tolist(), "beta", beta[:3].tolist(), flush=True)
+                    print("GDNTRACE |o-o_ref| max", float((o - o_ref).abs().max()), flush=True)
                 state = decayed - beta[:, None, None] * torch.einsum(
                     "hd,hn->hdn", kh, torch.einsum("hd,hdn->hn", kh, decayed)) \
                     + beta[:, None, None] * torch.einsum("hd,hn->hdn", kh, v[tok].float())
@@ -356,7 +366,6 @@ def pypto_forward(t, ids, prompt_len, stream, trace=None):
             CENSUS["fallback"] += 1
             h = pmatmul((torch.stack(outs).to(torch.bfloat16).view(prompt_len, QDIM) * z),
                         wt(p+"linear_attn.out_proj.weight"), stream)
-        if trace is not None: trace.append(x.float().clone())
         x = p_add(x, h, stream)
         lnw2 = W(t, p+"post_attention_layernorm.weight")
         hn2 = normed(x, lnw2)
@@ -364,6 +373,7 @@ def pypto_forward(t, ids, prompt_len, stream, trace=None):
         up = pmatmul(hn2, folded(lnw2, p+"mlp.up_proj.weight"), stream)
         act = silu_mul(h2, up, stream)
         x = p_add(x, pmatmul(act, wt(p+"mlp.down_proj.weight"), stream), stream)
+        if trace is not None: trace.append(x.float().clone())
     xf = rmsnorm.pypto_rmsnorm(x.contiguous(), stream=stream)
     CENSUS["pypto"] += 5
     logits = pmatmul(xf, emb.t().contiguous(), stream)
@@ -385,10 +395,23 @@ def main() -> int:
     stream.synchronize()
     both_finite = bool(torch.isfinite(ref).all() and torch.isfinite(got).all())
     diff = (got - ref).abs()
+    # Model-level golden gate at the BF16 envelope: per-position relative
+    # error against the position's logit scale (a full-BF16 kernel stack vs
+    # an FP32-internal reference accumulates ~1-2 percent stochastic
+    # rounding per layer over 24 layers).
+    # logits carry only ordinal information; the BF16-envelope gate is
+    # distribution-level agreement, not per-element relative error.
+    flat_r, flat_g = ref.flatten(), got.flatten()
+    corr = float(((flat_r - flat_r.mean()) * (flat_g - flat_g.mean())).mean()
+                 / (flat_r.std() * flat_g.std()))
+    top1 = float((got.argmax(-1) == ref.argmax(-1)).float().mean())
+    golden_pass = bool(both_finite and corr > 0.97 and top1 >= 0.7)
     evidence = {
         "schema": 1, "kind": "pypto-qwen35-0p8b-full-forward-sm120",
         "prompt_len": prompt_len,
         "logits_finite": both_finite,
+        "golden_pass": golden_pass,
+        "logits_correlation": corr,
         "max_abs_diff": float(diff.max()) if both_finite else None,
         "mean_abs_diff": float(diff.mean()) if both_finite else None,
         "ref_absmax": float(ref.abs().max()),
@@ -398,7 +421,7 @@ def main() -> int:
         "pypto_kernel_ratio": CENSUS["pypto"] / (CENSUS["pypto"] + CENSUS["fallback"]),
     }
     print(json.dumps(evidence, sort_keys=True, indent=1))
-    return 0 if both_finite else 75
+    return 0 if golden_pass else 75
 
 
 if __name__ == "__main__":
