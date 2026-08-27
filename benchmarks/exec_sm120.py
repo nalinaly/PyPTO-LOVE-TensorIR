@@ -280,38 +280,95 @@ def main() -> int:
         }
     )
 
-    conv_channels, conv_tokens = 2048, 64
-    conv_x = (
-        torch.randn(
-            conv_channels,
-            conv_tokens,
+    def run_stateful_conv_case(
+        *, batch_size: int, tokens_per_request: int, index_dtype, label: str
+    ) -> None:
+        channels = 4096
+        rows = batch_size * tokens_per_request
+        conv_x = (
+            torch.randn(rows, channels, device="cuda", dtype=torch.bfloat16)
+            * 0.2
+        )
+        conv_weight = (
+            torch.randn(channels, 4, device="cuda", dtype=torch.bfloat16)
+            * 0.2
+        )
+        state_slots = 8
+        state_stride = channels * 3 + 128
+        conv_state = torch.empty_strided(
+            (state_slots, channels, 3),
+            (state_stride, 3, 1),
             device="cuda",
             dtype=torch.bfloat16,
         )
-        * 0.2
+        conv_state.normal_().mul_(0.2)
+        state_indices = torch.arange(
+            2, 2 + batch_size, device="cuda", dtype=index_dtype
+        )
+        reference_state = conv_state.clone()
+        torch.cuda.synchronize()
+        conv_out = causal_conv1d.causal_conv1d(
+            conv_x,
+            conv_weight,
+            conv_state,
+            state_indices,
+            batch_size=batch_size,
+            tokens_per_request=tokens_per_request,
+            stream=stream,
+        )
+        stream.synchronize()
+        x_rows = conv_x.view(batch_size, tokens_per_request, channels)
+        reference_rows = []
+        for batch_row in range(batch_size):
+            slot = int(state_indices[batch_row])
+            history = reference_state[slot]
+            outputs = []
+            for token in range(tokens_per_request):
+                current = x_rows[batch_row, token]
+                linear = (
+                    history[:, 0].float() * conv_weight[:, 0].float()
+                    + history[:, 1].float() * conv_weight[:, 1].float()
+                    + history[:, 2].float() * conv_weight[:, 2].float()
+                    + current.float() * conv_weight[:, 3].float()
+                )
+                outputs.append(torch.nn.functional.silu(linear))
+                history = torch.stack((history[:, 1], history[:, 2], current), dim=1)
+            reference_state[slot] = history
+            reference_rows.append(torch.stack(outputs))
+        conv_ref = torch.stack(reference_rows).view(rows, channels)
+        output_diff = float((conv_out.float() - conv_ref).abs().max())
+        state_diff = float((conv_state.float() - reference_state.float()).abs().max())
+        cases.append(
+            {
+                "case": label,
+                "implementation": "native-tile-dsl-stateful-conv",
+                "launches": 1,
+                "batch_size": batch_size,
+                "tokens_per_request": tokens_per_request,
+                "state_row_stride": state_stride,
+                "output_max_abs_diff": output_diff,
+                "state_max_abs_diff": state_diff,
+                "max_abs_diff": max(output_diff, state_diff),
+                "correct": bool(
+                    torch.allclose(
+                        conv_out.float(), conv_ref, rtol=5e-2, atol=5e-2
+                    )
+                    and torch.equal(conv_state, reference_state)
+                ),
+            }
+        )
+
+    run_stateful_conv_case(
+        batch_size=2,
+        tokens_per_request=1,
+        index_dtype=torch.int32,
+        label="causal_conv1d_stateful_decode_b2_d4096_width4",
     )
-    conv_weight = (
-        torch.randn(conv_channels, 4, device="cuda", dtype=torch.bfloat16) * 0.2
-    )
-    conv_out = causal_conv1d.causal_conv1d(conv_x, conv_weight, stream=stream)
-    stream.synchronize()
-    conv_linear = torch.nn.functional.conv1d(
-        conv_x.float().unsqueeze(0),
-        conv_weight.float().unsqueeze(1),
-        padding=3,
-        groups=conv_channels,
-    )[..., :conv_tokens].squeeze(0)
-    conv_ref = torch.nn.functional.silu(conv_linear)
-    cases.append(
-        {
-            "case": "causal_conv1d_bf16 2048x64 width4",
-            "implementation": "native-tile-dsl",
-            "launches": 1,
-            "max_abs_diff": float((conv_out.float() - conv_ref).abs().max()),
-            "correct": bool(
-                torch.allclose(conv_out.float(), conv_ref, rtol=5e-2, atol=5e-2)
-            ),
-        }
+    run_stateful_conv_case(
+        batch_size=1,
+        tokens_per_request=5,
+        index_dtype=torch.int64,
+        label="causal_conv1d_stateful_prefill_b1_t5_d4096_width4",
     )
 
     rows, half = 256, 64

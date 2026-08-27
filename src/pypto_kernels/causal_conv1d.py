@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from typing import Any
 
-from ._boot import bootstrap, compile_jit_kernel, launch_graph
+from ._boot import bootstrap, compile_graph, launch_graph
 
 bootstrap()
 import pypto.language as pl  # noqa: E402
@@ -13,9 +13,9 @@ import pypto.language as pl  # noqa: E402
 _CHANNEL_TILE = 128
 _KERNEL_WIDTH = 4
 _lock = threading.RLock()
-_cache: dict[tuple[int, int], str] = {}
+_cache: dict[tuple[int, int, int, int, int, str], str] = {}
 
-STATUS = "native-tile executable"
+STATUS = "native-tile stateful source candidate"
 GRAPHS = 1
 
 
@@ -23,90 +23,179 @@ GRAPHS = 1
 def causal_conv1d_kernel(
     x: pl.Tensor,
     weight: pl.Tensor,
+    state: pl.InOut[pl.Tensor],
+    state_indices: pl.Tensor,
     out: pl.Out[pl.Tensor],
 ):
-    """Apply four causal depthwise taps and SiLU per channel tile."""
+    """Apply width-four causal convolution and update each slot's history."""
 
     with pl.at(level=pl.Level.CORE_GROUP):
-        for channel_block in pl.range(x.shape[0] // 128):
-            x_tile = pl.load(x, [channel_block * 128, 0], [128, x.shape[1]])
-            weight_tile = pl.load(weight, [channel_block * 128, 0], [128, 4])
-            x_wide = pl.cast(x_tile, target_type=pl.FP32)
-            weight_wide = pl.cast(weight_tile, target_type=pl.FP32)
+        for batch_row in pl.range(x.shape[0]):
+            state_index_i64 = pl.read(state_indices, [batch_row, 0])
+            state_index = pl.cast(state_index_i64, pl.INT32)
+            for channel_block in pl.range(x.shape[2] // 128):
+                state_offset = channel_block * 128 * 3
+                state_box = pl.load(
+                    state,
+                    [state_index, state_offset],
+                    [1, 128 * 3],
+                )
+                state_tile = pl.reshape(state_box, [128, 3])
+                state_wide = pl.cast(state_tile, target_type=pl.FP32)
+                history0 = pl.tile.slice(state_wide, [128, 1], [0, 0])
+                history1 = pl.tile.slice(state_wide, [128, 1], [0, 1])
+                history2 = pl.tile.slice(state_wide, [128, 1], [0, 2])
 
-            zero3 = pl.tile.full([128, 3], dtype=pl.FP32, value=0.0)
-            body0 = pl.tile.slice(x_wide, [128, x.shape[1] - 3], [0, 0])
-            shifted0 = pl.tile.concat(zero3, body0)
-            weight0 = pl.tile.slice(weight_wide, [128, 1], [0, 0])
-            term0 = pl.row_expand_mul(shifted0, weight0)
+                weight_tile = pl.load(
+                    weight, [channel_block * 128, 0], [128, 4]
+                )
+                weight_wide = pl.cast(weight_tile, target_type=pl.FP32)
+                weight0 = pl.tile.slice(weight_wide, [128, 1], [0, 0])
+                weight1 = pl.tile.slice(weight_wide, [128, 1], [0, 1])
+                weight2 = pl.tile.slice(weight_wide, [128, 1], [0, 2])
+                weight3 = pl.tile.slice(weight_wide, [128, 1], [0, 3])
 
-            zero2 = pl.tile.full([128, 2], dtype=pl.FP32, value=0.0)
-            body1 = pl.tile.slice(x_wide, [128, x.shape[1] - 2], [0, 0])
-            shifted1 = pl.tile.concat(zero2, body1)
-            weight1 = pl.tile.slice(weight_wide, [128, 1], [0, 1])
-            term1 = pl.row_expand_mul(shifted1, weight1)
+                for token in pl.range(x.shape[1]):
+                    current_box = pl.load(
+                        x,
+                        [batch_row, token, channel_block * 128],
+                        [1, 1, 128],
+                    )
+                    current = pl.reshape(current_box, [128, 1])
+                    current_wide = pl.cast(current, target_type=pl.FP32)
+                    term0 = pl.mul(history0, weight0)
+                    term1 = pl.mul(history1, weight1)
+                    term2 = pl.mul(history2, weight2)
+                    term3 = pl.mul(current_wide, weight3)
+                    convolution = pl.add(pl.add(term0, term1), pl.add(term2, term3))
+                    negative = pl.neg(convolution)
+                    exponent = pl.exp(negative)
+                    denominator = pl.add(exponent, 1.0)
+                    sigmoid = pl.recip(denominator)
+                    activated = pl.mul(convolution, sigmoid)
+                    result = pl.cast(activated, target_type=pl.BF16)
+                    result_box = pl.reshape(result, [1, 1, 128])
+                    pl.store(
+                        result_box,
+                        [batch_row, token, channel_block * 128],
+                        out,
+                    )
+                    history0 = history1
+                    history1 = history2
+                    history2 = current_wide
 
-            zero1 = pl.tile.full([128, 1], dtype=pl.FP32, value=0.0)
-            body2 = pl.tile.slice(x_wide, [128, x.shape[1] - 1], [0, 0])
-            shifted2 = pl.tile.concat(zero1, body2)
-            weight2 = pl.tile.slice(weight_wide, [128, 1], [0, 2])
-            term2 = pl.row_expand_mul(shifted2, weight2)
-
-            weight3 = pl.tile.slice(weight_wide, [128, 1], [0, 3])
-            term3 = pl.row_expand_mul(x_wide, weight3)
-
-            sum01 = pl.add(term0, term1)
-            sum23 = pl.add(term2, term3)
-            convolution = pl.add(sum01, sum23)
-            negative = pl.mul(convolution, -1.0)
-            exponent = pl.exp(negative)
-            denominator = pl.add(exponent, 1.0)
-            sigmoid = pl.recip(denominator)
-            activated = pl.mul(convolution, sigmoid)
-            result = pl.cast(activated, target_type=pl.BF16)
-            pl.store(result, [channel_block * 128, 0], out)
+                final_state = pl.tile.concat(
+                    pl.tile.concat(history0, history1), history2
+                )
+                final_state = pl.cast(final_state, target_type=pl.BF16)
+                final_box = pl.reshape(final_state, [1, 128 * 3])
+                pl.store(final_box, [state_index, state_offset], state)
     return out
 
 
-def _validate_shape(channels: int, tokens: int) -> None:
+def _validate_shape(
+    batch_size: int,
+    tokens_per_request: int,
+    channels: int,
+    state_slots: int,
+    state_slot_stride: int,
+) -> None:
     if channels <= 0 or channels % _CHANNEL_TILE:
         raise ValueError("causal_conv1d channels must be positive and divisible by 128")
-    if tokens < _KERNEL_WIDTH:
-        raise ValueError("causal_conv1d prefill needs at least four tokens")
+    if batch_size <= 0 or tokens_per_request <= 0 or state_slots <= 0:
+        raise ValueError("causal_conv1d batch, tokens and state slots must be positive")
+    if state_slot_stride < channels * (_KERNEL_WIDTH - 1):
+        raise ValueError("causal_conv1d state slots overlap")
 
 
-def build(channels: int, tokens: int) -> Any:
-    _validate_shape(channels, tokens)
+def build(
+    batch_size: int,
+    tokens_per_request: int,
+    channels: int,
+    state_slots: int = 65,
+    state_slot_stride: int | None = None,
+    index_dtype: str = "int32",
+) -> Any:
+    state_width = channels * (_KERNEL_WIDTH - 1)
+    if state_slot_stride is None:
+        state_slot_stride = state_width
+    _validate_shape(
+        batch_size,
+        tokens_per_request,
+        channels,
+        state_slots,
+        state_slot_stride,
+    )
     import torch
 
-    x = torch.empty((channels, tokens), dtype=torch.bfloat16, device="meta")
+    if index_dtype == "int32":
+        torch_index_dtype = torch.int32
+    elif index_dtype == "int64":
+        torch_index_dtype = torch.int64
+    else:
+        raise ValueError("causal_conv1d state indices must use int32 or int64")
+    x = torch.empty(
+        (batch_size, tokens_per_request, channels),
+        dtype=torch.bfloat16,
+        device="meta",
+    )
     weight = torch.empty((channels, _KERNEL_WIDTH), dtype=torch.bfloat16, device="meta")
-    return causal_conv1d_kernel.specialize(x, weight, x)
+    state = torch.empty_strided(
+        (state_slots, state_width),
+        (state_slot_stride, 1),
+        dtype=torch.bfloat16,
+        device="meta",
+    )
+    state_indices = torch.empty(
+        (batch_size, 1), dtype=torch_index_dtype, device="meta"
+    )
+    return causal_conv1d_kernel.specialize(x, weight, state, state_indices, x)
 
 
-def compile_for(channels: int, tokens: int) -> str:
-    _validate_shape(channels, tokens)
-    shape_key = (channels, tokens)
+def compile_for(
+    batch_size: int,
+    tokens_per_request: int,
+    channels: int,
+    state_slots: int,
+    state_slot_stride: int,
+    index_dtype: str,
+) -> str:
+    _validate_shape(
+        batch_size,
+        tokens_per_request,
+        channels,
+        state_slots,
+        state_slot_stride,
+    )
+    shape_key = (
+        batch_size,
+        tokens_per_request,
+        channels,
+        state_slots,
+        state_slot_stride,
+        index_dtype,
+    )
     cached = _cache.get(shape_key)
     if cached is not None:
         return cached
 
-    import torch
-
-    x = torch.empty((channels, tokens), dtype=torch.bfloat16, device="meta")
-    weight = torch.empty((channels, _KERNEL_WIDTH), dtype=torch.bfloat16, device="meta")
-    graph_key = compile_jit_kernel(
-        causal_conv1d_kernel,
-        (x, weight, x),
-        [_CHANNEL_TILE, 1],
-    )
+    graph_key = compile_graph(build(*shape_key), [1, 1, _CHANNEL_TILE])
     with _lock:
         _cache[shape_key] = graph_key
     return graph_key
 
 
-def causal_conv1d(x: Any, weight: Any, stream: Any = None) -> Any:
-    """Return width-4 causal depthwise convolution plus SiLU in one launch."""
+def causal_conv1d(
+    x: Any,
+    weight: Any,
+    state: Any,
+    state_indices: Any,
+    *,
+    batch_size: int,
+    tokens_per_request: int,
+    stream: Any = None,
+) -> Any:
+    """Run stateful width-four convolution and SiLU in one launch."""
 
     import torch
 
@@ -114,24 +203,84 @@ def causal_conv1d(x: Any, weight: Any, stream: Any = None) -> Any:
         x.ndim != 2
         or x.dtype is not torch.bfloat16
         or not x.is_contiguous()
+        or weight.ndim != 2
         or weight.dtype is not torch.bfloat16
         or not weight.is_contiguous()
     ):
         raise ValueError("causal_conv1d needs contiguous rank-2 BF16 tensors")
-    channels, tokens = map(int, x.shape)
+    rows, channels = map(int, x.shape)
     if tuple(weight.shape) != (channels, _KERNEL_WIDTH):
         raise ValueError("causal_conv1d weight must have shape [channels, 4]")
+    if rows != batch_size * tokens_per_request:
+        raise ValueError("causal_conv1d rows disagree with batch/token geometry")
+    if state.ndim != 3 or state.dtype is not torch.bfloat16:
+        raise ValueError("causal_conv1d state must be rank-3 BF16")
+    state_slots = int(state.shape[0])
+    if tuple(state.shape[1:]) != (channels, _KERNEL_WIDTH - 1):
+        raise ValueError("causal_conv1d state payload must have shape [channels,3]")
+    if (
+        state.stride(2) != 1
+        or state.stride(1) != _KERNEL_WIDTH - 1
+        or state.stride(0) < channels * (_KERNEL_WIDTH - 1)
+    ):
+        raise ValueError("causal_conv1d state payload must be contiguous within each slot")
+    if (
+        state_indices.ndim != 1
+        or state_indices.numel() != batch_size
+        or state_indices.dtype not in (torch.int32, torch.int64)
+        or not state_indices.is_contiguous()
+    ):
+        raise ValueError("causal_conv1d needs one INT32/INT64 state index per request")
+    if any(tensor.device != x.device for tensor in (weight, state, state_indices)):
+        raise ValueError("causal_conv1d tensors must share one device")
+    index_dtype = "int32" if state_indices.dtype is torch.int32 else "int64"
+    state_slot_stride = int(state.stride(0))
     if stream is None:
         stream = torch.cuda.current_stream(x.device)
-    graph_key = compile_for(channels, tokens)
-    out = torch.empty_like(x)
-    launch_graph(graph_key, (x, weight, out), stream.cuda_stream)
-    return out
+    graph_key = compile_for(
+        batch_size,
+        tokens_per_request,
+        channels,
+        state_slots,
+        state_slot_stride,
+        index_dtype,
+    )
+    x_view = x.view(batch_size, tokens_per_request, channels)
+    state_view = state.view(state_slots, -1)
+    out = torch.empty_like(x_view)
+    launch_graph(
+        graph_key,
+        (
+            x_view,
+            weight,
+            state_view,
+            state_indices.view(batch_size, 1),
+            out,
+        ),
+        stream.cuda_stream,
+    )
+    return out.view(rows, channels)
 
 
-def status(channels: int = 2048, tokens: int = 64) -> dict[str, str]:
+def status(
+    batch_size: int = 1,
+    tokens_per_request: int = 64,
+    channels: int = 2048,
+    state_slots: int = 65,
+) -> dict[str, str]:
+    state_stride = channels * (_KERNEL_WIDTH - 1)
     try:
-        return {"status": "compiled", "key": compile_for(channels, tokens)}
+        return {
+            "status": "compiled",
+            "key": compile_for(
+                batch_size,
+                tokens_per_request,
+                channels,
+                state_slots,
+                state_stride,
+                "int32",
+            ),
+        }
     except RuntimeError as error:
         return {"status": "producer-blocked", "error": str(error)[:200]}
     except ValueError as error:

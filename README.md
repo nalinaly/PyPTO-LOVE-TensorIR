@@ -22,7 +22,7 @@ ones-matmul 广播展开。仅仅用整张量 `tensor.*` graph 再附加 schedul
 | `gdn_recurrent` | 1 | **原生 tile 源码候选** | `[B,T]` 静态图内完成 Q/K L2 norm、稳定 gate/beta、FP32 state decay/delta outer-product、InOut 回写与 BF16 输出；`T=1` 覆盖 batch decode，`B=1` 覆盖顺序 prefill；待编译/数值 run-pass |
 | `gated_rmsnorm` | 1 | **原生 tile** ✅ | GDN `RMSNorm(x,weight) * SiLU(gate)` 单图/单 launch |
 | `attention` | 4 | **dense 已通过；paged decode/cache-write/prefill 源码候选** | dense QK→稳定 softmax→PV；decode 单图按 batch 读取 SGLang request table、在图内做 page-size-one v2p、读取 row-pitched KV 并用 GPU seq-len 做 GQA masked softmax；cache-write 单图翻译 virtual rows 后写 InOut cache；causal prefill 单图复用 gathered K/V；覆盖 0.8B/9B 与 batch2 源码几何，仍待 CUDA Tile run-pass |
-| `causal_conv1d` | 1 | **原生 tile** ✅ | GDN width-4 zero-initial prefill conv + SiLU；非零 prefill/decode state 路径仍开放 |
+| `causal_conv1d` | 1 | **原生 tile 源码候选** | `[B,T]` width-4 FP32 累加 + SiLU，读取并 InOut 回写 BF16 row-pitched `[D,3]` slot history；同图覆盖 batch decode 与单请求顺序 prefill；待编译/数值 run-pass |
 
 CP-0062 已关闭 broadcast producer 阻塞；分类证据在
 `benchmarks/classify_results.json`。`compiled` 与 GPU 数值 `all_correct`

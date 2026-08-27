@@ -102,17 +102,18 @@ def test_gated_rmsnorm_is_one_complete_native_tile_graph():
     assert "tensor." not in rendered
 
 
-def test_causal_conv1d_prefill_is_one_native_tile_graph():
-    program = causal_conv1d.build(128, 8)
+def test_causal_conv1d_stateful_decode_and_prefill_share_one_graph():
+    program = causal_conv1d.build(2, 1, 128)
     rendered = str(program)
     assert len(_one_program(program).body.stmts) == 2
-    assert rendered.count("pl.tile.load") == 2
-    assert rendered.count("pl.tile.full") == 3
-    assert rendered.count("pl.tile.concat") == 3
-    assert rendered.count("pl.tile.row_expand_mul") == 4
+    assert rendered.count("pl.InOut[") == 1
+    assert "pl.range(2)" in rendered
+    assert rendered.count("pl.tile.load") == 3
+    assert rendered.count("pl.tile.concat") == 2
     assert "pl.tile.exp" in rendered and "pl.tile.recip" in rendered
-    assert rendered.count("pl.tile.store") == 1
-    assert "tensor." not in rendered
+    assert rendered.count("pl.tile.store") == 2
+    prefill = str(causal_conv1d.build(1, 5, 128))
+    assert "pl.range(5)" in prefill
 
 
 def test_embedding_is_one_dynamic_row_gather_graph():
@@ -318,7 +319,7 @@ if __name__ == "__main__":
     test_rmsnorm_uses_native_tile_reduction()
     test_fused_add_rmsnorm_is_one_native_tile_graph_with_two_outputs()
     test_gated_rmsnorm_is_one_complete_native_tile_graph()
-    test_causal_conv1d_prefill_is_one_native_tile_graph()
+    test_causal_conv1d_stateful_decode_and_prefill_share_one_graph()
     test_embedding_is_one_dynamic_row_gather_graph()
     test_qk_norm_partial_rope_gate_is_one_native_graph()
     test_rope_is_one_native_tile_graph()
