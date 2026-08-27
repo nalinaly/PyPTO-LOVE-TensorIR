@@ -64,13 +64,18 @@ def main() -> int:
         ("attention", attention.build(32, 128, 128, 128), [1, 64]),
         (
             "attention_paged_decode_0_8b",
-            attention.build_paged_decode(8, 2, 16, 256, 1024, 65, 4096),
-            [1, 64],
+            attention.build_paged_decode(1, 8, 2, 16, 256, 1024, 65, 4096),
+            [1, 1, 64],
         ),
         (
             "attention_paged_decode_9b",
-            attention.build_paged_decode(16, 4, 16, 256, 1024, 65, 4096),
-            [1, 64],
+            attention.build_paged_decode(1, 16, 4, 16, 256, 1024, 65, 4096),
+            [1, 1, 64],
+        ),
+        (
+            "attention_paged_decode_batch2_0_8b",
+            attention.build_paged_decode(2, 8, 2, 16, 256, 1024, 65, 4096),
+            [1, 1, 64],
         ),
         (
             "attention_paged_cache_write_0_8b",

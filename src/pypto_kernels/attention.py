@@ -15,7 +15,7 @@ _ROW_TILE = 1
 _VALUE_TILE = 64
 _lock = threading.RLock()
 _cache: dict[tuple[int, int, int, int], str] = {}
-_paged_decode_cache: dict[tuple[int, int, int, int, int, int, int], str] = {}
+_paged_decode_cache: dict[tuple[int, int, int, int, int, int, int, int], str] = {}
 _paged_cache_write_cache: dict[tuple[int, int, int], str] = {}
 _paged_prefill_cache: dict[tuple[int, int, int, int, int, int, int, int], str] = {}
 
@@ -97,86 +97,89 @@ def paged_attention_decode_kernel(
     """Gather one request's paged KV rows and mask its static KV bucket."""
 
     with pl.at(level=pl.Level.CORE_GROUP):
-        for q_head in pl.range(query.shape[0]):
-            kv_heads = key_cache.shape[1] // query.shape[1]
-            queries_per_kv = query.shape[0] // kv_heads
-            kv_head = q_head // queries_per_kv
-            request_id = pl.read(request_index, [0, 0])
-            valid_token_count_i64 = pl.read(valid_tokens, [0, 0])
-            valid_token_count = pl.cast(valid_token_count_i64, pl.INT32)
+        for batch_row in pl.range(query.shape[0]):
+            for q_head in pl.range(query.shape[1]):
+                kv_heads = key_cache.shape[1] // query.shape[2]
+                queries_per_kv = query.shape[1] // kv_heads
+                kv_head = q_head // queries_per_kv
+                request_id = pl.read(request_index, [batch_row, 0])
+                valid_token_count_i64 = pl.read(valid_tokens, [batch_row, 0])
+                valid_token_count = pl.cast(valid_token_count_i64, pl.INT32)
 
-            keys = pl.tile.create(
-                [query.shape[1], request_index.shape[1]],
-                dtype=pl.BF16,
-                target_memory=pl.MemorySpace.Mat,
-                transpose=True,
-            )
-            values = pl.tile.create(
-                [request_index.shape[1], query.shape[1]],
-                dtype=pl.BF16,
-                target_memory=pl.MemorySpace.Mat,
-            )
-            for slot in pl.range(request_index.shape[1]):
-                physical = pl.read(req_to_token, [request_id, slot])
-                cache_column = kv_head * query.shape[1]
-                keys = pl.tile.gather_row(
-                    keys,
-                    key_cache,
-                    [0, slot],
-                    [physical, cache_column],
-                    [1, query.shape[1]],
+                keys = pl.tile.create(
+                    [query.shape[2], request_index.shape[1]],
+                    dtype=pl.BF16,
+                    target_memory=pl.MemorySpace.Mat,
                     transpose=True,
                 )
-                values = pl.tile.gather_row(
-                    values,
-                    value_cache,
-                    [slot, 0],
-                    [physical, cache_column],
-                    [1, query.shape[1]],
+                values = pl.tile.create(
+                    [request_index.shape[1], query.shape[2]],
+                    dtype=pl.BF16,
+                    target_memory=pl.MemorySpace.Mat,
                 )
+                for slot in pl.range(request_index.shape[1]):
+                    physical = pl.read(req_to_token, [request_id, slot])
+                    cache_column = kv_head * query.shape[2]
+                    keys = pl.tile.gather_row(
+                        keys,
+                        key_cache,
+                        [0, slot],
+                        [physical, cache_column],
+                        [1, query.shape[2]],
+                        transpose=True,
+                    )
+                    values = pl.tile.gather_row(
+                        values,
+                        value_cache,
+                        [slot, 0],
+                        [physical, cache_column],
+                        [1, query.shape[2]],
+                    )
 
-            query_tile = pl.load(
-                query,
-                [q_head, 0],
-                [1, query.shape[1]],
-                target_memory=pl.MemorySpace.Mat,
-            )
-            score = pl.matmul(query_tile, keys, out_dtype=pl.FP32)
-            scaled = pl.mul(score, scale)
-            positions = pl.tile.ci(
-                0,
-                [1, request_index.shape[1]],
-                dtype=pl.INT32,
-            )
-            valid_mask = pl.cmps(positions, valid_token_count, cmp_type=2)
-            mask_scratch = pl.tile.create(
-                [1, 32], dtype=pl.UINT8, target_memory=pl.MemorySpace.Vec
-            )
-            masked_scaled = pl.sels(
-                valid_mask,
-                scaled,
-                mask_scratch,
-                -3.4028234663852886e38,
-            )
-            max_scratch = pl.create_tile(
-                [1, request_index.shape[1]],
-                dtype=pl.FP32,
-                target_memory=pl.MemorySpace.Vec,
-            )
-            row_max = pl.row_max(masked_scaled, max_scratch)
-            centered = pl.row_expand_sub(masked_scaled, row_max)
-            exponent = pl.exp(centered)
-            sum_scratch = pl.create_tile(
-                [1, request_index.shape[1]],
-                dtype=pl.FP32,
-                target_memory=pl.MemorySpace.Vec,
-            )
-            row_sum = pl.row_sum(exponent, sum_scratch)
-            probability = pl.row_expand_div(exponent, row_sum)
-            probability_bf16 = pl.cast(probability, target_type=pl.BF16)
-            mixed = pl.matmul(probability_bf16, values, out_dtype=pl.FP32)
-            result = pl.cast(mixed, target_type=pl.BF16)
-            pl.store(result, [q_head, 0], out)
+                query_box = pl.load(
+                    query,
+                    [batch_row, q_head, 0],
+                    [1, 1, query.shape[2]],
+                    target_memory=pl.MemorySpace.Mat,
+                )
+                query_tile = pl.reshape(query_box, [1, query.shape[2]])
+                score = pl.matmul(query_tile, keys, out_dtype=pl.FP32)
+                scaled = pl.mul(score, scale)
+                positions = pl.tile.ci(
+                    0,
+                    [1, request_index.shape[1]],
+                    dtype=pl.INT32,
+                )
+                valid_mask = pl.cmps(positions, valid_token_count, cmp_type=2)
+                mask_scratch = pl.tile.create(
+                    [1, 32], dtype=pl.UINT8, target_memory=pl.MemorySpace.Vec
+                )
+                masked_scaled = pl.sels(
+                    valid_mask,
+                    scaled,
+                    mask_scratch,
+                    -3.4028234663852886e38,
+                )
+                max_scratch = pl.create_tile(
+                    [1, request_index.shape[1]],
+                    dtype=pl.FP32,
+                    target_memory=pl.MemorySpace.Vec,
+                )
+                row_max = pl.row_max(masked_scaled, max_scratch)
+                centered = pl.row_expand_sub(masked_scaled, row_max)
+                exponent = pl.exp(centered)
+                sum_scratch = pl.create_tile(
+                    [1, request_index.shape[1]],
+                    dtype=pl.FP32,
+                    target_memory=pl.MemorySpace.Vec,
+                )
+                row_sum = pl.row_sum(exponent, sum_scratch)
+                probability = pl.row_expand_div(exponent, row_sum)
+                probability_bf16 = pl.cast(probability, target_type=pl.BF16)
+                mixed = pl.matmul(probability_bf16, values, out_dtype=pl.FP32)
+                result = pl.cast(mixed, target_type=pl.BF16)
+                result_box = pl.reshape(result, [1, 1, query.shape[2]])
+                pl.store(result_box, [batch_row, q_head, 0], out)
     return out
 
 
@@ -342,6 +345,7 @@ def _validate_shape(rows: int, tokens: int, head_dim: int, value_dim: int) -> No
 
 
 def _validate_paged_decode_shape(
+    batch_size: int,
     q_heads: int,
     kv_heads: int,
     tokens: int,
@@ -351,7 +355,8 @@ def _validate_paged_decode_shape(
     max_context_len: int,
 ) -> None:
     if (
-        q_heads <= 0
+        batch_size <= 0
+        or q_heads <= 0
         or kv_heads <= 0
         or tokens <= 0
         or head_dim <= 0
@@ -405,6 +410,7 @@ def compile_for(rows: int, tokens: int, head_dim: int, value_dim: int) -> str:
 
 
 def build_paged_decode(
+    batch_size: int,
     q_heads: int,
     kv_heads: int,
     tokens: int,
@@ -414,6 +420,7 @@ def build_paged_decode(
     max_context_len: int,
 ) -> Any:
     _validate_paged_decode_shape(
+        batch_size,
         q_heads,
         kv_heads,
         tokens,
@@ -424,7 +431,9 @@ def build_paged_decode(
     )
     import torch
 
-    query = torch.empty((q_heads, head_dim), dtype=torch.bfloat16, device="meta")
+    query = torch.empty(
+        (batch_size, q_heads, head_dim), dtype=torch.bfloat16, device="meta"
+    )
     key_cache = torch.empty(
         (cache_rows, kv_heads * head_dim), dtype=torch.bfloat16, device="meta"
     )
@@ -432,8 +441,12 @@ def build_paged_decode(
     req_to_token = torch.empty(
         (request_rows, max_context_len), dtype=torch.int32, device="meta"
     )
-    request_index = torch.empty((1, tokens), dtype=torch.int64, device="meta")
-    valid_tokens = torch.empty((1, tokens), dtype=torch.int64, device="meta")
+    request_index = torch.empty(
+        (batch_size, tokens), dtype=torch.int64, device="meta"
+    )
+    valid_tokens = torch.empty(
+        (batch_size, tokens), dtype=torch.int64, device="meta"
+    )
     out = torch.empty_like(query)
     return paged_attention_decode_kernel.specialize(
         query,
@@ -448,6 +461,7 @@ def build_paged_decode(
 
 
 def compile_paged_decode_for(
+    batch_size: int,
     q_heads: int,
     kv_heads: int,
     tokens: int,
@@ -457,6 +471,7 @@ def compile_paged_decode_for(
     max_context_len: int,
 ) -> str:
     _validate_paged_decode_shape(
+        batch_size,
         q_heads,
         kv_heads,
         tokens,
@@ -466,6 +481,7 @@ def compile_paged_decode_for(
         max_context_len,
     )
     shape_key = (
+        batch_size,
         q_heads,
         kv_heads,
         tokens,
@@ -478,7 +494,7 @@ def compile_paged_decode_for(
     if cached is not None:
         return cached
     program = build_paged_decode(*shape_key)
-    graph_key = compile_graph(program, [_ROW_TILE, _VALUE_TILE])
+    graph_key = compile_graph(program, [1, _ROW_TILE, _VALUE_TILE])
     with _lock:
         _paged_decode_cache[shape_key] = graph_key
     return graph_key
@@ -680,12 +696,12 @@ def paged_attention_decode(
     bucket_tokens: int,
     stream: Any = None,
 ) -> Any:
-    """Run one request's GQA decode over a padded physical KV bucket.
+    """Run batched GQA decode over padded physical KV buckets.
 
-    ``request_index`` and ``valid_tokens`` are one-element device views of the
-    live request row and sequence length. The valid length must be in
-    ``[1, bucket_tokens]``; keeping both values on-device avoids decode-time
-    host synchronization and an intermediate ``kv_indices`` kernel.
+    ``request_index`` and ``valid_tokens`` contain one device value per batch
+    row. Each valid length must be in ``[1, bucket_tokens]``; keeping both
+    tensors on-device avoids decode-time host synchronization and an
+    intermediate ``kv_indices`` kernel.
     """
 
     import torch
@@ -708,21 +724,19 @@ def paged_attention_decode(
         raise ValueError("paged decode request table must be contiguous rank-2 INT32")
     if (
         request_index.ndim != 1
-        or request_index.numel() != 1
         or request_index.dtype is not torch.int64
         or not request_index.is_contiguous()
     ):
         raise ValueError(
-            "paged decode request index must be one contiguous INT64 element"
+            "paged decode request indices must be contiguous INT64"
         )
     if (
         valid_tokens.ndim != 1
-        or valid_tokens.numel() != 1
         or valid_tokens.dtype is not torch.int64
         or not valid_tokens.is_contiguous()
     ):
         raise ValueError(
-            "paged decode valid token count must be one contiguous INT64 element"
+            "paged decode valid token counts must be contiguous INT64"
         )
     if (
         req_to_token.device != query.device
@@ -730,11 +744,18 @@ def paged_attention_decode(
         or valid_tokens.device != query.device
     ):
         raise ValueError("paged decode metadata must be on the query device")
-    q_heads, head_dim = map(int, query.shape)
     cache_rows = int(key_cache.shape[0])
     tokens = int(bucket_tokens)
+    batch_size, query_width = map(int, query.shape)
     request_rows, max_context_len = map(int, req_to_token.shape)
+    if request_index.numel() != batch_size or valid_tokens.numel() != batch_size:
+        raise ValueError("paged decode needs one request index and length per batch row")
+    head_dim = int(key_cache.shape[1]) // kv_heads
+    if query_width % head_dim:
+        raise ValueError("paged decode query width must divide into Q heads")
+    q_heads = query_width // head_dim
     _validate_paged_decode_shape(
+        batch_size,
         q_heads,
         kv_heads,
         tokens,
@@ -751,6 +772,7 @@ def paged_attention_decode(
     if stream is None:
         stream = torch.cuda.current_stream(query.device)
     graph_key = compile_paged_decode_for(
+        batch_size,
         q_heads,
         kv_heads,
         tokens,
@@ -759,21 +781,22 @@ def paged_attention_decode(
         request_rows,
         max_context_len,
     )
-    out = torch.empty_like(query)
+    query_view = query.view(batch_size, q_heads, head_dim)
+    out = torch.empty_like(query_view)
     launch_graph(
         graph_key,
         (
-            query,
+            query_view,
             key_cache,
             value_cache,
             req_to_token,
-            request_index.as_strided((1, tokens), (0, 0)),
-            valid_tokens.as_strided((1, tokens), (0, 0)),
+            request_index.as_strided((batch_size, tokens), (1, 0)),
+            valid_tokens.as_strided((batch_size, tokens), (1, 0)),
             out,
         ),
         stream.cuda_stream,
     )
-    return out
+    return out.view(batch_size, query_width)
 
 
 def paged_cache_write(
