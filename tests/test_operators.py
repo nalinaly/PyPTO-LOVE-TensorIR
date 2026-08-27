@@ -9,6 +9,7 @@ import torch
 from pypto_kernels import (
     attention,
     fused_add,
+    fused_add_rmsnorm,
     gdn,
     linear,
     rmsnorm,
@@ -23,6 +24,7 @@ def test_each_operator_is_one_program():
         for graphs in (
             silu_and_mul.GRAPHS,
             fused_add.GRAPHS,
+            fused_add_rmsnorm.GRAPHS,
             rmsnorm.GRAPHS,
             rope.GRAPHS,
             attention.GRAPHS,
@@ -62,6 +64,21 @@ def test_rmsnorm_uses_native_tile_reduction():
     assert "pl.tile.mul" in rendered
     assert "pl.tile.store" in rendered
     assert "tensor." not in rendered
+
+
+def test_fused_add_rmsnorm_is_one_native_tile_graph_with_two_outputs():
+    program = fused_add_rmsnorm.build(2, 256)
+    rendered = str(program)
+    function = _one_program(program)
+    assert len(function.body.stmts) == 2  # one scope + return tuple
+    assert len(function.return_types) == 2
+    assert rendered.count("pl.tile.load") == 3
+    assert "pl.tile.row_sum" in rendered
+    assert "pl.tile.row_expand_mul" in rendered
+    assert rendered.count("pl.tile.store") == 2
+    assert "tensor." not in rendered
+    result = fused_add_rmsnorm.status(rows=2, columns=256)
+    assert result["status"] == "compiled", result
 
 
 def _one_program(p):
@@ -149,6 +166,7 @@ if __name__ == "__main__":
     test_each_operator_is_one_program()
     test_pointwise_operators_use_native_tile_dsl()
     test_rmsnorm_uses_native_tile_reduction()
+    test_fused_add_rmsnorm_is_one_native_tile_graph_with_two_outputs()
     test_rope_is_one_native_tile_graph_and_compiled()
     test_attention_is_one_native_tile_graph_and_compiled()
     test_linear_is_one_native_tile_graph_and_compiled()

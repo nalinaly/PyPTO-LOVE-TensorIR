@@ -6,6 +6,7 @@ One model operator is one explicit ``@pl.jit`` tile graph and one launch.
 __all__ = (
     "attention",
     "fused_add",
+    "fused_add_rmsnorm",
     "gdn",
     "linear",
     "rmsnorm",

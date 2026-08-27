@@ -11,6 +11,15 @@
    ]
   },
   {
+   "case": "fused_add_rmsnorm",
+   "key": "74bbb17914561ae7",
+   "status": "compiled",
+   "tiles": [
+    1,
+    128
+   ]
+  },
+  {
    "case": "rope",
    "key": "3579a519c398d778",
    "status": "compiled",
@@ -58,9 +67,9 @@
    ]
   }
  ],
- "dso_sha256": "d7ac609f7e7cdae92599fdbfd6285e99f8671a4004c4c952079b8ae148e1b6a5",
+ "dso_sha256": "7d6274729638f19cb110da6c6e3d318acae566c9ae5ec35c837c565b74e568d7",
  "kind": "pypto-kernels-classify-sm120",
- "pypto_commit": "cc44891e87aa1750295217205ac58ece65667520",
- "run_id": "pypto-20260827T141644Z-464638-479fbc",
+ "pypto_commit": "39ac068670263e2d944ff7c60465c047e06b5315",
+ "run_id": "pypto-20260827T143916Z-482399-fb5715",
  "schema": 2
 }

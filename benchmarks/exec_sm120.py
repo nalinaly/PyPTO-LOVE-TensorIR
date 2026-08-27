@@ -16,6 +16,7 @@ from pypto_kernels._boot import DSO_PATH, bootstrap
 from pypto_kernels import (
     attention,
     fused_add,
+    fused_add_rmsnorm,
     gdn,
     linear,
     rmsnorm,
@@ -79,6 +80,39 @@ def main() -> int:
             "max_abs_diff": float((rms_out.float() - rms_ref).abs().max()),
             "correct": bool(
                 torch.allclose(rms_out.float(), rms_ref, rtol=5e-2, atol=5e-2)
+            ),
+        }
+    )
+
+    rms_residual = torch.randn(rows, cols, device="cuda", dtype=torch.bfloat16) * 0.5
+    fused_norm_out, residual_out = fused_add_rmsnorm.fused_add_rmsnorm(
+        x, rms_residual, rms_weight, stream=stream
+    )
+    stream.synchronize()
+    residual_ref = x + rms_residual
+    fused_norm_ref = (
+        residual_ref.float()
+        * torch.rsqrt(residual_ref.float().square().mean(-1, keepdim=True) + 1.0e-6)
+        * (1.0 + rms_weight.float())
+    )
+    fused_norm_diff = float((fused_norm_out.float() - fused_norm_ref).abs().max())
+    residual_diff = float((residual_out.float() - residual_ref.float()).abs().max())
+    cases.append(
+        {
+            "case": "fused_add_rmsnorm_bf16 256x1024",
+            "implementation": "native-tile-dsl",
+            "launches": 1,
+            "max_abs_diff": max(fused_norm_diff, residual_diff),
+            "normalized_max_abs_diff": fused_norm_diff,
+            "residual_max_abs_diff": residual_diff,
+            "correct": bool(
+                torch.equal(residual_out, residual_ref)
+                and torch.allclose(
+                    fused_norm_out.float(),
+                    fused_norm_ref,
+                    rtol=5e-2,
+                    atol=5e-2,
+                )
             ),
         }
     )
@@ -223,6 +257,7 @@ def main() -> int:
             "silu_and_mul",
             "fused_add",
             "rmsnorm",
+            "fused_add_rmsnorm",
             "rope",
             "attention",
             "linear",
