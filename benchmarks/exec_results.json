@@ -1,12 +1,13 @@
 {
  "schema": 2,
  "kind": "pypto-kernels-exec-sm120",
- "run_id": "pypto-20260827T160717Z-545793-76cc31",
- "dso_sha256": "c7c65aa3905417c46ac7f12a5b808178ad6780c76fb827288dc42511f86922cf",
- "pypto_commit": "5cbd9d641277b12724e9eef26bd582833892cba0",
+ "run_id": "pypto-20260827T165142Z-581271-70339f",
+ "dso_sha256": "780062a4fa80f4676c260f660a0c41ea8ea944549a4029ee55b40b5c29f3e972",
+ "pypto_commit": "d8eaca6f6bc56b1217ad942a866e48fb4112381c",
  "native_tile_ops": [
   "silu_and_mul",
   "sigmoid_mul",
+  "embedding",
   "rmsnorm",
   "fused_add_rmsnorm",
   "gated_rmsnorm",
@@ -62,18 +63,25 @@
    "correct": true
   },
   {
+   "case": "embedding_bf16 32x248320x1024",
+   "implementation": "native-tile-dsl",
+   "launches": 1,
+   "max_abs_diff": 0.0,
+   "correct": true
+  },
+  {
    "case": "rmsnorm_bf16 256x1024",
    "implementation": "native-tile-dsl",
    "launches": 1,
-   "max_abs_diff": 0.014971733093261719,
+   "max_abs_diff": 0.015561580657958984,
    "correct": true
   },
   {
    "case": "fused_add_rmsnorm_bf16 256x1024",
    "implementation": "native-tile-dsl",
    "launches": 1,
-   "max_abs_diff": 0.015612125396728516,
-   "normalized_max_abs_diff": 0.015612125396728516,
+   "max_abs_diff": 0.014995574951171875,
+   "normalized_max_abs_diff": 0.014995574951171875,
    "residual_max_abs_diff": 0.0,
    "correct": true
   },
@@ -81,49 +89,49 @@
    "case": "gated_rmsnorm_bf16 256x128",
    "implementation": "native-tile-dsl",
    "launches": 1,
-   "max_abs_diff": 0.013971328735351562,
+   "max_abs_diff": 0.007749319076538086,
    "correct": true
   },
   {
    "case": "causal_conv1d_bf16 2048x64 width4",
    "implementation": "native-tile-dsl",
    "launches": 1,
-   "max_abs_diff": 0.000827491283416748,
+   "max_abs_diff": 0.00085487961769104,
    "correct": true
   },
   {
    "case": "rope_bf16 256x128",
    "implementation": "native-tile-dsl",
    "launches": 1,
-   "max_abs_diff": 0.016326904296875,
+   "max_abs_diff": 0.01934814453125,
    "correct": true
   },
   {
    "case": "attention_bf16 32x128x128",
    "implementation": "native-tile-dsl",
    "launches": 1,
-   "max_abs_diff": 0.0002248324453830719,
+   "max_abs_diff": 0.00022233277559280396,
    "correct": true
   },
   {
    "case": "linear_bf16 32x1024x1024",
    "implementation": "native-tile-dsl",
    "launches": 1,
-   "max_abs_diff": 0.0038886070251464844,
+   "max_abs_diff": 0.003827333450317383,
    "correct": true
   },
   {
    "case": "gdn_complete_read_bf16 16x128x128",
    "implementation": "native-tile-dsl",
    "launches": 1,
-   "max_abs_diff": 0.0007824897766113281,
+   "max_abs_diff": 0.0008532851934432983,
    "correct": true
   },
   {
    "case": "gdn_state_update_bf16 16x128x128",
    "implementation": "native-tile-dsl",
    "launches": 1,
-   "max_abs_diff": 0.0008726119995117188,
+   "max_abs_diff": 0.000919342041015625,
    "correct": true
   }
  ]

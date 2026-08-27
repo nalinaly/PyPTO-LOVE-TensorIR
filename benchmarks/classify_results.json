@@ -18,6 +18,15 @@
    ]
   },
   {
+   "case": "embedding",
+   "key": "d0da677fbd029800",
+   "status": "compiled",
+   "tiles": [
+    8,
+    128
+   ]
+  },
+  {
    "case": "rmsnorm",
    "key": "fae262ef6497be77",
    "status": "compiled",
@@ -101,9 +110,9 @@
    ]
   }
  ],
- "dso_sha256": "c7c65aa3905417c46ac7f12a5b808178ad6780c76fb827288dc42511f86922cf",
+ "dso_sha256": "780062a4fa80f4676c260f660a0c41ea8ea944549a4029ee55b40b5c29f3e972",
  "kind": "pypto-kernels-classify-sm120",
- "pypto_commit": "5cbd9d641277b12724e9eef26bd582833892cba0",
- "run_id": "pypto-20260827T160658Z-545586-b63c99",
+ "pypto_commit": "d8eaca6f6bc56b1217ad942a866e48fb4112381c",
+ "run_id": "pypto-20260827T165121Z-581103-546b06",
  "schema": 2
 }

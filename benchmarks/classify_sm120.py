@@ -20,6 +20,7 @@ from pypto_kernels._boot import DSO_PATH, bootstrap, classify  # noqa: E402
 from pypto_kernels import (  # noqa: E402
     attention,
     causal_conv1d,
+    embedding,
     fused_add_rmsnorm,
     gdn,
     gated_rmsnorm,
@@ -44,6 +45,7 @@ def main() -> int:
             sigmoid_mul.sigmoid_mul_kernel.specialize(sample, sample, sample),
             [128],
         ),
+        ("embedding", embedding.build(32, 248320, 1024), [8, 128]),
         ("rmsnorm", rmsnorm.build(256, 1024), [1, 128]),
         (
             "fused_add_rmsnorm",

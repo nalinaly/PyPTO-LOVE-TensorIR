@@ -9,6 +9,7 @@ import torch
 from pypto_kernels import (
     attention,
     causal_conv1d,
+    embedding,
     fused_add_rmsnorm,
     gdn,
     gated_rmsnorm,
@@ -32,6 +33,7 @@ def test_each_operator_is_one_program():
             rope.GRAPHS,
             attention.GRAPHS,
             causal_conv1d.GRAPHS,
+            embedding.GRAPHS,
             linear.GRAPHS,
             gdn.GRAPHS,
             gdn.UPDATE_GRAPHS,
@@ -110,6 +112,17 @@ def test_causal_conv1d_prefill_is_one_native_tile_graph():
     assert "tensor." not in rendered
 
 
+def test_embedding_is_one_dynamic_row_gather_graph():
+    program = embedding.build(8, 1024, 256)
+    rendered = str(program)
+    assert len(_one_program(program).body.stmts) == 2
+    assert "pl.range(8)" in rendered
+    assert "pl.range(2)" in rendered
+    assert "pl.tensor.read" in rendered
+    assert "pl.tile.load" in rendered
+    assert "pl.tile.store" in rendered
+
+
 def _one_program(p):
     assert len(p.functions) == 1
     fn = list(p.functions.values())[0]
@@ -185,6 +198,7 @@ if __name__ == "__main__":
     test_fused_add_rmsnorm_is_one_native_tile_graph_with_two_outputs()
     test_gated_rmsnorm_is_one_complete_native_tile_graph()
     test_causal_conv1d_prefill_is_one_native_tile_graph()
+    test_embedding_is_one_dynamic_row_gather_graph()
     test_rope_is_one_native_tile_graph()
     test_attention_is_one_native_tile_graph()
     test_linear_is_one_native_tile_graph()

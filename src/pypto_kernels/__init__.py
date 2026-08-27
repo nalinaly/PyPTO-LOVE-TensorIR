@@ -8,6 +8,7 @@ __version__ = "0.1.0"
 __all__ = (
     "attention",
     "causal_conv1d",
+    "embedding",
     "fused_add_rmsnorm",
     "gdn",
     "gated_rmsnorm",
