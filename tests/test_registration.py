@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 from pypto_plugins.torch import registration
 from pypto_plugins.torch.context import activate_mode
 from pypto_plugins.errors import StrictCoverageError
+import pypto_plugins.torch_inductor as torch_inductor
 
 
 class RegistrationTest(unittest.TestCase):
@@ -41,6 +43,17 @@ class RegistrationTest(unittest.TestCase):
             with self.assertRaises(Exception):
                 scheduling_ctor(object()).codegen()
         self.assertIsNotNone(scheduler)
+
+    def test_public_install_contract_uses_real_registration(self) -> None:
+        torch_inductor.uninstall()
+        self.addCleanup(torch_inductor.uninstall)
+        with (
+            mock.patch.object(torch_inductor, "assert_torch_compatible"),
+            mock.patch.object(torch_inductor, "prepare_process_strict"),
+        ):
+            torch_inductor.install()
+        self.assertTrue(torch_inductor._INSTALLED)
+        self.assertTrue(registration.installed())
 
 
 if __name__ == "__main__":

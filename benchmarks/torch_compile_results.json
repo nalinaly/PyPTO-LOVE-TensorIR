@@ -1,0 +1,35 @@
+{
+  "all_correct": true,
+  "all_native": true,
+  "artifacts": {
+    "pypto_kernel_0": {
+      "argument_count": 3,
+      "cubin_bytes": 13920,
+      "cubin_sha256": "fffb74e06c00bfa19cfc4bb119f0e36944942e0f7e72d996f19e8b7efe59498d",
+      "entry": "pypto_fused_pointwise",
+      "fallback_used": false,
+      "grid": [
+        2048,
+        1,
+        1
+      ]
+    }
+  },
+  "backend": "pypto",
+  "dtype": "bfloat16",
+  "kernel_count": 1,
+  "launch_count": 1,
+  "launches": [
+    {
+      "argument_count": 3,
+      "kernel": "pypto_kernel_0",
+      "stream": 0
+    }
+  ],
+  "max_abs_diff": 0.0,
+  "schema": 1,
+  "shape": [
+    256,
+    1024
+  ]
+}

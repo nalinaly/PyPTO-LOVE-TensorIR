@@ -129,9 +129,8 @@ def make_pypto_triton_scheduling(triton_scheduling_class: Any) -> Any:
                     "from pypto_plugins.torch.runtime_bridge import pypto_launch"
                 )
                 wrapper.header.writeline("import torch as _pypto_torch")
-                wrapper.header.writeline("pypto_stream = _pypto_torch.cuda.Stream()")
                 wrapper._pypto_header_written = True
-            stream = "pypto_stream.cuda_stream"
+            stream = "_pypto_torch.cuda.current_stream().cuda_stream"
             joined = ", ".join(str(arg) for arg in call_args)
             wrapper.writeline(
                 f"pypto_launch({str(name)!r}, ({joined}{', ' if joined else ''}), {stream})"
@@ -278,7 +277,6 @@ def _emit_pypto_node_launch(node: Any, name: str, meta: dict | None = None) -> N
             "from pypto_plugins.torch.runtime_bridge import pypto_launch"
         )
         wrapper.header.writeline("import torch as _pypto_torch")
-        wrapper.header.writeline("pypto_stream = _pypto_torch.cuda.Stream()")
         wrapper._pypto_header_written = True
     for output in node.get_outputs():
         buffer = getattr(output, "node", output)
@@ -287,7 +285,7 @@ def _emit_pypto_node_launch(node: Any, name: str, meta: dict | None = None) -> N
             buffer = getattr(output, "buffer", None)
         if buffer is not None and hasattr(buffer, "get_defining_op"):
             wrapper.codegen_allocation(buffer)
-    stream = "pypto_stream.cuda_stream"
+    stream = "_pypto_torch.cuda.current_stream().cuda_stream"
     broadcast_buffers = set((meta or {}).get("broadcast_buffers", ()))
     output_shape = (meta or {}).get("output_shape") or []
     call_args = []

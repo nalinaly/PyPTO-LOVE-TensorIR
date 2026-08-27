@@ -26,6 +26,7 @@ _EXPECTED_RUNTIME_LIBRARY = (
 _lock = threading.RLock()
 _observation: Any = None
 _executables: dict[str, Any] = {}
+_execution_streams: dict[int, Any] = {}
 
 
 def _ensure_observation(runtime: Any) -> Any:
@@ -52,6 +53,19 @@ def _ensure_executable(
         return executable
 
 
+def _ensure_execution_stream(torch_module: Any, caller_stream: Any) -> Any:
+    """Return one non-default stream ordered with the caller's current stream."""
+
+    device = caller_stream.device
+    index = int(device.index if device.index is not None else torch_module.cuda.current_device())
+    with _lock:
+        stream = _execution_streams.get(index)
+        if stream is None:
+            stream = torch_module.cuda.Stream(device=device)
+            _execution_streams[index] = stream
+        return stream
+
+
 def pypto_launch(kernel_name: str, args: tuple[Any, ...], stream: int) -> None:
     """Launch a registered PyPTO kernel on the caller's current stream."""
 
@@ -69,6 +83,15 @@ def pypto_launch(kernel_name: str, args: tuple[Any, ...], stream: int) -> None:
         )
     artifact, request = retained
     from pypto.runtime import nvidia as runtime
+    import torch
+
+    caller_stream = torch.cuda.current_stream()
+    if int(caller_stream.cuda_stream) != int(stream):
+        raise StrictCoverageError(
+            "generated PyPTO wrapper did not pass the caller's current stream"
+        )
+    execution_stream = _ensure_execution_stream(torch, caller_stream)
+    execution_stream.wait_stream(caller_stream)
 
     executable = _ensure_executable(runtime, kernel_name, artifact, request)
     arguments = [
@@ -96,5 +119,6 @@ def pypto_launch(kernel_name: str, args: tuple[Any, ...], stream: int) -> None:
             + "; abi="
             + repr(descriptors)
         ) from error
-    executable.launch(packet, stream)
+    executable.launch(packet, execution_stream.cuda_stream)
+    caller_stream.wait_stream(execution_stream)
     del packet

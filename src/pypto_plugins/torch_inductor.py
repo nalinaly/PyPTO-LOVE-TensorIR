@@ -1,10 +1,4 @@
-"""TorchInductor installation contract.
-
-The source-provided CUDA device registry is process global while Inductor
-configuration is context-local. The real scheduling/wrapper registration is
-added only after the PyPTO compiler/runtime ABI exists; until then this module
-fails loudly rather than delegating to Triton under a PyPTO label.
-"""
+"""TorchInductor installation contract for the native PyPTO CUDA backend."""
 
 from __future__ import annotations
 
@@ -13,8 +7,8 @@ import os
 import threading
 from collections.abc import Iterator
 
-from .errors import BackendNotReadyError
 from .operator_library import assert_operator_library_compatible
+from .torch import registration
 from .torch.context import activate_mode
 from .versions import assert_torch_compatible
 
@@ -58,12 +52,18 @@ def prepare_process_strict() -> None:
 
 
 def assert_backend_executable_ready() -> None:
-    """Fail before importing a framework until a real dispatcher has landed."""
+    """Verify that scheduling, wrapper and runtime bridge entry points exist."""
 
-    raise BackendNotReadyError(
-        "PyPTO Inductor scheduling/wrapper is not implemented yet; "
-        "refusing to register a fallback backend."
+    from .torch import runtime_bridge, scheduling
+
+    required = (
+        registration.install,
+        registration.uninstall,
+        scheduling.make_pypto_cuda_scheduling,
+        runtime_bridge.pypto_launch,
     )
+    if not all(callable(value) for value in required):
+        raise RuntimeError("PyPTO Inductor executable components are incomplete")
 
 
 def install() -> None:
@@ -76,16 +76,25 @@ def install() -> None:
         assert_backend_executable_ready()
         assert_torch_compatible()
         prepare_process_strict()
-        # A future dispatcher installation must happen here and publish
-        # _INSTALLED only after every registration succeeds.
+        registration.install()
+        if not registration.installed():
+            raise RuntimeError("PyPTO CUDA dispatcher installation did not publish")
         _INSTALLED = True
+
+
+def uninstall() -> None:
+    """Restore TorchInductor's captured CUDA backend registration."""
+
+    global _INSTALLED
+    with _INSTALL_LOCK:
+        registration.uninstall()
+        _INSTALLED = False
 
 
 @contextlib.contextmanager
 def mode(*, strict: bool = True) -> Iterator[None]:
     """Enter a per-compile PyPTO Inductor context."""
     install()
-    # Reached only after install() has a real dispatcher implementation.
     from torch._dynamo import config as dynamo_config
     from torch._inductor import config as inductor_config
 
