@@ -107,11 +107,15 @@ def main() -> int:
             [1, 1, 128],
         ),
         ("linear", linear.build(32, 1024, 1024), [1, 128]),
-        ("gdn_read", gdn.build_read(16, 128, 128), [1, 64]),
         (
-            "gdn_state_update",
-            gdn.build_state_update(16, 128, 128),
-            [1, 32, 32],
+            "gdn_recurrent_decode",
+            gdn.build_recurrent(2, 1, 8, 16, 128, 128, 65),
+            [1, 1, 1, 64],
+        ),
+        (
+            "gdn_recurrent_prefill",
+            gdn.build_recurrent(1, 13, 8, 16, 128, 128, 65),
+            [1, 1, 1, 64],
         ),
     )
     results = []

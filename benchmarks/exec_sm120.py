@@ -791,62 +791,127 @@ def main() -> int:
         }
     )
 
-    heads, dk, dv = 16, 128, 128
-    query = torch.randn(heads, dk, device="cuda", dtype=torch.bfloat16) * 0.2
-    decay = torch.rand(heads, dk, device="cuda", dtype=torch.bfloat16)
-    gate = torch.randn(heads, dk, device="cuda", dtype=torch.bfloat16) * 0.2
-    key = torch.randn(heads, dk, device="cuda", dtype=torch.bfloat16) * 0.2
-    value = torch.randn(heads, dv, device="cuda", dtype=torch.bfloat16) * 0.2
-    state = torch.randn(heads, dk, dv, device="cuda", dtype=torch.bfloat16) * 0.05
+    def run_gdn_recurrent_case(
+        *, batch_size: int, tokens_per_request: int, index_dtype, label: str
+    ) -> None:
+        q_heads, value_heads, dk, dv = 8, 16, 128, 128
+        rows = batch_size * tokens_per_request
+        mixed_width = 2 * q_heads * dk + value_heads * dv
+        mixed_qkv = (
+            torch.randn(
+                rows, mixed_width, device="cuda", dtype=torch.bfloat16
+            )
+            * 0.2
+        )
+        a = torch.randn(
+            rows, value_heads, device="cuda", dtype=torch.bfloat16
+        )
+        b = torch.randn_like(a)
+        A_log = torch.randn(value_heads, device="cuda", dtype=torch.float32) * 0.1
+        dt_bias = torch.randn(value_heads, device="cuda", dtype=torch.float32) * 0.1
+        state_slots = 65
+        state_width = value_heads * dv * dk
+        state_stride = state_width + 4096
+        state = torch.empty_strided(
+            (state_slots, value_heads, dv, dk),
+            (state_stride, dv * dk, dk, 1),
+            device="cuda",
+            dtype=torch.float32,
+        )
+        state.normal_().mul_(0.02)
+        state_indices = torch.arange(
+            3, 3 + batch_size, device="cuda", dtype=index_dtype
+        )
+        reference_state = state.clone()
+        torch.cuda.synchronize()
+        output = gdn.gdn_recurrent(
+            mixed_qkv,
+            a,
+            b,
+            A_log,
+            dt_bias,
+            state,
+            state_indices,
+            batch_size=batch_size,
+            tokens_per_request=tokens_per_request,
+            stream=stream,
+        )
+        stream.synchronize()
 
-    gdn_out = gdn.gdn_read(query, decay, gate, key, value, state, stream=stream)
-    stream.synchronize()
+        mixed = mixed_qkv.view(batch_size, tokens_per_request, mixed_width)
+        a_rows = a.view(batch_size, tokens_per_request, value_heads)
+        b_rows = b.view(batch_size, tokens_per_request, value_heads)
+        groups = value_heads // q_heads
+        reference_outputs = []
+        for batch_row in range(batch_size):
+            slot = int(state_indices[batch_row])
+            current = reference_state[slot]
+            token_outputs = []
+            for token in range(tokens_per_request):
+                packed = mixed[batch_row, token]
+                query = packed[: q_heads * dk].view(q_heads, dk).float()
+                key = packed[q_heads * dk : 2 * q_heads * dk].view(
+                    q_heads, dk
+                ).float()
+                value = packed[2 * q_heads * dk :].view(value_heads, dv).float()
+                query = query / torch.sqrt(
+                    torch.sum(query * query, dim=-1, keepdim=True) + 1.0e-6
+                )
+                key = key / torch.sqrt(
+                    torch.sum(key * key, dim=-1, keepdim=True) + 1.0e-6
+                )
+                query = query.repeat_interleave(groups, dim=0) / math.sqrt(dk)
+                key = key.repeat_interleave(groups, dim=0)
+                log_decay = -torch.exp(A_log) * torch.nn.functional.softplus(
+                    a_rows[batch_row, token].float() + dt_bias
+                )
+                current = current * torch.exp(log_decay)[:, None, None]
+                residual = value - torch.einsum("hvk,hk->hv", current, key)
+                beta = torch.sigmoid(b_rows[batch_row, token].float()).to(
+                    torch.bfloat16
+                ).float()
+                current = current + (
+                    residual * beta
+                )[:, :, None] * key[:, None, :]
+                token_outputs.append(torch.einsum("hk,hvk->hv", query, current))
+            reference_state[slot] = current
+            reference_outputs.append(torch.stack(token_outputs))
+        reference_output = torch.stack(reference_outputs)
+        output_diff = float((output.float() - reference_output).abs().max())
+        state_diff = float((state.float() - reference_state).abs().max())
+        cases.append(
+            {
+                "case": label,
+                "implementation": "native-tile-dsl-gdn-recurrent",
+                "launches": 1,
+                "batch_size": batch_size,
+                "tokens_per_request": tokens_per_request,
+                "state_row_stride": state_stride,
+                "output_max_abs_diff": output_diff,
+                "state_max_abs_diff": state_diff,
+                "max_abs_diff": max(output_diff, state_diff),
+                "correct": bool(
+                    torch.allclose(
+                        output.float(), reference_output, rtol=8e-2, atol=8e-2
+                    )
+                    and torch.allclose(
+                        state.float(), reference_state, rtol=2e-3, atol=2e-3
+                    )
+                ),
+            }
+        )
 
-    qd_ref = query.float() * decay.float()
-    read_ref = torch.einsum("hd,hdv->hv", qd_ref, state.float())
-    compose_ref = (
-        query.float() * torch.nn.functional.softplus(gate.float()) * key.float()
+    run_gdn_recurrent_case(
+        batch_size=2,
+        tokens_per_request=1,
+        index_dtype=torch.int32,
+        label="gdn_recurrent_decode_b2_h8_hv16_k128_v128",
     )
-    dot_ref = compose_ref.sum(-1, keepdim=True)
-    gdn_ref = read_ref + dot_ref * value.float()
-    cases.append(
-        {
-            "case": "gdn_complete_read_bf16 16x128x128",
-            "implementation": "native-tile-dsl",
-            "launches": 1,
-            "max_abs_diff": float((gdn_out.float() - gdn_ref).abs().max()),
-            "correct": bool(
-                torch.allclose(gdn_out.float(), gdn_ref, rtol=8e-2, atol=8e-2)
-            ),
-        }
-    )
-
-    # GDN state update is one native tile graph and one launch.
-    state = torch.randn(heads, dk, dv, device="cuda", dtype=torch.bfloat16) * 0.05
-    state_decay = torch.rand(heads, dk, 1, device="cuda", dtype=torch.bfloat16)
-    beta_key = torch.randn(heads, dk, 1, device="cuda", dtype=torch.bfloat16) * 0.05
-    update_value = torch.randn(heads, 1, dv, device="cuda", dtype=torch.bfloat16) * 0.1
-    updated = gdn.gdn_state_update(
-        state,
-        state_decay,
-        beta_key,
-        update_value,
-        stream=stream,
-    )
-    stream.synchronize()
-    update_ref = (
-        state.float() * state_decay.float() + beta_key.float() * update_value.float()
-    )
-    cases.append(
-        {
-            "case": "gdn_state_update_bf16 16x128x128",
-            "implementation": "native-tile-dsl",
-            "launches": 1,
-            "max_abs_diff": float((updated.float() - update_ref).abs().max()),
-            "correct": bool(
-                torch.allclose(updated.float(), update_ref, rtol=5e-2, atol=5e-2)
-            ),
-        }
+    run_gdn_recurrent_case(
+        batch_size=1,
+        tokens_per_request=3,
+        index_dtype=torch.int64,
+        label="gdn_recurrent_prefill_b1_t3_h8_hv16_k128_v128",
     )
     ok = all(c["correct"] for c in cases)
     dso = pathlib.Path(DSO_PATH)
@@ -873,8 +938,7 @@ def main() -> int:
             "attention_paged_cache_write",
             "attention_paged_prefill",
             "linear",
-            "gdn_read",
-            "gdn_state_update",
+            "gdn_recurrent",
         ],
         "all_correct": ok,
         "cases": cases,

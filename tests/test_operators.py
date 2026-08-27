@@ -37,11 +37,11 @@ def test_each_operator_is_one_program():
             causal_conv1d.GRAPHS,
             embedding.GRAPHS,
             linear.GRAPHS,
-            qk_rmsnorm_rope.GRAPHS,
-            gdn.GRAPHS,
-            gdn.UPDATE_GRAPHS,
+                qk_rmsnorm_rope.GRAPHS,
+                gdn.GRAPHS,
+            )
         )
-    )
+    assert gdn.UPDATE_GRAPHS == 0
 
 
 def test_pointwise_operators_use_native_tile_dsl():
@@ -285,24 +285,23 @@ def test_linear_is_one_native_tile_graph():
     assert "tensor." not in rendered
 
 
-def test_gdn_read_and_update_are_one_native_tile_graph_each():
-    program = gdn.build_read(2, 128, 128)
+def test_gdn_recurrent_is_one_mutation_declared_graph():
+    program = gdn.build_recurrent(
+        2, 1, 8, 16, 128, 128, 65, 16 * 128 * 128 + 4096
+    )
     rendered = str(program)
     assert len(_one_program(program).body.stmts) == 2  # one scope + return
-    assert "pl.tile.matmul" in rendered
-    assert "pl.tile.row_sum" in rendered
+    assert rendered.count("pl.InOut[") == 1
+    assert "pl.range(2)" in rendered and "pl.range(16)" in rendered
+    assert rendered.count("pl.tile.row_sum") == 2  # Q and K L2 norms
+    assert rendered.count("pl.tile.matmul") == 2  # state*K and Q*state
+    assert "pl.tile.abs" in rendered and "pl.tile.maximums" in rendered
     assert "pl.tile.row_expand_mul" in rendered
-    assert "pl.tile.store" in rendered
-    assert "tensor." not in rendered
-    update_program = gdn.build_state_update(2, 128, 128)
-    update_rendered = str(update_program)
-    assert len(_one_program(update_program).body.stmts) == 2  # one scope + return
-    assert update_rendered.count("pl.tile.load") == 4
-    assert "pl.tile.row_expand_mul" in update_rendered
-    assert "pl.tile.row_expand" in update_rendered
-    assert "pl.tile.col_expand_mul" in update_rendered
-    assert "pl.tile.store" in update_rendered
-    assert "tensor." not in update_rendered
+    assert "pl.tile.row_expand" in rendered
+    assert "pl.tile.col_expand_mul" in rendered
+    assert rendered.count("pl.tile.store") == 2  # output plus final FP32 state
+    prefill = str(gdn.build_recurrent(1, 3, 8, 16, 128, 128, 65))
+    assert "pl.range(3)" in prefill
 
 
 def test_broadcast_dependencies_are_closed():
@@ -328,6 +327,6 @@ if __name__ == "__main__":
     test_paged_cache_write_declares_mutation_and_one_graph()
     test_paged_prefill_is_one_causal_gqa_graph()
     test_linear_is_one_native_tile_graph()
-    test_gdn_read_and_update_are_one_native_tile_graph_each()
+    test_gdn_recurrent_is_one_mutation_declared_graph()
     test_broadcast_dependencies_are_closed()
     print("ALL OPERATOR STRUCTURE TESTS PASSED")

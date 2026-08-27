@@ -19,11 +19,10 @@ ones-matmul 广播展开。仅仅用整张量 `tensor.*` graph 再附加 schedul
 | `qk_rmsnorm_rope` | 1 | **原生 tile 待 run-pass** | Q/K norm + partial RoPE + gate split 单图 |
 | `rmsnorm` | 1 | **原生 tile** ✅ | Qwen `normalized * (1+weight)` 完整公式；一次 launch |
 | `rope` | 1 | **原生 tile** ✅ | 低/高半旋转在一个图内，两个 store 合成一个结果；一次 launch |
-| `gdn_read` | 1 | **原生 tile** ✅ | state matmul、softplus、dot、delta 与相加在一个图；一次 launch |
-| `gdn_state_update` | 1 | **原生 tile** ✅ | state/decay/beta/value 分块 load，tile 内 outer-product 更新，一次 launch |
+| `gdn_recurrent` | 1 | **原生 tile 源码候选** | `[B,T]` 静态图内完成 Q/K L2 norm、稳定 gate/beta、FP32 state decay/delta outer-product、InOut 回写与 BF16 输出；`T=1` 覆盖 batch decode，`B=1` 覆盖顺序 prefill；待编译/数值 run-pass |
 | `gated_rmsnorm` | 1 | **原生 tile** ✅ | GDN `RMSNorm(x,weight) * SiLU(gate)` 单图/单 launch |
-| `attention` | 4 | **dense 已通过；paged decode/cache-write/prefill 源码候选** | dense QK→稳定 softmax→PV；decode 单图直接读取 SGLang request table、投影物理 KV rows，并用 GPU seq-len 做 GQA masked softmax；cache-write 单图以 `InOut` cache + 动态 physical rows 发射两次 row scatter；causal prefill 单图支持 radix prefix，并按 KV head 复用 gathered K/V；覆盖 0.8B `8Q/2KV` 与 9B `16Q/4KV` 源码几何，仍待 CUDA Tile run-pass；连续批处理仍开放 |
-| `causal_conv1d` | 1 | **原生 tile** ✅ | GDN width-4 zero-initial prefill conv + SiLU；一次 launch |
+| `attention` | 4 | **dense 已通过；paged decode/cache-write/prefill 源码候选** | dense QK→稳定 softmax→PV；decode 单图按 batch 读取 SGLang request table、在图内做 page-size-one v2p、读取 row-pitched KV 并用 GPU seq-len 做 GQA masked softmax；cache-write 单图翻译 virtual rows 后写 InOut cache；causal prefill 单图复用 gathered K/V；覆盖 0.8B/9B 与 batch2 源码几何，仍待 CUDA Tile run-pass |
+| `causal_conv1d` | 1 | **原生 tile** ✅ | GDN width-4 zero-initial prefill conv + SiLU；非零 prefill/decode state 路径仍开放 |
 
 CP-0062 已关闭 broadcast producer 阻塞；分类证据在
 `benchmarks/classify_results.json`。`compiled` 与 GPU 数值 `all_correct`
