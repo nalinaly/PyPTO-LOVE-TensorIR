@@ -1,6 +1,25 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0053`
+**Checkpoint:** `CP-0054`
+
+**Status:** R0 remains open. pypto-kernels now covers the GDN decode
+READ path (commit `67f0765`): out = (q*decay) @ S + (q . (softplus(g)*k))
+* v decomposed with no broadcast op — softplus as an exp/+1/log chain,
+the per-row dot expanded through a ones matmul, and the state read as an
+M=1 batched matmul with the heads folded into the batch. A missing q
+factor in the dot term was the one real bug (caught by the eager
+comparison; intermediate-by-intermediate bisection). Accepted on SM120
+against eager for B=4/128/1/7 with H=16: max diff 0.28-0.75 on +-50
+outputs — the BF16-rounded dot term is the structural error floor — and
+identical across two runs (`state/evidence/gdn-read-run{1,2}.json`). The
+STATE UPDATE diag(decay) S + (beta k) (x) v still needs row-scale and
+outer-product broadcast shapes the pinned TensorIR producer rejects (the
+CP-0051 blocker), so 100%-PyPTO GDN layers additionally require either
+that producer limitation to lift or an update decomposition not yet
+found; this is the main remaining correctness risk for the 0.8B bring-up
+alongside the SGLang plugin integration itself.
+
+## Previous checkpoint (CP-0053)
 
 **Status:** R0 remains open. pypto-kernels now also carries decomposed
 attention (commit `93c3d27`): decode and causal prefill expressed purely
