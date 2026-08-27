@@ -1,0 +1,45 @@
+{
+ "all_correct": true,
+ "case_count": 7,
+ "cases": [
+  {
+   "case": "decode B=4 H=16 T=1024 D=128",
+   "max_abs_diff": 0.001953125,
+   "output_correct": true
+  },
+  {
+   "case": "decode B=128 H=16 T=1024 D=128",
+   "max_abs_diff": 0.00390625,
+   "output_correct": true
+  },
+  {
+   "case": "decode B=1 H=16 T=384 D=128",
+   "max_abs_diff": 0.001953125,
+   "output_correct": true
+  },
+  {
+   "case": "decode B=7 H=8 T=256 D=128",
+   "max_abs_diff": 0.00390625,
+   "output_correct": true
+  },
+  {
+   "case": "prefill B=1 H=16 M=512 D=128",
+   "max_abs_diff": 0.015625,
+   "output_correct": true
+  },
+  {
+   "case": "prefill B=2 H=16 M=384 D=128",
+   "max_abs_diff": 0.015625,
+   "output_correct": true
+  },
+  {
+   "case": "prefill B=1 H=8 M=1024 D=128",
+   "max_abs_diff": 0.015625,
+   "output_correct": true
+  }
+ ],
+ "dso": true,
+ "failures": [],
+ "kind": "pypto-kernels-attention-decomposed-sm120",
+ "schema": 1
+}
