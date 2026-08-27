@@ -94,7 +94,7 @@ def paged_attention_decode_kernel(
     scale: pl.FP32,
     out: pl.Out[pl.Tensor],
 ):
-    """Gather one request's paged KV rows and mask its static KV bucket."""
+    """Gather each request's paged KV rows and mask its static KV bucket."""
 
     with pl.at(level=pl.Level.CORE_GROUP):
         for batch_row in pl.range(query.shape[0]):
@@ -750,7 +750,10 @@ def paged_attention_decode(
     request_rows, max_context_len = map(int, req_to_token.shape)
     if request_index.numel() != batch_size or valid_tokens.numel() != batch_size:
         raise ValueError("paged decode needs one request index and length per batch row")
-    head_dim = int(key_cache.shape[1]) // kv_heads
+    cache_width = int(key_cache.shape[1])
+    if kv_heads <= 0 or cache_width <= 0 or cache_width % kv_heads:
+        raise ValueError("paged decode cache width must divide into positive KV heads")
+    head_dim = cache_width // kv_heads
     if query_width % head_dim:
         raise ValueError("paged decode query width must divide into Q heads")
     q_heads = query_width // head_dim

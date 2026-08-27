@@ -367,18 +367,20 @@ def main() -> int:
     )
 
     def run_paged_decode_case(
-        *, q_heads: int, kv_heads: int, valid_count: int, label: str
+        *, q_heads: int, kv_heads: int, valid_counts: tuple[int, ...], label: str
     ) -> None:
         bucket_tokens = 16
         paged_head_dim = 256
         cache_rows = 1024
         request_rows = 65
         max_context_len = 4096
-        request_row = 7
+        batch_size = len(valid_counts)
+        assert batch_size > 0
+        assert all(0 < count <= bucket_tokens for count in valid_counts)
         paged_query = (
             torch.randn(
-                q_heads,
-                paged_head_dim,
+                batch_size,
+                q_heads * paged_head_dim,
                 device="cuda",
                 dtype=torch.bfloat16,
             )
@@ -404,23 +406,40 @@ def main() -> int:
             device="cuda",
             dtype=torch.int32,
         )
-        selected = torch.randperm(cache_rows - 1, device="cuda")[:valid_count] + 1
-        req_to_token[request_row, :valid_count] = selected.to(torch.int32)
-        request_index = torch.tensor(
-            [request_row], device="cuda", dtype=torch.int64
+        request_index = torch.arange(
+            7, 7 + batch_size, device="cuda", dtype=torch.int64
         )
+        selected_pool = (
+            torch.randperm(cache_rows - 1, device="cuda")[: sum(valid_counts)] + 1
+        )
+        selected_by_batch = []
+        selected_offset = 0
+        for batch_row, valid_count in enumerate(valid_counts):
+            selected = selected_pool[
+                selected_offset : selected_offset + valid_count
+            ].contiguous()
+            selected_offset += valid_count
+            selected_by_batch.append(selected)
+            req_to_token[7 + batch_row, :valid_count] = selected.to(torch.int32)
         valid_tokens = torch.tensor(
-            [valid_count], device="cuda", dtype=torch.int64
+            valid_counts, device="cuda", dtype=torch.int64
         )
         row_width = kv_heads * paged_head_dim
         current_key = (
-            torch.randn(1, row_width, device="cuda", dtype=torch.bfloat16) * 0.2
-        )
-        current_value = (
-            torch.randn(1, row_width, device="cuda", dtype=torch.bfloat16)
+            torch.randn(
+                batch_size, row_width, device="cuda", dtype=torch.bfloat16
+            )
             * 0.2
         )
-        physical_row = selected[valid_count - 1 : valid_count].contiguous()
+        current_value = (
+            torch.randn(
+                batch_size, row_width, device="cuda", dtype=torch.bfloat16
+            )
+            * 0.2
+        )
+        physical_row = torch.stack(
+            [selected[-1] for selected in selected_by_batch]
+        ).contiguous()
         torch.cuda.synchronize()
         write_anchor = attention.paged_cache_write(
             key_cache,
@@ -431,8 +450,8 @@ def main() -> int:
             stream=stream,
         )
         stream.synchronize()
-        written_key = key_cache[physical_row].view(1, row_width)
-        written_value = value_cache[physical_row].view(1, row_width)
+        written_key = key_cache[physical_row].view(batch_size, row_width)
+        written_value = value_cache[physical_row].view(batch_size, row_width)
         key_write_diff = float((written_key.float() - current_key.float()).abs().max())
         value_write_diff = float(
             (written_value.float() - current_value.float()).abs().max()
@@ -473,24 +492,31 @@ def main() -> int:
         key_heads = key_cache.view(cache_rows, kv_heads, paged_head_dim)
         value_heads = value_cache.view(cache_rows, kv_heads, paged_head_dim)
         queries_per_kv = q_heads // kv_heads
-        reference_heads = []
-        for q_head in range(q_heads):
-            kv_head = q_head // queries_per_kv
-            selected_keys = key_heads[selected, kv_head].float()
-            selected_values = value_heads[selected, kv_head].float()
-            scores = (
-                paged_query[q_head].float() @ selected_keys.T
-            ) / math.sqrt(paged_head_dim)
-            reference_heads.append(torch.softmax(scores, dim=-1) @ selected_values)
-        paged_ref = torch.stack(reference_heads)
+        query_heads = paged_query.view(batch_size, q_heads, paged_head_dim)
+        reference_batches = []
+        for batch_row, selected in enumerate(selected_by_batch):
+            reference_heads = []
+            for q_head in range(q_heads):
+                kv_head = q_head // queries_per_kv
+                selected_keys = key_heads[selected, kv_head].float()
+                selected_values = value_heads[selected, kv_head].float()
+                scores = (
+                    query_heads[batch_row, q_head].float() @ selected_keys.T
+                ) / math.sqrt(paged_head_dim)
+                reference_heads.append(
+                    torch.softmax(scores, dim=-1) @ selected_values
+                )
+            reference_batches.append(torch.stack(reference_heads))
+        paged_ref = torch.stack(reference_batches).view(batch_size, -1)
         max_abs_diff = float((paged_out.float() - paged_ref).abs().max())
         cases.append(
             {
                 "case": label,
                 "implementation": "native-tile-dsl-request-table",
                 "launches": 1,
+                "batch_size": batch_size,
                 "bucket_tokens": bucket_tokens,
-                "valid_tokens": valid_count,
+                "valid_tokens": list(valid_counts),
                 "max_abs_diff": max_abs_diff,
                 "correct": bool(
                     torch.allclose(
@@ -503,14 +529,20 @@ def main() -> int:
     run_paged_decode_case(
         q_heads=8,
         kv_heads=2,
-        valid_count=13,
+        valid_counts=(13,),
         label="attention_paged_decode_0_8b 8q2kv bucket16 valid13 d256",
     )
     run_paged_decode_case(
         q_heads=16,
         kv_heads=4,
-        valid_count=16,
+        valid_counts=(16,),
         label="attention_paged_decode_9b 16q4kv bucket16 valid16 d256",
+    )
+    run_paged_decode_case(
+        q_heads=8,
+        kv_heads=2,
+        valid_counts=(13, 7),
+        label="attention_paged_decode_batch2_0_8b 8q2kv bucket16 valid13_7 d256",
     )
 
     prefill_rows, prefill_width = 13, 512
