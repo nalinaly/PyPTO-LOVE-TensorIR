@@ -1,6 +1,32 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0051`
+**Checkpoint:** `CP-0052`
+
+**Status:** R0 remains open. This checkpoint closes the RMSNorm gap left
+by CP-0051's broadcast blocker. The structured-matmul replay chain
+(`914e940`/`b561c3a`/`4b61e3b`) was cherry-picked onto
+`feature/nvidia-sm120` (one metadata-invariant conflict merged to keep
+both the row-broadcast tolerance and the matmul branch); the opext DSO
+rebuilt green at 13/13 CTest, SHA-256
+`ed203c942cbaed8d32ae3ff8e5cdb07cbc5c65cb7fbd7317f60063d843682af4`, and
+the Inductor pointwise smoke still returns `output_correct: true`.
+pypto-kernels gained `pypto_kernels/rmsnorm.py` (commit `d03cdfc`): a
+five-kernel decomposition with no broadcast op — square (FusedPointwiseV2),
+row-sum expansion `sq @ ones_{N x R}` (StructuredMatmulV4; every output
+column equals the row sum of squares), the `[M,R]` rsqrt epilogue
+pre-divided by R, expansion `inv @ ones_{R x N}` (summing R identical
+columns multiplies by R; power-of-two scaling commutes with BF16 rounding
+bit-exactly), and the final scale. Tile arity follows the normalized
+output rank (single tile when the unit row count normalizes away).
+Numerically validated on live SM120 against eager BF16 RMSNorm for
+[256,1024], [4096,1024], [512,2048] and the decode shape [1,1024]:
+`all_correct` with max relative error ~0.9 percent (BF16 precision), zero
+out-of-tolerance elements, byte-identical error profiles across two runs
+(`state/evidence/rmsnorm-decomposed-run{1,2}.json`). This unblocks the
+SGLang-plugin norm layer; next are attention/GDN kernels, the SGLang
+plugin itself, and the 0.8B bring-up.
+
+## Previous checkpoint (CP-0051)
 
 **Status:** R0 remains open. Under D-0018 this checkpoint records the
 Inductor-backend deepening on top of CP-0050. Activation functions
