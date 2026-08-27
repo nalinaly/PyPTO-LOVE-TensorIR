@@ -1,6 +1,27 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0052`
+**Checkpoint:** `CP-0053`
+
+**Status:** R0 remains open. pypto-kernels now also carries decomposed
+attention (commit `93c3d27`): decode and causal prefill expressed purely
+over verified primitives with no broadcast op — exp on pre-scaled scores
+(no max shift; the 1/sqrt(D) scaling keeps BF16 scores well inside exp
+range), the softmax row-sum expansion `e @ ones_{T x R}`, recip
+pre-divided by R, the value mix `e @ V` as a matmul, and the inverse
+expansion `inv @ ones_{R x D}`. Decode folds heads into the matmul batch
+over a transposed key layout [B,H,D,T]; prefill multiplies a dense BF16
+0/1 causal mask elementwise (an FP32 mask silently corrupts — the
+static-dtype ABI check cannot see dtype). Tiles follow normalized
+extents. Accepted on live SM120 against the eager FP32-softmax
+reference: decode B=4/128/1/7 (T up to 1024) and prefill M=512/384/1024
+all correct, max diff 0.002-0.016 (BF16 precision), byte-identical error
+profiles across two runs (`state/evidence/attention-decomposed-*.json`).
+Together with CP-0052's RMSNorm this covers the attention and norm
+families the SGLang plugin must route; GDN remains (chunked outer
+products over K=128 token blocks fit the same matmul constraint; the
+cumulative-decay weights need a decomposition of their own).
+
+## Previous checkpoint (CP-0052)
 
 **Status:** R0 remains open. This checkpoint closes the RMSNorm gap left
 by CP-0051's broadcast blocker. The structured-matmul replay chain
