@@ -17,6 +17,7 @@ EXPECTED_OPERATOR_LIBRARY_VERSION = "0.1.0"
 EXPECTED_OPERATOR_MODULES = (
     "attention",
     "causal_conv1d",
+    "embedding",
     "fused_add_rmsnorm",
     "gdn",
     "gated_rmsnorm",

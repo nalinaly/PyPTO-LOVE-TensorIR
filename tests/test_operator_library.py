@@ -25,6 +25,7 @@ def test_canonical_operator_package_is_native_tile_only() -> None:
     assert dict(snapshot.graph_counts) == {
         "attention": 1,
         "causal_conv1d": 1,
+        "embedding": 1,
         "fused_add_rmsnorm": 1,
         "gated_rmsnorm": 1,
         "gdn": 2,
