@@ -55,9 +55,11 @@ def test_rmsnorm_uses_native_tile_reduction():
     program = rmsnorm.build(2, 256)
     rendered = str(program)
     assert "pl.range(2)" in rendered
-    assert "pl.tile.load" in rendered
+    assert rendered.count("pl.tile.load") == 2
     assert "pl.tile.row_sum" in rendered
     assert "pl.tile.row_expand_mul" in rendered
+    assert "pl.tile.add" in rendered
+    assert "pl.tile.mul" in rendered
     assert "pl.tile.store" in rendered
     assert "tensor." not in rendered
 

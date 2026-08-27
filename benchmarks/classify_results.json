@@ -3,7 +3,7 @@
  "cases": [
   {
    "case": "rmsnorm",
-   "key": "34c059205f825255",
+   "key": "cba5f1d4d7cfb139",
    "status": "compiled",
    "tiles": [
     1,
@@ -58,9 +58,9 @@
    ]
   }
  ],
- "dso_sha256": "cd90a092ee8124fc37a1fada01a81942147dfb136a419b14e9f169a7a6242eb8",
+ "dso_sha256": "d7ac609f7e7cdae92599fdbfd6285e99f8671a4004c4c952079b8ae148e1b6a5",
  "kind": "pypto-kernels-classify-sm120",
- "pypto_commit": "5863644501e402f7a99db807ef123ac968712b32",
- "run_id": "pypto-20260827T140627Z-458881-618067",
+ "pypto_commit": "cc44891e87aa1750295217205ac58ece65667520",
+ "run_id": "pypto-20260827T141644Z-464638-479fbc",
  "schema": 2
 }

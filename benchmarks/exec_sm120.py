@@ -63,10 +63,13 @@ def main() -> int:
     # and one launch. Launch arguments follow builder input discovery order.
     rows, cols = 256, 1024
     x = torch.randn(rows, cols, device="cuda", dtype=torch.bfloat16) * 0.5
-    rms_out = rmsnorm.rmsnorm(x, stream=stream)
+    rms_weight = torch.randn(cols, device="cuda", dtype=torch.bfloat16) * 0.1
+    rms_out = rmsnorm.rmsnorm(x, rms_weight, stream=stream)
     stream.synchronize()
-    rms_ref = x.float() * torch.rsqrt(
-        x.float().square().mean(-1, keepdim=True) + 1.0e-6
+    rms_ref = (
+        x.float()
+        * torch.rsqrt(x.float().square().mean(-1, keepdim=True) + 1.0e-6)
+        * (1.0 + rms_weight.float())
     )
     cases.append(
         {
