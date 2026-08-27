@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "checkpoint": "CP-0079",
+  "status": "accepted-generated-row-reduction",
+  "component": "TorchInductor trailing-axis reductions",
+  "implementation": {
+    "framework_plugin_commit": "816a727bcd5d7eee24b8182ae1ed7b17eb3de90d",
+    "compiler_commit": "f7dae4ff9093ebf847496b8485bcaf616b667a46",
+    "sources": [
+      "projects/pypto-framework-plugins/src/pypto_plugins/torch/pointwise_codegen.py",
+      "projects/pypto-framework-plugins/src/pypto_plugins/torch/scheduling.py",
+      "projects/pypto/src/codegen/nvidia/tensor_ir_codegen.cpp"
+    ],
+    "generated_flow": [
+      "derive one static trailing reduction axis and output dtype",
+      "generate @pl.jit with explicit outer pl.range loops",
+      "load one complete row tile",
+      "create same-dtype scratch tile",
+      "call pl.row_sum or pl.row_max",
+      "store one reduced row tile"
+    ],
+    "whole_tensor_hir_removed": true,
+    "supported_modes": ["sum", "max"],
+    "supported_dtypes": ["bfloat16", "float32"]
+  },
+  "tests": {
+    "run_id": "pypto-20260827T153417Z-523150-a99967",
+    "result": "4 passed",
+    "source_assertions": [
+      "@pl.jit",
+      "pl.range",
+      "pl.row_sum",
+      "pl.store",
+      "no tensor.* in specialized IR"
+    ]
+  },
+  "gpu": {
+    "run_id": "pypto-20260827T153438Z-523377-143e94",
+    "result_file": "projects/pypto-framework-plugins/benchmarks/pointwise_results.json",
+    "shape": [256, 128],
+    "output_shape": [256, 1],
+    "dtype": "bfloat16",
+    "row_tile": 128,
+    "launches": 1,
+    "max_abs_diff": 0.0,
+    "correct": true,
+    "fallback_used": false
+  },
+  "compiler": {
+    "build_run_id": "pypto-20260827T153043Z-520756-43820e",
+    "ctest_run_id": "pypto-20260827T153514Z-523744-5723a9",
+    "ctest_result": "13/13 passed",
+    "dso_sha256": "46ba9534700b43cd1a9d0de3b9d682e9b2c8bc2ab551681f57b90f3545127d31"
+  },
+  "remaining_inductor_scope": [
+    "canonical linear/matmul and model-operator routing",
+    "full torch.compile wrapper execution",
+    "obsolete operator-library ABI guard cleanup",
+    "non-trailing or multi-axis reductions if a Qwen graph proves they are called"
+  ],
+  "safety": {
+    "protected_processes_signalled": false,
+    "upstream_modified": false,
+    "model_harness_modified": false
+  }
+}

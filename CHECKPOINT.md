@@ -1,6 +1,24 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0078`
+**Checkpoint:** `CP-0079`
+
+**Status:** Inductor trailing-axis reductions now use the same native tile DSL
+as hand-written operators. PyPTO `f7dae4f` recognizes a canonical native
+load/create/row_sum-or-row_max/store graph and lowers it through the existing
+row-reduction producer. Framework-plugin `816a727` replaces the former
+whole-tensor reduction builder with generated `@pl.jit` source containing
+outer `pl.range` loops, one complete row load, scratch, tile reduction and one
+store; dtype and row schedule derive from the real Inductor node. Focused run
+`pypto-20260827T153417Z-523150-a99967` passes 4/4. SM120 run
+`pypto-20260827T153438Z-523377-143e94` accepts generated BF16 sum
+`[256,128] -> [256,1]` in one launch, bit-exact, with no fallback or
+`tensor.*` source. CTest is 13/13 and exact DSO SHA-256 is
+`46ba9534700b43cd1a9d0de3b9d682e9b2c8bc2ab551681f57b90f3545127d31`.
+Evidence is `state/evidence/pypto-inductor-native-reduction-cp0079.json`.
+Canonical model-op routing, full `torch.compile` wrapper execution and stale
+operator-library ABI cleanup remain open.
+
+## Previous checkpoint (CP-0078)
 
 **Status:** TorchInductor-generated pointwise kernels no longer construct
 whole-tensor `tensor.*` HIR. Framework-plugin commit `1d75936` records the FX
