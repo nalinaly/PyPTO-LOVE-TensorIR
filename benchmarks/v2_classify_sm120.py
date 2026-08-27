@@ -18,7 +18,14 @@ from pypto_kernels_v2.ops import (  # noqa: E402
     rmsnorm,
     rope,
 )
-from pypto_kernels_v2._graph import gdn_delta_graph  # noqa: E402
+from pypto_kernels_v2._graph import (  # noqa: E402
+    gdn_delta_combine_graph,
+    gdn_delta_graph,
+    gdn_q_decay_graph,
+    gdn_state_read_graph,
+    gdn_state_update_graph,
+    row_sum_graph,
+)
 
 
 def main() -> int:
@@ -32,6 +39,29 @@ def main() -> int:
             [32, 32],
         ),
         ("gdn_delta", gdn_delta_graph(16, 128), [16, 32]),
+        (
+            "attention_softmax_normalize",
+            attention_design.build_softmax_normalize(256, 128),
+            [32, 32],
+        ),
+        (
+            "attention_value_mix",
+            attention_design.build_value_mix(256, 128, 128),
+            [32, 32],
+        ),
+        ("gdn_q_decay", gdn_q_decay_graph(16, 128), [128]),
+        ("gdn_dot", row_sum_graph(16, 128), [16]),
+        ("gdn_state_read", gdn_state_read_graph(16, 128, 128), [16, 32]),
+        (
+            "gdn_delta_combine",
+            gdn_delta_combine_graph(16, 128),
+            [16, 32],
+        ),
+        (
+            "gdn_state_update",
+            gdn_state_update_graph(16, 128, 128),
+            [16, 32, 32],
+        ),
     )
     results = []
     for name, program, tiles in cases:

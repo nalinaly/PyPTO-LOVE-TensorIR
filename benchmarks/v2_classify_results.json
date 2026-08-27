@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "kind": "pypto-kernels-v2-classify-sm120",
-  "run_id": "pypto-20260827T112153Z-380866-8c1765",
-  "dso_sha256": "ecc6ec6ddc123b092779f8c7cfe6ce38139d6bec62c8d92b8a0400e8f188c639",
+  "run_id": "pypto-20260827T113222Z-385520-4a93a9",
+  "dso_sha256": "4190b9d9eefa581e09cbe193c31f9e98d96c3a6ff4f855fa7ef31fc6e18280e4",
   "all_compiled": true,
   "cases": [
     {
@@ -34,6 +34,48 @@
       "tiles": [16, 32],
       "status": "compiled",
       "key": "fd39123e31274922"
+    },
+    {
+      "case": "attention_softmax_normalize",
+      "tiles": [32, 32],
+      "status": "compiled",
+      "key": "3667f3e6084d61a6"
+    },
+    {
+      "case": "attention_value_mix",
+      "tiles": [32, 32],
+      "status": "compiled",
+      "key": "4c031a587f6d166c"
+    },
+    {
+      "case": "gdn_q_decay",
+      "tiles": [128],
+      "status": "compiled",
+      "key": "7d09d6c62b414a2d"
+    },
+    {
+      "case": "gdn_dot",
+      "tiles": [16],
+      "status": "compiled",
+      "key": "91c5737833eefed2"
+    },
+    {
+      "case": "gdn_state_read",
+      "tiles": [16, 32],
+      "status": "compiled",
+      "key": "5c7d32a05aafe5b0"
+    },
+    {
+      "case": "gdn_delta_combine",
+      "tiles": [16, 32],
+      "status": "compiled",
+      "key": "822efc12c4df64f2"
+    },
+    {
+      "case": "gdn_state_update",
+      "tiles": [16, 32, 32],
+      "status": "compiled",
+      "key": "25e7201818975f0f"
     }
   ]
 }

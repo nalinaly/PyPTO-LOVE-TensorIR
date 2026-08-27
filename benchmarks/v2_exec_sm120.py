@@ -10,7 +10,11 @@ sys.path.insert(0, "/home/zhaosiying/pypto-love-tensor-ir/projects/pypto-kernels
 import torch
 
 from pypto_kernels_v2._boot import compile_graph, launch_graph
-from pypto_kernels_v2._graph import (gdn_compose_graph, gdn_delta_graph,
+from pypto_kernels_v2._graph import (gdn_compose_graph,
+                                     gdn_delta_combine_graph,
+                                     gdn_delta_graph, gdn_q_decay_graph,
+                                     gdn_state_read_graph,
+                                     gdn_state_update_graph, row_sum_graph,
                                      tiles_for)
 from pypto_kernels_v2.ops import (attention_design, fused_add, rmsnorm, rope,
                                   silu_and_mul)
@@ -148,6 +152,142 @@ def main() -> int:
         "launches": 1,
         "max_abs_diff": float((delta.float() - delta_ref).abs().max()),
         "correct": bool(torch.allclose(delta.float(), delta_ref,
+                                       rtol=5e-2, atol=5e-2)),
+    })
+
+    # Complete attention floor: one normalize graph plus one value-mix matmul.
+    rows, tokens, value_dim = 256, 128, 128
+    exponent = (torch.rand(rows, tokens, device="cuda",
+                           dtype=torch.bfloat16) + 0.125)
+    probabilities = torch.empty_like(exponent)
+    normalize_key = compile_graph(
+        attention_design.build_softmax_normalize(rows, tokens),
+        tiles_for(rows, tokens),
+    )
+    launch_graph(normalize_key, (exponent, probabilities),
+                 stream.cuda_stream)
+    stream.synchronize()
+    probability_ref = exponent.float() / exponent.float().sum(-1, keepdim=True)
+    probability_ok = torch.allclose(probabilities.float(), probability_ref,
+                                    rtol=5e-2, atol=5e-3)
+    cases.append({
+        "case": "attention_softmax_normalize_bf16 256x128",
+        "launches": 1,
+        "max_abs_diff": float(
+            (probabilities.float() - probability_ref).abs().max()),
+        "correct": bool(probability_ok),
+    })
+
+    value_matrix = torch.randn(tokens, value_dim, device="cuda",
+                               dtype=torch.bfloat16) * 0.25
+    mixed = torch.empty(rows, value_dim, device="cuda",
+                        dtype=torch.bfloat16)
+    mix_key = compile_graph(
+        attention_design.build_value_mix(rows, tokens, value_dim),
+        tiles_for(rows, value_dim),
+    )
+    launch_graph(mix_key, (probabilities, value_matrix, mixed),
+                 stream.cuda_stream)
+    stream.synchronize()
+    mixed_ref = probability_ref @ value_matrix.float()
+    cases.append({
+        "case": "attention_value_mix_bf16 256x128x128",
+        "launches": 1,
+        "path_launches": 2,
+        "max_abs_diff": float((mixed.float() - mixed_ref).abs().max()),
+        "correct": bool(probability_ok and torch.allclose(
+            mixed.float(), mixed_ref, rtol=8e-2, atol=5e-2)),
+    })
+
+    # Complete five-graph GDN read path. Each component is independently one
+    # graph/one launch; no wrapper presents the five launches as one operator.
+    heads, dk, dv = 16, 128, 128
+    query = torch.randn(heads, dk, device="cuda",
+                        dtype=torch.bfloat16) * 0.2
+    decay = torch.rand(heads, dk, device="cuda",
+                       dtype=torch.bfloat16)
+    gate = torch.randn(heads, dk, device="cuda",
+                       dtype=torch.bfloat16) * 0.2
+    key = torch.randn(heads, dk, device="cuda",
+                      dtype=torch.bfloat16) * 0.2
+    value = torch.randn(heads, dv, device="cuda",
+                        dtype=torch.bfloat16) * 0.2
+    state = torch.randn(heads, dk, dv, device="cuda",
+                        dtype=torch.bfloat16) * 0.05
+
+    query_decay = torch.empty_like(query)
+    qd_key = compile_graph(gdn_q_decay_graph(heads, dk), [128])
+    launch_graph(qd_key, (query, decay, query_decay), stream.cuda_stream)
+
+    state_read = torch.empty(heads, 1, dv, device="cuda",
+                             dtype=torch.bfloat16)
+    read_key = compile_graph(gdn_state_read_graph(heads, dk, dv),
+                             tiles_for(heads, dv))
+    launch_graph(read_key, (query_decay.view(heads, 1, dk), state,
+                            state_read), stream.cuda_stream)
+
+    composed = torch.empty_like(query)
+    compose_key = compile_graph(gdn_compose_graph(heads, dk), [128])
+    # gdn_compose_graph input order: gate, key, query.
+    launch_graph(compose_key, (gate, key, query, composed),
+                 stream.cuda_stream)
+
+    dot = torch.empty(heads, 1, device="cuda", dtype=torch.bfloat16)
+    dot_key = compile_graph(row_sum_graph(heads, dk), tiles_for(heads))
+    launch_graph(dot_key, (composed, dot), stream.cuda_stream)
+
+    gdn_out = torch.empty(heads, dv, device="cuda", dtype=torch.bfloat16)
+    combine_key = compile_graph(gdn_delta_combine_graph(heads, dv),
+                                tiles_for(heads, dv))
+    # combine input order: value, dot, read.
+    launch_graph(combine_key, (value, dot, state_read.view(heads, dv),
+                               gdn_out), stream.cuda_stream)
+    stream.synchronize()
+
+    qd_ref = query.float() * decay.float()
+    read_ref = torch.einsum("hd,hdv->hv", qd_ref, state.float())
+    compose_ref = (query.float() * torch.nn.functional.softplus(gate.float())
+                   * key.float())
+    dot_ref = compose_ref.sum(-1, keepdim=True)
+    gdn_ref = read_ref + dot_ref * value.float()
+    cases.append({
+        "case": "gdn_complete_read_bf16 16x128x128",
+        "launches": 5,
+        "component_launches": {
+            "q_decay": 1,
+            "state_read": 1,
+            "compose": 1,
+            "dot": 1,
+            "delta_combine": 1,
+        },
+        "max_abs_diff": float((gdn_out.float() - gdn_ref).abs().max()),
+        "correct": bool(torch.allclose(gdn_out.float(), gdn_ref,
+                                       rtol=8e-2, atol=8e-2)),
+    })
+
+    # GDN state update is one rank-3 pointwise graph and one launch.
+    state = torch.randn(heads, dk, dv, device="cuda",
+                        dtype=torch.bfloat16) * 0.05
+    state_decay = torch.rand(heads, dk, 1, device="cuda",
+                             dtype=torch.bfloat16)
+    beta_key = torch.randn(heads, dk, 1, device="cuda",
+                           dtype=torch.bfloat16) * 0.05
+    update_value = torch.randn(heads, 1, dv, device="cuda",
+                               dtype=torch.bfloat16) * 0.1
+    updated = torch.empty_like(state)
+    update_key = compile_graph(gdn_state_update_graph(heads, dk, dv),
+                               tiles_for(heads, dk, dv))
+    # state-update input order: state, decay, beta_key, value.
+    launch_graph(update_key, (state, state_decay, beta_key, update_value,
+                              updated), stream.cuda_stream)
+    stream.synchronize()
+    update_ref = (state.float() * state_decay.float()
+                  + beta_key.float() * update_value.float())
+    cases.append({
+        "case": "gdn_state_update_bf16 16x128x128",
+        "launches": 1,
+        "max_abs_diff": float((updated.float() - update_ref).abs().max()),
+        "correct": bool(torch.allclose(updated.float(), update_ref,
                                        rtol=5e-2, atol=5e-2)),
     })
     ok = all(c["correct"] for c in cases)

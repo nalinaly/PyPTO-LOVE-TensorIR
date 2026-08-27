@@ -17,7 +17,8 @@ SPAN_FILE = "pypto_kernels_v2"
 
 def pointwise_graph(shape: list[int], dtype: Any,
                     ops: list[tuple[str, list[Any]]],
-                    broadcast_inputs: list[str] | None = None) -> Any:
+                    broadcast_inputs: list[str] | None = None,
+                    broadcast_shapes: dict[str, list[int]] | None = None) -> Any:
     """Build one FusedPointwiseV2 graph from a DAG op chain.
 
     Names listed in ``broadcast_inputs`` get the [M, 1, ...] row type so
@@ -26,6 +27,22 @@ def pointwise_graph(shape: list[int], dtype: Any,
     broadcast lowering today).
     """
     broadcast_inputs = broadcast_inputs or []
+    resolved_broadcast_shapes = dict(broadcast_shapes or {})
+    for name in broadcast_inputs:
+        resolved_broadcast_shapes.setdefault(
+            name, [shape[0]] + [1] * (len(shape) - 1))
+    for name, input_shape in resolved_broadcast_shapes.items():
+        if len(input_shape) != len(shape) or not any(
+            source == 1 and target > 1
+            for source, target in zip(input_shape, shape)
+        ) or any(
+            source != target and source != 1
+            for source, target in zip(input_shape, shape)
+        ):
+            raise ValueError(
+                f"broadcast input {name} shape {input_shape} is incompatible "
+                f"with {shape}"
+            )
 
     ir = bootstrap()["ir"]
     span = ir.Span(SPAN_FILE, 1, 1)
@@ -43,10 +60,11 @@ def pointwise_graph(shape: list[int], dtype: Any,
                 args.append(results[int(operand[1:])])
             elif isinstance(operand, str):
                 if operand not in inputs:
-                    if operand in broadcast_inputs:
-                        row_type = ir.TensorType(
-                            [shape[0]] + [1] * (len(shape) - 1), dtype)
-                        inputs[operand] = ir.Var(operand, row_type, span)
+                    if operand in resolved_broadcast_shapes:
+                        broadcast_type = ir.TensorType(
+                            resolved_broadcast_shapes[operand], dtype)
+                        inputs[operand] = ir.Var(
+                            operand, broadcast_type, span)
                     else:
                         inputs[operand] = ir.Var(operand, tensor_type, span)
                 args.append(inputs[operand])
@@ -172,6 +190,55 @@ def softmax_scale_graph(rows: int, tokens: int) -> Any:
         broadcast_inputs=["inv_sum"])
 
 
+def row_normalize_graph(rows: int, columns: int) -> Any:
+    """One BF16 graph: x / sum(x) over the trailing dimension."""
+
+    ir = bootstrap()["ir"]
+    pypto = bootstrap()["pypto"]
+    span = ir.Span(SPAN_FILE, 1, 1)
+    dtype = pypto.DataType.BF16
+    full = ir.TensorType([rows, columns], dtype)
+    row = ir.TensorType([rows, 1], dtype)
+    x = ir.Var("x", full, span)
+    total = ir.Var("total", row, span)
+    inverse = ir.Var("inverse", row, span)
+    out = ir.Var("out", full, span)
+    function = ir.Function(
+        "ignored_row_normalize", [x], [full],
+        ir.SeqStmts([
+            ir.AssignStmt(total, ir.Call(
+                ir.get_op("tensor.row_sum"), [x], row, span), span),
+            ir.AssignStmt(inverse, ir.Call(
+                ir.get_op("tensor.recip"), [total], row, span), span),
+            ir.AssignStmt(out, ir.Call(
+                ir.get_op("tensor.row_expand_mul"), [x, inverse], full,
+                span), span),
+            ir.ReturnStmt([out], span),
+        ], span), span)
+    return ir.Program([function], SPAN_FILE, span)
+
+
+def row_sum_graph(rows: int, columns: int) -> Any:
+    """One BF16 RowReductionV3 graph returning [rows, 1]."""
+
+    ir = bootstrap()["ir"]
+    pypto = bootstrap()["pypto"]
+    span = ir.Span(SPAN_FILE, 1, 1)
+    dtype = pypto.DataType.BF16
+    full = ir.TensorType([rows, columns], dtype)
+    row = ir.TensorType([rows, 1], dtype)
+    x = ir.Var("x", full, span)
+    total = ir.Var("total", row, span)
+    function = ir.Function(
+        "ignored_row_sum", [x], [row],
+        ir.SeqStmts([
+            ir.AssignStmt(total, ir.Call(
+                ir.get_op("tensor.row_sum"), [x], row, span), span),
+            ir.ReturnStmt([total], span),
+        ], span), span)
+    return ir.Program([function], SPAN_FILE, span)
+
+
 def gdn_delta_graph(heads: int, dv: int) -> Any:
     """One graph for the GDN delta term's broadcast: out = dot * v.
 
@@ -186,6 +253,50 @@ def gdn_delta_graph(heads: int, dv: int) -> Any:
         [heads, dv], dtype,
         [("tensor.row_expand_mul", ["v", "dot"])],
         broadcast_inputs=["dot"])
+
+
+def gdn_delta_combine_graph(heads: int, dv: int) -> Any:
+    """One graph: read + dot*v with dot broadcast over Dv."""
+
+    pypto = bootstrap()["pypto"]
+    return pointwise_graph(
+        [heads, dv], pypto.DataType.BF16,
+        [("tensor.row_expand_mul", ["value", "dot"]),
+         ("tensor.add", ["prev", "read"])],
+        broadcast_inputs=["dot"])
+
+
+def gdn_q_decay_graph(heads: int, dk: int) -> Any:
+    """One pointwise graph: q_decay = q * decay."""
+
+    pypto = bootstrap()["pypto"]
+    return pointwise_graph(
+        [heads, dk], pypto.DataType.BF16,
+        [("tensor.mul", ["q", "decay"])])
+
+
+def gdn_state_read_graph(heads: int, dk: int, dv: int) -> Any:
+    """One batched matmul graph: [H,1,Dk] @ [H,Dk,Dv]."""
+
+    return matmul_graph([heads, 1, dk], [heads, dk, dv])
+
+
+def gdn_state_update_graph(heads: int, dk: int, dv: int) -> Any:
+    """One rank-3 graph for decay*state + beta_key outer value."""
+
+    pypto = bootstrap()["pypto"]
+    return pointwise_graph(
+        [heads, dk, dv], pypto.DataType.BF16,
+        [("tensor.row_expand_mul", ["state", "decay"]),
+         ("tensor.row_expand", ["state", "beta_key"]),
+         ("tensor.row_expand", ["state", "value"]),
+         ("tensor.mul", ["$1", "$2"]),
+         ("tensor.add", ["$0", "$3"])],
+        broadcast_shapes={
+            "decay": [heads, dk, 1],
+            "beta_key": [heads, dk, 1],
+            "value": [heads, 1, dv],
+        })
 
 
 def gdn_compose_graph(heads: int, dk: int) -> Any:

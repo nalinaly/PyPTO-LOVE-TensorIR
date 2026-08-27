@@ -15,8 +15,9 @@ block/tiling"的形态。不做 Python 侧多 launch 编排，不用 ones-matmul
 | `fused_add`（残差加） | 1 | **可执行** ✅ | 同上；fused_add_rmsnorm 的前半 |
 | `rmsnorm` | 1 | **可执行** ✅ | BF16 单 graph：square→sum→scale→+eps→rsqrt→broadcast→mul；GPU eager 对拍全绿 |
 | `rope` | 2（偶/奇各一） | **可执行** ✅ | 每半一个 pointwise graph（row_expand_mul×2 + sub/add）；偶/奇 GPU eager 对拍全绿 |
-| `gdn` read | 5 | **部分可执行** | compose 与 delta 广播均 GPU eager 对拍全绿；完整 read 与状态更新待补 |
-| `attention` softmax 段 | 3（sum/recip/broadcast） | **广播段可执行** | p = e·inv_sum 的单 graph GPU eager 对拍全绿；完整 softmax 段和值混合待补；真单核 FA 需专用 graph kind（FUTURE） |
+| `gdn` read | 5 | **可执行** ✅ | q-decay、state matmul、compose、dot reduce、delta+read 五个显式 graph 全部 run-pass；不隐藏为单 launch |
+| `gdn` state update | 1 | **可执行** ✅ | rank-3 broadcast DAG：decay·state + beta_key⊗value，一 graph/一 launch |
+| `attention` post-exp path | 2 | **可执行** ✅ | exponent normalize（sum→recip→broadcast-mul）+ value-mix matmul 均 run-pass；QK/max-shift/exp 与真单核 FA 仍属专用 graph kind（FUTURE） |
 
 CP-0062 已关闭 broadcast producer 阻塞；分类证据在
 `benchmarks/v2_classify_results.json`。`compiled` 与 GPU 数值 `all_correct`

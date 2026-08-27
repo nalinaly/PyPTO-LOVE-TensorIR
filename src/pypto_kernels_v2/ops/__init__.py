@@ -1,9 +1,8 @@
 """v2 operators: one model operator = one PyPTO graph (Ascend style).
 
 Status vocabulary (see _boot.classify):
-  executable        — single graph, compiles and launches on SM120 today
-  blocked-on-L0     — single-graph HIR is valid; the pinned producer's
-                      broadcast lowering (codex L0) is the only blocker
+  compiled          — the single graph lowers through the strict producer
+  executable        — compiled, one-launch and numerically accepted on SM120
 """
 
 from . import (attention_design, fused_add, gdn, rmsnorm, rope,  # noqa: F401

@@ -1,9 +1,9 @@
 {
  "schema": 1,
  "kind": "pypto-kernels-v2-exec-sm120",
- "run_id": "pypto-20260827T112406Z-381644-24ab81",
- "dso_sha256": "ecc6ec6ddc123b092779f8c7cfe6ce38139d6bec62c8d92b8a0400e8f188c639",
- "pypto_commit": "1b47d71415c100791e57bb48d350c538b27f69fe",
+ "run_id": "pypto-20260827T113503Z-386427-f6321f",
+ "dso_sha256": "4190b9d9eefa581e09cbe193c31f9e98d96c3a6ff4f855fa7ef31fc6e18280e4",
+ "pypto_commit": "fb888ae8c30d8e228aa2085ea8ae12a6f4826d10",
  "all_correct": true,
  "cases": [
   {
@@ -88,6 +88,38 @@
    "case": "gdn_delta_bf16 16x128",
    "launches": 1,
    "max_abs_diff": 0.00775146484375,
+   "correct": true
+  },
+  {
+   "case": "attention_softmax_normalize_bf16 256x128",
+   "launches": 1,
+   "max_abs_diff": 3.0516646802425385e-05,
+   "correct": true
+  },
+  {
+   "case": "attention_value_mix_bf16 256x128x128",
+   "launches": 1,
+   "path_launches": 2,
+   "max_abs_diff": 0.0003326684236526489,
+   "correct": true
+  },
+  {
+   "case": "gdn_complete_read_bf16 16x128x128",
+   "launches": 5,
+   "component_launches": {
+    "q_decay": 1,
+    "state_read": 1,
+    "compose": 1,
+    "dot": 1,
+    "delta_combine": 1
+   },
+   "max_abs_diff": 0.0021614134311676025,
+   "correct": true
+  },
+  {
+   "case": "gdn_state_update_bf16 16x128x128",
+   "launches": 1,
+   "max_abs_diff": 0.0009016990661621094,
    "correct": true
   }
  ]
