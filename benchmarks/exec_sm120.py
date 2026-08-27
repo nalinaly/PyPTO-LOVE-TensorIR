@@ -513,6 +513,62 @@ def main() -> int:
         label="attention_paged_decode_9b 16q4kv bucket16 valid16 d256",
     )
 
+    prefill_rows, prefill_width = 13, 512
+    prefill_key_cache = torch.randn(
+        1024, prefill_width, device="cuda", dtype=torch.bfloat16
+    )
+    prefill_value_cache = torch.randn_like(prefill_key_cache)
+    prefill_physical = torch.randperm(1023, device="cuda")[:prefill_rows] + 1
+    prefill_key = torch.randn(
+        prefill_rows, prefill_width, device="cuda", dtype=torch.bfloat16
+    )
+    prefill_value = torch.randn_like(prefill_key)
+    torch.cuda.synchronize()
+    prefill_anchor = attention.paged_cache_write(
+        prefill_key_cache,
+        prefill_value_cache,
+        prefill_physical,
+        prefill_key,
+        prefill_value,
+        stream=stream,
+    )
+    stream.synchronize()
+    prefill_written_key = prefill_key_cache[prefill_physical]
+    prefill_written_value = prefill_value_cache[prefill_physical]
+    prefill_anchor_ref = prefill_key.float() + prefill_value.float()
+    prefill_key_diff = float(
+        (prefill_written_key.float() - prefill_key.float()).abs().max()
+    )
+    prefill_value_diff = float(
+        (prefill_written_value.float() - prefill_value.float()).abs().max()
+    )
+    prefill_anchor_diff = float(
+        (prefill_anchor.float() - prefill_anchor_ref).abs().max()
+    )
+    cases.append(
+        {
+            "case": "attention_paged_cache_write_prefill 13x512",
+            "implementation": "native-tile-dsl-scatter-rows",
+            "launches": 1,
+            "key_max_abs_diff": prefill_key_diff,
+            "value_max_abs_diff": prefill_value_diff,
+            "anchor_max_abs_diff": prefill_anchor_diff,
+            "max_abs_diff": max(
+                prefill_key_diff, prefill_value_diff, prefill_anchor_diff
+            ),
+            "correct": bool(
+                torch.equal(prefill_written_key, prefill_key)
+                and torch.equal(prefill_written_value, prefill_value)
+                and torch.allclose(
+                    prefill_anchor.float(),
+                    prefill_anchor_ref,
+                    rtol=5e-2,
+                    atol=5e-2,
+                )
+            ),
+        }
+    )
+
     linear_input = torch.randn(32, 1024, device="cuda", dtype=torch.bfloat16) * 0.1
     linear_weight = torch.randn(1024, 1024, device="cuda", dtype=torch.bfloat16) * 0.1
     linear_out = linear.linear(linear_input, linear_weight, stream=stream)
