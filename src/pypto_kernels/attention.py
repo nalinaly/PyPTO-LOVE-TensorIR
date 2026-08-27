@@ -15,7 +15,7 @@ _ROW_TILE = 1
 _VALUE_TILE = 64
 _lock = threading.RLock()
 _cache: dict[tuple[int, int, int, int], str] = {}
-_paged_decode_cache: dict[tuple[int, int, int, int, int], str] = {}
+_paged_decode_cache: dict[tuple[int, int, int, int, int, int, int], str] = {}
 
 STATUS = "native-tile executable"
 PAGED_DECODE_STATUS = "native-tile source candidate"
@@ -86,7 +86,8 @@ def paged_attention_decode_kernel(
     query: pl.Tensor,
     key_cache: pl.Tensor,
     value_cache: pl.Tensor,
-    physical_indices: pl.Tensor,
+    req_to_token: pl.Tensor,
+    request_index: pl.Tensor,
     valid_tokens: pl.Tensor,
     scale: pl.FP32,
     out: pl.Out[pl.Tensor],
@@ -98,20 +99,23 @@ def paged_attention_decode_kernel(
             kv_heads = key_cache.shape[1] // query.shape[1]
             queries_per_kv = query.shape[0] // kv_heads
             kv_head = q_head // queries_per_kv
+            request_id = pl.read(request_index, [0, 0])
+            valid_token_count_i64 = pl.read(valid_tokens, [0, 0])
+            valid_token_count = pl.cast(valid_token_count_i64, pl.INT32)
 
             keys = pl.tile.create(
-                [query.shape[1], physical_indices.shape[0]],
+                [query.shape[1], request_index.shape[1]],
                 dtype=pl.BF16,
                 target_memory=pl.MemorySpace.Mat,
                 transpose=True,
             )
             values = pl.tile.create(
-                [physical_indices.shape[0], query.shape[1]],
+                [request_index.shape[1], query.shape[1]],
                 dtype=pl.BF16,
                 target_memory=pl.MemorySpace.Mat,
             )
-            for slot in pl.range(physical_indices.shape[0]):
-                physical = pl.read(physical_indices, [slot, 0])
+            for slot in pl.range(request_index.shape[1]):
+                physical = pl.read(req_to_token, [request_id, slot])
                 cache_column = kv_head * query.shape[1]
                 keys = pl.tile.gather_row(
                     keys,
@@ -139,10 +143,9 @@ def paged_attention_decode_kernel(
             scaled = pl.mul(score, scale)
             positions = pl.tile.ci(
                 0,
-                [1, physical_indices.shape[0]],
+                [1, request_index.shape[1]],
                 dtype=pl.INT32,
             )
-            valid_token_count = pl.read(valid_tokens, [0, 0])
             valid_mask = pl.cmps(positions, valid_token_count, cmp_type=2)
             mask_scratch = pl.tile.create(
                 [1, 32], dtype=pl.UINT8, target_memory=pl.MemorySpace.Vec
@@ -154,7 +157,7 @@ def paged_attention_decode_kernel(
                 -3.4028234663852886e38,
             )
             max_scratch = pl.create_tile(
-                [1, physical_indices.shape[0]],
+                [1, request_index.shape[1]],
                 dtype=pl.FP32,
                 target_memory=pl.MemorySpace.Vec,
             )
@@ -162,7 +165,7 @@ def paged_attention_decode_kernel(
             centered = pl.row_expand_sub(masked_scaled, row_max)
             exponent = pl.exp(centered)
             sum_scratch = pl.create_tile(
-                [1, physical_indices.shape[0]],
+                [1, request_index.shape[1]],
                 dtype=pl.FP32,
                 target_memory=pl.MemorySpace.Vec,
             )
@@ -197,6 +200,8 @@ def _validate_paged_decode_shape(
     tokens: int,
     head_dim: int,
     cache_rows: int,
+    request_rows: int,
+    max_context_len: int,
 ) -> None:
     if (
         q_heads <= 0
@@ -204,6 +209,8 @@ def _validate_paged_decode_shape(
         or tokens <= 0
         or head_dim <= 0
         or cache_rows <= 0
+        or request_rows <= 0
+        or max_context_len < tokens
         or q_heads % kv_heads
         or head_dim % 128
         or tokens % 16
@@ -256,8 +263,18 @@ def build_paged_decode(
     tokens: int,
     head_dim: int,
     cache_rows: int,
+    request_rows: int,
+    max_context_len: int,
 ) -> Any:
-    _validate_paged_decode_shape(q_heads, kv_heads, tokens, head_dim, cache_rows)
+    _validate_paged_decode_shape(
+        q_heads,
+        kv_heads,
+        tokens,
+        head_dim,
+        cache_rows,
+        request_rows,
+        max_context_len,
+    )
     import torch
 
     query = torch.empty((q_heads, head_dim), dtype=torch.bfloat16, device="meta")
@@ -265,16 +282,18 @@ def build_paged_decode(
         (cache_rows, kv_heads * head_dim), dtype=torch.bfloat16, device="meta"
     )
     value_cache = torch.empty_like(key_cache)
-    physical_indices = torch.empty(
-        (tokens, head_dim), dtype=torch.int32, device="meta"
+    req_to_token = torch.empty(
+        (request_rows, max_context_len), dtype=torch.int32, device="meta"
     )
-    valid_tokens = torch.empty((1, tokens), dtype=torch.int32, device="meta")
+    request_index = torch.empty((1, tokens), dtype=torch.int64, device="meta")
+    valid_tokens = torch.empty((1, tokens), dtype=torch.int64, device="meta")
     out = torch.empty_like(query)
     return paged_attention_decode_kernel.specialize(
         query,
         key_cache,
         value_cache,
-        physical_indices,
+        req_to_token,
+        request_index,
         valid_tokens,
         1.0 / math.sqrt(head_dim),
         out,
@@ -287,9 +306,27 @@ def compile_paged_decode_for(
     tokens: int,
     head_dim: int,
     cache_rows: int,
+    request_rows: int,
+    max_context_len: int,
 ) -> str:
-    _validate_paged_decode_shape(q_heads, kv_heads, tokens, head_dim, cache_rows)
-    shape_key = (q_heads, kv_heads, tokens, head_dim, cache_rows)
+    _validate_paged_decode_shape(
+        q_heads,
+        kv_heads,
+        tokens,
+        head_dim,
+        cache_rows,
+        request_rows,
+        max_context_len,
+    )
+    shape_key = (
+        q_heads,
+        kv_heads,
+        tokens,
+        head_dim,
+        cache_rows,
+        request_rows,
+        max_context_len,
+    )
     cached = _paged_decode_cache.get(shape_key)
     if cached is not None:
         return cached
@@ -330,17 +367,20 @@ def paged_attention_decode(
     query: Any,
     key_cache: Any,
     value_cache: Any,
-    physical_indices: Any,
+    req_to_token: Any,
+    request_index: Any,
     valid_tokens: Any,
     *,
     kv_heads: int,
+    bucket_tokens: int,
     stream: Any = None,
 ) -> Any:
     """Run one request's GQA decode over a padded physical KV bucket.
 
-    ``valid_tokens`` is the one-element device view of the live sequence
-    length. Its value must be in ``[1, physical_indices.shape[0]]``; keeping it
-    on-device avoids a decode-time host synchronization.
+    ``request_index`` and ``valid_tokens`` are one-element device views of the
+    live request row and sequence length. The valid length must be in
+    ``[1, bucket_tokens]``; keeping both values on-device avoids decode-time
+    host synchronization and an intermediate ``kv_indices`` kernel.
     """
 
     import torch
@@ -356,26 +396,48 @@ def paged_attention_decode(
     ):
         raise ValueError("paged decode needs contiguous rank-2 BF16 Q/K/V storage")
     if (
-        physical_indices.ndim != 1
-        or physical_indices.dtype is not torch.int32
-        or not physical_indices.is_contiguous()
+        req_to_token.ndim != 2
+        or req_to_token.dtype is not torch.int32
+        or not req_to_token.is_contiguous()
     ):
-        raise ValueError("paged decode physical indices must be contiguous rank-1 INT32")
+        raise ValueError("paged decode request table must be contiguous rank-2 INT32")
+    if (
+        request_index.ndim != 1
+        or request_index.numel() != 1
+        or request_index.dtype is not torch.int64
+        or not request_index.is_contiguous()
+    ):
+        raise ValueError(
+            "paged decode request index must be one contiguous INT64 element"
+        )
     if (
         valid_tokens.ndim != 1
         or valid_tokens.numel() != 1
-        or valid_tokens.dtype is not torch.int32
+        or valid_tokens.dtype is not torch.int64
         or not valid_tokens.is_contiguous()
     ):
         raise ValueError(
-            "paged decode valid token count must be one contiguous INT32 element"
+            "paged decode valid token count must be one contiguous INT64 element"
         )
-    if valid_tokens.device != query.device or physical_indices.device != query.device:
+    if (
+        req_to_token.device != query.device
+        or request_index.device != query.device
+        or valid_tokens.device != query.device
+    ):
         raise ValueError("paged decode metadata must be on the query device")
     q_heads, head_dim = map(int, query.shape)
     cache_rows = int(key_cache.shape[0])
-    tokens = int(physical_indices.shape[0])
-    _validate_paged_decode_shape(q_heads, kv_heads, tokens, head_dim, cache_rows)
+    tokens = int(bucket_tokens)
+    request_rows, max_context_len = map(int, req_to_token.shape)
+    _validate_paged_decode_shape(
+        q_heads,
+        kv_heads,
+        tokens,
+        head_dim,
+        cache_rows,
+        request_rows,
+        max_context_len,
+    )
     expected_cache_shape = (cache_rows, kv_heads * head_dim)
     if tuple(key_cache.shape) != expected_cache_shape or tuple(
         value_cache.shape
@@ -384,7 +446,13 @@ def paged_attention_decode(
     if stream is None:
         stream = torch.cuda.current_stream(query.device)
     graph_key = compile_paged_decode_for(
-        q_heads, kv_heads, tokens, head_dim, cache_rows
+        q_heads,
+        kv_heads,
+        tokens,
+        head_dim,
+        cache_rows,
+        request_rows,
+        max_context_len,
     )
     out = torch.empty_like(query)
     launch_graph(
@@ -393,7 +461,8 @@ def paged_attention_decode(
             query,
             key_cache,
             value_cache,
-            physical_indices.as_strided((tokens, head_dim), (1, 0)),
+            req_to_token,
+            request_index.as_strided((1, tokens), (0, 0)),
             valid_tokens.as_strided((1, tokens), (0, 0)),
             out,
         ),

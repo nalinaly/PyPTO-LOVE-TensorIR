@@ -166,11 +166,12 @@ def test_attention_is_one_native_tile_graph():
 
 
 def test_paged_attention_decode_gathers_physical_kv_rows_in_one_graph():
-    program = attention.build_paged_decode(8, 2, 16, 256, 1024)
+    program = attention.build_paged_decode(8, 2, 16, 256, 1024, 65, 4096)
     rendered = str(program)
     assert len(_one_program(program).body.stmts) == 2
     assert "pl.range(8)" in rendered and "pl.range(16)" in rendered
-    assert rendered.count("pl.tensor.read") == 2
+    assert rendered.count("pl.tensor.read") == 3
+    assert "pl.cast" in rendered
     assert rendered.count("pl.tile.gather_row") == 2
     assert "transpose=True" in rendered
     assert rendered.count("pl.tile.matmul") == 2
@@ -180,7 +181,7 @@ def test_paged_attention_decode_gathers_physical_kv_rows_in_one_graph():
     assert "pl.tile.row_max" in rendered and "pl.tile.row_sum" in rendered
     assert rendered.count("pl.tile.store") == 1
 
-    wide_program = attention.build_paged_decode(8, 2, 512, 256, 1024)
+    wide_program = attention.build_paged_decode(8, 2, 512, 256, 1024, 65, 4096)
     wide_rendered = str(wide_program)
     assert "pl.range(512)" in wide_rendered
     assert "pl.tile.ci" in wide_rendered
