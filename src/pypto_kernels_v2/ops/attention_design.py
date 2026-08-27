@@ -22,3 +22,19 @@ BLOCKED_ON = ("pypto epilogue analyzer generalization (softmax: "
               "lowering (codex L0); graph 2 is plain StructuredMatmulV4")
 FUTURE = ("a dedicated flash-attention graph kind (KV-block loops inside "
           "one graph) for true single-kernel parity with Ascend")
+
+
+# --- single-graph builder for the softmax broadcast stage ---
+
+from .._boot import classify  # noqa: E402
+from .._graph import softmax_scale_graph  # noqa: E402
+
+
+def build_softmax_scale(rows: int, tokens: int):
+    """p = e * (1/sum(e)) as ONE pointwise graph with [M,1] broadcast."""
+
+    return softmax_scale_graph(rows, tokens)
+
+
+def softmax_status(rows: int = 256, tokens: int = 1024) -> dict[str, str]:
+    return classify(build_softmax_scale(rows, tokens), [128])

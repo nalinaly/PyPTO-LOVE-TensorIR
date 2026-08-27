@@ -16,29 +16,46 @@ SPAN_FILE = "pypto_kernels_v2"
 
 
 def pointwise_graph(shape: list[int], dtype: Any,
-                    ops: list[tuple[str, list[Any]]]) -> Any:
-    """Build one FusedPointwiseV2 graph from a DAG op chain."""
+                    ops: list[tuple[str, list[Any]]],
+                    broadcast_inputs: list[str] | None = None) -> Any:
+    """Build one FusedPointwiseV2 graph from a DAG op chain.
+
+    Names listed in ``broadcast_inputs`` get the [M, 1, ...] row type so
+    row-expand fused ops can consume them (the Ascend-style in-graph
+    broadcast; these are exactly the graphs blocked on producer
+    broadcast lowering today).
+    """
+    broadcast_inputs = broadcast_inputs or []
 
     ir = bootstrap()["ir"]
     span = ir.Span(SPAN_FILE, 1, 1)
     tensor_type = ir.TensorType(shape, dtype)
     inputs: dict[str, Any] = {}
     statements = []
+    results: list[Any] = []
     previous: Any = None
     for op_name, operands in ops:
         args = []
         for operand in operands:
             if operand == "prev":
                 args.append(previous)
+            elif isinstance(operand, str) and operand.startswith("$"):
+                args.append(results[int(operand[1:])])
             elif isinstance(operand, str):
                 if operand not in inputs:
-                    inputs[operand] = ir.Var(operand, tensor_type, span)
+                    if operand in broadcast_inputs:
+                        row_type = ir.TensorType(
+                            [shape[0]] + [1] * (len(shape) - 1), dtype)
+                        inputs[operand] = ir.Var(operand, row_type, span)
+                    else:
+                        inputs[operand] = ir.Var(operand, tensor_type, span)
                 args.append(inputs[operand])
             else:
                 args.append(ir.ConstFloat(float(operand), dtype, span))
         result = ir.Var("ignored", tensor_type, span)
         call = ir.Call(ir.get_op(op_name), args, tensor_type, span)
         statements.append(ir.AssignStmt(result, call, span))
+        results.append(result)
         previous = result
     statements.append(ir.ReturnStmt([previous], span))
     function = ir.Function(
@@ -112,6 +129,80 @@ def matmul_graph(lhs_shape: list[int], rhs_shape: list[int]) -> Any:
         ir.SeqStmts([ir.AssignStmt(result, call, span),
                      ir.ReturnStmt([result], span)], span), span)
     return ir.Program([function], SPAN_FILE, span)
+
+
+
+
+def rope_half_graph(rows: int, half: int) -> Any:
+    """One graph for one output half of RoPE (rotate_half layout).
+
+    out1 = x1*cos - x2*sin with cos/sin as [M,1] row-broadcast inputs —
+    the single-graph analog of aclnnApplyRotaryPosEmb's per-half math.
+    The odd half (x1*sin + x2*cos) is the same shape; interleaving the
+    halves back is layout prep, not compute.
+    """
+
+    ir = bootstrap()["ir"]
+    pypto = bootstrap()["pypto"]
+    dtype = pypto.DataType.BF16
+    return pointwise_graph(
+        [rows, half], dtype,
+        [("tensor.row_expand_mul", ["x1", "cos"]),
+         ("tensor.row_expand_mul", ["x2", "sin"]),
+         ("tensor.sub", ["$0", "prev"])],
+        broadcast_inputs=["cos", "sin"])
+
+
+def softmax_scale_graph(rows: int, tokens: int) -> Any:
+    """One graph for the softmax broadcast scale: p = e * (1/sum(e)).
+
+    The row-broadcast multiply against the [M,1] inverse-sum is the
+    attention softmax stage's broadcast-dependent single graph; the
+    row_sum and its reciprocal are separate (compilable) graphs.
+    """
+
+    ir = bootstrap()["ir"]
+    pypto = bootstrap()["pypto"]
+    dtype = pypto.DataType.BF16
+    return pointwise_graph(
+        [rows, tokens], dtype,
+        [("tensor.row_expand_mul", ["e", "inv_sum"])],
+        broadcast_inputs=["inv_sum"])
+
+
+def gdn_delta_graph(heads: int, dv: int) -> Any:
+    """One graph for the GDN delta term's broadcast: out = dot * v.
+
+    dot [H,1] broadcasts over the value dimension — the broadcast-
+    dependent single graph of the GDN read path.
+    """
+
+    ir = bootstrap()["ir"]
+    pypto = bootstrap()["pypto"]
+    dtype = pypto.DataType.BF16
+    return pointwise_graph(
+        [heads, dv], dtype,
+        [("tensor.row_expand_mul", ["v", "dot"])],
+        broadcast_inputs=["dot"])
+
+
+def gdn_compose_graph(heads: int, dk: int) -> Any:
+    """One graph for the GDN operand composition: q * (softplus(g) * k).
+
+    Pure pointwise (softplus composed as exp/+1/log) — this graph is
+    EXECUTABLE today; only the broadcast consumers are blocked.
+    """
+
+    ir = bootstrap()["ir"]
+    pypto = bootstrap()["pypto"]
+    dtype = pypto.DataType.BF16
+    return pointwise_graph(
+        [heads, dk], dtype,
+        [("tensor.exp", ["g"]),
+         ("tensor.adds", ["prev", 1.0]),
+         ("tensor.log", ["prev"]),
+         ("tensor.mul", ["prev", "k"]),
+         ("tensor.mul", ["prev", "q"])])
 
 
 def tiles_for(*extents: int) -> list[int]:

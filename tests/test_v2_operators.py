@@ -6,7 +6,8 @@ sys.path.insert(0, "/home/zhaosiying/pypto-love-tensor-ir/projects/pypto-kernels
 
 from pypto_kernels_v2._boot import bootstrap
 from pypto_kernels_v2._graph import pointwise_graph, tiles_for
-from pypto_kernels_v2.ops import fused_add, gdn, rmsnorm, rope, silu_and_mul
+from pypto_kernels_v2.ops import (attention_design, fused_add, gdn,
+                                 rmsnorm, rope, silu_and_mul)
 
 
 def test_each_operator_is_one_program():
@@ -18,7 +19,36 @@ def test_each_operator_is_one_program():
     fn = list(p.functions.values())[0]
     assert len(fn.body.stmts) == 2  # one assignment + one return
     assert silu_and_mul.GRAPHS == 1 and fused_add.GRAPHS == 1
-    assert rmsnorm.GRAPHS == 1 and rope.GRAPHS == 1
+    assert rmsnorm.GRAPHS == 1 and rope.GRAPHS == 2  # even/odd halves
+
+
+def _one_program(p):
+    assert len(p.functions) == 1
+    fn = list(p.functions.values())[0]
+    return fn
+
+
+def test_rope_halves_are_single_graphs_and_producer_blocked():
+    even = rope.build_even(256, 512)
+    odd = rope.build_odd(256, 512)
+    assert len(_one_program(even).body.stmts) == 4  # 3 assignments + return
+    assert len(_one_program(odd).body.stmts) == 4
+    result = rope.status()
+    assert result["status"] == "producer-blocked", result
+
+
+def test_gdn_compose_compiles_and_delta_is_producer_blocked():
+    compose = gdn.compose_status()
+    assert compose["status"] == "compiled", compose
+    delta = gdn.delta_status()
+    assert delta["status"] == "producer-blocked", delta
+
+
+def test_attention_softmax_scale_is_single_graph_producer_blocked():
+    program = attention_design.build_softmax_scale(256, 1024)
+    assert len(_one_program(program).body.stmts) == 2  # 1 assignment + return
+    result = attention_design.softmax_status()
+    assert result["status"] == "producer-blocked", result
 
 
 def test_rmsnorm_single_graph_is_producer_blocked_not_hir_rejected():
@@ -35,6 +65,9 @@ def test_blocked_dependencies_are_declared():
 
 if __name__ == "__main__":
     test_each_operator_is_one_program()
+    test_rope_halves_are_single_graphs_and_producer_blocked()
+    test_gdn_compose_compiles_and_delta_is_producer_blocked()
+    test_attention_softmax_scale_is_single_graph_producer_blocked()
     test_rmsnorm_single_graph_is_producer_blocked_not_hir_rejected()
     test_blocked_dependencies_are_declared()
     print("ALL V2 STRUCTURE TESTS PASSED")
