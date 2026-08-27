@@ -1,0 +1,50 @@
+{
+ "all_correct": true,
+ "case_count": 4,
+ "cases": [
+  {
+   "max_abs_diff": 0.015625,
+   "max_relative": 0.008163264952600002,
+   "mismatch_ratio": 0.0,
+   "output_correct": true,
+   "shape": [
+    256,
+    1024
+   ]
+  },
+  {
+   "max_abs_diff": 0.03125,
+   "max_relative": 0.009259259328246117,
+   "mismatch_ratio": 0.0,
+   "output_correct": true,
+   "shape": [
+    4096,
+    1024
+   ]
+  },
+  {
+   "max_abs_diff": 0.03125,
+   "max_relative": 0.008849557489156723,
+   "mismatch_ratio": 0.0,
+   "output_correct": true,
+   "shape": [
+    512,
+    2048
+   ]
+  },
+  {
+   "max_abs_diff": 0.015625,
+   "max_relative": 0.006289307959377766,
+   "mismatch_ratio": 0.0,
+   "output_correct": true,
+   "shape": [
+    1,
+    1024
+   ]
+  }
+ ],
+ "dso": "/home/zhaosiying/pypto-love-tensor-ir/builds/pypto-opext-on-a589f79/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+ "failures": [],
+ "kind": "pypto-kernels-rmsnorm-decomposed-sm120",
+ "schema": 1
+}
