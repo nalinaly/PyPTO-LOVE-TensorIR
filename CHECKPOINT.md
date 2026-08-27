@@ -648,6 +648,21 @@ production; its report stays immutable.
   exact GPU-adapter hash gate and reverted in `7ecc197`; D-0016 now requires a
   separate CPU-only policy-v2 adapter. Existing 24 GiB controls and evidence are
   unchanged and remain authoritative until that adapter is implemented.
+- The PyPTO runtime launch bridge is implemented and numerically proven
+  at the probe level. `pypto_launch` drives the full lifecycle (live
+  runtime observation with the CUDA context forced current, per-kernel
+  `NvidiaExecutable` construction + prewarm, allocation-free packet,
+  launch on the caller's non-default stream); compile requests now use
+  the live observed target so prewarm's device-identity check passes.
+  The step-by-step probe on the policy-2 GPU lane executes (x+y)*2.0
+  exactly: `correct=True maxdiff=0.000e+00`, prewarm dt=0.26s, packet
+  grid (8,1,1), launched stream non-default. Full Inductor-path reruns
+  are repeatedly aborted by a transient external co-tenant GPU process
+  (codex `.venv-self/bin/python -c` bursts, e.g. PID 71601/77017),
+  which the policy-2 watchdog correctly treats as fatal; the retry
+  queue continues when the co-tenant lane quiets. The generic smoke
+  controller also gained the child signal-mask restore and a
+  leader-exit race tolerance for the frozen stop primitive.
 - The pointwise expression-tree translation is live. An ops recorder
   replays the Inductor node body against a recording handler: loads become
   FusedPointwiseV2 inputs, the ten registered tensor ops rebuild the exact
