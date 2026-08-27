@@ -84,7 +84,7 @@ def make_pypto_triton_scheduling(triton_scheduling_class: Any) -> Any:
             program = _translate_reduction(node)
             name = f"pypto_kernel_{len(REGISTRY._kernels)}"
             artifact = pointwise_codegen.compile_pointwise(
-                program, tile=128, registry_name=name
+                program, tile=program.row_tile, registry_name=name
             )
             REGISTRY.register(name, artifact)
             _emit_pypto_node_launch(node, name)
@@ -175,18 +175,14 @@ def _is_reduction_node(inner: Any) -> bool:
 
 
 def _translate_reduction(node: Any) -> Any:
-    """Build the RowReductionV3 HIR for a trailing-axis Inductor reduction."""
+    """Build native tile IR for a trailing-axis Inductor reduction."""
 
     inner = getattr(node, "node", None)
     data = getattr(inner, "data", None)
     if data is None:
         data = inner
     reduction_type = data.get_reduction_type()
-    if reduction_type == "sum":
-        op_name = "tensor.row_sum"
-    elif reduction_type == "max":
-        op_name = "tensor.row_max"
-    else:
+    if reduction_type not in ("sum", "max"):
         raise StrictCoverageError(
             f"strict PyPTO reduction has no mode {reduction_type!r} yet"
         )
@@ -194,28 +190,28 @@ def _translate_reduction(node: Any) -> Any:
     reduced = [int(extent) for extent in data.get_reduction_size()]
     if not outer or not reduced:
         raise StrictCoverageError("reduction needs both outer and reduction extents")
+    if len(reduced) != 1:
+        raise StrictCoverageError(
+            "native reduction currently requires one trailing axis"
+        )
     # A keepdim reduction reports the [M,1] output extent inside the outer
     # loop ranges; those trailing unit slots are not input dimensions.
     while len(outer) > 1 and outer[-1] == 1:
         outer.pop()
-    input_shape = [*outer, *reduced]
-    modules = pointwise_codegen.bootstrap_pypto()
-    ir = modules["ir"]
-    pypto = modules["pypto"]
-    dtype = pypto.DataType.FP32
-    span = ir.Span("pypto_plugins.scheduling", 1, 1)
-    input_type = ir.TensorType(input_shape, dtype)
-    result_type = ir.TensorType([*input_shape[:-1], 1], dtype)
-    input_value = ir.Var("input", input_type, span)
-    result = ir.Var("result", result_type, span)
-    call = ir.Call(ir.get_op(op_name), [input_value], result_type, span)
-    body = ir.SeqStmts(
-        [ir.AssignStmt(result, call, span), ir.ReturnStmt([result], span)], span
+    import torch
+
+    dtype = (
+        data.get_dtype() if hasattr(data, "get_dtype") else getattr(data, "dtype", None)
     )
-    function = ir.Function(
-        "ignored_row_reduction_name", [input_value], [result_type], body, span
+    if dtype is torch.bfloat16:
+        dtype_name = "bfloat16"
+    elif dtype is torch.float32:
+        dtype_name = "float32"
+    else:
+        raise StrictCoverageError(f"native reduction dtype {dtype!r} is unsupported")
+    return pointwise_codegen.NativeReductionProgram(
+        tuple([*outer, *reduced]), dtype_name, reduction_type
     )
-    return ir.Program([function], "pypto_plugins_row_reduction", span)
 
 
 def _node_call_args(node: Any) -> list[str]:

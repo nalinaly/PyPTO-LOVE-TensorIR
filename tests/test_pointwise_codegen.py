@@ -53,6 +53,21 @@ class PointwiseCodegenTest(unittest.TestCase):
         self.assertGreater(artifact.cubin_bytes, 0)
         self.assertIn("pypto_pointwise_", artifact.kernel_name)
 
+    def test_native_row_reduction_compiles(self) -> None:
+        program = pc.NativeReductionProgram((256, 128), "float32", "sum")
+        source = program.native_source()
+        self.assertIn("@pl.jit", source)
+        self.assertIn("pl.range(256)", source)
+        self.assertIn("pl.row_sum", source)
+        self.assertIn("pl.store", source)
+        rendered = str(program.specialize())
+        self.assertIn("pl.tile.row_sum", rendered)
+        self.assertNotIn("tensor.", rendered)
+        artifact = pc.compile_pointwise(program, tile=program.row_tile)
+        self.assertTrue(artifact.entry_name.startswith("pypto_row_reduction"))
+        self.assertEqual(artifact.argument_count, 2)
+        self.assertFalse(artifact.fallback_used)
+
     def test_bounds_and_dtype_fail_closed(self) -> None:
         with self.assertRaises(StrictCoverageError):
             pc.PointwiseProgramBuilder((8,), "float64")

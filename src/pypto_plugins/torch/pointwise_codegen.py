@@ -231,6 +231,93 @@ class NativePointwiseProgram:
 _NATIVE_SOURCE_CACHE: dict[tuple[NativePointwiseProgram, int], str] = {}
 
 
+@dataclass(frozen=True, slots=True)
+class NativeReductionProgram:
+    """Trailing-axis row sum/max expressed as a native tile graph."""
+
+    input_shape: tuple[int, ...]
+    dtype_name: str
+    mode: str
+
+    @property
+    def output_shape(self) -> tuple[int, ...]:
+        return (*self.input_shape[:-1], 1)
+
+    @property
+    def row_count(self) -> int:
+        count = 1
+        for extent in self.input_shape[:-1]:
+            count *= extent
+        return count
+
+    @property
+    def row_tile(self) -> int:
+        return min(128, 1 << (self.row_count.bit_length() - 1))
+
+    def native_source(self) -> str:
+        cached = _REDUCTION_SOURCE_CACHE.get(self)
+        if cached is not None:
+            return cached
+        if self.mode not in ("sum", "max"):
+            raise StrictCoverageError(f"unsupported native reduction {self.mode!r}")
+        if not self.input_shape or any(extent <= 0 for extent in self.input_shape):
+            raise StrictCoverageError("native reduction shape must be positive")
+        dtype_expr = "pl.FP32" if self.dtype_name == "float32" else "pl.BF16"
+        lines = [
+            "@pl.jit",
+            "def generated_reduction_kernel(input_0: pl.Tensor, out: pl.Out[pl.Tensor]):",
+            "    with pl.at(level=pl.Level.CORE_GROUP):",
+        ]
+        indent = "        "
+        offsets: list[str] = []
+        for dimension, extent in enumerate(self.input_shape[:-1]):
+            name = f"index_{dimension}"
+            lines.append(f"{indent}for {name} in pl.range({extent}):")
+            offsets.append(name)
+            indent += "    "
+        input_tile = [1] * (len(self.input_shape) - 1) + [self.input_shape[-1]]
+        input_offsets = [*offsets, "0"]
+        output_offsets = [*offsets, "0"]
+        lines.extend(
+            [
+                f"{indent}input_tile = pl.load(input_0, "
+                f"[{', '.join(input_offsets)}], {input_tile})",
+                f"{indent}scratch = pl.create_tile({input_tile}, "
+                f"dtype={dtype_expr}, target_memory=pl.MemorySpace.Vec)",
+                f"{indent}reduced = pl.row_{self.mode}(input_tile, scratch)",
+                f"{indent}pl.store(reduced, [{', '.join(output_offsets)}], out)",
+                "    return out",
+            ]
+        )
+        source = "\n".join(lines) + "\n"
+        _REDUCTION_SOURCE_CACHE[self] = source
+        return source
+
+    def specialize(self) -> Any:
+        bootstrap_pypto()
+        import torch
+        import pypto.language as pl
+
+        source = self.native_source()
+        filename = "<pypto_inductor_native_reduction>"
+        linecache.cache[filename] = (
+            len(source),
+            None,
+            source.splitlines(keepends=True),
+            filename,
+        )
+        namespace: dict[str, Any] = {"pl": pl}
+        exec(compile(source, filename, "exec"), namespace)
+        kernel = namespace["generated_reduction_kernel"]
+        dtype = torch.float32 if self.dtype_name == "float32" else torch.bfloat16
+        input_sample = torch.empty(self.input_shape, dtype=dtype, device="meta")
+        output_sample = torch.empty(self.output_shape, dtype=dtype, device="meta")
+        return kernel.specialize(input_sample, output_sample)
+
+
+_REDUCTION_SOURCE_CACHE: dict[NativeReductionProgram, str] = {}
+
+
 class PointwiseProgramBuilder:
     """Record a bounded FX chain for later native tile specialization."""
 
@@ -467,6 +554,8 @@ def compile_pointwise(
     schedule = _reference_schedule(tile)
     if isinstance(program, NativePointwiseProgram):
         program = program.specialize(tile)
+    elif isinstance(program, NativeReductionProgram):
+        program = program.specialize()
     result = compiler.compile_structured_strict(program, request, schedule)
     artifact = result.artifact
     kernel_name = (
@@ -500,6 +589,7 @@ def compile_pointwise(
 __all__ = (
     "PointwiseArtifact",
     "NativePointwiseProgram",
+    "NativeReductionProgram",
     "PointwiseProgramBuilder",
     "bootstrap_pypto",
     "compile_pointwise",
