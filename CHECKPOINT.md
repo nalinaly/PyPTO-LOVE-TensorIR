@@ -1,6 +1,25 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0073`
+**Checkpoint:** `CP-0074`
+
+**Status:** The previously accepted unweighted RMSNorm probe has been replaced
+by the actual Qwen3.5 Gemma-weight formula from read-only SGLang
+`layernorm.py:1062-1066`: FP32 normalization followed by multiplication with
+`1 + weight`. Canonical operator commit `800e551` now has two explicit row
+tile loads (input and weight), FP32 reduction/normalization, weight scale and
+one BF16 store in a single `@pl.jit` graph. PyPTO `cc44891` lowers the weighted
+native pattern and broadcasts `[1,C]` weights through the repaired producer
+path without any shape/model branch. SM120 run
+`pypto-20260827T141548Z-464058-e1126b` passes the complete formula at
+`[256,1024]` in one launch with max absolute difference `0.0149717`; all 12
+consolidated cases remain correct. Focused producer test, all-compiled
+classification, native structure suite and CTest 13/13 are green; exact DSO
+SHA-256 is `d7ac609f7e7cdae92599fdbfd6285e99f8671a4004c4c952079b8ae148e1b6a5`.
+Evidence is `state/evidence/pypto-qwen-weighted-rmsnorm-cp0074.json`. Fused
+residual-add RMSNorm and GDN's gated RMSNorm remain distinct required operator
+forms; the overall model goal remains open.
+
+## Previous checkpoint (CP-0073)
 
 **Status:** Qwen's shared bias-free linear projection (QKV/O, MLP gate/up/down,
 GDN projections and LM head) is now a single native tile graph. Canonical

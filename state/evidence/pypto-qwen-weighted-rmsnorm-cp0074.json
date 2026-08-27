@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "checkpoint": "CP-0074",
+  "status": "accepted",
+  "operator": "qwen-weighted-rmsnorm",
+  "source_formula": {
+    "file": "upstream/sglang/python/sglang/srt/layers/layernorm.py",
+    "lines": "1062-1066",
+    "formula": "float(x) * rsqrt(mean(float(x)^2) + eps) * (1 + float(weight))"
+  },
+  "implementation": {
+    "repository": "projects/pypto-kernels",
+    "commit": "800e5518a1206a5c0a36ee25290f7b248f2f3dfe",
+    "source": "src/pypto_kernels/rmsnorm.py",
+    "graph_count": 1,
+    "launches": 1,
+    "tile_algorithm": [
+      "load BF16 input row tile",
+      "load BF16 weight row tile",
+      "FP32 square and row_sum",
+      "mean, epsilon and rsqrt",
+      "row-expand normalization",
+      "FP32 (1 + weight) scale",
+      "BF16 cast and tile.store"
+    ],
+    "supersedes_unweighted_probe": true
+  },
+  "compiler": {
+    "pypto_commit": "cc44891e87aa1750295217205ac58ece65667520",
+    "tensor_ir_commit": "f8e9272e14b7176ca10f43419db305cd46e88979",
+    "build_run_id": "pypto-20260827T141439Z-462275-15a1fb",
+    "compile_run_id": "pypto-20260827T141529Z-463860-76d903",
+    "focused_test_run_id": "pypto-20260827T141616Z-464341-efebf0",
+    "focused_test_result": "1 passed",
+    "ctest_run_id": "pypto-20260827T141732Z-465340-60d918",
+    "ctest_result": "13/13 passed"
+  },
+  "dso": {
+    "path": "builds/pypto-opext-on-a589f79/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "sha256": "d7ac609f7e7cdae92599fdbfd6285e99f8671a4004c4c952079b8ae148e1b6a5"
+  },
+  "gpu": {
+    "run_id": "pypto-20260827T141548Z-464058-e1126b",
+    "shape": [256, 1024],
+    "weight_shape": [1024],
+    "dtype": "bfloat16",
+    "max_abs_diff": 0.014971733093261719,
+    "correct": true,
+    "all_12_cases_correct": true,
+    "result_file": "projects/pypto-kernels/benchmarks/exec_results.json"
+  },
+  "classification": {
+    "run_id": "pypto-20260827T141644Z-464638-479fbc",
+    "all_compiled": true,
+    "structure_run_id": "pypto-20260827T141703Z-464878-731b09",
+    "structure_result": "ALL OPERATOR STRUCTURE TESTS PASSED"
+  },
+  "remaining_rmsnorm_scope": [
+    "single-graph fused residual add plus weighted RMSNorm with two outputs",
+    "GDN RMSNormGated output operator"
+  ],
+  "safety": {
+    "protected_processes_signalled": false,
+    "upstream_modified": false,
+    "model_harness_modified": false
+  }
+}
