@@ -1,4 +1,4 @@
-# 给 codex 的启动 prompt（v2：TensorIR 修改已授权，100% 硬性要求）
+# 给 codex 的启动 prompt（v3：含 L4b 融合阶段）
 
 直接复制以下内容给 codex：
 
@@ -44,6 +44,10 @@ L3  对照 upstream/sglang 源码逐条修正 eager 参考公式（最大精度�
     重标定 golden 阈值（目标 corr≥0.99 / top-1≥90%），注明源码行号。
 L4  按 §5 消账表清掉其余 fallback（z-silu→conv→L2-norm→RoPE→embedding
     one-hot matmul→向量代数），直到 census fallback == 0。
+L4b 融合阶段（L0 落地后立即做，性能的主要来源）：把正确性优先的分解
+    坍缩为融合形态——RMSNorm 5→2 kernel、attention 链 9→2-3、GDN 读取
+    2→1、撤销 ones-matmul 的 128 倍冗余展开、RoPE 融合 pointwise。每坍缩
+    一项重跑家族验收 + 计时对比前后。
 L5  D-0017 独占窗口逐家族计时，按 §7 如实归因结构性开销。
 
 【工作纪律】
