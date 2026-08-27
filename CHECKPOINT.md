@@ -28,23 +28,27 @@ below. It records work in progress, **not** CP-0084 acceptance.
   Cubin is not PyPTO Artifact, launch, numerical, framework or model evidence.
 - `pypto-kernels@5fbf813` adds the source-level Qwen3.5-0.8B fused QK
   GemmaRMSNorm + partial NeoX RoPE + gate-deinterleave candidate and its
-  actual-configuration numerical reference. Current kernels `4b6c1b4` also add
-  a static-batch paged-decode source candidate that reads physical slots
-  directly from SGLang's INT32 request table and applies a separate device-side
-  valid-length mask (`tile.ci/cmps/sels`) for each batch row from existing
-  INT64 GPU metadata. It needs neither a decode-time host sync nor an
-  intermediate `kv_indices` kernel. A third attention graph declares both
-  flattened K/V caches `InOut` and writes one or more dynamic physical rows in
-  a separate same-stream launch. Decode N=1 and prefill N>1 use the same static
-  cache-write loop family. A fourth attention graph expresses one-request
-  causal prefill over a radix prefix, reusing gathered K/V per KV head.
-  Current plugins `60916bb` add a pinned-source SGLang adapter for those three
+  actual-configuration numerical reference. Current kernels `59da538` add a
+  static-batch paged-decode source candidate that reads virtual slots directly
+  from SGLang's INT32 request table, resolves them through an INT64
+  virtual-to-physical table inside the same PyPTO graph and applies a separate
+  device-side valid-length mask (`tile.ci/cmps/sels`) per batch row. It needs
+  neither a decode-time host sync nor an intermediate `kv_indices`/translation
+  kernel. A third attention graph declares both flattened K/V caches `InOut`,
+  translates one or more virtual write rows and updates their physical cache
+  rows in a separate same-stream launch. Decode N=1 and prefill N>1 use the same
+  static cache-write loop family. A fourth attention graph expresses
+  one-request causal prefill over a radix prefix, reusing gathered K/V per KV
+  head and translating all page-size-one slots in graph.
+  Current plugins `28b16b7` add a pinned-source SGLang adapter for those three
   paged phases. It routes cache-write plus batch decode or cache-write plus
   one-request causal prefill, but the factory remains fail-closed while the
-  operators are source candidates. It also rejects unified-memory translation,
-  quantized/non-NHD caches, speculative or mixed modes and CUDA graphs rather
-  than falling back. Operator structure passes 16/16, plugin tests pass 95/95,
-  and focused Ruff/diff checks pass.
+  operators are source candidates. Direct pools use a startup identity table;
+  unified pools bind the allocator's live `full_v2p_page_table` without an
+  external GPU translation, restricted to page size and kernel multiplier one.
+  Quantized/non-NHD caches, speculative or mixed modes and CUDA graphs still
+  fail rather than fall back. Operator structure passes 17/17, plugin tests
+  pass 96/96, and focused Ruff/diff checks pass.
   Classification now includes both `8Q/2KV` and `16Q/4KV`; the future
   execution gate includes a non-full `valid=13/bucket=16` case, the 9B geometry
   and a two-request `(valid13,valid7)` case with distinct request rows. Slot 0
@@ -59,15 +63,20 @@ below. It records work in progress, **not** CP-0084 acceptance.
 - Primary `projects/pypto` remains clean at `d1b90b7` for the pending QK DSO
   rebuild. Paged-decode compiler work is isolated in
   `worktrees/pypto-paged-decode` on
-  `feature/paged-decode-sm120@55412d3`; it recognizes the native
+  `feature/paged-decode-sm120@17dae49`; it preserves non-dense runtime strides
+  in JIT TensorMeta, generated ND TensorViews and cache keys, then recognizes the native
   request-table-read/`tile.gather_row`/GQA/masked-softmax graph under an outer
   static batch loop, the strict static-loop `InOut` cache-write graph and the
   four-level static causal prefill graph. Decode metadata is projected per
   batch row and the emitter reconstructs `[B,Q,D]` through head then batch
   concatenation; matcher checks bind metadata reads and query/output offsets to
-  the exact batch and head iterators. The prefill emitter gathers each KV head
-  once, materializes per-query causal masks and reconstructs `[tokens,Q,D]`
-  through two-level concatenation. Argument direction survives
+  the exact batch and head iterators. Decode/prefill emitters gather the live
+  virtual page table inside the same TensorIR graph; cache-write does the same
+  before `scatter_rows`. The prefill emitter gathers each KV head once,
+  materializes per-query causal masks and reconstructs `[tokens,Q,D]` through
+  two-level concatenation. The branch also fixes the previously latent use of
+  the BF16 reader for integer metadata, the stale N=1 cache-write geometry and
+  the multirow virtual-row ABI stride. Argument direction survives
   through argument and mutation ABI projections (`inout` / `read-write`)
   instead of being silently rewritten read-only. It pins TensorIR `6b7599a`,
   whose generic
@@ -100,10 +109,11 @@ below. It records work in progress, **not** CP-0084 acceptance.
   device-side valid-length masks and 16-aligned buckets; direct request-table
   lookup keeps padded reads in-range at source level. Source-level cache write
   covers decode and multirow prefill as a separate mutation-declared PyPTO
-  graph, but none has compiled or executed. Causal prefill remains one-request.
-  Unified-memory virtual-to-physical translation, strided unified cache views,
-  verify/tree masks, mixed batches and CUDA-graph metadata remain absent. All
-  three compiler paths and the SGLang adapter are source-only; none is an
+  graph, and all three graphs accept row-pitched cache views. Page-size-one
+  unified-memory virtual-to-physical translation is now fused source, not run
+  evidence. Causal prefill remains one-request; nonunit pages, verify/tree
+  masks, mixed batches and CUDA-graph metadata remain absent. All three
+  compiler paths and the SGLang adapter are source-only; none is an
   SGLang/model attention result.
 - Two temporary untracked diagnostics remain in `projects/pypto-kernels`:
   `benchmarks/probe_qk_compile_sm120.py` (final target tile/current model cache
