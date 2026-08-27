@@ -37,12 +37,6 @@ def create_attention_backend(model_runner: Any) -> Any:
             translator = getattr(allocator, "translate_kv_loc_dense", None) or getattr(
                 allocator, "translate_kv_loc", None
             )
-            if translator is not None:
-                raise BackendNotReadyError(
-                    "PyPTO attention does not yet fuse unified-memory virtual-to-physical "
-                    "translation; refusing an external translation kernel."
-                )
-
             full_pool = getattr(
                 self.token_to_kv_pool, "full_kv_pool", self.token_to_kv_pool
             )
@@ -58,6 +52,33 @@ def create_attention_backend(model_runner: Any) -> Any:
                 raise BackendNotReadyError(
                     "PyPTO attention currently requires BF16 KV-cache compute dtype."
                 )
+            if translator is None:
+                mapping_rows = int(full_pool.size) + int(full_pool.page_size)
+                self.virtual_to_physical = torch.arange(
+                    mapping_rows, device=self.device, dtype=torch.int64
+                )
+            else:
+                if (
+                    int(getattr(allocator, "page_size", 0)) != 1
+                    or int(getattr(allocator, "kernel_page_multiplier", 0)) != 1
+                ):
+                    raise BackendNotReadyError(
+                        "PyPTO fused unified-memory translation currently requires "
+                        "page_size=1 and kernel_page_multiplier=1."
+                    )
+                mapping = getattr(allocator, "full_v2p_page_table", None)
+                if (
+                    mapping is None
+                    or mapping.ndim != 1
+                    or mapping.dtype is not torch.int64
+                    or not mapping.is_contiguous()
+                    or mapping.device != self.device
+                ):
+                    raise BackendNotReadyError(
+                        "PyPTO attention requires the allocator's contiguous INT64 "
+                        "full-pool virtual-to-physical table."
+                    )
+                self.virtual_to_physical = mapping
 
         @staticmethod
         def _reject_extra_kwargs(kwargs: dict[str, Any]) -> None:
@@ -144,25 +165,49 @@ def create_attention_backend(model_runner: Any) -> Any:
         def _flat_cache(self, layer: Any) -> tuple[Any, Any]:
             key_cache = self.token_to_kv_pool.get_key_buffer(layer.layer_id)
             value_cache = self.token_to_kv_pool.get_value_buffer(layer.layer_id)
+            if key_cache.ndim == 4 and value_cache.ndim == 4:
+                if (
+                    key_cache.shape[1] != 1
+                    or value_cache.shape[1] != 1
+                    or key_cache.shape[2] != layer.tp_k_head_num
+                    or key_cache.shape[3] != layer.qk_head_dim
+                    or key_cache.stride(3) != 1
+                    or key_cache.stride(2) != layer.qk_head_dim
+                ):
+                    raise BackendNotReadyError(
+                        "PyPTO unified cache requires [pages,1,KV heads,head dim] "
+                        "page-size-one views."
+                    )
+                key_cache = key_cache.view(key_cache.shape[0], -1)
+                value_cache = value_cache.view(value_cache.shape[0], -1)
             if (
                 key_cache.ndim != 3
-                or value_cache.ndim != 3
+                and key_cache.ndim != 2
+                or value_cache.ndim != key_cache.ndim
                 or key_cache.dtype is not torch.bfloat16
                 or value_cache.dtype is not torch.bfloat16
                 or key_cache.shape != value_cache.shape
                 or key_cache.stride() != value_cache.stride()
-                or key_cache.shape[1] != layer.tp_k_head_num
-                or key_cache.shape[2] != layer.qk_head_dim
-                or key_cache.stride(2) != 1
-                or key_cache.stride(1) != layer.qk_head_dim
             ):
                 raise BackendNotReadyError(
                     "PyPTO attention requires matching [slots, KV heads, head dim] "
                     "BF16 caches with contiguous head rows."
                 )
-            rows = int(key_cache.shape[0])
-            key_flat = key_cache.view(rows, -1)
-            value_flat = value_cache.view(rows, -1)
+            if key_cache.ndim == 3:
+                if (
+                    key_cache.shape[1] != layer.tp_k_head_num
+                    or key_cache.shape[2] != layer.qk_head_dim
+                    or key_cache.stride(2) != 1
+                    or key_cache.stride(1) != layer.qk_head_dim
+                ):
+                    raise BackendNotReadyError(
+                        "PyPTO attention cache head dimensions are incompatible."
+                    )
+                rows = int(key_cache.shape[0])
+                key_flat = key_cache.view(rows, -1)
+                value_flat = value_cache.view(rows, -1)
+            else:
+                key_flat, value_flat = key_cache, value_cache
             if key_flat.stride(0) < key_flat.shape[1]:
                 raise BackendNotReadyError(
                     "PyPTO attention cache rows overlap in physical storage."
@@ -197,6 +242,7 @@ def create_attention_backend(model_runner: Any) -> Any:
                 key_cache,
                 value_cache,
                 physical_rows,
+                self.virtual_to_physical,
                 k,
                 v,
             )
@@ -241,6 +287,7 @@ def create_attention_backend(model_runner: Any) -> Any:
                 request_table,
                 forward_batch.req_pool_indices,
                 forward_batch.seq_lens,
+                self.virtual_to_physical,
                 kv_heads=layer.tp_k_head_num,
                 bucket_tokens=bucket,
             )
@@ -296,6 +343,7 @@ def create_attention_backend(model_runner: Any) -> Any:
                 request_table,
                 forward_batch.req_pool_indices,
                 forward_batch.extend_prefix_lens,
+                self.virtual_to_physical,
                 kv_heads=layer.tp_k_head_num,
                 bucket_tokens=bucket,
             )

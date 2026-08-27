@@ -130,6 +130,8 @@ def _fake_runner(allocator) -> SimpleNamespace:
         kv_cache_layout="nhd",
         is_quantized_kv_cache=False,
         dtype=torch.bfloat16,
+        size=15,
+        page_size=1,
     )
     return SimpleNamespace(
         device=torch.device("meta"),
@@ -153,9 +155,29 @@ def test_attention_adapter_constructs_only_for_direct_bf16_nhd(monkeypatch) -> N
         backend.init_cuda_graph_state(4, 4)
 
 
-def test_attention_adapter_rejects_unified_translation_kernel(monkeypatch) -> None:
+def test_attention_adapter_binds_unified_mapping_without_translation_kernel(
+    monkeypatch,
+) -> None:
     _install_fake_attention_base(monkeypatch)
     _install_fake_attention_operator(monkeypatch)
-    allocator = SimpleNamespace(translate_kv_loc_dense=lambda value: value)
-    with pytest.raises(BackendNotReadyError, match="unified-memory"):
+    mapping = torch.arange(16, dtype=torch.int64, device="meta")
+    allocator = SimpleNamespace(
+        translate_kv_loc_dense=lambda value: value,
+        page_size=1,
+        kernel_page_multiplier=1,
+        full_v2p_page_table=mapping,
+    )
+    backend = create_attention_backend(_fake_runner(allocator))
+    assert backend.virtual_to_physical is mapping
+
+
+def test_attention_adapter_rejects_nonunit_unified_pages(monkeypatch) -> None:
+    _install_fake_attention_base(monkeypatch)
+    _install_fake_attention_operator(monkeypatch)
+    allocator = SimpleNamespace(
+        translate_kv_loc_dense=lambda value: value,
+        page_size=2,
+        kernel_page_multiplier=1,
+    )
+    with pytest.raises(BackendNotReadyError, match="page_size=1"):
         create_attention_backend(_fake_runner(allocator))
