@@ -42,6 +42,37 @@ REGISTRY = PyptoKernelRegistry()
 
 def make_pypto_triton_scheduling(triton_scheduling_class: Any) -> Any:
     class PyptoTritonScheduling(triton_scheduling_class):  # type: ignore[misc,valid-type]
+        def codegen_node(self, node: Any) -> None:
+            if current_mode() is None:
+                return super().codegen_node(node)
+            inner = getattr(node, "node", None)
+            if not _is_pointwise_node(inner):
+                raise StrictCoverageError(
+                    "strict PyPTO mode has no kernel for Inductor node "
+                    f"{type(inner).__name__!r} yet"
+                )
+            self._codegen_pypto_pointwise_node(node)
+
+        def _codegen_pypto_pointwise_node(self, node: Any) -> None:
+            program, meta = _translate_pointwise(node)
+            artifact = pointwise_codegen.compile_pointwise(
+                program, tile=meta["tile"]
+            )
+            name = f"pypto_kernel_{len(REGISTRY._kernels)}"
+            REGISTRY.register(name, artifact)
+            wrapper = _graph_wrapper_code()
+            if not getattr(wrapper, "_pypto_header_written", False):
+                wrapper.header.writeline(
+                    "from pypto_plugins.torch.runtime_bridge import pypto_launch"
+                )
+                wrapper._pypto_header_written = True
+            stream = type(wrapper).write_get_raw_stream(wrapper, 0, _graph_name())
+            call_args = _node_call_args(node)
+            joined = ", ".join(call_args)
+            wrapper.writeline(
+                f"pypto_launch({name!r}, ({joined}{', ' if joined else ''}), {stream})"
+            )
+
         def define_kernel(self, src_code: Any, node_schedule: Any, kernel: Any) -> None:
             if current_mode() is None:
                 return super().define_kernel(src_code, node_schedule, kernel)
@@ -95,6 +126,29 @@ def make_pypto_cuda_scheduling(combined_scheduling_class: Any) -> Any:
     return PyptoCudaScheduling
 
 
+def _is_pointwise_node(inner: Any) -> bool:
+    try:
+        from torch._inductor.ir import ComputedBuffer, Pointwise
+    except Exception:  # pragma: no cover - pinned import path
+        return False
+    if isinstance(inner, ComputedBuffer):
+        inner = inner.data
+    return isinstance(inner, Pointwise)
+
+
+def _node_call_args(node: Any) -> list[str]:
+    args: list[str] = []
+    for dep in sorted(
+        (str(item) for item in node.read_writes.reads), key=str
+    ):
+        name = dep if isinstance(dep, str) else str(getattr(dep, "name", dep))
+        if name not in args:
+            args.append(name)
+    for output in node.get_outputs():
+        args.append(output.get_name())
+    return args
+
+
 def _schedule_is_pointwise(node_schedule: Any) -> bool:
     try:
         from torch._inductor.ir import Pointwise
@@ -117,26 +171,32 @@ def _graph_name() -> str:
     return V.graph.name
 
 
-def _translate_pointwise(kernel: Any) -> tuple[Any, dict[str, str | int]]:
-    """Translate a pointwise kernel into a FusedPointwiseV2 HIR program.
+def _translate_pointwise(node: Any) -> tuple[Any, dict[str, str | int]]:
+    """Translate a pointwise node into a FusedPointwiseV2 HIR program.
 
     The first routed revision compiles the bounded identity chain over
-    the kernel's static extent; the full expression-tree walk is the
+    the node's static extent; the full expression-tree walk is the
     next layer and its absence is visible in the smoke evidence.
     """
 
-    from torch._inductor.virtualized import V
+    inner_node = getattr(node, "node", None)
+    data = getattr(inner_node, "data", None)
+    size_source = data if data is not None else node
+    ranges = [int(s) for s in getattr(size_source, "get_size", lambda: [])()]
+    if not ranges:
+        from torch._inductor.virtualized import V
 
-    shape = [
-        int(s)
-        for s in (
-            V.graph.sizevars.size_hints
-            if hasattr(V.graph.sizevars, "size_hints")
-            else []
-        )
-    ]
-    if not shape:
+        ranges = [
+            int(s)
+            for s in (
+                V.graph.sizevars.size_hints
+                if hasattr(V.graph.sizevars, "size_hints")
+                else []
+            )
+        ]
+    if not ranges:
         raise StrictCoverageError("pointwise kernel has no static size hints")
+    shape = ranges[-1:]
     builder = pointwise_codegen.PointwiseProgramBuilder(
         tuple(shape[-1:]), "float32"
     )
