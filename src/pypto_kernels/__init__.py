@@ -3,6 +3,8 @@
 One model operator is one explicit ``@pl.jit`` tile graph and one launch.
 """
 
+__version__ = "0.1.0"
+
 __all__ = (
     "attention",
     "causal_conv1d",
