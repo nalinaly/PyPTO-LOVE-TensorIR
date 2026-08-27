@@ -27,7 +27,7 @@ from ..errors import StrictCoverageError
 _DSO_ENVIRONMENT = "PYPTO_PLUGINS_PYPTO_DSO"
 _DEFAULT_DSO = (
     "/home/zhaosiying/pypto-love-tensor-ir/builds/"
-    "pypto-row-reduction-sumfix-on-faefd0a/product/"
+    "pypto-opext-on-a589f79/product/"
     "pypto_core.cpython-314-x86_64-linux-gnu.so"
 )
 _PYPTO_PACKAGE = (

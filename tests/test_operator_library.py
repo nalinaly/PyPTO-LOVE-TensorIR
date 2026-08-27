@@ -406,14 +406,20 @@ def test_duplicate_or_missing_distribution_fails_closed(monkeypatch) -> None:
         assert_operator_library_compatible()
 
 
-def test_canonical_equivalent_duplicate_distribution_fails_closed(monkeypatch) -> None:
+def test_canonical_equivalent_duplicate_distribution_fails_closed(
+    monkeypatch, tmp_path
+) -> None:
     import pypto_plugins.operator_library as operator_library
 
     real = importlib.metadata.distribution("pypto-kernels")
+    foreign_root = tmp_path / "not-the-egg-info"
+    foreign_root.mkdir()
     equivalent = SimpleNamespace(
         metadata={"Name": "pypto__kernels"},
         read_text=lambda _name: None,
         version=real.version,
+        _path=foreign_root,
+        locate_file=lambda _name: foreign_root,
     )
     monkeypatch.setattr(
         operator_library.importlib.metadata,
@@ -427,6 +433,7 @@ def test_canonical_equivalent_duplicate_distribution_fails_closed(monkeypatch) -
 def test_foreign_or_duplicate_distribution_ownership_fails_closed(monkeypatch) -> None:
     import pypto_plugins.operator_library as operator_library
 
+    real = importlib.metadata.distribution("pypto-kernels")
     monkeypatch.setattr(
         operator_library.importlib.metadata,
         "packages_distributions",
@@ -434,6 +441,11 @@ def test_foreign_or_duplicate_distribution_ownership_fails_closed(monkeypatch) -
     )
     with pytest.raises(FrameworkCompatibilityError, match="exactly one.*owner"):
         assert_operator_library_compatible()
+    monkeypatch.setattr(
+        operator_library.importlib.metadata,
+        "distributions",
+        lambda: [real],
+    )
     monkeypatch.setattr(
         operator_library.importlib.metadata,
         "packages_distributions",
