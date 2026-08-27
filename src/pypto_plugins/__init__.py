@@ -23,10 +23,8 @@ from .coverage import (
     compute_trace_digest,
 )
 from .operator_library import (
-    EXPECTED_OPERATOR_ABI_DIGEST,
-    EXPECTED_OPERATOR_ABI_SCHEMA_VERSION,
     EXPECTED_OPERATOR_LIBRARY_VERSION,
-    EXPECTED_OPERATOR_PACKAGE_TREE_DIGEST,
+    EXPECTED_OPERATOR_MODULES,
     OperatorLibrarySnapshot,
     assert_operator_library_compatible,
 )
@@ -50,10 +48,8 @@ __all__ = [
     "TraceManifest",
     "compute_artifact_registry_digest",
     "compute_trace_digest",
-    "EXPECTED_OPERATOR_ABI_DIGEST",
-    "EXPECTED_OPERATOR_ABI_SCHEMA_VERSION",
     "EXPECTED_OPERATOR_LIBRARY_VERSION",
-    "EXPECTED_OPERATOR_PACKAGE_TREE_DIGEST",
+    "EXPECTED_OPERATOR_MODULES",
     "OperatorLibrarySnapshot",
     "assert_operator_library_compatible",
 ]

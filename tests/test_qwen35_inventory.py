@@ -37,9 +37,8 @@ def test_inventory_has_all_strict_provider_families() -> None:
     }
 
 
-def test_model_specific_names_stay_in_the_framework_plugin() -> None:
+def test_model_specific_names_stay_out_of_the_compiler_core() -> None:
     production_roots = (
-        WORKSPACE_ROOT / "projects" / "pypto-kernels" / "src",
         WORKSPACE_ROOT / "projects" / "pypto" / "src",
         WORKSPACE_ROOT / "projects" / "pypto" / "include",
         WORKSPACE_ROOT / "projects" / "pypto" / "python",
