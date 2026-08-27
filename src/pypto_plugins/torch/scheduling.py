@@ -200,12 +200,24 @@ class _OpsRecorder:
         "add": "tensor.add",
         "sub": "tensor.sub",
         "mul": "tensor.mul",
+        "div": "tensor.div",
+        "truediv": "tensor.div",
+        "fdiv": "tensor.div",
+        "maximum": "tensor.maximum",
+        "minimum": "tensor.minimum",
+        "max": "tensor.maximum",
+        "min": "tensor.minimum",
     }
     _UNARY = {
         "neg": "tensor.neg",
         "exp": "tensor.exp",
         "recip": "tensor.recip",
         "rsqrt": "tensor.rsqrt",
+        "abs": "tensor.abs",
+        "sqrt": "tensor.sqrt",
+        "log": "tensor.log",
+        "sin": "tensor.sin",
+        "cos": "tensor.cos",
     }
 
     def __init__(self) -> None:
