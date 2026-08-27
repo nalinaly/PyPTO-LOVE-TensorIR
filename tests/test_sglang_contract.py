@@ -12,6 +12,7 @@ import pypto_kernels
 from pypto_plugins.errors import BackendNotReadyError
 from pypto_plugins.sglang.attention_backend import create_attention_backend
 from pypto_plugins.sglang_plugin import (
+    ATTENTION_WRAPPER_TARGET,
     LINEAR_BACKEND_RESOLVER_TARGET,
     _attention_factory,
 )
@@ -34,6 +35,18 @@ SGLANG_UTILS = (
 ATTENTION_ADAPTER = (
     PROJECT_ROOT / "src" / "pypto_plugins" / "sglang" / "attention_backend.py"
 )
+GDN_ADAPTER = PROJECT_ROOT / "src" / "pypto_plugins" / "sglang" / "gdn_backend.py"
+ATTENTION_REGISTRY = (
+    WORKSPACE_ROOT
+    / "upstream"
+    / "sglang"
+    / "python"
+    / "sglang"
+    / "srt"
+    / "layers"
+    / "attention"
+    / "attention_registry.py"
+)
 
 
 def test_pinned_linear_backend_hook_symbol_and_signature() -> None:
@@ -49,6 +62,24 @@ def test_pinned_linear_backend_hook_symbol_and_signature() -> None:
     assert name in functions
     arguments = [argument.arg for argument in functions[name].args.args]
     assert arguments == ["prefill_default"]
+
+
+def test_pinned_attention_wrapper_hook_symbol_and_signature() -> None:
+    if not ATTENTION_REGISTRY.is_file():
+        pytest.skip("workspace SGLang checkout is not present")
+    tree = ast.parse(
+        ATTENTION_REGISTRY.read_text(encoding="utf-8"),
+        filename=str(ATTENTION_REGISTRY),
+    )
+    functions = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    name = ATTENTION_WRAPPER_TARGET.rsplit(".", 1)[1]
+    assert name in functions
+    arguments = [argument.arg for argument in functions[name].args.args]
+    assert arguments == ["runner", "full_attn_backend"]
 
 
 def _install_fake_attention_operator(
@@ -101,6 +132,25 @@ def test_attention_adapter_uses_only_pinned_metadata_and_pypto_operators() -> No
         assert operator in text
     assert ".set_kv_buffer(" not in text
     assert ".to(" not in text
+
+
+def test_gdn_adapter_uses_only_stateful_pypto_graphs() -> None:
+    text = GDN_ADAPTER.read_text(encoding="utf-8")
+    tree = ast.parse(text, filename=str(GDN_ADAPTER))
+    classes = [node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
+    assert [node.name for node in classes] == ["PyPTOGDNAttnBackend"]
+    for operator in (
+        "causal_conv1d.causal_conv1d(",
+        "gdn.gdn_recurrent(",
+    ):
+        assert operator in text
+    for forbidden in (
+        "causal_conv1d_update(",
+        "fused_gdn_gating(",
+        "kernel_dispatcher",
+        ".to(",
+    ):
+        assert forbidden not in text
 
 
 def _install_fake_attention_base(monkeypatch) -> None:

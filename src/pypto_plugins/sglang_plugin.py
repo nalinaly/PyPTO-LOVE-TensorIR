@@ -16,6 +16,9 @@ from .versions import assert_sglang_compatible, assert_torch_compatible
 LINEAR_BACKEND_RESOLVER_TARGET = (
     "sglang.srt.layers.attention.linear.utils.resolve_linear_attn_backends"
 )
+ATTENTION_WRAPPER_TARGET = (
+    "sglang.srt.layers.attention.attention_registry.attn_backend_wrapper"
+)
 
 
 def _attention_factory(runner):
@@ -70,6 +73,57 @@ def _resolve_linear_backends_around(original_fn, prefill_default=None):
     )
 
 
+def _attention_wrapper_around(original_fn, runner, full_attn_backend):
+    """Replace only a user-selected Qwen GDN side with the PyPTO adapter."""
+
+    from sglang.srt.configs.hybrid_arch import hybrid_gdn_config
+    from sglang.srt.runtime_context import get_exec
+
+    config = hybrid_gdn_config(runner.model_config)
+    if config is None:
+        return original_fn(runner, full_attn_backend)
+    mamba = get_exec().mamba
+    selected = {
+        mamba.linear_attn_backend,
+        mamba.linear_attn_decode_backend,
+        mamba.linear_attn_prefill_backend,
+        mamba.linear_attn_verify_backend,
+    }
+    if "pypto" not in selected:
+        return original_fn(runner, full_attn_backend)
+
+    from pypto_kernels import causal_conv1d, gdn
+
+    if (
+        causal_conv1d.STATUS != "native-tile executable"
+        or gdn.STATUS != "native-tile recurrent executable"
+    ):
+        raise BackendNotReadyError(
+            "PyPTO stateful conv/GDN remain source candidates; refusing SGLang "
+            "linear-attention fallback before compiler and numerical gates pass."
+        )
+    from sglang.kernels.ops.attention.fla.utils import check_environments
+    from sglang.srt.layers.attention.hybrid_linear_attn_backend import (
+        HybridLinearAttnBackend,
+    )
+    from sglang.srt.layers.attention.linear.utils import (
+        resolve_linear_attn_backends,
+    )
+
+    from .sglang.gdn_backend import create_gdn_backend
+
+    check_environments()
+    runner.linear_attn_backends = resolve_linear_attn_backends(
+        prefill_default=None
+    )
+    full_attention_layers = [0] if runner.is_draft_worker else config.full_attention_layer_ids
+    return HybridLinearAttnBackend(
+        full_attn_backend,
+        create_gdn_backend(runner),
+        full_attention_layers,
+    )
+
+
 def _register_impl() -> None:
     assert_operator_library_compatible()
     assert_backend_executable_ready()
@@ -92,6 +146,11 @@ def _register_impl() -> None:
     HookRegistry.register(
         LINEAR_BACKEND_RESOLVER_TARGET,
         _resolve_linear_backends_around,
+        HookType.AROUND,
+    )
+    HookRegistry.register(
+        ATTENTION_WRAPPER_TARGET,
+        _attention_wrapper_around,
         HookType.AROUND,
     )
 
