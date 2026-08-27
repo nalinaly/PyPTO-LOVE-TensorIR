@@ -16,9 +16,15 @@
    "correct": true
   },
   {
+   "case": "gdn_compose 16x128",
+   "launches": 1,
+   "max_abs_diff": 0.027740955352783203,
+   "correct": true
+  },
+  {
    "case": "silu_and_mul 4096x1024",
    "launches": 1,
-   "max_abs_diff": 0.26763916015625,
+   "max_abs_diff": 0.2526397705078125,
    "correct": true
   },
   {
@@ -28,15 +34,27 @@
    "correct": true
   },
   {
+   "case": "gdn_compose 16x128",
+   "launches": 1,
+   "max_abs_diff": 0.02610635757446289,
+   "correct": true
+  },
+  {
    "case": "silu_and_mul 1x3584",
    "launches": 1,
-   "max_abs_diff": 0.14316940307617188,
+   "max_abs_diff": 0.10128402709960938,
    "correct": true
   },
   {
    "case": "fused_add 1x3584",
    "launches": 1,
    "max_abs_diff": 0.015625,
+   "correct": true
+  },
+  {
+   "case": "gdn_compose 16x128",
+   "launches": 1,
+   "max_abs_diff": 0.030257225036621094,
    "correct": true
   }
  ]
