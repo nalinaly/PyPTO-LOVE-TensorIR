@@ -110,7 +110,7 @@ def paged_attention_decode_kernel(
                 target_memory=pl.MemorySpace.Mat,
             )
             for slot in pl.range(physical_indices.shape[0]):
-                physical = pl.read(physical_indices, [slot])
+                physical = pl.read(physical_indices, [slot, 0])
                 cache_column = kv_head * query.shape[1]
                 keys = pl.tile.gather_row(
                     keys,
@@ -248,7 +248,9 @@ def build_paged_decode(
         (cache_rows, kv_heads * head_dim), dtype=torch.bfloat16, device="meta"
     )
     value_cache = torch.empty_like(key_cache)
-    physical_indices = torch.empty((tokens,), dtype=torch.int32, device="meta")
+    physical_indices = torch.empty(
+        (tokens, head_dim), dtype=torch.int32, device="meta"
+    )
     out = torch.empty_like(query)
     return paged_attention_decode_kernel.specialize(
         query,
@@ -351,7 +353,13 @@ def paged_attention_decode(
     out = torch.empty_like(query)
     launch_graph(
         graph_key,
-        (query, key_cache, value_cache, physical_indices, out),
+        (
+            query,
+            key_cache,
+            value_cache,
+            physical_indices.as_strided((tokens, head_dim), (1, 0)),
+            out,
+        ),
         stream.cuda_stream,
     )
     return out
