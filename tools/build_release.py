@@ -161,6 +161,21 @@ def _install_wheels(python: Path) -> None:
 
 def _build_native(python: Path) -> None:
     cmake = (python.parent / "cmake").resolve(strict=True)
+    nanobind_probe = subprocess.run(
+        [str(python), "-m", "nanobind", "--cmake_dir"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if nanobind_probe.returncode != 0:
+        raise ReleaseContractError(
+            "cannot resolve nanobind CMake package: " + nanobind_probe.stderr.strip()
+        )
+    nanobind_dir = Path(nanobind_probe.stdout.strip()).resolve(strict=True)
+    if (ROOT / "envs/pypto-release").resolve() not in nanobind_dir.parents:
+        raise ReleaseContractError("nanobind CMake package escaped the release prefix")
     NATIVE_BUILD.mkdir(parents=True, exist_ok=True)
     _run(
         [
@@ -178,6 +193,7 @@ def _build_native(python: Path) -> None:
             f"-DPYPTO_NVIDIA_CUDA_TOOLKIT_ROOT={CUDA_ROOT}",
             f"-DPython_EXECUTABLE={python}",
             f"-DPython3_EXECUTABLE={python}",
+            f"-Dnanobind_DIR={nanobind_dir}",
             f"-DPYPTO_NATIVE_EXTENSION_OUTPUT_DIRECTORY={NATIVE_BUILD / 'product'}",
         ]
     )

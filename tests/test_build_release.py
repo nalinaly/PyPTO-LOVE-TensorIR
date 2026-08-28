@@ -31,6 +31,7 @@ def test_pypto_build_uses_backend_and_test_defines() -> None:
     assert "PYPTO_ENABLE_NVIDIA_BACKEND=ON" in source
     assert "BUILD_TESTING=ON" in source
     assert "CMAKE_BUILD_PARALLEL_LEVEL" in source
+    assert '"--cmake_dir"' in source
     assert '"-j24"' in source
     assert "Total Tests: 13" in source
     assert '"24"' not in source  # all values come from the frozen CPU_JOBS constant
