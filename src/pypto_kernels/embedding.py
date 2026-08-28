@@ -68,7 +68,11 @@ def _tiles(tokens: int) -> list[int]:
 
     if tokens <= 0:
         raise ValueError("embedding needs a positive token extent")
-    return [min(_ROW_TILE, tokens), _TILE_WIDTH]
+    return (
+        [_TILE_WIDTH]
+        if tokens == 1
+        else [min(_ROW_TILE, tokens), _TILE_WIDTH]
+    )
 
 
 def build(tokens: int, vocab_size: int, hidden_size: int) -> Any:
