@@ -163,6 +163,23 @@ def launch_graph(key: str, tensors: tuple[Any, ...], stream: Any) -> None:
         EXPECTED_DRIVER, EXPECTED_RUNTIME
     )
     executable.prewarm(observation.cuda_runtime_api_version)
+    descriptors = artifact.kernel_abi.argument_layout.operand_descriptors
+    if len(descriptors) != len(tensors):
+        raise ValueError(
+            "PyPTO launch tensor count differs from the static Artifact ABI: "
+            f"expected={len(descriptors)} actual={len(tensors)}"
+        )
+    for index, (descriptor, tensor) in enumerate(zip(descriptors, tensors)):
+        expected_shape = list(descriptor.shape)
+        expected_stride = list(descriptor.strides)
+        actual_shape = list(tensor.shape)
+        actual_stride = list(tensor.stride())
+        if expected_shape != actual_shape or expected_stride != actual_stride:
+            raise ValueError(
+                f"PyPTO launch operand {index} differs from static Artifact ABI: "
+                f"expected_shape={expected_shape} actual_shape={actual_shape} "
+                f"expected_stride={expected_stride} actual_stride={actual_stride}"
+            )
     arguments = [
         runtime.NvidiaLaunchArgument.tensor(
             int(t.data_ptr()), list(t.shape), list(t.stride())
