@@ -36,22 +36,17 @@ def bootstrap() -> dict[str, Any]:
     resolved = pathlib.Path(DSO_PATH).resolve(strict=True)
     package_root = pathlib.Path(PYPTO_PACKAGE).resolve(strict=True)
     occupied = sorted(
-        name
-        for name in sys.modules
-        if name == "pypto" or name.startswith("pypto.")
+        name for name in sys.modules if name == "pypto" or name.startswith("pypto.")
     )
     if occupied:
         raise RuntimeError(
-            "foreign pypto modules occupy exact-bootstrap slots: "
-            + ", ".join(occupied)
+            "foreign pypto modules occupy exact-bootstrap slots: " + ", ".join(occupied)
         )
     removed_finders: list[tuple[int, Any]] = []
     probe_path = [str(package_root / "jit")]
     for index, finder in tuple(enumerate(sys.meta_path)):
         try:
-            candidate = finder.find_spec(
-                "pypto.jit.decorator", probe_path, None
-            )
+            candidate = finder.find_spec("pypto.jit.decorator", probe_path, None)
         except (AttributeError, ImportError, TypeError, ValueError):
             continue
         origin = getattr(candidate, "origin", None)
@@ -171,7 +166,8 @@ def compile_graph(program: Any, tiles: list[int]) -> str:
     result = compiler.compile_structured_strict(program, request, schedule)
     artifact = result.artifact
     key = hashlib.sha256(bytes(artifact.device_code)).hexdigest()[:16]
-    _GRAPHS[key] = (artifact, request)
+    with _lock:
+        _GRAPHS[key] = (artifact, request)
     return key
 
 
@@ -188,6 +184,40 @@ def compile_jit_kernel(kernel: Any, samples: tuple[Any, ...], tiles: list[int]) 
 
 
 _GRAPHS: dict[str, tuple[Any, Any]] = {}
+_EXECUTABLES: dict[str, Any] = {}
+
+
+def _ready_executable(key: str) -> Any:
+    """Return one process/context-bound executable retained for server life."""
+
+    from pypto.runtime import nvidia as runtime
+
+    with _lock:
+        executable = _EXECUTABLES.get(key)
+        if executable is not None:
+            return executable
+        artifact, request = _GRAPHS[key]
+        executable = runtime.NvidiaExecutable(artifact, request)
+        observation = runtime.observe_current_nvidia_runtime(
+            EXPECTED_DRIVER, EXPECTED_RUNTIME
+        )
+        executable.prewarm(observation.cuda_runtime_api_version)
+        _EXECUTABLES[key] = executable
+        return executable
+
+
+def acquire_cuda_graph_leases(
+    excluded_keys: set[str] | None = None,
+) -> dict[str, Any]:
+    """Lease every newly warmed module for a framework CUDA-graph owner."""
+
+    excluded = excluded_keys or set()
+    with _lock:
+        return {
+            key: executable.acquire_cuda_graph_lease()
+            for key, executable in sorted(_EXECUTABLES.items())
+            if key not in excluded
+        }
 
 
 def launch_graph(key: str, tensors: tuple[Any, ...], stream: Any) -> None:
@@ -196,11 +226,8 @@ def launch_graph(key: str, tensors: tuple[Any, ...], stream: Any) -> None:
     from pypto.runtime import nvidia as runtime
 
     artifact, request = _GRAPHS[key]
-    executable = runtime.NvidiaExecutable(artifact, request)
-    observation = runtime.observe_current_nvidia_runtime(
-        EXPECTED_DRIVER, EXPECTED_RUNTIME
-    )
-    executable.prewarm(observation.cuda_runtime_api_version)
+    del request
+    executable = _ready_executable(key)
     descriptors = artifact.kernel_abi.argument_layout.operand_descriptors
     if len(descriptors) != len(tensors):
         raise ValueError(

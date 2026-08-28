@@ -1,13 +1,16 @@
 """Structure tests: one operator = one graph, statuses classified."""
 
+from pathlib import Path
 import sys
+from types import ModuleType, SimpleNamespace
 
-sys.path.insert(0, "/home/zhaosiying/pypto-love-tensor-ir/projects/pypto-kernels/src")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import pytest
 import torch
 
 from pypto_kernels import (
+    _boot,
     attention,
     causal_conv1d,
     embedding,
@@ -22,6 +25,51 @@ from pypto_kernels import (
     sigmoid_mul,
     silu_and_mul,
 )
+
+
+def test_runtime_reuses_executables_and_acquires_new_graph_leases(monkeypatch):
+    created = []
+
+    class FakeExecutable:
+        def __init__(self, artifact, request):
+            self.inputs = (artifact, request)
+            self.prewarmed = []
+            self.leases = 0
+            created.append(self)
+
+        def prewarm(self, version):
+            self.prewarmed.append(version)
+
+        def acquire_cuda_graph_lease(self):
+            self.leases += 1
+            return (self.inputs, self.leases)
+
+    nvidia = ModuleType("pypto.runtime.nvidia")
+    nvidia.NvidiaExecutable = FakeExecutable
+    nvidia.observe_current_nvidia_runtime = lambda *_args: SimpleNamespace(
+        cuda_runtime_api_version=13030
+    )
+    runtime = ModuleType("pypto.runtime")
+    runtime.nvidia = nvidia
+    pypto = ModuleType("pypto")
+    pypto.__path__ = []
+    pypto.runtime = runtime
+    monkeypatch.setitem(sys.modules, "pypto", pypto)
+    monkeypatch.setitem(sys.modules, "pypto.runtime", runtime)
+    monkeypatch.setitem(sys.modules, "pypto.runtime.nvidia", nvidia)
+
+    key = "unit-runtime-cache"
+    monkeypatch.setitem(_boot._GRAPHS, key, ("artifact", "request"))
+    _boot._EXECUTABLES.pop(key, None)
+    first = _boot._ready_executable(key)
+    second = _boot._ready_executable(key)
+    assert first is second
+    assert created == [first]
+    assert first.prewarmed == [13030]
+    leases = _boot.acquire_cuda_graph_leases()
+    assert leases[key] == (("artifact", "request"), 1)
+    assert key not in _boot.acquire_cuda_graph_leases({key})
+    _boot._EXECUTABLES.pop(key, None)
 
 
 def test_each_operator_is_one_program():
