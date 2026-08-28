@@ -24,6 +24,12 @@ ATTENTION_WRAPPER_TARGET = (
 GDN_PROJECTION_TARGET = (
     "sglang.srt.models.qwen3_5.fused_qkvzba_split_reshape_cat_contiguous"
 )
+TRITON_SUPPORT_TARGETS = (
+    "sglang.srt.utils.common.support_triton",
+    "sglang.srt.mem_cache.allocation.support_triton",
+    "sglang.srt.model_executor.forward_batch_info.support_triton",
+    "sglang.srt.layers.rotary_embedding.mrope.support_triton",
+)
 
 
 def _attention_factory(runner):
@@ -170,6 +176,14 @@ def _gdn_projection_around(
     )
 
 
+def _support_triton_around(original_fn, backend):
+    """Keep PyPTO scheduler metadata away from Triton-only dispatch."""
+
+    if backend == "pypto":
+        return False
+    return original_fn(backend)
+
+
 def _register_impl() -> None:
     assert_operator_library_compatible()
     assert_backend_executable_ready()
@@ -186,12 +200,19 @@ def _register_impl() -> None:
     )
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
-    projection_module_name, projection_symbol = GDN_PROJECTION_TARGET.rsplit(".", 1)
-    projection_module = importlib.import_module(projection_module_name)
-    if not callable(getattr(projection_module, projection_symbol, None)):
-        raise BackendNotReadyError(
-            "pinned Qwen3.5 projection hook target is not callable"
-        )
+    hook_targets = (
+        LINEAR_BACKEND_RESOLVER_TARGET,
+        ATTENTION_WRAPPER_TARGET,
+        GDN_PROJECTION_TARGET,
+        *TRITON_SUPPORT_TARGETS,
+    )
+    for target in hook_targets:
+        module_name, symbol = target.rsplit(".", 1)
+        module = importlib.import_module(module_name)
+        if not callable(getattr(module, symbol, None)):
+            raise BackendNotReadyError(
+                f"pinned SGLang hook target is not callable: {target}"
+            )
 
     add_attention_backend_choices(["pypto"])
     add_linear_attn_kernel_backend_choices(["pypto"])
@@ -211,6 +232,8 @@ def _register_impl() -> None:
         _gdn_projection_around,
         HookType.AROUND,
     )
+    for target in TRITON_SUPPORT_TARGETS:
+        HookRegistry.register(target, _support_triton_around, HookType.AROUND)
 
 
 def register() -> None:

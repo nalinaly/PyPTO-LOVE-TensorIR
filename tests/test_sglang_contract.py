@@ -15,8 +15,10 @@ from pypto_plugins.sglang_plugin import (
     ATTENTION_WRAPPER_TARGET,
     GDN_PROJECTION_TARGET,
     LINEAR_BACKEND_RESOLVER_TARGET,
+    TRITON_SUPPORT_TARGETS,
     _attention_factory,
     _gdn_projection_around,
+    _support_triton_around,
 )
 
 
@@ -110,8 +112,22 @@ def test_pinned_qwen35_projection_hook_symbol_is_imported() -> None:
     }
     assert name in imported
     plugin_text = SGLANG_PLUGIN.read_text(encoding="utf-8")
-    assert "importlib.import_module(projection_module_name)" in plugin_text
-    assert "pinned Qwen3.5 projection hook target is not callable" in plugin_text
+    assert "module = importlib.import_module(module_name)" in plugin_text
+    assert "pinned SGLang hook target is not callable" in plugin_text
+
+
+def test_pypto_scheduler_metadata_never_selects_triton() -> None:
+    delegated = []
+
+    def original(backend):
+        delegated.append(backend)
+        return True
+
+    assert _support_triton_around(original, "pypto") is False
+    assert delegated == []
+    assert _support_triton_around(original, "flashinfer") is True
+    assert delegated == ["flashinfer"]
+    assert len(TRITON_SUPPORT_TARGETS) == 4
 
 
 def test_gdn_projection_hook_routes_only_explicit_pypto_selection(monkeypatch) -> None:
