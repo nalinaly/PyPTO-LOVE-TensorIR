@@ -64,6 +64,10 @@ def _validate_shape(rows: int, columns: int) -> None:
         )
 
 
+def _tiles(rows: int) -> list[int]:
+    return [_CHANNEL_TILE] if rows == 1 else [1, _CHANNEL_TILE]
+
+
 def build(rows: int, columns: int, eps: float = _EPSILON) -> Any:
     if eps != _EPSILON:
         raise ValueError(f"fused_add_rmsnorm specializes epsilon {_EPSILON}")
@@ -91,7 +95,7 @@ def compile_for(rows: int, columns: int, eps: float = _EPSILON) -> str:
     graph_key = compile_jit_kernel(
         fused_add_rmsnorm_kernel,
         (sample, sample, weight, sample, sample),
-        [1, _CHANNEL_TILE],
+        _tiles(rows),
     )
     with _lock:
         _cache[shape_key] = graph_key

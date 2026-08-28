@@ -57,6 +57,10 @@ def _validate_shape(rows: int, half: int) -> None:
         )
 
 
+def _tiles(rows: int) -> list[int]:
+    return [1, _SCHEDULE_WIDTH] if rows == 1 else [1, 1, _SCHEDULE_WIDTH]
+
+
 def build(rows: int, half: int) -> Any:
     _validate_shape(rows, half)
     import torch
@@ -79,7 +83,7 @@ def compile_for(rows: int, half: int) -> str:
     key = compile_jit_kernel(
         rope_kernel,
         (x, frequency, frequency, x),
-        [1, 1, _SCHEDULE_WIDTH],
+        _tiles(rows),
     )
     with _lock:
         _cache[(rows, half)] = key

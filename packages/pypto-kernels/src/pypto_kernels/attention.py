@@ -450,6 +450,14 @@ def _mapping_rows(virtual_to_physical: Any, *, device: Any, operation: str) -> i
     return int(virtual_to_physical.numel())
 
 
+def _dense_tiles(rows: int) -> list[int]:
+    return (
+        [_VALUE_TILE]
+        if rows == 1
+        else [min(_ROW_TILE, rows), _VALUE_TILE]
+    )
+
+
 def build(rows: int, tokens: int, head_dim: int, value_dim: int) -> Any:
     _validate_shape(rows, tokens, head_dim, value_dim)
     import torch
@@ -479,7 +487,7 @@ def compile_for(rows: int, tokens: int, head_dim: int, value_dim: int) -> str:
     graph_key = compile_jit_kernel(
         attention_kernel,
         (query, key, value, 1.0 / math.sqrt(head_dim), out),
-        [_ROW_TILE, _VALUE_TILE],
+        _dense_tiles(rows),
         provider="pypto.attention",
     )
     with _lock:
