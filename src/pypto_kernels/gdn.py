@@ -412,6 +412,9 @@ def gdn_recurrent(
         device=mixed_qkv.device,
     )
 
+    def launch_views(graph_key: str, views: tuple[Any, ...]) -> None:
+        launch_graph(graph_key, views, stream.cuda_stream)
+
     def launch_chunk(*, request_row: int, token_start: int, token_count: int) -> None:
         flat_start = request_row * tokens_per_request + token_start
         graph_key = compile_recurrent(
@@ -444,7 +447,7 @@ def gdn_recurrent(
             .narrow(0, flat_start, token_count)
             .view(1, token_count, value_heads, value_dim)
         )
-        launch_graph(
+        launch_views(
             graph_key,
             (
                 mixed_view,
@@ -456,7 +459,6 @@ def gdn_recurrent(
                 state_indices.narrow(0, request_row, 1).view(1, 1),
                 out_view,
             ),
-            stream.cuda_stream,
         )
 
     if tokens_per_request <= _MAX_FUSED_TOKENS:
@@ -486,7 +488,7 @@ def gdn_recurrent(
             (batch_size, tokens_per_request, value_heads, value_dim),
             gate_strides,
         )
-        launch_graph(
+        launch_views(
             graph_key,
             (
                 mixed_view,
@@ -498,7 +500,6 @@ def gdn_recurrent(
                 state_indices.view(batch_size, 1),
                 out,
             ),
-            stream.cuda_stream,
         )
     else:
         for request_row in range(batch_size):
