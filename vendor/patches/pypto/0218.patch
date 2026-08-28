@@ -1,0 +1,22 @@
+From 8db7be9d6239dfd933c55915fb83dce7083cb5bd Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 06:32:17 +0800
+Subject: [PATCH 218/218] Refresh locked pipeline build-spec golden
+
+---
+ tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+index 43103d0b53e02d408cc8d5e60aa217820f1982f8..5b15776cd1525ab4263daafbcf91edcd936741b1 100644
+--- a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
++++ b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+@@ -1617,7 +1617,7 @@ int TestRankOneBf16ImplicitStrideGoldenAndFinalization() {
+   REQUIRE(kernel.GetIdentityDigest() ==
+           "e3d31183b4ba5b2f09f01ef777043b9f51818e33d6bdbf18333257211d57c0e8");
+   REQUIRE(build_spec.GetIdentityDigest() ==
+-          "062171a9db8cba61f522d99b464d5405732eecef2c72b0ef25b18c2f8d555a53");
++          "6837b0677264dfd456792a160b5ce41da6b981d08a9aa07a81b6c0b3d40e67ee");
+   REQUIRE(build_spec.GetSourceIrDigest() == prepared.GetSourceIrDigest());
+   REQUIRE(build_spec.GetCallableAbiDigest() == kernel.GetIdentityDigest());
+   REQUIRE(build_spec.GetStaticSpecializationDigest() ==

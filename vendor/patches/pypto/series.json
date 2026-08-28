@@ -1,15 +1,15 @@
 {
   "base_commit": "e2d0f78ae6d709c0d6ee345a48db2c3d621a4b09",
   "base_tree": "a46f244a62dfab663fbeb899eb62ee8a042a0b41",
-  "commit_count": 217,
+  "commit_count": 218,
   "format_patch_options": [
     "--binary",
     "--full-index",
     "--no-signature",
     "--numbered-files"
   ],
-  "head_commit": "8aa2f57b9d89ea0ddcb257bea4193d1cf6eb8148",
-  "head_tree": "6d4e29bf817a2561fbd0c0340aa17d0935ed48ec",
+  "head_commit": "8db7be9d6239dfd933c55915fb83dce7083cb5bd",
+  "head_tree": "6939a22cb1694865ef48b70dbd4fa06a88b7e2c9",
   "patches": [
     {
       "bytes": 1579,
@@ -1746,6 +1746,14 @@
       "sha256": "d190195ef256a192e0e710247e3136e2f05a0a1da8ec25473da27f5ef76635e1",
       "source_commit": "8aa2f57b9d89ea0ddcb257bea4193d1cf6eb8148",
       "subject": "[PATCH 217/217] Lock extended TensorIR pipeline specification"
+    },
+    {
+      "bytes": 1297,
+      "file": "0218.patch",
+      "order": 218,
+      "sha256": "58066318352ce43ba36e321b77aab3dc50b86e790067ada60e4569720847a527",
+      "source_commit": "8db7be9d6239dfd933c55915fb83dce7083cb5bd",
+      "subject": "[PATCH 218/218] Refresh locked pipeline build-spec golden"
     }
   ],
   "repository": "pypto",
