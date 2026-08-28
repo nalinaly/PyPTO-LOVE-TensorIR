@@ -1,0 +1,148 @@
+From 64ea495ae45cb7ae93492002eb808366eb28515d Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 01:21:43 +0800
+Subject: [PATCH 214/214] Recognize Inductor SwiGLU canonical graph
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp     | 77 ++++++++++++++------
+ tests/ut/compiler/test_structured_compile.py |  7 +-
+ 2 files changed, 59 insertions(+), 25 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 3b9fcfd80132bf36362fbb7f54cf340481c6264b..ba630db47bb65a1db1897b79c8752d8a32a25af8 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -7063,11 +7063,16 @@ bool IsNativeTileSiluAndMulCandidate(const ir::ProgramPtr& program) {
+                          : nullptr;
+   const TileLoopNest loop_nest =
+       scope ? UnwrapStaticTileLoops(scope->body_) : TileLoopNest{};
+-  if (!loop_nest.leaf || loop_nest.leaf->stmts_.size() != 12) return false;
++  if (!loop_nest.leaf ||
++      (loop_nest.leaf->stmts_.size() != 12 &&
++       loop_nest.leaf->stmts_.size() != 13)) {
++    return false;
++  }
+   const auto first_cast =
+       ir::As<ir::AssignStmt>(loop_nest.leaf->stmts_[2]);
+   const auto final_cast =
+-      ir::As<ir::AssignStmt>(loop_nest.leaf->stmts_[10]);
++      ir::As<ir::AssignStmt>(
++          loop_nest.leaf->stmts_[loop_nest.leaf->stmts_.size() - 2]);
+   const auto first_call =
+       first_cast ? ir::As<ir::Call>(first_cast->value_) : nullptr;
+   const auto final_call =
+@@ -7142,17 +7147,26 @@ NativeTileSiluAndMulGraph AnalyzeNativeTileSiluAndMul(
+   const uint64_t expected_repetitions =
+       static_cast<uint64_t>(result.shape[0]) *
+       static_cast<uint64_t>(result.shape[1] / 128);
+-  if (!loop_nest.leaf || loop_nest.leaf->stmts_.size() != 12 ||
++  if (!loop_nest.leaf ||
++      (loop_nest.leaf->stmts_.size() != 12 &&
++       loop_nest.leaf->stmts_.size() != 13) ||
+       loop_nest.repetitions != expected_repetitions) {
+     Reject("native SiLU-and-mul loops must cover [1,128] tiles exactly",
+            &scope->span_);
+   }
+-  constexpr std::array<std::string_view, 11> kOps = {
+-      "tile.load", "tile.load", "tile.cast", "tile.cast", "tile.muls",
+-      "tile.exp",  "tile.adds", "tile.recip", "tile.mul",  "tile.mul",
+-      "tile.cast"};
+-  std::array<ir::AssignStmtPtr, kOps.size()> assignments;
+-  std::array<ir::CallPtr, kOps.size()> calls;
++  const bool inductor_canonical = loop_nest.leaf->stmts_.size() == 13;
++  const std::vector<std::string_view> kOps =
++      inductor_canonical
++          ? std::vector<std::string_view>{
++                "tile.load", "tile.load", "tile.cast", "tile.cast",
++                "tile.neg",  "tile.exp",  "tile.adds", "tile.recip",
++                "tile.mul",  "tile.cast", "tile.mul",  "tile.cast"}
++          : std::vector<std::string_view>{
++                "tile.load", "tile.load", "tile.cast", "tile.cast",
++                "tile.muls", "tile.exp",  "tile.adds", "tile.recip",
++                "tile.mul",  "tile.mul",  "tile.cast"};
++  std::vector<ir::AssignStmtPtr> assignments(kOps.size());
++  std::vector<ir::CallPtr> calls(kOps.size());
+   for (size_t index = 0; index < kOps.size(); ++index) {
+     assignments[index] =
+         ir::As<ir::AssignStmt>(loop_nest.leaf->stmts_[index]);
+@@ -7173,19 +7187,36 @@ NativeTileSiluAndMulGraph AnalyzeNativeTileSiluAndMul(
+         ir::As<ir::Var>(calls[call_index]->args_[argument_index]);
+     return value && value.get() == expected.get();
+   };
+-  if (!require_source(0, 0, function->params_[0]) ||
+-      !require_source(1, 0, function->params_[1]) ||
+-      !require_source(2, 0, assignments[0]->var_) ||
+-      !require_source(3, 0, assignments[1]->var_) ||
+-      !require_source(4, 0, assignments[2]->var_) ||
+-      !require_source(5, 0, assignments[4]->var_) ||
+-      !require_source(6, 0, assignments[5]->var_) ||
+-      !require_source(7, 0, assignments[6]->var_) ||
+-      !require_source(8, 0, assignments[2]->var_) ||
+-      !require_source(8, 1, assignments[7]->var_) ||
+-      !require_source(9, 0, assignments[8]->var_) ||
+-      !require_source(9, 1, assignments[3]->var_) ||
+-      !require_source(10, 0, assignments[9]->var_)) {
++  const bool valid_ssa =
++      inductor_canonical
++          ? (require_source(0, 0, function->params_[0]) &&
++             require_source(1, 0, function->params_[1]) &&
++             require_source(2, 0, assignments[0]->var_) &&
++             require_source(3, 0, assignments[0]->var_) &&
++             require_source(4, 0, assignments[3]->var_) &&
++             require_source(5, 0, assignments[4]->var_) &&
++             require_source(6, 0, assignments[5]->var_) &&
++             require_source(7, 0, assignments[6]->var_) &&
++             require_source(8, 0, assignments[2]->var_) &&
++             require_source(8, 1, assignments[7]->var_) &&
++             require_source(9, 0, assignments[1]->var_) &&
++             require_source(10, 0, assignments[8]->var_) &&
++             require_source(10, 1, assignments[9]->var_) &&
++             require_source(11, 0, assignments[10]->var_))
++          : (require_source(0, 0, function->params_[0]) &&
++             require_source(1, 0, function->params_[1]) &&
++             require_source(2, 0, assignments[0]->var_) &&
++             require_source(3, 0, assignments[1]->var_) &&
++             require_source(4, 0, assignments[2]->var_) &&
++             require_source(5, 0, assignments[4]->var_) &&
++             require_source(6, 0, assignments[5]->var_) &&
++             require_source(7, 0, assignments[6]->var_) &&
++             require_source(8, 0, assignments[2]->var_) &&
++             require_source(8, 1, assignments[7]->var_) &&
++             require_source(9, 0, assignments[8]->var_) &&
++             require_source(9, 1, assignments[3]->var_) &&
++             require_source(10, 0, assignments[9]->var_));
++  if (!valid_ssa) {
+     Reject("native SiLU-and-mul SSA dataflow is invalid", &scope->span_);
+   }
+   const StaticTensor bf16_tile{DataType::BF16, {1, 128}, {128, 1}};
+@@ -7194,7 +7225,7 @@ NativeTileSiluAndMulGraph AnalyzeNativeTileSiluAndMul(
+     const StaticTensor tile = ReadStaticTile(
+         assignments[index]->var_->GetType(), assignments[index]->span_,
+         "native SiLU-and-mul tile");
+-    const bool expects_bf16 = index < 2 || index == assignments.size() - 1;
++    const bool expects_bf16 = index < 2 || index + 1 == assignments.size();
+     if (!SameTensor(tile, expects_bf16 ? bf16_tile : fp32_tile)) {
+       Reject("native SiLU-and-mul tile dtype or shape is invalid",
+              &assignments[index]->span_);
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index 5764c66e43a5d51237684fcb1934c3b17d298a26..3893016c321ef0f291caaf1858a2fece5b101e91 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -199,12 +199,15 @@ def _native_tile_row_pitched_silu_and_mul(
+                 gate_tile = pl.load(gate, [row, block * 128], [1, 128])
+                 up_tile = pl.load(up, [row, block * 128], [1, 128])
+                 gate_wide = pl.cast(gate_tile, target_type=pl.FP32)
+-                up_wide = pl.cast(up_tile, target_type=pl.FP32)
+-                negative = pl.mul(gate_wide, -1.0)
++                sigmoid_gate_wide = pl.cast(
++                    gate_tile, target_type=pl.FP32
++                )
++                negative = pl.neg(sigmoid_gate_wide)
+                 exponential = pl.exp(negative)
+                 denominator = pl.add(exponential, 1.0)
+                 sigmoid = pl.recip(denominator)
+                 silu = pl.mul(gate_wide, sigmoid)
++                up_wide = pl.cast(up_tile, target_type=pl.FP32)
+                 product = pl.mul(silu, up_wide)
+                 result = pl.cast(product, target_type=pl.BF16)
+                 pl.store(result, [row, block * 128], out)

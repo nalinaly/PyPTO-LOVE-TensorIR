@@ -1,15 +1,15 @@
 {
   "base_commit": "e2d0f78ae6d709c0d6ee345a48db2c3d621a4b09",
   "base_tree": "a46f244a62dfab663fbeb899eb62ee8a042a0b41",
-  "commit_count": 213,
+  "commit_count": 214,
   "format_patch_options": [
     "--binary",
     "--full-index",
     "--no-signature",
     "--numbered-files"
   ],
-  "head_commit": "9dfed55a4db42b5ee0ba3b3899f8d37528c8ac76",
-  "head_tree": "529c4a0c42e17ea8aa0782039c80ef7f1ed168ac",
+  "head_commit": "64ea495ae45cb7ae93492002eb808366eb28515d",
+  "head_tree": "950a5750c717aebb248717b3d2c1cef1353dc5b6",
   "patches": [
     {
       "bytes": 1579,
@@ -1714,6 +1714,14 @@
       "sha256": "1156b486fded03197c25655de5ea0e68b14602dd3d9c087ed5a6ce2b42328536",
       "source_commit": "9dfed55a4db42b5ee0ba3b3899f8d37528c8ac76",
       "subject": "[PATCH 213/213] Support row-pitched SwiGLU results"
+    },
+    {
+      "bytes": 7964,
+      "file": "0214.patch",
+      "order": 214,
+      "sha256": "22b98bdaaebccc79e58ae37e1084b905cba711566095287667b51710671c1f5a",
+      "source_commit": "64ea495ae45cb7ae93492002eb808366eb28515d",
+      "subject": "[PATCH 214/214] Recognize Inductor SwiGLU canonical graph"
     }
   ],
   "repository": "pypto",
