@@ -32,11 +32,14 @@ def sigmoid_mul_kernel(
             for block in pl.range(value.shape[1] // 128):
                 value_tile = pl.load(value, [row, block * 128], [1, 128])
                 gate_tile = pl.load(gate, [row, block * 128], [1, 128])
-                gate_neg = pl.neg(gate_tile)
+                value_wide = pl.cast(value_tile, target_type=pl.FP32)
+                gate_wide = pl.cast(gate_tile, target_type=pl.FP32)
+                gate_neg = pl.neg(gate_wide)
                 gate_exp = pl.exp(gate_neg)
                 denominator = pl.add(gate_exp, 1.0)
                 sigmoid = pl.recip(denominator)
-                result = pl.mul(value_tile, sigmoid)
+                result_wide = pl.mul(value_wide, sigmoid)
+                result = pl.cast(result_wide, target_type=pl.BF16)
                 pl.store(result, [row, block * 128], out)
     return out
 

@@ -159,6 +159,7 @@ def test_pointwise_operators_use_native_tile_dsl():
         assert "pl.tile.load" in rendered, name
         assert "pl.tile.store" in rendered, name
         assert "tensor." not in rendered, name
+    assert str(programs["sigmoid_mul"]).count("pl.tile.cast") == 3
     pitched_gate = torch.empty_strided(
         (3, 256), (512, 1), dtype=torch.bfloat16, device="meta"
     )
