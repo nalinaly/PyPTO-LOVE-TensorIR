@@ -1,15 +1,15 @@
 {
   "base_commit": "e2d0f78ae6d709c0d6ee345a48db2c3d621a4b09",
   "base_tree": "a46f244a62dfab663fbeb899eb62ee8a042a0b41",
-  "commit_count": 216,
+  "commit_count": 217,
   "format_patch_options": [
     "--binary",
     "--full-index",
     "--no-signature",
     "--numbered-files"
   ],
-  "head_commit": "d551ed877c33efa6463f90530832b5fd55dc0d42",
-  "head_tree": "a402d342ca52524a478c268f73b778e51111bfff",
+  "head_commit": "8aa2f57b9d89ea0ddcb257bea4193d1cf6eb8148",
+  "head_tree": "6d4e29bf817a2561fbd0c0340aa17d0935ed48ec",
   "patches": [
     {
       "bytes": 1579,
@@ -1738,6 +1738,14 @@
       "sha256": "216283c2da8e4d9833a4bc161e49888bffe91047b8f7ffdb3758ab6a6dc86f9d",
       "source_commit": "d551ed877c33efa6463f90530832b5fd55dc0d42",
       "subject": "[PATCH 216/216] Allow bounded model-scale tileiras compilation"
+    },
+    {
+      "bytes": 5263,
+      "file": "0217.patch",
+      "order": 217,
+      "sha256": "d190195ef256a192e0e710247e3136e2f05a0a1da8ec25473da27f5ef76635e1",
+      "source_commit": "8aa2f57b9d89ea0ddcb257bea4193d1cf6eb8148",
+      "subject": "[PATCH 217/217] Lock extended TensorIR pipeline specification"
     }
   ],
   "repository": "pypto",

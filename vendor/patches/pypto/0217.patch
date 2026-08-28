@@ -1,0 +1,92 @@
+From 8aa2f57b9d89ea0ddcb257bea4193d1cf6eb8148 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 06:26:01 +0800
+Subject: [PATCH 217/217] Lock extended TensorIR pipeline specification
+
+---
+ cmake/nvidia_backend.cmake                            | 2 +-
+ docs/en/dev/backend/01-nvidia-target-info.md          | 2 +-
+ docs/zh/dev/backend/01-nvidia-target-info.md          | 2 +-
+ include/pypto/compiler/artifact.h                     | 2 +-
+ tests/ut/compiler/test_artifact.py                    | 2 +-
+ tests/ut/runtime/test_nvidia_executable_public_api.py | 2 +-
+ 6 files changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 994ccb6cb894c0b94ecf35232c54eaefd79936ec..0707a6568780400bbbf6d3aafa47cfb9ff92eb14 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -58,7 +58,7 @@ set(PYPTO_NVIDIA_TILEIRAS_SHA256
+ set(PYPTO_NVIDIA_STRUCTURED_PIPELINE_SPEC
+     "${CMAKE_SOURCE_DIR}/src/compiler/nvidia/structured_tensorir_explicit_v1.json")
+ set(PYPTO_NVIDIA_STRUCTURED_PIPELINE_REVISION
+-    "46610e0415598d010981e4bd07d0660c592401ac")
++    "81aee59d88e17aaf4a37fe6e954ee89b0980ebb9")
+ 
+ find_package(Git REQUIRED)
+ 
+diff --git a/docs/en/dev/backend/01-nvidia-target-info.md b/docs/en/dev/backend/01-nvidia-target-info.md
+index 617676a37e7fad9a16fec9a683764c3c163c88e7..74eacd909d5a9f0553ec61fbeb89a6c797f4b1b0 100644
+--- a/docs/en/dev/backend/01-nvidia-target-info.md
++++ b/docs/en/dev/backend/01-nvidia-target-info.md
+@@ -536,7 +536,7 @@ The assembler CLI spelling and semantic target are separate identity fields:
+ `assembler_gpu_name=sm_120`, while TensorIR's exact-architecture policy is
+ `tensor_ir_target=sm_120a`. The canonical pipeline specification is
+ [`structured_tensorir_explicit_v1.json`](../../../../src/compiler/nvidia/structured_tensorir_explicit_v1.json).
+-Its Git-blob identity is `46610e0415598d010981e4bd07d0660c592401ac`;
++Its Git-blob identity is `81aee59d88e17aaf4a37fe6e954ee89b0980ebb9`;
+ CMake verifies that identity so the pipeline revision cannot be an unexplained
+ placeholder.
+ 
+diff --git a/docs/zh/dev/backend/01-nvidia-target-info.md b/docs/zh/dev/backend/01-nvidia-target-info.md
+index e188bb81fd6e3ab80975dda6929a6a448aeb60cb..601607d2128cf8176285ce51e805f066714cbbac 100644
+--- a/docs/zh/dev/backend/01-nvidia-target-info.md
++++ b/docs/zh/dev/backend/01-nvidia-target-info.md
+@@ -469,7 +469,7 @@ assembler CLI spelling 与 semantic target 是两个不同 identity field：
+ `assembler_gpu_name=sm_120`，TensorIR exact-architecture policy 则是
+ `tensor_ir_target=sm_120a`。canonical pipeline specification 位于
+ [`structured_tensorir_explicit_v1.json`](../../../../src/compiler/nvidia/structured_tensorir_explicit_v1.json)，
+-其 Git-blob identity 为 `46610e0415598d010981e4bd07d0660c592401ac`。
++其 Git-blob identity 为 `81aee59d88e17aaf4a37fe6e954ee89b0980ebb9`。
+ CMake 会验证该 identity，避免 pipeline revision 变成无法解释的 placeholder。
+ 
+ 固定 resource/producer policy 也被显式记录：occupancy 为 `1`、SM count 来自
+diff --git a/include/pypto/compiler/artifact.h b/include/pypto/compiler/artifact.h
+index 1b3dee423f7457b5755c93ad8b0a479fbbf6149a..837172b206be475f2cc52a59bc1e1b9035baabf8 100644
+--- a/include/pypto/compiler/artifact.h
++++ b/include/pypto/compiler/artifact.h
+@@ -473,7 +473,7 @@ class Artifact {
+   static constexpr std::string_view kProducerOptionsContract =
+       "pypto.nvidia.tensorir_options.v1";
+   static constexpr std::string_view kStructuredTensorIrPipelineRevision =
+-      "46610e0415598d010981e4bd07d0660c592401ac";
++      "81aee59d88e17aaf4a37fe6e954ee89b0980ebb9";
+   static constexpr uint32_t kArtifactSchemaVersion = 1;
+   static constexpr uint32_t kCompilerAbiVersion = CompileRequest::kCompilerAbiVersion;
+   static constexpr int32_t kRequiredComputeCapability = 120;
+diff --git a/tests/ut/compiler/test_artifact.py b/tests/ut/compiler/test_artifact.py
+index b43b74033a49362cfc20e94082bedb9f7b3eb167..d5d45ae0161c2fe3bebde1a04656e62acd0b7db0 100644
+--- a/tests/ut/compiler/test_artifact.py
++++ b/tests/ut/compiler/test_artifact.py
+@@ -51,7 +51,7 @@ from pypto.compiler import (
+     get_nvidia_backend_build_info,
+ )
+ 
+-PIPELINE_REVISION = "46610e0415598d010981e4bd07d0660c592401ac"
++PIPELINE_REVISION = "81aee59d88e17aaf4a37fe6e954ee89b0980ebb9"
+ ARTIFACT_PAYLOAD_LIMIT = 68 * 1024 * 1024
+ CANONICAL_SOURCE = b"""module {
+   nv_tensor_ir.graph @add_op_simple(
+diff --git a/tests/ut/runtime/test_nvidia_executable_public_api.py b/tests/ut/runtime/test_nvidia_executable_public_api.py
+index ffb3544e0d15857b662ff43e4121037b7a53a511..50841e51852d7266cfb707b1e8d287ea7c86b71d 100644
+--- a/tests/ut/runtime/test_nvidia_executable_public_api.py
++++ b/tests/ut/runtime/test_nvidia_executable_public_api.py
+@@ -43,7 +43,7 @@ from pypto.compiler import (
+ from pypto.pypto_core import nvidia_runtime as runtime_core
+ from pypto.runtime import nvidia as runtime_api
+ 
+-PIPELINE_REVISION = "46610e0415598d010981e4bd07d0660c592401ac"
++PIPELINE_REVISION = "81aee59d88e17aaf4a37fe6e954ee89b0980ebb9"
+ CANONICAL_SOURCE = b"""module {
+   nv_tensor_ir.graph @add_op_simple(
+     %a: tensor<8x8xf32> {nv_tensor_ir.stride = "(8,1)"},
