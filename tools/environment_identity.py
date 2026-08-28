@@ -27,7 +27,9 @@ def python_site_packages(prefix: pathlib.Path) -> pathlib.Path:
     return candidates[0]
 
 
-def hash_paths(base: pathlib.Path, roots: tuple[pathlib.Path, ...]) -> dict[str, object]:
+def hash_paths(
+    base: pathlib.Path, roots: tuple[pathlib.Path, ...]
+) -> dict[str, object]:
     digest = hashlib.sha256()
     file_count = 0
     byte_count = 0
@@ -81,6 +83,20 @@ def collect_torch_identity(prefix: pathlib.Path) -> dict[str, object]:
     return identity
 
 
+def collect_distribution_records(
+    site_packages: pathlib.Path,
+) -> list[tuple[str, str]]:
+    """Collect distributions only from the selected formal prefix."""
+
+    return sorted(
+        (
+            str(distribution.metadata.get("Name", "")).replace("_", "-").lower(),
+            distribution.version,
+        )
+        for distribution in importlib.metadata.distributions(path=[str(site_packages)])
+    )
+
+
 def collect_environment_identity(prefix: pathlib.Path) -> dict[str, object]:
     """Collect immutable Python/package identity plus the complete Torch tree."""
 
@@ -94,13 +110,7 @@ def collect_environment_identity(prefix: pathlib.Path) -> dict[str, object]:
 
     import torch
 
-    distributions = sorted(
-        (
-            str(distribution.metadata.get("Name", "")).replace("_", "-").lower(),
-            distribution.version,
-        )
-        for distribution in importlib.metadata.distributions()
-    )
+    distributions = collect_distribution_records(python_site_packages(prefix))
     distributions_payload = json.dumps(
         distributions,
         ensure_ascii=True,

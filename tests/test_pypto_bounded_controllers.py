@@ -41,8 +41,8 @@ class BoundedCpuCommandTest(unittest.TestCase):
         cls.build = str((ROOT / "builds/pypto-paged-f34c3f5").resolve(strict=True))
 
     def test_policy_retires_22_gib_and_pins_parallel_24(self) -> None:
-        self.assertEqual(cpu.PAUSE_MEMORY_KIB, 16 * 1024 * 1024)
-        self.assertEqual(cpu.RESUME_MEMORY_KIB, 17 * 1024 * 1024)
+        self.assertEqual(cpu.PAUSE_MEMORY_KIB, 12 * 1024 * 1024)
+        self.assertEqual(cpu.RESUME_MEMORY_KIB, 13 * 1024 * 1024)
         self.assertEqual(cpu.POLL_SECONDS, 0.2)
         self.assertFalse(hasattr(cpu, "LAUNCH_MEMORY_KIB"))
 

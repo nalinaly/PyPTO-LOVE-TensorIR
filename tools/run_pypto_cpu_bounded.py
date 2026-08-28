@@ -24,8 +24,12 @@ ALLOWED_ENVIRONMENT_PROFILES = {
     "pypto-release": "pypto",
     "sglang-baseline": "baseline",
 }
-PAUSE_MEMORY_KIB = 16 * 1024 * 1024
-RESUME_MEMORY_KIB = 17 * 1024 * 1024
+# CPU pytest workers retain imported Torch pages while SIGSTOPed.  A 16/17 GiB
+# hysteresis can therefore self-lock a valid 24-worker run without releasing a
+# byte.  The 12/13 GiB policy preserves a substantial host reserve while the
+# owned-PGID RSS audit remains the authoritative workload measurement.
+PAUSE_MEMORY_KIB = 12 * 1024 * 1024
+RESUME_MEMORY_KIB = 13 * 1024 * 1024
 POLL_SECONDS = 0.2
 
 
@@ -296,7 +300,7 @@ def main() -> int:
     initial_available = mem_available_kib()
     if initial_available < PAUSE_MEMORY_KIB:
         raise BoundedCpuError(
-            f"MemAvailable {initial_available} KiB is already below 16 GiB pause floor"
+            f"MemAvailable {initial_available} KiB is already below 12 GiB pause floor"
         )
 
     lease = isolation.acquire_environment_lock(args.environment, "shared")
@@ -304,7 +308,7 @@ def main() -> int:
     if locked_available < PAUSE_MEMORY_KIB:
         lease.close()
         raise BoundedCpuError(
-            "MemAvailable fell below the 16 GiB pause floor while acquiring "
+            "MemAvailable fell below the 12 GiB pause floor while acquiring "
             "the environment lock"
         )
     timestamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
