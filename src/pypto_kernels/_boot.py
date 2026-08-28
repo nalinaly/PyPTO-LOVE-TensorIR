@@ -35,6 +35,39 @@ def bootstrap() -> dict[str, Any]:
             return _modules
     resolved = pathlib.Path(DSO_PATH).resolve(strict=True)
     package_root = pathlib.Path(PYPTO_PACKAGE).resolve(strict=True)
+    occupied = sorted(
+        name
+        for name in sys.modules
+        if name == "pypto" or name.startswith("pypto.")
+    )
+    if occupied:
+        raise RuntimeError(
+            "foreign pypto modules occupy exact-bootstrap slots: "
+            + ", ".join(occupied)
+        )
+    removed_finders: list[tuple[int, Any]] = []
+    probe_path = [str(package_root / "jit")]
+    for index, finder in tuple(enumerate(sys.meta_path)):
+        try:
+            candidate = finder.find_spec(
+                "pypto.jit.decorator", probe_path, None
+            )
+        except (AttributeError, ImportError, TypeError, ValueError):
+            continue
+        origin = getattr(candidate, "origin", None)
+        if not origin:
+            continue
+        try:
+            resolved_origin = pathlib.Path(origin).resolve(strict=True)
+        except OSError:
+            continue
+        if package_root not in resolved_origin.parents:
+            removed_finders.append((index, finder))
+    if removed_finders:
+        rejected = {id(finder) for _, finder in removed_finders}
+        sys.meta_path[:] = [
+            finder for finder in sys.meta_path if id(finder) not in rejected
+        ]
     spec = importlib.util.spec_from_file_location(
         "pypto",
         package_root / "__init__.py",
@@ -45,13 +78,18 @@ def bootstrap() -> dict[str, Any]:
     core_spec = importlib.util.spec_from_file_location("pypto.pypto_core", resolved)
     assert core_spec is not None and core_spec.loader is not None
     core = importlib.util.module_from_spec(core_spec)
-    existing = sys.modules.get("pypto.pypto_core")
-    if existing is not None and existing is not core:
-        raise RuntimeError("a foreign pypto_core occupies the import slot")
-    sys.modules["pypto.pypto_core"] = core
-    core_spec.loader.exec_module(core)
-    spec.loader.exec_module(pypto)
     sys.modules["pypto"] = pypto
+    sys.modules["pypto.pypto_core"] = core
+    try:
+        core_spec.loader.exec_module(core)
+        spec.loader.exec_module(pypto)
+    except BaseException:
+        for name in tuple(sys.modules):
+            if name == "pypto" or name.startswith("pypto."):
+                sys.modules.pop(name, None)
+        for index, finder in removed_finders:
+            sys.meta_path.insert(min(index, len(sys.meta_path)), finder)
+        raise
     with _lock:
         _modules = {"pypto": pypto, "ir": pypto.ir, "compiler": pypto.compiler}
     return _modules
