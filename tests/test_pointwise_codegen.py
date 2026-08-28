@@ -158,6 +158,19 @@ class PointwiseCodegenTest(unittest.TestCase):
             with self.assertRaisesRegex(StrictCoverageError, "exactly one"):
                 pc._resolve_dso_override(root)
 
+    def test_exact_preloaded_dso_is_reused(self) -> None:
+        import pypto
+        import pypto.pypto_core as core
+
+        original = pc._pypto_modules
+        try:
+            pc._pypto_modules = None
+            modules = pc.bootstrap_pypto(core.__file__)
+            self.assertIs(modules["pypto"], pypto)
+            self.assertIs(modules["core"], core)
+        finally:
+            pc._pypto_modules = original
+
     def test_compiler_cache_fails_closed_after_fork(self) -> None:
         original = pc._OWNER_PID
         try:
