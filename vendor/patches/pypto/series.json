@@ -1,15 +1,15 @@
 {
   "base_commit": "e2d0f78ae6d709c0d6ee345a48db2c3d621a4b09",
   "base_tree": "a46f244a62dfab663fbeb899eb62ee8a042a0b41",
-  "commit_count": 219,
+  "commit_count": 220,
   "format_patch_options": [
     "--binary",
     "--full-index",
     "--no-signature",
     "--numbered-files"
   ],
-  "head_commit": "9b90f15d41822e2f5c9abca93f51afa3a9d368db",
-  "head_tree": "88b129371cece51e00ac4c3acede33bba9dbb6a7",
+  "head_commit": "61ec894eebfd6d9ac2c232be38892c5b54eefa53",
+  "head_tree": "398c9442985f9b4f830f8aa0e0b3748ab41b6c95",
   "patches": [
     {
       "bytes": 1579,
@@ -1762,6 +1762,14 @@
       "sha256": "812e208d280ee1e1cf1a562ea7cdbe1cfb778e3c6b8089298a0330601bf2052e",
       "source_commit": "9b90f15d41822e2f5c9abca93f51afa3a9d368db",
       "subject": "[PATCH 219/219] Refresh callable build-spec golden"
+    },
+    {
+      "bytes": 5677,
+      "file": "0220.patch",
+      "order": 220,
+      "sha256": "444d34ce2674feb546050ba93abf7ab55280ff2f11e48f3cf0048089eaadfc02",
+      "source_commit": "61ec894eebfd6d9ac2c232be38892c5b54eefa53",
+      "subject": "[PATCH 220/220] Wire bounded assembler timeout through TensorIR"
     }
   ],
   "repository": "pypto",

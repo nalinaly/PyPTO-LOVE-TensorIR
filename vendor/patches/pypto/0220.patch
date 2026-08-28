@@ -1,0 +1,108 @@
+From 61ec894eebfd6d9ac2c232be38892c5b54eefa53 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 06:55:38 +0800
+Subject: [PATCH 220/220] Wire bounded assembler timeout through TensorIR
+
+---
+ 3rdparty/nvidia/tensor-ir                 | 2 +-
+ cmake/nvidia_backend.cmake                | 2 +-
+ src/compiler/nvidia_artifact_compiler.cpp | 6 ++++++
+ src/compiler/nvidia_producer_bridge.cpp   | 7 +++++++
+ src/compiler/nvidia_producer_bridge.h     | 1 +
+ 5 files changed, 16 insertions(+), 2 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index b478e09a49c13d8ee330f770a19fef48b759f8b8..1ce28c3f90aad4ae111075e64ee53b3549d65422 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit b478e09a49c13d8ee330f770a19fef48b759f8b8
++Subproject commit 1ce28c3f90aad4ae111075e64ee53b3549d65422
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 0707a6568780400bbbf6d3aafa47cfb9ff92eb14..6c8933a53172d6ce7626a6ae57fba2092849f8d0 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "b478e09a49c13d8ee330f770a19fef48b759f8b8")
++    "1ce28c3f90aad4ae111075e64ee53b3549d65422")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+diff --git a/src/compiler/nvidia_artifact_compiler.cpp b/src/compiler/nvidia_artifact_compiler.cpp
+index 0192ef2945dcfb882c469c92ddb252bf0f9d6479..bd4139334735eb197545de635e17c6c595c1b16b 100644
+--- a/src/compiler/nvidia_artifact_compiler.cpp
++++ b/src/compiler/nvidia_artifact_compiler.cpp
+@@ -96,6 +96,8 @@ NvidiaProducerOptions MakeProducerOptions(
+   options.tile_ir_assembler_path = toolchain.GetTileirasRealPath();
+   options.tile_ir_assembler_version = toolchain.GetTileirasVersion();
+   options.tile_ir_assembler_sha256 = toolchain.GetTileirasSha256();
++  options.tile_ir_assembler_timeout_seconds =
++      resolved.assembler_timeout_seconds;
+   options.diagnostic_limit_bytes = resolved.diagnostic_limit_bytes;
+   return options;
+ }
+@@ -126,6 +128,8 @@ bool SameProducerOptions(const NvidiaProducerOptions& lhs,
+          lhs.tile_ir_assembler_path == rhs.tile_ir_assembler_path &&
+          lhs.tile_ir_assembler_version == rhs.tile_ir_assembler_version &&
+          lhs.tile_ir_assembler_sha256 == rhs.tile_ir_assembler_sha256 &&
++         lhs.tile_ir_assembler_timeout_seconds ==
++             rhs.tile_ir_assembler_timeout_seconds &&
+          lhs.diagnostic_limit_bytes == rhs.diagnostic_limit_bytes;
+ }
+ 
+@@ -158,6 +162,8 @@ std::string ExpectedCompileOptionsIdentity(const NvidiaProducerOptions& options)
+   identity += "_assembler_sha256_" +
+               std::to_string(options.tile_ir_assembler_sha256.size()) + ":" +
+               options.tile_ir_assembler_sha256;
++  identity += "_assembler_timeout_" +
++              std::to_string(options.tile_ir_assembler_timeout_seconds);
+   identity += "_loadbc_0:_bc" +
+               std::to_string(static_cast<unsigned>(options.bytecode_version.major)) + "_" +
+               std::to_string(static_cast<unsigned>(options.bytecode_version.minor)) + "_" +
+diff --git a/src/compiler/nvidia_producer_bridge.cpp b/src/compiler/nvidia_producer_bridge.cpp
+index b0382aba5f8a2f5e47e3fd57b7674ab34665d547..9e0515aa20206fec6189cd681499e6f41aaa88dc 100644
+--- a/src/compiler/nvidia_producer_bridge.cpp
++++ b/src/compiler/nvidia_producer_bridge.cpp
+@@ -148,6 +148,9 @@ const char* ValidateStrictOptions(const NvidiaProducerOptions& options) {
+       !IsLowercaseSha256(options.tile_ir_assembler_sha256)) {
+     return "NVIDIA producer requires a bounded assembler version and lowercase SHA-256";
+   }
++  if (options.tile_ir_assembler_timeout_seconds != 900) {
++    return "NVIDIA producer requires the locked 900-second assembler timeout";
++  }
+   if (options.diagnostic_limit_bytes != kMaximumDiagnosticBytes) {
+     return "NVIDIA producer diagnostic limit must be exactly 64 KiB";
+   }
+@@ -250,6 +253,8 @@ NvidiaProducerOptions CopyAppliedOptions(const CudaTileCompileOptions& options)
+   output.tile_ir_assembler_path = options.tileIRAssemblerPath;
+   output.tile_ir_assembler_version = options.tileIRAssemblerVersion;
+   output.tile_ir_assembler_sha256 = options.tileIRAssemblerSha256;
++  output.tile_ir_assembler_timeout_seconds =
++      options.tileIRAssemblerTimeoutSeconds;
+   output.diagnostic_limit_bytes = static_cast<uint32_t>(kMaximumDiagnosticBytes);
+   return output;
+ }
+@@ -530,6 +535,8 @@ NvidiaProducerResult CompilePrivateNvidiaArtifact(
+   compile_options.tileIRAssemblerPath = options.tile_ir_assembler_path;
+   compile_options.tileIRAssemblerVersion = options.tile_ir_assembler_version;
+   compile_options.tileIRAssemblerSha256 = options.tile_ir_assembler_sha256;
++  compile_options.tileIRAssemblerTimeoutSeconds =
++      options.tile_ir_assembler_timeout_seconds;
+ 
+   NvidiaProducerOptions applied_options = CopyAppliedOptions(compile_options);
+   if (!applied_options.ir_debug_options_empty) {
+diff --git a/src/compiler/nvidia_producer_bridge.h b/src/compiler/nvidia_producer_bridge.h
+index 03811ac8a6e858a85f4c9c40f42ab3f4eeda00dc..96a6051ef176f2c735ca4597be1c206465b9f59f 100644
+--- a/src/compiler/nvidia_producer_bridge.h
++++ b/src/compiler/nvidia_producer_bridge.h
+@@ -52,6 +52,7 @@ struct NvidiaProducerOptions {
+   std::string tile_ir_assembler_path;
+   std::string tile_ir_assembler_version;
+   std::string tile_ir_assembler_sha256;
++  uint32_t tile_ir_assembler_timeout_seconds = 300;
+   uint32_t diagnostic_limit_bytes = 64U * 1024U;
+ };
+ 

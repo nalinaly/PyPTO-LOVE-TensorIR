@@ -38,15 +38,15 @@ class SourceReleaseTest(unittest.TestCase):
 
     def test_exact_release_boundaries_and_gitlinks_are_locked(self) -> None:
         repositories = self.lock["repositories"]
-        self.assertEqual(repositories["pypto"]["commit_count"], 219)
-        self.assertEqual(repositories["tensor_ir"]["commit_count"], 82)
+        self.assertEqual(repositories["pypto"]["commit_count"], 220)
+        self.assertEqual(repositories["tensor_ir"]["commit_count"], 83)
         self.assertEqual(
             repositories["pypto"]["head_commit"],
-            "9b90f15d41822e2f5c9abca93f51afa3a9d368db",
+            "61ec894eebfd6d9ac2c232be38892c5b54eefa53",
         )
         self.assertEqual(
             repositories["tensor_ir"]["head_commit"],
-            "b478e09a49c13d8ee330f770a19fef48b759f8b8",
+            "1ce28c3f90aad4ae111075e64ee53b3549d65422",
         )
         self.assertEqual(
             repositories["pypto"]["gitlinks"],
@@ -70,8 +70,8 @@ class SourceReleaseTest(unittest.TestCase):
         report = source_release.verify_release_artifacts(ROOT, self.lock)
         self.assertTrue(report["pypto"]["bundle"]["clone_probe"])
         self.assertTrue(report["tensor_ir"]["bundle"]["clone_probe"])
-        self.assertEqual(report["pypto"]["patch_series"]["patch_count"], 219)
-        self.assertEqual(report["tensor_ir"]["patch_series"]["patch_count"], 82)
+        self.assertEqual(report["pypto"]["patch_series"]["patch_count"], 220)
+        self.assertEqual(report["tensor_ir"]["patch_series"]["patch_count"], 83)
 
     def test_every_patch_replays_to_the_locked_tree(self) -> None:
         report = source_release.replay_all_patch_series(ROOT, self.lock)
