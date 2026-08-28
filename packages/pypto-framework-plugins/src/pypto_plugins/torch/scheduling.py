@@ -1,0 +1,923 @@
+"""PyPTO CUDA scheduling constructors for the pinned TorchInductor surface.
+
+``make_pypto_cuda_scheduling`` subclasses the captured combined CUDA
+scheduling and swaps its inner Triton scheduling for a PyPTO-routing
+subclass. Outside PyPTO mode every method is the untouched original.
+Inside strict PyPTO mode a pointwise kernel's ``define_kernel`` compiles
+the plugin-built native tile program through the exact DSO facade
+(no Triton source is written) and ``call_kernel`` emits a fail-closed
+bridge call; non-pointwise kernels fail closed.
+"""
+
+from __future__ import annotations
+
+import os
+import threading
+from typing import Any
+
+from ..errors import StrictCoverageError
+from .context import current_mode
+from . import pointwise_codegen
+
+
+class PyptoKernelRegistry:
+    """Process-wide registry of compiled PyPTO kernels by wrapper name."""
+
+    def __init__(self) -> None:
+        self._kernels: dict[str, pointwise_codegen.PointwiseArtifact] = {}
+        self._lock = threading.RLock()
+        self._owner_pid = os.getpid()
+
+    def _require_owner_process(self) -> None:
+        current = os.getpid()
+        if current != self._owner_pid:
+            raise StrictCoverageError(
+                "PyPTO kernel registry was inherited across fork; use spawn/exec"
+            )
+
+    def register(
+        self, name: str, artifact: pointwise_codegen.PointwiseArtifact
+    ) -> None:
+        self._require_owner_process()
+        with self._lock:
+            previous = self._kernels.setdefault(name, artifact)
+            if previous != artifact:
+                raise StrictCoverageError(
+                    f"conflicting PyPTO Inductor kernel registration for {name!r}"
+                )
+
+    def get(self, name: str) -> pointwise_codegen.PointwiseArtifact:
+        self._require_owner_process()
+        with self._lock:
+            return self._kernels[name]
+
+    def __contains__(self, name: object) -> bool:
+        self._require_owner_process()
+        with self._lock:
+            return name in self._kernels
+
+    def __len__(self) -> int:
+        self._require_owner_process()
+        with self._lock:
+            return len(self._kernels)
+
+    def snapshot(
+        self,
+    ) -> tuple[tuple[str, pointwise_codegen.PointwiseArtifact], ...]:
+        self._require_owner_process()
+        with self._lock:
+            return tuple((name, self._kernels[name]) for name in sorted(self._kernels))
+
+    def unique_artifacts(self) -> tuple[pointwise_codegen.PointwiseArtifact, ...]:
+        unique: dict[str, pointwise_codegen.PointwiseArtifact] = {}
+        for _name, artifact in self.snapshot():
+            previous = unique.setdefault(artifact.cache_identity_sha256, artifact)
+            if previous != artifact:
+                raise StrictCoverageError(
+                    "PyPTO registry contains a cache identity conflict"
+                )
+        return tuple(unique[key] for key in sorted(unique))
+
+    def clear(self) -> None:
+        self._require_owner_process()
+        with self._lock:
+            self._kernels.clear()
+
+
+REGISTRY = PyptoKernelRegistry()
+
+
+def make_pypto_triton_scheduling(triton_scheduling_class: Any) -> Any:
+    class PyptoTritonScheduling(triton_scheduling_class):  # type: ignore[misc,valid-type]
+        def codegen_node(self, node: Any) -> None:
+            if current_mode() is None:
+                return super().codegen_node(node)
+            nodes = [node]
+            if type(node).__name__ == "FusedSchedulerNode":
+                removed = getattr(getattr(self, "scheduler", None), "removed_ops", ())
+                nodes = [
+                    sub_node
+                    for sub_node in node.get_nodes()
+                    if sub_node.get_name() not in removed
+                ]
+            for sub_node in nodes:
+                inner = getattr(sub_node, "node", None)
+                import os as _os
+
+                if _os.environ.get("PYPTO_DEBUG_NODES"):
+                    import sys as _sys
+
+                    data = getattr(inner, "data", None)
+                    print(
+                        f"NODE node={type(sub_node).__name__} "
+                        f"inner={type(inner).__name__} data={type(data).__name__}",
+                        file=_sys.stderr,
+                        flush=True,
+                    )
+                if _is_pointwise_node(inner):
+                    self._codegen_pypto_pointwise_node(sub_node)
+                    continue
+                if _is_reduction_node(inner):
+                    self._codegen_pypto_reduction_node(sub_node)
+                    continue
+                raise StrictCoverageError(
+                    "strict PyPTO mode has no kernel for Inductor node "
+                    f"{type(inner).__name__!r} yet"
+                )
+
+        def _codegen_pypto_reduction_node(self, node: Any) -> None:
+            program = _translate_reduction(node)
+            artifact = pointwise_codegen.compile_pointwise(
+                program,
+                tile=program.row_tile,
+                prewarm_runtime=True,
+            )
+            name = artifact.kernel_name
+            REGISTRY.register(name, artifact)
+            _emit_pypto_node_launch(node, name)
+
+        def _codegen_pypto_pointwise_node(self, node: Any) -> None:
+            program, meta = _translate_pointwise(node)
+            artifact = pointwise_codegen.compile_pointwise(
+                program,
+                tile=meta["tile"],
+                prewarm_runtime=True,
+            )
+            name = artifact.kernel_name
+            REGISTRY.register(name, artifact)
+            _emit_pypto_node_launch(node, name, meta)
+
+        def define_kernel(self, src_code: Any, node_schedule: Any, kernel: Any) -> None:
+            if current_mode() is None:
+                return super().define_kernel(src_code, node_schedule, kernel)
+            if not _schedule_is_pointwise(node_schedule):
+                raise StrictCoverageError(
+                    "strict PyPTO mode has no kernel for this Inductor "
+                    "node schedule yet"
+                )
+            program, meta = _translate_pointwise(kernel)
+            name = str(kernel)
+            artifact = pointwise_codegen.compile_pointwise(
+                program,
+                tile=meta["tile"],
+                registry_name=name,
+                prewarm_runtime=True,
+            )
+            REGISTRY.register(artifact.kernel_name, artifact)
+            REGISTRY.register(name, artifact)
+
+        def call_kernel(
+            self,
+            name: str,
+            node: Any = None,
+            deallocate_ws: bool = True,
+        ) -> None:
+            mode = current_mode()
+            if mode is None or str(name) not in REGISTRY:
+                return super().call_kernel(name, node, deallocate_ws)
+            wrapper = _graph_wrapper_code()
+            _, call_args, _, _arg_types = self.args.python_argdefs()
+            if not getattr(wrapper, "_pypto_header_written", False):
+                wrapper.header.writeline(
+                    "from pypto_plugins.torch.runtime_bridge import pypto_launch"
+                )
+                wrapper.header.writeline("import torch as _pypto_torch")
+                wrapper._pypto_header_written = True
+            stream = "_pypto_torch.cuda.current_stream().cuda_stream"
+            joined = ", ".join(str(arg) for arg in call_args)
+            wrapper.writeline(
+                f"pypto_launch({str(name)!r}, ({joined}{', ' if joined else ''}), {stream})"
+            )
+
+    return PyptoTritonScheduling
+
+
+def make_pypto_cuda_scheduling(combined_scheduling_class: Any) -> Any:
+    from torch._inductor.codegen.triton import TritonScheduling
+
+    inner = make_pypto_triton_scheduling(TritonScheduling)
+
+    class PyptoCudaScheduling(combined_scheduling_class):  # type: ignore[misc,valid-type]
+        def __init__(self, scheduler: Any) -> None:
+            super().__init__(scheduler)
+            if current_mode() is not None:
+                self._triton_scheduling = inner(scheduler)
+
+    return PyptoCudaScheduling
+
+
+def _is_pointwise_node(inner: Any) -> bool:
+    try:
+        from torch._inductor.ir import ComputedBuffer, Pointwise
+    except Exception:  # pragma: no cover - pinned import path
+        return False
+    if isinstance(inner, ComputedBuffer):
+        inner = inner.data
+    return isinstance(inner, Pointwise)
+
+
+def _is_reduction_node(inner: Any) -> bool:
+    try:
+        from torch._inductor.ir import ComputedBuffer, Reduction
+    except Exception:  # pragma: no cover - pinned import path
+        return False
+    if isinstance(inner, ComputedBuffer):
+        inner = inner.data
+    return isinstance(inner, Reduction)
+
+
+def _translate_reduction(node: Any) -> Any:
+    """Build native tile IR for a trailing-axis Inductor reduction."""
+
+    inner = getattr(node, "node", None)
+    data = getattr(inner, "data", None)
+    if data is None:
+        data = inner
+    reduction_type = data.get_reduction_type()
+    if reduction_type not in ("sum", "max"):
+        raise StrictCoverageError(
+            f"strict PyPTO reduction has no mode {reduction_type!r} yet"
+        )
+    outer = [int(extent) for extent in data.get_size()]
+    reduced = [int(extent) for extent in data.get_reduction_size()]
+    if not outer or not reduced:
+        raise StrictCoverageError("reduction needs both outer and reduction extents")
+    if len(reduced) != 1:
+        raise StrictCoverageError(
+            "native reduction currently requires one trailing axis"
+        )
+    # A keepdim reduction reports the [M,1] output extent inside the outer
+    # loop ranges; those trailing unit slots are not input dimensions.
+    while len(outer) > 1 and outer[-1] == 1:
+        outer.pop()
+    import torch
+
+    dtype = (
+        data.get_dtype() if hasattr(data, "get_dtype") else getattr(data, "dtype", None)
+    )
+    if dtype is torch.bfloat16:
+        dtype_name = "bfloat16"
+    elif dtype is torch.float32:
+        dtype_name = "float32"
+    else:
+        raise StrictCoverageError(f"native reduction dtype {dtype!r} is unsupported")
+    return pointwise_codegen.NativeReductionProgram(
+        tuple([*outer, *reduced]), dtype_name, reduction_type
+    )
+
+
+def _node_call_args(node: Any) -> list[str]:
+    args: list[str] = []
+    for dep in node.read_writes.reads:
+        name = getattr(dep, "name", None)
+        if not isinstance(name, str):
+            name = getattr(getattr(dep, "buffer", None), "get_name", lambda: None)()
+        if isinstance(name, str) and name not in args:
+            args.append(name)
+    for output in node.get_outputs():
+        args.append(output.get_name())
+    return args
+
+
+def _schedule_is_pointwise(node_schedule: Any) -> bool:
+    try:
+        from torch._inductor.ir import Pointwise
+    except Exception:  # pragma: no cover - pinned import path
+        return False
+    return any(
+        isinstance(getattr(node, "node", None), Pointwise) for node in node_schedule
+    )
+
+
+def _graph_wrapper_code() -> Any:
+    from torch._inductor.virtualized import V
+
+    return V.graph.wrapper_code
+
+
+def _dtype_name(dtype: Any) -> str:
+    import torch
+
+    if dtype is torch.bfloat16:
+        return "bfloat16"
+    if dtype is torch.float32:
+        return "float32"
+    raise StrictCoverageError(f"native pointwise dtype {dtype!r} is unsupported")
+
+
+def _tensor_specialization(name: str, fallback: Any = None) -> Any:
+    """Read one static Inductor buffer layout without inventing dense strides."""
+
+    from torch._inductor.virtualized import V
+
+    try:
+        buffer = V.graph.get_buffer(name)
+    except Exception:
+        buffer = fallback
+    if buffer is None:
+        raise StrictCoverageError(
+            f"pointwise input {name!r} has no Inductor buffer metadata"
+        )
+    required = ("get_size", "get_stride", "get_dtype", "get_device")
+    if not all(callable(getattr(buffer, method, None)) for method in required):
+        raise StrictCoverageError(
+            f"pointwise buffer {name!r} lacks static layout metadata"
+        )
+    try:
+        shape = tuple(int(value) for value in buffer.get_size())
+        strides = tuple(int(value) for value in buffer.get_stride())
+    except (TypeError, ValueError) as error:
+        raise StrictCoverageError(
+            f"pointwise buffer {name!r} has symbolic shape or strides"
+        ) from error
+    device = buffer.get_device()
+    device_type = getattr(device, "type", None)
+    device_index = getattr(device, "index", None)
+    if device_type != "cuda":
+        raise StrictCoverageError(
+            f"pointwise buffer {name!r} must be on CUDA, got {device!r}"
+        )
+    if device_index is None:
+        device_index = 0
+    return pointwise_codegen.PointwiseTensorSpec(
+        shape,
+        strides,
+        _dtype_name(buffer.get_dtype()),
+        device_type,
+        int(device_index),
+    )
+
+
+def _emit_pypto_node_launch(node: Any, name: str, meta: dict | None = None) -> None:
+    wrapper = _graph_wrapper_code()
+    if not getattr(wrapper, "_pypto_header_written", False):
+        wrapper.header.writeline(
+            "from pypto_plugins.torch.runtime_bridge import pypto_launch"
+        )
+        wrapper.header.writeline("import torch as _pypto_torch")
+        wrapper._pypto_header_written = True
+    for output in node.get_outputs():
+        buffer = getattr(output, "node", output)
+        if not hasattr(buffer, "get_defining_op"):
+            buffer = getattr(output, "buffer", None)
+        if buffer is not None and hasattr(buffer, "get_defining_op"):
+            wrapper.codegen_allocation(buffer)
+    stream = "_pypto_torch.cuda.current_stream().cuda_stream"
+    broadcast_views = dict((meta or {}).get("broadcast_views", {}))
+    ordered_inputs = (meta or {}).get("input_buffers")
+    if ordered_inputs is None:
+        ordered_call_args = _node_call_args(node)
+    else:
+        ordered_call_args = [*ordered_inputs]
+        ordered_call_args.extend(output.get_name() for output in node.get_outputs())
+        if set(ordered_call_args) != set(_node_call_args(node)):
+            raise StrictCoverageError(
+                "PyPTO pointwise launch arguments disagree with node dependencies"
+            )
+    call_args = []
+    for arg in ordered_call_args:
+        if arg in broadcast_views:
+            # The kernel ABI declares the full iteration-space extent with
+            # zero trailing strides for broadcast inputs; pass the
+            # addressing-equivalent expanded stride-zero view.
+            shape, strides = broadcast_views[arg]
+            call_args.append(
+                f"_pypto_torch.as_strided({arg}, {tuple(shape)!r}, "
+                f"{tuple(strides)!r})"
+            )
+        else:
+            call_args.append(arg)
+    joined = ", ".join(call_args)
+    wrapper.writeline(
+        f"pypto_launch({name!r}, ({joined}{', ' if joined else ''}), {stream})"
+    )
+
+
+def _graph_name() -> str:
+    from torch._inductor.virtualized import V
+
+    return V.graph.name
+
+
+class _OpsRecorder:
+    """Record the ops sequence of one pointwise body for HIR translation.
+
+    Every handler attribute is a callable returning a proxy value; loads and
+    registered tensor ops append ordered events (loads may interleave with
+    ops, so replay follows the event order rather than assuming all loads
+    come first), stores become outputs, and anything else fails closed.
+    """
+
+    _BINARY = {
+        "add": "tensor.add",
+        "sub": "tensor.sub",
+        "mul": "tensor.mul",
+        "div": "tensor.div",
+        "truediv": "tensor.div",
+        "fdiv": "tensor.div",
+        "maximum": "tensor.maximum",
+        "minimum": "tensor.minimum",
+        "max": "tensor.maximum",
+        "min": "tensor.minimum",
+    }
+    _UNARY = {
+        "neg": "tensor.neg",
+        "exp": "tensor.exp",
+        "recip": "tensor.recip",
+        "rsqrt": "tensor.rsqrt",
+        "abs": "tensor.abs",
+        "sqrt": "tensor.sqrt",
+        "log": "tensor.log",
+        "sin": "tensor.sin",
+        "cos": "tensor.cos",
+    }
+    _COMPOSED = ("sigmoid", "relu", "tanh")
+    # Linear compositions that may replay elementwise over a materialized
+    # broadcast; relu's (x+|x|)*0.5 is not linear in the row alone and stays
+    # fail-closed on broadcast operands.
+    _COMPOSED_ROW_PRIMITIVES = {
+        "sigmoid": (
+            ("tensor.neg", None),
+            ("tensor.exp", None),
+            ("tensor.adds", 1.0),
+            ("tensor.recip", None),
+        ),
+        "tanh": (
+            ("tensor.muls", -2.0),
+            ("tensor.exp", None),
+            ("tensor.adds", 1.0),
+            ("tensor.recip", None),
+            ("tensor.muls", 2.0),
+            ("tensor.adds", -1.0),
+        ),
+    }
+
+    def __init__(self, loop_arity: int = 0) -> None:
+        self.inputs: list[str] = []
+        self.outputs: list[str] = []
+        self.events: list[tuple[object, ...]] = []
+        self.proxies: dict[int, object] = {}
+        self.broadcast_keys: set[int] = set()
+        self._loop_arity = loop_arity
+        self._counter = 0
+        # Elementwise ops distribute over broadcast, so row-domain scalar and
+        # unary applications are deferred until a full-shape tensor combines
+        # with the row; they replay against the materialized broadcast.
+        self._pending_rows: dict[int, list[tuple[str, object | None]]] = {}
+
+    class _Proxy:
+        __slots__ = ("key",)
+
+        def __init__(self, key: int) -> None:
+            self.key = key
+
+    def _next_proxy(self) -> "_OpsRecorder._Proxy":
+        self._counter += 1
+        proxy = self._Proxy(self._counter)
+        self.proxies[proxy.key] = proxy
+        return proxy
+
+    def _emit(self, op_name: str, operands: list[object]) -> "_OpsRecorder._Proxy":
+        self.events.append(("op", op_name, operands))
+        return self._next_proxy()
+
+    @staticmethod
+    def _is_constant(value: object) -> bool:
+        import sympy
+
+        return isinstance(
+            value, (int, float, sympy.Integer, sympy.Float, sympy.Rational)
+        )
+
+    def _constant_float(self, value: object) -> float:
+        return float(value)
+
+    def _compose(self, name: str, operand: object) -> "_OpsRecorder._Proxy":
+        if name == "sigmoid":
+            # 1 / (1 + exp(-x)) over registered primitives.
+            value = self._emit("tensor.neg", [operand])
+            value = self._emit("tensor.exp", [value])
+            value = self._emit("tensor.adds", [value, 1.0])
+            return self._emit("tensor.recip", [value])
+        if name == "relu":
+            # (x + |x|) * 0.5 is bitwise-identical to max(x, 0): positive x
+            # doubles then halves exactly, non-positive x cancels to +0.
+            magnitude = self._emit("tensor.abs", [operand])
+            doubled = self._emit("tensor.add", [magnitude, operand])
+            return self._emit("tensor.muls", [doubled, 0.5])
+        # tanh(x) = 2 / (1 + exp(-2x)) - 1 over registered primitives
+        # (tolerance-level, like division, versus the libdevice intrinsic).
+        scaled = self._emit("tensor.muls", [operand, -2.0])
+        activated = self._emit("tensor.exp", [scaled])
+        denominator = self._emit("tensor.adds", [activated, 1.0])
+        reciprocal = self._emit("tensor.recip", [denominator])
+        doubled = self._emit("tensor.muls", [reciprocal, 2.0])
+        return self._emit("tensor.adds", [doubled, -1.0])
+
+    def __getattr__(self, name: str) -> Any:
+        def handler(*args: object, **kwargs: object) -> object:
+            if name == "load":
+                buffer_name = str(args[0])
+                if buffer_name not in self.inputs:
+                    self.inputs.append(buffer_name)
+                proxy = self._next_proxy()
+                import os as _os
+
+                if _os.environ.get("PYPTO_DEBUG_NODES"):
+                    import sys as _sys
+
+                    print(
+                        f"LOAD {buffer_name!r} index={args[1:]!r} kwargs={kwargs!r}",
+                        file=_sys.stderr,
+                        flush=True,
+                    )
+                if self._is_broadcast_index(args[1] if len(args) > 1 else None):
+                    self.broadcast_keys.add(proxy.key)
+                    self.events.append(("broadcast_load", buffer_name))
+                else:
+                    self.events.append(("load", buffer_name))
+                return proxy
+            if name == "store":
+                value = args[2] if len(args) > 2 else None
+                self.outputs.append(str(args[0]))
+                self.events.append(("store", str(args[0]), getattr(value, "key", None)))
+                return None
+            if name == "constant":
+                return args[0]
+            if name == "to_dtype":
+                import torch
+
+                if len(args) < 2 or len(args) > 4:
+                    raise StrictCoverageError(
+                        "strict PyPTO pointwise received malformed to_dtype"
+                    )
+                unknown_kwargs = set(kwargs) - {"src_dtype", "use_compute_types"}
+                if unknown_kwargs:
+                    raise StrictCoverageError(
+                        "strict PyPTO pointwise to_dtype has unsupported options "
+                        f"{sorted(unknown_kwargs)}"
+                    )
+                if len(args) >= 3 and "src_dtype" in kwargs:
+                    raise StrictCoverageError(
+                        "strict PyPTO pointwise to_dtype repeats src_dtype"
+                    )
+                if len(args) >= 4 and "use_compute_types" in kwargs:
+                    raise StrictCoverageError(
+                        "strict PyPTO pointwise to_dtype repeats use_compute_types"
+                    )
+                source_dtype = (
+                    args[2] if len(args) >= 3 else kwargs.get("src_dtype")
+                )
+                use_compute_types = (
+                    args[3]
+                    if len(args) >= 4
+                    else kwargs.get("use_compute_types", True)
+                )
+                if source_dtype not in (None, torch.float32, torch.bfloat16):
+                    raise StrictCoverageError(
+                        "strict PyPTO pointwise to_dtype has unsupported "
+                        f"src_dtype={source_dtype!r}"
+                    )
+                if use_compute_types is not True:
+                    raise StrictCoverageError(
+                        "strict PyPTO pointwise to_dtype requires "
+                        "use_compute_types=True"
+                    )
+                target = args[1]
+                if target is torch.float32:
+                    target_name = "float32"
+                elif target is torch.bfloat16:
+                    target_name = "bfloat16"
+                else:
+                    raise StrictCoverageError(
+                        f"strict PyPTO pointwise cannot cast to {target!r}"
+                    )
+                self.events.append(("cast", args[0], target_name))
+                return self._next_proxy()
+            if name == "to_dtype_bitcast":
+                raise StrictCoverageError(
+                    "strict PyPTO pointwise does not reinterpret tensor bits"
+                )
+            if (
+                name in self._COMPOSED
+                and len(args) == 1
+                and not self._is_constant(args[0])
+            ):
+                operand = args[0]
+                if self._is_broadcast_proxy(operand):
+                    for op_name, scalar in self._COMPOSED_ROW_PRIMITIVES[name]:
+                        self._pending_rows.setdefault(operand.key, []).append(
+                            (op_name, scalar)
+                        )
+                    return operand
+                return self._compose(name, operand)
+            if name in self._BINARY:
+                first, second = args[0], args[1]
+                if self._is_constant(first) and self._is_constant(second):
+                    raise StrictCoverageError(
+                        "binary op with two constant operands is not a registered form"
+                    )
+                if self._is_constant(first):
+                    # Scalar-left forms commute or decompose over registered
+                    # scalar-right ops; each emitted op pairs with exactly
+                    # one proxy so the replay keys stay aligned.
+                    if name in ("add", "mul", "maximum", "minimum", "max", "min"):
+                        self.events.append(
+                            (
+                                "op",
+                                self._BINARY[name] + "s",
+                                [second, self._constant_float(first)],
+                            )
+                        )
+                        return self._next_proxy()
+                    if name in ("truediv", "div", "fdiv"):
+                        numerator = self._constant_float(first)
+                        reciprocal = self._emit("tensor.recip", [second])
+                        if numerator == 1.0:
+                            return reciprocal
+                        return self._emit("tensor.muls", [reciprocal, numerator])
+                    raise StrictCoverageError(
+                        "scalar-left binary op is not a registered form"
+                    )
+                if self._is_broadcast_proxy(first) and self._is_constant(second):
+                    # Row-domain scalar op: defer until the row meets a full
+                    # tensor, then replay the scalar against the materialized
+                    # broadcast (elementwise ops distribute over broadcast).
+                    self._pending_rows.setdefault(first.key, []).append(
+                        (self._BINARY[name] + "s", self._constant_float(second))
+                    )
+                    return first
+                if self._is_constant(first) and self._is_broadcast_proxy(second):
+                    raise StrictCoverageError(
+                        "scalar-left binary op over a broadcast row is not a "
+                        "registered form"
+                    )
+                if self._is_broadcast_proxy(first) or self._is_broadcast_proxy(second):
+                    # Row-expand fused ops broadcast a [M,1,...] input over
+                    # the trailing extents; the row input must be the second
+                    # operand, so commute only when that preserves semantics.
+                    commutative = name in (
+                        "add",
+                        "mul",
+                        "maximum",
+                        "minimum",
+                        "max",
+                        "min",
+                    )
+                    if self._is_broadcast_proxy(first) and not commutative:
+                        # Materialize the broadcast, then apply the base op
+                        # with the row on the left (e.g. row / tensor).
+                        self.events.append(("op", "tensor.row_expand", [second, first]))
+                        expanded = self._next_proxy()
+                        self.events.append(
+                            ("op", self._BINARY[name], [expanded, second])
+                        )
+                        return self._next_proxy()
+                    tensor_operand, row_operand = (
+                        (second, first)
+                        if self._is_broadcast_proxy(first)
+                        else (first, second)
+                    )
+                    if self._is_broadcast_proxy(tensor_operand):
+                        raise StrictCoverageError(
+                            "binary op with two broadcast operands is not a "
+                            "registered form"
+                        )
+                    resolved_row = self._flush_pending_row(row_operand, tensor_operand)
+                    if resolved_row is row_operand:
+                        self.events.append(
+                            (
+                                "op",
+                                "tensor.row_expand_"
+                                + self._BINARY[name].split(".")[-1],
+                                [tensor_operand, resolved_row],
+                            )
+                        )
+                    else:
+                        # The pending composition already materialized the
+                        # broadcast; combine with the plain base op.
+                        self.events.append(
+                            ("op", self._BINARY[name], [tensor_operand, resolved_row])
+                        )
+                    return self._next_proxy()
+                if self._is_constant(second):
+                    self.events.append(
+                        (
+                            "op",
+                            self._BINARY[name] + "s",
+                            [first, self._constant_float(second)],
+                        )
+                    )
+                else:
+                    self.events.append(("op", self._BINARY[name], [first, second]))
+                return self._next_proxy()
+            if name in self._UNARY and len(args) == 1:
+                operand = args[0]
+                if self._is_broadcast_proxy(operand) and not self._is_constant(operand):
+                    self._pending_rows.setdefault(operand.key, []).append(
+                        (self._UNARY[name], None)
+                    )
+                    return operand
+                self.events.append(("op", self._UNARY[name], [operand]))
+                return self._next_proxy()
+            raise StrictCoverageError(
+                f"strict PyPTO pointwise translation has no op {name!r} yet"
+            )
+
+        return handler
+
+    def _flush_pending_row(self, row_operand: object, full_operand: object) -> object:
+        """Materialize a pending row composition against a full-shape peer.
+
+        The broadcast input expands via ``tensor.row_expand`` using the full
+        operand as the shape definer; any deferred row-domain scalar or unary
+        applications then replay elementwise over the materialized value.
+        """
+        pending = self._pending_rows.pop(getattr(row_operand, "key", None), [])
+        if not pending:
+            return row_operand
+        self.events.append(("op", "tensor.row_expand", [full_operand, row_operand]))
+        materialized = self._next_proxy()
+        value = materialized
+        for op_name, scalar in pending:
+            operands = [value] if scalar is None else [value, scalar]
+            self.events.append(("op", op_name, operands))
+            value = self._next_proxy()
+        return value
+
+    def _is_broadcast_proxy(self, value: object) -> bool:
+        return (
+            isinstance(value, _OpsRecorder._Proxy) and value.key in self.broadcast_keys
+        )
+
+    def _is_broadcast_index(self, index: object) -> bool:
+        """A broadcast row read addresses only the leading loop variable.
+
+        Inductor hands the ops handler a flat stride-composed index: a full
+        [M,N] read spans ``N*i0 + i1`` while a [M,1] row read is exactly
+        ``i0``. Any load whose flat index never mentions the trailing loop
+        variables broadcasts over those extents.
+        """
+        import sympy
+
+        if isinstance(index, (list, tuple)):
+            if len(index) != 1:
+                return False
+            expr = index[0]
+        else:
+            expr = index
+        arity = self._loop_arity
+        if not arity or not isinstance(expr, sympy.Basic):
+            return False
+        names = {symbol.name for symbol in expr.free_symbols}
+        used = [name for name in names if name.startswith("i")]
+        if not used:
+            return False
+        try:
+            positions = [int(name[1:]) for name in used]
+        except ValueError:
+            return False
+        return max(positions) < arity - 1
+
+
+def _translate_pointwise(node: Any) -> tuple[Any, dict[str, Any]]:
+    """Translate a pointwise node's real ops sequence into native tile IR.
+
+    The node body executes once against the recording ops handler; loads and
+    registered ops rebuild the exact chain in event order (loads may
+    interleave with ops and one buffer may be loaded repeatedly), stores
+    become outputs, and any other operator fails closed.
+    """
+
+    import sympy
+    from torch._inductor.virtualized import V
+
+    inner_node = getattr(node, "node", None)
+    data = getattr(inner_node, "data", None)
+    outputs = getattr(node, "get_outputs", lambda: [])()
+    output = outputs[0] if outputs else None
+    output_buffer = getattr(output, "node", output)
+    if hasattr(output_buffer, "get_size"):
+        ranges = [int(extent) for extent in output_buffer.get_size()]
+    else:
+        size_source = data if data is not None else node
+        ranges = [int(extent) for extent in size_source.get_size()]
+    if not ranges:
+        raise StrictCoverageError("pointwise kernel has no static size hints")
+    body = getattr(node, "_body", None)
+    if body is None:
+        body = getattr(data, "get_reduction_size", None)
+    body = getattr(node, "_body", None) or getattr(data, "_body", None)
+    if body is None:
+        raise StrictCoverageError("pointwise node has no executable body")
+    var_count = len(getattr(body, "var_ranges", {}) or {})
+    if var_count == 0:
+        var_count = len(ranges)
+    recorder = _OpsRecorder(loop_arity=var_count)
+    index_vars = [[sympy.Symbol(f"i{index}") for index in range(var_count)]]
+    with V.set_ops_handler(recorder):
+        body(*index_vars)
+    if not recorder.inputs or not recorder.outputs or not recorder.events:
+        raise StrictCoverageError(
+            "pointwise body did not produce a translatable chain "
+            f"(inputs={len(recorder.inputs)}, events={len(recorder.events)}, "
+            f"outputs={len(recorder.outputs)})"
+        )
+    output_name = getattr(output, "get_name", lambda: None)()
+    if not isinstance(output_name, str) or not output_name:
+        raise StrictCoverageError("pointwise output has no stable buffer name")
+    output_spec = _tensor_specialization(output_name, output_buffer)
+    if output_spec.shape != tuple(ranges):
+        raise StrictCoverageError(
+            "pointwise output metadata disagrees with its iteration ranges"
+        )
+    builder = pointwise_codegen.PointwiseProgramBuilder(
+        tuple(ranges),
+        output_spec.dtype_name,
+        output_spec=output_spec,
+    )
+    values: dict[int, Any] = {}
+    variables: dict[str, Any] = {}
+    stored_keys: list[int] = []
+    last_op_key: int | None = None
+    next_key = 1
+    for event in recorder.events:
+        kind = event[0]
+        import os as _os
+
+        if _os.environ.get("PYPTO_DEBUG_NODES"):
+            import sys as _sys
+
+            print(f"EVENT {event!r}", file=_sys.stderr, flush=True)
+        if kind in ("load", "broadcast_load"):
+            buffer_name = str(event[1])
+            variable = variables.get(buffer_name)
+            if variable is None:
+                input_spec = _tensor_specialization(buffer_name)
+                if kind == "broadcast_load":
+                    variable = builder.add_broadcast_input(
+                        buffer_name,
+                        specialization=input_spec,
+                    )
+                else:
+                    variable = builder.add_input(
+                        buffer_name,
+                        specialization=input_spec,
+                    )
+                variables[buffer_name] = variable
+            values[next_key] = variable
+            next_key += 1
+        elif kind == "op":
+            op_name = event[1]
+            operands = event[2]
+            arguments = []
+            for operand in operands:
+                if isinstance(operand, _OpsRecorder._Proxy):
+                    arguments.append(values[operand.key])
+                else:
+                    arguments.append(builder.scalar(operand))
+            values[next_key] = builder.emit(op_name, arguments)
+            last_op_key = next_key
+            next_key += 1
+        elif kind == "cast":
+            operand = event[1]
+            if not isinstance(operand, _OpsRecorder._Proxy):
+                raise StrictCoverageError(
+                    "strict PyPTO pointwise cast operand is not a tensor value"
+                )
+            values[next_key] = builder.emit(
+                "tensor.cast",
+                [values[operand.key], builder.dtype(str(event[2]))],
+            )
+            last_op_key = next_key
+            next_key += 1
+        elif kind == "store":
+            if event[2] is not None:
+                stored_keys.append(int(event[2]))
+    output_keys = stored_keys if stored_keys else [last_op_key]
+    for output_key in output_keys:
+        if output_key is not None:
+            builder.mark_output(values[output_key])
+    broadcast_buffers = {
+        str(event[1])
+        for event in recorder.events
+        if event[0] == "broadcast_load"
+    }
+    program = builder.build()
+    expanded_specs = {
+        input_value.name: input_value.specialization
+        for input_value in program.inputs
+    }
+    broadcast_views = {
+        name: (
+            expanded_specs[name].shape,
+            expanded_specs[name].strides,
+        )
+        for name in sorted(broadcast_buffers)
+    }
+    return program, {
+        "tile": 128,
+        "broadcast_views": broadcast_views,
+        "input_buffers": [input_value.name for input_value in program.inputs],
+        "output_shape": list(ranges),
+    }

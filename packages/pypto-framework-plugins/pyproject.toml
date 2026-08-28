@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pypto-framework-plugins"
+version = "0.1.0.dev0"
+description = "Commit-pinned TorchInductor and SGLang adapters for PyPTO"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+dependencies = ["pypto-kernels==0.1.0"]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.entry-points."torch_dynamo_backends"]
+pypto = "pypto_plugins.torch_backend:compile_backend"
+
+[project.entry-points."sglang.srt.plugins"]
+pypto = "pypto_plugins.sglang_plugin:register"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
