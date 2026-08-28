@@ -231,9 +231,9 @@ def test_gdn_adapter_uses_only_stateful_pypto_graphs() -> None:
         ".to(",
     ):
         assert forbidden not in text
-    assert 'causal_conv1d.STATUS != "native-tile stateful executable"' in (
-        SGLANG_PLUGIN.read_text(encoding="utf-8")
-    )
+    plugin_text = SGLANG_PLUGIN.read_text(encoding="utf-8")
+    assert 'causal_conv1d.STATUS != "native-tile stateful executable"' in plugin_text
+    assert "check_environments" not in plugin_text
 
 
 def _install_fake_attention_base(monkeypatch) -> None:

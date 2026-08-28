@@ -105,7 +105,6 @@ def _attention_wrapper_around(original_fn, runner, full_attn_backend):
             "PyPTO stateful conv/GDN remain source candidates; refusing SGLang "
             "linear-attention fallback before compiler and numerical gates pass."
         )
-    from sglang.kernels.ops.attention.fla.utils import check_environments
     from sglang.srt.layers.attention.hybrid_linear_attn_backend import (
         HybridLinearAttnBackend,
     )
@@ -115,7 +114,6 @@ def _attention_wrapper_around(original_fn, runner, full_attn_backend):
 
     from .sglang.gdn_backend import create_gdn_backend
 
-    check_environments()
     runner.linear_attn_backends = resolve_linear_attn_backends(prefill_default=None)
     full_attention_layers = (
         [0] if runner.is_draft_worker else config.full_attention_layer_ids
