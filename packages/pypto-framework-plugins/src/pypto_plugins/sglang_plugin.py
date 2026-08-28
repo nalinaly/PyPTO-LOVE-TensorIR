@@ -1016,7 +1016,7 @@ def _pruned_states_around(
     aux_hidden_states,
     logits_metadata,
 ):
-    """Use a zero-copy last-row view for one-request PyPTO prefill."""
+    """Keep decode states or use a zero-copy last row for batch-one prefill."""
 
     if not _pypto_compute_selected() or _vendor_reference_mode():
         return original_fn(
@@ -1026,9 +1026,28 @@ def _pruned_states_around(
             aux_hidden_states,
             logits_metadata,
         )
+    mode = logits_metadata.forward_mode
+    if mode.is_decode_or_idle():
+        if getattr(logits_metadata, "draft_extend_select_index", None) is not None:
+            raise BackendNotReadyError(
+                "PyPTO logits pruning does not support draft-select decode."
+            )
+        aux_pruned_states = (
+            aux_hidden_states
+            if aux_hidden_states is None or hasattr(aux_hidden_states, "shape")
+            else list(aux_hidden_states)
+        )
+        return (
+            hidden_states,
+            hidden_states_before_norm,
+            aux_pruned_states,
+            None,
+            None,
+            [],
+        )
     lengths = logits_metadata.extend_seq_lens_cpu
     if (
-        not logits_metadata.forward_mode.is_extend()
+        not mode.is_extend()
         or logits_metadata.extend_return_logprob
         or lengths is None
         or len(lengths) != 1

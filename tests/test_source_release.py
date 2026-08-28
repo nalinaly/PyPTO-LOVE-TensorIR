@@ -61,7 +61,7 @@ class SourceReleaseTest(unittest.TestCase):
         )
         self.assertEqual(
             report["packages"]["pypto-framework-plugins"]["source_commit"],
-            "d80f3b176d70cb4dc53416824ab8517598c5ab23",
+            "6c363a1cddebc73d0f4134f198c921ec9f1d0e7c",
         )
         for package in report["packages"].values():
             self.assertEqual(package["source_tree"], package["prefix_tree"])
