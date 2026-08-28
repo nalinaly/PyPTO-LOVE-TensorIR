@@ -64,6 +64,9 @@ MAMBA_INDICES_TARGET = (
 UNIFIED_MAMBA_TRANSLATE_TARGET = (
     "sglang.srt.mem_cache.unified_memory_pool.UnifiedMambaSlotAllocator.translate"
 )
+QWEN_LANGUAGE_MODEL_ONLY_ARCHITECTURES = (
+    "Qwen3_5ForConditionalGeneration",
+)
 
 _linear_prepack_lock = threading.RLock()
 _linear_prepack_cache: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
@@ -861,11 +864,42 @@ def _require_callable_hook_target(target: str) -> None:
     raise BackendNotReadyError(f"pinned SGLang hook target is not callable: {target}")
 
 
+def _enable_qwen_language_model_only(server_args_class=None) -> tuple[str, ...]:
+    """Enable SGLang's implemented text-only construction for Qwen3.5.
+
+    The pinned Qwen3.5 model honors ``config.language_model_only`` by omitting
+    its vision tower, but SGLang's command-line admission whitelist has not yet
+    listed the architecture. Keep that compatibility adaptation outside the
+    vendored SGLang tree and fail closed if its class-level contract changes.
+    """
+
+    if server_args_class is None:
+        from sglang.srt.server_args import ServerArgs
+
+        server_args_class = ServerArgs
+    current = getattr(
+        server_args_class, "LANGUAGE_MODEL_ONLY_ARCHITECTURES", None
+    )
+    if not isinstance(current, tuple) or not all(
+        isinstance(name, str) and name for name in current
+    ):
+        raise BackendNotReadyError(
+            "pinned SGLang language-model-only architecture contract changed"
+        )
+    additions = tuple(
+        name for name in QWEN_LANGUAGE_MODEL_ONLY_ARCHITECTURES if name not in current
+    )
+    updated = (*current, *additions)
+    server_args_class.LANGUAGE_MODEL_ONLY_ARCHITECTURES = updated
+    return updated
+
+
 def _register_impl() -> None:
     assert_operator_library_compatible()
     assert_backend_executable_ready()
     assert_torch_compatible()
     assert_sglang_compatible()
+    _enable_qwen_language_model_only()
     install()
 
     from sglang.srt.layers.attention.attention_registry import (

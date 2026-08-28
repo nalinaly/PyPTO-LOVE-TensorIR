@@ -26,7 +26,9 @@ from pypto_plugins.sglang_plugin import (
     SILU_AND_MUL_TARGET,
     TRITON_SUPPORT_TARGETS,
     UNQUANTIZED_LINEAR_TARGET,
+    QWEN_LANGUAGE_MODEL_ONLY_ARCHITECTURES,
     _attention_factory,
+    _enable_qwen_language_model_only,
     _embedding_around,
     _fla_gated_rmsnorm_around,
     _fused_sigmoid_mul_around,
@@ -81,6 +83,27 @@ QWEN35_MODEL = (
     / "models"
     / "qwen3_5.py"
 )
+
+
+def test_qwen35_language_model_only_compatibility_is_bounded_and_idempotent() -> None:
+    class FakeServerArgs:
+        LANGUAGE_MODEL_ONLY_ARCHITECTURES = (
+            "MuseGlimmerForConditionalGeneration",
+        )
+
+    expected = (
+        "MuseGlimmerForConditionalGeneration",
+        *QWEN_LANGUAGE_MODEL_ONLY_ARCHITECTURES,
+    )
+    assert _enable_qwen_language_model_only(FakeServerArgs) == expected
+    assert _enable_qwen_language_model_only(FakeServerArgs) == expected
+    assert FakeServerArgs.LANGUAGE_MODEL_ONLY_ARCHITECTURES == expected
+
+    class IncompatibleServerArgs:
+        LANGUAGE_MODEL_ONLY_ARCHITECTURES = ["unexpected-list-contract"]
+
+    with pytest.raises(BackendNotReadyError, match="contract changed"):
+        _enable_qwen_language_model_only(IncompatibleServerArgs)
 
 
 def test_pinned_linear_backend_hook_symbol_and_signature() -> None:
