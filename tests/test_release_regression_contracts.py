@@ -287,9 +287,9 @@ def test_lane_memory_and_provider_qualifications_are_explicit() -> None:
     assert qualified_optimized["cpu_offload_gb"] == 2
     assert qualified_optimized["mem_fraction_static"] == 0.78
     for config in (matched, optimized):
-        assert config["linear_attn_backend"] == "flashinfer"
-        assert config["linear_attn_decode_backend"] == "flashinfer"
-        assert config["linear_attn_prefill_backend"] == "flashinfer"
+        assert config["linear_attn_backend"] == "triton"
+        assert config["linear_attn_decode_backend"] == "triton"
+        assert config["linear_attn_prefill_backend"] == "triton"
         assert config["mamba_ssm_dtype"] == "float32"
     assert pypto["sampling_backend"] == matched["sampling_backend"] == "pytorch"
     assert optimized["sampling_backend"] == "flashinfer"
@@ -302,9 +302,9 @@ def test_lane_memory_and_provider_qualifications_are_explicit() -> None:
 def test_requested_compile_flag_is_not_reported_as_effective() -> None:
     fake = SimpleNamespace(
         get_attention_backends=lambda: ("flashinfer", "flashinfer"),
-        linear_attn_backend="flashinfer",
-        linear_attn_prefill_backend="flashinfer",
-        linear_attn_decode_backend="flashinfer",
+        linear_attn_backend="triton",
+        linear_attn_prefill_backend="triton",
+        linear_attn_decode_backend="triton",
         mamba_backend="triton",
         mamba_ssm_dtype="float32",
         sampling_backend="flashinfer",

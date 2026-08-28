@@ -211,16 +211,17 @@ def server_kwargs(
             }
         )
     else:
-        # The pinned Triton GDN path calls a removed tl.make_block_ptr API.
-        # FlashInfer is SGLang's supported SM100+ GDN route. Its selected
-        # SM120 prefill kernel requires FP32 recurrent state; keep that ABI
-        # explicit and verify the post-resolution value in every stock run.
+        # Keep the pinned model's FP32 recurrent-state contract and SGLang's
+        # stock Triton GDN implementation. On this exact SM120 stack,
+        # FlashInfer decode is admitted only with BF16 state while its selected
+        # prefill kernel rejects BF16 state, so that combination is not a
+        # runnable baseline. Full attention remains on FlashInfer.
         common.update(
             {
                 "attention_backend": "flashinfer",
-                "linear_attn_backend": "flashinfer",
-                "linear_attn_decode_backend": "flashinfer",
-                "linear_attn_prefill_backend": "flashinfer",
+                "linear_attn_backend": "triton",
+                "linear_attn_decode_backend": "triton",
+                "linear_attn_prefill_backend": "triton",
                 "mamba_ssm_dtype": "float32",
                 "sampling_backend": (
                     "pytorch" if lane == "sglang-matched" else "flashinfer"
@@ -314,19 +315,21 @@ def validate_resolved_backends(lane: str, record: dict[str, object]) -> None:
                 "PyPTO lane did not resolve the frozen PyTorch sampler"
             )
         return
-    required = (
-        "attention_prefill",
-        "attention_decode",
-        "linear_attention_default",
-        "linear_attention_prefill",
-        "linear_attention_decode",
-    )
+    expected_backends = {
+        "attention_prefill": "flashinfer",
+        "attention_decode": "flashinfer",
+        "linear_attention_default": "triton",
+        "linear_attention_prefill": "triton",
+        "linear_attention_decode": "triton",
+    }
     drift = {
-        key: record.get(key) for key in required if record.get(key) != "flashinfer"
+        key: record.get(key)
+        for key, expected in expected_backends.items()
+        if record.get(key) != expected
     }
     if drift or record.get("mamba_ssm_dtype") != "float32":
         raise ReleaseContractError(
-            "stock backend did not resolve to supported FlashInfer/FP32 state: "
+            "stock backend did not resolve to supported Triton/FP32 state: "
             f"drift={drift}, dtype={record.get('mamba_ssm_dtype')!r}"
         )
     expected_sampler = "pytorch" if lane == "sglang-matched" else "flashinfer"
