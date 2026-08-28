@@ -18,10 +18,17 @@ from run_qwen35_0p8b_pypto_smoke import (
     configure_environment,
 )
 
+_OUTPUT_MODEL_SLUG = "0p8b"
+
 
 def output_path() -> pathlib.Path:
     run_id = os.environ.get("PYPTO_RUN_ID", "manual")
-    path = ROOT / "runs" / run_id / "qwen35-0p8b-model-runner-result.json"
+    path = (
+        ROOT
+        / "runs"
+        / run_id
+        / f"qwen35-{_OUTPUT_MODEL_SLUG}-model-runner-result.json"
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -152,6 +159,46 @@ def _dispatch_kernel_inventory(window: dict[str, object]) -> list[dict[str, obje
     return sorted(groups.values(), key=lambda item: (-item["gpu_time_ns"], item["op"]))
 
 
+def _install_layer_snapshot_hooks(model_runner, torch_module):
+    torch_runner = getattr(model_runner, "torch_runner", model_runner)
+    model = getattr(torch_runner, "model", None)
+    if model is None:
+        raise RuntimeError("Qwen layer snapshots require a loaded torch model")
+    language_model = getattr(model, "model", None)
+    layers = getattr(language_model, "layers", None)
+    if layers is None or len(layers) == 0:
+        raise RuntimeError("Qwen layer snapshots require a concrete decoder stack")
+    snapshots: dict[str, object] = {}
+    handles = []
+
+    def capture(name: str, value) -> None:
+        if type(value) is torch_module.Tensor:
+            snapshots[name] = value.detach().float().cpu().contiguous()
+        elif isinstance(value, (tuple, list)):
+            for index, item in enumerate(value):
+                if type(item) is torch_module.Tensor:
+                    snapshots[f"{name}.{index}"] = (
+                        item.detach().float().cpu().contiguous()
+                    )
+
+    for index, layer in enumerate(layers):
+        handles.append(
+            layer.register_forward_hook(
+                lambda _module, _args, output, index=index: capture(
+                    f"layer.{index}", output
+                )
+            )
+        )
+    norm = getattr(language_model, "norm", None)
+    if norm is not None:
+        handles.append(
+            norm.register_forward_hook(
+                lambda _module, _args, output: capture("final_norm", output)
+            )
+        )
+    return handles, snapshots
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--disable-torch-compile", action="store_true")
@@ -161,27 +208,84 @@ def main() -> int:
         default="off",
     )
     parser.add_argument("--dispatch-inventory", action="store_true")
+    parser.add_argument("--reference-vendor-compute", action="store_true")
+    parser.add_argument(
+        "--reference-bf16-reduced-precision", action="store_true"
+    )
+    parser.add_argument("--save-logits", action="store_true")
+    parser.add_argument("--save-layer-snapshots", action="store_true")
+    parser.add_argument("--differential-inventory", action="store_true")
+    parser.add_argument(
+        "--model-size",
+        choices=("0.8B", "9B"),
+        default="0.8B",
+    )
     args = parser.parse_args()
+    global _OUTPUT_MODEL_SLUG
+    _OUTPUT_MODEL_SLUG = "0p8b" if args.model_size == "0.8B" else "9b"
+    model_path = ROOT / f"models/Qwen3.5-{args.model_size}"
+    model_id = f"Qwen/Qwen3.5-{args.model_size}"
+    model_slug = _OUTPUT_MODEL_SLUG
+    mem_fraction_static = 0.55 if args.model_size == "0.8B" else 0.78
+    cpu_offload_gb = 0 if args.model_size == "0.8B" else 2
     configure_environment()
+    if (
+        args.reference_bf16_reduced_precision
+        and not args.reference_vendor_compute
+    ):
+        raise ValueError(
+            "reduced-precision reference mode requires vendor reference compute"
+        )
+    if args.save_layer_snapshots and args.coverage_mode != "off":
+        raise ValueError("layer snapshots cannot run inside a coverage window")
+    if args.reference_vendor_compute:
+        if args.coverage_mode != "off":
+            raise ValueError("vendor reference mode cannot claim PyPTO coverage")
+        os.environ["PYPTO_REFERENCE_VENDOR_COMPUTE"] = "1"
+    if args.differential_inventory:
+        differential_path = (
+            output_path().parent
+            / f"qwen35-{model_slug}-operator-differential.json"
+        )
+        os.environ["PYPTO_DIFFERENTIAL_REPORT"] = str(differential_path)
     report: dict[str, object] = {
         "schema": 1,
-        "kind": "qwen35-0p8b-pypto-model-runner-smoke",
+        "kind": f"qwen35-{model_slug}-pypto-model-runner-smoke",
         "run_id": os.environ.get("PYPTO_RUN_ID"),
-        "model_path": str(ROOT / "models/Qwen3.5-0.8B"),
+        "model_path": str(model_path),
         "prompt": PROMPT,
         "prompt_token_ids": PROMPT_TOKEN_IDS,
         "torch_compile": not args.disable_torch_compile,
         "coverage_mode": args.coverage_mode,
         "dispatch_inventory": args.dispatch_inventory,
+        "differential_inventory": args.differential_inventory,
+        "reference_vendor_compute": args.reference_vendor_compute,
+        "reference_bf16_reduced_precision": (
+            args.reference_bf16_reduced_precision
+        ),
+        "save_layer_snapshots": args.save_layer_snapshots,
+        "cpu_offload_gb": cpu_offload_gb,
+        "mem_fraction_static": mem_fraction_static,
         "status": "starting",
     }
+    if args.differential_inventory:
+        report["differential_inventory_path"] = str(differential_path)
     model_runner = None
     batch = None
     monitor = None
     monitor_api = None
     trace_window = None
+    snapshot_handles = []
+    layer_snapshots = None
     try:
         import torch
+        if args.reference_vendor_compute:
+            torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = (
+                args.reference_bf16_reduced_precision
+            )
+            report["bf16_reduced_precision_reduction"] = (
+                args.reference_bf16_reduced_precision
+            )
         if args.coverage_mode != "off":
             if torch.cuda.is_initialized():
                 raise RuntimeError(
@@ -207,10 +311,11 @@ def main() -> int:
         from sglang.srt.server_args import PortArgs, ServerArgs
 
         server_args = ServerArgs(
-            model_path=str(ROOT / "models/Qwen3.5-0.8B"),
-            tokenizer_path=str(ROOT / "models/Qwen3.5-0.8B"),
+            model_path=str(model_path),
+            tokenizer_path=str(model_path),
             skip_tokenizer_init=True,
             enable_multimodal=False,
+            language_model_only=True,
             load_format="safetensors",
             model_loader_extra_config='{"enable_multithread_load": false}',
             weight_loader_drop_cache_after_load=True,
@@ -232,7 +337,8 @@ def main() -> int:
             chunked_prefill_size=64,
             prefill_max_requests=1,
             max_running_requests=1,
-            mem_fraction_static=0.55,
+            mem_fraction_static=mem_fraction_static,
+            cpu_offload_gb=cpu_offload_gb,
             enable_torch_compile=not args.disable_torch_compile,
             torch_compile_max_bs=1,
             sampling_backend="pytorch",
@@ -252,6 +358,10 @@ def main() -> int:
             server_args, port_args, gpu_id=0, tp_rank=0
         )
         report["status"] = "model-ready"
+        if args.save_layer_snapshots:
+            snapshot_handles, layer_snapshots = _install_layer_snapshot_hooks(
+                model_runner, torch
+            )
         if monitor is not None:
             warmup_reqs = one_batch.prepare_synthetic_inputs_for_latency_test(
                 1, len(PROMPT_TOKEN_IDS), [PROMPT_TOKEN_IDS]
@@ -296,14 +406,18 @@ def main() -> int:
             monitor = None
             if trace_window is None:
                 raise RuntimeError("model-forward CUPTI trace window was not captured")
-            trace_path = output_path().parent / "qwen35-0p8b-cupti-window.json"
+            trace_path = (
+                output_path().parent
+                / f"qwen35-{model_slug}-cupti-window.json"
+            )
             _write_json(
                 trace_path,
                 {"stats": monitor_stats, "trace_window": trace_window},
             )
             if args.dispatch_inventory:
                 dispatch_path = (
-                    output_path().parent / "qwen35-0p8b-dispatch-inventory.json"
+                    output_path().parent
+                    / f"qwen35-{model_slug}-dispatch-inventory.json"
                 )
                 _write_json(
                     dispatch_path,
@@ -330,8 +444,8 @@ def main() -> int:
             events = list(normalized.events)
             manifest = TraceManifest(
                 run_id=str(report["run_id"]),
-                model_id="Qwen/Qwen3.5-0.8B",
-                model_revision=_model_revision(ROOT / "models/Qwen3.5-0.8B"),
+                model_id=model_id,
+                model_revision=_model_revision(model_path),
                 device_fingerprint=_device_fingerprint(torch),
                 collector=TRACE_COLLECTOR,
                 collector_revision=TRACE_COLLECTOR_REVISION,
@@ -343,7 +457,9 @@ def main() -> int:
                 activity_count=len(events),
                 closed_world=normalized.closed_world,
             )
-            coverage_report = output_path().parent / "qwen35-0p8b-coverage.json"
+            coverage_report = (
+                output_path().parent / f"qwen35-{model_slug}-coverage.json"
+            )
             mode = (
                 CoverageMode.STRICT
                 if args.coverage_mode == "strict"
@@ -366,6 +482,20 @@ def main() -> int:
                 "summary": asdict(coverage_summary),
             }
         logits_cpu = logits.detach().float().cpu().contiguous()
+        if args.save_logits or args.reference_vendor_compute:
+            logits_path = (
+                output_path().parent
+                / f"qwen35-{model_slug}-model-runner-logits.pt"
+            )
+            torch.save(logits_cpu, logits_path)
+            report["logits_path"] = str(logits_path)
+        if layer_snapshots is not None:
+            snapshot_path = (
+                output_path().parent
+                / f"qwen35-{model_slug}-layer-snapshots.pt"
+            )
+            torch.save(layer_snapshots, snapshot_path)
+            report["layer_snapshots_path"] = str(snapshot_path)
         top_values, top_indices = torch.topk(logits_cpu[0], 5)
         report.update(
             {
@@ -398,6 +528,8 @@ def main() -> int:
         print(json.dumps(report, ensure_ascii=False, sort_keys=True), flush=True)
         return 1
     finally:
+        for handle in snapshot_handles:
+            handle.remove()
         if monitor is not None and monitor_api is not None:
             try:
                 monitor_api.stop_collection()

@@ -1,0 +1,52 @@
+{
+  "candidate_requirements": {
+    "cosine_similarity_min": 0.99,
+    "exact_greedy_token_ids": true,
+    "max_abs_error_max": 1.0,
+    "max_relative_error_max": 0.25,
+    "max_relative_error_reference_floor": 1.0,
+    "mean_abs_error_max": 0.1,
+    "minimum_candidate_top1_margin": 0.5,
+    "top5_token_overlap_min": 3
+  },
+  "kind": "qwen35-0p8b-frozen-parity-policy",
+  "model": {
+    "config_sha256": "b90b86f35c8e6925ef74ee04d0e758f0a845c83a42089ad82bbaa948de9b4204",
+    "id": "Qwen/Qwen3.5-0.8B",
+    "index_sha256": "d8a08838a613b025eb7952ed9db11696213e57e76a375661ef5c12f9dd5dcf4e",
+    "weight_sha256": "04b1c301231dd422b8860db31311ab2721511346a32cb1e079c4c4e5f1fe4696"
+  },
+  "prompt": "为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？",
+  "prompt_token_ids": [
+    144277,
+    103426,
+    108169,
+    95967,
+    236,
+    124094,
+    26076,
+    96212,
+    103182,
+    108076,
+    96799,
+    24273,
+    95761,
+    104224,
+    109276,
+    95726,
+    111104,
+    115110,
+    10992
+  ],
+  "reference": {
+    "compute_scope": "stock SGLang embedding, linear, SwiGLU, LM head, pruning, and slot lookup with fixed PyPTO attention/GDN adapters",
+    "logits_raw_sha256": "bc829aa4d0e4c59d54afd6d7943e65c549e3415673cab6f43e2b56038c7919e4",
+    "logits_tensor_file_sha256": "0e4ac42afdf321fe51a254b3d96169fb48306bc94ce0e9197b80c22983303e95",
+    "next_token_ids": [35685],
+    "run_id": "pypto-gpu-bounded-20260828T100304Z-1098496-86c20a",
+    "top1_margin": 1.8125,
+    "top5_token_ids": [35685, 95972, 163706, 5830, 95911]
+  },
+  "schema": 1,
+  "status": "frozen-before-final-candidate-measurement"
+}

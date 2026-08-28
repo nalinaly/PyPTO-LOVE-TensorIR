@@ -138,6 +138,7 @@ def main() -> int:
             tokenizer_path=str(ROOT / "models/Qwen3.5-0.8B"),
             skip_tokenizer_init=True,
             enable_multimodal=False,
+            language_model_only=True,
             mm_processor_worker_num=1,
             mm_io_worker_num=1,
             load_format="safetensors",

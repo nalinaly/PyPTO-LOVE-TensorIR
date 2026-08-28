@@ -1,0 +1,335 @@
+{
+  "kind": "qwen35-final-strict-cupti-profile-summary",
+  "models": {
+    "0.8B": {
+      "accepted_run_ids": [
+        "pypto-gpu-bounded-20260828T132808Z-1195819-7362d2",
+        "pypto-gpu-bounded-20260828T133554Z-1199328-6ac742",
+        "pypto-gpu-bounded-20260828T133949Z-1200660-64e618"
+      ],
+      "compiler_revision": "9e13b4301faeee482bb63e16e7991d0b597a5a51",
+      "compute": [
+        {
+          "calls_per_request": 114.0,
+          "calls_total": 3420,
+          "gpu_time_ms_per_request": 163.10763826666667,
+          "gpu_time_ms_total": 4893.229148,
+          "gpu_time_share": 0.9605935504307906,
+          "kernel_name": "pypto_structured_matmul",
+          "provider": "pypto.matmul",
+          "source_node": "pypto_kernels.linear:linear_kernel"
+        },
+        {
+          "calls_per_request": 1.0,
+          "calls_total": 30,
+          "gpu_time_ms_per_request": 3.541466933333333,
+          "gpu_time_ms_total": 106.244008,
+          "gpu_time_share": 0.02085684233660527,
+          "kernel_name": "pypto_structured_matmul",
+          "provider": "pypto.matmul",
+          "source_node": "pypto_kernels.linear:linear_to_float_kernel"
+        },
+        {
+          "calls_per_request": 360.0,
+          "calls_total": 10800,
+          "gpu_time_ms_per_request": 1.6542735666666666,
+          "gpu_time_ms_total": 49.628207,
+          "gpu_time_share": 0.009742551211428412,
+          "kernel_name": "pypto_fused_pointwise",
+          "provider": "pypto.gdn",
+          "source_node": "pypto_kernels.gdn:recurrent"
+        },
+        {
+          "calls_per_request": 402.0,
+          "calls_total": 12060,
+          "gpu_time_ms_per_request": 0.7225277333333333,
+          "gpu_time_ms_total": 21.675832,
+          "gpu_time_share": 0.004255199131218235,
+          "kernel_name": "pypto_fused_pointwise",
+          "provider": "pypto.tensorir",
+          "source_node": "pypto-kernels:pypto_fused_pointwise"
+        },
+        {
+          "calls_per_request": 6.0,
+          "calls_total": 180,
+          "gpu_time_ms_per_request": 0.5085263,
+          "gpu_time_ms_total": 15.255789,
+          "gpu_time_share": 0.0029948755876521237,
+          "kernel_name": "pypto_fused_pointwise",
+          "provider": "pypto.attention",
+          "source_node": "pypto_kernels.attention:paged_prefill"
+        },
+        {
+          "calls_per_request": 18.0,
+          "calls_total": 540,
+          "gpu_time_ms_per_request": 0.12030763333333333,
+          "gpu_time_ms_total": 3.609229,
+          "gpu_time_share": 0.0007085305009361421,
+          "kernel_name": "pypto_fused_pointwise",
+          "provider": "pypto.matmul",
+          "source_node": "pypto_kernels.gdn_projection:projection"
+        },
+        {
+          "calls_per_request": 48.0,
+          "calls_total": 1440,
+          "gpu_time_ms_per_request": 0.06843606666666667,
+          "gpu_time_ms_total": 2.053082,
+          "gpu_time_share": 0.00040304209511864624,
+          "kernel_name": "pypto_fused_pointwise",
+          "provider": "pypto.tensorir",
+          "source_node": "pypto_kernels.fused_add_rmsnorm:fused_add_rmsnorm_kernel"
+        },
+        {
+          "calls_per_request": 24.0,
+          "calls_total": 720,
+          "gpu_time_ms_per_request": 0.028214233333333335,
+          "gpu_time_ms_total": 0.846427,
+          "gpu_time_share": 0.00016616273068732296,
+          "kernel_name": "pypto_fused_pointwise",
+          "provider": "pypto.tensorir",
+          "source_node": "pypto_kernels.silu_and_mul:silu_and_mul_kernel"
+        },
+        {
+          "calls_per_request": 18.0,
+          "calls_total": 540,
+          "gpu_time_ms_per_request": 0.0227511,
+          "gpu_time_ms_total": 0.682533,
+          "gpu_time_share": 0.00013398857440064012,
+          "kernel_name": "pypto_fused_pointwise",
+          "provider": "pypto.tensorir",
+          "source_node": "pypto_kernels.gated_rmsnorm:gated_rmsnorm_kernel"
+        },
+        {
+          "calls_per_request": 6.0,
+          "calls_total": 180,
+          "gpu_time_ms_per_request": 0.007547866666666667,
+          "gpu_time_ms_total": 0.226436,
+          "gpu_time_share": 4.4451824062694905e-05,
+          "kernel_name": "pypto_fused_pointwise",
+          "provider": "pypto.attention",
+          "source_node": "pypto_kernels.attention:paged_cache_write"
+        },
+        {
+          "calls_per_request": 1.0,
+          "calls_total": 30,
+          "gpu_time_ms_per_request": 0.007507166666666667,
+          "gpu_time_ms_total": 0.225215,
+          "gpu_time_share": 4.4212128620359985e-05,
+          "kernel_name": "pypto_fused_pointwise",
+          "provider": "pypto.tensorir",
+          "source_node": "pypto_kernels.embedding:integer_gather_kernel"
+        },
+        {
+          "calls_per_request": 6.0,
+          "calls_total": 180,
+          "gpu_time_ms_per_request": 0.006504433333333334,
+          "gpu_time_ms_total": 0.195133,
+          "gpu_time_share": 3.830670823025422e-05,
+          "kernel_name": "pypto_fused_pointwise",
+          "provider": "pypto.tensorir",
+          "source_node": "pypto_kernels.sigmoid_mul:sigmoid_mul_kernel"
+        },
+        {
+          "calls_per_request": 1.0,
+          "calls_total": 30,
+          "gpu_time_ms_per_request": 0.0017226333333333335,
+          "gpu_time_ms_total": 0.051679,
+          "gpu_time_share": 1.0145143951209216e-05,
+          "kernel_name": "pypto_fused_pointwise",
+          "provider": "pypto.tensorir",
+          "source_node": "pypto_kernels.embedding:embedding_kernel"
+        },
+        {
+          "calls_per_request": 1.0,
+          "calls_total": 30,
+          "gpu_time_ms_per_request": 0.0013824333333333333,
+          "gpu_time_ms_total": 0.041473,
+          "gpu_time_share": 8.141596298080455e-06,
+          "kernel_name": "pypto_fused_pointwise",
+          "provider": "pypto.tensorir",
+          "source_node": "pypto_kernels.rmsnorm:rmsnorm_kernel"
+        }
+      ],
+      "compute_gpu_ms_per_request": {
+        "max": 188.793083,
+        "mean": 169.79880636666667,
+        "median": 162.86917749999998,
+        "min": 160.504836,
+        "p90_nearest_rank": 185.78806
+      },
+      "excluded_runtime": [],
+      "kernels_revision": "sha256:38977b22f685a721846ee7daabee3829a8fc3ea51e897311950bede4c2622fff",
+      "request_count": 30
+    },
+    "9B": {
+      "accepted_run_ids": [
+        "pypto-gpu-bounded-20260828T131114Z-1189354-106cc1",
+        "pypto-gpu-bounded-20260828T131358Z-1190335-677039",
+        "pypto-gpu-bounded-20260828T131644Z-1191371-4a86db"
+      ],
+      "compiler_revision": "9e13b4301faeee482bb63e16e7991d0b597a5a51",
+      "compute": [
+        {
+          "calls_per_request": 152.0,
+          "calls_total": 4560,
+          "gpu_time_ms_per_request": 2152.2010201666667,
+          "gpu_time_ms_total": 64566.030605,
+          "gpu_time_share": 0.9901913690379553,
+          "kernel_name": "pypto_structured_matmul",
+          "provider": "pypto.matmul",
+          "source_node": "pypto_kernels.linear:linear_kernel"
+        },
+        {
+          "calls_per_request": 1.0,
+          "calls_total": 30,
+          "gpu_time_ms_per_request": 15.676348800000001,
+          "gpu_time_ms_total": 470.290464,
+          "gpu_time_share": 0.007212423530301291,
+          "kernel_name": "pypto_structured_matmul",
+          "provider": "pypto.matmul",
+          "source_node": "pypto_kernels.linear:linear_to_float_kernel"
+        },
+        {
+          "calls_per_request": 480.0,
+          "calls_total": 14400,
+          "gpu_time_ms_per_request": 2.4398262333333336,
+          "gpu_time_ms_total": 73.194787,
+          "gpu_time_share": 0.0011225228756800627,
+          "kernel_name": "pypto_fused_pointwise",
+          "provider": "pypto.gdn",
+          "source_node": "pypto_kernels.gdn:recurrent"
+        },
+        {
+          "calls_per_request": 32.0,
+          "calls_total": 960,
+          "gpu_time_ms_per_request": 1.3903272333333334,
+          "gpu_time_ms_total": 41.709817,
+          "gpu_time_share": 0.0006396660970258601,
+          "kernel_name": "pypto_fused_pointwise",
+          "provider": "pypto.attention",
+          "source_node": "pypto_kernels.attention:paged_prefill"
+        },
+        {
+          "calls_per_request": 536.0,
+          "calls_total": 16080,
+          "gpu_time_ms_per_request": 1.0967853,
+          "gpu_time_ms_total": 32.903559,
+          "gpu_time_share": 0.000504612407285079,
+          "kernel_name": "pypto_fused_pointwise",
+          "provider": "pypto.tensorir",
+          "source_node": "pypto-kernels:pypto_fused_pointwise"
+        },
+        {
+          "calls_per_request": 24.0,
+          "calls_total": 720,
+          "gpu_time_ms_per_request": 0.2921804,
+          "gpu_time_ms_total": 8.765412,
+          "gpu_time_share": 0.0001344272712312221,
+          "kernel_name": "pypto_fused_pointwise",
+          "provider": "pypto.matmul",
+          "source_node": "pypto_kernels.gdn_projection:projection"
+        },
+        {
+          "calls_per_request": 64.0,
+          "calls_total": 1920,
+          "gpu_time_ms_per_request": 0.2597055,
+          "gpu_time_ms_total": 7.791165,
+          "gpu_time_share": 0.00011948611778456102,
+          "kernel_name": "pypto_fused_pointwise",
+          "provider": "pypto.tensorir",
+          "source_node": "pypto_kernels.fused_add_rmsnorm:fused_add_rmsnorm_kernel"
+        },
+        {
+          "calls_per_request": 32.0,
+          "calls_total": 960,
+          "gpu_time_ms_per_request": 0.09234246666666666,
+          "gpu_time_ms_total": 2.770274,
+          "gpu_time_share": 4.248521055060533e-05,
+          "kernel_name": "pypto_fused_pointwise",
+          "provider": "pypto.tensorir",
+          "source_node": "pypto_kernels.silu_and_mul:silu_and_mul_kernel"
+        },
+        {
+          "calls_per_request": 24.0,
+          "calls_total": 720,
+          "gpu_time_ms_per_request": 0.035036366666666666,
+          "gpu_time_ms_total": 1.051091,
+          "gpu_time_share": 1.6119641032925376e-05,
+          "kernel_name": "pypto_fused_pointwise",
+          "provider": "pypto.tensorir",
+          "source_node": "pypto_kernels.gated_rmsnorm:gated_rmsnorm_kernel"
+        },
+        {
+          "calls_per_request": 8.0,
+          "calls_total": 240,
+          "gpu_time_ms_per_request": 0.0104479,
+          "gpu_time_ms_total": 0.313437,
+          "gpu_time_share": 4.806902472228409e-06,
+          "kernel_name": "pypto_fused_pointwise",
+          "provider": "pypto.attention",
+          "source_node": "pypto_kernels.attention:paged_cache_write"
+        },
+        {
+          "calls_per_request": 8.0,
+          "calls_total": 240,
+          "gpu_time_ms_per_request": 0.009360066666666668,
+          "gpu_time_ms_total": 0.280802,
+          "gpu_time_share": 4.3064087137341215e-06,
+          "kernel_name": "pypto_fused_pointwise",
+          "provider": "pypto.tensorir",
+          "source_node": "pypto_kernels.sigmoid_mul:sigmoid_mul_kernel"
+        },
+        {
+          "calls_per_request": 1.0,
+          "calls_total": 30,
+          "gpu_time_ms_per_request": 0.007359966666666666,
+          "gpu_time_ms_total": 0.220799,
+          "gpu_time_share": 3.386196457232428e-06,
+          "kernel_name": "pypto_fused_pointwise",
+          "provider": "pypto.tensorir",
+          "source_node": "pypto_kernels.rmsnorm:rmsnorm_kernel"
+        },
+        {
+          "calls_per_request": 1.0,
+          "calls_total": 30,
+          "gpu_time_ms_per_request": 0.007212766666666666,
+          "gpu_time_ms_total": 0.216383,
+          "gpu_time_share": 3.3184722213656967e-06,
+          "kernel_name": "pypto_fused_pointwise",
+          "provider": "pypto.tensorir",
+          "source_node": "pypto_kernels.embedding:integer_gather_kernel"
+        },
+        {
+          "calls_per_request": 1.0,
+          "calls_total": 30,
+          "gpu_time_ms_per_request": 0.0023253,
+          "gpu_time_ms_total": 0.069759,
+          "gpu_time_share": 1.0698312884572708e-06,
+          "kernel_name": "pypto_fused_pointwise",
+          "provider": "pypto.tensorir",
+          "source_node": "pypto_kernels.embedding:embedding_kernel"
+        }
+      ],
+      "compute_gpu_ms_per_request": {
+        "max": 2188.493313,
+        "mean": 2173.5202784666667,
+        "median": 2176.4260745,
+        "min": 2156.53264,
+        "p90_nearest_rank": 2183.428849
+      },
+      "excluded_runtime": [
+        {
+          "activity": "memcpy",
+          "calls_per_request": 58.0,
+          "calls_total": 1740,
+          "gpu_time_ms_per_request": 45.47023263333333,
+          "gpu_time_ms_total": 1364.106979,
+          "provider": "cuda.runtime"
+        }
+      ],
+      "kernels_revision": "sha256:38977b22f685a721846ee7daabee3829a8fc3ea51e897311950bede4c2622fff",
+      "request_count": 30
+    }
+  },
+  "schema": 1
+}

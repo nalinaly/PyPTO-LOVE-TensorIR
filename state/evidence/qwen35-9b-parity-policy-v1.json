@@ -1,0 +1,71 @@
+{
+  "calibration": {
+    "basis": "SGLang vendor default BF16 reduction versus SGLang vendor full BF16 reduction under the same text-only 2 GiB CPU-offload configuration",
+    "candidate_not_used_to_set_thresholds": true,
+    "default_reduction_run_id": "pypto-gpu-bounded-20260828T121438Z-1157187-5e78ca",
+    "full_reduction_run_id": "pypto-gpu-bounded-20260828T121715Z-1158010-565e66",
+    "vendor_variability": {
+      "cosine_similarity": 0.9848207831382751,
+      "max_abs_error": 2.9140625,
+      "max_relative_error": 2.031007766723633,
+      "mean_abs_error": 0.4407155513763428,
+      "top5_token_overlap": 3
+    }
+  },
+  "candidate_requirements": {
+    "cosine_similarity_min": 0.98,
+    "exact_greedy_token_ids": true,
+    "max_abs_error_max": 3.0,
+    "max_relative_error_max": 2.1,
+    "max_relative_error_reference_floor": 1.0,
+    "mean_abs_error_max": 0.45,
+    "minimum_candidate_top1_margin": 0.05,
+    "top5_token_overlap_min": 3
+  },
+  "kind": "qwen35-9b-frozen-parity-policy",
+  "model": {
+    "config_sha256": "d0883072e01861ed0b2d47be3c16c36a8e81c224c7ffaa310c6558fb3f932b05",
+    "id": "Qwen/Qwen3.5-9B",
+    "index_sha256": "26d3539b516be613f39563617cb9d33b3f83d401298125be392c80cefb8f7fe5",
+    "weight_shard_sha256": [
+      "db6f444b43d318c92f360a13a25561a6a65b10c0631b8ed305a426dbaa6c380e",
+      "31c7d7e2dd5d207840b31cc59083c8f4c4718959149e0358c0364052bb9a0330",
+      "7ec36ba3a4176a44c3c0876ad80c56a2f70c84bf008d82e9501df642f17dadec",
+      "b62b0c4cd7e44edee103ee8f4fe225f246d5e768e07bfd5f25b63a8aa1fdd0c6"
+    ]
+  },
+  "prompt": "为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？",
+  "prompt_token_ids": [
+    144277,
+    103426,
+    108169,
+    95967,
+    236,
+    124094,
+    26076,
+    96212,
+    103182,
+    108076,
+    96799,
+    24273,
+    95761,
+    104224,
+    109276,
+    95726,
+    111104,
+    115110,
+    10992
+  ],
+  "reference": {
+    "bf16_reduced_precision_reduction": false,
+    "compute_scope": "SGLang embedding, linear, SwiGLU, LM head, pruning, and slot lookup with fixed PyPTO attention/GDN adapters; language_model_only=true; cpu_offload_gb=2",
+    "logits_raw_sha256": "d6e2db01da3bcfdc8d5c9d36f16612d67ef2d2cebb21744d2bd7b490b67a1467",
+    "logits_tensor_file_sha256": "a60739ff02f49cbb508932d6f1d6db7004dead728c444d3c2afbfd36ec1ce7ac",
+    "next_token_ids": [26076],
+    "run_id": "pypto-gpu-bounded-20260828T121715Z-1158010-565e66",
+    "top1_margin": 0.0625,
+    "top5_token_ids": [26076, 10992, 271, 61, 30]
+  },
+  "schema": 1,
+  "status": "frozen-before-final-candidate-measurement"
+}
