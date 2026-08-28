@@ -43,9 +43,9 @@
   "packages": {
     "pypto-framework-plugins": {
       "path": "packages/pypto-framework-plugins",
-      "prefix_tree": "d7433ce56e225bf57716f5eec35227cf4ab418ee",
-      "source_commit": "0ed10dca1f18ff801d05446cc4bcdd7ab5f2f603",
-      "source_tree": "d7433ce56e225bf57716f5eec35227cf4ab418ee",
+      "prefix_tree": "38e1f0199e6d52c4e5e2c6a9363a230d294b7631",
+      "source_commit": "4d784fd36790b15c5d471bf39c1ac5685ba130f6",
+      "source_tree": "38e1f0199e6d52c4e5e2c6a9363a230d294b7631",
       "version": "0.1.0.dev0"
     },
     "pypto-kernels": {
@@ -108,14 +108,14 @@
       "base_tree": "a46f244a62dfab663fbeb899eb62ee8a042a0b41",
       "bundle": {
         "base_ref": "refs/tags/upstream-base",
-        "bytes": 9101996,
+        "bytes": 8982843,
         "head_ref": "refs/heads/nvidia-sm120",
         "path": "vendor/git/pypto.bundle",
-        "sha256": "b301ae34d13a66f2774be9699b9f5369a9821fba85705031edf3754e062796a2"
+        "sha256": "d5c2cd9c22f070741e7f1feedf211408191d4d7b47618962d34a3892a589d712"
       },
-      "commit_count": 212,
-      "head_commit": "9e13b4301faeee482bb63e16e7991d0b597a5a51",
-      "head_tree": "9503b46390681393e1536668969d5ede5b547482",
+      "commit_count": 213,
+      "head_commit": "9dfed55a4db42b5ee0ba3b3899f8d37528c8ac76",
+      "head_tree": "529c4a0c42e17ea8aa0782039c80ef7f1ed168ac",
       "gitlinks": {
         "3rdparty/libbacktrace": "6f8310e238fc3ce68f42f391cbe93fd156bb2c23",
         "3rdparty/msgpack-c": "919908742b4fdbc575e77fe1a8657e70c9573c44",
@@ -128,8 +128,8 @@
       "patch_series": {
         "directory": "vendor/patches/pypto",
         "manifest": "vendor/patches/pypto/series.json",
-        "manifest_bytes": 66277,
-        "manifest_sha256": "8e14e2bdc41ae2f14e60023483e92aa8cd88a81cc50e97b314be056a94bab022"
+        "manifest_bytes": 66580,
+        "manifest_sha256": "b96b28c1d4dfc9375877a700fab1d47b82deca75050f90c63dcb3e7cd8d1716b"
       },
       "shallow_boundary": "e2d0f78ae6d709c0d6ee345a48db2c3d621a4b09"
     },

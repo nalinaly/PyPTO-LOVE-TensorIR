@@ -1,0 +1,167 @@
+From 9dfed55a4db42b5ee0ba3b3899f8d37528c8ac76 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 00:57:13 +0800
+Subject: [PATCH 213/213] Support row-pitched SwiGLU results
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp      |  8 ++-
+ .../nvidia_typed_tensor_ir_builder.cpp        | 14 +++--
+ tests/ut/compiler/test_structured_compile.py  | 57 +++++++++++++++++++
+ 3 files changed, 72 insertions(+), 7 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 9076c81777dc37471e33aab066d5f0c5ea865a28..3b9fcfd80132bf36362fbb7f54cf340481c6264b 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -7103,10 +7103,10 @@ NativeTileSiluAndMulGraph AnalyzeNativeTileSiluAndMul(
+   const StaticTensor up = ReadStaticNdStridedTensor(
+       function->params_[1]->GetType(), function->params_[1]->span_,
+       "native SiLU up input");
+-  const StaticTensor result = ReadStaticTensor(
++  const StaticTensor result = ReadStaticNdStridedTensor(
+       function->params_[2]->GetType(), function->params_[2]->span_,
+       "native SiLU result");
+-  const StaticTensor declared = ReadStaticTensor(
++  const StaticTensor declared = ReadStaticNdStridedTensor(
+       function->return_types_[0], function->span_,
+       "native SiLU declared result");
+   if (gate.dtype != DataType::BF16 || up.dtype != DataType::BF16 ||
+@@ -7114,7 +7114,9 @@ NativeTileSiluAndMulGraph AnalyzeNativeTileSiluAndMul(
+       gate.shape != up.shape || gate.shape != result.shape ||
+       gate.dense_strides[1] != 1 || up.dense_strides[1] != 1 ||
+       gate.dense_strides[0] < gate.shape[1] ||
+-      up.dense_strides[0] < up.shape[1] || !SameTensor(result, declared) ||
++      up.dense_strides[0] < up.shape[1] || result.dense_strides[1] != 1 ||
++      result.dense_strides[0] < result.shape[1] ||
++      !SameTensor(result, declared) ||
+       result.shape[1] % 128 != 0) {
+     Reject("native SiLU-and-mul tensor types, shapes, or strides are invalid",
+            &function->span_);
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index 7fe2ff93efcb0ee7492e58b9825b59970fcc88c5..b6a49a6715d381044d5dcb92c41a3efe43b66d10 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -91,6 +91,12 @@ bool IsDenseOrZeroStrideBroadcast(const TypedTensorIrTensorSpec& tensor) {
+                      [](int64_t stride) { return stride == 0; });
+ }
+ 
++bool IsDenseOrRowPitchedRank2(const TypedTensorIrTensorSpec& tensor) {
++  return IsDense(tensor) ||
++         (tensor.shape.size() == 2 && tensor.strides.size() == 2 &&
++          tensor.strides[1] == 1 && tensor.strides[0] >= tensor.shape[1]);
++}
++
+ bool HasValidStaticMetadata(const TypedTensorIrTensorSpec& tensor) {
+   if (!tensor.has_explicit_strides || tensor.shape.empty() ||
+       tensor.shape.size() > 32 || tensor.shape.size() != tensor.strides.size()) {
+@@ -218,9 +224,8 @@ bool ValidateStructuredMatmulSpec(const StructuredMatmulTensorIrSpec& spec,
+     return reject("tensor dtype, rank, or rounding contract is invalid");
+   }
+   const bool result_layout_valid =
+-      IsDense(spec.result) ||
+-      (rank == 2 && spec.result.strides[1] == 1 &&
+-       spec.result.strides[0] >= spec.result.shape[1]);
++      rank == 2 ? IsDenseOrRowPitchedRank2(spec.result)
++                : IsDense(spec.result);
+   if (!result_layout_valid) {
+     return reject("result must be dense or row-pitched");
+   }
+@@ -260,7 +265,8 @@ bool ValidateNativeSiluAndMulSpec(const NativeSiluAndMulTensorIrSpec& spec,
+       return reject("inputs must be row-pitched rank-2 BF16 tensors");
+     }
+   }
+-  if (!HasValidStaticMetadata(spec.result) || !IsDense(spec.result) ||
++  if (!HasValidStaticMetadata(spec.result) ||
++      !IsDenseOrRowPitchedRank2(spec.result) ||
+       spec.result.element_type != TypedTensorIrElementType::BF16 ||
+       spec.inputs[0].shape != spec.inputs[1].shape ||
+       spec.inputs[0].shape != spec.result.shape ||
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index de963c42171bcdbfafbfa1dc5e15fb74a5963323..5764c66e43a5d51237684fcb1934c3b17d298a26 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -34,6 +34,12 @@ from pypto.pypto_core import ir
+ _PAGED_CACHE_VIEW = pl.TensorView(
+     stride=[2048, 1], layout=ir.TensorLayout.ND
+ )
++_SWIGLU_INPUT_VIEW = pl.TensorView(
++    stride=[7168, 1], layout=ir.TensorLayout.ND
++)
++_SWIGLU_OUTPUT_VIEW = pl.TensorView(
++    stride=[4096, 1], layout=ir.TensorLayout.ND
++)
+ 
+ 
+ @pl.jit
+@@ -179,6 +185,32 @@ def _native_tile_gated_rmsnorm(
+     return out
+ 
+ 
++@pl.jit
++def _native_tile_row_pitched_silu_and_mul(
++    gate: pl.Tensor[[19, 3584], pl.BF16, _SWIGLU_INPUT_VIEW],
++    up: pl.Tensor[[19, 3584], pl.BF16, _SWIGLU_INPUT_VIEW],
++    out: pl.Out[
++        pl.Tensor[[19, 3584], pl.BF16, _SWIGLU_OUTPUT_VIEW]
++    ],
++):
++    with pl.at(level=pl.Level.CORE_GROUP):
++        for row in pl.range(19):
++            for block in pl.range(28):
++                gate_tile = pl.load(gate, [row, block * 128], [1, 128])
++                up_tile = pl.load(up, [row, block * 128], [1, 128])
++                gate_wide = pl.cast(gate_tile, target_type=pl.FP32)
++                up_wide = pl.cast(up_tile, target_type=pl.FP32)
++                negative = pl.mul(gate_wide, -1.0)
++                exponential = pl.exp(negative)
++                denominator = pl.add(exponential, 1.0)
++                sigmoid = pl.recip(denominator)
++                silu = pl.mul(gate_wide, sigmoid)
++                product = pl.mul(silu, up_wide)
++                result = pl.cast(product, target_type=pl.BF16)
++                pl.store(result, [row, block * 128], out)
++    return out
++
++
+ @pl.jit
+ def _native_tile_causal_conv1d(
+     x: pl.Tensor[[128, 8], pl.BF16],
+@@ -851,6 +883,30 @@ def _assert_native_paged_prefill_compilation(request: CompileRequest) -> None:
+     assert not prefill.artifact.fallback_used
+ 
+ 
++def _assert_row_pitched_swiglu_compilation(request: CompileRequest) -> None:
++    row_pitched_swiglu = compile_structured_strict(
++        _native_tile_row_pitched_silu_and_mul.specialize(),
++        request,
++        _schedule(128),
++    )
++    kernel = row_pitched_swiglu.artifact.kernel_abi
++    assert kernel.entry_function_name == "pypto_fused_pointwise"
++    assert kernel.argument_layout.input_operand_count == 2
++    assert kernel.argument_layout.total_kernel_argument_count == 3
++    descriptors = kernel.argument_layout.operand_descriptors
++    assert [descriptor.shape for descriptor in descriptors] == [
++        [19, 3584],
++        [19, 3584],
++        [19, 3584],
++    ]
++    assert [descriptor.strides for descriptor in descriptors] == [
++        [7168, 1],
++        [7168, 1],
++        [4096, 1],
++    ]
++    assert not row_pitched_swiglu.artifact.fallback_used
++
++
+ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+     native_tile = compile_structured_strict(
+         _native_tile_add.specialize(), request, _schedule(128)
+@@ -1119,6 +1175,7 @@ def test_compile_structured_strict_functional() -> None:
+     assert fused.artifact.identities.kernel_build_spec_digest == fused.build_spec.identity_digest
+ 
+     _assert_native_tile_compilation(request)
++    _assert_row_pitched_swiglu_compilation(request)
+     _assert_native_paged_cache_write_compilation(request)
+     _assert_native_paged_prefill_compilation(request)
+ 

@@ -1,15 +1,15 @@
 {
   "base_commit": "e2d0f78ae6d709c0d6ee345a48db2c3d621a4b09",
   "base_tree": "a46f244a62dfab663fbeb899eb62ee8a042a0b41",
-  "commit_count": 212,
+  "commit_count": 213,
   "format_patch_options": [
     "--binary",
     "--full-index",
     "--no-signature",
     "--numbered-files"
   ],
-  "head_commit": "9e13b4301faeee482bb63e16e7991d0b597a5a51",
-  "head_tree": "9503b46390681393e1536668969d5ede5b547482",
+  "head_commit": "9dfed55a4db42b5ee0ba3b3899f8d37528c8ac76",
+  "head_tree": "529c4a0c42e17ea8aa0782039c80ef7f1ed168ac",
   "patches": [
     {
       "bytes": 1579,
@@ -1706,6 +1706,14 @@
       "sha256": "63f42d2061dced5659b793aeeccdb576a7a96ce3841b644ab864caf6ddf64237",
       "source_commit": "9e13b4301faeee482bb63e16e7991d0b597a5a51",
       "subject": "[PATCH 212/212] Build FP32 sigmoid multiply with typed TensorIR"
+    },
+    {
+      "bytes": 7631,
+      "file": "0213.patch",
+      "order": 213,
+      "sha256": "1156b486fded03197c25655de5ea0e68b14602dd3d9c087ed5a6ce2b42328536",
+      "source_commit": "9dfed55a4db42b5ee0ba3b3899f8d37528c8ac76",
+      "subject": "[PATCH 213/213] Support row-pitched SwiGLU results"
     }
   ],
   "repository": "pypto",
