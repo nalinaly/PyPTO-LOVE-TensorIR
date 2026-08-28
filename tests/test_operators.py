@@ -181,6 +181,8 @@ def test_pointwise_operators_use_native_tile_dsl():
 
 
 def test_rmsnorm_uses_native_tile_reduction():
+    assert rmsnorm._tiles(1) == [128]
+    assert rmsnorm._tiles(19) == [1, 128]
     program = rmsnorm.build(2, 256)
     rendered = str(program)
     assert "pl.range(2)" in rendered
@@ -194,6 +196,8 @@ def test_rmsnorm_uses_native_tile_reduction():
 
 
 def test_fused_add_rmsnorm_is_one_native_tile_graph_with_two_outputs():
+    assert fused_add_rmsnorm._tiles(1) == [128]
+    assert fused_add_rmsnorm._tiles(19) == [1, 128]
     program = fused_add_rmsnorm.build(2, 256)
     rendered = str(program)
     function = _one_program(program)
@@ -207,6 +211,8 @@ def test_fused_add_rmsnorm_is_one_native_tile_graph_with_two_outputs():
 
 
 def test_gated_rmsnorm_is_one_complete_native_tile_graph():
+    assert gated_rmsnorm._tiles(1) == [128]
+    assert gated_rmsnorm._tiles(19) == [1, 128]
     program = gated_rmsnorm.build(2, 128)
     rendered = str(program)
     assert len(_one_program(program).body.stmts) == 2
@@ -305,6 +311,8 @@ def _one_program(p):
 
 
 def test_rope_is_one_native_tile_graph():
+    assert rope._tiles(1) == [1, 64]
+    assert rope._tiles(19) == [1, 1, 64]
     program = rope.build(2, 64)
     rendered = str(program)
     assert len(_one_program(program).body.stmts) == 2  # one scope + return
@@ -315,6 +323,9 @@ def test_rope_is_one_native_tile_graph():
 
 
 def test_attention_is_one_native_tile_graph():
+    assert attention._dense_tiles(1) == [64]
+    assert attention._dense_tiles(19) == [1, 64]
+    assert attention._dense_tiles(64) == [1, 64]
     program = attention.build(2, 128, 128, 128)
     rendered = str(program)
     assert len(_one_program(program).body.stmts) == 2  # one scope + return

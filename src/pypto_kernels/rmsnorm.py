@@ -59,6 +59,10 @@ def _validate_shape(rows: int, columns: int) -> None:
         )
 
 
+def _tiles(rows: int) -> list[int]:
+    return [_CHANNEL_TILE] if rows == 1 else [1, _CHANNEL_TILE]
+
+
 def build(rows: int, cols: int, eps: float = _EPSILON) -> Any:
     """Specialize and return the visible native tile IR."""
 
@@ -87,7 +91,7 @@ def compile_for(rows: int, cols: int, eps: float = _EPSILON) -> str:
     key = compile_jit_kernel(
         rmsnorm_kernel,
         (sample, weight, sample),
-        [1, _CHANNEL_TILE],
+        _tiles(rows),
     )
     with _lock:
         _cache[(rows, cols)] = key

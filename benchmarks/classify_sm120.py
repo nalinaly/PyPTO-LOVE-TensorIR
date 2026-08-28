@@ -54,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
             sigmoid_mul.sigmoid_mul_kernel.specialize(sample, sample, sample),
             [128],
         ),
-        ("embedding", embedding.build(32, 248320, 1024), [8, 128]),
+        ("embedding", embedding.build(1, 248320, 1024), [128]),
         (
             "integer_gather",
             embedding.integer_gather_kernel.specialize(
@@ -69,13 +69,13 @@ def main(argv: list[str] | None = None) -> int:
             qk_rmsnorm_rope.build(2, 8, 2, 256, 64, 262144),
             [1, 1, 1, 1, 1, 32],
         ),
-        ("rmsnorm", rmsnorm.build(256, 1024), [1, 128]),
+        ("rmsnorm", rmsnorm.build(1, 1024), [128]),
         (
             "fused_add_rmsnorm",
-            fused_add_rmsnorm.build(256, 1024),
-            [1, 128],
+            fused_add_rmsnorm.build(1, 1024),
+            [128],
         ),
-        ("gated_rmsnorm", gated_rmsnorm.build(256, 128), [1, 128]),
+        ("gated_rmsnorm", gated_rmsnorm.build(1, 128), [128]),
         (
             "causal_conv1d_stateful_decode",
             causal_conv1d.build(2, 1, 4096),
@@ -86,8 +86,8 @@ def main(argv: list[str] | None = None) -> int:
             causal_conv1d.build(1, 1, 4096),
             [1, 1, 128],
         ),
-        ("rope", rope.build(256, 64), [1, 1, 64]),
-        ("attention", attention.build(32, 128, 128, 128), [1, 64]),
+        ("rope", rope.build(1, 64), [1, 64]),
+        ("attention", attention.build(1, 128, 128, 128), [64]),
         (
             "attention_paged_decode_0_8b",
             attention.build_paged_decode(1, 8, 2, 16, 256, 1024, 65, 4096),
@@ -128,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
             attention.build_paged_prefill(13, 16, 4, 16, 256, 1024, 65, 4096),
             [1, 1, 1, 128],
         ),
-        ("linear", linear.build(32, 1024, 1024), [1, 128]),
+        ("linear", linear.build(1, 1024, 1024), [128]),
         (
             "linear_to_float",
             linear.build(19, 4096, 248320, "float32"),
