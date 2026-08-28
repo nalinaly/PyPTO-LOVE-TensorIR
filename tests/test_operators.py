@@ -267,6 +267,12 @@ def test_paged_attention_decode_gathers_physical_kv_rows_in_one_graph():
     batched_rendered = str(batched_program)
     assert "pl.range(2)" in batched_rendered
     assert batched_rendered.count("pl.tile.gather_row") == 2
+    pitched_query = str(
+        attention.build_paged_decode(
+            1, 8, 2, 16, 256, 1024, 65, 4096, query_row_stride=4096
+        )
+    )
+    assert "pl.TensorView(stride=[4096, 256, 1]" in pitched_query
 
 
 def test_paged_cache_layout_accepts_static_row_pitch() -> None:
@@ -304,6 +310,17 @@ def test_paged_cache_write_declares_mutation_and_one_graph():
     prefill_rendered = str(prefill_program)
     assert "pl.range(13)" in prefill_rendered
     assert prefill_rendered.count("pl.tile.store") == 3
+    pitched_updates = str(
+        attention.build_paged_cache_write(
+            1024,
+            13,
+            512,
+            key_row_stride=1536,
+            value_row_stride=2048,
+        )
+    )
+    assert "pl.TensorView(stride=[1536, 1]" in pitched_updates
+    assert "pl.TensorView(stride=[2048, 1]" in pitched_updates
 
 
 def test_paged_prefill_is_one_causal_gqa_graph():
@@ -322,6 +339,12 @@ def test_paged_prefill_is_one_causal_gqa_graph():
     assert rendered.count("pl.tile.matmul") == 2
     assert "pl.tile.cmps" in rendered and "pl.tile.sels" in rendered
     assert rendered.count("pl.tile.store") == 1
+    pitched_query = str(
+        attention.build_paged_prefill(
+            13, 8, 2, 16, 256, 1024, 65, 4096, query_row_stride=4096
+        )
+    )
+    assert "pl.TensorView(stride=[4096, 256, 1]" in pitched_query
 
     large_model = attention.build_paged_prefill(13, 16, 4, 16, 256, 1024, 65, 4096)
     large_rendered = str(large_model)
