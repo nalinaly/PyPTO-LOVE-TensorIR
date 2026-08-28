@@ -479,6 +479,7 @@ def compile_for(rows: int, tokens: int, head_dim: int, value_dim: int) -> str:
         attention_kernel,
         (query, key, value, 1.0 / math.sqrt(head_dim), out),
         [_ROW_TILE, _VALUE_TILE],
+        provider="pypto.attention",
     )
     with _lock:
         _cache[shape_key] = graph_key
@@ -621,7 +622,12 @@ def compile_paged_decode_for(
         if batch_size == 1
         else [1, _ROW_TILE, _VALUE_TILE]
     )
-    graph_key = compile_graph(program, tile_shape)
+    graph_key = compile_graph(
+        program,
+        tile_shape,
+        provider="pypto.attention",
+        source_node="pypto_kernels.attention:paged_decode",
+    )
     with _lock:
         _paged_decode_cache[shape_key] = graph_key
     return graph_key
@@ -763,7 +769,12 @@ def compile_paged_cache_write_for(
     if cached is not None:
         return cached
     tile_shape = [128] if update_rows == 1 else [1, 128]
-    graph_key = compile_graph(build_paged_cache_write(*shape_key), tile_shape)
+    graph_key = compile_graph(
+        build_paged_cache_write(*shape_key),
+        tile_shape,
+        provider="pypto.attention",
+        source_node="pypto_kernels.attention:paged_cache_write",
+    )
     with _lock:
         _paged_cache_write_cache[shape_key] = graph_key
     return graph_key
@@ -922,7 +933,12 @@ def compile_paged_prefill_for(
     cached = _paged_prefill_cache.get(shape_key)
     if cached is not None:
         return cached
-    graph_key = compile_graph(build_paged_prefill(*shape_key), [1, 1, 1, 128])
+    graph_key = compile_graph(
+        build_paged_prefill(*shape_key),
+        [1, 1, 1, 128],
+        provider="pypto.attention",
+        source_node="pypto_kernels.attention:paged_prefill",
+    )
     with _lock:
         _paged_prefill_cache[shape_key] = graph_key
     return graph_key

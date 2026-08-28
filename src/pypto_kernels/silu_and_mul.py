@@ -55,9 +55,33 @@ def _matrix_shape(shape: tuple[int, ...]) -> tuple[int, int]:
     return rows, columns
 
 
-def compile_for(shape: tuple[int, ...], dtype_name: str = "bfloat16") -> str:
+def _tiles(rows: int) -> list[int]:
+    return [_TILE_WIDTH] if rows == 1 else [1, _TILE_WIDTH]
+
+
+def compile_for(
+    shape: tuple[int, ...],
+    dtype_name: str = "bfloat16",
+    *,
+    gate_row_stride: int | None = None,
+    up_row_stride: int | None = None,
+    out_row_stride: int | None = None,
+) -> str:
     matrix_shape = _matrix_shape(shape)
-    cache_key = (shape, dtype_name, _TILE_WIDTH)
+    rows, columns = matrix_shape
+    gate_row_stride = columns if gate_row_stride is None else gate_row_stride
+    up_row_stride = columns if up_row_stride is None else up_row_stride
+    out_row_stride = columns if out_row_stride is None else out_row_stride
+    if min(gate_row_stride, up_row_stride, out_row_stride) < columns:
+        raise ValueError("silu_and_mul row strides must cover the logical row")
+    cache_key = (
+        shape,
+        dtype_name,
+        gate_row_stride,
+        up_row_stride,
+        out_row_stride,
+        _TILE_WIDTH,
+    )
     cached = _cache.get(cache_key)
     if cached is not None:
         return cached
@@ -65,18 +89,32 @@ def compile_for(shape: tuple[int, ...], dtype_name: str = "bfloat16") -> str:
     import torch
 
     dtype = torch.bfloat16 if dtype_name == "bfloat16" else torch.float32
-    sample = torch.empty(matrix_shape, dtype=dtype, device="meta")
+    gate = torch.empty_strided(
+        matrix_shape, (gate_row_stride, 1), dtype=dtype, device="meta"
+    )
+    up = torch.empty_strided(
+        matrix_shape, (up_row_stride, 1), dtype=dtype, device="meta"
+    )
+    out = torch.empty_strided(
+        matrix_shape, (out_row_stride, 1), dtype=dtype, device="meta"
+    )
     graph_key = compile_jit_kernel(
         silu_and_mul_kernel,
-        (sample, sample, sample),
-        [_TILE_WIDTH],
+        (gate, up, out),
+        _tiles(rows),
     )
     with _lock:
         _cache[cache_key] = graph_key
     return graph_key
 
 
-def silu_and_mul(gate: Any, up: Any, stream: Any = None) -> Any:
+def silu_and_mul(
+    gate: Any,
+    up: Any,
+    stream: Any = None,
+    *,
+    out: Any = None,
+) -> Any:
     """Return ``silu(gate) * up`` from one native tile-DSL graph launch."""
 
     import torch
@@ -86,14 +124,30 @@ def silu_and_mul(gate: Any, up: Any, stream: Any = None) -> Any:
     if gate.dtype is not torch.bfloat16 or up.dtype is not torch.bfloat16:
         raise ValueError("silu_and_mul needs BF16 operands")
     shape = tuple(gate.shape)
-    if tuple(up.shape) != shape or not gate.is_contiguous() or not up.is_contiguous():
-        raise ValueError("silu_and_mul needs matching contiguous operands")
+    if tuple(up.shape) != shape:
+        raise ValueError("silu_and_mul needs matching operands")
     matrix_shape = _matrix_shape(shape)
-    graph_key = compile_for(shape, "bfloat16")
-    out = torch.empty_like(gate)
+    gate_matrix = gate.view(matrix_shape)
+    up_matrix = up.view(matrix_shape)
+    if gate_matrix.stride(1) != 1 or up_matrix.stride(1) != 1:
+        raise ValueError("silu_and_mul needs unit inner strides")
+    if out is None:
+        out = torch.empty(shape, dtype=gate.dtype, device=gate.device)
+    if tuple(out.shape) != shape or out.dtype is not gate.dtype:
+        raise ValueError("silu_and_mul output shape and dtype must match")
+    out_matrix = out.view(matrix_shape)
+    if out_matrix.stride(1) != 1:
+        raise ValueError("silu_and_mul output needs unit inner stride")
+    graph_key = compile_for(
+        shape,
+        "bfloat16",
+        gate_row_stride=int(gate_matrix.stride(0)),
+        up_row_stride=int(up_matrix.stride(0)),
+        out_row_stride=int(out_matrix.stride(0)),
+    )
     launch_graph(
         graph_key,
-        (gate.view(matrix_shape), up.view(matrix_shape), out.view(matrix_shape)),
+        (gate_matrix, up_matrix, out_matrix),
         stream.cuda_stream,
     )
     return out

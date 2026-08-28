@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
+import hashlib
 import importlib.util
 import os
 import pathlib
@@ -24,6 +26,25 @@ PYPTO_PACKAGE = os.environ.get(
 
 _lock = threading.RLock()
 _modules: dict[str, Any] | None = None
+_sources_revision: str | None = None
+
+
+def _kernel_sources_revision() -> str:
+    """Return an exact digest of the deployed operator-library sources."""
+
+    global _sources_revision
+    with _lock:
+        if _sources_revision is not None:
+            return _sources_revision
+        package_root = pathlib.Path(__file__).resolve().parent
+        digest = hashlib.sha256()
+        for source in sorted(package_root.glob("*.py"), key=lambda path: path.name):
+            digest.update(source.name.encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(source.read_bytes())
+            digest.update(b"\0")
+        _sources_revision = "sha256:" + digest.hexdigest()
+        return _sources_revision
 
 
 def bootstrap() -> dict[str, Any]:
@@ -97,14 +118,18 @@ EXPECTED_RUNTIME = (
 )
 
 
-def compile_graph(program: Any, tiles: list[int]) -> str:
+def compile_graph(
+    program: Any,
+    tiles: list[int],
+    *,
+    provider: str = "pypto.tensorir",
+    source_node: str | None = None,
+) -> str:
     """Compile one graph through the strict facade; return its cache key.
 
     The library premise is "one operator = one graph", so compilation is
     per-graph and cached by (program identity, tiles).
     """
-
-    import hashlib
 
     from pypto.compiler import (
         CanonicalSchedule,
@@ -166,12 +191,29 @@ def compile_graph(program: Any, tiles: list[int]) -> str:
     result = compiler.compile_structured_strict(program, request, schedule)
     artifact = result.artifact
     key = hashlib.sha256(bytes(artifact.device_code)).hexdigest()[:16]
+    from pypto_plugins.activity_trace import artifact_record_from_runtime
+
+    artifact_record = artifact_record_from_runtime(
+        artifact,
+        provider=provider,
+        source_node=source_node
+        or f"pypto-kernels:{artifact.kernel_abi.entry_function_name}",
+        kernels_revision=_kernel_sources_revision(),
+    )
     with _lock:
         _GRAPHS[key] = (artifact, request)
+        _GRAPH_RECORDS[key] = artifact_record
     return key
 
 
-def compile_jit_kernel(kernel: Any, samples: tuple[Any, ...], tiles: list[int]) -> str:
+def compile_jit_kernel(
+    kernel: Any,
+    samples: tuple[Any, ...],
+    tiles: list[int],
+    *,
+    provider: str = "pypto.tensorir",
+    source_node: str | None = None,
+) -> str:
     """Specialize a native ``@pl.jit`` tile kernel and compile that IR.
 
     This boundary preserves the user's
@@ -180,11 +222,18 @@ def compile_jit_kernel(kernel: Any, samples: tuple[Any, ...], tiles: list[int]) 
     TensorIR graph and the resulting operator still launches exactly once.
     """
 
-    return compile_graph(kernel.specialize(*samples), tiles)
+    return compile_graph(
+        kernel.specialize(*samples),
+        tiles,
+        provider=provider,
+        source_node=source_node
+        or f"{getattr(kernel, '__module__', 'pypto_kernels')}:{getattr(kernel, '__name__', type(kernel).__name__)}",
+    )
 
 
 _GRAPHS: dict[str, tuple[Any, Any]] = {}
 _EXECUTABLES: dict[str, Any] = {}
+_GRAPH_RECORDS: dict[str, Any] = {}
 
 
 def _ready_executable(key: str) -> Any:
@@ -252,7 +301,14 @@ def launch_graph(key: str, tensors: tuple[Any, ...], stream: Any) -> None:
         for t in tensors
     ]
     packet = executable.prepare_launch(arguments)
-    executable.launch(packet, stream)
+    artifact_record = _GRAPH_RECORDS.get(key)
+    annotation = nullcontext()
+    if artifact_record is not None:
+        from pypto_plugins.activity_trace import annotate_artifact_launch
+
+        annotation = annotate_artifact_launch(artifact_record)
+    with annotation:
+        executable.launch(packet, stream)
     del packet
 
 

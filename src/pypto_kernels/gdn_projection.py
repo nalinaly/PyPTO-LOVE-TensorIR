@@ -11,7 +11,7 @@ bootstrap()
 import pypto.language as pl  # noqa: E402
 
 _lock = threading.RLock()
-_cache: dict[tuple[int, int, int, int, int], str] = {}
+_cache: dict[tuple[int, int, int, int, int, int, int], str] = {}
 
 STATUS = "native-tile packed executable"
 GRAPHS = 1
@@ -106,16 +106,32 @@ def build(
     value_heads: int,
     key_dim: int,
     value_dim: int,
+    qkvz_row_stride: int | None = None,
+    ba_row_stride: int | None = None,
 ) -> Any:
     _validate_shape(rows, q_heads, value_heads, key_dim, value_dim)
     import torch
 
     mixed_width = 2 * q_heads * key_dim + value_heads * value_dim
     z_width = value_heads * value_dim
-    qkvz = torch.empty(
-        (rows, mixed_width + z_width), dtype=torch.bfloat16, device="meta"
+    qkvz_width = mixed_width + z_width
+    ba_width = 2 * value_heads
+    qkvz_row_stride = qkvz_width if qkvz_row_stride is None else qkvz_row_stride
+    ba_row_stride = ba_width if ba_row_stride is None else ba_row_stride
+    if qkvz_row_stride < qkvz_width or ba_row_stride < ba_width:
+        raise ValueError("GDN projection row strides must cover each logical row")
+    qkvz = torch.empty_strided(
+        (rows, qkvz_width),
+        (qkvz_row_stride, 1),
+        dtype=torch.bfloat16,
+        device="meta",
     )
-    ba = torch.empty((rows, 2 * value_heads), dtype=torch.bfloat16, device="meta")
+    ba = torch.empty_strided(
+        (rows, ba_width),
+        (ba_row_stride, 1),
+        dtype=torch.bfloat16,
+        device="meta",
+    )
     packed_elements = rows * (mixed_width + z_width + 2 * value_heads)
     packed = torch.empty((1, packed_elements), dtype=torch.bfloat16, device="meta")
     return gdn_projection_kernel.specialize(qkvz, ba, mixed_width, packed)
@@ -127,13 +143,36 @@ def compile_for(
     value_heads: int,
     key_dim: int,
     value_dim: int,
+    qkvz_row_stride: int,
+    ba_row_stride: int,
 ) -> str:
-    shape_key = (rows, q_heads, value_heads, key_dim, value_dim)
-    _validate_shape(*shape_key)
+    _validate_shape(rows, q_heads, value_heads, key_dim, value_dim)
+    shape_key = (
+        rows,
+        q_heads,
+        value_heads,
+        key_dim,
+        value_dim,
+        qkvz_row_stride,
+        ba_row_stride,
+    )
     cached = _cache.get(shape_key)
     if cached is not None:
         return cached
-    graph_key = compile_graph(build(*shape_key), [1, 16])
+    graph_key = compile_graph(
+        build(
+            rows,
+            q_heads,
+            value_heads,
+            key_dim,
+            value_dim,
+            qkvz_row_stride,
+            ba_row_stride,
+        ),
+        [1, 16],
+        provider="pypto.matmul",
+        source_node="pypto_kernels.gdn_projection:projection",
+    )
     with _lock:
         _cache[shape_key] = graph_key
     return graph_key
@@ -158,11 +197,13 @@ def split_projection(
         or projected_ba.ndim != 2
         or projected_qkvz.dtype is not torch.bfloat16
         or projected_ba.dtype is not torch.bfloat16
-        or not projected_qkvz.is_contiguous()
-        or not projected_ba.is_contiguous()
+        or projected_qkvz.stride(1) != 1
+        or projected_ba.stride(1) != 1
         or projected_qkvz.device != projected_ba.device
     ):
-        raise ValueError("GDN projection inputs must be contiguous rank-2 BF16")
+        raise ValueError(
+            "GDN projection inputs must be rank-2 BF16 with unit inner strides"
+        )
     rows = int(projected_qkvz.shape[0])
     _validate_shape(rows, q_heads, value_heads, key_dim, value_dim)
     mixed_width = 2 * q_heads * key_dim + value_heads * value_dim
@@ -173,7 +214,20 @@ def split_projection(
         raise ValueError("GDN projection input widths are incompatible")
     if stream is None:
         stream = torch.cuda.current_stream(projected_qkvz.device)
-    graph_key = compile_for(rows, q_heads, value_heads, key_dim, value_dim)
+    if (
+        projected_qkvz.stride(0) < projected_qkvz.shape[1]
+        or projected_ba.stride(0) < projected_ba.shape[1]
+    ):
+        raise ValueError("GDN projection row strides overlap logical rows")
+    graph_key = compile_for(
+        rows,
+        q_heads,
+        value_heads,
+        key_dim,
+        value_dim,
+        int(projected_qkvz.stride(0)),
+        int(projected_ba.stride(0)),
+    )
     component_sizes = (
         rows * mixed_width,
         rows * z_width,

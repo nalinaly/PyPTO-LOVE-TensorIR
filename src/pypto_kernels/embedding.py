@@ -14,9 +14,10 @@ _TILE_WIDTH = 128
 _ROW_TILE = 8
 _lock = threading.RLock()
 _cache: dict[tuple[int, int, int], str] = {}
+_integer_cache: dict[tuple[int, int, str], str] = {}
 
 STATUS = "native-tile executable"
-GRAPHS = 1
+GRAPHS = 2
 
 
 @pl.jit
@@ -33,6 +34,22 @@ def embedding_kernel(
                 token_id = pl.read(repeated_token_ids, [row, block * 128])
                 value = pl.load(weight, [token_id, block * 128], [1, 128])
                 pl.store(value, [row, block * 128], out)
+    return out
+
+
+@pl.jit
+def integer_gather_kernel(
+    table: pl.Tensor,
+    repeated_indices: pl.Tensor,
+    out: pl.Out[pl.Tensor],
+):
+    """Gather scalar integer table entries through the native row path."""
+
+    with pl.at(level=pl.Level.CORE_GROUP):
+        for row in pl.range(out.shape[0]):
+            index = pl.read(repeated_indices, [row, 0])
+            value = pl.load(table, [index, 0], [1, 1])
+            pl.store(value, [row, 0], out)
     return out
 
 
@@ -110,6 +127,64 @@ def embedding(token_ids: Any, weight: Any, stream: Any = None) -> Any:
     )
     launch_graph(graph_key, (weight, repeated_ids, out), stream.cuda_stream)
     return out
+
+
+def _compile_integer_gather(entries: int, count: int, dtype_name: str) -> str:
+    key = (entries, count, dtype_name)
+    cached = _integer_cache.get(key)
+    if cached is not None:
+        return cached
+    import torch
+
+    dtype = torch.int32 if dtype_name == "int32" else torch.int64
+    table = torch.empty((entries, 1), dtype=dtype, device="meta")
+    indices = torch.empty((count, 1), dtype=torch.int64, device="meta")
+    out = torch.empty((count, 1), dtype=dtype, device="meta")
+    graph_key = compile_jit_kernel(
+        integer_gather_kernel,
+        (table, indices, out),
+        [1],
+    )
+    with _lock:
+        _integer_cache[key] = graph_key
+    return graph_key
+
+
+def integer_gather(table: Any, indices: Any, stream: Any = None) -> Any:
+    """Gather one-dimensional INT32/INT64 table entries through PyPTO."""
+
+    import torch
+
+    if (
+        table.ndim != 1
+        or table.dtype not in (torch.int32, torch.int64)
+        or not table.is_contiguous()
+        or indices.ndim != 1
+        or indices.dtype is not torch.int64
+        or not indices.is_contiguous()
+        or table.device != indices.device
+    ):
+        raise ValueError(
+            "integer_gather needs a contiguous integer table and INT64 indices"
+        )
+    if stream is None:
+        stream = torch.cuda.current_stream(table.device)
+    count = int(indices.numel())
+    if count <= 0 or table.numel() <= 0:
+        raise ValueError("integer_gather needs non-empty inputs")
+    dtype_name = "int32" if table.dtype is torch.int32 else "int64"
+    graph_key = _compile_integer_gather(int(table.numel()), count, dtype_name)
+    out = torch.empty((count, 1), dtype=table.dtype, device=table.device)
+    launch_graph(
+        graph_key,
+        (
+            table.view(-1, 1),
+            indices.as_strided((count, 1), (1, 0)),
+            out,
+        ),
+        stream.cuda_stream,
+    )
+    return out.view(-1)
 
 
 def status(tokens: int = 32, vocab_size: int = 248320,

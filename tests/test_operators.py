@@ -1,6 +1,7 @@
 """Structure tests: one operator = one graph, statuses classified."""
 
 from pathlib import Path
+from contextlib import contextmanager
 import sys
 from types import ModuleType, SimpleNamespace
 
@@ -72,6 +73,52 @@ def test_runtime_reuses_executables_and_acquires_new_graph_leases(monkeypatch):
     _boot._EXECUTABLES.pop(key, None)
 
 
+def test_launch_graph_wraps_executable_in_artifact_annotation(monkeypatch):
+    class FakeExecutable:
+        def prepare_launch(self, arguments):
+            assert arguments == []
+            return "packet"
+
+        def launch(self, packet, stream):
+            launched.append((packet, stream))
+
+    nvidia = ModuleType("pypto.runtime.nvidia")
+    nvidia.NvidiaLaunchArgument = SimpleNamespace(tensor=lambda *_args: None)
+    runtime = ModuleType("pypto.runtime")
+    runtime.nvidia = nvidia
+    pypto = ModuleType("pypto")
+    pypto.__path__ = []
+    pypto.runtime = runtime
+    monkeypatch.setitem(sys.modules, "pypto", pypto)
+    monkeypatch.setitem(sys.modules, "pypto.runtime", runtime)
+    monkeypatch.setitem(sys.modules, "pypto.runtime.nvidia", nvidia)
+
+    key = "unit-annotated-launch"
+    artifact = SimpleNamespace(
+        kernel_abi=SimpleNamespace(
+            argument_layout=SimpleNamespace(operand_descriptors=[])
+        )
+    )
+    record = object()
+    monkeypatch.setitem(_boot._GRAPHS, key, (artifact, "request"))
+    monkeypatch.setitem(_boot._GRAPH_RECORDS, key, record)
+    monkeypatch.setattr(_boot, "_ready_executable", lambda _key: FakeExecutable())
+    launched = []
+    annotated = []
+
+    @contextmanager
+    def annotate(observed):
+        annotated.append(observed)
+        yield
+
+    import pypto_plugins.activity_trace as activity_trace
+
+    monkeypatch.setattr(activity_trace, "annotate_artifact_launch", annotate)
+    _boot.launch_graph(key, (), 123)
+    assert annotated == [record]
+    assert launched == [("packet", 123)]
+
+
 def test_each_operator_is_one_program():
     assert attention.GRAPHS == 4  # dense + decode + cache write + prefill
     assert all(
@@ -84,13 +131,13 @@ def test_each_operator_is_one_program():
             rmsnorm.GRAPHS,
             rope.GRAPHS,
             causal_conv1d.GRAPHS,
-            embedding.GRAPHS,
-            linear.GRAPHS,
             qk_rmsnorm_rope.GRAPHS,
             gdn.GRAPHS,
             gdn_projection.GRAPHS,
         )
     )
+    assert embedding.GRAPHS == 2
+    assert linear.GRAPHS == 2
     assert gdn.UPDATE_GRAPHS == 0
 
 
@@ -119,6 +166,13 @@ def test_pointwise_operators_use_native_tile_dsl():
         sample, pitched_gate, sample
     )
     assert "pl.TensorView(stride=[512, 1]" in str(pitched_program)
+    packed = torch.empty((3, 512), dtype=torch.bfloat16, device="meta")
+    packed_program = silu_and_mul.silu_and_mul_kernel.specialize(
+        packed[:, :256], packed[:, 256:], sample
+    )
+    assert str(packed_program).count("pl.TensorView(stride=[512, 1]") == 2
+    assert silu_and_mul._tiles(1) == [128]
+    assert silu_and_mul._tiles(19) == [1, 128]
     assert sigmoid_mul._tiles(1) == [128]
     assert sigmoid_mul._tiles(19) == [1, 128]
 
@@ -186,6 +240,14 @@ def test_embedding_is_one_dynamic_row_gather_graph():
     assert "pl.tensor.read" in rendered
     assert "pl.tile.load" in rendered
     assert "pl.tile.store" in rendered
+    integer_program = embedding.integer_gather_kernel.specialize(
+        torch.empty((2, 1), dtype=torch.int32, device="meta"),
+        torch.empty((1, 1), dtype=torch.int64, device="meta"),
+        torch.empty((1, 1), dtype=torch.int32, device="meta"),
+    )
+    integer_rendered = str(integer_program)
+    assert "table: pl.Tensor[[2, 1], pl.INT32]" in integer_rendered
+    assert "pl.tensor.read" in integer_rendered
 
 
 def test_qk_norm_partial_rope_gate_is_one_native_graph():
@@ -372,6 +434,12 @@ def test_linear_is_one_native_tile_graph():
     assert "pl.tile.matmul" in rendered
     assert "pl.tile.store" in rendered
     assert "tensor." not in rendered
+    assert linear._tiles(1) == [128]
+    assert linear._tiles(19) == [1, 128]
+    float_program = linear.build(1, 128, 256, "float32")
+    float_rendered = str(float_program)
+    assert float_rendered.count("pl.tile.cast") == 2
+    assert "pl.Out[pl.Tensor[[1, 256], pl.FP32]]" in float_rendered
 
 
 def test_gdn_recurrent_is_one_mutation_declared_graph():
@@ -410,6 +478,19 @@ def test_gdn_projection_split_is_one_packed_output_graph():
     assert rendered.count("pl.tile.store") == 4
     assert rendered.count("pl.Out[") == 1
     assert "pl.Tensor[[1, 18528]" in rendered
+    pitched = str(
+        gdn_projection.build(
+            3,
+            8,
+            16,
+            128,
+            128,
+            qkvz_row_stride=8192,
+            ba_row_stride=128,
+        )
+    )
+    assert "pl.TensorView(stride=[8192, 1]" in pitched
+    assert "pl.TensorView(stride=[128, 1]" in pitched
 
 
 def test_broadcast_dependencies_are_closed():

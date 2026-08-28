@@ -331,7 +331,12 @@ def compile_recurrent(
     tiles = _recurrent_tiles(
         batch_size, tokens_per_request, q_heads, value_heads, value_dim
     )
-    graph_key = compile_graph(program, tiles)
+    graph_key = compile_graph(
+        program,
+        tiles,
+        provider="pypto.gdn",
+        source_node="pypto_kernels.gdn:recurrent",
+    )
     with _lock:
         _recurrent_cache[shape_key] = graph_key
     return graph_key
