@@ -17,6 +17,7 @@ def test_build_surface_freezes_parallelism_and_stages() -> None:
     assert args.stage == "all"
     assert args.jobs == 24
     assert build_release.PYPTO_BUILD.is_relative_to(ROOT / "builds")
+    assert build_release.NATIVE_BUILD.is_relative_to(ROOT / "builds")
     assert build_release.WHEEL_DIR.is_relative_to(ROOT / "builds")
 
 
@@ -31,6 +32,7 @@ def test_pypto_build_uses_backend_and_test_defines() -> None:
     assert "BUILD_TESTING=ON" in source
     assert "CMAKE_BUILD_PARALLEL_LEVEL" in source
     assert '"-j24"' in source
+    assert "Total Tests: 13" in source
     assert '"24"' not in source  # all values come from the frozen CPU_JOBS constant
 
 

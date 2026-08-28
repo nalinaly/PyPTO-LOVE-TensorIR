@@ -31,6 +31,7 @@ KERNELS = ROOT / "packages/pypto-kernels"
 PLUGINS = ROOT / "packages/pypto-framework-plugins"
 BUILD_ROOT = ROOT / "builds" / RELEASE
 PYPTO_BUILD = BUILD_ROOT / "pypto"
+NATIVE_BUILD = BUILD_ROOT / "native"
 WHEEL_DIR = BUILD_ROOT / "wheels"
 CUDA_ROOT = Path("/usr/local/cuda-13.3")
 
@@ -158,15 +159,61 @@ def _install_wheels(python: Path) -> None:
     )
 
 
+def _build_native(python: Path) -> None:
+    cmake = (python.parent / "cmake").resolve(strict=True)
+    NATIVE_BUILD.mkdir(parents=True, exist_ok=True)
+    _run(
+        [
+            str(cmake),
+            "-S",
+            str(SOURCE),
+            "-B",
+            str(NATIVE_BUILD),
+            "-G",
+            "Ninja",
+            "-DCMAKE_BUILD_TYPE=RelWithDebInfo",
+            "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+            "-DBUILD_TESTING=ON",
+            "-DPYPTO_ENABLE_NVIDIA_BACKEND=ON",
+            f"-DPYPTO_NVIDIA_CUDA_TOOLKIT_ROOT={CUDA_ROOT}",
+            f"-DPython_EXECUTABLE={python}",
+            f"-DPython3_EXECUTABLE={python}",
+            f"-DPYPTO_NATIVE_EXTENSION_OUTPUT_DIRECTORY={NATIVE_BUILD / 'product'}",
+        ]
+    )
+    _run(
+        [
+            str(cmake),
+            "--build",
+            str(NATIVE_BUILD),
+            "--parallel",
+            str(CPU_JOBS),
+        ]
+    )
+
+
 def _run_ctest(python: Path) -> None:
-    if not (PYPTO_BUILD / "CTestTestfile.cmake").is_file():
+    if not (NATIVE_BUILD / "CTestTestfile.cmake").is_file():
         raise ReleaseContractError("PyPTO release build has no configured CTest suite")
     ctest = (python.parent / "ctest").resolve(strict=True)
+    inventory = subprocess.run(
+        [str(ctest), "--test-dir", str(NATIVE_BUILD), "-N"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    if inventory.returncode != 0 or "Total Tests: 13" not in inventory.stdout:
+        raise ReleaseContractError(
+            "native CTest inventory must contain exactly 13 tests; "
+            + inventory.stdout[-1000:]
+        )
     _run(
         [
             str(ctest),
             "--test-dir",
-            str(PYPTO_BUILD),
+            str(NATIVE_BUILD),
             "--output-on-failure",
             "-j24",
         ]
@@ -198,13 +245,21 @@ def _worker(stage: str, jobs: int) -> int:
             )
         if stage == "wheels":
             _build_wheels(python)
+        elif stage == "native":
+            _build_native(python)
         elif stage == "ctest":
             _run_ctest(python)
         elif stage == "install":
             _install_wheels(python)
         else:
             raise ReleaseContractError(f"unknown worker stage: {stage}")
-        report.update({"status": "complete", "wheels": _wheel_record()})
+        wheels = []
+        try:
+            wheels = _wheel_record()
+        except ReleaseContractError:
+            if stage in {"wheels", "install"}:
+                raise
+        report.update({"status": "complete", "wheels": wheels})
         return_code = 0
     except BaseException as error:
         report.update(
@@ -224,13 +279,17 @@ def _worker(stage: str, jobs: int) -> int:
 def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser(description=__doc__)
     value.add_argument(
-        "--stage", choices=("wheels", "ctest", "install", "all"), default="all"
+        "--stage",
+        choices=("wheels", "native", "ctest", "install", "all"),
+        default="all",
     )
     value.add_argument("--jobs", type=int, default=CPU_JOBS)
     value.add_argument("--timeout-seconds", type=int, default=3600)
     value.add_argument("--dry-run", action="store_true")
     value.add_argument(
-        "--_worker", choices=("wheels", "ctest", "install"), help=argparse.SUPPRESS
+        "--_worker",
+        choices=("wheels", "native", "ctest", "install"),
+        help=argparse.SUPPRESS,
     )
     value.add_argument("--_jobs", type=int, help=argparse.SUPPRESS)
     return value
@@ -242,7 +301,11 @@ def main() -> int:
         raise ReleaseContractError("release build requires jobs=24 and positive timeout")
     if args._worker:
         return _worker(args._worker, args._jobs)
-    stages = ("wheels", "ctest", "install") if args.stage == "all" else (args.stage,)
+    stages = (
+        ("wheels", "native", "ctest", "install")
+        if args.stage == "all"
+        else (args.stage,)
+    )
     results = []
     for stage in stages:
         worker_args = ("--_worker", stage, "--_jobs", str(CPU_JOBS))
