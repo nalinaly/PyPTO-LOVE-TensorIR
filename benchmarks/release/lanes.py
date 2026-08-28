@@ -117,9 +117,17 @@ def prepare_worker_environment(lane: str) -> None:
 
 
 def memory_qualification(
-    lane: str, optimized_memory_mode: str = "zero-offload"
+    lane: str,
+    optimized_memory_mode: str = "zero-offload",
+    model_path: Path | None = None,
 ) -> dict[str, object]:
     if lane in {"pypto", "sglang-matched"}:
+        if model_path is not None and model_path.name == "Qwen3.5-0.8B":
+            return {
+                "name": "candidate-matched-0p8b-zero-offload",
+                "cpu_offload_gb": 0,
+                "mem_fraction_static": 0.78,
+            }
         return {
             "name": "candidate-matched-offload-2g",
             "cpu_offload_gb": 2,
@@ -180,7 +188,7 @@ def server_kwargs(
         "mm_processor_worker_num": 1,
         "mm_io_worker_num": 1,
     }
-    memory = memory_qualification(lane, optimized_memory_mode)
+    memory = memory_qualification(lane, optimized_memory_mode, model_path)
     common["cpu_offload_gb"] = memory["cpu_offload_gb"]
     if memory["mem_fraction_static"] is not None:
         common["mem_fraction_static"] = memory["mem_fraction_static"]

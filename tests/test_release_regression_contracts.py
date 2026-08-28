@@ -265,6 +265,10 @@ def test_lane_memory_and_provider_qualifications_are_explicit() -> None:
     qualified_optimized = lanes.server_kwargs(
         "sglang-optimized", model, optimized_memory_mode="matched"
     )
+    small_pypto = lanes.server_kwargs("pypto", Path("Qwen3.5-0.8B"))
+    small_matched = lanes.server_kwargs(
+        "sglang-matched", Path("Qwen3.5-0.8B")
+    )
     for config in (pypto, matched, optimized, qualified_optimized):
         assert "language_model_only" not in config
         assert config["json_model_override_args"] == (
@@ -272,6 +276,12 @@ def test_lane_memory_and_provider_qualifications_are_explicit() -> None:
         )
     assert pypto["cpu_offload_gb"] == matched["cpu_offload_gb"] == 2
     assert pypto["mem_fraction_static"] == matched["mem_fraction_static"] == 0.78
+    assert small_pypto["cpu_offload_gb"] == small_matched["cpu_offload_gb"] == 0
+    assert (
+        small_pypto["mem_fraction_static"]
+        == small_matched["mem_fraction_static"]
+        == 0.78
+    )
     assert optimized["cpu_offload_gb"] == 0
     assert "mem_fraction_static" not in optimized
     assert qualified_optimized["cpu_offload_gb"] == 2
