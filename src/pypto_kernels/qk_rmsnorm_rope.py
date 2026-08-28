@@ -210,15 +210,31 @@ def build(
     head_dim: int,
     rotary_dim: int,
     max_positions: int,
+    q_gate_row_stride: int | None = None,
+    key_row_stride: int | None = None,
 ) -> Any:
     _validate_shape(tokens, q_heads, kv_heads, head_dim, rotary_dim, max_positions)
     import torch
 
-    q_gate = torch.empty(
-        (tokens, 2 * q_heads * head_dim), dtype=torch.bfloat16, device="meta"
+    q_gate_width = 2 * q_heads * head_dim
+    key_width = kv_heads * head_dim
+    if q_gate_row_stride is None:
+        q_gate_row_stride = q_gate_width
+    if key_row_stride is None:
+        key_row_stride = key_width
+    if q_gate_row_stride < q_gate_width or key_row_stride < key_width:
+        raise ValueError("QK preparation row strides must cover each logical row")
+    q_gate = torch.empty_strided(
+        (tokens, q_gate_width),
+        (q_gate_row_stride, 1),
+        dtype=torch.bfloat16,
+        device="meta",
     )
-    key = torch.empty(
-        (tokens, kv_heads * head_dim), dtype=torch.bfloat16, device="meta"
+    key = torch.empty_strided(
+        (tokens, key_width),
+        (key_row_stride, 1),
+        dtype=torch.bfloat16,
+        device="meta",
     )
     weight = torch.empty((1, head_dim), dtype=torch.bfloat16, device="meta")
     cache = torch.empty(
@@ -244,9 +260,20 @@ def compile_for(
     head_dim: int,
     rotary_dim: int,
     max_positions: int,
+    q_gate_row_stride: int,
+    key_row_stride: int,
 ) -> str:
     _validate_shape(tokens, q_heads, kv_heads, head_dim, rotary_dim, max_positions)
-    cache_key = (tokens, q_heads, kv_heads, head_dim, rotary_dim, max_positions)
+    cache_key = (
+        tokens,
+        q_heads,
+        kv_heads,
+        head_dim,
+        rotary_dim,
+        max_positions,
+        q_gate_row_stride,
+        key_row_stride,
+    )
     cached = _cache.get(cache_key)
     if cached is not None:
         return cached
@@ -275,12 +302,16 @@ def qk_rmsnorm_rope_gate(
 
     tensors = (q_gate, key, q_weight, k_weight, cos_sin_cache)
     if any(
-        tensor.dtype is not torch.bfloat16 or not tensor.is_contiguous()
+        tensor.dtype is not torch.bfloat16
         for tensor in tensors
     ):
-        raise ValueError("QK preparation needs contiguous BF16 tensor inputs")
-    if positions.ndim != 1 or positions.dtype is not torch.int64:
-        raise ValueError("QK preparation positions must be rank-1 INT64")
+        raise ValueError("QK preparation needs BF16 tensor inputs")
+    if (
+        positions.ndim != 1
+        or positions.dtype is not torch.int64
+        or not positions.is_contiguous()
+    ):
+        raise ValueError("QK preparation positions must be contiguous rank-1 INT64")
     tokens = int(q_gate.shape[0])
     head_dim = int(q_weight.numel())
     rotary_dim = int(cos_sin_cache.shape[1])
@@ -290,12 +321,32 @@ def qk_rmsnorm_rope_gate(
         raise ValueError("q_gate shape is incompatible with q_heads/head_dim")
     if tuple(key.shape) != (tokens, kv_heads * head_dim):
         raise ValueError("key shape is incompatible with kv_heads/head_dim")
+    if (
+        q_gate.stride(1) != 1
+        or q_gate.stride(0) < q_gate.shape[1]
+        or key.stride(1) != 1
+        or key.stride(0) < key.shape[1]
+    ):
+        raise ValueError("Q/K rows must be dense or statically row-pitched")
     if tuple(q_weight.shape) != (head_dim,) or tuple(k_weight.shape) != (head_dim,):
         raise ValueError("Q/K weights must be flat head_dim vectors")
+    if (
+        not q_weight.is_contiguous()
+        or not k_weight.is_contiguous()
+        or not cos_sin_cache.is_contiguous()
+    ):
+        raise ValueError("Q/K weights and cos/sin cache must be contiguous")
     if stream is None:
         stream = torch.cuda.current_stream(q_gate.device)
     graph_key = compile_for(
-        tokens, q_heads, kv_heads, head_dim, rotary_dim, max_positions
+        tokens,
+        q_heads,
+        kv_heads,
+        head_dim,
+        rotary_dim,
+        max_positions,
+        int(q_gate.stride(0)),
+        int(key.stride(0)),
     )
     packed = torch.empty(
         (tokens, 2 * q_heads + kv_heads, head_dim),

@@ -189,6 +189,11 @@ def test_qk_norm_partial_rope_gate_is_one_native_graph():
     assert "pl.tile.slice" in rendered
     assert "pl.tile.concat" in rendered
     assert rendered.count("pl.tile.store") == 3
+    pitched = str(
+        qk_rmsnorm_rope.build(2, 8, 2, 256, 64, 1024, 4608, 1024)
+    )
+    assert "pl.TensorView(stride=[4608, 1]" in pitched
+    assert "pl.TensorView(stride=[1024, 1]" in pitched
 
 
 def _one_program(p):
