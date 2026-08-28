@@ -1,16 +1,18 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0083`
+**Checkpoint:** `CP-0084`
 
-## Active unaccepted continuation after CP-0083 (2026-08-28)
+## Active unaccepted continuation after CP-0084 (2026-08-28)
 
 This section is the current resume boundary and supersedes older resume text
-below. It records work in progress, **not** CP-0084 acceptance.
+below. It records work in progress, **not** CP-0085 acceptance.
 
-- Root `d042530` freezes PLAN revision 47: Qwen3.5-0.8B then 9B, exact prompt
+- Root `277b171` freezes PLAN revision 48: Qwen3.5-0.8B then 9B, exact prompt
   `为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？`, 100% PyPTO
   handwritten-plus-Inductor model-forward compute, zero compute fallback,
-  repeated stability and logits/token/text reference comparison.
+  repeated stability and logits/token/text reference comparison. D-0019 also
+  retires the unmeasured legacy 22 GiB value as an active compiler gate while
+  preserving the exact historical controller bytes.
 - TensorIR `a48606b` and PyPTO parent `d1b90b7` contain the generic fused-graph
   repairs: one-shot layout conversion with captured result layouts, consumer-
   owned input materialization, fused rank-N-to-rank-2 gather projection,
@@ -22,13 +24,18 @@ below. It records work in progress, **not** CP-0084 acceptance.
   `reduction_ud_float.mlir`. The exact QK canonical graph also passes full
   TensorIR-to-CUDA-Tile lowering for tile `[1,1,1,1,1,32]`; the independent
   TensorIR compiler produces an `sm_120a` Cubin. These are compiler-only facts.
-- The last exact PyPTO DSO build and CTest 13/13 are at parent `011d0f7` /
-  TensorIR `032d67a`, immediately before final gather-index commit `a48606b`.
-  Therefore **no DSO at final parent `d1b90b7` exists yet**, and the standalone
-  Cubin is not PyPTO Artifact, launch, numerical, framework or model evidence.
-- `pypto-kernels@5fbf813` adds the source-level Qwen3.5-0.8B fused QK
-  GemmaRMSNorm + partial NeoX RoPE + gate-deinterleave candidate and its
-  actual-configuration numerical reference. Current kernels `a477db8` add a
+- The final PyPTO DSO now exists at parent `d1b90b7` / TensorIR `a48606b`, has
+  SHA-256 `a5399730...6781`, and passes CTest 13/13. Clean detached
+  `pypto-kernels@cfce997` provides the permanent focused QK gate. Controlled
+  run `pypto-20260828T001609Z-762083-e9c23d` compiles graph key
+  `90eb5b8a15c40582`, executes one launch, reports Q/K maximum absolute and
+  relative differences all zero, copies gate exactly, returns zero and leaves
+  no GPU-smoke violation or process-group survivor. Root evidence
+  `state/evidence/pypto_qk_rmsnorm_rope_cp0084.json` binds source, product,
+  build, CTest, preflight, process and result hashes. CP-0084 accepts this QK
+  operator gate only; it is not framework, model, performance or broad
+  numerical evidence.
+- Current kernels after the accepted QK source add a
   static-batch paged-decode source candidate that reads virtual slots directly
   from SGLang's INT32 request table, resolves them through an INT64
   virtual-to-physical table inside the same PyPTO graph and applies a separate
@@ -160,13 +167,16 @@ pause boundary and never signal external processes. The earlier dry admission
 also established that an isolated controller PATH must include
 `/usr/lib/wsl/lib` for WSL's `nvidia-smi` identity audit.
 
-Next run the focused QK compile probe through
-`run_pypto_gpu_smoke_generic.py --allow-protected-zero-nvidia-gpu-smoke`, and
-run the canonical classification and execution scripts. Only a successful
-single launch with Q/K BF16 reference tolerance and exact gate copy may advance
-CP-0084. Afterward remove both temporary probes, regenerate both JSON result
-files, update the README status, commit the result boundary, and continue to
-causal paged attention. Do not claim QK performance or either model gate.
+The temporary QK compiler/GDB probes are removed; the permanent clean-checkout
+gate is `projects/pypto-kernels/benchmarks/qk_sm120.py`. The shared
+classification and execution JSON files deliberately remain stale because
+their current WIP case sets include paged attention, stateful convolution and
+GDN emitters that are
+not present in the accepted QK DSO; regenerating them now would conflate source
+candidates with CP-0084. Next build the isolated paged compiler source through
+`f34c3f5`, then run the frozen 0.8B/9B decode, batch-2 strided decode,
+cache-write and causal-prefill numerical gates before advancing CP-0085. Do not
+claim QK performance or either model gate.
 
 Keep the primary TensorIR checkout on clean `feature/pypto-broadcast-pointwise`
 at `a48606b` for that QK rebuild. Validate `6b7599a` from its isolated worktree

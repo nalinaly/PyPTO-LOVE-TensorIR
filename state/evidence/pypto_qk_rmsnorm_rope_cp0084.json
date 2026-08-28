@@ -1,0 +1,68 @@
+{
+  "accepted_claim": {
+    "correct": true,
+    "gate_exact": true,
+    "graph_key": "90eb5b8a15c40582",
+    "k_max_abs_diff": 0.0,
+    "k_max_relative_diff": 0.0,
+    "launches": 1,
+    "q_max_abs_diff": 0.0,
+    "q_max_relative_diff": 0.0,
+    "shape": {
+      "head_dim": 256,
+      "kv_heads": 2,
+      "max_positions": 262144,
+      "q_heads": 8,
+      "rotary_dim": 64,
+      "tokens": 2
+    },
+    "thresholds": {
+      "atol": 0.05,
+      "rtol": 0.05
+    }
+  },
+  "build": {
+    "ctest_passed": 13,
+    "ctest_total": 13,
+    "dso_bytes": 789270408,
+    "dso_path": "builds/pypto-opext-on-a589f79/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "dso_sha256": "a5399730494b95fbabea7e10596fdd2538be1dd0128d15a1a3d9e61d082c6781",
+    "memory_audit_path": "state/evidence/pypto_qk_final_build_memory_audit_20260828.json",
+    "memory_audit_sha256": "d9fbfa1d57312ae98453d0783e9b5ef1f2e21ec0d151d78fd633c716eb7dcc6e",
+    "pypto_commit": "d1b90b767d6be8e3907a01d41655eedbc621df2f",
+    "tensor_ir_commit": "a48606b88c7fdce4b31ebdf33cd3e6af113cf985"
+  },
+  "kind": "pypto-qk-rmsnorm-rope-cp0084",
+  "not_accepted": [
+    "framework integration",
+    "Qwen3.5 model correctness",
+    "Qwen3.5 model coverage",
+    "Qwen3.5 model stability",
+    "operator or model performance"
+  ],
+  "run": {
+    "initial_preflight_sha256": "76d7a0641475c3c3fb78225f4eb70c50b4cbe0daa2f9aaea4b8d1ff7588df104",
+    "post_exit_group_members": [],
+    "post_exit_violation": null,
+    "preflight_sha256": "d7ce446dc62f70863b6fed46604829415e8bf357e92d3bb671c725799a128d84",
+    "process_metadata_sha256": "654a84f1dc722e7f74fb2562858cc662f42bf4c8d461fe01c09acd423bb4dcf4",
+    "result_sha256": "cbda5f5cda52588cdd83685eeed3b6861b23dab8bb4f9af5fbd6d6955941b613",
+    "return_code": 0,
+    "run_id": "pypto-20260828T001609Z-762083-e9c23d"
+  },
+  "schema_version": 1,
+  "source": {
+    "benchmark_path": "benchmarks/qk_sm120.py",
+    "benchmark_sha256": "be1a288c28f0e73755c0f805300b36a7fac0bb3ba8fad6e86cd50b581ce1770a",
+    "clean_worktree": true,
+    "operator_path": "src/pypto_kernels/qk_rmsnorm_rope.py",
+    "operator_sha256": "4c007e4287e8fd927a9bd50b59f782ba1dbc1c651b32c00e82df53774575c4f6",
+    "pypto_kernels_commit": "cfce9977281a8e467ed40a94c1427820a472f6c2",
+    "pypto_kernels_tree": "ccca6c29d8eb07cdc78d36f5b644df71701b7aec"
+  },
+  "structure_tests": {
+    "command": "python -m pytest -q tests/test_operators.py",
+    "passed": 17,
+    "total": 17
+  }
+}
