@@ -11,6 +11,7 @@ __all__ = (
     "embedding",
     "fused_add_rmsnorm",
     "gdn",
+    "gdn_projection",
     "gated_rmsnorm",
     "linear",
     "qk_rmsnorm_rope",

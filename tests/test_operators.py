@@ -13,6 +13,7 @@ from pypto_kernels import (
     embedding,
     fused_add_rmsnorm,
     gdn,
+    gdn_projection,
     gated_rmsnorm,
     linear,
     qk_rmsnorm_rope,
@@ -37,10 +38,11 @@ def test_each_operator_is_one_program():
             causal_conv1d.GRAPHS,
             embedding.GRAPHS,
             linear.GRAPHS,
-                qk_rmsnorm_rope.GRAPHS,
-                gdn.GRAPHS,
-            )
+            qk_rmsnorm_rope.GRAPHS,
+            gdn.GRAPHS,
+            gdn_projection.GRAPHS,
         )
+    )
     assert gdn.UPDATE_GRAPHS == 0
 
 
@@ -108,10 +110,10 @@ def test_causal_conv1d_stateful_decode_and_prefill_share_one_graph():
     assert len(_one_program(program).body.stmts) == 2
     assert rendered.count("pl.InOut[") == 1
     assert "pl.range(2)" in rendered
-    assert rendered.count("pl.tile.load") == 3
-    assert rendered.count("pl.tile.concat") == 2
+    assert rendered.count("pl.tile.load") == 5
+    assert "history1_box" in rendered and "256 + channel_offset" in rendered
     assert "pl.tile.exp" in rendered and "pl.tile.recip" in rendered
-    assert rendered.count("pl.tile.store") == 2
+    assert rendered.count("pl.tile.store") == 4
     prefill = str(causal_conv1d.build(1, 5, 128))
     assert "pl.range(5)" in prefill
 
@@ -184,9 +186,7 @@ def test_paged_attention_decode_gathers_physical_kv_rows_in_one_graph():
     assert "pl.tile.row_max" in rendered and "pl.tile.row_sum" in rendered
     assert rendered.count("pl.tile.store") == 1
 
-    wide_program = attention.build_paged_decode(
-        1, 8, 2, 512, 256, 1024, 65, 4096
-    )
+    wide_program = attention.build_paged_decode(1, 8, 2, 512, 256, 1024, 65, 4096)
     wide_rendered = str(wide_program)
     assert "pl.range(512)" in wide_rendered
     assert "pl.tile.ci" in wide_rendered
@@ -201,9 +201,7 @@ def test_paged_attention_decode_gathers_physical_kv_rows_in_one_graph():
     assert large_model_rendered.count("pl.tile.gather_row") == 2
     assert large_model_rendered.count("pl.tile.matmul") == 2
 
-    batched_program = attention.build_paged_decode(
-        2, 8, 2, 16, 256, 1024, 65, 4096
-    )
+    batched_program = attention.build_paged_decode(2, 8, 2, 16, 256, 1024, 65, 4096)
     batched_rendered = str(batched_program)
     assert "pl.range(2)" in batched_rendered
     assert batched_rendered.count("pl.tile.gather_row") == 2
@@ -217,9 +215,7 @@ def test_paged_cache_layout_accepts_static_row_pitch() -> None:
         (1024, 512), (2048, 1), dtype=torch.bfloat16, device="meta"
     )
     assert (
-        attention._paged_cache_row_stride(
-            key_cache, value_cache, operation="test"
-        )
+        attention._paged_cache_row_stride(key_cache, value_cache, operation="test")
         == 2048
     )
     overlap = torch.empty_strided(
@@ -265,9 +261,7 @@ def test_paged_prefill_is_one_causal_gqa_graph():
     assert "pl.tile.cmps" in rendered and "pl.tile.sels" in rendered
     assert rendered.count("pl.tile.store") == 1
 
-    large_model = attention.build_paged_prefill(
-        13, 16, 4, 16, 256, 1024, 65, 4096
-    )
+    large_model = attention.build_paged_prefill(13, 16, 4, 16, 256, 1024, 65, 4096)
     large_rendered = str(large_model)
     assert "kv_heads: pl.Scalar[pl.INDEX] = 4" in large_rendered
     assert "queries_per_kv: pl.Scalar[pl.INDEX] = 16 // kv_heads" in large_rendered
@@ -287,9 +281,7 @@ def test_linear_is_one_native_tile_graph():
 
 
 def test_gdn_recurrent_is_one_mutation_declared_graph():
-    program = gdn.build_recurrent(
-        2, 1, 8, 16, 128, 128, 65, 16 * 128 * 128 + 4096
-    )
+    program = gdn.build_recurrent(2, 1, 8, 16, 128, 128, 65, 16 * 128 * 128 + 4096)
     rendered = str(program)
     assert len(_one_program(program).body.stmts) == 2  # one scope + return
     assert rendered.count("pl.InOut[") == 1
@@ -303,6 +295,19 @@ def test_gdn_recurrent_is_one_mutation_declared_graph():
     assert rendered.count("pl.tile.store") == 2  # output plus final FP32 state
     prefill = str(gdn.build_recurrent(1, 3, 8, 16, 128, 128, 65))
     assert "pl.range(3)" in prefill
+    with pytest.raises(ValueError, match="bounded to one"):
+        gdn.compile_recurrent(1, 2, 8, 16, 128, 128, 65, 16 * 128 * 128, "int32")
+
+
+def test_gdn_projection_split_is_one_packed_output_graph():
+    program = gdn_projection.build(3, 8, 16, 128, 128)
+    rendered = str(program)
+    function = _one_program(program)
+    assert len(function.return_types) == 1
+    assert rendered.count("pl.tile.load") == 4
+    assert rendered.count("pl.tile.store") == 4
+    assert rendered.count("pl.Out[") == 1
+    assert "pl.Tensor[[1, 18528]" in rendered
 
 
 def test_broadcast_dependencies_are_closed():
@@ -311,6 +316,9 @@ def test_broadcast_dependencies_are_closed():
     assert not hasattr(rmsnorm, "BLOCKED_ON")
     assert not hasattr(rope, "BLOCKED_ON")
     assert not hasattr(gdn, "BLOCKED_ON")
+    assert causal_conv1d.STATUS.endswith("executable")
+    assert gdn.STATUS.endswith("executable")
+    assert gdn_projection.STATUS.endswith("executable")
 
 
 if __name__ == "__main__":
@@ -329,5 +337,6 @@ if __name__ == "__main__":
     test_paged_prefill_is_one_causal_gqa_graph()
     test_linear_is_one_native_tile_graph()
     test_gdn_recurrent_is_one_mutation_declared_graph()
+    test_gdn_projection_split_is_one_packed_output_graph()
     test_broadcast_dependencies_are_closed()
     print("ALL OPERATOR STRUCTURE TESTS PASSED")

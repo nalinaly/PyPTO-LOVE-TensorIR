@@ -11,11 +11,10 @@ bootstrap()
 import pypto.language as pl  # noqa: E402
 
 _lock = threading.RLock()
-_recurrent_cache: dict[
-    tuple[int, int, int, int, int, int, int, int, str], str
-] = {}
+_recurrent_cache: dict[tuple[int, int, int, int, int, int, int, int, str], str] = {}
+_MAX_FUSED_TOKENS = 1
 
-STATUS = "native-tile recurrent source candidate"
+STATUS = "native-tile recurrent executable"
 GRAPHS = 1
 UPDATE_GRAPHS = 0
 
@@ -51,15 +50,11 @@ def gdn_recurrent_kernel(
                     [state_index, state_offset],
                     [1, key_dim * out.shape[3]],
                 )
-                current_state = pl.reshape(
-                    state_box, [out.shape[3], key_dim]
-                )
+                current_state = pl.reshape(state_box, [out.shape[3], key_dim])
                 for token in pl.range(mixed_qkv.shape[1]):
                     query_offset = query_head * key_dim
                     key_offset = q_heads * key_dim + query_offset
-                    value_offset = 2 * q_heads * key_dim + (
-                        value_head * out.shape[3]
-                    )
+                    value_offset = 2 * q_heads * key_dim + (value_head * out.shape[3])
                     query = pl.load(
                         mixed_qkv,
                         [batch_row, token, query_offset],
@@ -89,9 +84,7 @@ def gdn_recurrent_kernel(
                     query_norm2 = pl.row_sum(query_square, query_scratch)
                     query_norm2 = pl.add(query_norm2, 1.0e-6)
                     query_inv_norm = pl.rsqrt(query_norm2)
-                    query_normalized = pl.row_expand_mul(
-                        query_wide, query_inv_norm
-                    )
+                    query_normalized = pl.row_expand_mul(query_wide, query_inv_norm)
                     query_scaled = pl.mul(query_normalized, scale)
 
                     key_wide = pl.cast(key, target_type=pl.FP32)
@@ -150,17 +143,13 @@ def gdn_recurrent_kernel(
                     beta_abs = pl.abs(beta_x)
                     beta_tail = pl.exp(pl.neg(beta_abs))
                     beta_tail = pl.log(pl.add(beta_tail, 1.0))
-                    beta_softplus = pl.add(
-                        pl.maximums(beta_x, 0.0), beta_tail
-                    )
+                    beta_softplus = pl.add(pl.maximums(beta_x, 0.0), beta_tail)
                     beta = pl.exp(pl.neg(beta_softplus))
                     beta_storage = pl.cast(beta, target_type=pl.BF16)
                     beta = pl.cast(beta_storage, target_type=pl.FP32)
 
                     key_column = pl.tile.transpose_view(key_normalized)
-                    state_key = pl.matmul(
-                        decayed_state, key_column, out_dtype=pl.FP32
-                    )
+                    state_key = pl.matmul(decayed_state, key_column, out_dtype=pl.FP32)
                     value_wide = pl.cast(value, target_type=pl.FP32)
                     residual_value = pl.sub(value_wide, state_key)
                     delta_value = pl.mul(residual_value, beta)
@@ -173,9 +162,7 @@ def gdn_recurrent_kernel(
                         query_scaled, state_transposed, out_dtype=pl.FP32
                     )
                     output = pl.cast(output_wide, target_type=pl.BF16)
-                    output_box = pl.reshape(
-                        output, [1, 1, 1, out.shape[3]]
-                    )
+                    output_box = pl.reshape(output, [1, 1, 1, out.shape[3]])
                     pl.store(
                         output_box,
                         [batch_row, token, value_head, 0],
@@ -272,9 +259,7 @@ def build_recurrent(
         dtype=torch.float32,
         device="meta",
     )
-    state_indices = torch.empty(
-        (batch_size, 1), dtype=torch_index_dtype, device="meta"
-    )
+    state_indices = torch.empty((batch_size, 1), dtype=torch_index_dtype, device="meta")
     out = torch.empty(
         (batch_size, tokens_per_request, value_heads, value_dim),
         dtype=torch.bfloat16,
@@ -305,6 +290,10 @@ def compile_recurrent(
     state_slot_stride: int,
     index_dtype: str,
 ) -> str:
+    if tokens_per_request > _MAX_FUSED_TOKENS:
+        raise ValueError(
+            "GDN recurrent fused primitive is bounded to one ordered token"
+        )
     shape_key = (
         batch_size,
         tokens_per_request,
@@ -320,7 +309,8 @@ def compile_recurrent(
     if cached is not None:
         return cached
     program = build_recurrent(*shape_key)
-    graph_key = compile_graph(program, [1, 1, 1, 64])
+    tiles = [1, 1, 64] if batch_size == 1 and tokens_per_request == 1 else [1, 1, 1, 64]
+    graph_key = compile_graph(program, tiles)
     with _lock:
         _recurrent_cache[shape_key] = graph_key
     return graph_key
@@ -339,7 +329,11 @@ def gdn_recurrent(
     tokens_per_request: int,
     stream: Any = None,
 ) -> Any:
-    """Execute one ordered recurrent graph and update ``state`` in place."""
+    """Execute ordered PyPTO recurrence and update ``state`` in place.
+
+    Long prefills use ordered, CUDA-graph-capturable single-token launches so
+    every recurrent state boundary has the numerically accepted flat layout.
+    """
 
     import torch
 
@@ -375,7 +369,9 @@ def gdn_recurrent(
         or state.stride(1) != value_dim * key_dim
         or state.stride(0) < value_heads * value_dim * key_dim
     ):
-        raise ValueError("GDN recurrent state payload must be contiguous within each slot")
+        raise ValueError(
+            "GDN recurrent state payload must be contiguous within each slot"
+        )
     if batch_size <= 0 or tokens_per_request <= 0:
         raise ValueError("GDN recurrent batch and token extents must be positive")
     rows = batch_size * tokens_per_request
@@ -395,7 +391,9 @@ def gdn_recurrent(
         or state_indices.dtype not in (torch.int32, torch.int64)
         or not state_indices.is_contiguous()
     ):
-        raise ValueError("GDN recurrent needs one contiguous INT32/INT64 state index per request")
+        raise ValueError(
+            "GDN recurrent needs one contiguous INT32/INT64 state index per request"
+        )
     if any(
         tensor.device != mixed_qkv.device
         for tensor in (a, b, A_log, dt_bias, state, state_indices)
@@ -403,34 +401,8 @@ def gdn_recurrent(
         raise ValueError("GDN recurrent tensors must share one device")
     index_dtype = "int32" if state_indices.dtype is torch.int32 else "int64"
     state_slot_stride = int(state.stride(0))
-    graph_key = compile_recurrent(
-        batch_size,
-        tokens_per_request,
-        q_heads,
-        value_heads,
-        key_dim,
-        value_dim,
-        state_slots,
-        state_slot_stride,
-        index_dtype,
-    )
     if stream is None:
         stream = torch.cuda.current_stream(mixed_qkv.device)
-    mixed_view = mixed_qkv.view(batch_size, tokens_per_request, -1)
-    gate_strides = (
-        tokens_per_request * value_heads,
-        value_heads,
-        1,
-        0,
-    )
-    a_view = a.view(batch_size, tokens_per_request, value_heads).as_strided(
-        (batch_size, tokens_per_request, value_heads, value_dim),
-        gate_strides,
-    )
-    b_view = b.view(batch_size, tokens_per_request, value_heads).as_strided(
-        (batch_size, tokens_per_request, value_heads, value_dim),
-        gate_strides,
-    )
     A_view = A_log.as_strided((value_heads, value_dim), (1, 0))
     dt_view = dt_bias.as_strided((value_heads, value_dim), (1, 0))
     state_view = state.view(state_slots, -1)
@@ -439,21 +411,108 @@ def gdn_recurrent(
         dtype=torch.bfloat16,
         device=mixed_qkv.device,
     )
-    launch_graph(
-        graph_key,
-        (
-            mixed_view,
-            a_view,
-            b_view,
-            A_view,
-            dt_view,
-            state_view,
-            state_indices.view(batch_size, 1),
-            out,
-        ),
-        stream.cuda_stream,
-    )
+
+    def launch_chunk(*, request_row: int, token_start: int, token_count: int) -> None:
+        flat_start = request_row * tokens_per_request + token_start
+        graph_key = compile_recurrent(
+            1,
+            token_count,
+            q_heads,
+            value_heads,
+            key_dim,
+            value_dim,
+            state_slots,
+            state_slot_stride,
+            index_dtype,
+        )
+        mixed_view = mixed_qkv.narrow(0, flat_start, token_count).view(
+            1, token_count, -1
+        )
+        gate_strides = (token_count * value_heads, value_heads, 1, 0)
+        a_view = (
+            a.narrow(0, flat_start, token_count)
+            .view(1, token_count, value_heads)
+            .as_strided((1, token_count, value_heads, value_dim), gate_strides)
+        )
+        b_view = (
+            b.narrow(0, flat_start, token_count)
+            .view(1, token_count, value_heads)
+            .as_strided((1, token_count, value_heads, value_dim), gate_strides)
+        )
+        out_view = (
+            out.view(rows, value_heads, value_dim)
+            .narrow(0, flat_start, token_count)
+            .view(1, token_count, value_heads, value_dim)
+        )
+        launch_graph(
+            graph_key,
+            (
+                mixed_view,
+                a_view,
+                b_view,
+                A_view,
+                dt_view,
+                state_view,
+                state_indices.narrow(0, request_row, 1).view(1, 1),
+                out_view,
+            ),
+            stream.cuda_stream,
+        )
+
+    if tokens_per_request <= _MAX_FUSED_TOKENS:
+        graph_key = compile_recurrent(
+            batch_size,
+            tokens_per_request,
+            q_heads,
+            value_heads,
+            key_dim,
+            value_dim,
+            state_slots,
+            state_slot_stride,
+            index_dtype,
+        )
+        mixed_view = mixed_qkv.view(batch_size, tokens_per_request, -1)
+        gate_strides = (
+            tokens_per_request * value_heads,
+            value_heads,
+            1,
+            0,
+        )
+        a_view = a.view(batch_size, tokens_per_request, value_heads).as_strided(
+            (batch_size, tokens_per_request, value_heads, value_dim),
+            gate_strides,
+        )
+        b_view = b.view(batch_size, tokens_per_request, value_heads).as_strided(
+            (batch_size, tokens_per_request, value_heads, value_dim),
+            gate_strides,
+        )
+        launch_graph(
+            graph_key,
+            (
+                mixed_view,
+                a_view,
+                b_view,
+                A_view,
+                dt_view,
+                state_view,
+                state_indices.view(batch_size, 1),
+                out,
+            ),
+            stream.cuda_stream,
+        )
+    else:
+        for request_row in range(batch_size):
+            for token_start in range(0, tokens_per_request, _MAX_FUSED_TOKENS):
+                launch_chunk(
+                    request_row=request_row,
+                    token_start=token_start,
+                    token_count=min(
+                        _MAX_FUSED_TOKENS,
+                        tokens_per_request - token_start,
+                    ),
+                )
     return out
+
 
 def recurrent_status(
     batch_size: int = 2,

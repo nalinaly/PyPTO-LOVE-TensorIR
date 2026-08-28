@@ -15,7 +15,7 @@ _KERNEL_WIDTH = 4
 _lock = threading.RLock()
 _cache: dict[tuple[int, int, int, int, int, str], str] = {}
 
-STATUS = "native-tile stateful source candidate"
+STATUS = "native-tile stateful executable"
 GRAPHS = 1
 
 
@@ -34,21 +34,33 @@ def causal_conv1d_kernel(
             state_index_i64 = pl.read(state_indices, [batch_row, 0])
             state_index = pl.cast(state_index_i64, pl.INT32)
             for channel_block in pl.range(x.shape[2] // 128):
-                state_offset = channel_block * 128 * 3
-                state_box = pl.load(
+                channel_offset = channel_block * 128
+                history0_box = pl.load(
                     state,
-                    [state_index, state_offset],
-                    [1, 128 * 3],
+                    [state_index, channel_offset],
+                    [1, 128],
                 )
-                state_tile = pl.reshape(state_box, [128, 3])
-                state_wide = pl.cast(state_tile, target_type=pl.FP32)
-                history0 = pl.tile.slice(state_wide, [128, 1], [0, 0])
-                history1 = pl.tile.slice(state_wide, [128, 1], [0, 1])
-                history2 = pl.tile.slice(state_wide, [128, 1], [0, 2])
+                history1_box = pl.load(
+                    state,
+                    [state_index, x.shape[2] + channel_offset],
+                    [1, 128],
+                )
+                history2_box = pl.load(
+                    state,
+                    [state_index, 2 * x.shape[2] + channel_offset],
+                    [1, 128],
+                )
+                history0 = pl.cast(
+                    pl.reshape(history0_box, [128, 1]), target_type=pl.FP32
+                )
+                history1 = pl.cast(
+                    pl.reshape(history1_box, [128, 1]), target_type=pl.FP32
+                )
+                history2 = pl.cast(
+                    pl.reshape(history2_box, [128, 1]), target_type=pl.FP32
+                )
 
-                weight_tile = pl.load(
-                    weight, [channel_block * 128, 0], [128, 4]
-                )
+                weight_tile = pl.load(weight, [channel_block * 128, 0], [128, 4])
                 weight_wide = pl.cast(weight_tile, target_type=pl.FP32)
                 weight0 = pl.tile.slice(weight_wide, [128, 1], [0, 0])
                 weight1 = pl.tile.slice(weight_wide, [128, 1], [0, 1])
@@ -84,12 +96,26 @@ def causal_conv1d_kernel(
                     history1 = history2
                     history2 = current_wide
 
-                final_state = pl.tile.concat(
-                    pl.tile.concat(history0, history1), history2
+                final_history0 = pl.reshape(
+                    pl.cast(history0, target_type=pl.BF16), [1, 128]
                 )
-                final_state = pl.cast(final_state, target_type=pl.BF16)
-                final_box = pl.reshape(final_state, [1, 128 * 3])
-                pl.store(final_box, [state_index, state_offset], state)
+                final_history1 = pl.reshape(
+                    pl.cast(history1, target_type=pl.BF16), [1, 128]
+                )
+                final_history2 = pl.reshape(
+                    pl.cast(history2, target_type=pl.BF16), [1, 128]
+                )
+                pl.store(final_history0, [state_index, channel_offset], state)
+                pl.store(
+                    final_history1,
+                    [state_index, x.shape[2] + channel_offset],
+                    state,
+                )
+                pl.store(
+                    final_history2,
+                    [state_index, 2 * x.shape[2] + channel_offset],
+                    state,
+                )
     return out
 
 
@@ -146,9 +172,7 @@ def build(
         dtype=torch.bfloat16,
         device="meta",
     )
-    state_indices = torch.empty(
-        (batch_size, 1), dtype=torch_index_dtype, device="meta"
-    )
+    state_indices = torch.empty((batch_size, 1), dtype=torch_index_dtype, device="meta")
     return causal_conv1d_kernel.specialize(x, weight, state, state_indices, x)
 
 
@@ -179,7 +203,11 @@ def compile_for(
     if cached is not None:
         return cached
 
-    graph_key = compile_graph(build(*shape_key), [1, 1, _CHANNEL_TILE])
+    if tokens_per_request > 1:
+        tiles = [1, 1, 1, _CHANNEL_TILE]
+    else:
+        tiles = [1, 1, _CHANNEL_TILE]
+    graph_key = compile_graph(build(*shape_key), tiles)
     with _lock:
         _cache[shape_key] = graph_key
     return graph_key
@@ -216,14 +244,16 @@ def causal_conv1d(
     if state.ndim != 3 or state.dtype is not torch.bfloat16:
         raise ValueError("causal_conv1d state must be rank-3 BF16")
     state_slots = int(state.shape[0])
-    if tuple(state.shape[1:]) != (channels, _KERNEL_WIDTH - 1):
-        raise ValueError("causal_conv1d state payload must have shape [channels,3]")
+    if tuple(state.shape[1:]) != (_KERNEL_WIDTH - 1, channels):
+        raise ValueError("causal_conv1d state payload must have shape [3,channels]")
     if (
         state.stride(2) != 1
-        or state.stride(1) != _KERNEL_WIDTH - 1
+        or state.stride(1) != channels
         or state.stride(0) < channels * (_KERNEL_WIDTH - 1)
     ):
-        raise ValueError("causal_conv1d state payload must be contiguous within each slot")
+        raise ValueError(
+            "causal_conv1d state payload must be contiguous within each slot"
+        )
     if (
         state_indices.ndim != 1
         or state_indices.numel() != batch_size

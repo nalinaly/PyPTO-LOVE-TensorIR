@@ -16,13 +16,14 @@ ones-matmul 广播展开。仅仅用整张量 `tensor.*` graph 再附加 schedul
 | `sigmoid_mul` | 1 | **原生 tile** ✅ | full-attention 输出门 `value*sigmoid(gate)`；一次 launch |
 | `embedding` | 1 | **原生 tile** ✅ | INT64 token 动态 row gather；无 one-hot；一次 launch |
 | `linear`（投影/LM head） | 1 | **原生 tile** ✅ | `[1,K] @ [128,K].T` 输出 tile；一次 launch |
-| `qk_rmsnorm_rope` | 1 | **原生 tile 待 run-pass** | Q/K norm + partial RoPE + gate split 单图 |
+| `qk_rmsnorm_rope` | 1 | **原生 tile** ✅ | Q/K norm + partial RoPE + gate split 单图；最终 DSO 上单 launch，Q/K 对参考零误差且 gate 精确一致 |
 | `rmsnorm` | 1 | **原生 tile** ✅ | Qwen `normalized * (1+weight)` 完整公式；一次 launch |
 | `rope` | 1 | **原生 tile** ✅ | 低/高半旋转在一个图内，两个 store 合成一个结果；一次 launch |
-| `gdn_recurrent` | 1 | **原生 tile 源码候选** | `[B,T]` 静态图内完成 Q/K L2 norm、稳定 gate/beta、FP32 state decay/delta outer-product、InOut 回写与 BF16 输出；`T=1` 覆盖 batch decode，`B=1` 覆盖顺序 prefill；待编译/数值 run-pass |
+| `gdn_recurrent` | 1 | **原生 tile** ✅ | T1 primitive 完成 Q/K L2 norm、稳定 gate/beta、FP32 state decay/outer-product、InOut 回写与 BF16 输出；batch decode 一次 launch，prefill 按 token 顺序发射可 CUDA-Graph 捕获的 PyPTO launches；T13 state 误差不超过 `2.24e-8` |
+| `gdn_projection` | 1 | **原生 tile** ✅ | 一次 launch 写入 output-major packed buffer，并返回四个连续零拷贝 view；13-row gate 对输入切片逐位一致 |
 | `gated_rmsnorm` | 1 | **原生 tile** ✅ | GDN `RMSNorm(x,weight) * SiLU(gate)` 单图/单 launch |
-| `attention` | 4 | **dense 已通过；paged decode/cache-write/prefill 源码候选** | dense QK→稳定 softmax→PV；decode 单图按 batch 读取 SGLang request table、在图内做 page-size-one v2p、读取 row-pitched KV 并用 GPU seq-len 做 GQA masked softmax；cache-write 单图翻译 virtual rows 后写 InOut cache；causal prefill 单图复用 gathered K/V；覆盖 0.8B/9B 与 batch2 源码几何，仍待 CUDA Tile run-pass |
-| `causal_conv1d` | 1 | **原生 tile 源码候选** | `[B,T]` width-4 FP32 累加 + SiLU，读取并 InOut 回写 BF16 row-pitched `[D,3]` slot history；同图覆盖 batch decode 与单请求顺序 prefill；待编译/数值 run-pass |
+| `attention` | 4 | **原生 tile** ✅ | dense + paged decode/cache-write/causal prefill；0.8B/9B、batch2 row-pitched cache 与 valid-length mask 数值门通过，最坏误差 `0.03333` |
+| `causal_conv1d` | 1 | **原生 tile** ✅ | `[B,T]` width-4 FP32 累加 + SiLU，读取并 InOut 回写 BF16 row-pitched plane-major `[3,D]` history；decode/prefill state 逐位一致 |
 
 CP-0062 已关闭 broadcast producer 阻塞；分类证据在
 `benchmarks/classify_results.json`。`compiled` 与 GPU 数值 `all_correct`

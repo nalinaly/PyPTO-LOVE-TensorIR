@@ -15,6 +15,15 @@ sys.path.insert(
     0,
     "/home/zhaosiying/pypto-love-tensor-ir/projects/pypto-kernels/src",
 )
+os.environ.setdefault(
+    "PYPTO_KERNEL_DSO_PATH",
+    "/home/zhaosiying/pypto-love-tensor-ir/builds/pypto-paged-f34c3f5/"
+    "product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+)
+os.environ.setdefault(
+    "PYPTO_KERNEL_PACKAGE_PATH",
+    "/home/zhaosiying/pypto-love-tensor-ir/worktrees/pypto-paged-decode/python/pypto",
+)
 
 from pypto_kernels._boot import DSO_PATH, bootstrap, classify  # noqa: E402
 from pypto_kernels import (  # noqa: E402
@@ -23,6 +32,7 @@ from pypto_kernels import (  # noqa: E402
     embedding,
     fused_add_rmsnorm,
     gdn,
+    gdn_projection,
     gated_rmsnorm,
     linear,
     qk_rmsnorm_rope,
@@ -67,25 +77,23 @@ def main() -> int:
         (
             "causal_conv1d_stateful_prefill",
             causal_conv1d.build(1, 13, 4096),
-            [1, 1, 128],
+            [1, 1, 1, 128],
         ),
         ("rope", rope.build(256, 64), [1, 1, 64]),
         ("attention", attention.build(32, 128, 128, 128), [1, 64]),
         (
             "attention_paged_decode_0_8b",
             attention.build_paged_decode(1, 8, 2, 16, 256, 1024, 65, 4096),
-            [1, 1, 64],
+            [1, 64],
         ),
         (
             "attention_paged_decode_9b",
             attention.build_paged_decode(1, 16, 4, 16, 256, 1024, 65, 4096),
-            [1, 1, 64],
+            [1, 64],
         ),
         (
             "attention_paged_decode_batch2_strided_0_8b",
-            attention.build_paged_decode(
-                2, 8, 2, 16, 256, 1024, 65, 4096, 2048
-            ),
+            attention.build_paged_decode(2, 8, 2, 16, 256, 1024, 65, 4096, 2048),
             [1, 1, 64],
         ),
         (
@@ -105,26 +113,29 @@ def main() -> int:
         ),
         (
             "attention_paged_prefill_strided_0_8b",
-            attention.build_paged_prefill(
-                13, 8, 2, 16, 256, 1024, 65, 4096, 2048
-            ),
-            [1, 1, 128],
+            attention.build_paged_prefill(13, 8, 2, 16, 256, 1024, 65, 4096, 2048),
+            [1, 1, 1, 128],
         ),
         (
             "attention_paged_prefill_9b",
             attention.build_paged_prefill(13, 16, 4, 16, 256, 1024, 65, 4096),
-            [1, 1, 128],
+            [1, 1, 1, 128],
         ),
         ("linear", linear.build(32, 1024, 1024), [1, 128]),
+        (
+            "gdn_projection_split",
+            gdn_projection.build(13, 8, 16, 128, 128),
+            [1, 16],
+        ),
         (
             "gdn_recurrent_decode",
             gdn.build_recurrent(2, 1, 8, 16, 128, 128, 65),
             [1, 1, 1, 64],
         ),
         (
-            "gdn_recurrent_prefill",
-            gdn.build_recurrent(1, 13, 8, 16, 128, 128, 65),
-            [1, 1, 1, 64],
+            "gdn_recurrent_prefill_token_primitive",
+            gdn.build_recurrent(1, 1, 8, 16, 128, 128, 65),
+            [1, 1, 64],
         ),
     )
     results = []
