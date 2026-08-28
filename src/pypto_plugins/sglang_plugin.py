@@ -8,6 +8,10 @@ standalone operator ABI exists.
 from __future__ import annotations
 
 import importlib
+import atexit
+import json
+import os
+from pathlib import Path
 import threading
 import weakref
 
@@ -63,6 +67,9 @@ UNIFIED_MAMBA_TRANSLATE_TARGET = (
 
 _linear_prepack_lock = threading.RLock()
 _linear_prepack_cache: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+_differential_lock = threading.RLock()
+_differential_records: list[dict[str, object]] = []
+_differential_writer_registered = False
 
 
 def _pypto_compute_selected() -> bool:
@@ -75,6 +82,48 @@ def _pypto_compute_selected() -> bool:
         getattr(mamba, "linear_attn_prefill_backend", None),
         getattr(mamba, "linear_attn_verify_backend", None),
     }
+
+
+def _vendor_reference_mode() -> bool:
+    return os.environ.get("PYPTO_REFERENCE_VENDOR_COMPUTE") == "1"
+
+
+def _record_differential(kind: str, name: str, candidate, reference) -> None:
+    path = os.environ.get("PYPTO_DIFFERENTIAL_REPORT")
+    if not path:
+        return
+    import torch
+
+    torch.cuda.synchronize(candidate.device)
+    difference = (candidate.detach().float() - reference.detach().float()).abs()
+    record = {
+        "candidate_dtype": str(candidate.dtype),
+        "kind": kind,
+        "max_abs": float(difference.max()),
+        "mean_abs": float(difference.mean()),
+        "name": name,
+        "reference_dtype": str(reference.dtype),
+        "shape": list(candidate.shape),
+    }
+    global _differential_writer_registered
+    with _differential_lock:
+        _differential_records.append(record)
+        if not _differential_writer_registered:
+            def write_report() -> None:
+                output = Path(path)
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_text(
+                    json.dumps(
+                        _differential_records,
+                        indent=2,
+                        sort_keys=True,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+
+            atexit.register(write_report)
+            _differential_writer_registered = True
 
 
 def _attention_factory(runner):
@@ -514,7 +563,7 @@ def _fused_sigmoid_mul_around(
 def _unquantized_linear_around(original_fn, method, layer, x, bias=None):
     """Route every selected BF16 SGLang linear through PyPTO matmul."""
 
-    if not _pypto_compute_selected():
+    if not _pypto_compute_selected() or _vendor_reference_mode():
         return original_fn(method, layer, x, bias)
     import torch
 
@@ -569,13 +618,27 @@ def _unquantized_linear_around(original_fn, method, layer, x, bias=None):
             launch_weight = cached[1]
     with pypto_stream(x.device) as stream:
         output = linear.linear(x, launch_weight, stream=stream)
-    return output[..., :logical_features]
+    output = output[..., :logical_features]
+    if os.environ.get("PYPTO_DIFFERENTIAL_REPORT"):
+        previous = torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction
+        torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = False
+        try:
+            reference = original_fn(method, layer, x, bias)
+        finally:
+            torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = previous
+        _record_differential(
+            "linear",
+            str(getattr(layer, "prefix", type(layer).__name__)),
+            output,
+            reference,
+        )
+    return output
 
 
 def _silu_and_mul_around(original_fn, input, out=None):
     """Route SGLang's packed SwiGLU activation through one PyPTO graph."""
 
-    if not _pypto_compute_selected():
+    if not _pypto_compute_selected() or _vendor_reference_mode():
         return original_fn(input, out)
     import torch
 
@@ -607,12 +670,16 @@ def _silu_and_mul_around(original_fn, input, out=None):
     if silu_and_mul.STATUS != "native-tile executable":
         raise BackendNotReadyError("PyPTO SiLU-and-mul operator is not executable.")
     with pypto_stream(input.device) as stream:
-        return silu_and_mul.silu_and_mul(
+        result = silu_and_mul.silu_and_mul(
             input[:, :half],
             input[:, half:],
             stream=stream,
             out=out,
         )
+    if os.environ.get("PYPTO_DIFFERENTIAL_REPORT"):
+        reference = original_fn(input, None)
+        _record_differential("silu_and_mul", "packed_swiglu", result, reference)
+    return result
 
 
 def _lm_head_around(
@@ -624,7 +691,7 @@ def _lm_head_around(
 ):
     """Route the unquantized Qwen vocabulary projection through PyPTO."""
 
-    if not _pypto_compute_selected():
+    if not _pypto_compute_selected() or _vendor_reference_mode():
         return original_fn(processor, hidden_states, lm_head, embedding_bias)
     import torch
 
@@ -653,13 +720,24 @@ def _lm_head_around(
     from .sglang.stream import pypto_stream
 
     with pypto_stream(hidden_states.device) as stream:
-        return linear.linear_to_float(hidden_states, weight.data, stream=stream)
+        result = linear.linear_to_float(hidden_states, weight.data, stream=stream)
+    if os.environ.get("PYPTO_DIFFERENTIAL_REPORT"):
+        previous = torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction
+        torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = False
+        try:
+            reference = original_fn(
+                processor, hidden_states, lm_head, embedding_bias
+            )
+        finally:
+            torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = previous
+        _record_differential("lm_head", "lm_head", result, reference.float())
+    return result
 
 
 def _embedding_around(original_fn, method, layer, input_):
     """Route the unquantized token embedding gather through PyPTO."""
 
-    if not _pypto_compute_selected():
+    if not _pypto_compute_selected() or _vendor_reference_mode():
         return original_fn(method, layer, input_)
     import torch
 
@@ -699,7 +777,7 @@ def _pruned_states_around(
 ):
     """Use a zero-copy last-row view for one-request PyPTO prefill."""
 
-    if not _pypto_compute_selected():
+    if not _pypto_compute_selected() or _vendor_reference_mode():
         return original_fn(
             processor,
             hidden_states,
@@ -752,13 +830,13 @@ def _integer_gather(table, indices):
 
 
 def _mamba_indices_around(original_fn, pool, req_indices):
-    if not _pypto_compute_selected():
+    if not _pypto_compute_selected() or _vendor_reference_mode():
         return original_fn(pool, req_indices)
     return _integer_gather(pool.req_index_to_mamba_index_mapping, req_indices)
 
 
 def _unified_mamba_translate_around(original_fn, allocator, virtual_ids):
-    if not _pypto_compute_selected():
+    if not _pypto_compute_selected() or _vendor_reference_mode():
         return original_fn(allocator, virtual_ids)
     return _integer_gather(allocator.virtual_to_physical, virtual_ids)
 
