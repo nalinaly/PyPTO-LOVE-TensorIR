@@ -45,7 +45,10 @@ _bind_installed_pypto_for_operator_bootstrap()
 import torch  # noqa: E402
 
 from pypto_kernels import silu_and_mul  # noqa: E402
-from pypto_plugins.activity_trace import artifact_registry_snapshot  # noqa: E402
+from pypto_plugins.activity_trace import (  # noqa: E402
+    artifact_registry_snapshot,
+    clear_artifact_registry_for_testing,
+)
 from pypto_plugins.torch import inductor_swiglu, pointwise_codegen  # noqa: E402
 from pypto_plugins.torch.scheduling import REGISTRY  # noqa: E402
 
@@ -62,7 +65,7 @@ def _intermediate_size(model_root: Path, name: str) -> int:
     return value
 
 
-def _run_case(model: str, rows: int, columns: int) -> dict[str, object]:
+def _run_case(model: str, rows: int, columns: int):
     torch.manual_seed(rows * 1009 + columns)
     packed = torch.randn(
         (rows, 2 * columns),
@@ -75,9 +78,30 @@ def _run_case(model: str, rows: int, columns: int) -> dict[str, object]:
     if tuple(gate.stride()) != expected_stride or tuple(up.stride()) != expected_stride:
         raise RuntimeError("packed Qwen views lost their row pitch")
 
+    before_artifacts = {
+        record.artifact_id for record in artifact_registry_snapshot()
+    }
     generated = inductor_swiglu.run_fp32_swiglu(gate, up)
     generated_again = inductor_swiglu.run_fp32_swiglu(gate, up)
+    new_artifacts = [
+        record
+        for record in artifact_registry_snapshot()
+        if record.artifact_id not in before_artifacts
+        and record.source_node.startswith("torch-inductor:")
+    ]
+    if len(new_artifacts) != 1:
+        raise RuntimeError(
+            f"{model} rows={rows} did not register exactly one new Inductor artifact"
+        )
+    inductor_artifact = new_artifacts[0]
+
+    # The compiler may produce byte-identical Cubin for the handwritten and
+    # Inductor paths. Exercise the baseline in a separate provenance window;
+    # never weaken the registry's one-artifact/one-provenance invariant.
+    clear_artifact_registry_for_testing()
     handwritten = silu_and_mul.silu_and_mul(gate, up)
+    clear_artifact_registry_for_testing()
+    generated_after_baseline = inductor_swiglu.run_fp32_swiglu(gate, up)
     reference = (
         gate.float() * torch.sigmoid(gate.float()) * up.float()
     ).to(torch.bfloat16)
@@ -85,7 +109,10 @@ def _run_case(model: str, rows: int, columns: int) -> dict[str, object]:
 
     generated_error = (generated.float() - reference.float()).abs()
     handwritten_error = (generated.float() - handwritten.float()).abs()
-    repeated_equal = bool(torch.equal(generated, generated_again))
+    repeated_equal = bool(
+        torch.equal(generated, generated_again)
+        and torch.equal(generated, generated_after_baseline)
+    )
     reference_close = bool(torch.allclose(generated, reference, rtol=1e-2, atol=3.125e-2))
     handwritten_equal = bool(torch.equal(generated, handwritten))
     if not repeated_equal or not reference_close or not handwritten_equal:
@@ -94,19 +121,22 @@ def _run_case(model: str, rows: int, columns: int) -> dict[str, object]:
             f"repeat={repeated_equal}, reference={reference_close}, "
             f"handwritten={handwritten_equal}"
         )
-    return {
-        "model": model,
-        "rows": rows,
-        "columns": columns,
-        "gate_stride": list(gate.stride()),
-        "up_stride": list(up.stride()),
-        "output_stride": list(generated.stride()),
-        "max_abs_vs_fp32_formula": float(generated_error.max()),
-        "max_abs_vs_handwritten": float(handwritten_error.max()),
-        "repeated_equal": repeated_equal,
-        "reference_close": reference_close,
-        "handwritten_equal": handwritten_equal,
-    }
+    return (
+        {
+            "model": model,
+            "rows": rows,
+            "columns": columns,
+            "gate_stride": list(gate.stride()),
+            "up_stride": list(up.stride()),
+            "output_stride": list(generated.stride()),
+            "max_abs_vs_fp32_formula": float(generated_error.max()),
+            "max_abs_vs_handwritten": float(handwritten_error.max()),
+            "repeated_equal": repeated_equal,
+            "reference_close": reference_close,
+            "handwritten_equal": handwritten_equal,
+        },
+        inductor_artifact,
+    )
 
 
 def main() -> int:
@@ -130,20 +160,18 @@ def main() -> int:
     inductor_config.compile_threads = 1
     torch._dynamo.reset()
     REGISTRY.clear()
+    clear_artifact_registry_for_testing()
     pointwise_codegen.clear_caches_for_testing()
     inductor_swiglu.clear_callable_cache_for_testing()
 
-    cases = [
+    case_results = [
         _run_case(model, row_count, _intermediate_size(args.model_root, model))
         for model in MODEL_DIRECTORIES
         for row_count in rows
     ]
+    cases = [case for case, _artifact in case_results]
     cache = inductor_swiglu.callable_cache_snapshot()
-    artifacts = [
-        record
-        for record in artifact_registry_snapshot()
-        if record.source_node.startswith("torch-inductor:")
-    ]
+    artifacts = [artifact for _case, artifact in case_results]
     registry_artifacts = REGISTRY.unique_artifacts()
     expected_case_count = len(MODEL_DIRECTORIES) * len(rows)
     source_nodes = {entry[2] for entry in cache}
