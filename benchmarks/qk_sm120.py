@@ -7,8 +7,11 @@ import hashlib
 import json
 import os
 import pathlib
+import sys
 
 import torch
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
 from pypto_kernels import qk_rmsnorm_rope
 from pypto_kernels._boot import DSO_PATH, bootstrap
