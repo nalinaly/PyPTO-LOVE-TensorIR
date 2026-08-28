@@ -13,6 +13,7 @@ import pypto.language as pl  # noqa: E402
 
 _ROW_TILE = 1
 _VALUE_TILE = 64
+_MAX_FUSED_PREFILL_KV_HEADS = 2
 _lock = threading.RLock()
 _cache: dict[tuple[int, int, int, int], str] = {}
 _paged_decode_cache: dict[tuple[int, ...], str] = {}
@@ -792,6 +793,7 @@ def _validate_paged_prefill_shape(
     cache_row_stride: int,
     mapping_rows: int,
     query_row_stride: int,
+    result_row_stride: int,
 ) -> None:
     if (
         query_rows <= 0
@@ -808,11 +810,24 @@ def _validate_paged_prefill_shape(
         or cache_row_stride < kv_heads * head_dim
         or mapping_rows <= 0
         or query_row_stride < q_heads * head_dim
+        or result_row_stride < q_heads * head_dim
     ):
         raise ValueError(
             "paged prefill needs positive GQA geometry, a 16-token bucket, "
             "head_dim divisible by 128 and a covering request table"
         )
+
+
+def _paged_prefill_partition_count(kv_heads: int) -> int:
+    if kv_heads <= 0:
+        raise ValueError("paged prefill partitioning needs positive KV heads")
+    return 1 if kv_heads <= _MAX_FUSED_PREFILL_KV_HEADS else kv_heads
+
+
+def _launch_paged_prefill_graph(
+    graph_key: str, operands: tuple[Any, ...], stream: Any
+) -> None:
+    launch_graph(graph_key, operands, stream.cuda_stream)
 
 
 def build_paged_prefill(
@@ -827,6 +842,7 @@ def build_paged_prefill(
     cache_row_stride: int | None = None,
     mapping_rows: int | None = None,
     query_row_stride: int | None = None,
+    result_row_stride: int | None = None,
 ) -> Any:
     cache_width = kv_heads * head_dim
     if cache_row_stride is None:
@@ -835,6 +851,8 @@ def build_paged_prefill(
         mapping_rows = cache_rows
     if query_row_stride is None:
         query_row_stride = q_heads * head_dim
+    if result_row_stride is None:
+        result_row_stride = q_heads * head_dim
     _validate_paged_prefill_shape(
         query_rows,
         q_heads,
@@ -847,6 +865,7 @@ def build_paged_prefill(
         cache_row_stride,
         mapping_rows,
         query_row_stride,
+        result_row_stride,
     )
     import torch
 
@@ -880,8 +899,11 @@ def build_paged_prefill(
     virtual_to_physical = torch.empty(
         (mapping_rows, 1), dtype=torch.int64, device="meta"
     )
-    out = torch.empty(
-        (query_rows, q_heads, head_dim), dtype=torch.bfloat16, device="meta"
+    out = torch.empty_strided(
+        (query_rows, q_heads, head_dim),
+        (result_row_stride, head_dim, 1),
+        dtype=torch.bfloat16,
+        device="meta",
     )
     return paged_attention_prefill_kernel.specialize(
         query,
@@ -908,6 +930,7 @@ def compile_paged_prefill_for(
     cache_row_stride: int | None = None,
     mapping_rows: int | None = None,
     query_row_stride: int | None = None,
+    result_row_stride: int | None = None,
 ) -> str:
     cache_width = kv_heads * head_dim
     if cache_row_stride is None:
@@ -916,6 +939,8 @@ def compile_paged_prefill_for(
         mapping_rows = cache_rows
     if query_row_stride is None:
         query_row_stride = q_heads * head_dim
+    if result_row_stride is None:
+        result_row_stride = q_heads * head_dim
     shape_key = (
         query_rows,
         q_heads,
@@ -928,6 +953,7 @@ def compile_paged_prefill_for(
         cache_row_stride,
         mapping_rows,
         query_row_stride,
+        result_row_stride,
     )
     _validate_paged_prefill_shape(*shape_key)
     cached = _paged_prefill_cache.get(shape_key)
@@ -935,7 +961,7 @@ def compile_paged_prefill_for(
         return cached
     graph_key = compile_graph(
         build_paged_prefill(*shape_key),
-        [1, 1, 1, 128],
+        [1, 1, 128] if kv_heads == 1 else [1, 1, 1, 128],
         provider="pypto.attention",
         source_node="pypto_kernels.attention:paged_prefill",
     )
@@ -1244,19 +1270,6 @@ def paged_attention_prefill(
         raise ValueError("paged prefill query width must divide into Q heads")
     q_heads = query_width // head_dim
     request_rows, max_context_len = map(int, req_to_token.shape)
-    graph_key = compile_paged_prefill_for(
-        query_rows,
-        q_heads,
-        kv_heads,
-        int(bucket_tokens),
-        head_dim,
-        cache_rows,
-        request_rows,
-        max_context_len,
-        cache_row_stride,
-        mapping_rows,
-        query_row_stride,
-    )
     if stream is None:
         stream = torch.cuda.current_stream(query.device)
     query_view = query.view(query_rows, q_heads, head_dim)
@@ -1265,20 +1278,75 @@ def paged_attention_prefill(
         dtype=torch.bfloat16,
         device=query.device,
     )
-    launch_graph(
-        graph_key,
-        (
-            query_view,
-            key_cache,
-            value_cache,
-            req_to_token,
-            request_index.as_strided((1, bucket_tokens), (0, 0)),
-            prefix_tokens.as_strided((1, bucket_tokens), (0, 0)),
-            virtual_to_physical.view(mapping_rows, 1),
-            out,
-        ),
-        stream.cuda_stream,
-    )
+    request_index_view = request_index.as_strided((1, bucket_tokens), (0, 0))
+    prefix_tokens_view = prefix_tokens.as_strided((1, bucket_tokens), (0, 0))
+    mapping_view = virtual_to_physical.view(mapping_rows, 1)
+    partitions = _paged_prefill_partition_count(kv_heads)
+    if partitions == 1:
+        graph_key = compile_paged_prefill_for(
+            query_rows,
+            q_heads,
+            kv_heads,
+            int(bucket_tokens),
+            head_dim,
+            cache_rows,
+            request_rows,
+            max_context_len,
+            cache_row_stride,
+            mapping_rows,
+            query_row_stride,
+            query_width,
+        )
+        _launch_paged_prefill_graph(
+            graph_key,
+            (
+                query_view,
+                key_cache,
+                value_cache,
+                req_to_token,
+                request_index_view,
+                prefix_tokens_view,
+                mapping_view,
+                out,
+            ),
+            stream,
+        )
+    else:
+        queries_per_kv = q_heads // kv_heads
+        graph_key = compile_paged_prefill_for(
+            query_rows,
+            queries_per_kv,
+            1,
+            int(bucket_tokens),
+            head_dim,
+            cache_rows,
+            request_rows,
+            max_context_len,
+            cache_row_stride,
+            mapping_rows,
+            query_row_stride,
+            query_width,
+        )
+        out_view = out.view(query_rows, q_heads, head_dim)
+        for kv_head in range(kv_heads):
+            query_start = kv_head * queries_per_kv
+            query_limit = query_start + queries_per_kv
+            cache_start = kv_head * head_dim
+            cache_limit = cache_start + head_dim
+            _launch_paged_prefill_graph(
+                graph_key,
+                (
+                    query_view[:, query_start:query_limit, :],
+                    key_cache[:, cache_start:cache_limit],
+                    value_cache[:, cache_start:cache_limit],
+                    req_to_token,
+                    request_index_view,
+                    prefix_tokens_view,
+                    mapping_view,
+                    out_view[:, query_start:query_limit, :],
+                ),
+                stream,
+            )
     return out.view(query_rows, query_width)
 
 

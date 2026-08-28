@@ -395,6 +395,10 @@ def test_paged_cache_write_declares_mutation_and_one_graph():
 
 
 def test_paged_prefill_is_one_causal_gqa_graph():
+    assert attention._paged_prefill_partition_count(2) == 1
+    assert attention._paged_prefill_partition_count(4) == 4
+    with pytest.raises(ValueError, match="positive KV heads"):
+        attention._paged_prefill_partition_count(0)
     program = attention.build_paged_prefill(13, 8, 2, 16, 256, 1024, 65, 4096)
     rendered = str(program)
     assert len(_one_program(program).body.stmts) == 2
@@ -416,6 +420,21 @@ def test_paged_prefill_is_one_causal_gqa_graph():
         )
     )
     assert "pl.TensorView(stride=[4096, 256, 1]" in pitched_query
+    pitched_result = str(
+        attention.build_paged_prefill(
+            13,
+            8,
+            2,
+            16,
+            256,
+            1024,
+            65,
+            4096,
+            query_row_stride=4096,
+            result_row_stride=8192,
+        )
+    )
+    assert "pl.TensorView(stride=[8192, 256, 1]" in pitched_result
 
     large_model = attention.build_paged_prefill(13, 16, 4, 16, 256, 1024, 65, 4096)
     large_rendered = str(large_model)
