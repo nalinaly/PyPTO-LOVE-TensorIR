@@ -607,7 +607,7 @@ def _unquantized_linear_around(original_fn, method, layer, x, bias=None):
     if (
         bias is not None
         or type(x) is not torch.Tensor
-        or type(weight) is not torch.nn.Parameter
+        or type(weight) not in (torch.Tensor, torch.nn.Parameter)
         or x.dtype is not torch.bfloat16
         or weight.dtype is not torch.bfloat16
         or not x.is_cuda
@@ -616,8 +616,8 @@ def _unquantized_linear_around(original_fn, method, layer, x, bias=None):
         or not weight.is_contiguous()
     ):
         raise BackendNotReadyError(
-            "PyPTO unquantized linear requires bias=None and contiguous CUDA "
-            "BF16 input/weight tensors."
+            "PyPTO unquantized linear requires bias=None and exact contiguous "
+            "CUDA BF16 input/weight tensors."
         )
     from pypto_kernels import linear
     from .sglang.stream import pypto_stream

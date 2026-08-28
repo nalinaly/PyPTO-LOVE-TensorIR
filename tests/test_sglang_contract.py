@@ -256,7 +256,7 @@ def test_linear_swiglu_and_lm_head_hooks_are_pinned_and_fail_closed(monkeypatch)
     monkeypatch.setattr(
         "pypto_plugins.sglang_plugin._pypto_compute_selected", lambda: True
     )
-    with pytest.raises(BackendNotReadyError, match="unquantized linear"):
+    with pytest.raises(BackendNotReadyError, match="exact contiguous CUDA"):
         _unquantized_linear_around(
             lambda *args: None,
             object(),
