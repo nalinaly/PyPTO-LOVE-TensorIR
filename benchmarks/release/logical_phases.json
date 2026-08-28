@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "phases": [
+    "embedding_gather",
+    "full_attention_qkv",
+    "qk_rmsnorm_rope",
+    "kv_cache_write",
+    "attention_core_gate",
+    "attention_projection",
+    "gdn_projection",
+    "gdn_conv",
+    "gdn_recurrent_norm",
+    "mlp_gate_up",
+    "mlp_swiglu",
+    "mlp_down",
+    "residual_norm",
+    "final_norm",
+    "lm_head",
+    "runtime_memcpy",
+    "unattributed_compute"
+  ],
+  "source_node_rules": [
+    ["embedding:embedding|embedding:integer_gather", "embedding_gather"],
+    ["qk_rmsnorm_rope", "qk_rmsnorm_rope"],
+    ["paged_cache_write", "kv_cache_write"],
+    ["attention:paged_|attention:dense", "attention_core_gate"],
+    ["sigmoid_mul", "attention_core_gate"],
+    ["gdn_projection", "gdn_projection"],
+    ["causal_conv", "gdn_conv"],
+    ["gdn:recurrent|gated_rmsnorm", "gdn_recurrent_norm"],
+    ["silu_and_mul|torch-inductor:.*silu|torch-inductor:.*mul", "mlp_swiglu"],
+    ["fused_add_rmsnorm", "residual_norm"],
+    ["rmsnorm:rmsnorm", "final_norm"],
+    ["linear_to_float", "lm_head"],
+    ["linear:linear", "unattributed_compute"]
+  ],
+  "module_name_rules": [
+    ["(^|\\.)embed_tokens$", "embedding_gather"],
+    ["\\.self_attn\\.(q_proj|k_proj|v_proj|qkv_proj)$", "full_attention_qkv"],
+    ["\\.self_attn\\.(q_norm|k_norm|rotary_emb)$", "qk_rmsnorm_rope"],
+    ["\\.self_attn\\.(attn|attention|core_attn)$", "attention_core_gate"],
+    ["\\.self_attn\\.(o_proj|out_proj)$", "attention_projection"],
+    ["\\.(linear_attn|gdn)\\.(in_proj|qkv_proj|qkvz_proj|ba_proj)$", "gdn_projection"],
+    ["\\.(linear_attn|gdn)\\..*conv", "gdn_conv"],
+    ["\\.(linear_attn|gdn)\\.(core|recurrent|norm|g_norm)", "gdn_recurrent_norm"],
+    ["\\.(linear_attn|gdn)\\.(out_proj|o_proj)$", "attention_projection"],
+    ["\\.mlp\\.(gate_up_proj|gate_proj|up_proj)$", "mlp_gate_up"],
+    ["\\.mlp\\.(act_fn|activation_fn)$", "mlp_swiglu"],
+    ["\\.mlp\\.down_proj$", "mlp_down"],
+    ["\\.(input_layernorm|post_attention_layernorm)$", "residual_norm"],
+    ["(^|\\.)norm$", "final_norm"],
+    ["(^|\\.)lm_head$", "lm_head"]
+  ],
+  "kernel_name_rules": [
+    ["memcpy|Memcpy", "runtime_memcpy"],
+    ["flashinfer.*attention|BatchPrefill|BatchDecode", "attention_core_gate"],
+    ["causal.*conv|conv1d", "gdn_conv"],
+    ["gated.*delta|gdn|recurrent", "gdn_recurrent_norm"],
+    ["rms.*norm|RMSNorm", "residual_norm"],
+    ["silu|SiLU|swiglu", "mlp_swiglu"]
+  ]
+}

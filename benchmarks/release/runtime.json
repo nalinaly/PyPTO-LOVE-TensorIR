@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "control_prefix": "envs/pypto-release",
+  "profiles": {
+    "pypto": {
+      "environment": "pypto-release",
+      "prefix": "envs/pypto-release"
+    },
+    "baseline": {
+      "environment": "sglang-baseline",
+      "prefix": "envs/sglang-baseline"
+    }
+  }
+}
+

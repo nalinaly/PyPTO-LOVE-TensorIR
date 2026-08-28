@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pypto-release-qwen35-9b-workload-v1",
+  "additionalProperties": false,
+  "properties": {
+    "concurrency": {"const": 1},
+    "greedy": {"const": true},
+    "ignore_eos": {"const": true},
+    "model_id": {"const": "Qwen/Qwen3.5-9B"},
+    "model_size": {"const": "9B"},
+    "output_tokens": {"const": 64},
+    "prompt": {"const": "为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？"},
+    "prompt_token_ids": {
+      "const": [144277, 103426, 108169, 95967, 236, 124094, 26076, 96212, 103182, 108076, 96799, 24273, 95761, 104224, 109276, 95726, 111104, 115110, 10992]
+    },
+    "prompt_tokens": {"const": 19}
+  },
+  "required": [
+    "concurrency",
+    "greedy",
+    "ignore_eos",
+    "model_id",
+    "model_size",
+    "output_tokens",
+    "prompt",
+    "prompt_token_ids",
+    "prompt_tokens"
+  ],
+  "type": "object"
+}

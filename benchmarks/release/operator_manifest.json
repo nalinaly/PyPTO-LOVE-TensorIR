@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "structure": {
+    "jobs": 24,
+    "path": "packages/pypto-kernels/tests/test_operators.py"
+  },
+  "gpu_suites": [
+    {
+      "path": "packages/pypto-kernels/benchmarks/classify_sm120.py",
+      "result": "classify-result.json",
+      "success_field": "all_compiled"
+    },
+    {
+      "path": "packages/pypto-kernels/benchmarks/exec_sm120.py",
+      "result": "exec-result.json",
+      "success_field": "all_correct"
+    },
+    {
+      "path": "packages/pypto-kernels/benchmarks/stateful_sm120.py",
+      "result": "stateful-result.json",
+      "success_field": "all_correct"
+    },
+    {
+      "path": "packages/pypto-kernels/benchmarks/paged_attention_sm120.py",
+      "result": "paged-attention-result.json",
+      "success_field": "all_correct"
+    },
+    {
+      "path": "packages/pypto-kernels/benchmarks/qk_sm120.py",
+      "result": "qk-result.json",
+      "success_field": "correct"
+    },
+    {
+      "path": "packages/pypto-kernels/benchmarks/cuda_graph_stateful_sm120.py",
+      "result": "cuda-graph-stateful-result.json",
+      "success_field": "correct"
+    }
+  ]
+}
