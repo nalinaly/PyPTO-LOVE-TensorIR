@@ -37,6 +37,9 @@ TRITON_SUPPORT_TARGETS = (
     "sglang.srt.layers.rotary_embedding.mrope.support_triton",
 )
 GEMMA_RMSNORM_TARGET = "sglang.srt.layers.layernorm.GemmaRMSNorm._forward_impl"
+GEMMA_RMSNORM_WEIGHT_LOADER_TARGET = (
+    "sglang.srt.layers.layernorm.GemmaRMSNorm._weight_loader"
+)
 FLA_GATED_RMSNORM_TARGET = (
     "sglang.kernels.ops.attention.fla.layernorm_gated.layernorm_fn"
 )
@@ -337,6 +340,34 @@ def _gemma_rmsnorm_around(
             layer.variance_epsilon,
             stream=stream,
         )
+
+
+def _gemma_rmsnorm_weight_loader_around(
+    original_fn, layer, param, loaded_weight
+):
+    """Keep Gemma's derived buffer colocated with an offloaded parameter."""
+
+    derived = getattr(layer, "gemma_weight", None)
+    param_device = getattr(param, "device", None)
+    derived_device = getattr(derived, "device", None)
+    if param_device is None or derived_device is None:
+        raise BackendNotReadyError(
+            "pinned Gemma RMSNorm weight-loader tensor contract changed"
+        )
+    if param_device != derived_device:
+        if getattr(param_device, "type", None) != "cpu" or getattr(
+            derived_device, "type", None
+        ) != "cuda":
+            raise BackendNotReadyError(
+                "Gemma RMSNorm offload produced an unsupported device split"
+            )
+        layer.gemma_weight = derived.to(device=param_device)
+    result = original_fn(layer, param, loaded_weight)
+    if layer.gemma_weight.device != param.device:
+        raise BackendNotReadyError(
+            "Gemma RMSNorm derived weight did not follow its parameter"
+        )
+    return result
 
 
 def _fla_gated_rmsnorm_around(
@@ -916,6 +947,7 @@ def _register_impl() -> None:
         ATTENTION_WRAPPER_TARGET,
         GDN_PROJECTION_TARGET,
         GEMMA_RMSNORM_TARGET,
+        GEMMA_RMSNORM_WEIGHT_LOADER_TARGET,
         FLA_GATED_RMSNORM_TARGET,
         QK_RMSNORM_ROPE_GATE_TARGET,
         FUSED_SIGMOID_MUL_TARGET,
@@ -952,6 +984,11 @@ def _register_impl() -> None:
     HookRegistry.register(
         GEMMA_RMSNORM_TARGET,
         _gemma_rmsnorm_around,
+        HookType.AROUND,
+    )
+    HookRegistry.register(
+        GEMMA_RMSNORM_WEIGHT_LOADER_TARGET,
+        _gemma_rmsnorm_weight_loader_around,
         HookType.AROUND,
     )
     HookRegistry.register(

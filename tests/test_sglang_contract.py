@@ -19,6 +19,7 @@ from pypto_plugins.sglang_plugin import (
     FUSED_SIGMOID_MUL_TARGET,
     GDN_PROJECTION_TARGET,
     GEMMA_RMSNORM_TARGET,
+    GEMMA_RMSNORM_WEIGHT_LOADER_TARGET,
     LINEAR_BACKEND_RESOLVER_TARGET,
     LM_HEAD_TARGET,
     PRUNED_STATES_TARGET,
@@ -34,6 +35,7 @@ from pypto_plugins.sglang_plugin import (
     _fused_sigmoid_mul_around,
     _gdn_projection_around,
     _gemma_rmsnorm_around,
+    _gemma_rmsnorm_weight_loader_around,
     _qk_rmsnorm_rope_gate_around,
     _lm_head_around,
     _pruned_states_around,
@@ -179,6 +181,35 @@ def test_gemma_rmsnorm_hook_is_preloaded_and_registered() -> None:
     assert "fused_add_rmsnorm.fused_add_rmsnorm(" in text
     assert "post_residual_addition" in text
     assert callable(_gemma_rmsnorm_around)
+
+
+def test_gemma_rmsnorm_offload_colocates_derived_weight() -> None:
+    assert GEMMA_RMSNORM_WEIGHT_LOADER_TARGET.endswith(
+        "GemmaRMSNorm._weight_loader"
+    )
+
+    class FakeTensor:
+        def __init__(self, device: str):
+            self.device = torch.device(device)
+
+        def to(self, *, device):
+            return FakeTensor(str(device))
+
+    layer = SimpleNamespace(gemma_weight=FakeTensor("cuda"))
+    param = FakeTensor("cpu")
+    loaded = object()
+    calls = []
+
+    def original(observed_layer, observed_param, observed_loaded):
+        calls.append((observed_layer, observed_param, observed_loaded))
+        return "loaded"
+
+    assert (
+        _gemma_rmsnorm_weight_loader_around(original, layer, param, loaded)
+        == "loaded"
+    )
+    assert layer.gemma_weight.device.type == "cpu"
+    assert calls == [(layer, param, loaded)]
 
 
 def test_linear_swiglu_and_lm_head_hooks_are_pinned_and_fail_closed(monkeypatch) -> None:
