@@ -15,6 +15,7 @@ from pypto_plugins.sglang.attention_backend import create_attention_backend
 from pypto_plugins.sglang_plugin import (
     ATTENTION_WRAPPER_TARGET,
     FLA_GATED_RMSNORM_TARGET,
+    FUSED_SIGMOID_MUL_TARGET,
     GDN_PROJECTION_TARGET,
     GEMMA_RMSNORM_TARGET,
     LINEAR_BACKEND_RESOLVER_TARGET,
@@ -22,6 +23,7 @@ from pypto_plugins.sglang_plugin import (
     TRITON_SUPPORT_TARGETS,
     _attention_factory,
     _fla_gated_rmsnorm_around,
+    _fused_sigmoid_mul_around,
     _gdn_projection_around,
     _gemma_rmsnorm_around,
     _qk_rmsnorm_rope_gate_around,
@@ -314,6 +316,48 @@ def test_qk_rmsnorm_rope_gate_routes_exact_pypto_contract(monkeypatch) -> None:
             64,
             False,
         )
+
+
+def test_fused_sigmoid_mul_routes_strided_gate_and_inplace_alias(monkeypatch) -> None:
+    assert FUSED_SIGMOID_MUL_TARGET.endswith("elementwise.fused_sigmoid_mul")
+    runtime = ModuleType("sglang.srt.runtime_context")
+    selection = SimpleNamespace(
+        linear_attn_backend="pypto",
+        linear_attn_decode_backend="pypto",
+        linear_attn_prefill_backend="pypto",
+    )
+    runtime.get_exec = lambda: SimpleNamespace(mamba=selection)
+    monkeypatch.setitem(sys.modules, "sglang.srt.runtime_context", runtime)
+    module = ModuleType("pypto_kernels.sigmoid_mul")
+    module.STATUS = "native-tile executable"
+    calls = []
+
+    def run(value, gate, **kwargs):
+        calls.append((value, gate, kwargs))
+        return value
+
+    module.sigmoid_mul = run
+    monkeypatch.setitem(sys.modules, "pypto_kernels.sigmoid_mul", module)
+    monkeypatch.setattr(pypto_kernels, "sigmoid_mul", module, raising=False)
+
+    @contextmanager
+    def fake_stream(device):
+        assert device.type == "cpu"
+        yield "worker-stream"
+
+    monkeypatch.setattr("pypto_plugins.sglang.stream.pypto_stream", fake_stream)
+    value = torch.empty((2, 256), dtype=torch.bfloat16)
+    gate_storage = torch.empty((2, 4, 128), dtype=torch.bfloat16)
+    gate = gate_storage[:, :2, :]
+    result = _fused_sigmoid_mul_around(
+        lambda *_args, **_kwargs: "original", value, gate, inplace=True
+    )
+    assert result is value
+    assert len(calls) == 1
+    assert calls[0][0] is value
+    assert tuple(calls[0][1].shape) == (2, 256)
+    assert tuple(calls[0][1].stride()) == (512, 1)
+    assert calls[0][2] == {"stream": "worker-stream", "inplace": True}
 
 
 def test_gdn_projection_hook_routes_only_explicit_pypto_selection(monkeypatch) -> None:

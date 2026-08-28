@@ -38,6 +38,9 @@ QK_RMSNORM_ROPE_GATE_TARGET = (
     "sglang.kernels.ops.attention.fused_qk_rmsnorm_rope_gate."
     "fused_qk_gemma_rmsnorm_rope_gate"
 )
+FUSED_SIGMOID_MUL_TARGET = (
+    "sglang.kernels.ops.elementwise.elementwise.fused_sigmoid_mul"
+)
 
 
 def _attention_factory(runner):
@@ -419,6 +422,61 @@ def _qk_rmsnorm_rope_gate_around(
         )
 
 
+def _fused_sigmoid_mul_around(
+    original_fn,
+    attn_output,
+    gate,
+    inplace=False,
+):
+    """Route the full-attention output gate through PyPTO."""
+
+    from sglang.srt.runtime_context import get_exec
+
+    mamba = get_exec().mamba
+    selected = {
+        mamba.linear_attn_backend,
+        mamba.linear_attn_decode_backend,
+        mamba.linear_attn_prefill_backend,
+    }
+    if "pypto" not in selected:
+        return original_fn(attn_output, gate, inplace=inplace)
+    if attn_output.ndim != 2:
+        raise BackendNotReadyError(
+            "PyPTO fused sigmoid-mul requires rank-2 attention output."
+        )
+    if gate.ndim == 3:
+        tokens, heads, head_dim = map(int, gate.shape)
+        if (
+            tuple(attn_output.shape) != (tokens, heads * head_dim)
+            or gate.stride(2) != 1
+            or gate.stride(1) != head_dim
+            or gate.stride(0) < heads * head_dim
+        ):
+            raise BackendNotReadyError(
+                "PyPTO fused sigmoid-mul received an incompatible rank-3 gate."
+            )
+        gate = gate.view(tokens, heads * head_dim)
+    elif gate.ndim != 2 or tuple(gate.shape) != tuple(attn_output.shape):
+        raise BackendNotReadyError(
+            "PyPTO fused sigmoid-mul requires matching rank-2 values or a "
+            "head-dense rank-3 gate."
+        )
+    from pypto_kernels import sigmoid_mul
+    from .sglang.stream import pypto_stream
+
+    if sigmoid_mul.STATUS != "native-tile executable":
+        raise BackendNotReadyError(
+            "PyPTO sigmoid-mul operator is not executable."
+        )
+    with pypto_stream(attn_output.device) as stream:
+        return sigmoid_mul.sigmoid_mul(
+            attn_output,
+            gate,
+            stream=stream,
+            inplace=bool(inplace),
+        )
+
+
 def _require_callable_hook_target(target: str) -> None:
     parts = target.split(".")
     for count in range(len(parts) - 1, 0, -1):
@@ -462,6 +520,7 @@ def _register_impl() -> None:
         GEMMA_RMSNORM_TARGET,
         FLA_GATED_RMSNORM_TARGET,
         QK_RMSNORM_ROPE_GATE_TARGET,
+        FUSED_SIGMOID_MUL_TARGET,
         *TRITON_SUPPORT_TARGETS,
     )
     for target in hook_targets:
@@ -498,6 +557,11 @@ def _register_impl() -> None:
     HookRegistry.register(
         QK_RMSNORM_ROPE_GATE_TARGET,
         _qk_rmsnorm_rope_gate_around,
+        HookType.AROUND,
+    )
+    HookRegistry.register(
+        FUSED_SIGMOID_MUL_TARGET,
+        _fused_sigmoid_mul_around,
         HookType.AROUND,
     )
     for target in TRITON_SUPPORT_TARGETS:
