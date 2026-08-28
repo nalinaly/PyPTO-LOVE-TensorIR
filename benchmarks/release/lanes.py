@@ -14,6 +14,10 @@ BASELINE_LANES = {"sglang-matched", "sglang-optimized"}
 MATCHED_CONTROL_FIELDS = (
     "model_path",
     "tokenizer_path",
+    "skip_tokenizer_init",
+    "enable_multimodal",
+    "json_model_override_args",
+    "load_format",
     "dtype",
     "kv_cache_dtype",
     "tp_size",
@@ -148,7 +152,12 @@ def server_kwargs(
         "tokenizer_path": str(model_path),
         "skip_tokenizer_init": True,
         "enable_multimodal": False,
-        "language_model_only": True,
+        # The pinned stock SGLang ServerArgs whitelist does not yet admit
+        # Qwen3.5 for its --language-model-only flag even though the model
+        # implementation already honors the equivalent config field.  Use
+        # SGLang's public model-config override in every lane so the baseline
+        # remains plugin-free and all lanes construct the same text-only model.
+        "json_model_override_args": '{"language_model_only":true}',
         "load_format": "safetensors",
         "model_loader_extra_config": '{"enable_multithread_load": false}',
         "weight_loader_drop_cache_after_load": True,
