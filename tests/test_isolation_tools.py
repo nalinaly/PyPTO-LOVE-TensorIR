@@ -1328,6 +1328,33 @@ class PythonImportAuditTest(unittest.TestCase):
                 audit_environment.is_allowed_source(candidate, "baseline")
             )
 
+    def test_formal_profiles_reject_legacy_workspace_source_roots(self) -> None:
+        formal = ROOT / "envs" / "pypto-release"
+        self.assertTrue(
+            audit_environment.is_allowed_source(
+                ROOT / ".sources" / "sglang" / "python" / "sglang",
+                "pypto",
+                formal,
+            )
+        )
+        for candidate in (
+            ROOT / "projects" / "pypto" / "python",
+            ROOT / "projects" / "pypto-kernels" / "src",
+            ROOT / "projects" / "pypto-framework-plugins" / "src",
+            ROOT / "upstream" / "sglang" / "python",
+        ):
+            self.assertFalse(
+                audit_environment.is_allowed_source(candidate, "pypto", formal)
+            )
+        self.assertFalse(
+            audit_environment.executable_pth_is_allowed(
+                pathlib.Path("_editable_skbc_pypto.pth"),
+                "import _editable_skbc_pypto",
+                "pypto",
+                formal=True,
+            )
+        )
+
     def test_executable_pth_allowlist_rejects_editable_triton(self) -> None:
         triton = pathlib.Path("__editable__.triton-3.7.1.pth")
         line = "import __editable___triton_3_7_1_finder; __editable___triton_3_7_1_finder.install()"

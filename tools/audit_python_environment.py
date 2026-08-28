@@ -27,6 +27,11 @@ PROFILE_SOURCE_ROOTS = {
         ROOT / "upstream" / "sglang" / "python",
     ),
 }
+FORMAL_PREFIXES = {
+    (ROOT / "envs/pypto-release").resolve(),
+    (ROOT / "envs/sglang-baseline").resolve(),
+}
+FORMAL_SOURCE_ROOTS = (ROOT / ".sources" / "sglang" / "python",)
 DISTUTILS_PRECEDENCE_PTH = (
     "import os; var = 'SETUPTOOLS_USE_DISTUTILS'; "
     "enabled = os.environ.get(var, 'local') == 'local'; "
@@ -44,8 +49,18 @@ def is_below(path: pathlib.Path, root: pathlib.Path) -> bool:
     return resolved == root or root in resolved.parents
 
 
-def is_allowed_source(path: pathlib.Path, profile: str) -> bool:
-    return any(is_below(path, root) for root in PROFILE_SOURCE_ROOTS[profile])
+def is_allowed_source(
+    path: pathlib.Path,
+    profile: str,
+    environment_prefix: pathlib.Path | None = None,
+) -> bool:
+    roots = (
+        FORMAL_SOURCE_ROOTS
+        if environment_prefix is not None
+        and environment_prefix.resolve() in FORMAL_PREFIXES
+        else PROFILE_SOURCE_ROOTS[profile]
+    )
+    return any(is_below(path, root) for root in roots)
 
 
 def is_allowed_import_path(
@@ -56,19 +71,21 @@ def is_allowed_import_path(
 ) -> bool:
     return (
         is_below(path, environment_prefix)
-        or is_allowed_source(path, profile)
+        or is_allowed_source(path, profile, environment_prefix)
         or is_below(path, ROOT / "tools")
     )
 
 
-def executable_pth_is_allowed(path: pathlib.Path, text: str, profile: str) -> bool:
+def executable_pth_is_allowed(
+    path: pathlib.Path, text: str, profile: str, *, formal: bool = False
+) -> bool:
     name = path.name
     normalized = text.strip()
     if name == "distutils-precedence.pth":
         return normalized == DISTUTILS_PRECEDENCE_PTH
     if name == "nvidia_cutlass_dsl_packages.pth":
         return normalized == CUTLASS_DSL_PACKAGES_PTH
-    if profile == "pypto" and name == "_editable_skbc_pypto.pth":
+    if not formal and profile == "pypto" and name == "_editable_skbc_pypto.pth":
         return normalized == "import _editable_skbc_pypto"
     return False
 
@@ -87,19 +104,21 @@ def editable_finder_modules(finder: object) -> tuple[str, ...]:
     return tuple(sorted(values))
 
 
-def editable_module_is_allowed(name: str, profile: str) -> bool:
-    return profile == "pypto" and name == "_editable_skbc_pypto"
+def editable_module_is_allowed(
+    name: str, profile: str, *, formal: bool = False
+) -> bool:
+    return not formal and profile == "pypto" and name == "_editable_skbc_pypto"
 
 
 def external_editable_modules(
-    values: Iterable[object], profile: str
+    values: Iterable[object], profile: str, *, formal: bool = False
 ) -> tuple[str, ...]:
     modules = {
         name
         for value in values
         for name in editable_finder_modules(value)
         if name.startswith(("_editable", "__editable"))
-        and not editable_module_is_allowed(name, profile)
+        and not editable_module_is_allowed(name, profile, formal=formal)
     }
     return tuple(sorted(modules))
 
@@ -121,6 +140,7 @@ def main() -> int:
     )
     args = parser.parse_args()
     environment_prefix = args.prefix.resolve()
+    formal = environment_prefix in FORMAL_PREFIXES
     failures: list[dict[str, str]] = []
     if pathlib.Path(sys.prefix).resolve() != environment_prefix:
         failures.append(
@@ -165,7 +185,9 @@ def main() -> int:
             if not line or line.startswith("#"):
                 continue
             if line.startswith(("import ", "import\t")):
-                if not executable_pth_is_allowed(path, line, args.profile):
+                if not executable_pth_is_allowed(
+                    path, line, args.profile, formal=formal
+                ):
                     failures.append(
                         {
                             "kind": "pth-executable-code",
@@ -218,7 +240,7 @@ def main() -> int:
                 }
             )
             continue
-        if not is_allowed_source(source, args.profile):
+        if not is_allowed_source(source, args.profile, environment_prefix):
             failures.append(
                 {
                     "kind": "editable-external-source",
@@ -233,7 +255,9 @@ def main() -> int:
         ("editable-importer-cache", sys.path_importer_cache.values()),
     )
     for kind, values in importer_carriers:
-        external_modules = external_editable_modules(values, args.profile)
+        external_modules = external_editable_modules(
+            values, args.profile, formal=formal
+        )
         if external_modules:
             failures.append(
                 {
@@ -247,7 +271,7 @@ def main() -> int:
             name
             for name in sys.modules
             if name.startswith(("_editable", "__editable"))
-            and not editable_module_is_allowed(name, args.profile)
+            and not editable_module_is_allowed(name, args.profile, formal=formal)
         )
     )
     if loaded_editable_modules:
