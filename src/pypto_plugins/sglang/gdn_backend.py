@@ -16,6 +16,7 @@ def create_gdn_backend(model_runner: Any) -> Any:
         MambaAttnBackendBase,
     )
     from .state_bundle import attach_state_bundle
+    from .stream import pypto_stream
 
     class PyPTOGDNAttnBackend(MambaAttnBackendBase):
         needs_cpu_seq_lens = True
@@ -106,25 +107,28 @@ def create_gdn_backend(model_runner: Any) -> Any:
             )
             recurrent_state = layer_cache.temporal
             state_indices = self.forward_metadata.mamba_cache_indices
-            convolved = causal_conv1d.causal_conv1d(
-                mixed_qkv,
-                layer.conv_weights,
-                conv_state,
-                state_indices,
-                batch_size=batch_size,
-                tokens_per_request=tokens_per_request,
-            )
-            recurrent = gdn.gdn_recurrent(
-                convolved,
-                a,
-                b,
-                layer.A_log,
-                layer.dt_bias,
-                recurrent_state,
-                state_indices,
-                batch_size=batch_size,
-                tokens_per_request=tokens_per_request,
-            )
+            with pypto_stream(mixed_qkv.device) as stream:
+                convolved = causal_conv1d.causal_conv1d(
+                    mixed_qkv,
+                    layer.conv_weights,
+                    conv_state,
+                    state_indices,
+                    batch_size=batch_size,
+                    tokens_per_request=tokens_per_request,
+                    stream=stream,
+                )
+                recurrent = gdn.gdn_recurrent(
+                    convolved,
+                    a,
+                    b,
+                    layer.A_log,
+                    layer.dt_bias,
+                    recurrent_state,
+                    state_indices,
+                    batch_size=batch_size,
+                    tokens_per_request=tokens_per_request,
+                    stream=stream,
+                )
             return recurrent
 
         def forward_decode(

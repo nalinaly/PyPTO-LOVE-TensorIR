@@ -160,20 +160,23 @@ def _gdn_projection_around(
             head_v,
         )
     from pypto_kernels import gdn_projection
+    from .sglang.stream import pypto_stream
 
     if gdn_projection.STATUS != "native-tile packed executable":
         raise BackendNotReadyError(
             "PyPTO GDN projection split remains a source candidate; refusing "
             "the Qwen3.5 Triton copy fallback."
         )
-    return gdn_projection.split_projection(
-        projected_qkvz,
-        projected_ba,
-        q_heads=num_heads_qk,
-        value_heads=num_heads_v,
-        key_dim=head_qk,
-        value_dim=head_v,
-    )
+    with pypto_stream(projected_qkvz.device) as stream:
+        return gdn_projection.split_projection(
+            projected_qkvz,
+            projected_ba,
+            q_heads=num_heads_qk,
+            value_heads=num_heads_v,
+            key_dim=head_qk,
+            value_dim=head_v,
+            stream=stream,
+        )
 
 
 def _support_triton_around(original_fn, backend):

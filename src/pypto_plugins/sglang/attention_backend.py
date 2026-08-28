@@ -20,6 +20,7 @@ def create_attention_backend(model_runner: Any) -> Any:
     import torch
     from pypto_kernels import attention
     from sglang.srt.layers.attention.base_attn_backend import AttentionBackend
+    from .stream import pypto_stream
 
     class PyPTOAttentionBackend(AttentionBackend):
         needs_cpu_seq_lens = True
@@ -222,6 +223,7 @@ def create_attention_backend(model_runner: Any) -> Any:
             v: Any,
             forward_batch: Any,
             save_kv_cache: bool,
+            stream: Any,
         ) -> None:
             if not save_kv_cache:
                 raise BackendNotReadyError(
@@ -245,6 +247,7 @@ def create_attention_backend(model_runner: Any) -> Any:
                 self.virtual_to_physical,
                 k,
                 v,
+                stream=stream,
             )
 
         def init_cuda_graph_state(self, max_bs: int, max_num_tokens: int):
@@ -275,22 +278,30 @@ def create_attention_backend(model_runner: Any) -> Any:
             self._validate_layer(layer)
             self._validate_qkv(q, k, v)
             key_cache, value_cache = self._flat_cache(layer)
-            self._write_cache(
-                key_cache, value_cache, k, v, forward_batch, save_kv_cache
-            )
-            request_table = self.req_to_token_pool.req_to_token
-            bucket = self._bucket_tokens(forward_batch, int(request_table.shape[1]))
-            return attention.paged_attention_decode(
-                q,
-                key_cache,
-                value_cache,
-                request_table,
-                forward_batch.req_pool_indices,
-                forward_batch.seq_lens,
-                self.virtual_to_physical,
-                kv_heads=layer.tp_k_head_num,
-                bucket_tokens=bucket,
-            )
+            with pypto_stream(q.device) as stream:
+                self._write_cache(
+                    key_cache,
+                    value_cache,
+                    k,
+                    v,
+                    forward_batch,
+                    save_kv_cache,
+                    stream,
+                )
+                request_table = self.req_to_token_pool.req_to_token
+                bucket = self._bucket_tokens(forward_batch, int(request_table.shape[1]))
+                return attention.paged_attention_decode(
+                    q,
+                    key_cache,
+                    value_cache,
+                    request_table,
+                    forward_batch.req_pool_indices,
+                    forward_batch.seq_lens,
+                    self.virtual_to_physical,
+                    kv_heads=layer.tp_k_head_num,
+                    bucket_tokens=bucket,
+                    stream=stream,
+                )
 
         def forward_extend(
             self,
@@ -331,22 +342,30 @@ def create_attention_backend(model_runner: Any) -> Any:
                     "PyPTO causal prefill query rows disagree with extend metadata."
                 )
             key_cache, value_cache = self._flat_cache(layer)
-            self._write_cache(
-                key_cache, value_cache, k, v, forward_batch, save_kv_cache
-            )
-            request_table = self.req_to_token_pool.req_to_token
-            bucket = self._bucket_tokens(forward_batch, int(request_table.shape[1]))
-            return attention.paged_attention_prefill(
-                q,
-                key_cache,
-                value_cache,
-                request_table,
-                forward_batch.req_pool_indices,
-                forward_batch.extend_prefix_lens,
-                self.virtual_to_physical,
-                kv_heads=layer.tp_k_head_num,
-                bucket_tokens=bucket,
-            )
+            with pypto_stream(q.device) as stream:
+                self._write_cache(
+                    key_cache,
+                    value_cache,
+                    k,
+                    v,
+                    forward_batch,
+                    save_kv_cache,
+                    stream,
+                )
+                request_table = self.req_to_token_pool.req_to_token
+                bucket = self._bucket_tokens(forward_batch, int(request_table.shape[1]))
+                return attention.paged_attention_prefill(
+                    q,
+                    key_cache,
+                    value_cache,
+                    request_table,
+                    forward_batch.req_pool_indices,
+                    forward_batch.extend_prefix_lens,
+                    self.virtual_to_physical,
+                    kv_heads=layer.tp_k_head_num,
+                    bucket_tokens=bucket,
+                    stream=stream,
+                )
 
         def support_triton(self):
             return False

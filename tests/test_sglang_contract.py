@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from contextlib import contextmanager
 from pathlib import Path
 import sys
 from types import ModuleType, SimpleNamespace
@@ -151,18 +152,32 @@ def test_gdn_projection_hook_routes_only_explicit_pypto_selection(monkeypatch) -
     monkeypatch.setitem(sys.modules, "pypto_kernels.gdn_projection", module)
     monkeypatch.setattr(pypto_kernels, "gdn_projection", module, raising=False)
     delegated = []
+    qkvz = SimpleNamespace(device=torch.device("cuda", 0))
+
+    @contextmanager
+    def fake_stream(device):
+        assert device == qkvz.device
+        yield "worker-stream"
+
+    monkeypatch.setattr("pypto_plugins.sglang.stream.pypto_stream", fake_stream)
 
     def original(*args):
         delegated.append(args)
         return "original-result"
 
-    result = _gdn_projection_around(original, "qkvz", "ba", 8, 16, 128, 128)
+    result = _gdn_projection_around(original, qkvz, "ba", 8, 16, 128, 128)
     assert result == "pypto-result"
     assert calls == [
         (
-            "qkvz",
+            qkvz,
             "ba",
-            {"q_heads": 8, "value_heads": 16, "key_dim": 128, "value_dim": 128},
+            {
+                "q_heads": 8,
+                "value_heads": 16,
+                "key_dim": 128,
+                "value_dim": 128,
+                "stream": "worker-stream",
+            },
         )
     ]
     assert not delegated
@@ -170,7 +185,7 @@ def test_gdn_projection_hook_routes_only_explicit_pypto_selection(monkeypatch) -
     selection.linear_attn_decode_backend = "triton"
     selection.linear_attn_prefill_backend = "triton"
     assert (
-        _gdn_projection_around(original, "qkvz", "ba", 8, 16, 128, 128)
+        _gdn_projection_around(original, qkvz, "ba", 8, 16, 128, 128)
         == "original-result"
     )
     assert len(delegated) == 1
