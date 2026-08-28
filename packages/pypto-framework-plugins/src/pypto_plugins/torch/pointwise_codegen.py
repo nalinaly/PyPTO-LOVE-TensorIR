@@ -83,6 +83,33 @@ def bootstrap_pypto(
     if package_spec is None or package_spec.origin is None:
         raise StrictCoverageError("installed pypto package metadata is unavailable")
     package_root = pathlib.Path(package_spec.origin).resolve(strict=True).parent
+    existing_package = sys.modules.get("pypto")
+    existing_core = sys.modules.get("pypto.pypto_core")
+    if existing_package is not None or existing_core is not None:
+        package_file = getattr(existing_package, "__file__", None)
+        core_file = getattr(existing_core, "__file__", None)
+        if (
+            not isinstance(existing_package, ModuleType)
+            or not isinstance(existing_core, ModuleType)
+            or not isinstance(package_file, str)
+            or not isinstance(core_file, str)
+            or pathlib.Path(package_file).resolve(strict=True).parent
+            != package_root
+            or pathlib.Path(core_file).resolve(strict=True) != resolved
+        ):
+            raise StrictCoverageError(
+                "foreign pypto modules occupy the exact bootstrap slots"
+            )
+        modules = {
+            "pypto": existing_package,
+            "ir": existing_package.ir,
+            "compiler": existing_package.compiler,
+            "core": existing_core,
+        }
+        with _lock:
+            if _pypto_modules is None:
+                _pypto_modules = modules
+            return _pypto_modules
     spec = importlib.util.spec_from_file_location(
         "pypto",
         pathlib.Path(package_spec.origin).resolve(strict=True),
@@ -95,11 +122,6 @@ def bootstrap_pypto(
     pypto_core = importlib.util.module_from_spec(core_spec)
     with _lock:
         if _pypto_modules is None:
-            existing = sys.modules.get("pypto.pypto_core")
-            if existing is not None and existing is not pypto_core:
-                raise StrictCoverageError(
-                    "a foreign pypto_core module already occupies the import slot"
-                )
             sys.modules["pypto.pypto_core"] = pypto_core
             core_spec.loader.exec_module(pypto_core)
             spec.loader.exec_module(pypto)
