@@ -112,6 +112,13 @@ def test_pointwise_operators_use_native_tile_dsl():
         assert "pl.tile.load" in rendered, name
         assert "pl.tile.store" in rendered, name
         assert "tensor." not in rendered, name
+    pitched_gate = torch.empty_strided(
+        (3, 256), (512, 1), dtype=torch.bfloat16, device="meta"
+    )
+    pitched_program = sigmoid_mul.sigmoid_mul_kernel.specialize(
+        sample, pitched_gate, sample
+    )
+    assert "pl.TensorView(stride=[512, 1]" in str(pitched_program)
 
 
 def test_rmsnorm_uses_native_tile_reduction():

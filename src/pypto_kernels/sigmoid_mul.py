@@ -54,19 +54,43 @@ def _matrix_shape(shape: tuple[int, ...]) -> tuple[int, int]:
     return rows, columns
 
 
-def compile_for(shape: tuple[int, ...], dtype_name: str = "bfloat16") -> str:
+def compile_for(
+    shape: tuple[int, ...],
+    dtype_name: str = "bfloat16",
+    value_row_stride: int | None = None,
+    gate_row_stride: int | None = None,
+) -> str:
     matrix_shape = _matrix_shape(shape)
-    cache_key = (shape, dtype_name, _TILE_WIDTH)
+    rows, columns = matrix_shape
+    if value_row_stride is None:
+        value_row_stride = columns
+    if gate_row_stride is None:
+        gate_row_stride = columns
+    if value_row_stride < columns or gate_row_stride < columns:
+        raise ValueError("sigmoid_mul row strides must cover each logical row")
+    cache_key = (
+        shape,
+        dtype_name,
+        value_row_stride,
+        gate_row_stride,
+        _TILE_WIDTH,
+    )
     cached = _cache.get(cache_key)
     if cached is not None:
         return cached
     import torch
 
     dtype = torch.bfloat16 if dtype_name == "bfloat16" else torch.float32
-    sample = torch.empty(matrix_shape, dtype=dtype, device="meta")
+    value = torch.empty_strided(
+        matrix_shape, (value_row_stride, 1), dtype=dtype, device="meta"
+    )
+    gate = torch.empty_strided(
+        matrix_shape, (gate_row_stride, 1), dtype=dtype, device="meta"
+    )
+    out = torch.empty((rows, columns), dtype=dtype, device="meta")
     graph_key = compile_jit_kernel(
         sigmoid_mul_kernel,
-        (sample, sample, sample),
+        (value, gate, out),
         [_TILE_WIDTH],
     )
     with _lock:
@@ -74,7 +98,13 @@ def compile_for(shape: tuple[int, ...], dtype_name: str = "bfloat16") -> str:
     return graph_key
 
 
-def sigmoid_mul(value: Any, gate: Any, stream: Any = None) -> Any:
+def sigmoid_mul(
+    value: Any,
+    gate: Any,
+    stream: Any = None,
+    *,
+    inplace: bool = False,
+) -> Any:
     """Apply the full-attention output gate with one graph launch."""
 
     import torch
@@ -83,16 +113,32 @@ def sigmoid_mul(value: Any, gate: Any, stream: Any = None) -> Any:
         value.shape != gate.shape
         or value.dtype is not gate.dtype
         or value.dtype not in (torch.bfloat16, torch.float32)
-        or not value.is_contiguous()
-        or not gate.is_contiguous()
+        or value.ndim != 2
+        or value.stride(1) != 1
+        or gate.stride(1) != 1
+        or value.stride(0) < value.shape[1]
+        or gate.stride(0) < gate.shape[1]
     ):
-        raise ValueError("sigmoid_mul needs equal contiguous BF16/FP32 tensors")
+        raise ValueError("sigmoid_mul needs equal dense-row or row-pitched BF16/FP32 tensors")
     if stream is None:
         stream = torch.cuda.current_stream(value.device)
     shape = tuple(int(extent) for extent in value.shape)
     dtype_name = "bfloat16" if value.dtype is torch.bfloat16 else "float32"
-    graph_key = compile_for(shape, dtype_name)
-    out = torch.empty_like(value)
+    graph_key = compile_for(
+        shape,
+        dtype_name,
+        int(value.stride(0)),
+        int(gate.stride(0)),
+    )
+    if inplace and not value.is_contiguous():
+        raise ValueError("in-place sigmoid_mul requires a dense output tensor")
+    out = (
+        value
+        if inplace
+        else torch.empty(
+            tuple(value.shape), dtype=value.dtype, device=value.device
+        )
+    )
     launch_graph(graph_key, (value, gate, out), stream.cuda_stream)
     return out
 
