@@ -226,7 +226,8 @@ excludes page cache. Neither measure approaches 22 GiB.
 Therefore 22 GiB is retired as an active compiler launch/resume prerequisite.
 The historical exact-hashed v2 implementation remains byte-for-byte unchanged
 for evidence replay, but the Qwen3.5 plan must not wait for its 22 GiB gate.
-Future bounded CPU builds use `--parallel 2`, record owned RSS plus minimum
+Future bounded CPU builds use `--parallel 24` per the user's 2026-08-28
+override, record owned RSS plus minimum
 `MemAvailable`, retain the 16 GiB running-child pause boundary and external-PID
 prohibition, and distinguish safety headroom from compiler footprint. Compiler
 memory optimization is required only if measured owned usage regresses, not to

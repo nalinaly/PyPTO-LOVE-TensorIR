@@ -1,13 +1,13 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0084`
+**Checkpoint:** `CP-0085`
 
-## Active unaccepted continuation after CP-0084 (2026-08-28)
+## Active unaccepted continuation after CP-0085 (2026-08-28)
 
 This section is the current resume boundary and supersedes older resume text
-below. It records work in progress, **not** CP-0085 acceptance.
+below. It records work in progress, **not** CP-0086 acceptance.
 
-- Root `277b171` freezes PLAN revision 48: Qwen3.5-0.8B then 9B, exact prompt
+- PLAN revision 49 freezes Qwen3.5-0.8B then 9B, exact prompt
   `为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？`, 100% PyPTO
   handwritten-plus-Inductor model-forward compute, zero compute fallback,
   repeated stability and logits/token/text reference comparison. D-0019 also
@@ -35,7 +35,25 @@ below. It records work in progress, **not** CP-0085 acceptance.
   build, CTest, preflight, process and result hashes. CP-0084 accepts this QK
   operator gate only; it is not framework, model, performance or broad
   numerical evidence.
-- Current kernels after the accepted QK source add a
+- CP-0085 accepts paged attention operator correctness at
+  PyPTO `2faefb6` / TensorIR `1cae26f` / clean
+  `pypto-kernels@f585c73`. The independent DSO was built with `--parallel 24`,
+  passes CTest 13/13 with `-j 24`, and has SHA-256 `880c346b...c752`.
+  Controlled run `pypto-20260828T022203Z-853498-b4eb14` passes all ten frozen
+  cases: exact K/V cache updates plus 0.8B decode valid13, 9B decode valid16,
+  batch-2 row-pitched decode valid13/valid7, and 0.8B/9B causal prefill with
+  prefix2/extend13/bucket16. Worst maximum absolute error is `0.0333297551`
+  for 9B prefill; the frozen tolerance is rtol `0.1`, atol `0.08`. The run
+  returns zero with no post-exit violation or survivor. Evidence is
+  `state/evidence/pypto_paged_attention_cp0085.json`. CP-0085 is not CUDA graph,
+  SGLang, model-logit, coverage, stability or performance acceptance.
+
+### Superseded pre-CP-0085 paged-attention notes
+
+The following paged-attention bullets preserve the earlier source-only
+boundary for history; CP-0085 above is authoritative where they conflict.
+
+- The pre-CP-0085 kernels after the accepted QK source add a
   static-batch paged-decode source candidate that reads virtual slots directly
   from SGLang's INT32 request table, resolves them through an INT64
   virtual-to-physical table inside the same PyPTO graph and applies a separate
@@ -122,6 +140,9 @@ below. It records work in progress, **not** CP-0085 acceptance.
   masks, mixed batches and CUDA-graph metadata remain absent. All three
   compiler paths and the SGLang adapter are source-only; none is an
   SGLang/model attention result.
+
+### Current post-CP-0085 continuation
+
 - The same isolated PyPTO branch now contains source-only single-graph GDN and
   stateful causal-convolution emitters. Current kernels replace the former
   split BF16 read/update approximation with one `[B,T]` recurrent graph that
@@ -138,11 +159,9 @@ below. It records work in progress, **not** CP-0085 acceptance.
   radix/state checkpoints and ReplaySSM; generic StateBundle zero/copy and
   broader prefill batching remain open. This is not GDN, state-continuity or
   model evidence.
-- Two temporary untracked diagnostics remain in `projects/pypto-kernels`:
-  `benchmarks/probe_qk_compile_sm120.py` (final target tile/current model cache
-  shape) and `benchmarks/probe_qk_gdb.py`. Do not commit them; remove them only
-  after the focused gate closes. `benchmarks/classify_results.json` still
-  records the earlier failed candidate and must be regenerated, not promoted.
+- Temporary QK and paged-attention compiler diagnostics have been removed.
+  `benchmarks/classify_results.json` remains a failed-development snapshot and
+  must not be promoted over the immutable CP-0084/CP-0085 evidence.
 
 The final-head QK DSO now builds at PyPTO `d1b90b7` / TensorIR `a48606b`.
 Run `pypto-cpu-v2-20260827T235550Z-740023-675299` performed a real 300-step
@@ -161,31 +180,24 @@ measurements and their attribution limits.
 This establishes that the historical 22 GiB CPU-v2 admission value was a
 legacy coexistence reserve, not a compiler requirement. Per D-0019 it is no
 longer a prerequisite for the active Qwen3.5 path. The exact v2 bytes remain
-unchanged for historical replay; bounded CPU builds stay at `--parallel 2`,
+unchanged for historical replay; bounded CPU builds use `--parallel 24`,
 record owned RSS plus minimum `MemAvailable`, retain the 16 GiB running-child
 pause boundary and never signal external processes. The earlier dry admission
 also established that an isolated controller PATH must include
 `/usr/lib/wsl/lib` for WSL's `nvidia-smi` identity audit.
 
-The temporary QK compiler/GDB probes are removed; the permanent clean-checkout
-gate is `projects/pypto-kernels/benchmarks/qk_sm120.py`. The shared
-classification and execution JSON files deliberately remain stale because
-their current WIP case sets include paged attention, stateful convolution and
-GDN emitters that are
-not present in the accepted QK DSO; regenerating them now would conflate source
-candidates with CP-0084. Next build the isolated paged compiler source through
-`f34c3f5`, then run the frozen 0.8B/9B decode, batch-2 strided decode,
-cache-write and causal-prefill numerical gates before advancing CP-0085. Do not
-claim QK performance or either model gate.
+The permanent focused gates are
+`projects/pypto-kernels/benchmarks/qk_sm120.py` and
+`projects/pypto-kernels/benchmarks/paged_attention_sm120.py`. Shared
+classification/execution JSON files remain development snapshots; immutable
+CP-0084/CP-0085 evidence is authoritative. The next compiler work is the
+stateful-convolution and GDN failures already exposed by the same DSO, followed
+by SGLang routing and CUDA-graph compatibility. Do not claim attention
+performance or either model gate.
 
-Keep the primary TensorIR checkout on clean `feature/pypto-broadcast-pointwise`
-at `a48606b` for that QK rebuild. Validate `6b7599a` from its isolated worktree
-or only after the QK gate; never silently point the QK DSO build at the paged
-source candidate. The first required paged validations are
-`gather_rows_layout.mlir`, `scatter_rows_layout.mlir` and
-`paged_decode_attention_layout.mlir` FileCheck, followed by the full emitted
-8-head decode and cache-write graphs through `tensor_ir-compiler` for
-`sm_120a`.
+Keep the primary QK checkout clean at PyPTO `d1b90b7` / TensorIR `a48606b`.
+The active paged product is separately bound to PyPTO `2faefb6` / TensorIR
+`1cae26f`; never reinterpret one DSO as the other product.
 
 **Status:** Qwen3.5 token embedding is now a real native tile row gather, not
 one-hot matmul. Canonical operator `426e373` uses explicit `@pl.jit` row/block

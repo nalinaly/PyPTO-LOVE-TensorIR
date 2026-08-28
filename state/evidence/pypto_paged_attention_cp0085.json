@@ -1,0 +1,109 @@
+{
+  "accepted_claim": {
+    "all_correct": true,
+    "cases": [
+      {
+        "case": "decode_0_8b_valid13 cache_write",
+        "key_max_abs_diff": 0.0,
+        "value_max_abs_diff": 0.0
+      },
+      {
+        "case": "decode_0_8b_valid13",
+        "max_abs_diff": 0.008581623435020447
+      },
+      {
+        "case": "decode_9b_valid16 cache_write",
+        "key_max_abs_diff": 0.0,
+        "value_max_abs_diff": 0.0
+      },
+      {
+        "case": "decode_9b_valid16",
+        "max_abs_diff": 0.012333353981375694
+      },
+      {
+        "case": "decode_batch2_0_8b_valid13_7_strided cache_write",
+        "key_max_abs_diff": 0.0,
+        "value_max_abs_diff": 0.0
+      },
+      {
+        "case": "decode_batch2_0_8b_valid13_7_strided",
+        "max_abs_diff": 0.013500437140464783
+      },
+      {
+        "case": "prefill_0_8b_prefix2_extend13 cache_write",
+        "key_max_abs_diff": 0.0,
+        "value_max_abs_diff": 0.0
+      },
+      {
+        "case": "prefill_0_8b_prefix2_extend13",
+        "max_abs_diff": 0.022027552127838135
+      },
+      {
+        "case": "prefill_9b_prefix2_extend13 cache_write",
+        "key_max_abs_diff": 0.0,
+        "value_max_abs_diff": 0.0
+      },
+      {
+        "case": "prefill_9b_prefix2_extend13",
+        "max_abs_diff": 0.03332975506782532
+      }
+    ],
+    "thresholds": {
+      "atol": 0.08,
+      "rtol": 0.1
+    }
+  },
+  "build": {
+    "build_parallelism": 24,
+    "build_process_sha256": "f4e2f9e27a2a3dfd8dad7d6e7fca0bac2cfd350b44c02273a762203d5138bf42",
+    "build_run_id": "pypto-cpu-v2-20260828T022027Z-850956-d05921",
+    "ctest_jobs": 24,
+    "ctest_passed": 13,
+    "ctest_process_sha256": "476dbbe3f118ebc2e224b949ef9ec1275181ef872eb8c1b2a0e267e895c77099",
+    "ctest_run_id": "pypto-cpu-v2-20260828T023500Z-857575-f4505f",
+    "ctest_total": 13,
+    "dso_bytes": 795586992,
+    "dso_path": "builds/pypto-paged-f34c3f5/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "dso_sha256": "880c346be0287de701bdeb1a1ffff0ac929b609a077055c68c11368938b8c752",
+    "pypto_commit": "2faefb64d3b81484a100f6a2d839f57abfe5ca35",
+    "pypto_tree": "3ac28e0d22291e0fa331b9fd75e4ebfbb863956d",
+    "tensor_ir_commit": "1cae26fa225b377501ec9e544fa972590bd1b8fe",
+    "tensor_ir_tree": "3b13e5c3a8d7f8a518c515041d71f29ce7651727"
+  },
+  "kind": "pypto-paged-attention-cp0085",
+  "not_accepted": [
+    "CUDA graph compatibility",
+    "SGLang framework integration",
+    "Qwen3.5 model logits or token parity",
+    "Qwen3.5 model coverage or stability",
+    "operator or model performance"
+  ],
+  "run": {
+    "initial_preflight_sha256": "9c806c1d0f41daa617bbf3d9ebd09f8d6c9cc163504c262548960724841e5d83",
+    "post_exit_group_members": [],
+    "post_exit_violation": null,
+    "preflight_sha256": "bf4d263377cd9f9240b60e0af4c1decd72550334e66450519df73910310231e9",
+    "process_metadata_sha256": "b7596469afdbe6a556a7b0d09189c0e08a0f805ee931d2a944e77faa9e957fac",
+    "result_sha256": "6cda5551a21f789924f78bc0292af93fbdacc65c6d75f3839a3773cab96207b7",
+    "return_code": 0,
+    "run_id": "pypto-20260828T022203Z-853498-b4eb14"
+  },
+  "schema_version": 1,
+  "source": {
+    "attention_path": "src/pypto_kernels/attention.py",
+    "attention_sha256": "a83af12c24f01f24dd32194fc6ded3c61bca4ba62139bf7dd46aba8970f57bd5",
+    "benchmark_path": "benchmarks/paged_attention_sm120.py",
+    "benchmark_sha256": "6368665f1c39219b4f21cb30ab1167628b935682dc17daa65cbc2c038631a3b4",
+    "bootstrap_path": "src/pypto_kernels/_boot.py",
+    "bootstrap_sha256": "6b70e9f1e4302ea78d72b7cc0757f237c22c70867d5099fab13e010877fcd32f",
+    "clean_worktree": true,
+    "pypto_emitter_sha256": "81c5123be481715ab6dfd214234b240594e063e5c50f5ae5fb1298a2317d9803",
+    "pypto_kernels_commit": "f585c73cc7bd14221dd5890b3366193719f10b2f",
+    "pypto_kernels_tree": "0dfc14a4dc88fac6b3370301d3eaaa770c2c3816",
+    "tensor_ir_layout_lowering_sha256": "69b6c60ecc79878e7e9d8a9aa0d92f8e14adf03b58eb7eaaf81990f996000794"
+  },
+  "structure_tests": {
+    "passed": 17,
+    "total": 17
+  }
+}
