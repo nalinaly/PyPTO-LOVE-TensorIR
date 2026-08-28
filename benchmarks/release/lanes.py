@@ -11,11 +11,28 @@ from .workload import LANES, ReleaseContractError
 
 
 BASELINE_LANES = {"sglang-matched", "sglang-optimized"}
+FORBIDDEN_RELEASE_OVERRIDES = (
+    "PYPTO_PLUGINS_PYPTO_DSO",
+    "PYPTO_PLUGINS_CUDA_DRIVER_LABEL",
+    "PYPTO_PLUGINS_CUDART",
+    "PYPTO_KERNEL_DSO_PATH",
+    "PYPTO_KERNEL_PACKAGE_PATH",
+    "PYPTO_KERNEL_CUDA_DRIVER_LABEL",
+    "PYPTO_KERNEL_CUDART",
+)
 
 
 def prepare_worker_environment(lane: str) -> None:
     if lane not in LANES:
         raise ValueError(f"unknown lane: {lane}")
+    active_overrides = sorted(
+        name for name in FORBIDDEN_RELEASE_OVERRIDES if os.environ.get(name)
+    )
+    if active_overrides:
+        raise ReleaseContractError(
+            "formal release workers forbid diagnostic runtime overrides: "
+            + ", ".join(active_overrides)
+        )
     expected_profile = "pypto" if lane == "pypto" else "baseline"
     actual_profile = os.environ.get("PYPTO_FRAMEWORK_PROFILE")
     if actual_profile != expected_profile:

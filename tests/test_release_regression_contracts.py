@@ -241,6 +241,15 @@ def test_runtime_contract_uses_portable_release_prefixes() -> None:
     }
 
 
+def test_formal_worker_rejects_diagnostic_runtime_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PYPTO_FRAMEWORK_PROFILE", "pypto")
+    monkeypatch.setenv("PYPTO_KERNEL_CUDART", "/diagnostic/libcudart.so")
+    with pytest.raises(workload.ReleaseContractError, match="diagnostic runtime"):
+        lanes.prepare_worker_environment("pypto")
+
+
 def test_controller_commands_route_through_generalized_bounded_controls(
     tmp_path: Path,
 ) -> None:
