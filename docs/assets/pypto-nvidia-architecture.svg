@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="620" viewBox="0 0 1280 620" role="img" aria-labelledby="title desc">
+  <title id="title">PyPTO NVIDIA SM120 compilation and execution architecture</title>
+  <desc id="desc">SGLang and TorchInductor feed handwritten or generated PyPTO DSL into PyPTO HIR, TensorIR, CUDA Tile, a verified Cubin artifact, and the PyPTO NVIDIA runtime.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f7f9fc"/>
+      <stop offset="1" stop-color="#edf3fb"/>
+    </linearGradient>
+    <linearGradient id="pypto" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2457a7"/>
+      <stop offset="1" stop-color="#173a73"/>
+    </linearGradient>
+    <linearGradient id="nvidia" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6da51f"/>
+      <stop offset="1" stop-color="#47780f"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#17202a" flood-opacity=".14"/>
+    </filter>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 Z" fill="#52606d"/>
+    </marker>
+    <style>
+      .title { font: 700 30px 'Segoe UI', 'Noto Sans SC', sans-serif; fill: #17202a; }
+      .subtitle { font: 400 16px 'Segoe UI', 'Noto Sans SC', sans-serif; fill: #5f6b76; }
+      .box-title { font: 700 19px 'Segoe UI', 'Noto Sans SC', sans-serif; fill: white; }
+      .box-copy { font: 400 14px 'Segoe UI', 'Noto Sans SC', sans-serif; fill: #e8f0fb; }
+      .dark-title { font: 700 19px 'Segoe UI', 'Noto Sans SC', sans-serif; fill: #17202a; }
+      .dark-copy { font: 400 14px 'Segoe UI', 'Noto Sans SC', sans-serif; fill: #46515c; }
+      .label { font: 600 13px 'Segoe UI', 'Noto Sans SC', sans-serif; fill: #52606d; }
+      .arrow { stroke: #52606d; stroke-width: 2.2; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect width="1280" height="620" rx="24" fill="url(#bg)"/>
+  <text x="64" y="62" class="title">One public PyPTO product, one NVIDIA SM120 execution path</text>
+  <text x="64" y="91" class="subtitle">Handwritten serving kernels and TorchInductor-generated loops share the same compiler, artifact, coverage, and runtime contracts.</text>
+
+  <g filter="url(#shadow)">
+    <rect x="64" y="145" width="210" height="126" rx="15" fill="#343b47"/>
+    <text x="86" y="179" class="box-title">SGLang</text>
+    <text x="86" y="207" class="box-copy">Qwen3.5 text model</text>
+    <text x="86" y="229" class="box-copy">paged KV / GDN state</text>
+    <text x="86" y="251" class="box-copy">caller-owned CUDA stream</text>
+
+    <rect x="64" y="335" width="210" height="126" rx="15" fill="#343b47"/>
+    <text x="86" y="369" class="box-title">TorchInductor</text>
+    <text x="86" y="397" class="box-copy">FX scheduling</text>
+    <text x="86" y="419" class="box-copy">pointwise / reduction</text>
+    <text x="86" y="441" class="box-copy">generated PyPTO DSL</text>
+
+    <rect x="354" y="145" width="250" height="316" rx="18" fill="url(#pypto)"/>
+    <text x="380" y="181" class="box-title">PyPTO frontend + compiler</text>
+    <text x="380" y="215" class="box-copy">@pl.jit specialization</text>
+    <text x="380" y="238" class="box-copy">shape / stride / dtype / mutation</text>
+    <text x="380" y="275" class="box-copy">canonical HIR matcher</text>
+    <text x="380" y="298" class="box-copy">typed semantic ModuleSpec</text>
+    <text x="380" y="335" class="box-copy">CompileRequest + Schedule</text>
+    <text x="380" y="358" class="box-copy">BuildSpec + Artifact identity</text>
+    <text x="380" y="395" class="box-copy">strict provider provenance</text>
+    <text x="380" y="418" class="box-copy">zero compute fallback</text>
+
+    <rect x="685" y="145" width="230" height="316" rx="18" fill="white" stroke="#b9c5d2" stroke-width="2"/>
+    <text x="711" y="181" class="dark-title">Private TensorIR</text>
+    <text x="711" y="215" class="dark-copy">ODS / OpBuilder ModuleOp</text>
+    <text x="711" y="238" class="dark-copy">or canonical MLIR parser</text>
+    <text x="711" y="275" class="dark-copy">layout propagation</text>
+    <text x="711" y="298" class="dark-copy">graph splitting</text>
+    <text x="711" y="321" class="dark-copy">gather / scatter</text>
+    <text x="711" y="344" class="dark-copy">multi-output / mutation</text>
+    <text x="711" y="381" class="dark-copy">CUDA Tile lowering</text>
+    <text x="711" y="404" class="dark-copy">verified tileiras child</text>
+    <text x="711" y="427" class="dark-copy">sm_120a Cubin</text>
+
+    <rect x="995" y="145" width="220" height="316" rx="18" fill="url(#nvidia)"/>
+    <text x="1021" y="181" class="box-title">PyPTO runtime</text>
+    <text x="1021" y="215" class="box-copy">NvidiaExecutable</text>
+    <text x="1021" y="238" class="box-copy">device / CUcontext checks</text>
+    <text x="1021" y="275" class="box-copy">Cubin + entry + ABI verify</text>
+    <text x="1021" y="298" class="box-copy">prewarmed launch packet</text>
+    <text x="1021" y="335" class="box-copy">current-stream launch</text>
+    <text x="1021" y="358" class="box-copy">CUPTI artifact correlation</text>
+    <text x="1021" y="395" class="box-copy">RTX 5090 Laptop</text>
+    <text x="1021" y="418" class="box-copy">82 SM · compute 12.0</text>
+  </g>
+
+  <line x1="274" y1="208" x2="345" y2="208" class="arrow"/>
+  <text x="282" y="190" class="label">handwritten</text>
+  <line x1="274" y1="398" x2="345" y2="398" class="arrow"/>
+  <text x="287" y="380" class="label">generated</text>
+  <line x1="604" y1="303" x2="676" y2="303" class="arrow"/>
+  <text x="616" y="285" class="label">ModuleOp</text>
+  <line x1="915" y1="303" x2="986" y2="303" class="arrow"/>
+  <text x="927" y="285" class="label">Artifact</text>
+
+  <rect x="354" y="505" width="861" height="58" rx="12" fill="#fff" stroke="#c6d0db"/>
+  <text x="378" y="530" class="dark-title">Strict evidence boundary</text>
+  <text x="378" y="551" class="dark-copy">Every model-forward GPU compute activity must correlate to an exact PyPTO artifact; runtime operations are visible but reported separately.</text>
+</svg>
