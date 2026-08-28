@@ -290,7 +290,7 @@ def test_lane_memory_and_provider_qualifications_are_explicit() -> None:
         assert config["linear_attn_backend"] == "flashinfer"
         assert config["linear_attn_decode_backend"] == "flashinfer"
         assert config["linear_attn_prefill_backend"] == "flashinfer"
-        assert config["mamba_ssm_dtype"] == "bfloat16"
+        assert config["mamba_ssm_dtype"] == "float32"
     assert pypto["sampling_backend"] == matched["sampling_backend"] == "pytorch"
     assert optimized["sampling_backend"] == "flashinfer"
     assert matched["disable_cuda_graph"] is True
@@ -306,7 +306,7 @@ def test_requested_compile_flag_is_not_reported_as_effective() -> None:
         linear_attn_prefill_backend="flashinfer",
         linear_attn_decode_backend="flashinfer",
         mamba_backend="triton",
-        mamba_ssm_dtype="bfloat16",
+        mamba_ssm_dtype="float32",
         sampling_backend="flashinfer",
         enable_torch_compile=True,
         disable_cuda_graph=False,

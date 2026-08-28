@@ -212,15 +212,16 @@ def server_kwargs(
         )
     else:
         # The pinned Triton GDN path calls a removed tl.make_block_ptr API.
-        # FlashInfer is SGLang's supported SM100+ GDN route and requires BF16
-        # state.  Both requested and post-resolution values are recorded.
+        # FlashInfer is SGLang's supported SM100+ GDN route. Its selected
+        # SM120 prefill kernel requires FP32 recurrent state; keep that ABI
+        # explicit and verify the post-resolution value in every stock run.
         common.update(
             {
                 "attention_backend": "flashinfer",
                 "linear_attn_backend": "flashinfer",
                 "linear_attn_decode_backend": "flashinfer",
                 "linear_attn_prefill_backend": "flashinfer",
-                "mamba_ssm_dtype": "bfloat16",
+                "mamba_ssm_dtype": "float32",
                 "sampling_backend": (
                     "pytorch" if lane == "sglang-matched" else "flashinfer"
                 ),
@@ -323,9 +324,9 @@ def validate_resolved_backends(lane: str, record: dict[str, object]) -> None:
     drift = {
         key: record.get(key) for key in required if record.get(key) != "flashinfer"
     }
-    if drift or record.get("mamba_ssm_dtype") != "bfloat16":
+    if drift or record.get("mamba_ssm_dtype") != "float32":
         raise ReleaseContractError(
-            "stock backend did not resolve to supported FlashInfer/BF16 state: "
+            "stock backend did not resolve to supported FlashInfer/FP32 state: "
             f"drift={drift}, dtype={record.get('mamba_ssm_dtype')!r}"
         )
     expected_sampler = "pytorch" if lane == "sglang-matched" else "flashinfer"
