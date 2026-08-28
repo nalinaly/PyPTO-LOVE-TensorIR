@@ -1,0 +1,22 @@
+From 9b90f15d41822e2f5c9abca93f51afa3a9d368db Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 06:36:41 +0800
+Subject: [PATCH 219/219] Refresh callable build-spec golden
+
+---
+ tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+index 5b15776cd1525ab4263daafbcf91edcd936741b1..d0386ef301ec734a8c0b5d10af44bb5ed36bc828 100644
+--- a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
++++ b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+@@ -1713,7 +1713,7 @@ int TestFinalizationAndCallableBinding() {
+   REQUIRE(kernel.GetIdentityDigest() ==
+           "4eee741cbe0c7322f938b83b01b34844c5f12fb1b01da52c2029e6687e24c640");
+   REQUIRE(build_spec.GetIdentityDigest() ==
+-          "2151a869507e57a997732d928194509422c1e037ee7ef2fc91d87dd46a8a0afa");
++          "5cbaeb94b35863a5dc77cbd0044484299a965591ab72dbdafe3053a051040e3c");
+   REQUIRE(build_spec.GetSourceIrDigest() == prepared.GetSourceIrDigest());
+   REQUIRE(build_spec.GetCallableAbiDigest() == kernel.GetIdentityDigest());
+   REQUIRE(build_spec.GetSemanticRoute() == SemanticRoute::StructuredTensorIr);
