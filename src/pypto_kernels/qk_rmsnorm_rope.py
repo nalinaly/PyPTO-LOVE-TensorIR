@@ -212,6 +212,7 @@ def build(
     max_positions: int,
     q_gate_row_stride: int | None = None,
     key_row_stride: int | None = None,
+    cache_fp32: bool = False,
 ) -> Any:
     _validate_shape(tokens, q_heads, kv_heads, head_dim, rotary_dim, max_positions)
     import torch
@@ -238,7 +239,9 @@ def build(
     )
     weight = torch.empty((1, head_dim), dtype=torch.bfloat16, device="meta")
     cache = torch.empty(
-        (max_positions, rotary_dim), dtype=torch.bfloat16, device="meta"
+        (max_positions, rotary_dim),
+        dtype=torch.float32 if cache_fp32 else torch.bfloat16,
+        device="meta",
     )
     positions = torch.empty(
         (tokens, rotary_dim), dtype=torch.int64, device="meta"
@@ -262,6 +265,7 @@ def compile_for(
     max_positions: int,
     q_gate_row_stride: int,
     key_row_stride: int,
+    cache_fp32: bool,
 ) -> str:
     _validate_shape(tokens, q_heads, kv_heads, head_dim, rotary_dim, max_positions)
     cache_key = (
@@ -273,6 +277,7 @@ def compile_for(
         max_positions,
         q_gate_row_stride,
         key_row_stride,
+        cache_fp32,
     )
     cached = _cache.get(cache_key)
     if cached is not None:
@@ -300,12 +305,11 @@ def qk_rmsnorm_rope_gate(
 
     import torch
 
-    tensors = (q_gate, key, q_weight, k_weight, cos_sin_cache)
-    if any(
-        tensor.dtype is not torch.bfloat16
-        for tensor in tensors
-    ):
-        raise ValueError("QK preparation needs BF16 tensor inputs")
+    bf16_tensors = (q_gate, key, q_weight, k_weight)
+    if any(tensor.dtype is not torch.bfloat16 for tensor in bf16_tensors):
+        raise ValueError("Q/K inputs and weights must use BF16")
+    if cos_sin_cache.dtype not in (torch.bfloat16, torch.float32):
+        raise ValueError("QK preparation cos/sin cache must use BF16 or FP32")
     if (
         positions.ndim != 1
         or positions.dtype is not torch.int64
@@ -347,6 +351,7 @@ def qk_rmsnorm_rope_gate(
         max_positions,
         int(q_gate.stride(0)),
         int(key.stride(0)),
+        cos_sin_cache.dtype is torch.float32,
     )
     packed = torch.empty(
         (tokens, 2 * q_heads + kv_heads, head_dim),
