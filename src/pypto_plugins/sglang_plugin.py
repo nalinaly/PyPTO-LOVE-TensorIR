@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import importlib
 import atexit
+import functools
+import inspect
 import json
 import os
 from pathlib import Path
@@ -925,12 +927,50 @@ def _enable_qwen_language_model_only(server_args_class=None) -> tuple[str, ...]:
     return updated
 
 
+def _enable_offloader_tied_parameter_support(offloader_module=None):
+    """Make OffloaderV1 functional calls explicit about Qwen parameter aliases."""
+
+    if offloader_module is None:
+        offloader_module = importlib.import_module("sglang.srt.utils.offloader")
+    current = getattr(offloader_module, "functional_call", None)
+    if not callable(current):
+        raise BackendNotReadyError(
+            "pinned SGLang offloader functional_call contract changed"
+        )
+    if getattr(current, "_pypto_untied_parameter_compatible", False):
+        return current
+    try:
+        parameters = inspect.signature(current).parameters
+    except (TypeError, ValueError) as error:
+        raise BackendNotReadyError(
+            "pinned SGLang offloader functional_call is not inspectable"
+        ) from error
+    if "tie_weights" not in parameters:
+        raise BackendNotReadyError(
+            "pinned SGLang offloader functional_call lacks tie_weights"
+        )
+
+    @functools.wraps(current)
+    def functional_call_with_explicit_aliases(*args, **kwargs):
+        if "tie_weights" in kwargs and kwargs["tie_weights"] is not False:
+            raise BackendNotReadyError(
+                "PyPTO Qwen offload requires functional_call tie_weights=False"
+            )
+        kwargs["tie_weights"] = False
+        return current(*args, **kwargs)
+
+    functional_call_with_explicit_aliases._pypto_untied_parameter_compatible = True
+    offloader_module.functional_call = functional_call_with_explicit_aliases
+    return functional_call_with_explicit_aliases
+
+
 def _register_impl() -> None:
     assert_operator_library_compatible()
     assert_backend_executable_ready()
     assert_torch_compatible()
     assert_sglang_compatible()
     _enable_qwen_language_model_only()
+    _enable_offloader_tied_parameter_support()
     install()
 
     from sglang.srt.layers.attention.attention_registry import (

@@ -29,6 +29,7 @@ from pypto_plugins.sglang_plugin import (
     UNQUANTIZED_LINEAR_TARGET,
     QWEN_LANGUAGE_MODEL_ONLY_ARCHITECTURES,
     _attention_factory,
+    _enable_offloader_tied_parameter_support,
     _enable_qwen_language_model_only,
     _embedding_around,
     _fla_gated_rmsnorm_around,
@@ -106,6 +107,23 @@ def test_qwen35_language_model_only_compatibility_is_bounded_and_idempotent() ->
 
     with pytest.raises(BackendNotReadyError, match="contract changed"):
         _enable_qwen_language_model_only(IncompatibleServerArgs)
+
+
+def test_qwen35_offloader_functional_call_handles_tied_aliases() -> None:
+    calls = []
+
+    def functional_call(module, state, *, args=None, kwargs=None, tie_weights=True):
+        calls.append((module, state, args, kwargs, tie_weights))
+        return "forwarded"
+
+    fake_module = SimpleNamespace(functional_call=functional_call)
+    installed = _enable_offloader_tied_parameter_support(fake_module)
+    assert installed("module", "state", args=(1,), kwargs={}) == "forwarded"
+    assert calls == [("module", "state", (1,), {}, False)]
+    assert _enable_offloader_tied_parameter_support(fake_module) is installed
+
+    with pytest.raises(BackendNotReadyError, match="tie_weights=False"):
+        installed("module", "state", tie_weights=True)
 
 
 def test_pinned_linear_backend_hook_symbol_and_signature() -> None:
