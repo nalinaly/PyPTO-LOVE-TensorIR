@@ -13,8 +13,9 @@ import pypto.language as pl  # noqa: E402
 
 _TILE_ROWS = 1
 _TILE_COLUMNS = 128
+_SCHEDULE_COLUMNS = 128
 _lock = threading.RLock()
-_cache: dict[tuple[int, int, int, str], str] = {}
+_cache: dict[tuple[int, int, int, str, int], str] = {}
 
 STATUS = "native-tile executable"
 GRAPHS = 2
@@ -99,7 +100,11 @@ def _validate_shape(rows: int, in_features: int, out_features: int) -> None:
 
 
 def _tiles(rows: int) -> list[int]:
-    return [_TILE_COLUMNS] if rows == 1 else [_TILE_ROWS, _TILE_COLUMNS]
+    return (
+        [_SCHEDULE_COLUMNS]
+        if rows == 1
+        else [_TILE_ROWS, _SCHEDULE_COLUMNS]
+    )
 
 
 def build(
@@ -107,6 +112,7 @@ def build(
     in_features: int,
     out_features: int,
     output_dtype: str = "bfloat16",
+    output_row_stride: int | None = None,
 ) -> Any:
     _validate_shape(rows, in_features, out_features)
     import torch
@@ -123,7 +129,17 @@ def build(
         kernel = linear_to_float_kernel
     else:
         raise ValueError("linear output dtype must be bfloat16 or float32")
-    out = torch.empty((rows, out_features), dtype=dtype, device="meta")
+    output_row_stride = (
+        out_features if output_row_stride is None else output_row_stride
+    )
+    if output_row_stride < out_features:
+        raise ValueError("linear output row stride must cover the logical row")
+    out = torch.empty_strided(
+        (rows, out_features),
+        (output_row_stride, 1),
+        dtype=dtype,
+        device="meta",
+    )
     return kernel.specialize(x, weight, out)
 
 
@@ -132,9 +148,21 @@ def compile_for(
     in_features: int,
     out_features: int,
     output_dtype: str = "bfloat16",
+    output_row_stride: int | None = None,
 ) -> str:
     _validate_shape(rows, in_features, out_features)
-    shape_key = (rows, in_features, out_features, output_dtype)
+    output_row_stride = (
+        out_features if output_row_stride is None else output_row_stride
+    )
+    if output_row_stride < out_features:
+        raise ValueError("linear output row stride must cover the logical row")
+    shape_key = (
+        rows,
+        in_features,
+        out_features,
+        output_dtype,
+        output_row_stride,
+    )
     cached = _cache.get(shape_key)
     if cached is not None:
         return cached
@@ -153,7 +181,12 @@ def compile_for(
         kernel = linear_to_float_kernel
     else:
         raise ValueError("linear output dtype must be bfloat16 or float32")
-    out = torch.empty((rows, out_features), dtype=dtype, device="meta")
+    out = torch.empty_strided(
+        (rows, out_features),
+        (output_row_stride, 1),
+        dtype=dtype,
+        device="meta",
+    )
     graph_key = compile_jit_kernel(
         kernel,
         (x, weight, out),
@@ -184,9 +217,9 @@ def linear(x: Any, weight: Any, stream: Any = None) -> Any:
     _validate_shape(rows, in_features, out_features)
     if stream is None:
         stream = torch.cuda.current_stream(x.device)
-    graph_key = compile_for(rows, in_features, out_features)
     result_shape = (*map(int, x.shape[:-1]), out_features)
     out = torch.empty(result_shape, dtype=x.dtype, device=x.device)
+    graph_key = compile_for(rows, in_features, out_features)
     launch_graph(
         graph_key,
         (
@@ -218,9 +251,9 @@ def linear_to_float(x: Any, weight: Any, stream: Any = None) -> Any:
     _validate_shape(rows, in_features, out_features)
     if stream is None:
         stream = torch.cuda.current_stream(x.device)
-    graph_key = compile_for(rows, in_features, out_features, "float32")
     result_shape = (*map(int, x.shape[:-1]), out_features)
     out = torch.empty(result_shape, dtype=torch.float32, device=x.device)
+    graph_key = compile_for(rows, in_features, out_features, "float32")
     launch_graph(
         graph_key,
         (

@@ -440,6 +440,10 @@ def test_linear_is_one_native_tile_graph():
     float_rendered = str(float_program)
     assert float_rendered.count("pl.tile.cast") == 2
     assert "pl.Out[pl.Tensor[[1, 256], pl.FP32]]" in float_rendered
+    pitched = str(
+        linear.build(19, 1024, 128, output_row_stride=8192)
+    )
+    assert "pl.TensorView(stride=[8192, 1]" in pitched
 
 
 def test_gdn_recurrent_is_one_mutation_declared_graph():

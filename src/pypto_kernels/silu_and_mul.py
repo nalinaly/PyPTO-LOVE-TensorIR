@@ -32,12 +32,15 @@ def silu_and_mul_kernel(
             for block in pl.range(gate.shape[1] // 128):
                 tile_gate = pl.load(gate, [row, block * 128], [1, 128])
                 tile_up = pl.load(up, [row, block * 128], [1, 128])
-                gate_neg = pl.mul(tile_gate, -1.0)
+                gate_wide = pl.cast(tile_gate, target_type=pl.FP32)
+                up_wide = pl.cast(tile_up, target_type=pl.FP32)
+                gate_neg = pl.mul(gate_wide, -1.0)
                 exp_neg = pl.exp(gate_neg)
                 denominator = pl.add(exp_neg, 1.0)
                 sigmoid = pl.recip(denominator)
-                silu_gate = pl.mul(tile_gate, sigmoid)
-                result = pl.mul(silu_gate, tile_up)
+                silu_gate = pl.mul(gate_wide, sigmoid)
+                result_wide = pl.mul(silu_gate, up_wide)
+                result = pl.cast(result_wide, target_type=pl.BF16)
                 pl.store(result, [row, block * 128], out)
     return out
 
