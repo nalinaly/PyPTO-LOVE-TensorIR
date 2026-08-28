@@ -60,7 +60,7 @@ def test_package_identity_mismatches_fail_closed(attribute, value, message) -> N
         inspect_operator_library(fake)
 
 
-def test_native_tile_source_requires_explicit_schedule_and_single_launch(
+def test_native_tile_source_requires_explicit_schedule_and_one_launch_site(
     tmp_path,
 ) -> None:
     module = SimpleNamespace(__name__="pypto_kernels.example")
@@ -75,7 +75,7 @@ def test_native_tile_source_requires_explicit_schedule_and_single_launch(
         "launch_graph(a)\nlaunch_graph(b)\n",
         encoding="utf-8",
     )
-    with pytest.raises(FrameworkCompatibilityError, match="launch once"):
+    with pytest.raises(FrameworkCompatibilityError, match="one launch site"):
         _validate_native_tile_source(module, duplicate_launch, 1)
 
 

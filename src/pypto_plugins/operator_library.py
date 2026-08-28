@@ -142,7 +142,7 @@ def _validate_native_tile_source(module: object, source: Path, graphs: int) -> N
         )
     if text.count("launch_graph(") != graphs:
         raise FrameworkCompatibilityError(
-            f"{module.__name__} must launch once for each model operator graph"
+            f"{module.__name__} must expose one launch site per operator graph"
         )
     prohibited_whole_tensor_forms = (
         "from ._graph",
