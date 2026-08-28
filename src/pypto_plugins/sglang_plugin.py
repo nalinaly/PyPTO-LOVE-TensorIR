@@ -270,7 +270,7 @@ def _gdn_projection_around(
             "the Qwen3.5 Triton copy fallback."
         )
     with pypto_stream(projected_qkvz.device) as stream:
-        return gdn_projection.split_projection(
+        result = gdn_projection.split_projection(
             projected_qkvz,
             projected_ba,
             q_heads=num_heads_qk,
@@ -279,6 +279,25 @@ def _gdn_projection_around(
             value_dim=head_v,
             stream=stream,
         )
+    if os.environ.get("PYPTO_DIFFERENTIAL_REPORT"):
+        rows = int(projected_qkvz.shape[0])
+        mixed_width = 2 * num_heads_qk * head_qk + num_heads_v * head_v
+        reference = (
+            projected_qkvz[:, :mixed_width].contiguous(),
+            projected_qkvz[:, mixed_width:].contiguous().view(
+                rows, num_heads_v, head_v
+            ),
+            projected_ba[:, :num_heads_v].contiguous(),
+            projected_ba[:, num_heads_v:].contiguous(),
+        )
+        for index, (candidate_value, reference_value) in enumerate(
+            zip(result, reference, strict=True)
+        ):
+            _record_differential(
+                "gdn_projection", f"projection_output_{index}",
+                candidate_value, reference_value
+            )
+    return result
 
 
 def _support_triton_around(original_fn, backend):
@@ -322,6 +341,23 @@ def _gemma_rmsnorm_around(
         raise BackendNotReadyError("PyPTO Gemma RMSNorm operators are not executable.")
     original_shape = tuple(x.shape)
     flat = x if x.ndim == 2 else x.contiguous().reshape(-1, original_shape[-1])
+    differential = bool(os.environ.get("PYPTO_DIFFERENTIAL_REPORT"))
+    reference_x = x.clone() if differential and residual is not None else x
+    reference_residual = (
+        residual.clone() if differential and residual is not None else residual
+    )
+    def torch_reference(value):
+        import torch
+
+        wide = value.float()
+        inverse = torch.rsqrt(
+            wide.square().mean(dim=-1, keepdim=True)
+            + layer.variance_epsilon
+        )
+        return (
+            wide * inverse * (1.0 + layer.weight.data.float())
+        ).to(value.dtype)
+
     with pypto_stream(x.device) as stream:
         if residual is None:
             output = rmsnorm.rmsnorm(
@@ -330,18 +366,35 @@ def _gemma_rmsnorm_around(
                 layer.variance_epsilon,
                 stream=stream,
             )
-            return output.reshape(original_shape)
+            result = output.reshape(original_shape)
+            if differential:
+                reference = torch_reference(x)
+                _record_differential(
+                    "gemma_rmsnorm", "rmsnorm", result, reference
+                )
+            return result
         if x.ndim != 2 or residual.ndim != 2:
             raise BackendNotReadyError(
                 "PyPTO fused Gemma RMSNorm requires rank-2 residual inputs."
             )
-        return fused_add_rmsnorm.fused_add_rmsnorm(
+        result = fused_add_rmsnorm.fused_add_rmsnorm(
             x,
             residual,
             layer.weight.data,
             layer.variance_epsilon,
             stream=stream,
         )
+        if differential:
+            reference_sum = reference_x + reference_residual
+            reference = (torch_reference(reference_sum), reference_sum)
+            for index, (candidate_value, reference_value) in enumerate(
+                zip(result, reference, strict=True)
+            ):
+                _record_differential(
+                    "gemma_rmsnorm", f"fused_output_{index}",
+                    candidate_value, reference_value
+                )
+        return result
 
 
 def _gemma_rmsnorm_weight_loader_around(
@@ -449,7 +502,24 @@ def _fla_gated_rmsnorm_around(
             eps=float(eps),
             stream=stream,
         )
-    return output.reshape(original_shape)
+    result = output.reshape(original_shape)
+    if os.environ.get("PYPTO_DIFFERENTIAL_REPORT"):
+        import torch
+
+        wide = x.float()
+        normalized = wide * torch.rsqrt(
+            wide.square().mean(dim=-1, keepdim=True) + float(eps)
+        )
+        gate_wide = z.float()
+        reference = (
+            normalized
+            * weight.float()
+            * (gate_wide * torch.sigmoid(gate_wide))
+        ).to(x.dtype)
+        _record_differential(
+            "gated_rmsnorm", "gdn_output_norm", result, reference
+        )
+    return result
 
 
 def _qk_rmsnorm_rope_gate_around(
@@ -527,8 +597,12 @@ def _qk_rmsnorm_rope_gate_around(
                 "with shape [3, tokens] and unit inner stride."
             )
         positions = positions[0]
+    differential = bool(os.environ.get("PYPTO_DIFFERENTIAL_REPORT"))
+    reference_inputs = (
+        (q_gate.clone(), key.clone(), positions.clone()) if differential else None
+    )
     with pypto_stream(q_gate.device) as stream:
-        return qk_rmsnorm_rope.qk_rmsnorm_rope_gate(
+        result = qk_rmsnorm_rope.qk_rmsnorm_rope_gate(
             q_gate,
             key,
             q_weight,
@@ -539,6 +613,58 @@ def _qk_rmsnorm_rope_gate_around(
             kv_heads=num_kv_heads,
             stream=stream,
         )
+    if differential:
+        reference_q_gate, reference_key, reference_positions = reference_inputs
+        import torch
+
+        tokens = int(reference_q_gate.shape[0])
+        q_interleaved = reference_q_gate.view(
+            tokens, num_q_heads, 2, head_dim
+        )
+        q_source = q_interleaved[:, :, 0, :]
+        gate_reference = q_interleaved[:, :, 1, :].contiguous()
+        k_source = reference_key.view(tokens, num_kv_heads, head_dim)
+
+        def normalize(value, weight):
+            wide = value.float()
+            inverse = torch.rsqrt(
+                wide.square().mean(dim=-1, keepdim=True) + float(eps)
+            )
+            return (
+                wide * inverse * (1.0 + weight.float())
+            ).to(value.dtype).float()
+
+        cache = cos_sin_cache.index_select(
+            0, reference_positions.to(torch.int64)
+        ).float()
+        half = rotary_dim // 2
+        cos = cache[:, :half].unsqueeze(1)
+        sin = cache[:, half:].unsqueeze(1)
+
+        def rotate(value):
+            low = value[..., :half]
+            high = value[..., half:rotary_dim]
+            tail = value[..., rotary_dim:]
+            return torch.cat(
+                (low * cos - high * sin, high * cos + low * sin, tail),
+                dim=-1,
+            ).to(reference_q_gate.dtype)
+
+        q_reference = rotate(normalize(q_source, q_weight)).reshape(
+            tokens, num_q_heads * head_dim
+        )
+        k_reference = rotate(normalize(k_source, k_weight)).reshape(
+            tokens, num_kv_heads * head_dim
+        )
+        reference = (q_reference, k_reference, gate_reference)
+        for index, (candidate_value, reference_value) in enumerate(
+            zip(result, reference, strict=True)
+        ):
+            _record_differential(
+                "qk_rmsnorm_rope", f"qkv_output_{index}",
+                candidate_value, reference_value
+            )
+    return result
 
 
 def _fused_sigmoid_mul_around(
@@ -587,13 +713,27 @@ def _fused_sigmoid_mul_around(
         raise BackendNotReadyError(
             "PyPTO sigmoid-mul operator is not executable."
         )
+    differential = bool(os.environ.get("PYPTO_DIFFERENTIAL_REPORT"))
+    reference_output = attn_output.clone() if differential else None
+    reference_gate = gate.clone() if differential else None
     with pypto_stream(attn_output.device) as stream:
-        return sigmoid_mul.sigmoid_mul(
+        result = sigmoid_mul.sigmoid_mul(
             attn_output,
             gate,
             stream=stream,
             inplace=bool(inplace),
         )
+    if differential:
+        import torch
+
+        reference = (
+            reference_output.float()
+            * torch.sigmoid(reference_gate.float())
+        ).to(reference_output.dtype)
+        _record_differential(
+            "sigmoid_mul", "attention_output_gate", result, reference
+        )
+    return result
 
 
 def _unquantized_linear_around(original_fn, method, layer, x, bias=None):
