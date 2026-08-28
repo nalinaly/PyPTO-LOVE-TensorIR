@@ -15,7 +15,12 @@ class PyPTOStateBundle:
         self._pool = pool
         self._lock = threading.RLock()
         self._conv_by_layer: dict[int, Any] = {}
+        self._zero_input_by_layer: dict[int, Any] = {}
+        self._recurrent_clear_by_layer: dict[int, tuple[Any, ...]] = {}
+        self._recurrent_clear_geometry: dict[int, tuple[object, ...]] = {}
         self._geometry_by_layer: dict[int, tuple[int, int, object, object]] = {}
+        self._pending_clear_layers: set[int] = set()
+        self._pending_clear_count = 0
 
     def conv_for_layer(self, layer_id: int, upstream_conv: Any) -> Any:
         """Return a stable dense ``[slots,3,channels]`` sidecar for one layer."""
@@ -48,6 +53,11 @@ class PyPTOStateBundle:
                     device=upstream_conv.device,
                 )
                 self._conv_by_layer[layer_id] = state
+                self._zero_input_by_layer[layer_id] = torch.zeros(
+                    (slots * 3, channels),
+                    dtype=upstream_conv.dtype,
+                    device=upstream_conv.device,
+                )
                 self._geometry_by_layer[layer_id] = geometry
             return state
 
@@ -63,13 +73,89 @@ class PyPTOStateBundle:
             raise BackendNotReadyError(
                 "PyPTO StateBundle slot indices must be rank-1 INT32/INT64."
             )
-        return indices.long()
+        return indices
 
     def clear_slots(self, indices: Any) -> None:
         selected = self._indices(indices)
         with self._lock:
-            for state in self._conv_by_layer.values():
-                state.index_fill_(0, selected, 0)
+            self._pending_clear_layers = set(self._conv_by_layer)
+            self._pending_clear_count = int(selected.numel())
+
+    def prepare_recurrent_clear(
+        self,
+        layer_id: int,
+        mixed_qkv: Any,
+        a: Any,
+        b: Any,
+        a_log: Any,
+        dt_bias: Any,
+        batch_size: int,
+    ) -> None:
+        """Preallocate one exact zero-state GDN input outside clear handling."""
+
+        import torch
+
+        geometry = (
+            tuple(mixed_qkv.shape[1:]),
+            tuple(a.shape[1:]),
+            tuple(b.shape[1:]),
+            tuple(a_log.shape),
+            tuple(dt_bias.shape),
+            mixed_qkv.dtype,
+            a.dtype,
+            a_log.dtype,
+            dt_bias.dtype,
+            mixed_qkv.device,
+            batch_size,
+        )
+        with self._lock:
+            existing = self._recurrent_clear_geometry.get(layer_id)
+            if existing is not None and existing != geometry:
+                raise BackendNotReadyError(
+                    "PyPTO StateBundle recurrent clear geometry changed."
+                )
+            if existing is None:
+                self._recurrent_clear_by_layer[layer_id] = (
+                    torch.zeros(
+                        (batch_size, int(mixed_qkv.shape[1])),
+                        dtype=mixed_qkv.dtype,
+                        device=mixed_qkv.device,
+                    ),
+                    torch.zeros(
+                        (batch_size, int(a.shape[1])),
+                        dtype=a.dtype,
+                        device=a.device,
+                    ),
+                    torch.zeros(
+                        (batch_size, int(b.shape[1])),
+                        dtype=b.dtype,
+                        device=b.device,
+                    ),
+                    torch.full_like(a_log, float("inf")),
+                    torch.zeros_like(dt_bias),
+                )
+                self._recurrent_clear_geometry[layer_id] = geometry
+
+    def take_clear_payload(
+        self, layer_id: int, batch_size: int
+    ) -> tuple[Any, tuple[Any, ...]] | None:
+        """Consume one pending clear as cached conv and GDN zero inputs."""
+
+        with self._lock:
+            if layer_id not in self._pending_clear_layers:
+                return None
+            if batch_size != self._pending_clear_count:
+                raise BackendNotReadyError(
+                    "PyPTO StateBundle clear count differs from the next batch."
+                )
+            zero_input = self._zero_input_by_layer.get(layer_id)
+            recurrent = self._recurrent_clear_by_layer.get(layer_id)
+            if zero_input is None or recurrent is None:
+                raise BackendNotReadyError(
+                    "PyPTO StateBundle has no preallocated clear payload."
+                )
+            self._pending_clear_layers.remove(layer_id)
+            return zero_input[: batch_size * 3], recurrent
 
     def copy_from(self, src_indices: Any, dst_indices: Any) -> None:
         source = self._indices(src_indices)
@@ -113,11 +199,11 @@ def attach_state_bundle(pool: Any) -> PyPTOStateBundle:
         if name == "clear_slots":
 
             def mirrored(self, indices):
-                result = original(self, indices)
                 attached = getattr(self, "_pypto_state_bundle", None)
                 if attached is not None:
                     attached.clear_slots(indices)
-                return result
+                    return None
+                return original(self, indices)
 
         else:
 

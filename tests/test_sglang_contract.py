@@ -14,20 +14,30 @@ from pypto_plugins.errors import BackendNotReadyError
 from pypto_plugins.sglang.attention_backend import create_attention_backend
 from pypto_plugins.sglang_plugin import (
     ATTENTION_WRAPPER_TARGET,
+    EMBEDDING_TARGET,
     FLA_GATED_RMSNORM_TARGET,
     FUSED_SIGMOID_MUL_TARGET,
     GDN_PROJECTION_TARGET,
     GEMMA_RMSNORM_TARGET,
     LINEAR_BACKEND_RESOLVER_TARGET,
+    LM_HEAD_TARGET,
+    PRUNED_STATES_TARGET,
     QK_RMSNORM_ROPE_GATE_TARGET,
+    SILU_AND_MUL_TARGET,
     TRITON_SUPPORT_TARGETS,
+    UNQUANTIZED_LINEAR_TARGET,
     _attention_factory,
+    _embedding_around,
     _fla_gated_rmsnorm_around,
     _fused_sigmoid_mul_around,
     _gdn_projection_around,
     _gemma_rmsnorm_around,
     _qk_rmsnorm_rope_gate_around,
+    _lm_head_around,
+    _pruned_states_around,
+    _silu_and_mul_around,
     _support_triton_around,
+    _unquantized_linear_around,
 )
 
 
@@ -146,6 +156,62 @@ def test_gemma_rmsnorm_hook_is_preloaded_and_registered() -> None:
     assert "fused_add_rmsnorm.fused_add_rmsnorm(" in text
     assert "post_residual_addition" in text
     assert callable(_gemma_rmsnorm_around)
+
+
+def test_linear_swiglu_and_lm_head_hooks_are_pinned_and_fail_closed(monkeypatch) -> None:
+    assert UNQUANTIZED_LINEAR_TARGET.endswith("UnquantizedLinearMethod.apply")
+    assert SILU_AND_MUL_TARGET.endswith("activation.silu_and_mul")
+    assert LM_HEAD_TARGET.endswith("LogitsProcessor._compute_lm_head")
+    assert EMBEDDING_TARGET.endswith("UnquantizedEmbeddingMethod.embedding")
+    assert PRUNED_STATES_TARGET.endswith("LogitsProcessor._get_pruned_states")
+    text = SGLANG_PLUGIN.read_text(encoding="utf-8")
+    assert "linear.linear(" in text
+    assert "silu_and_mul.silu_and_mul(" in text
+
+    monkeypatch.setattr(
+        "pypto_plugins.sglang_plugin._pypto_compute_selected", lambda: False
+    )
+    token = object()
+    assert _unquantized_linear_around(
+        lambda *args: token, object(), object(), object(), None
+    ) is token
+    assert _silu_and_mul_around(lambda *args: token, object(), None) is token
+    assert _lm_head_around(
+        lambda *args: token, object(), object(), object(), None
+    ) is token
+    assert _embedding_around(lambda *args: token, object(), object(), object()) is token
+
+    monkeypatch.setattr(
+        "pypto_plugins.sglang_plugin._pypto_compute_selected", lambda: True
+    )
+    with pytest.raises(BackendNotReadyError, match="unquantized linear"):
+        _unquantized_linear_around(
+            lambda *args: None,
+            object(),
+            SimpleNamespace(weight=torch.nn.Parameter(torch.empty(2, 2))),
+            torch.empty(1, 2),
+            None,
+        )
+    with pytest.raises(BackendNotReadyError, match="SiLU-and-mul"):
+        _silu_and_mul_around(lambda *args: None, torch.empty(1, 4), None)
+
+    mode = SimpleNamespace(is_extend=lambda: True)
+    metadata = SimpleNamespace(
+        forward_mode=mode,
+        extend_return_logprob=False,
+        extend_seq_lens_cpu=[3],
+    )
+    hidden = torch.arange(12).view(3, 4)
+    pruned = _pruned_states_around(
+        lambda *args: None,
+        object(),
+        hidden,
+        None,
+        None,
+        metadata,
+    )
+    assert torch.equal(pruned[0], hidden[-1:])
+    assert pruned[0].data_ptr() == hidden[-1:].data_ptr()
 
 
 def test_fla_gated_rmsnorm_hook_is_preloaded_and_registered() -> None:

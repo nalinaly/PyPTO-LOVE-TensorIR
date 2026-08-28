@@ -39,12 +39,73 @@ def create_gdn_backend(model_runner: Any) -> Any:
                 )
             pool = self.req_to_token_pool.mamba_pool
             self._pypto_state_bundle = attach_state_bundle(pool)
+            self._pypto_query_start_loc_cache = {}
             if bool(pool.enable_linear_replayssm) or bool(
                 pool.enable_linear_replayssm_spec
             ):
                 raise BackendNotReadyError(
                     "PyPTO GDN ReplaySSM rings are not implemented."
                 )
+
+        def _forward_metadata(self, forward_batch: Any):
+            mode = forward_batch.forward_mode
+            if (
+                mode.is_extend()
+                and not mode.is_target_verify()
+                and not mode.is_draft_extend_v2()
+                and not mode.is_mixed()
+                and forward_batch.batch_size == 1
+                and forward_batch.mamba_track_indices is None
+                and forward_batch.mamba_track_mask is None
+            ):
+                lengths = forward_batch.extend_seq_lens_cpu
+                if lengths is None or len(lengths) != 1:
+                    raise BackendNotReadyError(
+                        "PyPTO GDN metadata requires one CPU extend length."
+                    )
+                cache_key = (1, int(lengths[0]))
+                query_start_loc = self._pypto_query_start_loc_cache.get(cache_key)
+                if query_start_loc is None:
+                    from ..activity_trace import trace_window_active
+
+                    if trace_window_active():
+                        raise BackendNotReadyError(
+                            "PyPTO GDN query metadata was not prepared before "
+                            "the model-forward trace window."
+                        )
+                    query_start_loc = torch.tensor(
+                        [0, cache_key[1]],
+                        dtype=torch.int32,
+                        device=self.device,
+                    )
+                    self._pypto_query_start_loc_cache[cache_key] = query_start_loc
+                mamba_cache_indices = self.req_to_token_pool.get_mamba_indices(
+                    forward_batch.req_pool_indices
+                )
+                mamba_cache_indices = self._translate_mamba_indices(
+                    mamba_cache_indices
+                )
+                from sglang.srt.layers.attention.hybrid_linear_attn_backend import (
+                    ForwardMetadata,
+                )
+
+                return ForwardMetadata(
+                    query_start_loc=query_start_loc,
+                    mamba_cache_indices=mamba_cache_indices,
+                    mamba_track_indices=None,
+                    retrieve_next_token=None,
+                    retrieve_next_sibling=None,
+                    retrieve_parent_token=None,
+                    track_conv_indices=None,
+                    track_ssm_h_src=None,
+                    track_ssm_h_dst=None,
+                    track_ssm_final_src=None,
+                    track_ssm_final_dst=None,
+                    has_mamba_track_mask=False,
+                    replayssm_write_pos=None,
+                    replayssm_force_flush=None,
+                )
+            return super()._forward_metadata(forward_batch)
 
         @staticmethod
         def _validate_wrapper_kwargs(layer: Any, kwargs: dict[str, Any]) -> None:
@@ -107,7 +168,38 @@ def create_gdn_backend(model_runner: Any) -> Any:
             )
             recurrent_state = layer_cache.temporal
             state_indices = self.forward_metadata.mamba_cache_indices
+            self._pypto_state_bundle.prepare_recurrent_clear(
+                layer.layer_id,
+                mixed_qkv,
+                a,
+                b,
+                layer.A_log,
+                layer.dt_bias,
+                batch_size,
+            )
             with pypto_stream(mixed_qkv.device) as stream:
+                clear_payload = self._pypto_state_bundle.take_clear_payload(
+                    layer.layer_id, batch_size
+                )
+                if clear_payload is not None:
+                    clear_input, recurrent_clear = clear_payload
+                    causal_conv1d.causal_conv1d(
+                        clear_input,
+                        layer.conv_weights,
+                        conv_state,
+                        state_indices,
+                        batch_size=batch_size,
+                        tokens_per_request=3,
+                        stream=stream,
+                    )
+                    gdn.gdn_recurrent(
+                        *recurrent_clear,
+                        recurrent_state,
+                        state_indices,
+                        batch_size=batch_size,
+                        tokens_per_request=1,
+                        stream=stream,
+                    )
                 convolved = causal_conv1d.causal_conv1d(
                     mixed_qkv,
                     layer.conv_weights,

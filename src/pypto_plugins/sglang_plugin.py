@@ -8,6 +8,8 @@ standalone operator ABI exists.
 from __future__ import annotations
 
 import importlib
+import threading
+import weakref
 
 from .errors import BackendNotReadyError
 from .operator_library import assert_operator_library_compatible
@@ -41,6 +43,38 @@ QK_RMSNORM_ROPE_GATE_TARGET = (
 FUSED_SIGMOID_MUL_TARGET = (
     "sglang.kernels.ops.elementwise.elementwise.fused_sigmoid_mul"
 )
+UNQUANTIZED_LINEAR_TARGET = (
+    "sglang.srt.layers.quantization.unquant.UnquantizedLinearMethod.apply"
+)
+SILU_AND_MUL_TARGET = "sglang.srt.layers.activation.silu_and_mul"
+LM_HEAD_TARGET = "sglang.srt.layers.logits_processor.LogitsProcessor._compute_lm_head"
+EMBEDDING_TARGET = (
+    "sglang.srt.layers.quantization.unquant.UnquantizedEmbeddingMethod.embedding"
+)
+PRUNED_STATES_TARGET = (
+    "sglang.srt.layers.logits_processor.LogitsProcessor._get_pruned_states"
+)
+MAMBA_INDICES_TARGET = (
+    "sglang.srt.mem_cache.memory_pool.HybridReqToTokenPool.get_mamba_indices"
+)
+UNIFIED_MAMBA_TRANSLATE_TARGET = (
+    "sglang.srt.mem_cache.unified_memory_pool.UnifiedMambaSlotAllocator.translate"
+)
+
+_linear_prepack_lock = threading.RLock()
+_linear_prepack_cache: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
+def _pypto_compute_selected() -> bool:
+    from sglang.srt.runtime_context import get_exec
+
+    mamba = get_exec().mamba
+    return "pypto" in {
+        getattr(mamba, "linear_attn_backend", None),
+        getattr(mamba, "linear_attn_decode_backend", None),
+        getattr(mamba, "linear_attn_prefill_backend", None),
+        getattr(mamba, "linear_attn_verify_backend", None),
+    }
 
 
 def _attention_factory(runner):
@@ -477,6 +511,258 @@ def _fused_sigmoid_mul_around(
         )
 
 
+def _unquantized_linear_around(original_fn, method, layer, x, bias=None):
+    """Route every selected BF16 SGLang linear through PyPTO matmul."""
+
+    if not _pypto_compute_selected():
+        return original_fn(method, layer, x, bias)
+    import torch
+
+    weight = getattr(layer, "weight", None)
+    if (
+        bias is not None
+        or type(x) is not torch.Tensor
+        or type(weight) is not torch.nn.Parameter
+        or x.dtype is not torch.bfloat16
+        or weight.dtype is not torch.bfloat16
+        or not x.is_cuda
+        or not weight.is_cuda
+        or not x.is_contiguous()
+        or not weight.is_contiguous()
+    ):
+        raise BackendNotReadyError(
+            "PyPTO unquantized linear requires bias=None and contiguous CUDA "
+            "BF16 input/weight tensors."
+        )
+    from pypto_kernels import linear
+    from .sglang.stream import pypto_stream
+
+    if linear.STATUS != "native-tile executable":
+        raise BackendNotReadyError("PyPTO linear operator is not executable.")
+    logical_features = int(weight.shape[0])
+    launch_weight = weight.data
+    if logical_features % 128:
+        padded_features = ((logical_features + 127) // 128) * 128
+        signature = (
+            int(weight.data_ptr()),
+            int(weight._version),
+            tuple(weight.shape),
+        )
+        with _linear_prepack_lock:
+            cached = _linear_prepack_cache.get(layer)
+            if cached is None or cached[0] != signature:
+                from .activity_trace import trace_window_active
+
+                if trace_window_active():
+                    raise BackendNotReadyError(
+                        "PyPTO linear weight prepack was not completed before "
+                        "the model-forward trace window."
+                    )
+                padded = torch.zeros(
+                    (padded_features, int(weight.shape[1])),
+                    dtype=weight.dtype,
+                    device=weight.device,
+                )
+                padded[:logical_features].copy_(weight)
+                cached = (signature, padded)
+                _linear_prepack_cache[layer] = cached
+            launch_weight = cached[1]
+    with pypto_stream(x.device) as stream:
+        output = linear.linear(x, launch_weight, stream=stream)
+    return output[..., :logical_features]
+
+
+def _silu_and_mul_around(original_fn, input, out=None):
+    """Route SGLang's packed SwiGLU activation through one PyPTO graph."""
+
+    if not _pypto_compute_selected():
+        return original_fn(input, out)
+    import torch
+
+    if (
+        type(input) is not torch.Tensor
+        or input.dtype is not torch.bfloat16
+        or not input.is_cuda
+        or not input.is_contiguous()
+        or input.ndim != 2
+        or int(input.shape[-1]) % 256
+    ):
+        raise BackendNotReadyError(
+            "PyPTO SiLU-and-mul requires a rank-2 contiguous CUDA BF16 input "
+            "whose packed width is divisible by 256."
+        )
+    half = int(input.shape[-1]) // 2
+    if out is not None and (
+        type(out) is not torch.Tensor
+        or tuple(out.shape) != (int(input.shape[0]), half)
+        or out.dtype is not input.dtype
+        or not out.is_contiguous()
+    ):
+        raise BackendNotReadyError(
+            "PyPTO SiLU-and-mul received an incompatible caller-owned output."
+        )
+    from pypto_kernels import silu_and_mul
+    from .sglang.stream import pypto_stream
+
+    if silu_and_mul.STATUS != "native-tile executable":
+        raise BackendNotReadyError("PyPTO SiLU-and-mul operator is not executable.")
+    with pypto_stream(input.device) as stream:
+        return silu_and_mul.silu_and_mul(
+            input[:, :half],
+            input[:, half:],
+            stream=stream,
+            out=out,
+        )
+
+
+def _lm_head_around(
+    original_fn,
+    processor,
+    hidden_states,
+    lm_head,
+    embedding_bias=None,
+):
+    """Route the unquantized Qwen vocabulary projection through PyPTO."""
+
+    if not _pypto_compute_selected():
+        return original_fn(processor, hidden_states, lm_head, embedding_bias)
+    import torch
+
+    weight = getattr(lm_head, "weight", None)
+    quant_method = getattr(lm_head, "quant_method", None)
+    if (
+        embedding_bias is not None
+        or type(hidden_states) is not torch.Tensor
+        or type(weight) is not torch.nn.Parameter
+        or type(quant_method).__name__ != "UnquantizedEmbeddingMethod"
+        or getattr(processor, "use_fp32_lm_head", False)
+        or getattr(processor, "rl_on_policy_target", None) is not None
+        or hasattr(lm_head, "set_lora")
+        or hidden_states.dtype is not torch.bfloat16
+        or weight.dtype is not torch.bfloat16
+        or not hidden_states.is_cuda
+        or not weight.is_cuda
+        or not hidden_states.is_contiguous()
+        or not weight.is_contiguous()
+    ):
+        raise BackendNotReadyError(
+            "PyPTO LM head requires the plain contiguous CUDA BF16 Qwen "
+            "embedding weight with no bias, LoRA, quantization, or FP32 mode."
+        )
+    from pypto_kernels import linear
+    from .sglang.stream import pypto_stream
+
+    with pypto_stream(hidden_states.device) as stream:
+        return linear.linear_to_float(hidden_states, weight.data, stream=stream)
+
+
+def _embedding_around(original_fn, method, layer, input_):
+    """Route the unquantized token embedding gather through PyPTO."""
+
+    if not _pypto_compute_selected():
+        return original_fn(method, layer, input_)
+    import torch
+
+    weight = getattr(layer, "weight", None)
+    if (
+        type(input_) is not torch.Tensor
+        or type(weight) is not torch.nn.Parameter
+        or input_.ndim != 1
+        or input_.dtype is not torch.int64
+        or weight.ndim != 2
+        or weight.dtype is not torch.bfloat16
+        or not input_.is_cuda
+        or not weight.is_cuda
+        or not input_.is_contiguous()
+        or not weight.is_contiguous()
+    ):
+        raise BackendNotReadyError(
+            "PyPTO embedding requires contiguous CUDA INT64 token ids and a "
+            "contiguous CUDA BF16 weight."
+        )
+    from pypto_kernels import embedding
+    from .sglang.stream import pypto_stream
+
+    if embedding.STATUS != "native-tile executable":
+        raise BackendNotReadyError("PyPTO embedding operator is not executable.")
+    with pypto_stream(input_.device) as stream:
+        return embedding.embedding(input_, weight.data, stream=stream)
+
+
+def _pruned_states_around(
+    original_fn,
+    processor,
+    hidden_states,
+    hidden_states_before_norm,
+    aux_hidden_states,
+    logits_metadata,
+):
+    """Use a zero-copy last-row view for one-request PyPTO prefill."""
+
+    if not _pypto_compute_selected():
+        return original_fn(
+            processor,
+            hidden_states,
+            hidden_states_before_norm,
+            aux_hidden_states,
+            logits_metadata,
+        )
+    lengths = logits_metadata.extend_seq_lens_cpu
+    if (
+        not logits_metadata.forward_mode.is_extend()
+        or logits_metadata.extend_return_logprob
+        or lengths is None
+        or len(lengths) != 1
+        or int(lengths[0]) != int(hidden_states.shape[0])
+        or hidden_states_before_norm is not None
+        or aux_hidden_states is not None
+    ):
+        raise BackendNotReadyError(
+            "PyPTO logits pruning requires one plain prefill request without "
+            "input logprobs or auxiliary hidden states."
+        )
+    return hidden_states[-1:], None, None, None, None, []
+
+
+def _integer_gather(table, indices):
+    import torch
+
+    if (
+        type(table) is not torch.Tensor
+        or type(indices) is not torch.Tensor
+        or table.ndim != 1
+        or table.dtype not in (torch.int32, torch.int64)
+        or indices.ndim != 1
+        or indices.dtype is not torch.int64
+        or not table.is_cuda
+        or not indices.is_cuda
+        or not table.is_contiguous()
+        or not indices.is_contiguous()
+        or table.device != indices.device
+    ):
+        raise BackendNotReadyError(
+            "PyPTO Mamba slot translation requires a contiguous CUDA integer "
+            "table and contiguous CUDA INT64 indices."
+        )
+    from pypto_kernels import embedding
+    from .sglang.stream import pypto_stream
+
+    with pypto_stream(table.device) as stream:
+        return embedding.integer_gather(table, indices, stream=stream)
+
+
+def _mamba_indices_around(original_fn, pool, req_indices):
+    if not _pypto_compute_selected():
+        return original_fn(pool, req_indices)
+    return _integer_gather(pool.req_index_to_mamba_index_mapping, req_indices)
+
+
+def _unified_mamba_translate_around(original_fn, allocator, virtual_ids):
+    if not _pypto_compute_selected():
+        return original_fn(allocator, virtual_ids)
+    return _integer_gather(allocator.virtual_to_physical, virtual_ids)
+
+
 def _require_callable_hook_target(target: str) -> None:
     parts = target.split(".")
     for count in range(len(parts) - 1, 0, -1):
@@ -521,6 +807,13 @@ def _register_impl() -> None:
         FLA_GATED_RMSNORM_TARGET,
         QK_RMSNORM_ROPE_GATE_TARGET,
         FUSED_SIGMOID_MUL_TARGET,
+        UNQUANTIZED_LINEAR_TARGET,
+        SILU_AND_MUL_TARGET,
+        LM_HEAD_TARGET,
+        EMBEDDING_TARGET,
+        PRUNED_STATES_TARGET,
+        MAMBA_INDICES_TARGET,
+        UNIFIED_MAMBA_TRANSLATE_TARGET,
         *TRITON_SUPPORT_TARGETS,
     )
     for target in hook_targets:
@@ -562,6 +855,41 @@ def _register_impl() -> None:
     HookRegistry.register(
         FUSED_SIGMOID_MUL_TARGET,
         _fused_sigmoid_mul_around,
+        HookType.AROUND,
+    )
+    HookRegistry.register(
+        UNQUANTIZED_LINEAR_TARGET,
+        _unquantized_linear_around,
+        HookType.AROUND,
+    )
+    HookRegistry.register(
+        SILU_AND_MUL_TARGET,
+        _silu_and_mul_around,
+        HookType.AROUND,
+    )
+    HookRegistry.register(
+        LM_HEAD_TARGET,
+        _lm_head_around,
+        HookType.AROUND,
+    )
+    HookRegistry.register(
+        EMBEDDING_TARGET,
+        _embedding_around,
+        HookType.AROUND,
+    )
+    HookRegistry.register(
+        PRUNED_STATES_TARGET,
+        _pruned_states_around,
+        HookType.AROUND,
+    )
+    HookRegistry.register(
+        MAMBA_INDICES_TARGET,
+        _mamba_indices_around,
+        HookType.AROUND,
+    )
+    HookRegistry.register(
+        UNIFIED_MAMBA_TRANSLATE_TARGET,
+        _unified_mamba_translate_around,
         HookType.AROUND,
     )
     for target in TRITON_SUPPORT_TARGETS:
