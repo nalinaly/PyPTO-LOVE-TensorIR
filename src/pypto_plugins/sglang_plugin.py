@@ -1083,6 +1083,75 @@ def _enable_qwen_language_model_only(server_args_class=None) -> tuple[str, ...]:
     return updated
 
 
+def _qwen_text_only_weight_name(name: str) -> bool:
+    return not (
+        name.startswith(("model.visual.", "visual.", "model.mtp.", "mtp."))
+        or ".mtp." in name
+    )
+
+
+def _enable_qwen_text_only_weight_filter(loader_module=None):
+    """Skip optional Qwen tensors before safetensors materializes them."""
+
+    if loader_module is None:
+        loader_module = importlib.import_module("sglang.srt.model_loader.loader")
+    current = getattr(loader_module, "safetensors_weights_iterator", None)
+    if not callable(current):
+        raise BackendNotReadyError(
+            "pinned SGLang safetensors iterator contract changed"
+        )
+    if getattr(current, "_pypto_qwen_text_only_filter", False):
+        return current
+
+    @functools.wraps(current)
+    def filtered_iterator(
+        hf_weights_files,
+        disable_mmap=False,
+        prefetch=False,
+        prefetch_num_threads=4,
+        drop_cache_after_load=False,
+    ):
+        from sglang.srt.runtime_context import get_server_args
+
+        server_args = get_server_args()
+        architectures = tuple(
+            getattr(server_args.get_model_config().hf_config, "architectures", ())
+        )
+        enabled = bool(
+            server_args.language_model_only
+            and any(
+                architecture in QWEN_LANGUAGE_MODEL_ONLY_ARCHITECTURES
+                for architecture in architectures
+            )
+        )
+        if not enabled or disable_mmap or prefetch:
+            yield from current(
+                hf_weights_files,
+                disable_mmap=disable_mmap,
+                prefetch=prefetch,
+                prefetch_num_threads=prefetch_num_threads,
+                drop_cache_after_load=drop_cache_after_load,
+            )
+            return
+
+        import safetensors
+        from sglang.srt.model_loader import weight_utils
+
+        for st_file in hf_weights_files:
+            with safetensors.safe_open(
+                st_file, framework="pt", device="cpu"
+            ) as handle:
+                for name in handle.keys():
+                    if _qwen_text_only_weight_name(name):
+                        yield name, handle.get_tensor(name)
+            if drop_cache_after_load:
+                weight_utils._drop_file_cache_after_load(st_file)
+
+    filtered_iterator._pypto_qwen_text_only_filter = True
+    loader_module.safetensors_weights_iterator = filtered_iterator
+    return filtered_iterator
+
+
 def _enable_offloader_tied_parameter_support(offloader_module=None):
     """Make OffloaderV1 functional calls explicit about Qwen parameter aliases."""
 
@@ -1147,6 +1216,7 @@ def _register_impl() -> None:
     assert_torch_compatible()
     assert_sglang_compatible()
     _enable_qwen_language_model_only()
+    _enable_qwen_text_only_weight_filter()
     _enable_offloader_tied_parameter_support()
     install()
 

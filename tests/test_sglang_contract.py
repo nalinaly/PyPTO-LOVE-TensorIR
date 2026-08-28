@@ -31,6 +31,7 @@ from pypto_plugins.sglang_plugin import (
     _attention_factory,
     _enable_offloader_tied_parameter_support,
     _enable_qwen_language_model_only,
+    _enable_qwen_text_only_weight_filter,
     _embedding_around,
     _fla_gated_rmsnorm_around,
     _fused_sigmoid_mul_around,
@@ -43,6 +44,7 @@ from pypto_plugins.sglang_plugin import (
     _silu_and_mul_around,
     _support_triton_around,
     _unquantized_linear_around,
+    _qwen_text_only_weight_name,
 )
 
 
@@ -107,6 +109,20 @@ def test_qwen35_language_model_only_compatibility_is_bounded_and_idempotent() ->
 
     with pytest.raises(BackendNotReadyError, match="contract changed"):
         _enable_qwen_language_model_only(IncompatibleServerArgs)
+
+
+def test_qwen35_text_only_weight_filter_is_bounded_and_idempotent() -> None:
+    assert _qwen_text_only_weight_name("model.language_model.layers.0.weight")
+    assert not _qwen_text_only_weight_name("model.visual.blocks.0.weight")
+    assert not _qwen_text_only_weight_name("model.mtp.layers.0.weight")
+
+    def iterator(*_args, **_kwargs):
+        yield "weight", object()
+
+    fake_loader = SimpleNamespace(safetensors_weights_iterator=iterator)
+    installed = _enable_qwen_text_only_weight_filter(fake_loader)
+    assert callable(installed)
+    assert _enable_qwen_text_only_weight_filter(fake_loader) is installed
 
 
 def test_qwen35_offloader_functional_call_handles_tied_aliases() -> None:
