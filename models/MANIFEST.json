@@ -1,6 +1,5 @@
 {
-  "copy_policy": "ordinary independent copy; never symlink or hardlink",
-  "imported_at": "2026-08-23T12:56:46.074777+00:00",
+    "download_policy": "pinned Hugging Face snapshot; ordinary files only; never symlink or hardlink",
   "models": {
     "Qwen3.5-0.8B": {
       "destination": "models/Qwen3.5-0.8B",
@@ -58,8 +57,8 @@
           "sha256": "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"
         }
       },
-      "revision": "2fc06364715b967f1860aea9cf38778875588b17",
-      "source": "/home/zhaosiying/amdgpu-sim/models/Qwen3.5-0.8B"
+            "repository_id": "Qwen/Qwen3.5-0.8B",
+            "revision": "2fc06364715b967f1860aea9cf38778875588b17"
     },
     "Qwen3.5-9B": {
       "destination": "models/Qwen3.5-9B",
@@ -129,8 +128,8 @@
           "sha256": "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"
         }
       },
-      "revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a",
-      "source": "/home/zhaosiying/amdgpu-sim/models/Qwen3.5-9B"
+            "repository_id": "Qwen/Qwen3.5-9B",
+            "revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a"
     }
   },
   "schema": 1,
