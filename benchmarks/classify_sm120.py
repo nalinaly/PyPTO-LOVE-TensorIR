@@ -75,9 +75,9 @@ def main() -> int:
             [1, 1, 128],
         ),
         (
-            "causal_conv1d_stateful_prefill",
-            causal_conv1d.build(1, 13, 4096),
-            [1, 1, 1, 128],
+            "causal_conv1d_stateful_token_primitive",
+            causal_conv1d.build(1, 1, 4096),
+            [1, 1, 128],
         ),
         ("rope", rope.build(256, 64), [1, 1, 64]),
         ("attention", attention.build(32, 128, 128, 128), [1, 64]),

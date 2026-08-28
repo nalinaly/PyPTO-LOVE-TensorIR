@@ -14,6 +14,7 @@ _CHANNEL_TILE = 128
 _KERNEL_WIDTH = 4
 _lock = threading.RLock()
 _cache: dict[tuple[int, int, int, int, int, str], str] = {}
+_MAX_FUSED_TOKENS = 1
 
 STATUS = "native-tile stateful executable"
 GRAPHS = 1
@@ -184,6 +185,10 @@ def compile_for(
     state_slot_stride: int,
     index_dtype: str,
 ) -> str:
+    if tokens_per_request > _MAX_FUSED_TOKENS:
+        raise ValueError(
+            "causal_conv1d fused primitive is bounded to one ordered token"
+        )
     _validate_shape(
         batch_size,
         tokens_per_request,
@@ -203,11 +208,7 @@ def compile_for(
     if cached is not None:
         return cached
 
-    if tokens_per_request > 1:
-        tiles = [1, 1, 1, _CHANNEL_TILE]
-    else:
-        tiles = [1, 1, _CHANNEL_TILE]
-    graph_key = compile_graph(build(*shape_key), tiles)
+    graph_key = compile_graph(build(*shape_key), [1, 1, _CHANNEL_TILE])
     with _lock:
         _cache[shape_key] = graph_key
     return graph_key
@@ -223,7 +224,7 @@ def causal_conv1d(
     tokens_per_request: int,
     stream: Any = None,
 ) -> Any:
-    """Run stateful width-four convolution and SiLU in one launch."""
+    """Run ordered stateful width-four convolution and SiLU PyPTO launches."""
 
     import torch
 
@@ -267,28 +268,58 @@ def causal_conv1d(
     state_slot_stride = int(state.stride(0))
     if stream is None:
         stream = torch.cuda.current_stream(x.device)
-    graph_key = compile_for(
-        batch_size,
-        tokens_per_request,
-        channels,
-        state_slots,
-        state_slot_stride,
-        index_dtype,
-    )
-    x_view = x.view(batch_size, tokens_per_request, channels)
     state_view = state.view(state_slots, -1)
-    out = torch.empty_like(x_view)
-    launch_graph(
-        graph_key,
-        (
-            x_view,
-            weight,
-            state_view,
-            state_indices.view(batch_size, 1),
-            out,
-        ),
-        stream.cuda_stream,
+    out = torch.empty(
+        (batch_size, tokens_per_request, channels),
+        dtype=x.dtype,
+        device=x.device,
     )
+
+    def launch_views(graph_key: str, views: tuple[Any, ...]) -> None:
+        launch_graph(graph_key, views, stream.cuda_stream)
+
+    if tokens_per_request == 1:
+        graph_key = compile_for(
+            batch_size,
+            1,
+            channels,
+            state_slots,
+            state_slot_stride,
+            index_dtype,
+        )
+        launch_views(
+            graph_key,
+            (
+                x.view(batch_size, 1, channels),
+                weight,
+                state_view,
+                state_indices.view(batch_size, 1),
+                out,
+            ),
+        )
+    else:
+        graph_key = compile_for(
+            1,
+            1,
+            channels,
+            state_slots,
+            state_slot_stride,
+            index_dtype,
+        )
+        out_rows = out.view(rows, channels)
+        for request_row in range(batch_size):
+            for token in range(tokens_per_request):
+                flat_row = request_row * tokens_per_request + token
+                launch_views(
+                    graph_key,
+                    (
+                        x.narrow(0, flat_row, 1).view(1, 1, channels),
+                        weight,
+                        state_view,
+                        state_indices.narrow(0, request_row, 1).view(1, 1),
+                        out_rows.narrow(0, flat_row, 1).view(1, 1, channels),
+                    ),
+                )
     return out.view(rows, channels)
 
 

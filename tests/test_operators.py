@@ -116,6 +116,8 @@ def test_causal_conv1d_stateful_decode_and_prefill_share_one_graph():
     assert rendered.count("pl.tile.store") == 4
     prefill = str(causal_conv1d.build(1, 5, 128))
     assert "pl.range(5)" in prefill
+    with pytest.raises(ValueError, match="bounded to one"):
+        causal_conv1d.compile_for(1, 2, 128, 65, 128 * 3, "int32")
 
 
 def test_embedding_is_one_dynamic_row_gather_graph():

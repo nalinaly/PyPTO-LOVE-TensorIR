@@ -102,18 +102,17 @@ def conv_case(
         if repetition:
             state.copy_(initial_state)
         torch.cuda.synchronize()
-        observed_outputs.append(
-            causal_conv1d.causal_conv1d(
-                x,
-                weight,
-                state,
-                indices,
-                batch_size=batch_size,
-                tokens_per_request=tokens,
-                stream=stream,
-            ).clone()
+        observed = causal_conv1d.causal_conv1d(
+            x,
+            weight,
+            state,
+            indices,
+            batch_size=batch_size,
+            tokens_per_request=tokens,
+            stream=stream,
         )
         stream.synchronize()
+        observed_outputs.append(observed.clone())
         observed_states.append(state.clone())
     actual = observed_outputs[-1]
 
@@ -166,7 +165,7 @@ def conv_case(
     )
     return {
         "case": f"causal_conv_plane_b{batch_size}_t{tokens}_{index_dtype}",
-        "launches": 1,
+        "launches": 1 if tokens == 1 else batch_size * tokens,
         "repetitions": repetitions,
         "output_drift": output_drift,
         "state_drift": state_drift,
