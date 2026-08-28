@@ -360,7 +360,10 @@ def test_linear_swiglu_and_lm_head_hooks_are_pinned_and_fail_closed(monkeypatch)
     with pytest.raises(BackendNotReadyError, match="SiLU-and-mul"):
         _silu_and_mul_around(lambda *args: None, torch.empty(1, 4), None)
 
-    mode = SimpleNamespace(is_extend=lambda: True)
+    mode = SimpleNamespace(
+        is_decode_or_idle=lambda: False,
+        is_extend=lambda: True,
+    )
     metadata = SimpleNamespace(
         forward_mode=mode,
         extend_return_logprob=False,
@@ -377,6 +380,24 @@ def test_linear_swiglu_and_lm_head_hooks_are_pinned_and_fail_closed(monkeypatch)
     )
     assert torch.equal(pruned[0], hidden[-1:])
     assert pruned[0].data_ptr() == hidden[-1:].data_ptr()
+
+    decode_mode = SimpleNamespace(is_decode_or_idle=lambda: True)
+    decode_metadata = SimpleNamespace(
+        forward_mode=decode_mode,
+        draft_extend_select_index=None,
+    )
+    before_norm = hidden + 1
+    decoded = _pruned_states_around(
+        lambda *args: None,
+        object(),
+        hidden,
+        before_norm,
+        None,
+        decode_metadata,
+    )
+    assert decoded[0] is hidden
+    assert decoded[1] is before_norm
+    assert decoded[2:] == (None, None, None, [])
 
 
 def test_swiglu_functional_and_caller_owned_routes_remain_distinct(monkeypatch) -> None:
