@@ -108,14 +108,14 @@
       "base_tree": "a46f244a62dfab663fbeb899eb62ee8a042a0b41",
       "bundle": {
         "base_ref": "refs/tags/upstream-base",
-        "bytes": 8984861,
+      "bytes": 8985340,
         "head_ref": "refs/heads/nvidia-sm120",
         "path": "vendor/git/pypto.bundle",
-        "sha256": "fac8ac131f0de06fefbdb22a529cff89e2c039daefbd9cd306bd1939de3c327d"
-      },
-      "commit_count": 215,
-      "head_commit": "a5df444e6fb8656f5dffef8056e267807288495d",
-      "head_tree": "ed7afccf57e418f6b9f97dff063ac3b743920470",
+      "sha256": "eec17dcd7f496176e7a06fdbe8846d8d3e2d51a37833de471ef434c33997603f"
+    },
+    "commit_count": 216,
+    "head_commit": "d551ed877c33efa6463f90530832b5fd55dc0d42",
+    "head_tree": "a402d342ca52524a478c268f73b778e51111bfff",
       "gitlinks": {
         "3rdparty/libbacktrace": "6f8310e238fc3ce68f42f391cbe93fd156bb2c23",
         "3rdparty/msgpack-c": "919908742b4fdbc575e77fe1a8657e70c9573c44",
@@ -128,8 +128,8 @@
       "patch_series": {
         "directory": "vendor/patches/pypto",
         "manifest": "vendor/patches/pypto/series.json",
-        "manifest_bytes": 67195,
-        "manifest_sha256": "db2a8fa4a69c8d268085759348808d518df9336304862cdd72c58319cecd8b68"
+      "manifest_bytes": 67510,
+      "manifest_sha256": "c8c924ddd1c66af17240d7a16f7e67013beb6c6e9180865913f61ae9b3b0735e"
       },
       "shallow_boundary": "e2d0f78ae6d709c0d6ee345a48db2c3d621a4b09"
     },
