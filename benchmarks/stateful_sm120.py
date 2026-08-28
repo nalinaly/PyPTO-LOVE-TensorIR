@@ -11,7 +11,7 @@ import pathlib
 import sys
 
 ROOT = pathlib.Path("/home/zhaosiying/pypto-love-tensor-ir")
-KERNEL_ROOT = ROOT / "projects/pypto-kernels"
+KERNEL_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(KERNEL_ROOT / "src"))
 os.environ.setdefault(
     "PYPTO_KERNEL_DSO_PATH",
