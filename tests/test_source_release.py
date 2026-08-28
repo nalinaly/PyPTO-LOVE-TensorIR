@@ -57,7 +57,7 @@ class SourceReleaseTest(unittest.TestCase):
         report = source_release.verify_release_artifacts(ROOT, self.lock)
         self.assertEqual(
             report["packages"]["pypto-kernels"]["source_commit"],
-            "d95a28c8186b88714cbc02c316d5d0643bccc322",
+            "a32bcd41cb34f3ba725ace0909ef13295137fa19",
         )
         self.assertEqual(
             report["packages"]["pypto-framework-plugins"]["source_commit"],

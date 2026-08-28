@@ -235,6 +235,9 @@ def test_causal_conv1d_stateful_decode_and_prefill_share_one_graph():
 
 
 def test_embedding_is_one_dynamic_row_gather_graph():
+    assert embedding._tiles(1) == [1, 128]
+    assert embedding._tiles(19) == [8, 128]
+    assert embedding._tiles(32) == [8, 128]
     program = embedding.build(8, 1024, 256)
     rendered = str(program)
     assert len(_one_program(program).body.stmts) == 2

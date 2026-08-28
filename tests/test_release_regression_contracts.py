@@ -444,6 +444,15 @@ def test_operator_manifest_locks_real_model_shape_and_launch_contracts() -> None
     assert len(compiled) == 18
     assert len({item["where"]["case"] for item in compiled}) == 18
     assert all(item["equals"] == {"status": "compiled"} for item in compiled)
+    numerical = suites["handwritten-numerical"]["case_expectations"]
+    assert {
+        item["where"]["case"]
+        for item in numerical
+        if item["where"]["case"].startswith("embedding_bf16_rows")
+    } == {
+        "embedding_bf16_rows1_248320x1024",
+        "embedding_bf16_rows19_248320x1024",
+    }
     stateful = suites["stateful-real-model-shapes"]["case_expectations"]
     assert any(
         item["where"] == {"case": "gdn_recurrent_Qwen3.5-9B_rows19"}

@@ -95,6 +95,14 @@
       "success_field": "all_correct",
       "case_expectations": [
         {
+          "where": {"case": "embedding_bf16_rows1_248320x1024"},
+          "equals": {"correct": true, "launches": 1}
+        },
+        {
+          "where": {"case": "embedding_bf16_rows19_248320x1024"},
+          "equals": {"correct": true, "launches": 1}
+        },
+        {
           "where": {"case": "integer_gather_torch.int32_rows1"},
           "equals": {"correct": true, "launches": 1, "dtype": "torch.int32"}
         },

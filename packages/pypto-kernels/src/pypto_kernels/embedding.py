@@ -63,6 +63,14 @@ def _validate_shape(tokens: int, vocab_size: int, hidden_size: int) -> None:
         )
 
 
+def _tiles(tokens: int) -> list[int]:
+    """Keep the row tile within the static token extent."""
+
+    if tokens <= 0:
+        raise ValueError("embedding needs a positive token extent")
+    return [min(_ROW_TILE, tokens), _TILE_WIDTH]
+
+
 def build(tokens: int, vocab_size: int, hidden_size: int) -> Any:
     _validate_shape(tokens, vocab_size, hidden_size)
     import torch
@@ -91,7 +99,7 @@ def compile_for(tokens: int, vocab_size: int, hidden_size: int) -> str:
     graph_key = compile_jit_kernel(
         embedding_kernel,
         (weight, ids, out),
-        [_ROW_TILE, _TILE_WIDTH],
+        _tiles(tokens),
     )
     with _lock:
         _cache[key] = graph_key
