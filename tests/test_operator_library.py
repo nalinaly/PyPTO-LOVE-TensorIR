@@ -29,6 +29,7 @@ def test_canonical_operator_package_is_native_tile_only() -> None:
         "fused_add_rmsnorm": 1,
         "gated_rmsnorm": 1,
         "gdn": 1,
+        "gdn_projection": 1,
         "linear": 1,
         "qk_rmsnorm_rope": 1,
         "rmsnorm": 1,
@@ -59,7 +60,9 @@ def test_package_identity_mismatches_fail_closed(attribute, value, message) -> N
         inspect_operator_library(fake)
 
 
-def test_native_tile_source_requires_explicit_schedule_and_single_launch(tmp_path) -> None:
+def test_native_tile_source_requires_explicit_schedule_and_single_launch(
+    tmp_path,
+) -> None:
     module = SimpleNamespace(__name__="pypto_kernels.example")
     incomplete = tmp_path / "example.py"
     incomplete.write_text("@pl.jit\npl.load(x)\npl.store(y)\n", encoding="utf-8")
@@ -76,7 +79,9 @@ def test_native_tile_source_requires_explicit_schedule_and_single_launch(tmp_pat
         _validate_native_tile_source(module, duplicate_launch, 1)
 
 
-def test_native_tile_source_rejects_retired_labels_and_whole_tensor_ir(tmp_path) -> None:
+def test_native_tile_source_rejects_retired_labels_and_whole_tensor_ir(
+    tmp_path,
+) -> None:
     module = SimpleNamespace(__name__="pypto_kernels.example")
     for payload, message in (
         (

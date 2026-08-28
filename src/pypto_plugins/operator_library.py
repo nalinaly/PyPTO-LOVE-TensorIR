@@ -20,6 +20,7 @@ EXPECTED_OPERATOR_MODULES = (
     "embedding",
     "fused_add_rmsnorm",
     "gdn",
+    "gdn_projection",
     "gated_rmsnorm",
     "linear",
     "qk_rmsnorm_rope",
@@ -65,12 +66,20 @@ def _operator_source(name: str, package_root: Path) -> Path:
     return source
 
 
-def _integer_declaration(tree: ast.Module, name: str, default: int | None) -> int | None:
+def _integer_declaration(
+    tree: ast.Module, name: str, default: int | None
+) -> int | None:
     for statement in tree.body:
         if not isinstance(statement, (ast.Assign, ast.AnnAssign)):
             continue
-        targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
-        if not any(isinstance(target, ast.Name) and target.id == name for target in targets):
+        targets = (
+            statement.targets
+            if isinstance(statement, ast.Assign)
+            else [statement.target]
+        )
+        if not any(
+            isinstance(target, ast.Name) and target.id == name for target in targets
+        ):
             continue
         value = statement.value
         if isinstance(value, ast.Constant) and type(value.value) is int:
@@ -163,7 +172,9 @@ def inspect_operator_library(package: ModuleType) -> OperatorLibrarySnapshot:
         )
     package_file = getattr(package, "__file__", None)
     if not isinstance(package_file, str):
-        raise FrameworkCompatibilityError("pypto_kernels has no concrete package source")
+        raise FrameworkCompatibilityError(
+            "pypto_kernels has no concrete package source"
+        )
     try:
         package_source = Path(package_file).resolve(strict=True)
     except OSError as error:

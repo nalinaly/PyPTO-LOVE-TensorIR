@@ -13,8 +13,10 @@ from pypto_plugins.errors import BackendNotReadyError
 from pypto_plugins.sglang.attention_backend import create_attention_backend
 from pypto_plugins.sglang_plugin import (
     ATTENTION_WRAPPER_TARGET,
+    GDN_PROJECTION_TARGET,
     LINEAR_BACKEND_RESOLVER_TARGET,
     _attention_factory,
+    _gdn_projection_around,
 )
 
 
@@ -46,6 +48,16 @@ ATTENTION_REGISTRY = (
     / "layers"
     / "attention"
     / "attention_registry.py"
+)
+QWEN35_MODEL = (
+    WORKSPACE_ROOT
+    / "upstream"
+    / "sglang"
+    / "python"
+    / "sglang"
+    / "srt"
+    / "models"
+    / "qwen3_5.py"
 )
 
 
@@ -80,6 +92,68 @@ def test_pinned_attention_wrapper_hook_symbol_and_signature() -> None:
     assert name in functions
     arguments = [argument.arg for argument in functions[name].args.args]
     assert arguments == ["runner", "full_attn_backend"]
+
+
+def test_pinned_qwen35_projection_hook_symbol_is_imported() -> None:
+    if not QWEN35_MODEL.is_file():
+        pytest.skip("workspace SGLang checkout is not present")
+    tree = ast.parse(
+        QWEN35_MODEL.read_text(encoding="utf-8"), filename=str(QWEN35_MODEL)
+    )
+    name = GDN_PROJECTION_TARGET.rsplit(".", 1)[1]
+    imported = {
+        alias.asname or alias.name
+        for node in tree.body
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+    }
+    assert name in imported
+
+
+def test_gdn_projection_hook_routes_only_explicit_pypto_selection(monkeypatch) -> None:
+    runtime = ModuleType("sglang.srt.runtime_context")
+    selection = SimpleNamespace(
+        linear_attn_backend="pypto",
+        linear_attn_decode_backend="pypto",
+        linear_attn_prefill_backend="pypto",
+    )
+    runtime.get_exec = lambda: SimpleNamespace(mamba=selection)
+    monkeypatch.setitem(sys.modules, "sglang.srt.runtime_context", runtime)
+    module = ModuleType("pypto_kernels.gdn_projection")
+    module.STATUS = "native-tile packed executable"
+    calls = []
+
+    def split_projection(qkvz, ba, **kwargs):
+        calls.append((qkvz, ba, kwargs))
+        return "pypto-result"
+
+    module.split_projection = split_projection
+    monkeypatch.setitem(sys.modules, "pypto_kernels.gdn_projection", module)
+    monkeypatch.setattr(pypto_kernels, "gdn_projection", module, raising=False)
+    delegated = []
+
+    def original(*args):
+        delegated.append(args)
+        return "original-result"
+
+    result = _gdn_projection_around(original, "qkvz", "ba", 8, 16, 128, 128)
+    assert result == "pypto-result"
+    assert calls == [
+        (
+            "qkvz",
+            "ba",
+            {"q_heads": 8, "value_heads": 16, "key_dim": 128, "value_dim": 128},
+        )
+    ]
+    assert not delegated
+    selection.linear_attn_backend = "triton"
+    selection.linear_attn_decode_backend = "triton"
+    selection.linear_attn_prefill_backend = "triton"
+    assert (
+        _gdn_projection_around(original, "qkvz", "ba", 8, 16, 128, 128)
+        == "original-result"
+    )
+    assert len(delegated) == 1
 
 
 def _install_fake_attention_operator(
@@ -142,6 +216,8 @@ def test_gdn_adapter_uses_only_stateful_pypto_graphs() -> None:
     for operator in (
         "causal_conv1d.causal_conv1d(",
         "gdn.gdn_recurrent(",
+        "attach_state_bundle(",
+        ".conv_for_layer(",
     ):
         assert operator in text
     for forbidden in (

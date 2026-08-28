@@ -15,6 +15,7 @@ def create_gdn_backend(model_runner: Any) -> Any:
     from sglang.srt.layers.attention.hybrid_linear_attn_backend import (
         MambaAttnBackendBase,
     )
+    from .state_bundle import attach_state_bundle
 
     class PyPTOGDNAttnBackend(MambaAttnBackendBase):
         needs_cpu_seq_lens = True
@@ -36,6 +37,7 @@ def create_gdn_backend(model_runner: Any) -> Any:
                     "PyPTO GDN speculative verify/rollback is not implemented."
                 )
             pool = self.req_to_token_pool.mamba_pool
+            self._pypto_state_bundle = attach_state_bundle(pool)
             if bool(pool.enable_linear_replayssm) or bool(
                 pool.enable_linear_replayssm_spec
             ):
@@ -54,7 +56,9 @@ def create_gdn_backend(model_runner: Any) -> Any:
         @staticmethod
         def _validate_layer(layer: Any) -> None:
             if layer.bias is not None:
-                raise BackendNotReadyError("PyPTO GDN currently requires bias-free conv1d.")
+                raise BackendNotReadyError(
+                    "PyPTO GDN currently requires bias-free conv1d."
+                )
             if layer.activation not in ("silu", "swish"):
                 raise BackendNotReadyError(
                     "PyPTO GDN currently requires SiLU/swish convolution activation."
@@ -76,9 +80,13 @@ def create_gdn_backend(model_runner: Any) -> Any:
         ) -> Any:
             self._validate_layer(layer)
             if not isinstance(mixed_qkv, torch.Tensor):
-                raise BackendNotReadyError("PyPTO GDN requires packed tensor QKV input.")
+                raise BackendNotReadyError(
+                    "PyPTO GDN requires packed tensor QKV input."
+                )
             layer_cache = self.req_to_token_pool.mamba2_layer_cache(layer.layer_id)
-            conv_state = layer_cache.conv[0]
+            conv_state = self._pypto_state_bundle.conv_for_layer(
+                layer.layer_id, layer_cache.conv[0]
+            )
             recurrent_state = layer_cache.temporal
             state_indices = self.forward_metadata.mamba_cache_indices
             convolved = causal_conv1d.causal_conv1d(
