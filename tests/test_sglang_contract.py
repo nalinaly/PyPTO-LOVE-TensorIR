@@ -18,11 +18,13 @@ from pypto_plugins.sglang_plugin import (
     GDN_PROJECTION_TARGET,
     GEMMA_RMSNORM_TARGET,
     LINEAR_BACKEND_RESOLVER_TARGET,
+    QK_RMSNORM_ROPE_GATE_TARGET,
     TRITON_SUPPORT_TARGETS,
     _attention_factory,
     _fla_gated_rmsnorm_around,
     _gdn_projection_around,
     _gemma_rmsnorm_around,
+    _qk_rmsnorm_rope_gate_around,
     _support_triton_around,
 )
 
@@ -220,6 +222,99 @@ def test_fla_gated_rmsnorm_routes_only_exact_pypto_contract(monkeypatch) -> None
         == "original-result"
     )
     assert len(delegated) == 1
+
+
+def test_qk_rmsnorm_rope_gate_hook_is_preloaded_and_registered() -> None:
+    assert QK_RMSNORM_ROPE_GATE_TARGET.endswith(
+        "fused_qk_gemma_rmsnorm_rope_gate"
+    )
+    text = SGLANG_PLUGIN.read_text(encoding="utf-8")
+    assert "qk_rmsnorm_rope.qk_rmsnorm_rope_gate(" in text
+    assert callable(_qk_rmsnorm_rope_gate_around)
+
+
+def test_qk_rmsnorm_rope_gate_routes_exact_pypto_contract(monkeypatch) -> None:
+    runtime = ModuleType("sglang.srt.runtime_context")
+    selection = SimpleNamespace(
+        linear_attn_backend="pypto",
+        linear_attn_decode_backend="pypto",
+        linear_attn_prefill_backend="pypto",
+    )
+    runtime.get_exec = lambda: SimpleNamespace(mamba=selection)
+    monkeypatch.setitem(sys.modules, "sglang.srt.runtime_context", runtime)
+    module = ModuleType("pypto_kernels.qk_rmsnorm_rope")
+    module.STATUS = "native-tile executable"
+    calls = []
+
+    def run(*args, **kwargs):
+        calls.append((args, kwargs))
+        return ("q", "k", "gate")
+
+    module.qk_rmsnorm_rope_gate = run
+    monkeypatch.setitem(sys.modules, "pypto_kernels.qk_rmsnorm_rope", module)
+    monkeypatch.setattr(pypto_kernels, "qk_rmsnorm_rope", module, raising=False)
+
+    @contextmanager
+    def fake_stream(device):
+        assert device.type == "cpu"
+        yield "worker-stream"
+
+    monkeypatch.setattr("pypto_plugins.sglang.stream.pypto_stream", fake_stream)
+    q_gate = torch.empty((2, 512), dtype=torch.bfloat16)
+    key = torch.empty((2, 128), dtype=torch.bfloat16)
+    q_weight = torch.empty(128, dtype=torch.bfloat16)
+    k_weight = torch.empty(128, dtype=torch.bfloat16)
+    cache = torch.empty((1024, 64), dtype=torch.bfloat16)
+    positions = torch.arange(2, dtype=torch.int64)
+    delegated = []
+
+    def original(*args, **kwargs):
+        delegated.append((args, kwargs))
+        return "original-result"
+
+    result = _qk_rmsnorm_rope_gate_around(
+        original,
+        q_gate,
+        key,
+        q_weight,
+        k_weight,
+        cache,
+        positions,
+        1.0e-6,
+        2,
+        1,
+        128,
+        64,
+        True,
+    )
+    assert result == ("q", "k", "gate")
+    assert not delegated
+    assert calls == [
+        (
+            (q_gate, key, q_weight, k_weight, cache, positions),
+            {
+                "q_heads": 2,
+                "kv_heads": 1,
+                "stream": "worker-stream",
+            },
+        )
+    ]
+    with pytest.raises(BackendNotReadyError, match="has_gate=True"):
+        _qk_rmsnorm_rope_gate_around(
+            original,
+            q_gate,
+            key,
+            q_weight,
+            k_weight,
+            cache,
+            positions,
+            1.0e-6,
+            2,
+            1,
+            128,
+            64,
+            False,
+        )
 
 
 def test_gdn_projection_hook_routes_only_explicit_pypto_selection(monkeypatch) -> None:

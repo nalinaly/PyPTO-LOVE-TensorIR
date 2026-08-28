@@ -34,6 +34,10 @@ GEMMA_RMSNORM_TARGET = "sglang.srt.layers.layernorm.GemmaRMSNorm._forward_impl"
 FLA_GATED_RMSNORM_TARGET = (
     "sglang.kernels.ops.attention.fla.layernorm_gated.layernorm_fn"
 )
+QK_RMSNORM_ROPE_GATE_TARGET = (
+    "sglang.kernels.ops.attention.fused_qk_rmsnorm_rope_gate."
+    "fused_qk_gemma_rmsnorm_rope_gate"
+)
 
 
 def _attention_factory(runner):
@@ -326,6 +330,85 @@ def _fla_gated_rmsnorm_around(
     return output.reshape(original_shape)
 
 
+def _qk_rmsnorm_rope_gate_around(
+    original_fn,
+    q_gate,
+    key,
+    q_weight,
+    k_weight,
+    cos_sin_cache,
+    positions,
+    eps,
+    num_q_heads,
+    num_kv_heads,
+    head_dim,
+    rotary_dim,
+    has_gate=True,
+):
+    """Route Qwen full-attention Q/K preparation through one PyPTO graph."""
+
+    from sglang.srt.runtime_context import get_exec
+
+    mamba = get_exec().mamba
+    selected = {
+        mamba.linear_attn_backend,
+        mamba.linear_attn_decode_backend,
+        mamba.linear_attn_prefill_backend,
+    }
+    if "pypto" not in selected:
+        return original_fn(
+            q_gate,
+            key,
+            q_weight,
+            k_weight,
+            cos_sin_cache,
+            positions,
+            eps,
+            num_q_heads,
+            num_kv_heads,
+            head_dim,
+            rotary_dim,
+            has_gate=has_gate,
+        )
+    if (
+        not has_gate
+        or float(eps) != 1.0e-6
+        or head_dim <= 0
+        or head_dim % 128
+        or rotary_dim <= 0
+        or rotary_dim % 2
+        or rotary_dim >= head_dim
+        or q_weight.numel() != head_dim
+        or k_weight.numel() != head_dim
+        or cos_sin_cache.ndim != 2
+        or int(cos_sin_cache.shape[1]) != rotary_dim
+    ):
+        raise BackendNotReadyError(
+            "PyPTO fused Q/K preparation requires has_gate=True, eps=1e-6, "
+            "head_dim divisible by 128, an even partial rotary_dim, matching "
+            "head weights, and a matching rank-2 cos/sin cache."
+        )
+    from pypto_kernels import qk_rmsnorm_rope
+    from .sglang.stream import pypto_stream
+
+    if qk_rmsnorm_rope.STATUS != "native-tile executable":
+        raise BackendNotReadyError(
+            "PyPTO fused Q/K RMSNorm/RoPE operator is not executable."
+        )
+    with pypto_stream(q_gate.device) as stream:
+        return qk_rmsnorm_rope.qk_rmsnorm_rope_gate(
+            q_gate,
+            key,
+            q_weight,
+            k_weight,
+            cos_sin_cache,
+            positions,
+            q_heads=num_q_heads,
+            kv_heads=num_kv_heads,
+            stream=stream,
+        )
+
+
 def _require_callable_hook_target(target: str) -> None:
     parts = target.split(".")
     for count in range(len(parts) - 1, 0, -1):
@@ -368,6 +451,7 @@ def _register_impl() -> None:
         GDN_PROJECTION_TARGET,
         GEMMA_RMSNORM_TARGET,
         FLA_GATED_RMSNORM_TARGET,
+        QK_RMSNORM_ROPE_GATE_TARGET,
         *TRITON_SUPPORT_TARGETS,
     )
     for target in hook_targets:
@@ -399,6 +483,11 @@ def _register_impl() -> None:
     HookRegistry.register(
         FLA_GATED_RMSNORM_TARGET,
         _fla_gated_rmsnorm_around,
+        HookType.AROUND,
+    )
+    HookRegistry.register(
+        QK_RMSNORM_ROPE_GATE_TARGET,
+        _qk_rmsnorm_rope_gate_around,
         HookType.AROUND,
     )
     for target in TRITON_SUPPORT_TARGETS:
