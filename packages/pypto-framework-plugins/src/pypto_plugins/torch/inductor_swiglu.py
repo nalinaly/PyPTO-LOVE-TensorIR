@@ -247,6 +247,35 @@ def callable_cache_snapshot() -> tuple[tuple[SwiGLUCallableKey, str, str], ...]:
         )
 
 
+def callable_source_evidence(
+    gate: Any,
+    up: Any,
+) -> pointwise_codegen.PointwiseSourceEvidence:
+    """Return fail-closed source evidence for the exact cached callable."""
+
+    _require_owner_process()
+    key = callable_key(gate, up)
+    with _lock:
+        entry = _callable_cache.get(key)
+        if entry is None:
+            raise StrictCoverageError(
+                "PyPTO Inductor SwiGLU source was requested before compilation"
+            )
+        if entry.kernel_name not in REGISTRY:
+            raise StrictCoverageError(
+                "PyPTO Inductor SwiGLU source lost its artifact registration"
+            )
+        artifact = REGISTRY.get(entry.kernel_name)
+        if (
+            artifact.kernel_name != entry.kernel_name
+            or artifact.source_node != entry.source_node
+        ):
+            raise StrictCoverageError(
+                "PyPTO Inductor SwiGLU callable and artifact source bindings differ"
+            )
+        return pointwise_codegen.pointwise_source_evidence(artifact)
+
+
 def clear_callable_cache_for_testing() -> None:
     _require_owner_process()
     global _revision_identity
@@ -261,6 +290,7 @@ __all__ = (
     "TensorCallIdentity",
     "callable_cache_snapshot",
     "callable_key",
+    "callable_source_evidence",
     "clear_callable_cache_for_testing",
     "fp32_swiglu_subgraph",
     "run_fp32_swiglu",

@@ -20,6 +20,20 @@ from .context import current_mode
 from . import pointwise_codegen
 
 
+_PYPTO_WRAPPER_HEADER_LINES = (
+    "from pypto_plugins.torch.runtime_bridge import pypto_launch",
+    "import torch as _pypto_torch",
+)
+
+
+def _ensure_pypto_wrapper_header(wrapper: Any) -> tuple[str, ...]:
+    if not getattr(wrapper, "_pypto_header_written", False):
+        for line in _PYPTO_WRAPPER_HEADER_LINES:
+            wrapper.header.writeline(line)
+        wrapper._pypto_header_written = True
+    return _PYPTO_WRAPPER_HEADER_LINES
+
+
 class PyptoKernelRegistry:
     """Process-wide registry of compiled PyPTO kernels by wrapper name."""
 
@@ -177,16 +191,20 @@ def make_pypto_triton_scheduling(triton_scheduling_class: Any) -> Any:
                 return super().call_kernel(name, node, deallocate_ws)
             wrapper = _graph_wrapper_code()
             _, call_args, _, _arg_types = self.args.python_argdefs()
-            if not getattr(wrapper, "_pypto_header_written", False):
-                wrapper.header.writeline(
-                    "from pypto_plugins.torch.runtime_bridge import pypto_launch"
-                )
-                wrapper.header.writeline("import torch as _pypto_torch")
-                wrapper._pypto_header_written = True
+            header_lines = _ensure_pypto_wrapper_header(wrapper)
             stream = "_pypto_torch.cuda.current_stream().cuda_stream"
             joined = ", ".join(str(arg) for arg in call_args)
-            wrapper.writeline(
-                f"pypto_launch({str(name)!r}, ({joined}{', ' if joined else ''}), {stream})"
+            registry_name = str(name)
+            launch_line = (
+                f"pypto_launch({registry_name!r}, "
+                f"({joined}{', ' if joined else ''}), {stream})"
+            )
+            wrapper.writeline(launch_line)
+            pointwise_codegen.record_wrapper_launch_source(
+                registry_name,
+                REGISTRY.get(registry_name),
+                header_lines=header_lines,
+                launch_line=launch_line,
             )
 
     return PyptoTritonScheduling
@@ -350,12 +368,7 @@ def _tensor_specialization(name: str, fallback: Any = None) -> Any:
 
 def _emit_pypto_node_launch(node: Any, name: str, meta: dict | None = None) -> None:
     wrapper = _graph_wrapper_code()
-    if not getattr(wrapper, "_pypto_header_written", False):
-        wrapper.header.writeline(
-            "from pypto_plugins.torch.runtime_bridge import pypto_launch"
-        )
-        wrapper.header.writeline("import torch as _pypto_torch")
-        wrapper._pypto_header_written = True
+    header_lines = _ensure_pypto_wrapper_header(wrapper)
     for output in node.get_outputs():
         buffer = getattr(output, "node", output)
         if not hasattr(buffer, "get_defining_op"):
@@ -388,8 +401,15 @@ def _emit_pypto_node_launch(node: Any, name: str, meta: dict | None = None) -> N
         else:
             call_args.append(arg)
     joined = ", ".join(call_args)
-    wrapper.writeline(
+    launch_line = (
         f"pypto_launch({name!r}, ({joined}{', ' if joined else ''}), {stream})"
+    )
+    wrapper.writeline(launch_line)
+    pointwise_codegen.record_wrapper_launch_source(
+        name,
+        REGISTRY.get(name),
+        header_lines=header_lines,
+        launch_line=launch_line,
     )
 
 

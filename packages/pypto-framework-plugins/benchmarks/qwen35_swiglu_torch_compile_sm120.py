@@ -94,6 +94,18 @@ def _run_case(model: str, rows: int, columns: int):
             f"{model} rows={rows} did not register exactly one new Inductor artifact"
         )
     inductor_artifact = new_artifacts[0]
+    source_evidence = inductor_swiglu.callable_source_evidence(gate, up)
+    if (
+        source_evidence.artifact_id != inductor_artifact.artifact_id
+        or source_evidence.artifact_sha256 != inductor_artifact.artifact_sha256
+        or source_evidence.source_node != inductor_artifact.source_node
+        or source_evidence.entry_name != inductor_artifact.kernel_name
+        or len(source_evidence.wrapper_launch_sources) != 1
+    ):
+        raise RuntimeError(
+            f"{model} rows={rows} generated source is not bound to the "
+            "registered Inductor artifact"
+        )
 
     # The compiler may produce byte-identical Cubin for the handwritten and
     # Inductor paths. Exercise the baseline in a separate provenance window;
@@ -134,6 +146,7 @@ def _run_case(model: str, rows: int, columns: int):
             "repeated_equal": repeated_equal,
             "reference_close": reference_close,
             "handwritten_equal": handwritten_equal,
+            "inductor_source_evidence": source_evidence.to_dict(),
         },
         inductor_artifact,
     )
@@ -175,6 +188,7 @@ def main() -> int:
     registry_artifacts = REGISTRY.unique_artifacts()
     expected_case_count = len(MODEL_DIRECTORIES) * len(rows)
     source_nodes = {entry[2] for entry in cache}
+    source_evidence = [case["inductor_source_evidence"] for case in cases]
     all_native = (
         expected_case_count > 0
         and len(cases) == expected_case_count
@@ -187,9 +201,13 @@ def main() -> int:
         and len(registry_artifacts) == expected_case_count
         and {artifact.source_node for artifact in registry_artifacts} == source_nodes
         and all(not artifact.fallback_used for artifact in registry_artifacts)
+        and len(
+            {record["pypto_source_sha256"] for record in source_evidence}
+        )
+        == expected_case_count
     )
     payload = {
-        "schema": 1,
+        "schema": 2,
         "kind": "qwen35-row-pitched-fp32-swiglu-torch-compile-sm120",
         "torch_compile": {
             "backend": "pypto",
@@ -202,6 +220,7 @@ def main() -> int:
         "artifact_count": len(artifacts),
         "registry_artifact_count": len(registry_artifacts),
         "source_nodes": sorted(source_nodes),
+        "source_evidence_count": len(source_evidence),
         "providers": sorted({record.provider for record in artifacts}),
         "all_native": all_native,
     }
