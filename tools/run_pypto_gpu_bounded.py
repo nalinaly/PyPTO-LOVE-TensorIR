@@ -11,6 +11,7 @@ import secrets
 import shutil
 import signal
 import subprocess
+import tempfile
 import time
 
 import preflight
@@ -195,6 +196,43 @@ def terminate_owned(
             pass
 
 
+def create_short_tmp_alias(
+    run_dir: pathlib.Path,
+    *,
+    parent_root: pathlib.Path = pathlib.Path("/tmp"),
+) -> tuple[pathlib.Path, pathlib.Path, pathlib.Path]:
+    """Expose the owned run TMPDIR through a short Unix-socket-safe path."""
+
+    target = (run_dir / "tmp").resolve(strict=True)
+    parent = pathlib.Path(
+        tempfile.mkdtemp(prefix="pypto-ipc-", dir=parent_root)
+    ).resolve(strict=True)
+    alias = parent / "t"
+    try:
+        alias.symlink_to(target, target_is_directory=True)
+    except BaseException:
+        parent.rmdir()
+        raise
+    if len(str(alias)) >= 64 or alias.resolve(strict=True) != target:
+        alias.unlink()
+        parent.rmdir()
+        raise BoundedGpuError("cannot create a safe short TMPDIR alias")
+    return parent, alias, target
+
+
+def remove_short_tmp_alias(
+    parent: pathlib.Path,
+    alias: pathlib.Path,
+    target: pathlib.Path,
+) -> None:
+    """Remove only the verified alias and its private empty parent."""
+
+    if not alias.is_symlink() or alias.resolve(strict=True) != target:
+        raise BoundedGpuError("short TMPDIR alias identity changed")
+    alias.unlink()
+    parent.rmdir()
+
+
 def verify_formal_runtime_identity(
     environment_name: str,
     framework_profile: str,
@@ -336,13 +374,24 @@ def main() -> int:
             "host/GPU coexistence changed during formal identity verification"
         )
     minimum_disk = args.minimum_free_disk_gib << 30
-    process = subprocess.Popen(
-        command,
-        cwd=ROOT,
-        env=environment,
-        start_new_session=True,
-        pass_fds=(lease.descriptor,),
+    short_tmp_parent, short_tmp_alias, short_tmp_target = create_short_tmp_alias(
+        run_dir
     )
+    environment["TMPDIR"] = str(short_tmp_alias)
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=ROOT,
+            env=environment,
+            start_new_session=True,
+            pass_fds=(lease.descriptor,),
+        )
+    except BaseException:
+        remove_short_tmp_alias(
+            short_tmp_parent, short_tmp_alias, short_tmp_target
+        )
+        lease.close()
+        raise
     metadata: dict[str, object] = {
         "schema": 1,
         "mode": "gpu-bounded",
@@ -371,6 +420,10 @@ def main() -> int:
             "mode": lease.mode,
             "device": lease.device,
             "inode": lease.inode,
+        },
+        "short_tmp_alias": {
+            "path": str(short_tmp_alias),
+            "target": str(short_tmp_target),
         },
     }
     metadata_path = run_dir / "process.json"
@@ -424,6 +477,9 @@ def main() -> int:
         raise
     finally:
         lease.close()
+        remove_short_tmp_alias(
+            short_tmp_parent, short_tmp_alias, short_tmp_target
+        )
 
     post_audit = audit()
     metadata.update(

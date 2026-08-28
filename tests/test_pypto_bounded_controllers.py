@@ -147,6 +147,22 @@ class BoundedGpuPolicyTest(unittest.TestCase):
         self.assertEqual(gpu.POLL_SECONDS, 1)
         self.assertFalse(hasattr(gpu, "LAUNCH_MEMORY_KIB"))
 
+    def test_short_tmp_alias_preserves_owned_run_storage(self) -> None:
+        with (
+            tempfile.TemporaryDirectory(dir=ROOT / "runs") as run,
+            tempfile.TemporaryDirectory() as parent_root,
+        ):
+            target = pathlib.Path(run) / "tmp"
+            target.mkdir()
+            parent, alias, observed_target = gpu.create_short_tmp_alias(
+                pathlib.Path(run), parent_root=pathlib.Path(parent_root)
+            )
+            self.assertTrue(alias.is_symlink())
+            self.assertEqual(observed_target, target.resolve())
+            self.assertEqual(alias.resolve(), target.resolve())
+            gpu.remove_short_tmp_alias(parent, alias, observed_target)
+            self.assertFalse(parent.exists())
+
     def test_host_floor_debounces_noise_but_emergency_aborts_immediately(self) -> None:
         just_below = gpu.HOST_ABORT_KIB - 1
         reason, count = gpu.host_floor_update(just_below, 0)
