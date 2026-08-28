@@ -172,10 +172,12 @@ def test_pointwise_operators_use_native_tile_dsl():
         packed[:, :256], packed[:, 256:], sample
     )
     assert str(packed_program).count("pl.TensorView(stride=[512, 1]") == 2
-    assert silu_and_mul._tiles(1) == [128]
-    assert silu_and_mul._tiles(19) == [1, 128]
-    assert sigmoid_mul._tiles(1) == [128]
-    assert sigmoid_mul._tiles(19) == [1, 128]
+    assert silu_and_mul._tiles(1, 3584, 7168, 7168, 3584) == [128]
+    assert silu_and_mul._tiles(19, 3584, 3584, 3584, 3584) == [128]
+    assert silu_and_mul._tiles(19, 3584, 7168, 7168, 3584) == [1, 128]
+    assert sigmoid_mul._tiles(1, 1024, 1024, 1024) == [128]
+    assert sigmoid_mul._tiles(19, 1024, 1024, 1024) == [128]
+    assert sigmoid_mul._tiles(19, 1024, 2048, 2048) == [1, 128]
 
 
 def test_rmsnorm_uses_native_tile_reduction():
