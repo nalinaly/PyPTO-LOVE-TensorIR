@@ -1,0 +1,118 @@
+{
+ "all_compiled": true,
+ "cases": [
+  {
+   "case": "silu_and_mul",
+   "key": "10bc1af29888aae1",
+   "status": "compiled",
+   "tiles": [
+    128
+   ]
+  },
+  {
+   "case": "sigmoid_mul",
+   "key": "6cb5540b3b8da9ea",
+   "status": "compiled",
+   "tiles": [
+    128
+   ]
+  },
+  {
+   "case": "embedding",
+   "key": "d0da677fbd029800",
+   "status": "compiled",
+   "tiles": [
+    8,
+    128
+   ]
+  },
+  {
+   "case": "rmsnorm",
+   "key": "fae262ef6497be77",
+   "status": "compiled",
+   "tiles": [
+    1,
+    128
+   ]
+  },
+  {
+   "case": "fused_add_rmsnorm",
+   "key": "600802cd059a93fa",
+   "status": "compiled",
+   "tiles": [
+    1,
+    128
+   ]
+  },
+  {
+   "case": "gated_rmsnorm",
+   "key": "ba2eadbd71f8469a",
+   "status": "compiled",
+   "tiles": [
+    1,
+    128
+   ]
+  },
+  {
+   "case": "causal_conv1d",
+   "key": "fb7c1231511dd6eb",
+   "status": "compiled",
+   "tiles": [
+    128,
+    1
+   ]
+  },
+  {
+   "case": "rope",
+   "key": "245230901c651338",
+   "status": "compiled",
+   "tiles": [
+    1,
+    1,
+    64
+   ]
+  },
+  {
+   "case": "attention",
+   "key": "35bb879f36b01b9a",
+   "status": "compiled",
+   "tiles": [
+    1,
+    64
+   ]
+  },
+  {
+   "case": "linear",
+   "key": "602efe1f67c654be",
+   "status": "compiled",
+   "tiles": [
+    1,
+    128
+   ]
+  },
+  {
+   "case": "gdn_read",
+   "key": "4d375643b39fa22f",
+   "status": "compiled",
+   "tiles": [
+    1,
+    64
+   ]
+  },
+  {
+   "case": "gdn_state_update",
+   "key": "93e30fea9b8700a0",
+   "status": "compiled",
+   "tiles": [
+    1,
+    32,
+    32
+   ]
+  }
+ ],
+ "dso_sha256": "780062a4fa80f4676c260f660a0c41ea8ea944549a4029ee55b40b5c29f3e972",
+ "kind": "pypto-kernels-classify-sm120",
+ "pypto_commit": "d8eaca6f6bc56b1217ad942a866e48fb4112381c",
+ "run_id": "pypto-20260827T165121Z-581103-546b06",
+ "schema": 2
+}
