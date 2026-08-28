@@ -582,7 +582,12 @@ def compile_paged_decode_for(
     if cached is not None:
         return cached
     program = build_paged_decode(*shape_key)
-    graph_key = compile_graph(program, [1, _ROW_TILE, _VALUE_TILE])
+    tile_shape = (
+        [_ROW_TILE, _VALUE_TILE]
+        if batch_size == 1
+        else [1, _ROW_TILE, _VALUE_TILE]
+    )
+    graph_key = compile_graph(program, tile_shape)
     with _lock:
         _paged_decode_cache[shape_key] = graph_key
     return graph_key
@@ -828,7 +833,7 @@ def compile_paged_prefill_for(
     cached = _paged_prefill_cache.get(shape_key)
     if cached is not None:
         return cached
-    graph_key = compile_graph(build_paged_prefill(*shape_key), [1, 1, 128])
+    graph_key = compile_graph(build_paged_prefill(*shape_key), [1, 1, 1, 128])
     with _lock:
         _paged_prefill_cache[shape_key] = graph_key
     return graph_key
