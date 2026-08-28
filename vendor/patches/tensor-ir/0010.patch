@@ -1,0 +1,106 @@
+From 1357285e8a86af6c447cb34282df569cd3bf8e40 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 01:10:18 +0800
+Subject: [PATCH 10/82] compiler: expose runtime-free device code validation
+
+---
+ .../Compiler/CudaTile/CudaTileArtifact.h      | 10 ++++
+ lib/Compiler/CudaTile/CudaTileArtifact.cpp    | 50 +++++++++++--------
+ 2 files changed, 40 insertions(+), 20 deletions(-)
+
+diff --git a/include/tensor_ir/Compiler/CudaTile/CudaTileArtifact.h b/include/tensor_ir/Compiler/CudaTile/CudaTileArtifact.h
+index a7d1b4477bbc90ba6332844b4d09bba7a7b3efff..5f952fd59d66a16dfb6879b83a45f129fad603a7 100644
+--- a/include/tensor_ir/Compiler/CudaTile/CudaTileArtifact.h
++++ b/include/tensor_ir/Compiler/CudaTile/CudaTileArtifact.h
+@@ -44,6 +44,16 @@ llvm::StringRef stringifyCudaTileArtifactKind(CudaTileArtifactKind kind);
+ StatusOr<CudaTileArtifactKind>
+ detectCudaTileArtifactKind(llvm::ArrayRef<char> deviceCode);
+ 
++/// Validate complete runtime-free device bytes against their declared kind,
++/// target, and intermediate TileIR bytecode version. This performs no CUDA
++/// load, context query, filesystem access, or runtime reconstruction. The
++/// target is byte-attested for Cubin; TileIR carries and validates its version
++/// but does not encode an equivalent target attestation.
++Status validateCudaTileDeviceCode(
++    llvm::ArrayRef<char> deviceCode, CudaTileArtifactKind actualKind,
++    SmTarget actualTarget,
++    mlir::cuda_tile::BytecodeVersion tileIRBytecodeVersion);
++
+ /// Process- and device-independent output of TensorIR CUDA Tile compilation.
+ ///
+ /// This value deliberately contains no CUDA module, kernel, context, stream,
+diff --git a/lib/Compiler/CudaTile/CudaTileArtifact.cpp b/lib/Compiler/CudaTile/CudaTileArtifact.cpp
+index c7b9f3afadb95383afd588b3a8dd91b2342642a4..48d0b3f0a60adc372cc25cbe3383b0736464b98e 100644
+--- a/lib/Compiler/CudaTile/CudaTileArtifact.cpp
++++ b/lib/Compiler/CudaTile/CudaTileArtifact.cpp
+@@ -350,6 +350,34 @@ detectCudaTileArtifactKind(llvm::ArrayRef<char> deviceCode) {
+       "device code is neither TileIR bytecode nor an ELF cubin");
+ }
+ 
++Status validateCudaTileDeviceCode(
++    llvm::ArrayRef<char> deviceCode, CudaTileArtifactKind actualKind,
++    SmTarget actualTarget,
++    mlir::cuda_tile::BytecodeVersion tileIRBytecodeVersion) {
++  TIR_ASSIGN_OR_RETURN(auto detectedKind,
++                       detectCudaTileArtifactKind(deviceCode));
++  if (detectedKind != actualKind) {
++    return Status::InvalidArgument(
++        "declared CUDA Tile artifact kind differs from byte magic");
++  }
++  switch (actualKind) {
++  case CudaTileArtifactKind::TileIR:
++    TIR_RETURN_IF_ERROR(
++        validateTileIRHeader(deviceCode, tileIRBytecodeVersion));
++    return validateCompleteTileIR(deviceCode);
++  case CudaTileArtifactKind::Cubin:
++    if (actualTarget.getPortability() !=
++        ArchPortability::arch_conditional) {
++      return Status::InvalidArgument(
++          "cubin artifact requires an architecture-conditional target");
++    }
++    TIR_RETURN_IF_ERROR(validateCudaElfHeader(
++        deviceCode, actualTarget.getComputeCapabilityVersion()));
++    return validateCompleteCudaElf(deviceCode, actualTarget);
++  }
++  return Status::InvalidArgument("unknown CUDA Tile artifact kind");
++}
++
+ Status CudaTileCompiledArtifact::validate() const {
+   if (schemaVersion != kSchemaVersion) {
+     return Status::InvalidArgument("unsupported CUDA Tile artifact schema");
+@@ -370,12 +398,6 @@ Status CudaTileCompiledArtifact::validate() const {
+     return Status::InvalidArgument("unknown requested artifact kind");
+   }
+ 
+-  TIR_ASSIGN_OR_RETURN(auto detectedKind,
+-                       detectCudaTileArtifactKind(deviceCode));
+-  if (detectedKind != actualArtifactKind) {
+-    return Status::InvalidArgument(
+-        "declared CUDA Tile artifact kind differs from byte magic");
+-  }
+   if (requestedArtifactKind == CudaTileArtifactKind::TileIR &&
+       actualArtifactKind != CudaTileArtifactKind::TileIR) {
+     return Status::InvalidArgument(
+@@ -389,20 +411,8 @@ Status CudaTileCompiledArtifact::validate() const {
+     return Status::InvalidArgument(
+         "actual target is incompatible with requested target");
+   }
+-  if (actualArtifactKind == CudaTileArtifactKind::Cubin &&
+-      actualTarget.getPortability() != ArchPortability::arch_conditional) {
+-    return Status::InvalidArgument(
+-        "cubin artifact requires an architecture-conditional target");
+-  }
+-  if (actualArtifactKind == CudaTileArtifactKind::TileIR) {
+-    TIR_RETURN_IF_ERROR(
+-        validateTileIRHeader(deviceCode, tileIRBytecodeVersion));
+-    TIR_RETURN_IF_ERROR(validateCompleteTileIR(deviceCode));
+-  } else {
+-    TIR_RETURN_IF_ERROR(validateCudaElfHeader(
+-        deviceCode, actualTarget.getComputeCapabilityVersion()));
+-    TIR_RETURN_IF_ERROR(validateCompleteCudaElf(deviceCode, actualTarget));
+-  }
++  TIR_RETURN_IF_ERROR(validateCudaTileDeviceCode(
++      deviceCode, actualArtifactKind, actualTarget, tileIRBytecodeVersion));
+ 
+   TIR_RETURN_IF_ERROR(validateArgLayout(argLayout));
+   bool requiresFlatPacking =

@@ -1,0 +1,126 @@
+From 0449388f5499cd750dbfc0fb671a58a01271f163 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 22:27:23 +0800
+Subject: [PATCH 29/82] Support compatible multi-output layout fusion
+
+---
+ lib/Transform/LayoutAnnotation.cpp            | 67 +++++++++++++++++--
+ .../layout-propagation-normalize.mlir         | 16 +++++
+ 2 files changed, 79 insertions(+), 4 deletions(-)
+
+diff --git a/lib/Transform/LayoutAnnotation.cpp b/lib/Transform/LayoutAnnotation.cpp
+index 37bf46214d91c72c87cf9a885a4a4705bd838122..096cdc0f5a94f3ff0773bd56762fe3a2b9e1da09 100644
+--- a/lib/Transform/LayoutAnnotation.cpp
++++ b/lib/Transform/LayoutAnnotation.cpp
+@@ -168,10 +168,14 @@ struct LayoutPropagationNormalizationPass
+     GraphOp graphOp = getOperation();
+     MLIRContext *ctx = graphOp.getContext();
+ 
+-    // Get the graph output value.
++    // Select Result0 as the primary iteration-space owner. Additional results
++    // are supported when they have the same physical result layout and depend
++    // only on a subset of Result0's input layout sources. This covers fused
++    // kernels that publish a primary transformed value plus side outputs
++    // (for example, a residual) without inventing a second launch domain.
+     auto graphResults = graphOp.getResults();
+-    if (graphResults.size() != 1) {
+-      graphOp.emitError("unsupported multi-output fusion");
++    if (graphResults.empty()) {
++      graphOp.emitError("fusion must have at least one output");
+       return signalPassFailure();
+     }
+ 
+@@ -194,10 +198,65 @@ struct LayoutPropagationNormalizationPass
+       }
+     }
+ 
++    auto flattenSources = [](LayoutSourceAttrInterface source,
++                             llvm::SmallSetVector<LayoutSourceAttrInterface, 8>
++                                 &sources) {
++      if (auto composite = dyn_cast<CompositeSourceAttr>(source)) {
++        for (size_t i = 0; i < composite.size(); ++i)
++          sources.insert(composite.getSource(i));
++      } else {
++        sources.insert(source);
++      }
++    };
++    llvm::SmallSetVector<LayoutSourceAttrInterface, 8> primarySources;
++    flattenSources(layoutAttr, primarySources);
++
++    auto allResultAttrs = graphOp.getAllResultAttrs();
++    auto getResultStride = [&](size_t index) -> StringAttr {
++      if (!allResultAttrs || index >= allResultAttrs.size())
++        return {};
++      auto dictAttr = dyn_cast<DictionaryAttr>(allResultAttrs[index]);
++      return dictAttr ? dictAttr.getAs<StringAttr>(
++                            TensorIRDialect::getStrideAttrName())
++                      : StringAttr{};
++    };
++    auto primaryType = cast<TensorType>(graphResults.front().getType());
++    StringAttr primaryStride = getResultStride(0);
++    for (size_t index = 1; index < graphResults.size(); ++index) {
++      auto resultType = dyn_cast<TensorType>(graphResults[index].getType());
++      if (!resultType || resultType != primaryType ||
++          getResultStride(index) != primaryStride) {
++        graphOp.emitError(
++            "multi-output fusion requires identical result types and strides");
++        return signalPassFailure();
++      }
++      LayoutSourceAttrInterface resultLayout;
++      if (auto resultOp = graphResults[index].getDefiningOp()) {
++        resultLayout = resultOp->getAttrOfType<LayoutSourceAttrInterface>(
++            TensorIRDialect::getLayoutAttrName());
++      } else {
++        resultLayout = dyn_cast_or_null<LayoutSourceAttrInterface>(
++            getLayoutSourceAttr(graphResults[index]));
++      }
++      if (!resultLayout) {
++        graphOp.emitError("missing layout data for additional result");
++        return signalPassFailure();
++      }
++      llvm::SmallSetVector<LayoutSourceAttrInterface, 8> resultSources;
++      flattenSources(resultLayout, resultSources);
++      if (llvm::any_of(resultSources, [&](LayoutSourceAttrInterface source) {
++            return !primarySources.contains(source);
++          })) {
++        graphOp.emitError(
++            "additional result introduces an independent layout source");
++        return signalPassFailure();
++      }
++    }
++
+     // Build the output layout from res_attrs directly.  For copy/passthrough
+     // graphs the result value is the block argument, so getStrideFromGraph
+     // would return the input stride (value identity matches arg_attrs first).
+-    auto resultTy = cast<TensorType>(graphResults.front().getType());
++    auto resultTy = primaryType;
+     std::optional<tcg::Stride> outputStride;
+     if (auto resAttrs = graphOp.getAllResultAttrs()) {
+       if (auto dictAttr = dyn_cast<DictionaryAttr>(resAttrs[0])) {
+diff --git a/test/Transform/layout-propagation-normalize.mlir b/test/Transform/layout-propagation-normalize.mlir
+index 7bee6ea1581ba2ef819c09caaa102ff997845e05..d073facec7cf43d6bc8cbffbf7c316ea0cc2b67e 100644
+--- a/test/Transform/layout-propagation-normalize.mlir
++++ b/test/Transform/layout-propagation-normalize.mlir
+@@ -2,6 +2,22 @@
+ 
+ // Tests for the normalize() utility function.
+ 
++// Result0 owns the common launch domain; a residual side result may use a
++// subset of its sources without creating a second iteration space.
++// CHECK-LABEL: nv_tensor_ir.graph @normalize_primary_and_residual_outputs
++// CHECK: results %{{.*}}, %{{.*}} {iteration_space = #nv_tensor_ir.composite_source<#nv_tensor_ir.tensor_source<0, 0, "(4,16):(1,4)">, #nv_tensor_ir.tensor_source<1, 0, "(4,16):(1,4)">, #nv_tensor_ir.tensor_source<2, 0, "(4,16):(1,4)">>}
++nv_tensor_ir.graph @normalize_primary_and_residual_outputs(
++    %x: tensor<4x16xf32> {nv_tensor_ir.stride = "(1,4)"},
++    %residual: tensor<4x16xf32> {nv_tensor_ir.stride = "(1,4)"},
++    %weight: tensor<4x16xf32> {nv_tensor_ir.stride = "(1,4)"}
++) -> (tensor<4x16xf32> {nv_tensor_ir.stride = "(1,4)"}, tensor<4x16xf32> {nv_tensor_ir.stride = "(1,4)"}) {
++    %sum = add %x, %residual : tensor<4x16xf32>
++    %primary = mul %sum, %weight : tensor<4x16xf32>
++    results %primary, %sum : tensor<4x16xf32>, tensor<4x16xf32>
++}
++
++// -----
++
+ //===----------------------------------------------------------------------===//
+ // TensorSourceAttr normalization
+ //===----------------------------------------------------------------------===//

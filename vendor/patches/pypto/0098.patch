@@ -1,0 +1,182 @@
+From ab63a3c43c8b44883bd69a52fdd9e7eeb03517b5 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 22:31:40 +0800
+Subject: [PATCH 098/212] Complete TensorIR multi-output graph support
+
+---
+ ...alize-compatible-multi-output-graphs.patch | 130 ++++++++++++++++++
+ 3rdparty/nvidia/tensor-ir                     |   2 +-
+ cmake/nvidia_backend.cmake                    |   2 +-
+ .../test_nvidia_backend_build_info.py         |   2 +-
+ 4 files changed, 133 insertions(+), 3 deletions(-)
+ create mode 100644 3rdparty/nvidia/0003-Materialize-compatible-multi-output-graphs.patch
+
+diff --git a/3rdparty/nvidia/0003-Materialize-compatible-multi-output-graphs.patch b/3rdparty/nvidia/0003-Materialize-compatible-multi-output-graphs.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..d8918f7bbfda56f933f83a820c2ba9dbec396ef9
+--- /dev/null
++++ b/3rdparty/nvidia/0003-Materialize-compatible-multi-output-graphs.patch
+@@ -0,0 +1,130 @@
++From 693f907e54675529ac4543648462a3c7278cac79 Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Thu, 27 Aug 2026 22:31:08 +0800
++Subject: [PATCH] Materialize compatible multi-output graphs
++
++---
++ lib/Transform/GraphSplitting.cpp    | 73 +++++++++++++++++++++++++----
++ test/Transform/graph-splitting.mlir | 18 +++++++
++ 2 files changed, 83 insertions(+), 8 deletions(-)
++
++diff --git a/lib/Transform/GraphSplitting.cpp b/lib/Transform/GraphSplitting.cpp
++index 24c8b16..92eff3e 100644
++--- a/lib/Transform/GraphSplitting.cpp
+++++ b/lib/Transform/GraphSplitting.cpp
++@@ -297,19 +297,76 @@ struct GraphSplittingPass
++       graphOp.emitError("missing iteration space");
++       return signalPassFailure();
++     }
++-    if (resultsOp->getNumOperands() != 1) {
++-      graphOp.emitError("expected single result");
+++    if (resultsOp->getNumOperands() == 0) {
+++      graphOp.emitError("expected at least one result");
++       return signalPassFailure();
++     }
++ 
++-    // Start recursive materialization from the graph result.
++-    Value oldRoot = resultsOp->getOperand(0);
++-    FailureOr<Value> newRoot =
++-        materialize(oldRoot, /*iterSpaceId=*/0, rootLayout);
++-    if (failed(newRoot)) {
+++    auto toSources = [](LayoutSourceAttrInterface source) {
+++      SmallVector<LayoutSourceAttrInterface> sources;
+++      if (auto composite = dyn_cast<CompositeSourceAttr>(source)) {
+++        sources.append(composite.getSources().begin(),
+++                       composite.getSources().end());
+++      } else {
+++        sources.push_back(source);
+++      }
+++      return sources;
+++    };
+++    LayoutSourceAttrInterface primaryOriginal =
+++        dyn_cast_or_null<LayoutSourceAttrInterface>(
+++            getLayoutSourceAttr(resultsOp->getOperand(0)));
+++    if (!primaryOriginal) {
+++      graphOp.emitError("primary result is missing layout data");
+++      return signalPassFailure();
+++    }
+++    SmallVector<LayoutSourceAttrInterface> primaryOriginalSources =
+++        toSources(primaryOriginal);
+++    SmallVector<LayoutSourceAttrInterface> primaryTargetSources =
+++        toSources(rootLayout);
+++    if (primaryOriginalSources.size() != primaryTargetSources.size()) {
+++      graphOp.emitError("primary result layout cannot be mapped to iteration space");
++       return signalPassFailure();
++     }
++-    resultsOp.setOperand(0, *newRoot);
+++
+++    // Materialize every graph result in Result0's launch domain. Additional
+++    // result sources were already checked as a subset during normalization;
+++    // remap each source to the corresponding normalized primary source.
+++    for (size_t resultIndex = 0; resultIndex < resultsOp->getNumOperands();
+++         ++resultIndex) {
+++      Value oldRoot = resultsOp->getOperand(resultIndex);
+++      LayoutSourceAttrInterface targetLayout = rootLayout;
+++      if (resultIndex != 0) {
+++        auto resultOriginal = dyn_cast_or_null<LayoutSourceAttrInterface>(
+++            getLayoutSourceAttr(oldRoot));
+++        if (!resultOriginal) {
+++          graphOp.emitError("additional result is missing layout data");
+++          return signalPassFailure();
+++        }
+++        SmallVector<LayoutSourceAttrInterface> remappedSources;
+++        for (LayoutSourceAttrInterface source : toSources(resultOriginal)) {
+++          auto it = llvm::find(primaryOriginalSources, source);
+++          if (it == primaryOriginalSources.end()) {
+++            graphOp.emitError(
+++                "additional result source is absent from primary result");
+++            return signalPassFailure();
+++          }
+++          size_t sourceIndex =
+++              static_cast<size_t>(std::distance(primaryOriginalSources.begin(), it));
+++          remappedSources.push_back(primaryTargetSources[sourceIndex]);
+++        }
+++        targetLayout = remappedSources.size() == 1
+++                           ? remappedSources.front()
+++                           : static_cast<LayoutSourceAttrInterface>(
+++                                 CompositeSourceAttr::get(
+++                                     graphOp.getContext(), remappedSources));
+++      }
+++      FailureOr<Value> newRoot =
+++          materialize(oldRoot, /*iterSpaceId=*/0, targetLayout);
+++      if (failed(newRoot)) {
+++        return signalPassFailure();
+++      }
+++      resultsOp.setOperand(resultIndex, *newRoot);
+++    }
++ 
++     // Run simple DCE (dead code elimination).
++     bool changed = true;
++diff --git a/test/Transform/graph-splitting.mlir b/test/Transform/graph-splitting.mlir
++index 6249acf..25cec99 100644
++--- a/test/Transform/graph-splitting.mlir
+++++ b/test/Transform/graph-splitting.mlir
++@@ -1,5 +1,23 @@
++ // RUN: tensor_ir-opt -layout-propagation-annotation -layout-propagation-normalization -graph-splitting -split-input-file %s | FileCheck %s
++ 
+++// Result0 uses all sources while the residual side output uses a subset. Both
+++// are materialized in the same iteration space and remain ordered results.
+++// CHECK-LABEL: nv_tensor_ir.graph @primary_with_residual_side_output
+++// CHECK: %[[SUM:.*]] = add
+++// CHECK: %[[PRIMARY:.*]] = mul
+++// CHECK: results %[[PRIMARY]], %[[SUM]]
+++nv_tensor_ir.graph @primary_with_residual_side_output(
+++  %x: tensor<4x16xf32> {nv_tensor_ir.stride = "(1,4)"},
+++  %residual: tensor<4x16xf32> {nv_tensor_ir.stride = "(1,4)"},
+++  %weight: tensor<4x16xf32> {nv_tensor_ir.stride = "(1,4)"}
+++) -> (tensor<4x16xf32> {nv_tensor_ir.stride = "(1,4)"}, tensor<4x16xf32> {nv_tensor_ir.stride = "(1,4)"}) {
+++  %sum = add %x, %residual : tensor<4x16xf32>
+++  %primary = mul %sum, %weight : tensor<4x16xf32>
+++  results %primary, %sum : tensor<4x16xf32>, tensor<4x16xf32>
+++}
+++
+++// -----
+++
++ // Diamond / reconvergent pattern that requires layout specialization.
++ // The `%mul` feeds two different slices which reconverge at `%div`.
++ 
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 0449388f5499cd750dbfc0fb671a58a01271f163..693f907e54675529ac4543648462a3c7278cac79 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 0449388f5499cd750dbfc0fb671a58a01271f163
++Subproject commit 693f907e54675529ac4543648462a3c7278cac79
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 4aa97107e48bd3d53e3c0a8aab297a93df5b69c6..b568a0d15771cc75fc4535dd61890b8c74e3ac98 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "0449388f5499cd750dbfc0fb671a58a01271f163")
++    "693f907e54675529ac4543648462a3c7278cac79")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+diff --git a/tests/ut/compiler/test_nvidia_backend_build_info.py b/tests/ut/compiler/test_nvidia_backend_build_info.py
+index 61ab62ddc36da33986cf46cef75968f1e45a64e6..2343a215f8f0f6281cb7a05aa775ac4863989edb 100644
+--- a/tests/ut/compiler/test_nvidia_backend_build_info.py
++++ b/tests/ut/compiler/test_nvidia_backend_build_info.py
+@@ -30,7 +30,7 @@ def test_nvidia_backend_build_info_is_immutable_and_self_consistent() -> None:
+     assert info.compiler_factory_available
+     assert len(info.pypto_revision) == 40
+     assert set(info.pypto_revision) <= set("0123456789abcdef")
+-    assert info.tensor_ir_revision == "0449388f5499cd750dbfc0fb671a58a01271f163"
++    assert info.tensor_ir_revision == "693f907e54675529ac4543648462a3c7278cac79"
+     assert info.cuda_tile_revision == "af2417041cc939b87ef56d92cfdcf61737c5457e"
+     assert info.llvm_revision == "57109befac92811d2253109242ca6fa69c961fb2"
+     assert info.cuda_toolkit_root == "/usr/local/cuda-13.3"

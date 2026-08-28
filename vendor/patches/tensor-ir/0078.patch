@@ -1,0 +1,76 @@
+From 04da10448b8dbb95d91ae73252b34bff628407ad Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 12:31:15 +0800
+Subject: [PATCH 78/82] Permute scatter tiles into physical column order
+
+---
+ .../LayoutPropagationImpl.cpp                 | 49 +++++++++++++------
+ 1 file changed, 35 insertions(+), 14 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index 581557f69c3ec5e9b5f9ddfa2c9ac2a8c6dc77a0..8e8b3bb36a3f514db18b18cac0add819586da70e 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -561,19 +561,6 @@ public:
+       return op.emitError("scatter tile dimensions exceed i32");
+     }
+ 
+-    if (sizes[1] == 262144) {
+-      std::string tileText;
+-      llvm::raw_string_ostream tileStream(tileText);
+-      tileStream << "[";
+-      llvm::interleaveComma(iterationTileShape, tileStream);
+-      tileStream << "]";
+-      return op.emitError()
+-             << "scatter-layout diagnostic tile=" << tileStream.str()
+-             << " data=" << state.layouts[0]
+-             << " indices=" << state.layouts[1]
+-             << " updates=" << state.layouts[2];
+-    }
+-
+     Type pointerElement =
+         cast<ShapedType>(dataDesc.pointer.getType()).getElementType();
+     Type dataElement =
+@@ -627,7 +614,41 @@ public:
+       tileToStore = cuda_tile::ExtractOp::create(
+           rewriter, op.getLoc(), projectedType, tileToStore, zeroIndices);
+     }
+-    if (!llvm::equal(projectedShape, scatterTileShape)) {
++    // The fused iteration-space axes need not follow physical row-major
++    // column order. Reorder the projected update tile as [row, outer ...,
++    // inner] using descending physical stride before flattening it for the
++    // rank-2 gather/scatter view.
++    SmallVector<int32_t> physicalPermutation;
++    SmallVector<bool> usedDimensions(iterationRank, false);
++    if (!scalarRowProjection) {
++      physicalPermutation.push_back(static_cast<int32_t>(rowDim));
++      usedDimensions[rowDim] = true;
++    }
++    for (size_t dim : llvm::reverse(columnProjection->dimensions)) {
++      physicalPermutation.push_back(static_cast<int32_t>(dim));
++      usedDimensions[dim] = true;
++    }
++    for (size_t dim = 0; dim < iterationRank; ++dim) {
++      if (!usedDimensions[dim]) {
++        physicalPermutation.push_back(static_cast<int32_t>(dim));
++      }
++    }
++    SmallVector<int64_t> storeShape;
++    storeShape.reserve(iterationRank);
++    for (int32_t dim : physicalPermutation) {
++      storeShape.push_back(projectedShape[static_cast<size_t>(dim)]);
++    }
++    const bool permutationNeeded =
++        llvm::any_of(llvm::enumerate(physicalPermutation), [](auto item) {
++          return item.value() != static_cast<int32_t>(item.index());
++        });
++    if (permutationNeeded) {
++      auto projectedType = cast<cuda_tile::TileType>(tileToStore.getType());
++      tileToStore = cuda_tile::PermuteOp::create(
++          rewriter, op.getLoc(), projectedType.clone(storeShape), tileToStore,
++          physicalPermutation);
++    }
++    if (!llvm::equal(storeShape, scatterTileShape)) {
+       auto scatterType =
+           cuda_tile::TileType::get(scatterTileShape, dataElement);
+       tileToStore = cuda_tile::ReshapeOp::create(

@@ -1,0 +1,76 @@
+From faefd0a1df29b4bdb3434f5f6e5f73757387ae3e Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 01:15:30 +0800
+Subject: [PATCH 056/212] test: rebind row-sum goldens to the +0-normalized
+ sources
+
+The FP32 rank-one/rank-two sum fixtures grow by the constant/splat/add
+identity block; max fixtures are byte-identical. Also fix the flatten
+and convert references to use the reduction value for max modules.
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp          | 15 +++++++++++----
+ .../cpp/structured_tensor_ir_build_spec_test.cpp  |  8 ++++----
+ 2 files changed, 15 insertions(+), 8 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 0a25fd4e54a3cc79078073259e503c092fecde7a..c87557668cade47481b59652bcb349abfb542ada 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -548,9 +548,11 @@ std::string EmitRowReductionSource(const RowReductionGraph& graph) {
+     source += "\n";
+   }
+ 
++  const char* const reduce_result = normalize_sum ? "%sum0" : "%reduce0";
+   if (flatten) {
+-    source += widen ? "    %shape0 = reshape %sum0 : "
+-                    : "    %result0 = reshape %sum0 : ";
++    source += widen ? "    %shape0 = reshape " : "    %result0 = reshape ";
++    source += reduce_result;
++    source += " : ";
+     source += widen ? TensorTypeText(compute_reduction_result)
+                     : TensorTypeText(reduction_result);
+     source += " -> ";
+@@ -558,8 +560,13 @@ std::string EmitRowReductionSource(const RowReductionGraph& graph) {
+     source += "\n";
+   }
+   if (widen) {
+-    source += flatten ? "    %result0 = convert %shape0 : "
+-                      : "    %result0 = convert %sum0 : ";
++    if (flatten) {
++      source += "    %result0 = convert %shape0 : ";
++    } else {
++      source += "    %result0 = convert ";
++      source += reduce_result;
++      source += " : ";
++    }
+     source += TensorTypeText(compute_result);
+     source += " -> ";
+     source += result_type;
+diff --git a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+index cef6bc4f4c25cef9c7b3c81fcf1561b80bb63796..9f0558deabb54dcd3b5a2efa3d5f1a0f1eaa2520 100644
+--- a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
++++ b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+@@ -842,9 +842,9 @@ int TestRowReductionV3ProjectionAndFinalization() {
+           PreparedStructuredTensorIrModuleKind::RowReductionV3);
+   REQUIRE(prepared.GetFrontendMetadataSchemaVersion() == 3);
+   REQUIRE(prepared.GetEntryName() == "pypto_row_reduction_v3");
+-  REQUIRE(prepared.GetCanonicalSource().size() == 327);
++  REQUIRE(prepared.GetCanonicalSource().size() == 467);
+   REQUIRE(prepared.GetSourceIrDigest() ==
+-          "bdd4f4d7ca2a20e962b19d572667ac0783e2e4b556da43752ffd87b963dd04c4");
++          "b943b5aaed18bf107ff66341b02417a94c5f2abf93f8e35afe9396f68bcb2e5c");
+   REQUIRE(prepared.GetInputCount() == 1);
+   REQUIRE(prepared.GetResultCount() == 1);
+   REQUIRE(prepared.GetValueMetadata().size() == 2);
+@@ -958,9 +958,9 @@ int TestRowReductionV3ProjectionAndFinalization() {
+       ValidSchedule({1}));
+   const KernelBuildSpec rank_one_spec = FinalizeStructuredTensorIrBuildSpec(
+       rank_one, MakeKernelAbi(RowReductionKernelOptions({7}, {1}, 1)));
+-  REQUIRE(rank_one.GetCanonicalSource().size() == 251);
++  REQUIRE(rank_one.GetCanonicalSource().size() == 387);
+   REQUIRE(rank_one.GetSourceIrDigest() ==
+-          "ecc1bb444f0118aa8aa2e7b6c3e75c42ee86eb97328b169f29dba540f2f39223");
++          "5010b426978fe9dfb4067f291077d698c30ba9fbc4666f81656809e2397e276e");
+   REQUIRE(MatchesProjectionDigestGolden(rank_one, kRankOneFp32ProjectionDigests));
+   REQUIRE(rank_one.GetStaticSpecialization().GetCanonicalBytes() ==
+           BytesFromHex(kRowReductionRankOneStaticGoldenHex));

@@ -1,0 +1,67 @@
+From a389e8bb3c4f0fd1934ef47d211ce5cebcd1d00f Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 02:31:57 +0800
+Subject: [PATCH 136/212] Advance TensorIR ordered lazy loads
+
+---
+ ...pend-lazy-loads-with-their-consumers.patch | 29 +++++++++++++++++++
+ 3rdparty/nvidia/tensor-ir                     |  2 +-
+ cmake/nvidia_backend.cmake                    |  2 +-
+ 3 files changed, 31 insertions(+), 2 deletions(-)
+ create mode 100644 3rdparty/nvidia/0029-Append-lazy-loads-with-their-consumers.patch
+
+diff --git a/3rdparty/nvidia/0029-Append-lazy-loads-with-their-consumers.patch b/3rdparty/nvidia/0029-Append-lazy-loads-with-their-consumers.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..c15282453c669dce775e53fd4184f6c9cb3d6fa5
+--- /dev/null
++++ b/3rdparty/nvidia/0029-Append-lazy-loads-with-their-consumers.patch
+@@ -0,0 +1,29 @@
++From a259794aa4b40146073e3a064c723110e56ffeae Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Fri, 28 Aug 2026 02:31:39 +0800
++Subject: [PATCH 29/29] Append lazy loads with their consumers
++
++---
++ lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp | 6 +-----
++ 1 file changed, 1 insertion(+), 5 deletions(-)
++
++diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++index adc1a77..4c31f20 100644
++--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++@@ -1057,11 +1057,7 @@ Value ConversionStateImpl::getTile(Value operand) {
++     // them out of dialect-conversion's cross-block transaction bookkeeping.
++     OpBuilder builder(activeRewriter->getContext());
++     Block *block = iterationSpace->insertionBlock;
++-    if (Operation *terminator = block->getTerminator()) {
++-      builder.setInsertionPoint(terminator);
++-    } else {
++-      builder.setInsertionPointToEnd(block);
++-    }
+++    builder.setInsertionPointToEnd(block);
++     const size_t tensorId = tensorSource.getTensorId();
++     assert(tensorId < inputDescriptors.size() &&
++            "tensor source ID is out of bounds");
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 4b69fac19aa415b1dc91e2252bedab30e4dfa187..a259794aa4b40146073e3a064c723110e56ffeae 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 4b69fac19aa415b1dc91e2252bedab30e4dfa187
++Subproject commit a259794aa4b40146073e3a064c723110e56ffeae
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index c8b4f2fc02513c680d1808795fdd09788a54654d..574543883dedefbd296d8e432e494932686ee732 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "4b69fac19aa415b1dc91e2252bedab30e4dfa187")
++    "a259794aa4b40146073e3a064c723110e56ffeae")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

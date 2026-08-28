@@ -1,0 +1,441 @@
+From e364baefc4a76c8b87b9c870a7b490a8aab40dd9 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 22:52:47 +0800
+Subject: [PATCH 102/212] Lower native gated RMSNorm
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp     | 318 +++++++++++++++++++
+ tests/ut/compiler/test_structured_compile.py |  56 ++++
+ 2 files changed, 374 insertions(+)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 9b33a171e6c0965be3c7e97f99f2708368257791..0aa8f51091dcdd58f8a2cd5a6fa82c094256caee 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -123,6 +123,15 @@ struct NativeTileFusedAddRmsNormGraph {
+   double epsilon;
+ };
+ 
++struct NativeTileGatedRmsNormGraph {
++  StaticTensor input;
++  StaticTensor gate;
++  StaticTensor weight;
++  StaticTensor result;
++  double mean_scale;
++  double epsilon;
++};
++
+ std::string BoundedDisplay(std::string_view value) {
+   std::string output;
+   const size_t count = std::min(value.size(), kMaximumDiagnosticNameBytes);
+@@ -953,6 +962,110 @@ std::string EmitNativeTileFusedAddRmsNormSource(
+   return source;
+ }
+ 
++std::string EmitNativeTileGatedRmsNormSource(
++    const NativeTileGatedRmsNormGraph& graph) {
++  StaticTensor compute = graph.input;
++  compute.dtype = DataType::FP32;
++  StaticTensor row = compute;
++  row.shape[1] = 1;
++  row.dense_strides = {1, 1};
++  StaticTensor weight_compute = graph.weight;
++  weight_compute.dtype = DataType::FP32;
++
++  const std::string input_type = TensorTypeText(graph.input);
++  const std::string compute_type = TensorTypeText(compute);
++  const std::string row_type = TensorTypeText(row);
++  const std::string weight_type = TensorTypeText(graph.weight);
++  const std::string weight_compute_type = TensorTypeText(weight_compute);
++  std::string source;
++  source.reserve(4096);
++  source += "module {\n  nv_tensor_ir.graph @";
++  source += kFusedPointwiseEntryName;
++  source += "(\n    %arg0: ";
++  source += TensorWithStrideText(graph.input);
++  source += ",\n    %arg1: ";
++  source += TensorWithStrideText(graph.gate);
++  source += ",\n    %arg2: ";
++  source += TensorWithStrideText(graph.weight);
++  source += "\n  ) -> (";
++  source += TensorWithStrideText(graph.result);
++  source += ") {\n    %wide = convert %arg0 : ";
++  source += input_type;
++  source += " -> ";
++  source += compute_type;
++  source += "\n    %square = mul %wide, %wide : ";
++  source += compute_type;
++  source += "\n    %sum = reduce(%square) <dimensions = [1], reduction_mode = <add>> : ";
++  source += compute_type;
++  source += " -> ";
++  source += row_type;
++  source += "\n    %mean_constant = constant ";
++  AppendFloat(source, graph.mean_scale);
++  source += " : f32\n    %mean_splat = splat %mean_constant : ";
++  source += row_type;
++  source += "\n    %mean = mul %sum, %mean_splat : ";
++  source += row_type;
++  source += "\n    %epsilon_constant = constant ";
++  AppendFloat(source, graph.epsilon);
++  source += " : f32\n    %epsilon_splat = splat %epsilon_constant : ";
++  source += row_type;
++  source += "\n    %shifted = add %mean, %epsilon_splat : ";
++  source += row_type;
++  source += "\n    %inverse = rsqrt %shifted : ";
++  source += row_type;
++  source += "\n    %inverse_broadcast = broadcast %inverse : ";
++  source += row_type;
++  source += " -> ";
++  source += compute_type;
++  source += "\n    %normalized = mul %wide, %inverse_broadcast : ";
++  source += compute_type;
++  source += "\n    %weight_wide = convert %arg2 : ";
++  source += weight_type;
++  source += " -> ";
++  source += weight_compute_type;
++  std::string weight_value = "%weight_wide";
++  if (graph.input.shape[0] != 1) {
++    source += "\n    %weight_broadcast = broadcast %weight_wide : ";
++    source += weight_compute_type;
++    source += " -> ";
++    source += compute_type;
++    weight_value = "%weight_broadcast";
++  }
++  source += "\n    %weighted = mul %normalized, ";
++  source += weight_value;
++  source += " : ";
++  source += compute_type;
++  source += "\n    %gate_wide = convert %arg1 : ";
++  source += input_type;
++  source += " -> ";
++  source += compute_type;
++  source += "\n    %gate_neg = neg %gate_wide : ";
++  source += compute_type;
++  source += "\n    %gate_exp = exp %gate_neg : ";
++  source += compute_type;
++  source += "\n    %one = constant 1.0 : f32\n    %one_splat = splat %one : ";
++  source += compute_type;
++  source += "\n    %gate_denominator = add %gate_exp, %one_splat : ";
++  source += compute_type;
++  source += "\n    %gate_sigmoid = reciprocal %gate_denominator : ";
++  source += compute_type;
++  source += "\n    %gate_silu = mul %gate_wide, %gate_sigmoid : ";
++  source += compute_type;
++  source += "\n    %gated = mul %weighted, %gate_silu : ";
++  source += compute_type;
++  source += "\n    %result0 = convert %gated : ";
++  source += compute_type;
++  source += " -> ";
++  source += input_type;
++  source += "\n    results %result0 : ";
++  source += input_type;
++  source += "\n  }\n}\n";
++  if (source.size() > kMaximumCanonicalSourceBytes) {
++    Reject("canonical TensorIR source exceeds 16 MiB");
++  }
++  return source;
++}
++
+ std::string EmitRowReductionSource(const RowReductionGraph& graph) {
+   const std::string input_type = TensorTypeText(graph.input);
+   const std::string input_with_stride = TensorWithStrideText(graph.input);
+@@ -2227,6 +2340,190 @@ NativeTileFusedAddRmsNormGraph AnalyzeNativeTileFusedAddRmsNorm(
+       input, weight, normalized_result, mean_scale->value_, epsilon->value_};
+ }
+ 
++bool IsNativeTileGatedRmsNormCandidate(const ir::ProgramPtr& program) {
++  if (!IsNativeTileRmsNormCandidate(program)) return false;
++  const ir::FunctionPtr& function = program->functions_.begin()->second;
++  return function->params_.size() == 4;
++}
++
++NativeTileGatedRmsNormGraph AnalyzeNativeTileGatedRmsNorm(
++    const ir::ProgramPtr& program) {
++  const auto& [global, function] = *program->functions_.begin();
++  if (!global || !function || global->name_ != function->name_ ||
++      function->requires_runtime_binding_ ||
++      function->func_type_ != ir::FunctionType::Orchestration ||
++      !function->level_.has_value() || *function->level_ != ir::Level::CHIP ||
++      !function->role_.has_value() || *function->role_ != ir::Role::Orchestrator ||
++      !function->attrs_.empty()) {
++    Reject("native gated RMSNorm must be one canonical CHIP @pl.jit function",
++           function ? &function->span_ : &program->span_);
++  }
++  if (function->params_.size() != 4 ||
++      function->param_directions_.size() != 4 ||
++      function->param_directions_[0] != ir::ParamDirection::In ||
++      function->param_directions_[1] != ir::ParamDirection::In ||
++      function->param_directions_[2] != ir::ParamDirection::In ||
++      function->param_directions_[3] != ir::ParamDirection::Out ||
++      function->return_types_.size() != 1) {
++    Reject("native gated RMSNorm requires x, gate, weight and output",
++           &function->span_);
++  }
++  const StaticTensor input = ReadStaticTensor(
++      function->params_[0]->GetType(), function->params_[0]->span_,
++      "native gated RMSNorm input");
++  const StaticTensor gate = ReadStaticTensor(
++      function->params_[1]->GetType(), function->params_[1]->span_,
++      "native gated RMSNorm gate");
++  const StaticTensor weight = ReadStaticTensor(
++      function->params_[2]->GetType(), function->params_[2]->span_,
++      "native gated RMSNorm weight");
++  const StaticTensor result = ReadStaticTensor(
++      function->params_[3]->GetType(), function->params_[3]->span_,
++      "native gated RMSNorm output");
++  const StaticTensor declared = ReadStaticTensor(
++      function->return_types_[0], function->span_,
++      "native gated RMSNorm return");
++  if (input.dtype != DataType::BF16 || input.shape.size() != 2 ||
++      !SameTensor(input, gate) || !SameTensor(input, result) ||
++      !SameTensor(result, declared) || weight.dtype != DataType::BF16 ||
++      weight.shape != std::vector<int64_t>({1, input.shape[1]})) {
++    Reject("native gated RMSNorm tensors have incompatible types or shapes",
++           &function->span_);
++  }
++
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = top && !top->stmts_.empty()
++                         ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
++                         : nullptr;
++  const auto returned = top && top->stmts_.size() == 2
++                            ? ir::As<ir::ReturnStmt>(top->stmts_[1])
++                            : nullptr;
++  const auto returned_var =
++      returned && returned->value_.size() == 1
++          ? ir::As<ir::Var>(returned->value_[0])
++          : nullptr;
++  if (!top || top->stmts_.size() != 2 || !scope ||
++      scope->split_ != ir::SplitMode::None || !scope->attrs_.empty() ||
++      !returned_var || returned_var.get() != function->params_[3].get()) {
++    Reject("native gated RMSNorm scope or return is invalid",
++           &function->span_);
++  }
++  const TileLoopNest loop_nest = UnwrapStaticTileLoops(scope->body_);
++  if (loop_nest.repetitions != static_cast<uint64_t>(input.shape[0]) ||
++      !loop_nest.leaf || loop_nest.leaf->stmts_.size() != 22) {
++    Reject("native gated RMSNorm must cover each row with one tile body",
++           &scope->span_);
++  }
++  constexpr std::array<std::string_view, 21> kOps = {
++      "tile.load", "tile.load", "tile.load", "tile.cast", "tile.mul",
++      "tile.create", "tile.row_sum", "tile.muls", "tile.adds", "tile.rsqrt",
++      "tile.row_expand_mul", "tile.cast", "tile.mul", "tile.cast",
++      "tile.muls", "tile.exp", "tile.adds", "tile.recip", "tile.mul",
++      "tile.mul", "tile.cast"};
++  std::array<ir::AssignStmtPtr, 21> assignments;
++  std::array<ir::CallPtr, 21> calls;
++  for (size_t index = 0; index < assignments.size(); ++index) {
++    assignments[index] =
++        ir::As<ir::AssignStmt>(loop_nest.leaf->stmts_[index]);
++    calls[index] = assignments[index]
++                       ? ir::As<ir::Call>(assignments[index]->value_)
++                       : nullptr;
++    if (!assignments[index] || !assignments[index]->var_ || !calls[index] ||
++        !calls[index]->op_ ||
++        !ir::IsOp(calls[index], std::string(kOps[index]))) {
++      Reject("native gated RMSNorm tile sequence is invalid",
++             &loop_nest.leaf->stmts_[index]->span_);
++    }
++  }
++  auto require_var = [&](const ir::CallPtr& call, size_t index,
++                         const ir::VarPtr& expected,
++                         std::string_view diagnostic) {
++    const auto value = index < call->args_.size()
++                           ? ir::As<ir::Var>(call->args_[index])
++                           : nullptr;
++    if (!value || value.get() != expected.get()) {
++      Reject(std::string(diagnostic), &call->span_);
++    }
++  };
++  for (size_t index = 0; index < 3; ++index) {
++    require_var(calls[index], 0, function->params_[index],
++                "gated RMSNorm input load is invalid");
++  }
++  require_var(calls[3], 0, assignments[0]->var_,
++              "gated RMSNorm input cast is invalid");
++  require_var(calls[4], 0, assignments[3]->var_,
++              "gated RMSNorm square lhs is invalid");
++  require_var(calls[4], 1, assignments[3]->var_,
++              "gated RMSNorm square rhs is invalid");
++  require_var(calls[6], 0, assignments[4]->var_,
++              "gated RMSNorm row sum input is invalid");
++  require_var(calls[6], 1, assignments[5]->var_,
++              "gated RMSNorm row sum scratch is invalid");
++  for (size_t index = 7; index <= 9; ++index) {
++    require_var(calls[index], 0, assignments[index - 1]->var_,
++                "gated RMSNorm reduction epilogue is not linear");
++  }
++  require_var(calls[10], 0, assignments[3]->var_,
++              "gated RMSNorm normalized input is invalid");
++  require_var(calls[10], 1, assignments[9]->var_,
++              "gated RMSNorm inverse RMS is invalid");
++  require_var(calls[11], 0, assignments[2]->var_,
++              "gated RMSNorm weight cast is invalid");
++  require_var(calls[12], 0, assignments[10]->var_,
++              "gated RMSNorm normalized value is invalid");
++  require_var(calls[12], 1, assignments[11]->var_,
++              "gated RMSNorm weight value is invalid");
++  require_var(calls[13], 0, assignments[1]->var_,
++              "gated RMSNorm gate cast is invalid");
++  for (size_t index = 14; index <= 17; ++index) {
++    require_var(calls[index], 0, assignments[index - 1]->var_,
++                "gated RMSNorm sigmoid chain is invalid");
++  }
++  require_var(calls[18], 0, assignments[13]->var_,
++              "gated RMSNorm SiLU gate input is invalid");
++  require_var(calls[18], 1, assignments[17]->var_,
++              "gated RMSNorm sigmoid input is invalid");
++  require_var(calls[19], 0, assignments[12]->var_,
++              "gated RMSNorm weighted value is invalid");
++  require_var(calls[19], 1, assignments[18]->var_,
++              "gated RMSNorm SiLU value is invalid");
++  require_var(calls[20], 0, assignments[19]->var_,
++              "gated RMSNorm result cast is invalid");
++  const auto store = ir::As<ir::EvalStmt>(loop_nest.leaf->stmts_.back());
++  const auto storeCall = store ? ir::As<ir::Call>(store->expr_) : nullptr;
++  if (!storeCall || !ir::IsOp(storeCall, "tile.store")) {
++    Reject("native gated RMSNorm must end in tile.store", &scope->span_);
++  }
++  require_var(storeCall, 0, assignments[20]->var_,
++              "gated RMSNorm stored value is invalid");
++  require_var(storeCall, 2, function->params_[3],
++              "gated RMSNorm store target is invalid");
++
++  const auto meanScale = calls[7]->args_.size() == 2
++                             ? ir::As<ir::ConstFloat>(calls[7]->args_[1])
++                             : nullptr;
++  const auto epsilon = calls[8]->args_.size() == 2
++                           ? ir::As<ir::ConstFloat>(calls[8]->args_[1])
++                           : nullptr;
++  const auto negativeOne = calls[14]->args_.size() == 2
++                               ? ir::As<ir::ConstFloat>(calls[14]->args_[1])
++                               : nullptr;
++  const auto positiveOne = calls[16]->args_.size() == 2
++                               ? ir::As<ir::ConstFloat>(calls[16]->args_[1])
++                               : nullptr;
++  const double expectedMean = 1.0 / static_cast<double>(input.shape[1]);
++  if (!meanScale || !epsilon || !negativeOne || !positiveOne ||
++      !std::isfinite(meanScale->value_) || !std::isfinite(epsilon->value_) ||
++      epsilon->value_ <= 0.0 || negativeOne->value_ != -1.0 ||
++      positiveOne->value_ != 1.0 ||
++      std::fabs(meanScale->value_ - expectedMean) >
++          std::numeric_limits<double>::epsilon()) {
++    Reject("native gated RMSNorm scalar constants are invalid", &scope->span_);
++  }
++  return NativeTileGatedRmsNormGraph{
++      input, gate, weight, result, meanScale->value_, epsilon->value_};
++}
++
+ struct NativeTileRopeGraph {
+   StaticTensor input;
+   StaticTensor frequency;
+@@ -4507,6 +4804,27 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+                           EmitNativeTileRopeSource(graph), std::move(metadata),
+                           /*input_count=*/3);
+   }
++  if (IsNativeTileGatedRmsNormCandidate(program)) {
++    const NativeTileGatedRmsNormGraph graph =
++        AnalyzeNativeTileGatedRmsNorm(program);
++    std::vector<TensorIrValueMetadata> metadata;
++    metadata.reserve(4);
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Input, 0, graph.input.dtype, graph.input.shape,
++        graph.input.dense_strides, /*has_explicit_strides=*/true));
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Input, 1, graph.gate.dtype, graph.gate.shape,
++        graph.gate.dense_strides, /*has_explicit_strides=*/true));
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Input, 2, graph.weight.dtype, graph.weight.shape,
++        graph.weight.dense_strides, /*has_explicit_strides=*/true));
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
++        graph.result.dense_strides, /*has_explicit_strides=*/true));
++    return TensorIrModule(TensorIrModuleKind::FusedPointwiseV2,
++                          EmitNativeTileGatedRmsNormSource(graph),
++                          std::move(metadata), /*input_count=*/3);
++  }
+   if (IsNativeTileFusedAddRmsNormCandidate(program)) {
+     const NativeTileFusedAddRmsNormGraph graph =
+         AnalyzeNativeTileFusedAddRmsNorm(program);
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index 08e18dfba744a93c0f7504ea11d37331325a8e47..125bd38cc534963f0fd294cd07de35712c28a5c0 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -123,6 +123,42 @@ def _native_tile_fused_add_rmsnorm(
+     return normalized_out, residual_out
+ 
+ 
++@pl.jit
++def _native_tile_gated_rmsnorm(
++    x: pl.Tensor[[2, 128], pl.BF16],
++    gate: pl.Tensor[[2, 128], pl.BF16],
++    weight: pl.Tensor[[1, 128], pl.BF16],
++    out: pl.Out[pl.Tensor[[2, 128], pl.BF16]],
++):
++    with pl.at(level=pl.Level.CORE_GROUP):
++        for row in pl.range(2):
++            x_part = pl.load(x, [row, 0], [1, 128])
++            gate_part = pl.load(gate, [row, 0], [1, 128])
++            weight_part = pl.load(weight, [0, 0], [1, 128])
++            x_wide = pl.cast(x_part, target_type=pl.FP32)
++            square = pl.mul(x_wide, x_wide)
++            scratch = pl.create_tile(
++                [1, 128], dtype=pl.FP32, target_memory=pl.MemorySpace.Vec
++            )
++            square_sum = pl.row_sum(square, scratch)
++            mean_square = pl.mul(square_sum, 1.0 / 128)
++            shifted = pl.add(mean_square, 1.0e-6)
++            inv_rms = pl.rsqrt(shifted)
++            normalized = pl.row_expand_mul(x_wide, inv_rms)
++            weight_wide = pl.cast(weight_part, target_type=pl.FP32)
++            weighted = pl.mul(normalized, weight_wide)
++            gate_wide = pl.cast(gate_part, target_type=pl.FP32)
++            gate_neg = pl.mul(gate_wide, -1.0)
++            gate_exp = pl.exp(gate_neg)
++            denominator = pl.add(gate_exp, 1.0)
++            sigmoid = pl.recip(denominator)
++            silu_gate = pl.mul(gate_wide, sigmoid)
++            gated = pl.mul(weighted, silu_gate)
++            result = pl.cast(gated, target_type=pl.BF16)
++            pl.store(result, [row, 0], out)
++    return out
++
++
+ @pl.jit
+ def _native_tile_rope(
+     x: pl.Tensor[[2, 128], pl.BF16],
+@@ -498,6 +534,25 @@ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+     ]
+     assert not fused_rmsnorm.artifact.fallback_used
+ 
++    gated_rmsnorm = compile_structured_strict(
++        _native_tile_gated_rmsnorm.specialize(),
++        request,
++        _schedule([1, 128]),
++    )
++    gated_rms_kernel = gated_rmsnorm.artifact.kernel_abi
++    assert gated_rms_kernel.entry_function_name == "pypto_fused_pointwise_v2"
++    assert gated_rms_kernel.grid_abi.static_dimensions == [2, 1, 1]
++    assert gated_rms_kernel.grid_abi.tile_sizes == [1, 128]
++    assert gated_rms_kernel.argument_layout.input_operand_count == 3
++    assert gated_rms_kernel.argument_layout.total_kernel_argument_count == 4
++    assert [d.shape for d in gated_rms_kernel.argument_layout.operand_descriptors] == [
++        [2, 128],
++        [2, 128],
++        [1, 128],
++        [2, 128],
++    ]
++    assert not gated_rmsnorm.artifact.fallback_used
++
+     rope = compile_structured_strict(
+         _native_tile_rope.specialize(), request, _schedule([1, 1, 64])
+     )
+@@ -562,6 +617,7 @@ def test_compile_structured_strict_functional() -> None:
+             _native_tiled_add.specialize(),
+             _native_tile_rmsnorm.specialize(),
+             _native_tile_fused_add_rmsnorm.specialize(),
++            _native_tile_gated_rmsnorm.specialize(),
+             _native_tile_rope.specialize(),
+             _native_tile_attention.specialize(scale=0.08838834764831843),
+             _native_tile_linear.specialize(),

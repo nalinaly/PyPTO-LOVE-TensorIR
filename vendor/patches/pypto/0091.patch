@@ -1,0 +1,300 @@
+From 835c1e6a9a03c89fe89dd54d8b809d10f275329d Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 21:39:09 +0800
+Subject: [PATCH 091/212] nvidia: lower native tile GDN read graphs
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 266 +++++++++++++++++++++++
+ 1 file changed, 266 insertions(+)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index c46d4ea44d58c855cd0423e914010860adfd0609..0aa4d0151a48dc999c59bcf123e1eb160f37bed5 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -1629,6 +1629,134 @@ struct NativeTileAttentionGraph {
+   double scale;
+ };
+ 
++struct NativeTileGdnReadGraph {
++  StaticTensor query;
++  StaticTensor value;
++  StaticTensor state;
++  StaticTensor result;
++};
++
++bool IsNativeTileGdnReadCandidate(const ir::ProgramPtr& program) {
++  if (!IsNativeTilePointwiseCandidate(program)) return false;
++  const ir::FunctionPtr& function = program->functions_.begin()->second;
++  if (function->params_.size() != 7) return false;
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = ir::As<ir::InCoreScopeStmt>(top->stmts_[0]);
++  const TileLoopNest loop_nest = UnwrapStaticTileLoops(scope->body_);
++  const ir::SeqStmtsPtr& leaf = loop_nest.leaf;
++  if (!leaf || leaf->stmts_.size() != 24) return false;
++  const auto matmul_assignment = ir::As<ir::AssignStmt>(leaf->stmts_[8]);
++  const auto matmul_call =
++      matmul_assignment ? ir::As<ir::Call>(matmul_assignment->value_) : nullptr;
++  return matmul_call && ir::IsOp(matmul_call, "tile.matmul");
++}
++
++NativeTileGdnReadGraph AnalyzeNativeTileGdnRead(
++    const ir::ProgramPtr& program) {
++  const auto& [global, function] = *program->functions_.begin();
++  if (!global || !function || global->name_ != function->name_ ||
++      function->requires_runtime_binding_ ||
++      function->func_type_ != ir::FunctionType::Orchestration ||
++      !function->level_.has_value() || *function->level_ != ir::Level::CHIP ||
++      !function->role_.has_value() || *function->role_ != ir::Role::Orchestrator ||
++      !function->attrs_.empty()) {
++    Reject("native GDN read must be one canonical CHIP @pl.jit function",
++           function ? &function->span_ : &program->span_);
++  }
++  if (function->params_.size() != 7 ||
++      function->param_directions_.size() != 7 ||
++      function->return_types_.size() != 1) {
++    Reject("native GDN read requires six inputs and one output",
++           &function->span_);
++  }
++  for (size_t index = 0; index < 6; ++index) {
++    if (function->param_directions_[index] != ir::ParamDirection::In) {
++      Reject("native GDN read inputs must have direction In",
++             &function->span_);
++    }
++  }
++  if (function->param_directions_[6] != ir::ParamDirection::Out) {
++    Reject("native GDN read output must have direction Out", &function->span_);
++  }
++  const StaticTensor query = ReadStaticTensor(
++      function->params_[0]->GetType(), function->params_[0]->span_,
++      "native GDN query");
++  for (size_t index = 1; index <= 3; ++index) {
++    const StaticTensor tensor = ReadStaticTensor(
++        function->params_[index]->GetType(), function->params_[index]->span_,
++        "native GDN key-like input");
++    if (!SameTensor(query, tensor)) {
++      Reject("native GDN query/decay/gate/key shapes must match",
++             &function->params_[index]->span_);
++    }
++  }
++  const StaticTensor value = ReadStaticTensor(
++      function->params_[4]->GetType(), function->params_[4]->span_,
++      "native GDN value");
++  const StaticTensor state = ReadStaticTensor(
++      function->params_[5]->GetType(), function->params_[5]->span_,
++      "native GDN state");
++  const StaticTensor result = ReadStaticTensor(
++      function->params_[6]->GetType(), function->params_[6]->span_,
++      "native GDN result");
++  const StaticTensor declared = ReadStaticTensor(
++      function->return_types_[0], function->span_, "native GDN return");
++  if (query.dtype != DataType::BF16 || value.dtype != DataType::BF16 ||
++      state.dtype != DataType::BF16 || result.dtype != DataType::BF16 ||
++      query.shape.size() != 2 || value.shape.size() != 2 ||
++      state.shape.size() != 3 || result.shape.size() != 2 ||
++      query.shape[0] != value.shape[0] || query.shape[0] != state.shape[0] ||
++      query.shape[0] != result.shape[0] || query.shape[1] != state.shape[1] ||
++      value.shape[1] != state.shape[2] || value.shape[1] != result.shape[1] ||
++      !SameTensor(value, result) || !SameTensor(result, declared) ||
++      query.shape[1] % 128 != 0 || value.shape[1] % 16 != 0) {
++    Reject("native GDN query/value/state/result shapes are incompatible",
++           &function->span_);
++  }
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = top && top->stmts_.size() == 2
++                         ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
++                         : nullptr;
++  const auto returned = top && top->stmts_.size() == 2
++                            ? ir::As<ir::ReturnStmt>(top->stmts_[1])
++                            : nullptr;
++  const auto returned_var =
++      returned && returned->value_.size() == 1
++          ? ir::As<ir::Var>(returned->value_[0])
++          : nullptr;
++  if (!scope || scope->split_ != ir::SplitMode::None || !scope->attrs_.empty() ||
++      !returned_var || returned_var.get() != function->params_[6].get()) {
++    Reject("native GDN read scope or return is invalid", &function->span_);
++  }
++  const TileLoopNest loop_nest = UnwrapStaticTileLoops(scope->body_);
++  const ir::SeqStmtsPtr& leaf = loop_nest.leaf;
++  if (loop_nest.repetitions != static_cast<uint64_t>(query.shape[0]) ||
++      !leaf || leaf->stmts_.size() != 24) {
++    Reject("native GDN head loop is invalid", &scope->span_);
++  }
++  constexpr std::array<std::string_view, 23> kExpectedOps = {
++      "tile.load", "tile.load", "tile.load", "tile.load", "tile.load",
++      "tile.load", "tile.reshape", "tile.mul", "tile.matmul", "tile.cast",
++      "tile.cast", "tile.cast", "tile.cast", "tile.exp", "tile.adds",
++      "tile.log", "tile.mul", "tile.mul", "tile.create", "tile.row_sum",
++      "tile.row_expand_mul", "tile.add", "tile.cast"};
++  for (size_t index = 0; index < kExpectedOps.size(); ++index) {
++    const auto assignment = ir::As<ir::AssignStmt>(leaf->stmts_[index]);
++    const auto call = assignment ? ir::As<ir::Call>(assignment->value_) : nullptr;
++    if (!call || !ir::IsOp(call, std::string(kExpectedOps[index]))) {
++      Reject("native GDN tile operation sequence is invalid",
++             &leaf->stmts_[index]->span_);
++    }
++  }
++  const auto store_statement = ir::As<ir::EvalStmt>(leaf->stmts_.back());
++  const auto store =
++      store_statement ? ir::As<ir::Call>(store_statement->expr_) : nullptr;
++  if (!store || !ir::IsOp(store, "tile.store")) {
++    Reject("native GDN read must end in tile.store", &leaf->stmts_.back()->span_);
++  }
++  return NativeTileGdnReadGraph{query, value, state, result};
++}
++
+ bool IsNativeTileAttentionCandidate(const ir::ProgramPtr& program) {
+   if (!IsNativeTilePointwiseCandidate(program)) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+@@ -2839,6 +2967,121 @@ std::string EmitNativeTileAttentionSource(
+   return source;
+ }
+ 
++std::string EmitNativeTileGdnReadSource(
++    const NativeTileGdnReadGraph& graph) {
++  StaticTensor query_batched = graph.query;
++  query_batched.shape = {graph.query.shape[0], 1, graph.query.shape[1]};
++  query_batched.dense_strides =
++      MakeDenseStridesForMetadata(query_batched.shape);
++  StaticTensor read_batched = graph.result;
++  read_batched.shape = {graph.result.shape[0], 1, graph.result.shape[1]};
++  read_batched.dtype = DataType::FP32;
++  read_batched.dense_strides = MakeDenseStridesForMetadata(read_batched.shape);
++  StaticTensor wide_query = graph.query;
++  wide_query.dtype = DataType::FP32;
++  StaticTensor wide_value = graph.value;
++  wide_value.dtype = DataType::FP32;
++  StaticTensor dot = wide_query;
++  dot.shape[1] = 1;
++  dot.dense_strides = {1, 1};
++
++  const std::string query_type = TensorTypeText(graph.query);
++  const std::string query_batched_type = TensorTypeText(query_batched);
++  const std::string value_type = TensorTypeText(graph.value);
++  const std::string state_type = TensorTypeText(graph.state);
++  const std::string read_batched_type = TensorTypeText(read_batched);
++  const std::string result_type = TensorTypeText(graph.result);
++  const std::string wide_query_type = TensorTypeText(wide_query);
++  const std::string wide_value_type = TensorTypeText(wide_value);
++  const std::string dot_type = TensorTypeText(dot);
++
++  std::string source;
++  source.reserve(4096);
++  source += "module {\n  nv_tensor_ir.graph @";
++  source += kFusedPointwiseEntryName;
++  source += "(\n    %arg0: ";
++  source += TensorWithStrideText(graph.query);
++  source += ",\n    %arg1: ";
++  source += TensorWithStrideText(graph.query);
++  source += ",\n    %arg2: ";
++  source += TensorWithStrideText(graph.query);
++  source += ",\n    %arg3: ";
++  source += TensorWithStrideText(graph.query);
++  source += ",\n    %arg4: ";
++  source += TensorWithStrideText(graph.value);
++  source += ",\n    %arg5: ";
++  source += TensorWithStrideText(graph.state);
++  source += "\n  ) -> (";
++  source += TensorWithStrideText(graph.result);
++  source += ") {\n    %qdecay = mul %arg0, %arg1 : ";
++  source += query_type;
++  source += "\n    %qbatch = reshape %qdecay : ";
++  source += query_type;
++  source += " -> ";
++  source += query_batched_type;
++  source += "\n    %read_batch = matmul(%qbatch, %arg5)\n      : (";
++  source += query_batched_type;
++  source += ", ";
++  source += state_type;
++  source += ") -> ";
++  source += read_batched_type;
++  source += "\n    %read = reshape %read_batch : ";
++  source += read_batched_type;
++  source += " -> ";
++  source += wide_value_type;
++  source += "\n    %qwide = convert %arg0 : ";
++  source += query_type;
++  source += " -> ";
++  source += wide_query_type;
++  source += "\n    %gwide = convert %arg2 : ";
++  source += query_type;
++  source += " -> ";
++  source += wide_query_type;
++  source += "\n    %kwide = convert %arg3 : ";
++  source += query_type;
++  source += " -> ";
++  source += wide_query_type;
++  source += "\n    %vwide = convert %arg4 : ";
++  source += value_type;
++  source += " -> ";
++  source += wide_value_type;
++  source += "\n    %gexp = exp %gwide : ";
++  source += wide_query_type;
++  source += "\n    %one = constant 1.0 : f32\n    %ones = splat %one : ";
++  source += wide_query_type;
++  source += "\n    %gshift = add %gexp, %ones : ";
++  source += wide_query_type;
++  source += "\n    %softplus = log %gshift : ";
++  source += wide_query_type;
++  source += "\n    %gated_key = mul %softplus, %kwide : ";
++  source += wide_query_type;
++  source += "\n    %composed = mul %qwide, %gated_key : ";
++  source += wide_query_type;
++  source += "\n    %dot = reduce(%composed) <dimensions = [1], reduction_mode = <add>> : ";
++  source += wide_query_type;
++  source += " -> ";
++  source += dot_type;
++  source += "\n    %dot_broadcast = broadcast %dot : ";
++  source += dot_type;
++  source += " -> ";
++  source += wide_value_type;
++  source += "\n    %delta = mul %vwide, %dot_broadcast : ";
++  source += wide_value_type;
++  source += "\n    %combined = add %read, %delta : ";
++  source += wide_value_type;
++  source += "\n    %result0 = convert %combined : ";
++  source += wide_value_type;
++  source += " -> ";
++  source += result_type;
++  source += "\n    results %result0 : ";
++  source += result_type;
++  source += "\n  }\n}\n";
++  if (source.size() > kMaximumCanonicalSourceBytes) {
++    Reject("canonical TensorIR source exceeds 16 MiB");
++  }
++  return source;
++}
++
+ bool IsLegacyStaticAddV1Candidate(const ir::ProgramPtr& program) {
+   if (!program || program->functions_.size() != 1) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+@@ -3207,6 +3450,29 @@ TensorIrModule EmitLegacyStaticAddV1(const ir::ProgramPtr& program) {
+ }  // namespace detail
+ 
+ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
++  if (IsNativeTileGdnReadCandidate(program)) {
++    const NativeTileGdnReadGraph graph = AnalyzeNativeTileGdnRead(program);
++    std::vector<TensorIrValueMetadata> metadata;
++    metadata.reserve(7);
++    for (uint32_t index = 0; index < 4; ++index) {
++      metadata.push_back(TensorIrValueMetadata(
++          TensorIrValueRole::Input, index, graph.query.dtype,
++          graph.query.shape, graph.query.dense_strides,
++          /*has_explicit_strides=*/true));
++    }
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Input, 4, graph.value.dtype, graph.value.shape,
++        graph.value.dense_strides, /*has_explicit_strides=*/true));
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Input, 5, graph.state.dtype, graph.state.shape,
++        graph.state.dense_strides, /*has_explicit_strides=*/true));
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
++        graph.result.dense_strides, /*has_explicit_strides=*/true));
++    return TensorIrModule(TensorIrModuleKind::FusedPointwiseV2,
++                          EmitNativeTileGdnReadSource(graph),
++                          std::move(metadata), /*input_count=*/6);
++  }
+   if (IsNativeTileAttentionCandidate(program)) {
+     const NativeTileAttentionGraph graph = AnalyzeNativeTileAttention(program);
+     std::vector<TensorIrValueMetadata> metadata;

@@ -1,0 +1,31 @@
+From d8c8498e027b5620a7f68f6390eb862a01b8a515 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 09:42:04 +0800
+Subject: [PATCH 165/212] Fix batched prefill type bindings
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index f3441e1e24b6c93fd454618f1b496279978c6925..5d4f5b3669fb6279a172af6c828b5e9ab16f1807 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -7415,8 +7415,6 @@ std::string EmitNativeTilePagedDecodeSource(
+   const std::string gathered_type = TensorTypeText(gathered);
+   const std::string gathered_transposed_type =
+       TensorTypeText(gathered_transposed);
+-  const std::string key_batch_type = TensorTypeText(key_batch);
+-  const std::string value_batch_type = TensorTypeText(value_batch);
+   const std::string query_box_type = TensorTypeText(query_box);
+   const std::string query_head_type = TensorTypeText(query_head);
+   const std::string score_type = TensorTypeText(score);
+@@ -7893,6 +7891,8 @@ std::string EmitNativeTilePagedPrefillSource(
+   const std::string gathered_type = TensorTypeText(gathered);
+   const std::string gathered_transposed_type =
+       TensorTypeText(gathered_transposed);
++  const std::string key_batch_type = TensorTypeText(key_batch);
++  const std::string value_batch_type = TensorTypeText(value_batch);
+   const std::string query_box_type = TensorTypeText(query_box);
+   const std::string query_head_type = TensorTypeText(query_head);
+   const std::string index_scalar_type = TensorTypeText(index_scalar);

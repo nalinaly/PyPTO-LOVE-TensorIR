@@ -1,0 +1,43 @@
+From 2842a1c5433cb3cfe9e4fbc7664ebe0ad8a4b129 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 08:29:37 +0800
+Subject: [PATCH 043/212] Fix executable test descriptor construction
+
+---
+ tests/ut/cpp/nvidia_executable_test.cpp | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/tests/ut/cpp/nvidia_executable_test.cpp b/tests/ut/cpp/nvidia_executable_test.cpp
+index 1776fb1335a5841bec1ebe34983d46e04798795f..d6dafbbb8546dd4bca7723929d5cef8dd258067f 100644
+--- a/tests/ut/cpp/nvidia_executable_test.cpp
++++ b/tests/ut/cpp/nvidia_executable_test.cpp
+@@ -16,6 +16,7 @@
+ #include <chrono>
+ #include <csignal>
+ #include <condition_variable>
++#include <cstddef>
+ #include <cstdint>
+ #include <cstring>
+ #include <cstdlib>
+@@ -100,6 +101,7 @@ void* AllocateHost(size_t size) {
+ 
+ void* AllocateAlignedHost(size_t size, size_t alignment) {
+   CountAllocation();
++  alignment = std::max(alignment, alignof(std::max_align_t));
+   void* pointer = nullptr;
+   if (::posix_memalign(&pointer, alignment, size == 0 ? 1 : size) != 0) {
+     throw std::bad_alloc();
+@@ -296,10 +298,10 @@ ArtifactArgumentDescriptor MakeTensorDescriptor(
+     std::vector<std::optional<int64_t>> strides,
+     uint32_t dynamic_size_count, uint32_t dynamic_stride_count,
+     bool has_explicit_strides) {
++  const uint32_t rank = static_cast<uint32_t>(shape.size());
+   return ArtifactArgumentDescriptor(
+-      ArtifactOperandKind::Tensor, static_cast<uint32_t>(shape.size()),
+-      std::move(shape), std::move(strides), dynamic_size_count,
+-      dynamic_stride_count, has_explicit_strides, 0);
++      ArtifactOperandKind::Tensor, rank, std::move(shape), std::move(strides),
++      dynamic_size_count, dynamic_stride_count, has_explicit_strides, 0);
+ }
+ 
+ ArtifactArgumentDescriptor MakeScalarDescriptor() {

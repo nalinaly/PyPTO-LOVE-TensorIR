@@ -1,0 +1,45 @@
+From bbe6c731379e3af6280aa07469371860dacb740b Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 04:51:47 +0800
+Subject: [PATCH 24/82] Tolerate transient tileiras scratch churn
+
+---
+ lib/Compiler/CudaTile/TileIRAssembly.cpp | 14 ++++++++++----
+ 1 file changed, 10 insertions(+), 4 deletions(-)
+
+diff --git a/lib/Compiler/CudaTile/TileIRAssembly.cpp b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+index a2db6ba9ced33a5b0ee3457185ae4752885fdc46..febf3de4ea09fe2e844884b4b60e35d8778c8a48 100644
+--- a/lib/Compiler/CudaTile/TileIRAssembly.cpp
++++ b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+@@ -83,21 +83,27 @@ bool scratchDirectoryWithinLimit(llvm::StringRef path) {
+       path, error, /*follow_symlinks=*/false);
+   llvm::sys::fs::recursive_directory_iterator end;
+   if (error) {
+-    return false;
++    return true;
+   }
+   uint64_t totalBytes = 0;
+   while (iterator != end) {
+     if (iterator->type() == llvm::sys::fs::file_type::regular_file) {
+       uint64_t fileBytes = 0;
+-      if (llvm::sys::fs::file_size(iterator->path(), fileBytes) ||
+-          fileBytes > kMaximumChildScratchBytes - totalBytes) {
++      if (llvm::sys::fs::file_size(iterator->path(), fileBytes)) {
++        iterator.increment(error);
++        if (error) {
++          return true;
++        }
++        continue;
++      }
++      if (fileBytes > kMaximumChildScratchBytes - totalBytes) {
+         return false;
+       }
+       totalBytes += fileBytes;
+     }
+     iterator.increment(error);
+     if (error) {
+-      return false;
++      return true;
+     }
+   }
+   return true;

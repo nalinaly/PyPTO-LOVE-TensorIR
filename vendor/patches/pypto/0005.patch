@@ -1,0 +1,28 @@
+From 5b702d4ee102dbb1a50e174bb1f7242018a7fa69 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 23 Aug 2026 21:55:53 +0800
+Subject: [PATCH 005/212] tests: accept deferred annotation typo diagnostics
+
+---
+ tests/ut/language/parser/test_type_resolver.py | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/tests/ut/language/parser/test_type_resolver.py b/tests/ut/language/parser/test_type_resolver.py
+index cbe3c3e6ebbf2075dd35293774624dec4d82154a..4caf2c4d20677ae93122d934bfb9d89220f7131c 100644
+--- a/tests/ut/language/parser/test_type_resolver.py
++++ b/tests/ut/language/parser/test_type_resolver.py
+@@ -1433,7 +1433,13 @@ class TestDynamicShapeEdgeCases:
+         """User typos variable name — should get a clear error."""
+         shape = [128, 64]  # noqa: F841 — intentionally unused; typo below
+ 
+-        with pytest.raises(NameError, match=r"shaep|Cannot resolve|Unknown|undefined"):
++        # Eager annotation evaluation can raise NameError before the DSL sees
++        # the typo. Under deferred annotations (Python 3.14 / PEP 649), the
++        # parser reaches its established, richer ParserTypeError diagnostic.
++        with pytest.raises(
++            (NameError, ParserTypeError),
++            match=r"shaep|Cannot resolve|Unknown|undefined",
++        ):
+ 
+             @pl.function
+             def func(x: pl.Tensor[shaep, pl.FP32]) -> pl.Tensor[shaep, pl.FP32]:  # noqa: F821

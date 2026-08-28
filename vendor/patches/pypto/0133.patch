@@ -1,0 +1,70 @@
+From 2b76febf595e4cd59323543927bcea4e4939cc2d Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 02:24:45 +0800
+Subject: [PATCH 133/212] Advance TensorIR nested gather validation
+
+---
+ ...ate-gather-tiles-in-their-real-space.patch | 32 +++++++++++++++++++
+ 3rdparty/nvidia/tensor-ir                     |  2 +-
+ cmake/nvidia_backend.cmake                    |  2 +-
+ 3 files changed, 34 insertions(+), 2 deletions(-)
+ create mode 100644 3rdparty/nvidia/0026-Validate-gather-tiles-in-their-real-space.patch
+
+diff --git a/3rdparty/nvidia/0026-Validate-gather-tiles-in-their-real-space.patch b/3rdparty/nvidia/0026-Validate-gather-tiles-in-their-real-space.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..900b38a0095a896afe50ad2db4d7f3ca4cfd5cfa
+--- /dev/null
++++ b/3rdparty/nvidia/0026-Validate-gather-tiles-in-their-real-space.patch
+@@ -0,0 +1,32 @@
++From d2ed3e43e63dfb2ac6767431db30cac91ad84b44 Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Fri, 28 Aug 2026 02:24:31 +0800
++Subject: [PATCH 26/26] Validate gather tiles in their real space
++
++---
++ .../TensorToCudaTile/LayoutPropagationImpl.cpp           | 9 ++++++---
++ 1 file changed, 6 insertions(+), 3 deletions(-)
++
++diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++index c315c3a..5e8531e 100644
++--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++@@ -1312,9 +1312,12 @@ LogicalResult verifyLayoutPropLowerable(GraphOp graphOp) {
++       return WalkResult::interrupt();
++     }
++     if (auto gatherRowsOp = dyn_cast<GatherRowsOp>(op)) {
++-      if (tileShape.size() != 2 || tileShape[0] <= 0 || tileShape[1] <= 0 ||
++-          gatherRowsOp.getOutput().getType().getRank() != 2) {
++-        gatherRowsOp.emitError("requires a positive rank-2 tile");
+++      // The graph-level selected tile may describe an outer fused iteration
+++      // space. Graph splitting gives gather_rows its own rank-2 space, which is
+++      // only known after the skeleton is built; validate that real tile in the
+++      // conversion pattern and only enforce the intrinsic result rank here.
+++      if (gatherRowsOp.getOutput().getType().getRank() != 2) {
+++        gatherRowsOp.emitError("requires a rank-2 result");
++         return WalkResult::interrupt();
++       }
++     } else if (isa<PointwiseOpInterface>(op)) {
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 1cf0150daaeaed956c13d1c66598fcbd088c8615..d2ed3e43e63dfb2ac6767431db30cac91ad84b44 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 1cf0150daaeaed956c13d1c66598fcbd088c8615
++Subproject commit d2ed3e43e63dfb2ac6767431db30cac91ad84b44
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 4717114aed8ecb2aa2fb98b1b53ce60b8cf542aa..16d471be2dc71aa0cd7a9b03447807597f689c21 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "1cf0150daaeaed956c13d1c66598fcbd088c8615")
++    "d2ed3e43e63dfb2ac6767431db30cac91ad84b44")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

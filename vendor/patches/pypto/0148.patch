@@ -1,0 +1,821 @@
+From 40f5f3e0ff82e185e00b7e53bc66c1ab601161c5 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 06:00:22 +0800
+Subject: [PATCH 148/212] Add causal paged prefill TensorIR emitter
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp     | 625 +++++++++++++++++++
+ tests/ut/compiler/test_structured_compile.py | 122 ++++
+ 2 files changed, 747 insertions(+)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index b0d09cb2b6f934a84d04dedf321a6bfbab8afe74..c847b65ff3a0cd93338f8a07c8590447743aff51 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -3834,6 +3834,23 @@ struct NativeTilePagedCacheWriteGraph {
+   StaticTensor result;
+ };
+ 
++struct NativeTilePagedPrefillGraph {
++  StaticTensor query;
++  StaticTensor key_cache;
++  StaticTensor value_cache;
++  StaticTensor req_to_token;
++  StaticTensor request_index;
++  StaticTensor prefix_tokens;
++  StaticTensor result;
++  int64_t query_rows;
++  int64_t q_heads;
++  int64_t kv_heads;
++  int64_t tokens;
++  int64_t head_dim;
++  int64_t cache_rows;
++  double scale;
++};
++
+ struct NativeTileGdnReadGraph {
+   StaticTensor query;
+   StaticTensor value;
+@@ -4453,6 +4470,271 @@ NativeTilePagedCacheWriteGraph AnalyzeNativeTilePagedCacheWrite(
+       key_cache, value_cache, physical_row, key, value, result};
+ }
+ 
++bool IsNativeTilePagedPrefillCandidate(const ir::ProgramPtr& program) {
++  if (!IsNativeTilePointwiseCandidate(program)) return false;
++  const ir::FunctionPtr& function = program->functions_.begin()->second;
++  if (function->params_.size() != 8) return false;
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = top && !top->stmts_.empty()
++                         ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
++                         : nullptr;
++  const auto body = scope ? ir::As<ir::SeqStmts>(scope->body_) : nullptr;
++  const auto kv_loop = body && body->stmts_.size() == 6
++                           ? ir::As<ir::ForStmt>(body->stmts_[5])
++                           : nullptr;
++  const auto kv_body = kv_loop ? ir::As<ir::SeqStmts>(kv_loop->body_) : nullptr;
++  const auto q_group_loop = kv_body && kv_body->stmts_.size() == 4
++                                ? ir::As<ir::ForStmt>(kv_body->stmts_[3])
++                                : nullptr;
++  const auto q_group_body =
++      q_group_loop ? ir::As<ir::SeqStmts>(q_group_loop->body_) : nullptr;
++  const auto query_loop = q_group_body && q_group_body->stmts_.size() == 2
++                              ? ir::As<ir::ForStmt>(q_group_body->stmts_[1])
++                              : nullptr;
++  const auto query_body =
++      query_loop ? ir::As<ir::SeqStmts>(query_loop->body_) : nullptr;
++  return query_body && query_body->stmts_.size() == 22;
++}
++
++NativeTilePagedPrefillGraph AnalyzeNativeTilePagedPrefill(
++    const ir::ProgramPtr& program) {
++  const auto& [global, function] = *program->functions_.begin();
++  if (!global || !function || global->name_ != function->name_ ||
++      function->requires_runtime_binding_ ||
++      function->func_type_ != ir::FunctionType::Orchestration ||
++      !function->level_.has_value() || *function->level_ != ir::Level::CHIP ||
++      !function->role_.has_value() ||
++      *function->role_ != ir::Role::Orchestrator || !function->attrs_.empty()) {
++    Reject("native paged prefill must be one canonical CHIP @pl.jit function",
++           function ? &function->span_ : &program->span_);
++  }
++  if (function->params_.size() != 8 ||
++      function->param_directions_.size() != 8 ||
++      function->return_types_.size() != 1) {
++    Reject("native paged prefill parameter contract is invalid",
++           &function->span_);
++  }
++  for (size_t index = 0; index < 7; ++index) {
++    if (function->param_directions_[index] != ir::ParamDirection::In) {
++      Reject("native paged prefill inputs must have direction In",
++             &function->span_);
++    }
++  }
++  if (function->param_directions_[7] != ir::ParamDirection::Out) {
++    Reject("native paged prefill output must have direction Out",
++           &function->span_);
++  }
++
++  const StaticTensor query = ReadStaticTensor(
++      function->params_[0]->GetType(), function->params_[0]->span_,
++      "native paged prefill query");
++  const StaticTensor key_cache = ReadStaticTensor(
++      function->params_[1]->GetType(), function->params_[1]->span_,
++      "native paged prefill key cache");
++  const StaticTensor value_cache = ReadStaticTensor(
++      function->params_[2]->GetType(), function->params_[2]->span_,
++      "native paged prefill value cache");
++  const StaticTensor req_to_token = ReadStaticTensor(
++      function->params_[3]->GetType(), function->params_[3]->span_,
++      "native paged prefill request table");
++  StaticTensor request_index = ReadStaticTensor(
++      function->params_[4]->GetType(), function->params_[4]->span_,
++      "native paged prefill request index");
++  StaticTensor prefix_tokens = ReadStaticTensor(
++      function->params_[5]->GetType(), function->params_[5]->span_,
++      "native paged prefill prefix length");
++  const StaticTensor result = ReadStaticTensor(
++      function->params_[7]->GetType(), function->params_[7]->span_,
++      "native paged prefill output");
++  const StaticTensor declared = ReadStaticTensor(
++      function->return_types_[0], function->span_,
++      "native paged prefill declared output");
++  if (query.dtype != DataType::BF16 || query.shape.size() != 3 ||
++      key_cache.dtype != DataType::BF16 ||
++      !SameTensor(key_cache, value_cache) || key_cache.shape.size() != 2 ||
++      req_to_token.dtype != DataType::INT32 ||
++      req_to_token.shape.size() != 2 ||
++      request_index.dtype != DataType::INT64 ||
++      request_index.shape.size() != 2 ||
++      prefix_tokens.dtype != DataType::INT32 ||
++      prefix_tokens.shape != request_index.shape ||
++      !SameTensor(query, result) || !SameTensor(result, declared)) {
++    Reject("native paged prefill tensor types or ranks are invalid",
++           &function->span_);
++  }
++  const int64_t query_rows = query.shape[0];
++  const int64_t q_heads = query.shape[1];
++  const int64_t head_dim = query.shape[2];
++  const int64_t cache_rows = key_cache.shape[0];
++  const int64_t tokens = request_index.shape[1];
++  if (query_rows <= 0 || q_heads <= 0 || head_dim <= 0 ||
++      head_dim % 128 != 0 || cache_rows <= 0 || tokens <= 0 ||
++      tokens % 16 != 0 || key_cache.shape[1] % head_dim != 0 ||
++      req_to_token.shape[0] <= 0 || req_to_token.shape[1] < tokens ||
++      request_index.shape[0] != 1) {
++    Reject("native paged prefill static geometry is invalid", &function->span_);
++  }
++  const int64_t kv_heads = key_cache.shape[1] / head_dim;
++  if (kv_heads <= 0 || q_heads % kv_heads != 0) {
++    Reject("native paged prefill GQA mapping is invalid", &function->span_);
++  }
++  request_index.dense_strides = {0, 0};
++  prefix_tokens.dense_strides = {0, 0};
++
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = top && top->stmts_.size() == 2
++                         ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
++                         : nullptr;
++  const auto returned = top && top->stmts_.size() == 2
++                            ? ir::As<ir::ReturnStmt>(top->stmts_[1])
++                            : nullptr;
++  const auto returned_var =
++      returned && returned->value_.size() == 1
++          ? ir::As<ir::Var>(returned->value_[0])
++          : nullptr;
++  const auto body = scope ? ir::As<ir::SeqStmts>(scope->body_) : nullptr;
++  if (!scope || scope->split_ != ir::SplitMode::None ||
++      !scope->attrs_.empty() || !returned_var ||
++      returned_var.get() != function->params_[7].get() || !body ||
++      body->stmts_.size() != 6) {
++    Reject("native paged prefill scope or return is invalid", &function->span_);
++  }
++
++  const auto request_assignment = ir::As<ir::AssignStmt>(body->stmts_[0]);
++  const auto prefix_assignment = ir::As<ir::AssignStmt>(body->stmts_[1]);
++  const auto positions_assignment = ir::As<ir::AssignStmt>(body->stmts_[2]);
++  const auto kv_heads_assignment = ir::As<ir::AssignStmt>(body->stmts_[3]);
++  const auto queries_assignment = ir::As<ir::AssignStmt>(body->stmts_[4]);
++  const auto kv_loop = ir::As<ir::ForStmt>(body->stmts_[5]);
++  const auto request_call = request_assignment
++                                ? ir::As<ir::Call>(request_assignment->value_)
++                                : nullptr;
++  const auto prefix_call = prefix_assignment
++                               ? ir::As<ir::Call>(prefix_assignment->value_)
++                               : nullptr;
++  const auto positions_call = positions_assignment
++                                  ? ir::As<ir::Call>(positions_assignment->value_)
++                                  : nullptr;
++  const auto kv_heads_value = kv_heads_assignment
++                                  ? ir::As<ir::ConstInt>(kv_heads_assignment->value_)
++                                  : nullptr;
++  if (!request_assignment || !request_assignment->var_ || !request_call ||
++      !ir::IsOp(request_call, "tensor.read") ||
++      request_call->args_.empty() ||
++      request_call->args_[0].get() != function->params_[4].get() ||
++      !prefix_assignment || !prefix_assignment->var_ || !prefix_call ||
++      !ir::IsOp(prefix_call, "tensor.read") || prefix_call->args_.empty() ||
++      prefix_call->args_[0].get() != function->params_[5].get() ||
++      !positions_assignment || !positions_assignment->var_ ||
++      !positions_call || !ir::IsOp(positions_call, "tile.ci") ||
++      !kv_heads_assignment || !kv_heads_assignment->var_ || !kv_heads_value ||
++      kv_heads_value->value_ != kv_heads || !queries_assignment ||
++      !queries_assignment->var_ || !kv_loop ||
++      kv_loop->stop_.get() != kv_heads_assignment->var_.get() ||
++      kv_loop->kind_ != ir::ForKind::Sequential) {
++    Reject("native paged prefill outer metadata is invalid", &body->span_);
++  }
++
++  const auto kv_body = ir::As<ir::SeqStmts>(kv_loop->body_);
++  const auto slot_loop = kv_body && kv_body->stmts_.size() == 4
++                             ? ir::As<ir::ForStmt>(kv_body->stmts_[2])
++                             : nullptr;
++  const auto q_group_loop = kv_body && kv_body->stmts_.size() == 4
++                                ? ir::As<ir::ForStmt>(kv_body->stmts_[3])
++                                : nullptr;
++  const auto slot_stop =
++      slot_loop ? ir::As<ir::ConstInt>(slot_loop->stop_) : nullptr;
++  if (!kv_body || !slot_loop || !slot_stop || slot_stop->value_ != tokens ||
++      slot_loop->kind_ != ir::ForKind::Sequential || !q_group_loop ||
++      q_group_loop->stop_.get() != queries_assignment->var_.get() ||
++      q_group_loop->kind_ != ir::ForKind::Sequential) {
++    Reject("native paged prefill KV/GQA loops are invalid", &kv_loop->span_);
++  }
++  const auto slot_body = ir::As<ir::SeqStmts>(slot_loop->body_);
++  if (!slot_body || slot_body->stmts_.size() != 4) {
++    Reject("native paged prefill slot loop is invalid", &slot_loop->span_);
++  }
++  for (size_t index : {size_t{2}, size_t{3}}) {
++    const auto assignment = ir::As<ir::AssignStmt>(slot_body->stmts_[index]);
++    const auto call = assignment ? ir::As<ir::Call>(assignment->value_) : nullptr;
++    if (!call || !ir::IsOp(call, "tile.gather_row")) {
++      Reject("native paged prefill must gather K/V rows directly into L1",
++             &slot_body->stmts_[index]->span_);
++    }
++  }
++
++  const auto q_group_body = ir::As<ir::SeqStmts>(q_group_loop->body_);
++  const auto query_loop = q_group_body && q_group_body->stmts_.size() == 2
++                              ? ir::As<ir::ForStmt>(q_group_body->stmts_[1])
++                              : nullptr;
++  const auto query_stop =
++      query_loop ? ir::As<ir::ConstInt>(query_loop->stop_) : nullptr;
++  const auto query_body =
++      query_loop ? ir::As<ir::SeqStmts>(query_loop->body_) : nullptr;
++  if (!q_group_body || !query_loop || !query_stop ||
++      query_stop->value_ != query_rows ||
++      query_loop->kind_ != ir::ForKind::Sequential || !query_body ||
++      query_body->stmts_.size() != 22) {
++    Reject("native paged prefill query loop is invalid", &q_group_loop->span_);
++  }
++  constexpr std::array<std::pair<size_t, std::string_view>, 17> kExpectedOps = {{
++      {0, "tile.load"},
++      {1, "tile.reshape"},
++      {2, "tile.matmul"},
++      {3, "tile.muls"},
++      {7, "tile.cmps"},
++      {8, "tile.create"},
++      {9, "tile.sels"},
++      {10, "tile.create"},
++      {11, "tile.row_max"},
++      {12, "tile.row_expand_sub"},
++      {13, "tile.exp"},
++      {14, "tile.create"},
++      {15, "tile.row_sum"},
++      {16, "tile.row_expand_div"},
++      {17, "tile.cast"},
++      {18, "tile.matmul"},
++      {19, "tile.cast"},
++  }};
++  for (const auto& [index, expected] : kExpectedOps) {
++    const auto assignment = ir::As<ir::AssignStmt>(query_body->stmts_[index]);
++    const auto call = assignment ? ir::As<ir::Call>(assignment->value_) : nullptr;
++    if (!call || !ir::IsOp(call, std::string(expected))) {
++      Reject("native paged prefill attention operation sequence is invalid",
++             &query_body->stmts_[index]->span_);
++    }
++  }
++  const auto result_reshape = ir::As<ir::AssignStmt>(query_body->stmts_[20]);
++  const auto result_reshape_call = result_reshape
++                                       ? ir::As<ir::Call>(result_reshape->value_)
++                                       : nullptr;
++  const auto store = ir::As<ir::EvalStmt>(query_body->stmts_[21]);
++  const auto store_call = store ? ir::As<ir::Call>(store->expr_) : nullptr;
++  if (!result_reshape_call || !ir::IsOp(result_reshape_call, "tile.reshape") ||
++      !store_call || !ir::IsOp(store_call, "tile.store")) {
++    Reject("native paged prefill output sequence is invalid", &query_body->span_);
++  }
++  const auto scale_assignment = ir::As<ir::AssignStmt>(query_body->stmts_[3]);
++  const auto scale_call = scale_assignment
++                              ? ir::As<ir::Call>(scale_assignment->value_)
++                              : nullptr;
++  const auto scale = scale_call && scale_call->args_.size() == 2
++                         ? ir::As<ir::ConstFloat>(scale_call->args_[1])
++                         : nullptr;
++  const double expected_scale = 1.0 / std::sqrt(static_cast<double>(head_dim));
++  if (!scale || !std::isfinite(scale->value_) ||
++      std::fabs(scale->value_ - expected_scale) >
++          std::numeric_limits<double>::epsilon()) {
++    Reject("native paged prefill scale must equal 1/sqrt(head_dim)",
++           scale_call ? &scale_call->span_ : &query_body->span_);
++  }
++
++  return NativeTilePagedPrefillGraph{
++      query,         key_cache, value_cache, req_to_token, request_index,
++      prefix_tokens, result,    query_rows, q_heads,      kv_heads,
++      tokens,        head_dim,  cache_rows, scale->value_};
++}
++
+ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+     const ir::ProgramPtr& program) {
+   const auto& [global, function] = *program->functions_.begin();
+@@ -6143,6 +6425,328 @@ std::string EmitNativeTilePagedCacheWriteSource(
+   return source;
+ }
+ 
++std::string EmitNativeTilePagedPrefillSource(
++    const NativeTilePagedPrefillGraph& graph) {
++  StaticTensor request_prefix{DataType::INT32,
++                              {graph.req_to_token.shape[0], graph.tokens}, {}};
++  request_prefix.dense_strides =
++      MakeDenseStridesForMetadata(request_prefix.shape);
++  StaticTensor index_row{DataType::INT32, {1, graph.tokens}, {}};
++  index_row.dense_strides = MakeDenseStridesForMetadata(index_row.shape);
++  StaticTensor physical_column{DataType::INT32, {graph.tokens, 1}, {}};
++  physical_column.dense_strides =
++      MakeDenseStridesForMetadata(physical_column.shape);
++  StaticTensor physical_indices{DataType::INT32,
++                                {graph.tokens, graph.head_dim}, {}};
++  physical_indices.dense_strides =
++      MakeDenseStridesForMetadata(physical_indices.shape);
++  StaticTensor cache_head{DataType::BF16,
++                          {graph.cache_rows, graph.head_dim}, {}};
++  cache_head.dense_strides = MakeDenseStridesForMetadata(cache_head.shape);
++  StaticTensor gathered{DataType::BF16, {graph.tokens, graph.head_dim}, {}};
++  gathered.dense_strides = MakeDenseStridesForMetadata(gathered.shape);
++  StaticTensor gathered_transposed{DataType::BF16,
++                                   {graph.head_dim, graph.tokens}, {}};
++  gathered_transposed.dense_strides =
++      MakeDenseStridesForMetadata(gathered_transposed.shape);
++  StaticTensor query_box{DataType::BF16, {1, 1, graph.head_dim}, {}};
++  query_box.dense_strides = MakeDenseStridesForMetadata(query_box.shape);
++  StaticTensor query_head{DataType::BF16, {1, graph.head_dim}, {}};
++  query_head.dense_strides = MakeDenseStridesForMetadata(query_head.shape);
++  StaticTensor score{DataType::FP32, {1, graph.tokens}, {}};
++  score.dense_strides = MakeDenseStridesForMetadata(score.shape);
++  StaticTensor row{DataType::FP32, {1, 1}, {1, 1}};
++  StaticTensor probability = score;
++  probability.dtype = DataType::BF16;
++  StaticTensor accumulation{DataType::FP32, {1, graph.head_dim}, {}};
++  accumulation.dense_strides =
++      MakeDenseStridesForMetadata(accumulation.shape);
++  StaticTensor head_result{DataType::BF16, {1, graph.head_dim}, {}};
++  head_result.dense_strides = MakeDenseStridesForMetadata(head_result.shape);
++  StaticTensor head_box{DataType::BF16, {1, 1, graph.head_dim}, {}};
++  head_box.dense_strides = MakeDenseStridesForMetadata(head_box.shape);
++  StaticTensor row_result{DataType::BF16,
++                          {1, graph.q_heads, graph.head_dim}, {}};
++  row_result.dense_strides = MakeDenseStridesForMetadata(row_result.shape);
++
++  const std::string query_type = TensorTypeText(graph.query);
++  const std::string cache_type = TensorTypeText(graph.key_cache);
++  const std::string request_table_type = TensorTypeText(graph.req_to_token);
++  const std::string request_index_type = TensorTypeText(graph.request_index);
++  const std::string request_prefix_type = TensorTypeText(request_prefix);
++  const std::string index_row_type = TensorTypeText(index_row);
++  const std::string physical_column_type = TensorTypeText(physical_column);
++  const std::string physical_indices_type = TensorTypeText(physical_indices);
++  const std::string cache_head_type = TensorTypeText(cache_head);
++  const std::string gathered_type = TensorTypeText(gathered);
++  const std::string gathered_transposed_type =
++      TensorTypeText(gathered_transposed);
++  const std::string query_box_type = TensorTypeText(query_box);
++  const std::string query_head_type = TensorTypeText(query_head);
++  const std::string score_type = TensorTypeText(score);
++  const std::string row_type = TensorTypeText(row);
++  const std::string probability_type = TensorTypeText(probability);
++  const std::string accumulation_type = TensorTypeText(accumulation);
++  const std::string head_result_type = TensorTypeText(head_result);
++  const std::string head_box_type = TensorTypeText(head_box);
++  const std::string row_result_type = TensorTypeText(row_result);
++  const std::string result_type = TensorTypeText(graph.result);
++
++  std::string source;
++  source.reserve(static_cast<size_t>(graph.query_rows * graph.q_heads) * 2048 +
++                 4096);
++  source += "module {\n  nv_tensor_ir.graph @";
++  source += kFusedPointwiseEntryName;
++  source += "(\n    %arg0: ";
++  source += TensorWithStrideText(graph.query);
++  source += ",\n    %arg1: ";
++  source += TensorWithStrideText(graph.key_cache);
++  source += ",\n    %arg2: ";
++  source += TensorWithStrideText(graph.value_cache);
++  source += ",\n    %arg3: ";
++  source += TensorWithStrideText(graph.req_to_token);
++  source += ",\n    %arg4: ";
++  source += TensorWithStrideText(graph.request_index);
++  source += ",\n    %arg5: ";
++  source += TensorWithStrideText(graph.prefix_tokens);
++  source += "\n  ) -> (";
++  source += TensorWithStrideText(graph.result);
++  source += ") {\n    %request_index32 = convert %arg4 : ";
++  source += request_index_type;
++  source += " -> ";
++  source += index_row_type;
++  source += "\n    %request_prefix = slice %arg3 starts = [0, 0] limits = [";
++  source += std::to_string(graph.req_to_token.shape[0]);
++  source += ", ";
++  source += std::to_string(graph.tokens);
++  source += "] strides = [1, 1] : ";
++  source += request_table_type;
++  source += " -> ";
++  source += request_prefix_type;
++  source += "\n    %request_row = gather_rows %request_prefix, "
++            "%request_index32 : (";
++  source += request_prefix_type;
++  source += ", ";
++  source += index_row_type;
++  source += ") -> ";
++  source += index_row_type;
++  source += "\n    %physical_column = transpose %request_row permutation = [1, 0] : ";
++  source += index_row_type;
++  source += " -> ";
++  source += physical_column_type;
++  source += "\n    %physical_indices = broadcast %physical_column : ";
++  source += physical_column_type;
++  source += " -> ";
++  source += physical_indices_type;
++  source += "\n    %valid_positions = iota dimension = 1 : ";
++  source += index_row_type;
++  source += "\n    %mask_floor = constant 0xFF7FFFFF : f32";
++  source += "\n    %mask_floor_splat = splat %mask_floor : ";
++  source += score_type;
++  source += "\n    %scale = constant ";
++  AppendFloat(source, graph.scale);
++  source += " : f32\n    %scale_splat = splat %scale : ";
++  source += score_type;
++
++  std::vector<std::vector<std::string>> head_boxes(
++      static_cast<size_t>(graph.query_rows),
++      std::vector<std::string>(static_cast<size_t>(graph.q_heads)));
++  const int64_t queries_per_kv = graph.q_heads / graph.kv_heads;
++  for (int64_t kv_head = 0; kv_head < graph.kv_heads; ++kv_head) {
++    const int64_t column_start = kv_head * graph.head_dim;
++    const int64_t column_limit = column_start + graph.head_dim;
++    const std::string kv_suffix = std::to_string(kv_head);
++    source += "\n    %k_table_" + kv_suffix +
++              " = slice %arg1 starts = [0, " +
++              std::to_string(column_start) + "] limits = [" +
++              std::to_string(graph.cache_rows) + ", " +
++              std::to_string(column_limit) + "] strides = [1, 1] : ";
++    source += cache_type;
++    source += " -> ";
++    source += cache_head_type;
++    source += "\n    %k_" + kv_suffix + " = gather_rows %k_table_" +
++              kv_suffix + ", %physical_indices : (";
++    source += cache_head_type;
++    source += ", ";
++    source += physical_indices_type;
++    source += ") -> ";
++    source += gathered_type;
++    source += "\n    %kt_" + kv_suffix + " = transpose %k_" + kv_suffix +
++              " permutation = [1, 0] : ";
++    source += gathered_type;
++    source += " -> ";
++    source += gathered_transposed_type;
++    source += "\n    %v_table_" + kv_suffix +
++              " = slice %arg2 starts = [0, " +
++              std::to_string(column_start) + "] limits = [" +
++              std::to_string(graph.cache_rows) + ", " +
++              std::to_string(column_limit) + "] strides = [1, 1] : ";
++    source += cache_type;
++    source += " -> ";
++    source += cache_head_type;
++    source += "\n    %v_" + kv_suffix + " = gather_rows %v_table_" +
++              kv_suffix + ", %physical_indices : (";
++    source += cache_head_type;
++    source += ", ";
++    source += physical_indices_type;
++    source += ") -> ";
++    source += gathered_type;
++
++    for (int64_t q_group = 0; q_group < queries_per_kv; ++q_group) {
++      const int64_t q_head = kv_head * queries_per_kv + q_group;
++      for (int64_t query_row = 0; query_row < graph.query_rows; ++query_row) {
++        const std::string suffix = "r" + std::to_string(query_row) + "_h" +
++                                   std::to_string(q_head);
++        source += "\n    %q_box_" + suffix + " = slice %arg0 starts = [" +
++                  std::to_string(query_row) + ", " + std::to_string(q_head) +
++                  ", 0] limits = [" + std::to_string(query_row + 1) + ", " +
++                  std::to_string(q_head + 1) + ", " +
++                  std::to_string(graph.head_dim) + "] strides = [1, 1, 1] : ";
++        source += query_type;
++        source += " -> ";
++        source += query_box_type;
++        source += "\n    %q_" + suffix + " = reshape %q_box_" + suffix +
++                  " : ";
++        source += query_box_type;
++        source += " -> ";
++        source += query_head_type;
++        source += "\n    %scores_" + suffix + " = matmul(%q_" + suffix +
++                  ", %kt_" + kv_suffix + ") : (";
++        source += query_head_type;
++        source += ", ";
++        source += gathered_transposed_type;
++        source += ") -> ";
++        source += score_type;
++        source += "\n    %scaled_" + suffix + " = mul %scores_" + suffix +
++                  ", %scale_splat : ";
++        source += score_type;
++        source += "\n    %valid_offset_" + suffix + " = constant ";
++        source += std::to_string(query_row + 1);
++        source += " : i32\n    %valid_offset_splat_" + suffix +
++                  " = splat %valid_offset_" + suffix + " : ";
++        source += index_row_type;
++        source += "\n    %valid_count_" + suffix + " = add %arg5, "
++                  "%valid_offset_splat_" + suffix + " : ";
++        source += index_row_type;
++        source += "\n    %valid_mask_" + suffix +
++                  " = cmp %valid_positions lt %valid_count_" + suffix + " : ";
++        source += index_row_type;
++        source += "\n    %masked_scaled_" + suffix +
++                  " = binary_select %valid_mask_" + suffix + ", %scaled_" +
++                  suffix + ", %mask_floor_splat : ";
++        source += score_type;
++        source += "\n    %rowmax_" + suffix + " = reduce(%masked_scaled_" +
++                  suffix + ") <dimensions = [1], reduction_mode = <max>> : ";
++        source += score_type;
++        source += " -> ";
++        source += row_type;
++        source += "\n    %max_full_" + suffix + " = broadcast %rowmax_" +
++                  suffix + " : ";
++        source += row_type;
++        source += " -> ";
++        source += score_type;
++        source += "\n    %centered_" + suffix + " = sub %masked_scaled_" +
++                  suffix + ", %max_full_" + suffix + " : ";
++        source += score_type;
++        source += "\n    %exponent_" + suffix + " = exp %centered_" + suffix +
++                  " : ";
++        source += score_type;
++        source += "\n    %rowsum_" + suffix + " = reduce(%exponent_" + suffix +
++                  ") <dimensions = [1], reduction_mode = <add>> : ";
++        source += score_type;
++        source += " -> ";
++        source += row_type;
++        source += "\n    %inverse_" + suffix + " = reciprocal %rowsum_" +
++                  suffix + " : ";
++        source += row_type;
++        source += "\n    %inverse_full_" + suffix +
++                  " = broadcast %inverse_" + suffix + " : ";
++        source += row_type;
++        source += " -> ";
++        source += score_type;
++        source += "\n    %probability_f32_" + suffix + " = mul %exponent_" +
++                  suffix + ", %inverse_full_" + suffix + " : ";
++        source += score_type;
++        source += "\n    %probability_" + suffix +
++                  " = convert %probability_f32_" + suffix + " : ";
++        source += score_type;
++        source += " -> ";
++        source += probability_type;
++        source += "\n    %mixed_" + suffix + " = matmul(%probability_" +
++                  suffix + ", %v_" + kv_suffix + ") : (";
++        source += probability_type;
++        source += ", ";
++        source += gathered_type;
++        source += ") -> ";
++        source += accumulation_type;
++        source += "\n    %head_" + suffix + " = convert %mixed_" + suffix +
++                  " : ";
++        source += accumulation_type;
++        source += " -> ";
++        source += head_result_type;
++        source += "\n    %head_box_" + suffix + " = reshape %head_" + suffix +
++                  " : ";
++        source += head_result_type;
++        source += " -> ";
++        source += head_box_type;
++        head_boxes[static_cast<size_t>(query_row)]
++                  [static_cast<size_t>(q_head)] = "%head_box_" + suffix;
++      }
++    }
++  }
++
++  std::vector<std::string> row_values;
++  row_values.reserve(static_cast<size_t>(graph.query_rows));
++  for (int64_t query_row = 0; query_row < graph.query_rows; ++query_row) {
++    const auto& heads = head_boxes[static_cast<size_t>(query_row)];
++    if (graph.q_heads == 1) {
++      row_values.push_back(heads[0]);
++      continue;
++    }
++    const std::string row_name = "%row_" + std::to_string(query_row);
++    source += "\n    " + row_name + " = concatenate ";
++    for (size_t head = 0; head < heads.size(); ++head) {
++      if (head != 0) source += ", ";
++      source += heads[head];
++    }
++    source += " dimension = 1 : (";
++    for (size_t head = 0; head < heads.size(); ++head) {
++      if (head != 0) source += ", ";
++      source += head_box_type;
++    }
++    source += ") -> ";
++    source += row_result_type;
++    row_values.push_back(row_name);
++  }
++  std::string final_value;
++  if (graph.query_rows == 1) {
++    final_value = row_values[0];
++  } else {
++    final_value = "%result0";
++    source += "\n    %result0 = concatenate ";
++    for (size_t row_index = 0; row_index < row_values.size(); ++row_index) {
++      if (row_index != 0) source += ", ";
++      source += row_values[row_index];
++    }
++    source += " dimension = 0 : (";
++    for (size_t row_index = 0; row_index < row_values.size(); ++row_index) {
++      if (row_index != 0) source += ", ";
++      source += row_result_type;
++    }
++    source += ") -> ";
++    source += result_type;
++  }
++  source += "\n    results ";
++  source += final_value;
++  source += " : ";
++  source += result_type;
++  source += "\n  }\n}\n";
++  if (source.size() > kMaximumCanonicalSourceBytes) {
++    Reject("canonical TensorIR source exceeds 16 MiB");
++  }
++  return source;
++}
++
+ std::string EmitNativeTileAttentionSource(
+     const NativeTileAttentionGraph& graph) {
+   StaticTensor key_transposed = graph.key;
+@@ -6967,6 +7571,27 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+                           EmitNativeTilePagedCacheWriteSource(graph),
+                           std::move(metadata), /*input_count=*/5);
+   }
++  if (IsNativeTilePagedPrefillCandidate(program)) {
++    const NativeTilePagedPrefillGraph graph =
++        AnalyzeNativeTilePagedPrefill(program);
++    std::vector<TensorIrValueMetadata> metadata;
++    metadata.reserve(7);
++    const std::array<StaticTensor, 6> inputs = {
++        graph.query,          graph.key_cache,     graph.value_cache,
++        graph.req_to_token,   graph.request_index, graph.prefix_tokens};
++    for (uint32_t index = 0; index < inputs.size(); ++index) {
++      const StaticTensor& input = inputs[index];
++      metadata.push_back(TensorIrValueMetadata(
++          TensorIrValueRole::Input, index, input.dtype, input.shape,
++          input.dense_strides, /*has_explicit_strides=*/true));
++    }
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
++        graph.result.dense_strides, /*has_explicit_strides=*/true));
++    return TensorIrModule(TensorIrModuleKind::FusedPointwise,
++                          EmitNativeTilePagedPrefillSource(graph),
++                          std::move(metadata), /*input_count=*/6);
++  }
+   if (IsNativeTilePagedDecodeCandidate(program)) {
+     const NativeTilePagedDecodeGraph graph =
+         AnalyzeNativeTilePagedDecode(program);
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index e388cb3e6771df17ee1a12ee8f8dca32f3abd563..56688b006747b4ac081add8f5df636cf92385357 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -387,6 +387,99 @@ def _native_tile_paged_cache_write(
+     return out
+ 
+ 
++@pl.jit
++def _native_tile_paged_prefill(
++    query: pl.Tensor[[2, 2, 256], pl.BF16],
++    key_cache: pl.Tensor[[1024, 256], pl.BF16],
++    value_cache: pl.Tensor[[1024, 256], pl.BF16],
++    req_to_token: pl.Tensor[[65, 4096], pl.INT32],
++    request_index: pl.Tensor[[1, 16], pl.INT64],
++    prefix_tokens: pl.Tensor[[1, 16], pl.INT32],
++    scale: pl.FP32,
++    out: pl.Out[pl.Tensor[[2, 2, 256], pl.BF16]],
++):
++    with pl.at(level=pl.Level.CORE_GROUP):
++        request_id = pl.read(request_index, [0, 0])
++        prefix_token_count = pl.read(prefix_tokens, [0, 0])
++        positions = pl.tile.ci(0, [1, 16], dtype=pl.INT32)
++        kv_heads = key_cache.shape[1] // query.shape[2]
++        queries_per_kv = query.shape[1] // kv_heads
++        for kv_head in pl.range(kv_heads):
++            keys = pl.tile.create(
++                [256, 16],
++                dtype=pl.BF16,
++                target_memory=pl.MemorySpace.Mat,
++                transpose=True,
++            )
++            values = pl.tile.create(
++                [16, 256], dtype=pl.BF16, target_memory=pl.MemorySpace.Mat
++            )
++            for slot in pl.range(16):
++                physical = pl.read(req_to_token, [request_id, slot])
++                cache_column = kv_head * 256
++                keys = pl.tile.gather_row(
++                    keys,
++                    key_cache,
++                    [0, slot],
++                    [physical, cache_column],
++                    [1, 256],
++                    transpose=True,
++                )
++                values = pl.tile.gather_row(
++                    values,
++                    value_cache,
++                    [slot, 0],
++                    [physical, cache_column],
++                    [1, 256],
++                )
++            for q_group in pl.range(queries_per_kv):
++                q_head = kv_head * queries_per_kv + q_group
++                for query_row in pl.range(2):
++                    query_box = pl.load(
++                        query,
++                        [query_row, q_head, 0],
++                        [1, 1, 256],
++                        target_memory=pl.MemorySpace.Mat,
++                    )
++                    query_tile = pl.reshape(query_box, [1, 256])
++                    score = pl.matmul(query_tile, keys, out_dtype=pl.FP32)
++                    scaled = pl.mul(score, scale)
++                    query_row_i32 = pl.cast(query_row, pl.INT32)
++                    valid_token_count = prefix_token_count + query_row_i32
++                    valid_token_count = valid_token_count + pl.cast(1, pl.INT32)
++                    valid_mask = pl.cmps(positions, valid_token_count, cmp_type=2)
++                    mask_scratch = pl.tile.create(
++                        [1, 32], dtype=pl.UINT8, target_memory=pl.MemorySpace.Vec
++                    )
++                    masked_scaled = pl.sels(
++                        valid_mask,
++                        scaled,
++                        mask_scratch,
++                        -3.4028234663852886e38,
++                    )
++                    max_scratch = pl.create_tile(
++                        [1, 16], dtype=pl.FP32, target_memory=pl.MemorySpace.Vec
++                    )
++                    row_max = pl.row_max(masked_scaled, max_scratch)
++                    centered = pl.row_expand_sub(masked_scaled, row_max)
++                    exponent = pl.exp(centered)
++                    sum_scratch = pl.create_tile(
++                        [1, 16], dtype=pl.FP32, target_memory=pl.MemorySpace.Vec
++                    )
++                    row_sum = pl.row_sum(exponent, sum_scratch)
++                    probability = pl.row_expand_div(exponent, row_sum)
++                    probability_bf16 = pl.cast(
++                        probability, target_type=pl.BF16
++                    )
++                    mixed = pl.matmul(
++                        probability_bf16, values, out_dtype=pl.FP32
++                    )
++                    result = pl.cast(mixed, target_type=pl.BF16)
++                    result_box = pl.reshape(result, [1, 1, 256])
++                    pl.store(result_box, [query_row, q_head, 0], out)
++    return out
++
++
+ @pl.jit
+ def _native_tile_linear(
+     x: pl.Tensor[[2, 128], pl.BF16],
+@@ -702,6 +795,33 @@ def _assert_native_paged_cache_write_compilation(request: CompileRequest) -> Non
+     assert not cache_write.artifact.fallback_used
+ 
+ 
++def _assert_native_paged_prefill_compilation(request: CompileRequest) -> None:
++    prefill = compile_structured_strict(
++        _native_tile_paged_prefill.specialize(scale=0.0625),
++        request,
++        _schedule([1, 1, 128]),
++    )
++    kernel = prefill.artifact.kernel_abi
++    assert kernel.entry_function_name == "pypto_fused_pointwise"
++    assert kernel.grid_abi.static_dimensions == [8, 1, 1]
++    assert kernel.grid_abi.tile_sizes == [1, 1, 128]
++    assert kernel.argument_layout.input_operand_count == 6
++    assert kernel.argument_layout.total_kernel_argument_count == 7
++    descriptors = kernel.argument_layout.operand_descriptors
++    assert [descriptor.shape for descriptor in descriptors] == [
++        [2, 2, 256],
++        [1024, 256],
++        [1024, 256],
++        [65, 4096],
++        [1, 16],
++        [1, 16],
++        [2, 2, 256],
++    ]
++    assert descriptors[4].strides == [0, 0]
++    assert descriptors[5].strides == [0, 0]
++    assert not prefill.artifact.fallback_used
++
++
+ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+     native_tile = compile_structured_strict(
+         _native_tile_add.specialize(), request, _schedule(128)
+@@ -908,6 +1028,7 @@ def test_compile_structured_strict_functional() -> None:
+             _native_tile_attention.specialize(scale=0.08838834764831843),
+             _native_tile_paged_decode.specialize(scale=0.0625),
+             _native_tile_paged_cache_write.specialize(),
++            _native_tile_paged_prefill.specialize(scale=0.0625),
+             _native_tile_linear.specialize(),
+             _row_reduction_program([32, 17], pypto.DataType.FP32, "tensor.row_sum"),
+         ):
+@@ -970,6 +1091,7 @@ def test_compile_structured_strict_functional() -> None:
+ 
+     _assert_native_tile_compilation(request)
+     _assert_native_paged_cache_write_compilation(request)
++    _assert_native_paged_prefill_compilation(request)
+ 
+     row_cases = (
+         ([32, 17], pypto.DataType.FP32, "tensor.row_sum", [32, 1], [17, 1], [1, 1]),

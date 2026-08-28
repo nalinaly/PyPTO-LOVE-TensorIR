@@ -1,0 +1,431 @@
+From 4eb0cbd9bbcd3379a215d11f60f5e3fd643ea0e0 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 23:06:43 +0800
+Subject: [PATCH 103/212] Lower native causal depthwise convolution
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp     | 303 +++++++++++++++++++
+ tests/ut/compiler/test_structured_compile.py |  61 ++++
+ 2 files changed, 364 insertions(+)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 0aa8f51091dcdd58f8a2cd5a6fa82c094256caee..189ce704920654ffe824cb9fc71f15bbc35e7c1d 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -132,6 +132,12 @@ struct NativeTileGatedRmsNormGraph {
+   double epsilon;
+ };
+ 
++struct NativeTileCausalConvGraph {
++  StaticTensor input;
++  StaticTensor weight;
++  StaticTensor result;
++};
++
+ std::string BoundedDisplay(std::string_view value) {
+   std::string output;
+   const size_t count = std::min(value.size(), kMaximumDiagnosticNameBytes);
+@@ -1066,6 +1072,148 @@ std::string EmitNativeTileGatedRmsNormSource(
+   return source;
+ }
+ 
++std::string EmitNativeTileCausalConvSource(
++    const NativeTileCausalConvGraph& graph) {
++  StaticTensor compute = graph.input;
++  compute.dtype = DataType::FP32;
++  StaticTensor weightCompute = graph.weight;
++  weightCompute.dtype = DataType::FP32;
++  StaticTensor weightColumn{DataType::FP32, {graph.input.shape[0], 1}, {1, 1}};
++  const std::string inputType = TensorTypeText(graph.input);
++  const std::string computeType = TensorTypeText(compute);
++  const std::string weightType = TensorTypeText(graph.weight);
++  const std::string weightComputeType = TensorTypeText(weightCompute);
++  const std::string weightColumnType = TensorTypeText(weightColumn);
++
++  std::string source;
++  source.reserve(8192);
++  source += "module {\n  nv_tensor_ir.graph @";
++  source += kFusedPointwiseEntryName;
++  source += "(\n    %arg0: ";
++  source += TensorWithStrideText(graph.input);
++  source += ",\n    %arg1: ";
++  source += TensorWithStrideText(graph.weight);
++  source += "\n  ) -> (";
++  source += TensorWithStrideText(graph.result);
++  source += ") {\n    %x_wide = convert %arg0 : ";
++  source += inputType;
++  source += " -> ";
++  source += computeType;
++  source += "\n    %weight_wide = convert %arg1 : ";
++  source += weightType;
++  source += " -> ";
++  source += weightComputeType;
++  source += "\n    %zero = constant 0.0 : f32\n";
++
++  for (size_t tap = 0; tap < 3; ++tap) {
++    const int64_t prefix = 3 - static_cast<int64_t>(tap);
++    StaticTensor prefixTensor{DataType::FP32,
++                              {graph.input.shape[0], prefix}, {prefix, 1}};
++    StaticTensor bodyTensor{
++        DataType::FP32,
++        {graph.input.shape[0], graph.input.shape[1] - prefix},
++        {graph.input.shape[1] - prefix, 1}};
++    const std::string prefixType = TensorTypeText(prefixTensor);
++    const std::string bodyType = TensorTypeText(bodyTensor);
++    source += "    %zero";
++    AppendIndex(source, tap);
++    source += " = splat %zero : ";
++    source += prefixType;
++    source += "\n    %body";
++    AppendIndex(source, tap);
++    source += " = slice %x_wide starts = [0, 0] limits = [";
++    AppendInteger(source, graph.input.shape[0]);
++    source += ", ";
++    AppendInteger(source, graph.input.shape[1] - prefix);
++    source += "] strides = [1, 1] : ";
++    source += computeType;
++    source += " -> ";
++    source += bodyType;
++    source += "\n    %shifted";
++    AppendIndex(source, tap);
++    source += " = concatenate %zero";
++    AppendIndex(source, tap);
++    source += ", %body";
++    AppendIndex(source, tap);
++    source += " dimension = 1 : (";
++    source += prefixType;
++    source += ", ";
++    source += bodyType;
++    source += ") -> ";
++    source += computeType;
++    source += "\n    %weight";
++    AppendIndex(source, tap);
++    source += " = slice %weight_wide starts = [0, ";
++    AppendIndex(source, tap);
++    source += "] limits = [";
++    AppendInteger(source, graph.input.shape[0]);
++    source += ", ";
++    AppendIndex(source, tap + 1);
++    source += "] strides = [1, 1] : ";
++    source += weightComputeType;
++    source += " -> ";
++    source += weightColumnType;
++    source += "\n    %weight_broadcast";
++    AppendIndex(source, tap);
++    source += " = broadcast %weight";
++    AppendIndex(source, tap);
++    source += " : ";
++    source += weightColumnType;
++    source += " -> ";
++    source += computeType;
++    source += "\n    %term";
++    AppendIndex(source, tap);
++    source += " = mul %shifted";
++    AppendIndex(source, tap);
++    source += ", %weight_broadcast";
++    AppendIndex(source, tap);
++    source += " : ";
++    source += computeType;
++    source += "\n";
++  }
++  source += "    %weight3 = slice %weight_wide starts = [0, 3] limits = [";
++  AppendInteger(source, graph.input.shape[0]);
++  source += ", 4] strides = [1, 1] : ";
++  source += weightComputeType;
++  source += " -> ";
++  source += weightColumnType;
++  source += "\n    %weight_broadcast3 = broadcast %weight3 : ";
++  source += weightColumnType;
++  source += " -> ";
++  source += computeType;
++  source += "\n    %term3 = mul %x_wide, %weight_broadcast3 : ";
++  source += computeType;
++  source += "\n    %sum01 = add %term0, %term1 : ";
++  source += computeType;
++  source += "\n    %sum23 = add %term2, %term3 : ";
++  source += computeType;
++  source += "\n    %convolution = add %sum01, %sum23 : ";
++  source += computeType;
++  source += "\n    %negative = neg %convolution : ";
++  source += computeType;
++  source += "\n    %exponent = exp %negative : ";
++  source += computeType;
++  source += "\n    %one = constant 1.0 : f32\n    %one_splat = splat %one : ";
++  source += computeType;
++  source += "\n    %denominator = add %exponent, %one_splat : ";
++  source += computeType;
++  source += "\n    %sigmoid = reciprocal %denominator : ";
++  source += computeType;
++  source += "\n    %activated = mul %convolution, %sigmoid : ";
++  source += computeType;
++  source += "\n    %result0 = convert %activated : ";
++  source += computeType;
++  source += " -> ";
++  source += inputType;
++  source += "\n    results %result0 : ";
++  source += inputType;
++  source += "\n  }\n}\n";
++  if (source.size() > kMaximumCanonicalSourceBytes) {
++    Reject("canonical TensorIR source exceeds 16 MiB");
++  }
++  return source;
++}
++
+ std::string EmitRowReductionSource(const RowReductionGraph& graph) {
+   const std::string input_type = TensorTypeText(graph.input);
+   const std::string input_with_stride = TensorWithStrideText(graph.input);
+@@ -2524,6 +2672,144 @@ NativeTileGatedRmsNormGraph AnalyzeNativeTileGatedRmsNorm(
+       input, gate, weight, result, meanScale->value_, epsilon->value_};
+ }
+ 
++bool IsNativeTileCausalConvCandidate(const ir::ProgramPtr& program) {
++  if (!IsNativeTilePointwiseCandidate(program)) return false;
++  const ir::FunctionPtr& function = program->functions_.begin()->second;
++  if (function->params_.size() != 3) return false;
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = ir::As<ir::InCoreScopeStmt>(top->stmts_[0]);
++  const TileLoopNest loopNest = UnwrapStaticTileLoops(scope->body_);
++  if (!loopNest.leaf || loopNest.leaf->stmts_.size() != 31) return false;
++  for (const ir::StmtPtr& statement : loopNest.leaf->stmts_) {
++    const auto assignment = ir::As<ir::AssignStmt>(statement);
++    const auto call = assignment ? ir::As<ir::Call>(assignment->value_) : nullptr;
++    if (call && call->op_ && ir::IsOp(call, "tile.concat")) return true;
++  }
++  return false;
++}
++
++NativeTileCausalConvGraph AnalyzeNativeTileCausalConv(
++    const ir::ProgramPtr& program) {
++  const auto& [global, function] = *program->functions_.begin();
++  if (!global || !function || global->name_ != function->name_ ||
++      function->requires_runtime_binding_ ||
++      function->func_type_ != ir::FunctionType::Orchestration ||
++      !function->level_.has_value() || *function->level_ != ir::Level::CHIP ||
++      !function->role_.has_value() || *function->role_ != ir::Role::Orchestrator ||
++      !function->attrs_.empty()) {
++    Reject("native causal conv must be one canonical CHIP @pl.jit function",
++           function ? &function->span_ : &program->span_);
++  }
++  if (function->params_.size() != 3 ||
++      function->param_directions_.size() != 3 ||
++      function->param_directions_[0] != ir::ParamDirection::In ||
++      function->param_directions_[1] != ir::ParamDirection::In ||
++      function->param_directions_[2] != ir::ParamDirection::Out ||
++      function->return_types_.size() != 1) {
++    Reject("native causal conv requires input, weight and output",
++           &function->span_);
++  }
++  const StaticTensor input = ReadStaticTensor(
++      function->params_[0]->GetType(), function->params_[0]->span_,
++      "native causal conv input");
++  const StaticTensor weight = ReadStaticTensor(
++      function->params_[1]->GetType(), function->params_[1]->span_,
++      "native causal conv weight");
++  const StaticTensor result = ReadStaticTensor(
++      function->params_[2]->GetType(), function->params_[2]->span_,
++      "native causal conv output");
++  const StaticTensor declared = ReadStaticTensor(
++      function->return_types_[0], function->span_,
++      "native causal conv return");
++  if (input.dtype != DataType::BF16 || input.shape.size() != 2 ||
++      input.shape[0] % 128 != 0 || input.shape[1] < 4 ||
++      weight.dtype != DataType::BF16 ||
++      weight.shape != std::vector<int64_t>({input.shape[0], 4}) ||
++      !SameTensor(input, result) || !SameTensor(result, declared)) {
++    Reject("native causal conv tensors have incompatible types or shapes",
++           &function->span_);
++  }
++
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = top && !top->stmts_.empty()
++                         ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
++                         : nullptr;
++  const auto returned = top && top->stmts_.size() == 2
++                            ? ir::As<ir::ReturnStmt>(top->stmts_[1])
++                            : nullptr;
++  const auto returnedVar =
++      returned && returned->value_.size() == 1
++          ? ir::As<ir::Var>(returned->value_[0])
++          : nullptr;
++  if (!scope || scope->split_ != ir::SplitMode::None ||
++      !scope->attrs_.empty() || !returnedVar ||
++      returnedVar.get() != function->params_[2].get()) {
++    Reject("native causal conv scope or return is invalid", &function->span_);
++  }
++  const TileLoopNest loopNest = UnwrapStaticTileLoops(scope->body_);
++  if (loopNest.repetitions != static_cast<uint64_t>(input.shape[0] / 128) ||
++      !loopNest.leaf || loopNest.leaf->stmts_.size() != 31) {
++    Reject("native causal conv channel loop coverage is invalid", &scope->span_);
++  }
++  constexpr std::array<std::string_view, 30> kOps = {
++      "tile.load", "tile.load", "tile.cast", "tile.cast", "tile.full",
++      "tile.slice", "tile.concat", "tile.slice", "tile.row_expand_mul",
++      "tile.full", "tile.slice", "tile.concat", "tile.slice",
++      "tile.row_expand_mul", "tile.full", "tile.slice", "tile.concat",
++      "tile.slice", "tile.row_expand_mul", "tile.slice",
++      "tile.row_expand_mul", "tile.add", "tile.add", "tile.add",
++      "tile.muls", "tile.exp", "tile.adds", "tile.recip", "tile.mul",
++      "tile.cast"};
++  std::array<ir::AssignStmtPtr, 30> assignments;
++  std::array<ir::CallPtr, 30> calls;
++  for (size_t index = 0; index < assignments.size(); ++index) {
++    assignments[index] =
++        ir::As<ir::AssignStmt>(loopNest.leaf->stmts_[index]);
++    calls[index] = assignments[index]
++                       ? ir::As<ir::Call>(assignments[index]->value_)
++                       : nullptr;
++    if (!assignments[index] || !assignments[index]->var_ || !calls[index] ||
++        !calls[index]->op_ ||
++        !ir::IsOp(calls[index], std::string(kOps[index]))) {
++      Reject("native causal conv tile sequence is invalid",
++             &loopNest.leaf->stmts_[index]->span_);
++    }
++  }
++  const auto inputSource = calls[0]->args_.empty()
++                               ? nullptr
++                               : ir::As<ir::Var>(calls[0]->args_[0]);
++  const auto weightSource = calls[1]->args_.empty()
++                                ? nullptr
++                                : ir::As<ir::Var>(calls[1]->args_[0]);
++  const auto negativeOne = calls[24]->args_.size() == 2
++                               ? ir::As<ir::ConstFloat>(calls[24]->args_[1])
++                               : nullptr;
++  const auto positiveOne = calls[26]->args_.size() == 2
++                               ? ir::As<ir::ConstFloat>(calls[26]->args_[1])
++                               : nullptr;
++  if (!inputSource || inputSource.get() != function->params_[0].get() ||
++      !weightSource || weightSource.get() != function->params_[1].get() ||
++      !negativeOne || negativeOne->value_ != -1.0 || !positiveOne ||
++      positiveOne->value_ != 1.0) {
++    Reject("native causal conv input or activation constants are invalid",
++           &scope->span_);
++  }
++  const auto store = ir::As<ir::EvalStmt>(loopNest.leaf->stmts_.back());
++  const auto storeCall = store ? ir::As<ir::Call>(store->expr_) : nullptr;
++  const auto stored = storeCall && storeCall->args_.size() == 3
++                          ? ir::As<ir::Var>(storeCall->args_[0])
++                          : nullptr;
++  const auto target = storeCall && storeCall->args_.size() == 3
++                          ? ir::As<ir::Var>(storeCall->args_[2])
++                          : nullptr;
++  if (!storeCall || !ir::IsOp(storeCall, "tile.store") || !stored ||
++      stored.get() != assignments[29]->var_.get() || !target ||
++      target.get() != function->params_[2].get()) {
++    Reject("native causal conv store is invalid", &scope->span_);
++  }
++  return NativeTileCausalConvGraph{input, weight, result};
++}
++
+ struct NativeTileRopeGraph {
+   StaticTensor input;
+   StaticTensor frequency;
+@@ -4705,6 +4991,23 @@ TensorIrModule EmitLegacyStaticAddV1(const ir::ProgramPtr& program) {
+ }  // namespace detail
+ 
+ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
++  if (IsNativeTileCausalConvCandidate(program)) {
++    const NativeTileCausalConvGraph graph = AnalyzeNativeTileCausalConv(program);
++    std::vector<TensorIrValueMetadata> metadata;
++    metadata.reserve(3);
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Input, 0, graph.input.dtype, graph.input.shape,
++        graph.input.dense_strides, /*has_explicit_strides=*/true));
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Input, 1, graph.weight.dtype, graph.weight.shape,
++        graph.weight.dense_strides, /*has_explicit_strides=*/true));
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
++        graph.result.dense_strides, /*has_explicit_strides=*/true));
++    return TensorIrModule(TensorIrModuleKind::FusedPointwiseV2,
++                          EmitNativeTileCausalConvSource(graph),
++                          std::move(metadata), /*input_count=*/2);
++  }
+   if (IsNativeTileMatmulCandidate(program)) {
+     const StructuredMatmulGraph graph = AnalyzeNativeTileMatmul(program);
+     std::vector<TensorIrValueMetadata> metadata;
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index 125bd38cc534963f0fd294cd07de35712c28a5c0..e66ae72af2f4bf531f5d61c196144dcf8e796233 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -159,6 +159,48 @@ def _native_tile_gated_rmsnorm(
+     return out
+ 
+ 
++@pl.jit
++def _native_tile_causal_conv1d(
++    x: pl.Tensor[[128, 8], pl.BF16],
++    weight: pl.Tensor[[128, 4], pl.BF16],
++    out: pl.Out[pl.Tensor[[128, 8], pl.BF16]],
++):
++    with pl.at(level=pl.Level.CORE_GROUP):
++        for channel_block in pl.range(1):
++            x_tile = pl.load(x, [channel_block * 128, 0], [128, 8])
++            weight_tile = pl.load(weight, [channel_block * 128, 0], [128, 4])
++            x_wide = pl.cast(x_tile, target_type=pl.FP32)
++            weight_wide = pl.cast(weight_tile, target_type=pl.FP32)
++            zero3 = pl.tile.full([128, 3], dtype=pl.FP32, value=0.0)
++            body0 = pl.tile.slice(x_wide, [128, 5], [0, 0])
++            shifted0 = pl.tile.concat(zero3, body0)
++            weight0 = pl.tile.slice(weight_wide, [128, 1], [0, 0])
++            term0 = pl.row_expand_mul(shifted0, weight0)
++            zero2 = pl.tile.full([128, 2], dtype=pl.FP32, value=0.0)
++            body1 = pl.tile.slice(x_wide, [128, 6], [0, 0])
++            shifted1 = pl.tile.concat(zero2, body1)
++            weight1 = pl.tile.slice(weight_wide, [128, 1], [0, 1])
++            term1 = pl.row_expand_mul(shifted1, weight1)
++            zero1 = pl.tile.full([128, 1], dtype=pl.FP32, value=0.0)
++            body2 = pl.tile.slice(x_wide, [128, 7], [0, 0])
++            shifted2 = pl.tile.concat(zero1, body2)
++            weight2 = pl.tile.slice(weight_wide, [128, 1], [0, 2])
++            term2 = pl.row_expand_mul(shifted2, weight2)
++            weight3 = pl.tile.slice(weight_wide, [128, 1], [0, 3])
++            term3 = pl.row_expand_mul(x_wide, weight3)
++            sum01 = pl.add(term0, term1)
++            sum23 = pl.add(term2, term3)
++            convolution = pl.add(sum01, sum23)
++            negative = pl.mul(convolution, -1.0)
++            exponent = pl.exp(negative)
++            denominator = pl.add(exponent, 1.0)
++            sigmoid = pl.recip(denominator)
++            activated = pl.mul(convolution, sigmoid)
++            result = pl.cast(activated, target_type=pl.BF16)
++            pl.store(result, [channel_block * 128, 0], out)
++    return out
++
++
+ @pl.jit
+ def _native_tile_rope(
+     x: pl.Tensor[[2, 128], pl.BF16],
+@@ -553,6 +595,24 @@ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+     ]
+     assert not gated_rmsnorm.artifact.fallback_used
+ 
++    causal_conv = compile_structured_strict(
++        _native_tile_causal_conv1d.specialize(),
++        request,
++        _schedule([128, 8]),
++    )
++    causal_conv_kernel = causal_conv.artifact.kernel_abi
++    assert causal_conv_kernel.entry_function_name == "pypto_fused_pointwise_v2"
++    assert causal_conv_kernel.grid_abi.static_dimensions == [1, 1, 1]
++    assert causal_conv_kernel.grid_abi.tile_sizes == [128, 8]
++    assert causal_conv_kernel.argument_layout.input_operand_count == 2
++    assert causal_conv_kernel.argument_layout.total_kernel_argument_count == 3
++    assert [d.shape for d in causal_conv_kernel.argument_layout.operand_descriptors] == [
++        [128, 8],
++        [128, 4],
++        [128, 8],
++    ]
++    assert not causal_conv.artifact.fallback_used
++
+     rope = compile_structured_strict(
+         _native_tile_rope.specialize(), request, _schedule([1, 1, 64])
+     )
+@@ -618,6 +678,7 @@ def test_compile_structured_strict_functional() -> None:
+             _native_tile_rmsnorm.specialize(),
+             _native_tile_fused_add_rmsnorm.specialize(),
+             _native_tile_gated_rmsnorm.specialize(),
++            _native_tile_causal_conv1d.specialize(),
+             _native_tile_rope.specialize(),
+             _native_tile_attention.specialize(scale=0.08838834764831843),
+             _native_tile_linear.specialize(),

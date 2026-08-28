@@ -1,0 +1,336 @@
+From c45a51765c8378a8455efeff8d6314969315f015 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 20:54:33 +0800
+Subject: [PATCH 084/212] nvidia: lower native tile RMSNorm graphs
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp     | 237 ++++++++++++++++++-
+ tests/ut/compiler/test_structured_compile.py |  39 +++
+ 2 files changed, 274 insertions(+), 2 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index c263f15fa7588b23c92a4071e352db93e7069861..e912107264fb49b54238a7f4ed0a72e8226cbedf 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -210,8 +210,8 @@ StaticTensor ReadStaticTile(const ir::TypePtr& type, const ir::Span& span,
+   if (!tile_type) {
+     Reject(std::string(location) + " must have plain TileType", &span);
+   }
+-  if (tile_type->memref_.has_value() || tile_type->tile_view_.has_value()) {
+-    Reject(std::string(location) + " must not carry a MemRef or TileView", &span);
++  if (tile_type->memref_.has_value()) {
++    Reject(std::string(location) + " must not carry a MemRef", &span);
+   }
+   if (tile_type->dtype_ != DataType::BF16 && tile_type->dtype_ != DataType::FP32) {
+     Reject(std::string(location) + " dtype must be BF16 or FP32, got " +
+@@ -1400,6 +1400,222 @@ bool IsNativeTilePointwiseCandidate(const ir::ProgramPtr& program) {
+          ir::As<ir::InCoreScopeStmt>(sequence->stmts_[0]) != nullptr;
+ }
+ 
++bool IsNativeTileRmsNormCandidate(const ir::ProgramPtr& program) {
++  if (!IsNativeTilePointwiseCandidate(program)) return false;
++  const ir::FunctionPtr& function = program->functions_.begin()->second;
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = ir::As<ir::InCoreScopeStmt>(top->stmts_[0]);
++  const TileLoopNest loop_nest = UnwrapStaticTileLoops(scope->body_);
++  for (const ir::StmtPtr& statement : loop_nest.leaf->stmts_) {
++    const auto assignment = ir::As<ir::AssignStmt>(statement);
++    const auto call = assignment ? ir::As<ir::Call>(assignment->value_) : nullptr;
++    if (call && call->op_ && ir::IsOp(call, "tile.row_sum")) return true;
++  }
++  return false;
++}
++
++void AnalyzeNativeTileRmsNorm(
++    const ir::ProgramPtr& program, StaticTensor& input_out,
++    std::vector<RowReductionEpilogueStep>& steps_out) {
++  const auto& [global, function] = *program->functions_.begin();
++  if (!global || !function || global->name_ != function->name_ ||
++      function->requires_runtime_binding_ ||
++      function->func_type_ != ir::FunctionType::Orchestration ||
++      !function->level_.has_value() || *function->level_ != ir::Level::CHIP ||
++      !function->role_.has_value() || *function->role_ != ir::Role::Orchestrator ||
++      !function->attrs_.empty()) {
++    Reject("native RMSNorm must be one canonical CHIP @pl.jit function",
++           function ? &function->span_ : &program->span_);
++  }
++  if (function->params_.size() != 2 ||
++      function->param_directions_.size() != 2 ||
++      function->param_directions_[0] != ir::ParamDirection::In ||
++      function->param_directions_[1] != ir::ParamDirection::Out ||
++      function->return_types_.size() != 1) {
++    Reject("native RMSNorm requires one input and one output parameter",
++           &function->span_);
++  }
++  const ir::VarPtr& input_parameter = function->params_[0];
++  const ir::VarPtr& output_parameter = function->params_[1];
++  if (!input_parameter || !output_parameter ||
++      input_parameter->GetKind() != ir::ObjectKind::Var ||
++      output_parameter->GetKind() != ir::ObjectKind::Var ||
++      input_parameter.get() == output_parameter.get()) {
++    Reject("native RMSNorm parameters must be distinct exact Var nodes",
++           &function->span_);
++  }
++  const StaticTensor input = ReadStaticTensor(
++      input_parameter->GetType(), input_parameter->span_, "native RMSNorm input");
++  const StaticTensor output = ReadStaticTensor(
++      output_parameter->GetType(), output_parameter->span_, "native RMSNorm output");
++  const StaticTensor declared = ReadStaticTensor(
++      function->return_types_[0], function->span_, "native RMSNorm return");
++  if (input.dtype != DataType::BF16 || input.shape.size() != 2 ||
++      !SameTensor(input, output) || !SameTensor(input, declared)) {
++    Reject("native RMSNorm input/output must be identical rank-2 BF16 tensors",
++           &function->span_);
++  }
++
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  if (!top || top->stmts_.size() != 2 || !top->stmts_[0] || !top->stmts_[1]) {
++    Reject("native RMSNorm body must contain one pl.at scope and one return",
++           &function->span_);
++  }
++  const auto scope = ir::As<ir::InCoreScopeStmt>(top->stmts_[0]);
++  if (!scope || scope->split_ != ir::SplitMode::None || !scope->attrs_.empty()) {
++    Reject("native RMSNorm requires an unsplit CORE_GROUP scope",
++           &top->stmts_[0]->span_);
++  }
++  const auto returned = ir::As<ir::ReturnStmt>(top->stmts_[1]);
++  const auto returned_var =
++      returned && returned->value_.size() == 1
++          ? ir::As<ir::Var>(returned->value_[0])
++          : nullptr;
++  if (!returned_var || returned_var.get() != output_parameter.get()) {
++    Reject("native RMSNorm must return its output parameter", &top->stmts_[1]->span_);
++  }
++
++  const TileLoopNest loop_nest = UnwrapStaticTileLoops(scope->body_);
++  if (loop_nest.repetitions != static_cast<uint64_t>(input.shape[0])) {
++    Reject("native RMSNorm row loop must cover every input row exactly once",
++           &scope->span_);
++  }
++  const ir::SeqStmtsPtr& leaf = loop_nest.leaf;
++  if (!leaf || leaf->stmts_.size() != 11) {
++    Reject("native RMSNorm row body must contain ten assignments and one store",
++           leaf ? &leaf->span_ : &scope->span_);
++  }
++
++  constexpr std::array<std::string_view, 10> kExpectedOps = {
++      "tile.load", "tile.cast", "tile.mul", "tile.create", "tile.row_sum",
++      "tile.muls", "tile.adds", "tile.rsqrt", "tile.row_expand_mul",
++      "tile.cast"};
++  std::array<ir::AssignStmtPtr, 10> assignments;
++  std::array<ir::CallPtr, 10> calls;
++  for (size_t index = 0; index < assignments.size(); ++index) {
++    assignments[index] = ir::As<ir::AssignStmt>(leaf->stmts_[index]);
++    calls[index] = assignments[index]
++                       ? ir::As<ir::Call>(assignments[index]->value_)
++                       : nullptr;
++    if (!assignments[index] || !assignments[index]->var_ || !calls[index] ||
++        !calls[index]->op_ ||
++        !ir::IsOp(calls[index], std::string(kExpectedOps[index]))) {
++      Reject("native RMSNorm tile operation sequence is not canonical",
++             &leaf->stmts_[index]->span_);
++    }
++  }
++  const auto store_statement = ir::As<ir::EvalStmt>(leaf->stmts_.back());
++  const auto store_call =
++      store_statement ? ir::As<ir::Call>(store_statement->expr_) : nullptr;
++  if (!store_call || !store_call->op_ || !ir::IsOp(store_call, "tile.store") ||
++      store_call->args_.size() != 3) {
++    Reject("native RMSNorm row body must end in tile.store",
++           &leaf->stmts_.back()->span_);
++  }
++
++  auto require_var = [&](const ir::CallPtr& call, size_t argument_index,
++                         const ir::VarPtr& expected,
++                         std::string_view diagnostic) {
++    if (argument_index >= call->args_.size()) {
++      Reject(std::string(diagnostic), &call->span_);
++    }
++    const auto value = ir::As<ir::Var>(call->args_[argument_index]);
++    if (!value || value.get() != expected.get()) {
++      Reject(std::string(diagnostic), &call->span_);
++    }
++  };
++  require_var(calls[0], 0, input_parameter,
++              "native RMSNorm load must read the input parameter");
++  require_var(calls[1], 0, assignments[0]->var_,
++              "native RMSNorm first cast must consume the loaded BF16 tile");
++  require_var(calls[2], 0, assignments[1]->var_,
++              "native RMSNorm square must consume the FP32 tile");
++  require_var(calls[2], 1, assignments[1]->var_,
++              "native RMSNorm square operands must be identical");
++  require_var(calls[4], 0, assignments[2]->var_,
++              "native RMSNorm row_sum must consume the square");
++  require_var(calls[4], 1, assignments[3]->var_,
++              "native RMSNorm row_sum must consume its scratch tile");
++  for (size_t index = 5; index <= 7; ++index) {
++    require_var(calls[index], 0, assignments[index - 1]->var_,
++                "native RMSNorm scalar/unary epilogue must be linear");
++  }
++  require_var(calls[8], 0, assignments[1]->var_,
++              "native RMSNorm normalization must reuse the FP32 input tile");
++  require_var(calls[8], 1, assignments[7]->var_,
++              "native RMSNorm normalization must broadcast inverse RMS");
++  require_var(calls[9], 0, assignments[8]->var_,
++              "native RMSNorm final cast must consume normalized FP32");
++  require_var(store_call, 0, assignments[9]->var_,
++              "native RMSNorm store must consume the BF16 result tile");
++  require_var(store_call, 2, output_parameter,
++              "native RMSNorm store must target the output parameter");
++
++  const StaticTensor bf16_tile = ReadStaticTile(
++      assignments[0]->var_->GetType(), assignments[0]->span_,
++      "native RMSNorm loaded tile");
++  const StaticTensor wide_tile = ReadStaticTile(
++      assignments[1]->var_->GetType(), assignments[1]->span_,
++      "native RMSNorm FP32 tile");
++  const StaticTensor square_tile = ReadStaticTile(
++      assignments[2]->var_->GetType(), assignments[2]->span_,
++      "native RMSNorm square tile");
++  const StaticTensor scratch_tile = ReadStaticTile(
++      assignments[3]->var_->GetType(), assignments[3]->span_,
++      "native RMSNorm scratch tile");
++  const StaticTensor row_tile = ReadStaticTile(
++      assignments[4]->var_->GetType(), assignments[4]->span_,
++      "native RMSNorm reduction tile");
++  if (bf16_tile.dtype != DataType::BF16 ||
++      bf16_tile.shape != std::vector<int64_t>{1, input.shape[1]} ||
++      wide_tile.dtype != DataType::FP32 ||
++      wide_tile.shape != bf16_tile.shape || !SameTensor(wide_tile, square_tile) ||
++      !SameTensor(wide_tile, scratch_tile) || row_tile.dtype != DataType::FP32 ||
++      row_tile.shape != std::vector<int64_t>{1, 1}) {
++    Reject("native RMSNorm tile shapes or dtypes are invalid", &scope->span_);
++  }
++  for (size_t index = 5; index <= 7; ++index) {
++    const StaticTensor epilogue_tile = ReadStaticTile(
++        assignments[index]->var_->GetType(), assignments[index]->span_,
++        "native RMSNorm epilogue tile");
++    if (!SameTensor(row_tile, epilogue_tile)) {
++      Reject("native RMSNorm epilogue must remain an FP32 [1,1] tile",
++             &assignments[index]->span_);
++    }
++  }
++  const StaticTensor normalized_tile = ReadStaticTile(
++      assignments[8]->var_->GetType(), assignments[8]->span_,
++      "native RMSNorm normalized tile");
++  const StaticTensor result_tile = ReadStaticTile(
++      assignments[9]->var_->GetType(), assignments[9]->span_,
++      "native RMSNorm result tile");
++  if (!SameTensor(wide_tile, normalized_tile) ||
++      !SameTensor(bf16_tile, result_tile)) {
++    Reject("native RMSNorm final tile types are invalid", &scope->span_);
++  }
++
++  const auto mean_scale =
++      calls[5]->args_.size() == 2
++          ? ir::As<ir::ConstFloat>(calls[5]->args_[1])
++          : nullptr;
++  const auto epsilon =
++      calls[6]->args_.size() == 2
++          ? ir::As<ir::ConstFloat>(calls[6]->args_[1])
++          : nullptr;
++  const double expected_scale = 1.0 / static_cast<double>(input.shape[1]);
++  if (!mean_scale || !epsilon || !std::isfinite(mean_scale->value_) ||
++      !std::isfinite(epsilon->value_) || epsilon->value_ <= 0.0 ||
++      std::fabs(mean_scale->value_ - expected_scale) >
++          std::numeric_limits<double>::epsilon()) {
++    Reject("native RMSNorm mean scale or epsilon is invalid", &scope->span_);
++  }
++
++  input_out = input;
++  steps_out = {{"muls", mean_scale->value_},
++               {"adds", epsilon->value_},
++               {"rsqrt", 0.0}};
++}
++
+ FusedPointwiseGraph AnalyzeNativeTilePointwise(const ir::ProgramPtr& program) {
+   if (!program || program->functions_.size() != 1) {
+     Reject("native tile program must contain exactly one function",
+@@ -2479,6 +2695,23 @@ TensorIrModule EmitLegacyStaticAddV1(const ir::ProgramPtr& program) {
+ }  // namespace detail
+ 
+ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
++  if (IsNativeTileRmsNormCandidate(program)) {
++    StaticTensor input;
++    std::vector<RowReductionEpilogueStep> steps;
++    AnalyzeNativeTileRmsNorm(program, input, steps);
++    std::vector<TensorIrValueMetadata> metadata;
++    metadata.reserve(2);
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Input, 0, input.dtype, input.shape,
++        input.dense_strides, input.shape.size() >= 2));
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Result, 0, input.dtype, input.shape,
++        input.dense_strides, input.shape.size() >= 2));
++    return TensorIrModule(
++        TensorIrModuleKind::FusedPointwiseV2,
++        EmitRowReductionEpilogueSource(input, /*square_input=*/true, steps),
++        std::move(metadata), /*input_count=*/1);
++  }
+   if (IsNativeTilePointwiseCandidate(program)) {
+     FusedPointwiseGraph graph = AnalyzeNativeTilePointwise(program);
+     std::vector<TensorIrValueMetadata> metadata;
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index 91a3e42394053fffb6ceca9b88293c1a9262214b..ad27896c68740bca234ce02dab929a212f7c1666 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -62,6 +62,29 @@ def _native_tiled_add(
+     return out
+ 
+ 
++@pl.jit
++def _native_tile_rmsnorm(
++    x: pl.Tensor[[2, 256], pl.BF16],
++    out: pl.Out[pl.Tensor[[2, 256], pl.BF16]],
++):
++    with pl.at(level=pl.Level.CORE_GROUP):
++        for row in pl.range(2):
++            x_part = pl.load(x, [row, 0], [1, 256])
++            x_wide = pl.cast(x_part, target_type=pl.FP32)
++            square = pl.mul(x_wide, x_wide)
++            scratch = pl.create_tile(
++                [1, 256], dtype=pl.FP32, target_memory=pl.MemorySpace.Vec
++            )
++            square_sum = pl.row_sum(square, scratch)
++            mean_square = pl.mul(square_sum, 1.0 / 256)
++            shifted = pl.add(mean_square, 1.0e-6)
++            inv_rms = pl.rsqrt(shifted)
++            normalized = pl.row_expand_mul(x_wide, inv_rms)
++            result = pl.cast(normalized, target_type=pl.BF16)
++            pl.store(result, [row, 0], out)
++    return out
++
++
+ def _program() -> ir.Program:
+     span = ir.Span("structured_compile_test.py", 1, 1)
+     tensor_type = ir.TensorType([8, 8], pypto.DataType.FP32)
+@@ -310,6 +333,21 @@ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+     assert tiled.artifact.kernel_abi.grid_abi.tile_sizes == [128]
+     assert not tiled.artifact.fallback_used
+ 
++    rmsnorm = compile_structured_strict(
++        _native_tile_rmsnorm.specialize(), request, _schedule([1, 128])
++    )
++    rms_kernel = rmsnorm.artifact.kernel_abi
++    assert rms_kernel.entry_function_name == "pypto_fused_pointwise_v2"
++    assert rms_kernel.grid_abi.static_dimensions == [4, 1, 1]
++    assert rms_kernel.grid_abi.tile_sizes == [1, 128]
++    assert rms_kernel.argument_layout.input_operand_count == 1
++    assert rms_kernel.argument_layout.total_kernel_argument_count == 2
++    assert [d.shape for d in rms_kernel.argument_layout.operand_descriptors] == [
++        [2, 256],
++        [2, 256],
++    ]
++    assert not rmsnorm.artifact.fallback_used
++
+ 
+ def test_compile_structured_strict_functional() -> None:
+     info = get_nvidia_backend_build_info()
+@@ -323,6 +361,7 @@ def test_compile_structured_strict_functional() -> None:
+             _fused_program(),
+             _native_tile_add.specialize(),
+             _native_tiled_add.specialize(),
++            _native_tile_rmsnorm.specialize(),
+             _row_reduction_program([32, 17], pypto.DataType.FP32, "tensor.row_sum"),
+         ):
+             with pytest.raises(ValueError, match="requires the compiled private NVIDIA backend"):

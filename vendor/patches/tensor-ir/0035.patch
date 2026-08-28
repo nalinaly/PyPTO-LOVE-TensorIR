@@ -1,0 +1,31 @@
+From c05ab8fe2832ec46d72eb43ca9afb90b378c0ad6 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 00:18:14 +0800
+Subject: [PATCH 35/82] Construct gather index tile types explicitly
+
+---
+ lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index b9f9758ec0f3c48e2c42048ba5e9cab78a9e8ec1..94c5ab260344e85680417042f5d8ed4d2ed28944 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -246,12 +246,14 @@ public:
+ 
+     auto indicesType = cast<cuda_tile::TileType>(indicesTile.getType());
+     SmallVector<int64_t> narrowShape{state.getTileShape()[0], 1};
+-    auto narrowType = indicesType.clone(narrowShape);
++    auto narrowType = cuda_tile::TileType::get(
++        narrowShape, indicesType.getElementType());
+     SmallVector<Value> zeroIndices{state.zeroIndex, state.zeroIndex};
+     Value narrowIndices = cuda_tile::ExtractOp::create(
+         rewriter, op.getLoc(), narrowType, indicesTile, zeroIndices);
+-    auto rowIndicesType = indicesType.clone(
+-        SmallVector<int64_t>{state.getTileShape()[0]});
++    auto rowIndicesType = cuda_tile::TileType::get(
++        SmallVector<int64_t>{state.getTileShape()[0]},
++        indicesType.getElementType());
+     Value rowIndices = cuda_tile::ReshapeOp::create(
+         rewriter, op.getLoc(), rowIndicesType, narrowIndices);
+ 

@@ -1,0 +1,216 @@
+From f7dae4ff9093ebf847496b8485bcaf616b667a46 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 23:30:26 +0800
+Subject: [PATCH 106/212] Lower native tile row reductions
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp     | 131 +++++++++++++++++++
+ tests/ut/compiler/test_structured_compile.py |  32 +++++
+ 2 files changed, 163 insertions(+)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 7cef4f93b8215b327c07dd4372d67d423bca9bd3..f5b0bd4cee743f41c461f4b4d95a0bd86c1e3bef 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -2074,6 +2074,123 @@ bool IsNativeTileRmsNormCandidate(const ir::ProgramPtr& program) {
+   return false;
+ }
+ 
++bool IsNativeTileRowReductionCandidate(const ir::ProgramPtr& program) {
++  if (!IsNativeTilePointwiseCandidate(program)) return false;
++  const ir::FunctionPtr& function = program->functions_.begin()->second;
++  if (function->params_.size() != 2) return false;
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = ir::As<ir::InCoreScopeStmt>(top->stmts_[0]);
++  const TileLoopNest loopNest = UnwrapStaticTileLoops(scope->body_);
++  if (!loopNest.leaf || loopNest.leaf->stmts_.size() != 4) return false;
++  const auto assignment = ir::As<ir::AssignStmt>(loopNest.leaf->stmts_[2]);
++  const auto call = assignment ? ir::As<ir::Call>(assignment->value_) : nullptr;
++  return call && call->op_ &&
++         (ir::IsOp(call, "tile.row_sum") || ir::IsOp(call, "tile.row_max"));
++}
++
++RowReductionGraph AnalyzeNativeTileRowReduction(
++    const ir::ProgramPtr& program) {
++  const auto& [global, function] = *program->functions_.begin();
++  if (!global || !function || global->name_ != function->name_ ||
++      function->requires_runtime_binding_ ||
++      function->func_type_ != ir::FunctionType::Orchestration ||
++      !function->level_.has_value() || *function->level_ != ir::Level::CHIP ||
++      !function->role_.has_value() || *function->role_ != ir::Role::Orchestrator ||
++      !function->attrs_.empty()) {
++    Reject("native row reduction must be one canonical CHIP @pl.jit function",
++           function ? &function->span_ : &program->span_);
++  }
++  if (function->params_.size() != 2 ||
++      function->param_directions_.size() != 2 ||
++      function->param_directions_[0] != ir::ParamDirection::In ||
++      function->param_directions_[1] != ir::ParamDirection::Out ||
++      function->return_types_.size() != 1) {
++    Reject("native row reduction requires one input and one output",
++           &function->span_);
++  }
++  const StaticTensor input = ReadStaticTensor(
++      function->params_[0]->GetType(), function->params_[0]->span_,
++      "native row reduction input");
++  const StaticTensor result = ReadStaticTensor(
++      function->params_[1]->GetType(), function->params_[1]->span_,
++      "native row reduction output");
++  const StaticTensor declared = ReadStaticTensor(
++      function->return_types_[0], function->span_,
++      "native row reduction return");
++  StaticTensor expected = input;
++  expected.shape.back() = 1;
++  expected.dense_strides = MakeDenseStridesForMetadata(expected.shape);
++  if (!SameTensor(result, expected) || !SameTensor(declared, expected)) {
++    Reject("native row reduction output must keep rank and set the last extent to one",
++           &function->span_);
++  }
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = top && !top->stmts_.empty()
++                         ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
++                         : nullptr;
++  const auto returned = top && top->stmts_.size() == 2
++                            ? ir::As<ir::ReturnStmt>(top->stmts_[1])
++                            : nullptr;
++  const auto returnedVar =
++      returned && returned->value_.size() == 1
++          ? ir::As<ir::Var>(returned->value_[0])
++          : nullptr;
++  if (!scope || scope->split_ != ir::SplitMode::None ||
++      !scope->attrs_.empty() || !returnedVar ||
++      returnedVar.get() != function->params_[1].get()) {
++    Reject("native row reduction scope or return is invalid", &function->span_);
++  }
++  int64_t rows = 1;
++  for (size_t index = 0; index + 1 < input.shape.size(); ++index) {
++    rows *= input.shape[index];
++  }
++  const TileLoopNest loopNest = UnwrapStaticTileLoops(scope->body_);
++  if (loopNest.repetitions != static_cast<uint64_t>(rows) ||
++      !loopNest.leaf || loopNest.leaf->stmts_.size() != 4) {
++    Reject("native row reduction loops must cover every outer row once",
++           &scope->span_);
++  }
++  std::array<ir::AssignStmtPtr, 3> assignments;
++  std::array<ir::CallPtr, 3> calls;
++  for (size_t index = 0; index < assignments.size(); ++index) {
++    assignments[index] =
++        ir::As<ir::AssignStmt>(loopNest.leaf->stmts_[index]);
++    calls[index] = assignments[index]
++                       ? ir::As<ir::Call>(assignments[index]->value_)
++                       : nullptr;
++  }
++  if (!calls[0] || !ir::IsOp(calls[0], "tile.load") || !calls[1] ||
++      !ir::IsOp(calls[1], "tile.create") || !calls[2] ||
++      !(ir::IsOp(calls[2], "tile.row_sum") ||
++        ir::IsOp(calls[2], "tile.row_max"))) {
++    Reject("native row reduction tile sequence is invalid", &scope->span_);
++  }
++  const auto requireVar = [&](const ir::CallPtr& call, size_t index,
++                              const ir::VarPtr& expectedVar) {
++    const auto value = index < call->args_.size()
++                           ? ir::As<ir::Var>(call->args_[index])
++                           : nullptr;
++    return value && value.get() == expectedVar.get();
++  };
++  if (!requireVar(calls[0], 0, function->params_[0]) ||
++      !requireVar(calls[2], 0, assignments[0]->var_) ||
++      !requireVar(calls[2], 1, assignments[1]->var_)) {
++    Reject("native row reduction dataflow is invalid", &scope->span_);
++  }
++  const auto store = ir::As<ir::EvalStmt>(loopNest.leaf->stmts_.back());
++  const auto storeCall = store ? ir::As<ir::Call>(store->expr_) : nullptr;
++  if (!storeCall || !ir::IsOp(storeCall, "tile.store") ||
++      !requireVar(storeCall, 0, assignments[2]->var_) ||
++      !requireVar(storeCall, 2, function->params_[1])) {
++    Reject("native row reduction store is invalid", &scope->span_);
++  }
++  return RowReductionGraph{
++      input, result,
++      ir::IsOp(calls[2], "tile.row_sum") ? RowReductionMode::Sum
++                                          : RowReductionMode::Max,
++      rows};
++}
++
+ void AnalyzeNativeTileRmsNorm(
+     const ir::ProgramPtr& program, StaticTensor& input_out,
+     std::vector<RowReductionEpilogueStep>& steps_out) {
+@@ -5189,6 +5306,20 @@ TensorIrModule EmitLegacyStaticAddV1(const ir::ProgramPtr& program) {
+ }  // namespace detail
+ 
+ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
++  if (IsNativeTileRowReductionCandidate(program)) {
++    const RowReductionGraph graph = AnalyzeNativeTileRowReduction(program);
++    std::vector<TensorIrValueMetadata> metadata;
++    metadata.reserve(2);
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Input, 0, graph.input.dtype, graph.input.shape,
++        graph.input.dense_strides, graph.input.shape.size() >= 2));
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
++        graph.result.dense_strides, graph.result.shape.size() >= 2));
++    return TensorIrModule(TensorIrModuleKind::RowReductionV3,
++                          EmitRowReductionSource(graph), std::move(metadata),
++                          /*input_count=*/1);
++  }
+   if (IsNativeTileCausalConvCandidate(program)) {
+     const NativeTileCausalConvGraph graph = AnalyzeNativeTileCausalConv(program);
+     std::vector<TensorIrValueMetadata> metadata;
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index 209b437e0855be40edc9be089e3d571e81ffcc58..432beeeee033242f595cc655ce137c770262caf6 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -62,6 +62,22 @@ def _native_tiled_add(
+     return out
+ 
+ 
++@pl.jit
++def _native_tile_row_sum(
++    x: pl.Tensor[[256, 128], pl.FP32],
++    out: pl.Out[pl.Tensor[[256, 1], pl.FP32]],
++):
++    with pl.at(level=pl.Level.CORE_GROUP):
++        for row in pl.range(256):
++            x_tile = pl.load(x, [row, 0], [1, 128])
++            scratch = pl.create_tile(
++                [1, 128], dtype=pl.FP32, target_memory=pl.MemorySpace.Vec
++            )
++            result = pl.row_sum(x_tile, scratch)
++            pl.store(result, [row, 0], out)
++    return out
++
++
+ @pl.jit
+ def _native_tile_rmsnorm(
+     x: pl.Tensor[[2, 256], pl.BF16],
+@@ -540,6 +556,21 @@ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+     assert tiled.artifact.kernel_abi.grid_abi.tile_sizes == [128]
+     assert not tiled.artifact.fallback_used
+ 
++    row_sum = compile_structured_strict(
++        _native_tile_row_sum.specialize(), request, _schedule(128)
++    )
++    row_sum_kernel = row_sum.artifact.kernel_abi
++    assert row_sum_kernel.entry_function_name == "pypto_row_reduction_v3"
++    assert row_sum_kernel.grid_abi.static_dimensions == [2, 1, 1]
++    assert row_sum_kernel.grid_abi.tile_sizes == [128]
++    assert row_sum_kernel.argument_layout.input_operand_count == 1
++    assert row_sum_kernel.argument_layout.total_kernel_argument_count == 2
++    assert [d.shape for d in row_sum_kernel.argument_layout.operand_descriptors] == [
++        [256, 128],
++        [256, 1],
++    ]
++    assert not row_sum.artifact.fallback_used
++
+     rmsnorm = compile_structured_strict(
+         _native_tile_rmsnorm.specialize(), request, _schedule([1, 128])
+     )
+@@ -675,6 +706,7 @@ def test_compile_structured_strict_functional() -> None:
+             _fused_program(),
+             _native_tile_add.specialize(),
+             _native_tiled_add.specialize(),
++            _native_tile_row_sum.specialize(),
+             _native_tile_rmsnorm.specialize(),
+             _native_tile_fused_add_rmsnorm.specialize(),
+             _native_tile_gated_rmsnorm.specialize(),

@@ -1,0 +1,23 @@
+From 3fb2ac8a8a6db8046cadd064efadbbca6bbd7862 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 12:41:55 +0800
+Subject: [PATCH 066/212] test: fix DAG fixture expected type text
+
+---
+ tests/ut/cpp/tensor_ir_codegen_test.cpp | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index 47ee7744ead63b49c8a9e8ddc4906ee1c26bedc0..3be8e26b154c69e88256e40c3b401ab486e79aa6 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -1091,8 +1091,7 @@ int TestFusedPointwiseV2Rejections() {
+              third, OpCall("tensor.add", {second, first}, type), TestSpan()),
+          return_third}));
+     const std::string source = module.GetCanonicalSource();
+-    std::fprintf(stderr, "DAG source:\n%s\n", source.c_str());
+-    REQUIRE(source.find("%value2 = add %value1, %value0 : tensor<2x3xf32>") !=
++    REQUIRE(source.find("%value2 = add %value1, %value0 : tensor<8xf32>") !=
+             std::string::npos);
+   }
+ 

@@ -1,0 +1,22 @@
+From aa112b2a1ef54bd9a0ca0e512fb1cd2be442b8c3 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 01:08:55 +0800
+Subject: [PATCH 40/82] Name layout inference failures
+
+---
+ lib/Transform/LayoutAnnotation.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/lib/Transform/LayoutAnnotation.cpp b/lib/Transform/LayoutAnnotation.cpp
+index 5c9a2d6634ea48e60a0396463da915800255f655..f0ce418136d46b233122454733c94090432044e7 100644
+--- a/lib/Transform/LayoutAnnotation.cpp
++++ b/lib/Transform/LayoutAnnotation.cpp
+@@ -122,7 +122,7 @@ LogicalResult processOperation(Operation *op) {
+ 
+   // Result may be invalid, e.g. if layout composition failed.
+   if (!result) {
+-    op->emitError("failed to compute layout");
++    op->emitError() << "failed to compute layout for " << op->getName();
+     return failure();
+   }
+ 

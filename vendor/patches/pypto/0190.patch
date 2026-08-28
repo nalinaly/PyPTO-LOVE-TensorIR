@@ -1,0 +1,30 @@
+From 6fe2b43ae3b469b3c49dd8846eb0cd4fdc8c568b Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 12:32:06 +0800
+Subject: [PATCH 190/212] Lock explicit scatter permute types
+
+---
+ 3rdparty/nvidia/tensor-ir  | 2 +-
+ cmake/nvidia_backend.cmake | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 04da10448b8dbb95d91ae73252b34bff628407ad..6245d2baeb6f815b61464f63759c251a9a6abac0 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 04da10448b8dbb95d91ae73252b34bff628407ad
++Subproject commit 6245d2baeb6f815b61464f63759c251a9a6abac0
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index e58c0fbebb0e770f3e83ae61c6566b21637e1879..0b56d539cfdfe6fcbc58c9fce874549378b2f530 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "04da10448b8dbb95d91ae73252b34bff628407ad")
++    "6245d2baeb6f815b61464f63759c251a9a6abac0")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

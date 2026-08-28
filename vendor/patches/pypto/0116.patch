@@ -1,0 +1,113 @@
+From 97fe8b66bb862c6c908e55cac08ab42bf01928a1 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 00:41:56 +0800
+Subject: [PATCH 116/212] Fix TensorIR gather column coordinates
+
+---
+ ...ather-coordinates-to-element-offsets.patch | 47 +++++++++++++++++++
+ 3rdparty/nvidia/tensor-ir                     |  2 +-
+ cmake/nvidia_backend.cmake                    |  2 +-
+ .../test_nvidia_backend_build_info.py         |  2 +-
+ tests/ut/compiler/test_structured_compile.py  |  2 +-
+ 5 files changed, 51 insertions(+), 4 deletions(-)
+ create mode 100644 3rdparty/nvidia/0011-Scale-dense-gather-coordinates-to-element-offsets.patch
+
+diff --git a/3rdparty/nvidia/0011-Scale-dense-gather-coordinates-to-element-offsets.patch b/3rdparty/nvidia/0011-Scale-dense-gather-coordinates-to-element-offsets.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..2780ba76a6965094aea63c7c1785b4046d3f74e4
+--- /dev/null
++++ b/3rdparty/nvidia/0011-Scale-dense-gather-coordinates-to-element-offsets.patch
+@@ -0,0 +1,47 @@
++From 494ebe55345a00a2e9ad034725b7c464217e7308 Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Fri, 28 Aug 2026 00:41:28 +0800
++Subject: [PATCH] Scale dense gather coordinates to element offsets
++
++---
++ lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp | 8 +++++++-
++ test/Conversion/TensorToCudaTile/gather_rows_layout.mlir  | 4 +++-
++ 2 files changed, 10 insertions(+), 2 deletions(-)
++
++diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++index 94c5ab2..c1a3216 100644
++--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++@@ -261,7 +261,13 @@ public:
++     Type tokenType = cuda_tile::TokenType::get(rewriter.getContext());
++     auto optimizationHints = createLoadStoreOptimizationHints(
++         rewriter.getContext(), dataDesc.allowTma, dataDesc.cost);
++-    SmallVector<Value> gatherIndices{rowIndices, state.getIndexValues()[1]};
+++    Value columnScale = createConstant(
+++        rewriter, op.getLoc(),
+++        cast<ShapedType>(state.getIndexValues()[1].getType()),
+++        state.getTileShape()[1]);
+++    Value columnOffset = cuda_tile::MulIOp::create(
+++        rewriter, op.getLoc(), state.getIndexValues()[1], columnScale);
+++    SmallVector<Value> gatherIndices{rowIndices, columnOffset};
++     auto load = cuda_tile::LoadViewTkoOp::create(
++         rewriter, op.getLoc(), outputType, tokenType,
++         cuda_tile::MemoryOrderingSemantics::WEAK, /*memory_scope=*/nullptr,
++diff --git a/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
++index 9c8d46d..ce70442 100644
++--- a/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
+++++ b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
++@@ -5,7 +5,9 @@
++ // CHECK: %[[GATHER_VIEW:.*]] = make_gather_scatter_view %[[DATA_VIEW]] : gather_scatter_view<tile=(8x128), tensor_view<1024x128xbf16, strides=[128,1]>, sparse_dim=0>
++ // CHECK: %[[NARROW:.*]] = extract {{.*}} : tile<8x128xi32> -> tile<8x1xi32>
++ // CHECK: %[[ROWS:.*]] = reshape %[[NARROW]] : tile<8x1xi32> -> tile<8xi32>
++-// CHECK: %[[GATHERED:.*]], {{.*}} = load_view_tko weak %[[GATHER_VIEW]][%[[ROWS]], {{.*}}]
+++// CHECK: %[[COL_SCALE:.*]] = constant <i32: 128> : tile<i32>
+++// CHECK: %[[COL_OFFSET:.*]] = muli {{.*}}, %[[COL_SCALE]] : tile<i32>
+++// CHECK: %[[GATHERED:.*]], {{.*}} = load_view_tko weak %[[GATHER_VIEW]][%[[ROWS]], %[[COL_OFFSET]]]
++ // CHECK-SAME: -> tile<8x128xbf16>, token
++ // CHECK: store_view_tko weak %[[GATHERED]]
++ module {
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 353850f736de4e0793d5f716b9733ab2ea6aa77f..494ebe55345a00a2e9ad034725b7c464217e7308 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 353850f736de4e0793d5f716b9733ab2ea6aa77f
++Subproject commit 494ebe55345a00a2e9ad034725b7c464217e7308
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 9dee93ef0aec3ac2be9a71206ef70db286a818fc..c2d82ceb8ea824ba4155c8bfe0a8c06c4d246cb4 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "353850f736de4e0793d5f716b9733ab2ea6aa77f")
++    "494ebe55345a00a2e9ad034725b7c464217e7308")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+diff --git a/tests/ut/compiler/test_nvidia_backend_build_info.py b/tests/ut/compiler/test_nvidia_backend_build_info.py
+index 754d65a6c7f78ec5c3d93e0d3894d6cc6a75db26..3277b31f0392de5e99e9347f694b535cea54c9f9 100644
+--- a/tests/ut/compiler/test_nvidia_backend_build_info.py
++++ b/tests/ut/compiler/test_nvidia_backend_build_info.py
+@@ -30,7 +30,7 @@ def test_nvidia_backend_build_info_is_immutable_and_self_consistent() -> None:
+     assert info.compiler_factory_available
+     assert len(info.pypto_revision) == 40
+     assert set(info.pypto_revision) <= set("0123456789abcdef")
+-    assert info.tensor_ir_revision == "353850f736de4e0793d5f716b9733ab2ea6aa77f"
++    assert info.tensor_ir_revision == "494ebe55345a00a2e9ad034725b7c464217e7308"
+     assert info.cuda_tile_revision == "af2417041cc939b87ef56d92cfdcf61737c5457e"
+     assert info.llvm_revision == "57109befac92811d2253109242ca6fa69c961fb2"
+     assert info.cuda_toolkit_root == "/usr/local/cuda-13.3"
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index e1ead7da53ec8a4175e9d83d03b1714244b88567..7b4912a06fd183aa7307098a3dc5d706baa0c13d 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -664,7 +664,7 @@ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+     )
+     embedding_kernel = embedding.artifact.kernel_abi
+     assert embedding_kernel.entry_function_name == "pypto_fused_pointwise"
+-    assert embedding_kernel.grid_abi.static_dimensions == [1, 1, 1]
++    assert embedding_kernel.grid_abi.static_dimensions == [2, 1, 1]
+     assert embedding_kernel.grid_abi.tile_sizes == [8, 128]
+     assert embedding_kernel.argument_layout.input_operand_count == 2
+     assert embedding_kernel.argument_layout.total_kernel_argument_count == 3

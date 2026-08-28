@@ -1,0 +1,30 @@
+From 2faefb64d3b81484a100f6a2d839f57abfe5ca35 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 10:20:15 +0800
+Subject: [PATCH 170/212] Pin indirect scatter row projection
+
+---
+ 3rdparty/nvidia/tensor-ir  | 2 +-
+ cmake/nvidia_backend.cmake | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 20fab98254e0b14a587e0abf285bec951bf9382c..1cae26fa225b377501ec9e544fa972590bd1b8fe 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 20fab98254e0b14a587e0abf285bec951bf9382c
++Subproject commit 1cae26fa225b377501ec9e544fa972590bd1b8fe
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 7c5374b3a9971554319c479597b4ecd13f520096..162e8e84535314741bde79fca91146fb44d56dd9 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "20fab98254e0b14a587e0abf285bec951bf9382c")
++    "1cae26fa225b377501ec9e544fa972590bd1b8fe")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

@@ -1,0 +1,2698 @@
+From b83fcd3ddc497d585bcc45883eede179aff7d4d2 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Wed, 26 Aug 2026 08:15:06 +0800
+Subject: [PATCH 051/212] codegen: emit bounded fused pointwise TensorIR chains
+
+---
+ docs/en/dev/backend/01-nvidia-target-info.md  | 103 ++--
+ docs/zh/dev/backend/01-nvidia-target-info.md  |  92 ++--
+ src/codegen/nvidia/tensor_ir_codegen.cpp      | 514 +++++++++++++++++-
+ src/codegen/nvidia/tensor_ir_codegen.h        |  35 +-
+ .../structured_tensor_ir_build_spec.cpp       | 251 +++++++--
+ .../structured_tensor_ir_build_spec.h         |  21 +
+ tests/ut/compiler/test_structured_compile.py  |  67 ++-
+ tests/ut/cpp/structured_compile_test.cpp      | 181 +++++-
+ .../structured_tensor_ir_build_spec_test.cpp  | 261 ++++++++-
+ tests/ut/cpp/tensor_ir_codegen_test.cpp       | 493 ++++++++++++++++-
+ 10 files changed, 1855 insertions(+), 163 deletions(-)
+
+diff --git a/docs/en/dev/backend/01-nvidia-target-info.md b/docs/en/dev/backend/01-nvidia-target-info.md
+index 972289cc07f8efb6b46b4f3353c53e837eedebca..8f39125c37e9157d1028be804272f11d964c4a5b 100644
+--- a/docs/en/dev/backend/01-nvidia-target-info.md
++++ b/docs/en/dev/backend/01-nvidia-target-info.md
+@@ -216,10 +216,11 @@ Internally, `PrepareStructuredTensorIrCompilation(program, request, schedule)`
+ is the sole constructor path for
+ `PreparedStructuredTensorIrCompilation`. It calls `EmitTensorIr(program)`, then
+ owns copies of the request and schedule, the resolved strict producer options,
+-the exact canonical TensorIR source bytes, copied `Input0`, `Input1`, `Result0`
+-metadata, and five canonical identity projections. `TensorIrModule` does not
+-cross this seam, and the prepared value cannot be mixed with a different
+-request or schedule during finalization.
++the exact canonical TensorIR source bytes, the explicit frontend module kind
++and metadata schema, copied ordered input/result metadata, and five canonical
++identity projections. `TensorIrModule` does not cross this seam, and the
++prepared value cannot be mixed with a different request or schedule during
++finalization.
+ 
+ The facade performs one compile-first transaction: validate HIR, request,
+ schedule, and compiled backend identity; claim the producer process; invoke
+@@ -255,16 +256,18 @@ caller may publish the returned Artifact under the returned BuildSpec only
+ after the complete transaction succeeds; the facade performs no lookup,
+ publication, provisional key, or key rewrite.
+ 
+-Every projection is canonical MessagePack v1 in lexical map-key order, capped
+-at 1 MiB, and contains no binary, extension, or floating-point value:
++Every projection is canonical MessagePack in lexical map-key order, capped at
++1 MiB, and contains no binary, extension, or floating-point value. The frozen
++legacy add module uses the existing v1 contracts; fused pointwise uses
++domain-separated v2 contracts with schema version 2:
+ 
+-| KernelBuildSpec input | Contract | Contents |
+-| --------------------- | -------- | -------- |
+-| static specialization | `pypto.frontend.static_specialization.v1` | ordered argument/result roles, ordinals, and positive static HIR shapes |
+-| symbolic specialization | `pypto.frontend.symbolic_specialization.v1` | explicit empty `constraints` and `symbols` arrays |
+-| argument ABI | `pypto.frontend.argument_abi.v1` | ordered inputs with `direction=in`, dtype code/name, rank, static shape, logical dense strides, contiguous and explicit-stride state |
+-| result ABI | `pypto.frontend.result_abi.v1` | ordered results with the same dtype/layout metadata, without an input direction |
+-| mutation ABI | `pypto.frontend.mutation_abi.v1` | two read-only argument effects and one `nil` result alias |
++| KernelBuildSpec input | Legacy contract | Fused contract | Contents |
++| --------------------- | --------------- | -------------- | -------- |
++| static specialization | `pypto.frontend.static_specialization.v1` | `pypto.frontend.static_specialization.v2` | ordered argument/result roles, ordinals, and positive static HIR shapes |
++| symbolic specialization | `pypto.frontend.symbolic_specialization.v1` | `pypto.frontend.symbolic_specialization.v2` | explicit empty `constraints` and `symbols` arrays |
++| argument ABI | `pypto.frontend.argument_abi.v1` | `pypto.frontend.argument_abi.v2` | all ordered inputs with `direction=in`, dtype code/name, rank, static shape, logical dense strides, contiguous and explicit-stride state |
++| result ABI | `pypto.frontend.result_abi.v1` | `pypto.frontend.result_abi.v2` | the one ordered result with the same dtype/layout metadata, without an input direction |
++| mutation ABI | `pypto.frontend.mutation_abi.v1` | `pypto.frontend.mutation_abi.v2` | one read-only effect per input and one `nil` result alias |
+ 
+ The sixth identity domain remains the SHA-256 of the raw canonical TensorIR
+ source bytes, without a MessagePack envelope. A `nil` result alias means that
+@@ -275,29 +278,63 @@ non-overlap, C/C++ `restrict`, or a loader-side alias check.
+ caller-provided callable digest. It validates the returned kernel ABI against
+ the prepared metadata and schedule, then uses only
+ `ArtifactKernelAbi.identity_digest` as `KernelBuildSpec.callable_abi_digest`.
+-The v1 check requires the fixed runtime/entry names; exactly ordered tensor
+-descriptors for `Input0`, `Input1`, `Result0`; fully static matching shapes and
+-strides with no dynamic metadata; two inputs, three kernel pointer arguments,
+-`uniform_signature=false`, and pointer-only packing; static grid policy driven
+-by descriptor zero; exact schedule tile sizes; zero workspace; and the fixed
+-launch and CUDA 13.0-minimum loader ABI.
++Both module kinds require the fixed runtime name; the prepared entry name;
++exactly ordered tensor descriptors for every input followed by `Result0`;
++fully static matching shapes and strides with no dynamic metadata; `N` inputs,
++`N+1` kernel pointer arguments, `uniform_signature=false`, and pointer-only
++packing; static grid policy driven by descriptor zero; exact schedule tile
++sizes; zero workspace; and the fixed launch and CUDA 13.0-minimum loader ABI.
++The legacy module remains exactly two inputs, entry `pypto_vector_add`, and
++three pointers.
+ 
+ The producer ABI descriptors do not contain dtype or source-role fields. Dtype
+ is bound by the exact TensorIR source and frontend argument/result projections;
+-`Input0`, `Input1`, and `Result0` roles are inferred positionally from descriptor
+-order and input count. This is deterministic identity validation, not an
+-independent proof of dtype or role semantics from Cubin bytes.
+-
+-Static specialization binds HIR shapes, not launch-grid dimensions.
+-Layout-propagation may flatten or normalize TensorIR iteration space, so this
+-compile-free seam deliberately does not recompute an exact grid from HIR shape
+-and tile sizes. It requires the producer-shaped one-dimensional layout
+-`y=1,z=1` and a positive `x` within the copied request's target limit. The exact
+-`x` remains producer-owned and is bound from the returned ABI; the backend-ON
+-facade parity test freezes `[8,8]`, tile `16` as grid `{4,1,1}`. Preparation
+-itself invokes no producer, filesystem, subprocess, CUDA API, or GPU. The facade
+-may invoke the CPU compiler and assembler subprocess, but it never initializes
+-CUDA or executes on a GPU.
++input and `Result0` roles are inferred positionally from descriptor order and
++input count. This is deterministic identity validation, not an independent
++proof of dtype or role semantics from Cubin bytes.
++
++Static specialization binds HIR shapes, not generic launch-grid dimensions.
++For the legacy module, layout propagation may flatten or normalize TensorIR
++iteration space, so the compile-free seam retains the accepted producer-owned
++positive `x`, `y=1,z=1` rule; the backend-ON facade parity test freezes
++`[8,8]`, tile `16` as grid `{4,1,1}`. The separately versioned dense fused
++pointwise module has a stronger normalized law: preparation requires exactly
++one `dim_000` tile, a positive power of two no larger than the product of the
++static shape, and a resulting grid within signed-int32 and target limits.
++Finalization requires exactly
++`{ceil(product(shape) / dim_000), 1, 1}`. Preparation itself invokes no
++producer, filesystem, subprocess, CUDA API, or GPU. The facade may invoke the
++CPU compiler and assembler subprocess, but it never initializes CUDA or
++executes on a GPU.
++
++### Bounded fused pointwise frontend v2
++
++`FusedPointwiseV2` is private compiler analysis, not a new public compiler
++facade or wire type. It emits entry `pypto_fused_pointwise_v2` and metadata
++schema 2. It accepts one Opaque function with 1 through 16 exact `In` tensor
++parameters, 1 through 64 direct SSA assignments, and one return of the final
++assignment. All values are the same plain, fully static, contiguous BF16 or
++FP32 tensor of rank 1 through 32, with no MemRef, view, broadcast, dynamic
++extent, attribute, keyword argument, or mutation.
++
++The registered HIR allowlist is `tensor.add`, `tensor.adds`, `tensor.sub`,
++`tensor.subs`, `tensor.mul`, `tensor.muls`, `tensor.neg`, `tensor.exp`,
++`tensor.recip`, and `tensor.rsqrt`; operator identity is checked through the
++registry. Every assignment after the first must consume the exact immediately
++preceding result. Other tensor operands may be direct parameters, older or
++forward intermediate references are rejected, and every parameter must be
++used. Scalar forms require one exact, same-dtype `ConstFloat` whose value stays
++finite in its declared tensor dtype. They emit canonical scalar `constant` plus
++`splat` operations; `tensor.recip` emits TensorIR `reciprocal`. All attributes
++and keyword arguments, including `high_precision`, are rejected rather than
++silently discarded.
++
++The exact legacy two-input add form is classified as `LegacyStaticAddV1` before
++V2 analysis. Its `pypto_vector_add` source, schema-1 projection bytes, callable
++ABI and producer behavior remain frozen. This CPU/compiler contract proves
++bounded syntax, deterministic identities, ABI validation and Cubin production;
++it does not prove FP32/BF16 transcendental numerical correctness, CUDA launch,
++or performance. Those require a separate real-SM120 correctness gate.
+ 
+ ## NVIDIA Artifact v1
+ 
+diff --git a/docs/zh/dev/backend/01-nvidia-target-info.md b/docs/zh/dev/backend/01-nvidia-target-info.md
+index 314c5981f3083c8ab7b30e5e8ce91ed4e439dcb6..52a58d15b3dcd7b9805a31ae53dc641eb3809e8e 100644
+--- a/docs/zh/dev/backend/01-nvidia-target-info.md
++++ b/docs/zh/dev/backend/01-nvidia-target-info.md
+@@ -193,9 +193,9 @@ final `build_spec` 与 `artifact`。在内部，
+ `PrepareStructuredTensorIrCompilation(program, request, schedule)` 是
+ `PreparedStructuredTensorIrCompilation` 唯一的构造路径。它调用
+ `EmitTensorIr(program)`，随后按值拥有 request、schedule、解析后的 strict producer
+-option、精确 canonical TensorIR source bytes、复制的 `Input0`、`Input1`、`Result0`
+-metadata，以及五个 canonical identity projection。`TensorIrModule` 不会跨过此 seam，
+-finalization 也无法混入另一份 request 或 schedule。
++option、精确 canonical TensorIR source bytes、显式 frontend module kind 与 metadata
++schema、复制出的有序 input/result metadata，以及五个 canonical identity projection。
++`TensorIrModule` 不会跨过此 seam，finalization 也无法混入另一份 request 或 schedule。
+ 
+ facade 执行一次 compile-first transaction：验证 HIR、request、schedule 与 compiled
+ backend identity；claim producer process；只在 compiler mutex 内调用一次 concrete
+@@ -226,16 +226,18 @@ BuildSpec 存在之前不能 cache lookup。只有完整 transaction 成功后
+ BuildSpec 为 key publish 返回的 Artifact；facade 不执行 lookup、publication、
+ provisional key 或 key rewrite。
+ 
+-每个 projection 都是按 map key 词法顺序编码的 canonical MessagePack v1，上限为
+-1 MiB，并且不包含 binary、extension 或 floating-point value：
++每个 projection 都是按 map key 词法顺序编码的 canonical MessagePack，上限为
++1 MiB，并且不包含 binary、extension 或 floating-point value。冻结的 legacy add
++module 继续使用现有 v1 contract；fused pointwise 使用 domain-separated v2 contract
++与 schema version 2：
+ 
+-| KernelBuildSpec input | Contract | Contents |
+-| --------------------- | -------- | -------- |
+-| static specialization | `pypto.frontend.static_specialization.v1` | 有序 argument/result role、ordinal 与正数 static HIR shape |
+-| symbolic specialization | `pypto.frontend.symbolic_specialization.v1` | 显式为空的 `constraints` 与 `symbols` array |
+-| argument ABI | `pypto.frontend.argument_abi.v1` | 有序 input，包括 `direction=in`、dtype code/name、rank、static shape、logical dense stride、contiguous 与 explicit-stride state |
+-| result ABI | `pypto.frontend.result_abi.v1` | 有序 result，包含相同 dtype/layout metadata，但不含 input direction |
+-| mutation ABI | `pypto.frontend.mutation_abi.v1` | 两个 read-only argument effect 与一个 `nil` result alias |
++| KernelBuildSpec input | Legacy contract | Fused contract | Contents |
++| --------------------- | --------------- | -------------- | -------- |
++| static specialization | `pypto.frontend.static_specialization.v1` | `pypto.frontend.static_specialization.v2` | 有序 argument/result role、ordinal 与正数 static HIR shape |
++| symbolic specialization | `pypto.frontend.symbolic_specialization.v1` | `pypto.frontend.symbolic_specialization.v2` | 显式为空的 `constraints` 与 `symbols` array |
++| argument ABI | `pypto.frontend.argument_abi.v1` | `pypto.frontend.argument_abi.v2` | 全部有序 input，包括 `direction=in`、dtype code/name、rank、static shape、logical dense stride、contiguous 与 explicit-stride state |
++| result ABI | `pypto.frontend.result_abi.v1` | `pypto.frontend.result_abi.v2` | 唯一有序 result，包含相同 dtype/layout metadata，但不含 input direction |
++| mutation ABI | `pypto.frontend.mutation_abi.v1` | `pypto.frontend.mutation_abi.v2` | 每个 input 一个 read-only effect，以及一个 `nil` result alias |
+ 
+ 第六个 identity domain 仍然是 raw canonical TensorIR source bytes 的 SHA-256，不添加
+ MessagePack envelope。`nil` result alias 表示 HIR/SSA result 没有 input-alias lineage；
+@@ -244,27 +246,55 @@ MessagePack envelope。`nil` result alias 表示 HIR/SSA result 没有 input-ali
+ `FinalizeStructuredTensorIrBuildSpec(prepared, real_kernel_abi)` 不接受 caller 提供的
+ callable digest。它先根据 prepared metadata 与 schedule 验证返回的 kernel ABI，之后
+ 只使用 `ArtifactKernelAbi.identity_digest` 作为
+-`KernelBuildSpec.callable_abi_digest`。v1 要求固定 runtime/entry name；严格按
+-`Input0`、`Input1`、`Result0` 排列的 tensor descriptor；完全 static 且匹配的
+-shape/stride，并且没有 dynamic metadata；两个 input、三个 kernel pointer argument、
+-`uniform_signature=false` 与 pointer-only packing；由 descriptor zero 驱动的 static
+-grid policy；精确 schedule tile size；zero workspace；以及固定 launch ABI 与 CUDA
+-13.0 minimum loader ABI。
++`KernelBuildSpec.callable_abi_digest`。两种 module kind 都要求固定 runtime name、
++prepared entry name、严格按全部 input 后接 `Result0` 排列的 tensor descriptor、完全
++static 且匹配的 shape/stride、无 dynamic metadata、`N` 个 input 与 `N+1` 个 kernel
++pointer argument、`uniform_signature=false` 与 pointer-only packing、由 descriptor
++zero 驱动的 static grid policy、精确 schedule tile size、zero workspace，以及固定
++launch ABI 与 CUDA 13.0 minimum loader ABI。legacy module 仍严格为两个 input、entry
++`pypto_vector_add` 与三个 pointer。
+ 
+ producer ABI descriptor 不含 dtype 或 source-role field。dtype 由精确 TensorIR source
+-以及 frontend argument/result projection 绑定；`Input0`、`Input1`、`Result0` role 根据
+-descriptor 顺序与 input count 按位置推导。这提供 deterministic identity validation，
+-并不构成从 Cubin bytes 独立证明 dtype 或 role semantics。
+-
+-static specialization 绑定 HIR shape，而不是 launch-grid dimension。layout-propagation
+-可能 flatten 或 normalize TensorIR iteration space，因此此 compile-free seam 不会根据
+-HIR shape 与 tile size 重算精确 grid。它只要求 producer 返回的所有 static grid
+-使用 producer-shaped one-dimensional layout `y=1,z=1`，并要求正数 `x` 不超过
+-复制 request 中的 target limit。精确 `x` 仍由 producer 拥有，并从返回 ABI 绑定；
+-backend-ON facade parity test 将 `[8,8]`、tile `16` 冻结为 grid `{4,1,1}`。
+-preparation 本身不调用 producer、filesystem、subprocess、CUDA API 或 GPU。facade
+-可以调用 CPU compiler 与 assembler subprocess，但不会初始化 CUDA，也不会在 GPU
+-上执行。
++以及 frontend argument/result projection 绑定；input 与 `Result0` role 根据 descriptor
++顺序与 input count 按位置推导。这提供 deterministic identity validation，并不构成从
++Cubin bytes 独立证明 dtype 或 role semantics。
++
++static specialization 绑定 HIR shape，而不是通用 launch-grid dimension。对于 legacy
++module，layout propagation 可能 flatten 或 normalize TensorIR iteration space，因此
++compile-free seam 保留已验收的 producer-owned 正数 `x`、`y=1,z=1` 规则；backend-ON
++facade parity test 将 `[8,8]`、tile `16` 冻结为 grid `{4,1,1}`。单独版本化的 dense
++fused pointwise module 使用更强的 normalized 规则：preparation 要求恰好一个
++`dim_000` tile，它必须是正数 2 的幂且不大于 static shape 的乘积，生成的 grid 还必须
++位于 signed-int32 与 target limit 内。finalization 严格要求
++`{ceil(product(shape) / dim_000), 1, 1}`。preparation 本身不调用 producer、filesystem、
++subprocess、CUDA API 或 GPU。facade 可以调用 CPU compiler 与 assembler subprocess，
++但不会初始化 CUDA，也不会在 GPU 上执行。
++
++### 有界 fused pointwise frontend v2
++
++`FusedPointwiseV2` 是 private compiler analysis，不是新的 public compiler facade 或
++wire type。它生成 entry `pypto_fused_pointwise_v2` 与 metadata schema 2。它接受一个
++Opaque function，其中包含 1 到 16 个 exact `In` tensor parameter、1 到 64 个 direct
++SSA assignment，以及一个返回最后 assignment 的 return。所有 value 必须是相同的
++plain、完全 static、contiguous BF16 或 FP32 tensor，rank 位于 1 到 32；不允许
++MemRef、view、broadcast、dynamic extent、attribute、keyword argument 或 mutation。
++
++registered HIR allowlist 为 `tensor.add`、`tensor.adds`、`tensor.sub`、`tensor.subs`、
++`tensor.mul`、`tensor.muls`、`tensor.neg`、`tensor.exp`、`tensor.recip` 与
++`tensor.rsqrt`；operator identity 通过 registry 检查。第一个 assignment 之后的每个
++assignment 都必须消费精确的 immediately preceding result；其它 tensor operand 可以是
++direct parameter，但会拒绝 older/forward intermediate reference，并要求每个 parameter
++至少使用一次。scalar form 只接受一个 exact、same-dtype `ConstFloat`，且该值在声明的
++tensor dtype 中仍为 finite。它们生成 canonical scalar `constant` 加 `splat`；
++`tensor.recip` 生成 TensorIR `reciprocal`。所有 attribute 与 keyword argument（包括
++`high_precision`）都会被拒绝，绝不会被静默丢弃。
++
++精确 legacy two-input add form 会在 V2 analysis 前分类为 `LegacyStaticAddV1`。它的
++`pypto_vector_add` source、schema-1 projection bytes、callable ABI 与 producer behavior
++保持冻结。此 CPU/compiler contract 只证明有界 syntax、deterministic identity、ABI
++validation 与 Cubin production；它不证明 FP32/BF16 transcendental numerical
++correctness、CUDA launch 或 performance。这些结论需要单独的 real-SM120 correctness
++gate。
+ 
+ ## NVIDIA Artifact v1
+ 
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 68ec7bc9772bce0158350a0ba7e0a1b734cb5071..02eecb92e4b504e6c6e37a0e0044b6ba8c0a61b5 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -13,9 +13,14 @@
+ 
+ #include <algorithm>
+ #include <charconv>
++#include <cmath>
+ #include <cstddef>
+ #include <cstdint>
++#include <iomanip>
+ #include <limits>
++#include <locale>
++#include <optional>
++#include <sstream>
+ #include <string>
+ #include <string_view>
+ #include <unordered_map>
+@@ -38,7 +43,10 @@ constexpr size_t kMaximumDiagnosticBytes = 4096;
+ constexpr size_t kMaximumDiagnosticNameBytes = 96;
+ constexpr size_t kMaximumCanonicalSourceBytes = 16ULL * 1024ULL * 1024ULL;
+ constexpr size_t kMaximumRank = 32;
+-constexpr std::string_view kCanonicalEntryName = "pypto_vector_add";
++constexpr size_t kMaximumFusedPointwiseInputs = 16;
++constexpr size_t kMaximumFusedPointwiseAssignments = 64;
++constexpr std::string_view kLegacyStaticAddEntryName = "pypto_vector_add";
++constexpr std::string_view kFusedPointwiseEntryName = "pypto_fused_pointwise_v2";
+ 
+ struct StaticTensor {
+   DataType dtype;
+@@ -46,6 +54,28 @@ struct StaticTensor {
+   std::vector<int64_t> dense_strides;
+ };
+ 
++enum class FusedTensorOperandKind : uint8_t {
++  Input = 0,
++  PreviousResult = 1,
++};
++
++struct FusedTensorOperand {
++  FusedTensorOperandKind kind;
++  size_t input_index;
++};
++
++struct FusedPointwiseInstruction {
++  std::string_view tensor_ir_op;
++  std::vector<FusedTensorOperand> tensor_operands;
++  std::optional<double> scalar;
++};
++
++struct FusedPointwiseGraph {
++  StaticTensor tensor;
++  std::vector<FusedPointwiseInstruction> instructions;
++  size_t input_count;
++};
++
+ std::string BoundedDisplay(std::string_view value) {
+   std::string output;
+   const size_t count = std::min(value.size(), kMaximumDiagnosticNameBytes);
+@@ -155,6 +185,17 @@ const char* TensorIrDtype(DataType dtype) {
+   InternalReject("unsupported dtype reached source emission");
+ }
+ 
++double MaximumFiniteScalar(DataType dtype) {
++  if (dtype == DataType::FP32) {
++    return static_cast<double>(std::numeric_limits<float>::max());
++  }
++  if (dtype == DataType::BF16) {
++    // Largest finite BF16: significand 1.1111111b at unbiased exponent 127.
++    return std::ldexp(255.0 / 128.0, 127);
++  }
++  InternalReject("unsupported dtype reached scalar range validation");
++}
++
+ void AppendInteger(std::string& output, int64_t value) {
+   char buffer[32];
+   const auto result = std::to_chars(buffer, buffer + sizeof(buffer), value);
+@@ -169,6 +210,18 @@ void AppendIndex(std::string& output, size_t value) {
+   output.append(buffer, result.ptr);
+ }
+ 
++void AppendFloat(std::string& output, double value) {
++  std::ostringstream stream;
++  stream.imbue(std::locale::classic());
++  stream << std::setprecision(std::numeric_limits<double>::max_digits10) << value;
++  std::string formatted = stream.str();
++  if (formatted.empty() || formatted.size() > 32) {
++    InternalReject("floating-point formatting produced an invalid bounded token");
++  }
++  if (formatted.find_first_of(".eE") == std::string::npos) formatted += ".0";
++  output += formatted;
++}
++
+ std::string JoinIntegers(const std::vector<int64_t>& values, char separator) {
+   std::string output;
+   output.reserve(values.size() * 4);
+@@ -191,13 +244,14 @@ std::string TensorWithStrideText(const StaticTensor& tensor) {
+          ")\"}";
+ }
+ 
+-std::string EmitSource(const StaticTensor& tensor, size_t lhs_index, size_t rhs_index) {
++std::string EmitLegacyStaticAddSource(const StaticTensor& tensor, size_t lhs_index,
++                                      size_t rhs_index) {
+   const std::string type = TensorTypeText(tensor);
+   const std::string type_with_stride = TensorWithStrideText(tensor);
+   std::string source;
+   source.reserve(256 + type_with_stride.size() * 3 + type.size() * 2);
+   source += "module {\n  nv_tensor_ir.graph @";
+-  source += kCanonicalEntryName;
++  source += kLegacyStaticAddEntryName;
+   source += "(\n    %arg0: ";
+   source += type_with_stride;
+   source += ",\n    %arg1: ";
+@@ -225,8 +279,8 @@ std::string EmitSource(const StaticTensor& tensor, size_t lhs_index, size_t rhs_
+   return source;
+ }
+ 
+-std::vector<ir::StmtPtr> BodyStatements(const ir::StmtPtr& body,
+-                                        const ir::Span& function_span) {
++std::vector<ir::StmtPtr> LegacyBodyStatements(const ir::StmtPtr& body,
++                                              const ir::Span& function_span) {
+   if (!body) Reject("function body must not be null", &function_span);
+   const auto sequence = ir::As<ir::SeqStmts>(body);
+   if (!sequence) {
+@@ -243,6 +297,370 @@ std::vector<ir::StmtPtr> BodyStatements(const ir::StmtPtr& body,
+   return sequence->stmts_;
+ }
+ 
++struct FusedOperationSpec {
++  std::string_view tensor_ir_op;
++  size_t tensor_operand_count;
++  bool has_scalar;
++};
++
++std::optional<FusedOperationSpec> GetFusedOperationSpec(const ir::CallPtr& call) {
++  if (ir::IsOp(call, "tensor.add")) return FusedOperationSpec{"add", 2, false};
++  if (ir::IsOp(call, "tensor.adds")) return FusedOperationSpec{"add", 1, true};
++  if (ir::IsOp(call, "tensor.sub")) return FusedOperationSpec{"sub", 2, false};
++  if (ir::IsOp(call, "tensor.subs")) return FusedOperationSpec{"sub", 1, true};
++  if (ir::IsOp(call, "tensor.mul")) return FusedOperationSpec{"mul", 2, false};
++  if (ir::IsOp(call, "tensor.muls")) return FusedOperationSpec{"mul", 1, true};
++  if (ir::IsOp(call, "tensor.neg")) return FusedOperationSpec{"neg", 1, false};
++  if (ir::IsOp(call, "tensor.exp")) return FusedOperationSpec{"exp", 1, false};
++  if (ir::IsOp(call, "tensor.recip")) {
++    return FusedOperationSpec{"reciprocal", 1, false};
++  }
++  if (ir::IsOp(call, "tensor.rsqrt")) return FusedOperationSpec{"rsqrt", 1, false};
++  return std::nullopt;
++}
++
++FusedPointwiseGraph AnalyzeFusedPointwiseV2(const ir::ProgramPtr& program) {
++  if (!program) Reject("program must not be null");
++  if (program->functions_.size() != 1) {
++    Reject("program must contain exactly one function", &program->span_);
++  }
++
++  const auto& [global, function] = *program->functions_.begin();
++  if (!global || !function) Reject("program contains a null function binding", &program->span_);
++  if (global->name_ != function->name_) {
++    Reject("global function name does not match the bound function name", &function->span_);
++  }
++  if (function->requires_runtime_binding_) {
++    Reject("runtime-bound functions are not supported", &function->span_);
++  }
++  if (function->func_type_ != ir::FunctionType::Opaque || function->level_.has_value() ||
++      function->role_.has_value()) {
++    Reject("function must be Opaque with no hierarchy level or role", &function->span_);
++  }
++  if (!function->attrs_.empty()) {
++    Reject("function attributes are not supported", &function->span_);
++  }
++  if (function->params_.empty() ||
++      function->params_.size() > kMaximumFusedPointwiseInputs) {
++    Reject("fused pointwise v2 requires between 1 and 16 function parameters",
++           &function->span_);
++  }
++  if (function->param_directions_.size() != function->params_.size()) {
++    Reject("fused pointwise parameter direction count must equal parameter count: expected " +
++               std::to_string(function->params_.size()) + ", got " +
++               std::to_string(function->param_directions_.size()),
++           &function->span_);
++  }
++  if (!std::all_of(function->param_directions_.begin(), function->param_directions_.end(),
++                   [](ir::ParamDirection direction) {
++                     return direction == ir::ParamDirection::In;
++                   })) {
++    Reject("all fused pointwise parameters must have direction In", &function->span_);
++  }
++  if (function->return_types_.size() != 1) {
++    Reject("fused pointwise v2 requires exactly one declared return", &function->span_);
++  }
++
++  std::vector<StaticTensor> inputs;
++  inputs.reserve(function->params_.size());
++  std::unordered_map<const ir::Var*, size_t> parameter_indices;
++  for (size_t index = 0; index < function->params_.size(); ++index) {
++    const ir::VarPtr& parameter = function->params_[index];
++    if (!parameter) Reject("function contains a null parameter", &function->span_);
++    if (parameter->GetKind() != ir::ObjectKind::Var) {
++      Reject("function parameters must be exact Var nodes", &parameter->span_);
++    }
++    if (!parameter_indices.emplace(parameter.get(), index).second) {
++      Reject("function parameters must have distinct IR identities", &parameter->span_);
++    }
++    inputs.push_back(ReadStaticTensor(parameter->GetType(), parameter->span_,
++                                      "function parameter"));
++    if (index != 0 && !SameTensor(inputs[0], inputs[index])) {
++      Reject("fused pointwise input types and shapes must be identical",
++             &parameter->span_);
++    }
++  }
++
++  const StaticTensor declared_result =
++      ReadStaticTensor(function->return_types_[0], function->span_, "declared result");
++  if (!SameTensor(inputs[0], declared_result)) {
++    Reject("fused pointwise result type and shape must match its inputs",
++           &function->span_);
++  }
++
++  if (!function->body_) Reject("function body must not be null", &function->span_);
++  const auto sequence = ir::As<ir::SeqStmts>(function->body_);
++  if (!sequence) {
++    Reject("function body must be a top-level sequence of fused pointwise assignments and one return",
++           &function->body_->span_);
++  }
++  if (sequence->stmts_.size() < 2 ||
++      sequence->stmts_.size() > kMaximumFusedPointwiseAssignments + 1) {
++    Reject("fused pointwise body must contain between 1 and 64 assignments followed by one return",
++           &sequence->span_);
++  }
++
++  const size_t assignment_count = sequence->stmts_.size() - 1;
++  std::vector<ir::AssignStmtPtr> assignments;
++  assignments.reserve(assignment_count);
++  std::unordered_map<const ir::Var*, size_t> assignment_indices;
++  for (size_t index = 0; index < assignment_count; ++index) {
++    const ir::StmtPtr& statement = sequence->stmts_[index];
++    if (!statement) Reject("function body must not contain null statements", &sequence->span_);
++    const auto assignment = ir::As<ir::AssignStmt>(statement);
++    if (!assignment) {
++      Reject("every fused pointwise statement before the return must be an assignment",
++             &statement->span_);
++    }
++    if (!assignment->var_ || !assignment->value_) {
++      Reject("fused pointwise assignment must have a non-null target and value",
++             &assignment->span_);
++    }
++    if (assignment->var_->GetKind() != ir::ObjectKind::Var) {
++      Reject("fused pointwise assignment target must be an exact Var node",
++             &assignment->var_->span_);
++    }
++    if (parameter_indices.count(assignment->var_.get()) != 0) {
++      Reject("fused pointwise assignment target must not reuse a parameter IR identity",
++             &assignment->span_);
++    }
++    if (!assignment_indices.emplace(assignment->var_.get(), index).second) {
++      Reject("fused pointwise assignment targets must be fresh SSA Var identities",
++             &assignment->span_);
++    }
++    assignments.push_back(assignment);
++  }
++
++  const ir::StmtPtr& final_statement = sequence->stmts_.back();
++  if (!final_statement) Reject("function body must not contain null statements", &sequence->span_);
++  const auto return_statement = ir::As<ir::ReturnStmt>(final_statement);
++  if (!return_statement || return_statement->value_.size() != 1) {
++    Reject("fused pointwise body must end with exactly one return", &final_statement->span_);
++  }
++  const auto returned_variable = ir::As<ir::Var>(return_statement->value_[0]);
++  if (!returned_variable || returned_variable->GetKind() != ir::ObjectKind::Var ||
++      returned_variable.get() != assignments.back()->var_.get()) {
++    Reject("return must directly reference the final fused pointwise assignment result",
++           &return_statement->span_);
++  }
++
++  std::vector<bool> used_parameters(function->params_.size(), false);
++  std::vector<FusedPointwiseInstruction> instructions;
++  instructions.reserve(assignment_count);
++  for (size_t index = 0; index < assignment_count; ++index) {
++    const ir::AssignStmtPtr& assignment = assignments[index];
++    const auto call = ir::As<ir::Call>(assignment->value_);
++    if (!call || !call->op_) {
++      Reject("fused pointwise assignment value must be a direct registered tensor call",
++             &assignment->value_->span_);
++    }
++    if (!call->attrs_.empty() || !call->kwargs_.empty()) {
++      Reject("fused pointwise attributes and keyword arguments are not supported",
++             &call->span_);
++    }
++    const std::optional<FusedOperationSpec> spec = GetFusedOperationSpec(call);
++    if (!spec.has_value()) {
++      Reject("fused pointwise v2 supports only tensor add/adds/sub/subs/mul/muls/neg/exp/recip/rsqrt",
++             &call->span_);
++    }
++    const size_t expected_argument_count = spec->tensor_operand_count + (spec->has_scalar ? 1 : 0);
++    if (call->args_.size() != expected_argument_count) {
++      Reject("fused pointwise operator " + BoundedDisplay(call->op_->name_) + " expects " +
++                 std::to_string(expected_argument_count) + " operands, got " +
++                 std::to_string(call->args_.size()),
++             &call->span_);
++    }
++
++    FusedPointwiseInstruction instruction{spec->tensor_ir_op, {}, std::nullopt};
++    instruction.tensor_operands.reserve(spec->tensor_operand_count);
++    bool consumes_previous = false;
++    for (size_t operand_index = 0; operand_index < spec->tensor_operand_count;
++         ++operand_index) {
++      const ir::ExprPtr& argument = call->args_[operand_index];
++      const auto variable = ir::As<ir::Var>(argument);
++      if (!variable || variable->GetKind() != ir::ObjectKind::Var) {
++        Reject("fused pointwise tensor operands must be direct exact Var nodes",
++               argument ? &argument->span_ : &call->span_);
++      }
++      const StaticTensor operand =
++          ReadStaticTensor(variable->GetType(), variable->span_, "fused pointwise operand");
++      if (!SameTensor(inputs[0], operand)) {
++        Reject("fused pointwise operand types and shapes must match all inputs",
++               &variable->span_);
++      }
++      const auto parameter = parameter_indices.find(variable.get());
++      if (parameter != parameter_indices.end()) {
++        used_parameters[parameter->second] = true;
++        instruction.tensor_operands.push_back(
++            FusedTensorOperand{FusedTensorOperandKind::Input, parameter->second});
++        continue;
++      }
++      const auto assigned = assignment_indices.find(variable.get());
++      if (assigned == assignment_indices.end()) {
++        Reject("fused pointwise tensor operand is not a function parameter or SSA result",
++               &variable->span_);
++      }
++      if (index == 0 || assigned->second != index - 1) {
++        Reject("fused pointwise tensor operands may reference only the immediately "
++               "preceding assignment result",
++               &variable->span_);
++      }
++      consumes_previous = true;
++      instruction.tensor_operands.push_back(
++          FusedTensorOperand{FusedTensorOperandKind::PreviousResult, 0});
++    }
++    if (index != 0 && !consumes_previous) {
++      Reject("each fused pointwise assignment after the first must consume the immediately preceding result",
++             &call->span_);
++    }
++
++    if (spec->has_scalar) {
++      const ir::ExprPtr& scalar_argument = call->args_.back();
++      const auto scalar = ir::As<ir::ConstFloat>(scalar_argument);
++      if (!scalar || scalar->GetKind() != ir::ObjectKind::ConstFloat) {
++        Reject("fused pointwise scalar operand must be an exact ConstFloat node",
++               scalar_argument ? &scalar_argument->span_ : &call->span_);
++      }
++      if (scalar->dtype() != inputs[0].dtype) {
++        Reject("fused pointwise scalar dtype must exactly match the tensor dtype",
++               &scalar->span_);
++      }
++      if (!std::isfinite(scalar->value_) ||
++          std::fabs(scalar->value_) > MaximumFiniteScalar(inputs[0].dtype)) {
++        Reject("fused pointwise scalar constant must remain finite in the tensor dtype",
++               &scalar->span_);
++      }
++      instruction.scalar = scalar->value_;
++    }
++
++    const StaticTensor call_result =
++        ReadStaticTensor(call->GetType(), call->span_, "fused pointwise call result");
++    const StaticTensor assigned_result = ReadStaticTensor(
++        assignment->var_->GetType(), assignment->var_->span_,
++        "fused pointwise assignment result");
++    if (!SameTensor(declared_result, call_result) ||
++        !SameTensor(declared_result, assigned_result)) {
++      Reject("fused pointwise call, assignment, and declared result types must match",
++             &call->span_);
++    }
++    instructions.push_back(std::move(instruction));
++  }
++
++  if (std::any_of(used_parameters.begin(), used_parameters.end(), [](bool used) {
++        return !used;
++      })) {
++    Reject("every fused pointwise function parameter must be used", &function->span_);
++  }
++  return FusedPointwiseGraph{inputs[0], std::move(instructions), inputs.size()};
++}
++
++void AppendFusedOperand(std::string& source, const FusedTensorOperand& operand,
++                        size_t instruction_index) {
++  if (operand.kind == FusedTensorOperandKind::Input) {
++    source += "%arg";
++    AppendIndex(source, operand.input_index);
++    return;
++  }
++  if (operand.kind == FusedTensorOperandKind::PreviousResult && instruction_index != 0) {
++    source += "%value";
++    AppendIndex(source, instruction_index - 1);
++    return;
++  }
++  InternalReject("fused pointwise source operand is invalid");
++}
++
++std::string EmitFusedPointwiseSource(const FusedPointwiseGraph& graph) {
++  const std::string type = TensorTypeText(graph.tensor);
++  const std::string type_with_stride = TensorWithStrideText(graph.tensor);
++  std::string source;
++  source.reserve(512 + graph.input_count * type_with_stride.size() +
++                 graph.instructions.size() * (type.size() + 96));
++  source += "module {\n  nv_tensor_ir.graph @";
++  source += kFusedPointwiseEntryName;
++  source += "(\n";
++  for (size_t input_index = 0; input_index < graph.input_count; ++input_index) {
++    source += "    %arg";
++    AppendIndex(source, input_index);
++    source += ": ";
++    source += type_with_stride;
++    source += input_index + 1 == graph.input_count ? "\n" : ",\n";
++  }
++  source += "  ) -> ";
++  if (graph.tensor.shape.size() == 1) {
++    source += type;
++  } else {
++    source += "(";
++    source += type_with_stride;
++    source += ")";
++  }
++  source += " {\n";
++
++  size_t scalar_index = 0;
++  for (size_t instruction_index = 0; instruction_index < graph.instructions.size();
++       ++instruction_index) {
++    const FusedPointwiseInstruction& instruction = graph.instructions[instruction_index];
++    if (instruction.scalar.has_value()) {
++      source += "    %constant";
++      AppendIndex(source, scalar_index);
++      source += " = constant ";
++      AppendFloat(source, *instruction.scalar);
++      source += " : ";
++      source += TensorIrDtype(graph.tensor.dtype);
++      source += "\n    %splat";
++      AppendIndex(source, scalar_index);
++      source += " = splat %constant";
++      AppendIndex(source, scalar_index);
++      source += " : ";
++      source += type;
++      source += "\n";
++    }
++    source += "    %value";
++    AppendIndex(source, instruction_index);
++    source += " = ";
++    source += instruction.tensor_ir_op;
++    source += " ";
++    for (size_t operand_index = 0; operand_index < instruction.tensor_operands.size();
++         ++operand_index) {
++      if (operand_index != 0) source += ", ";
++      AppendFusedOperand(source, instruction.tensor_operands[operand_index], instruction_index);
++    }
++    if (instruction.scalar.has_value()) {
++      if (!instruction.tensor_operands.empty()) source += ", ";
++      source += "%splat";
++      AppendIndex(source, scalar_index);
++      ++scalar_index;
++    }
++    source += " : ";
++    source += type;
++    source += "\n";
++  }
++  source += "    results %value";
++  AppendIndex(source, graph.instructions.size() - 1);
++  source += " : ";
++  source += type;
++  source += "\n  }\n}\n";
++  if (source.size() > kMaximumCanonicalSourceBytes) {
++    Reject("canonical TensorIR source exceeds 16 MiB");
++  }
++  return source;
++}
++
++bool IsLegacyStaticAddV1Candidate(const ir::ProgramPtr& program) {
++  if (!program || program->functions_.size() != 1) return false;
++  const ir::FunctionPtr& function = program->functions_.begin()->second;
++  if (!function || function->params_.size() != 2 || !function->body_) return false;
++  const auto sequence = ir::As<ir::SeqStmts>(function->body_);
++  if (!sequence || sequence->stmts_.size() != 2 || !sequence->stmts_[0] ||
++      !sequence->stmts_[1]) {
++    return false;
++  }
++  const auto assignment = ir::As<ir::AssignStmt>(sequence->stmts_[0]);
++  const auto returned = ir::As<ir::ReturnStmt>(sequence->stmts_[1]);
++  if (!assignment || !assignment->value_ || !returned) return false;
++  const auto call = ir::As<ir::Call>(assignment->value_);
++  return call && call->op_ && ir::IsOp(call, "tensor.add");
++}
++
+ }  // namespace
+ 
+ TensorIrValueMetadata::TensorIrValueMetadata(TensorIrValueRole role, uint32_t ordinal,
+@@ -259,7 +677,7 @@ TensorIrValueMetadata::TensorIrValueMetadata(TensorIrValueRole role, uint32_t or
+   if (role_ != TensorIrValueRole::Input && role_ != TensorIrValueRole::Result) {
+     InternalReject("value metadata role is invalid");
+   }
+-  if ((role_ == TensorIrValueRole::Input && ordinal_ > 1) ||
++  if ((role_ == TensorIrValueRole::Input && ordinal_ >= kMaximumFusedPointwiseInputs) ||
+       (role_ == TensorIrValueRole::Result && ordinal_ != 0)) {
+     InternalReject("value metadata ordinal is invalid for its role");
+   }
+@@ -281,26 +699,40 @@ TensorIrValueMetadata::TensorIrValueMetadata(TensorIrValueRole role, uint32_t or
+   }
+ }
+ 
+-TensorIrModule::TensorIrModule(std::string canonical_source,
++TensorIrModule::TensorIrModule(TensorIrModuleKind kind, std::string canonical_source,
+                                std::vector<TensorIrValueMetadata> value_metadata,
+                                uint32_t input_count)
+-    : canonical_source_(std::move(canonical_source)),
+-      entry_name_(kCanonicalEntryName),
++    : kind_(kind),
++      canonical_source_(std::move(canonical_source)),
++      entry_name_(kind == TensorIrModuleKind::LegacyStaticAddV1
++                      ? kLegacyStaticAddEntryName
++                      : kFusedPointwiseEntryName),
+       value_metadata_(std::move(value_metadata)),
+       input_count_(input_count) {
+   if (canonical_source_.empty() || canonical_source_.size() > kMaximumCanonicalSourceBytes) {
+     InternalReject("canonical source metadata is empty or exceeds 16 MiB");
+   }
+-  if (input_count_ != 2 || value_metadata_.size() != 3) {
+-    InternalReject("tensor.add module metadata must contain Input0, Input1, and Result0");
+-  }
+-  if (value_metadata_[0].GetRole() != TensorIrValueRole::Input ||
+-      value_metadata_[0].GetOrdinal() != 0 ||
+-      value_metadata_[1].GetRole() != TensorIrValueRole::Input ||
+-      value_metadata_[1].GetOrdinal() != 1 ||
+-      value_metadata_[2].GetRole() != TensorIrValueRole::Result ||
+-      value_metadata_[2].GetOrdinal() != 0) {
+-    InternalReject("tensor.add module metadata roles and ordinals are invalid");
++  if (kind_ == TensorIrModuleKind::LegacyStaticAddV1) {
++    if (input_count_ != 2 || value_metadata_.size() != 3) {
++      InternalReject("tensor.add module metadata must contain Input0, Input1, and Result0");
++    }
++  } else if (kind_ == TensorIrModuleKind::FusedPointwiseV2) {
++    if (input_count_ == 0 || input_count_ > kMaximumFusedPointwiseInputs ||
++        value_metadata_.size() != input_count_ + 1) {
++      InternalReject("fused pointwise module metadata must contain 1-16 inputs and one result");
++    }
++  } else {
++    InternalReject("TensorIR module kind is invalid");
++  }
++  for (size_t index = 0; index < value_metadata_.size(); ++index) {
++    const TensorIrValueRole expected_role =
++        index < input_count_ ? TensorIrValueRole::Input : TensorIrValueRole::Result;
++    const uint32_t expected_ordinal =
++        index < input_count_ ? static_cast<uint32_t>(index) : 0;
++    if (value_metadata_[index].GetRole() != expected_role ||
++        value_metadata_[index].GetOrdinal() != expected_ordinal) {
++      InternalReject("TensorIR module metadata roles and ordinals are invalid");
++    }
+   }
+   const auto same_value_type = [](const TensorIrValueMetadata& left,
+                                   const TensorIrValueMetadata& right) {
+@@ -309,13 +741,17 @@ TensorIrModule::TensorIrModule(std::string canonical_source,
+            left.GetLogicalDenseStrides() == right.GetLogicalDenseStrides() &&
+            left.HasExplicitStrides() == right.HasExplicitStrides();
+   };
+-  if (!same_value_type(value_metadata_[0], value_metadata_[1]) ||
+-      !same_value_type(value_metadata_[0], value_metadata_[2])) {
+-    InternalReject("tensor.add module value metadata must have identical types and layouts");
++  if (!std::all_of(value_metadata_.begin() + 1, value_metadata_.end(),
++                   [&](const TensorIrValueMetadata& value) {
++                     return same_value_type(value_metadata_[0], value);
++                   })) {
++    InternalReject("TensorIR module value metadata must have identical types and layouts");
+   }
+ }
+ 
+-TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
++namespace detail {
++
++TensorIrModule EmitLegacyStaticAddV1(const ir::ProgramPtr& program) {
+   if (!program) Reject("program must not be null");
+   if (program->functions_.size() != 1) {
+     Reject("program must contain exactly one function", &program->span_);
+@@ -374,7 +810,8 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+     Reject("tensor.add result type and shape must match its inputs", &function->span_);
+   }
+ 
+-  const std::vector<ir::StmtPtr> statements = BodyStatements(function->body_, function->span_);
++  const std::vector<ir::StmtPtr> statements =
++      LegacyBodyStatements(function->body_, function->span_);
+   const auto assignment = ir::As<ir::AssignStmt>(statements[0]);
+   if (!assignment) {
+     Reject("first function statement must assign tensor.add", &statements[0]->span_);
+@@ -460,8 +897,33 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+       TensorIrValueRole::Result, 0, declared_result.dtype, declared_result.shape,
+       declared_result.dense_strides, declared_result.shape.size() >= 2));
+ 
+-  return TensorIrModule(EmitSource(declared_result, operand_indices[0], operand_indices[1]),
+-                        std::move(metadata), /*input_count=*/2);
++  return TensorIrModule(
++      TensorIrModuleKind::LegacyStaticAddV1,
++      EmitLegacyStaticAddSource(declared_result, operand_indices[0], operand_indices[1]),
++      std::move(metadata), /*input_count=*/2);
++}
++
++}  // namespace detail
++
++TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
++  if (IsLegacyStaticAddV1Candidate(program)) {
++    return detail::EmitLegacyStaticAddV1(program);
++  }
++
++  FusedPointwiseGraph graph = AnalyzeFusedPointwiseV2(program);
++  std::vector<TensorIrValueMetadata> metadata;
++  metadata.reserve(graph.input_count + 1);
++  for (size_t index = 0; index < graph.input_count; ++index) {
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Input, static_cast<uint32_t>(index), graph.tensor.dtype,
++        graph.tensor.shape, graph.tensor.dense_strides, graph.tensor.shape.size() >= 2));
++  }
++  metadata.push_back(TensorIrValueMetadata(
++      TensorIrValueRole::Result, 0, graph.tensor.dtype, graph.tensor.shape,
++      graph.tensor.dense_strides, graph.tensor.shape.size() >= 2));
++  const uint32_t input_count = static_cast<uint32_t>(graph.input_count);
++  return TensorIrModule(TensorIrModuleKind::FusedPointwiseV2,
++                        EmitFusedPointwiseSource(graph), std::move(metadata), input_count);
+ }
+ 
+ }  // namespace pypto::codegen::nvidia
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.h b/src/codegen/nvidia/tensor_ir_codegen.h
+index b2f2ef9293c8ea35efcbc47b09207d5ea4b283b8..23dc1420d1ae91852e76e3adf5ceb091ae5631f0 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.h
++++ b/src/codegen/nvidia/tensor_ir_codegen.h
+@@ -23,6 +23,15 @@ namespace pypto::codegen::nvidia {
+ 
+ class TensorIrModule;
+ [[nodiscard]] TensorIrModule EmitTensorIr(const ir::ProgramPtr& program);
++namespace detail {
++[[nodiscard]] TensorIrModule EmitLegacyStaticAddV1(const ir::ProgramPtr& program);
++}
++
++/** Private frontend family selected by deterministic HIR analysis. */
++enum class TensorIrModuleKind : uint8_t {
++  LegacyStaticAddV1 = 0,
++  FusedPointwiseV2 = 1,
++};
+ 
+ /** Position of a value in the compile-free TensorIR graph ABI. */
+ enum class TensorIrValueRole : uint8_t {
+@@ -61,6 +70,7 @@ class TensorIrValueMetadata {
+                         std::vector<int64_t> logical_dense_strides,
+                         bool has_explicit_strides);
+   friend TensorIrModule EmitTensorIr(const ir::ProgramPtr& program);
++  friend TensorIrModule detail::EmitLegacyStaticAddV1(const ir::ProgramPtr& program);
+ 
+   TensorIrValueRole role_;
+   uint32_t ordinal_;
+@@ -74,7 +84,8 @@ class TensorIrValueMetadata {
+ /** Exact TensorIR source bytes and the metadata used to construct them. */
+ class TensorIrModule {
+  public:
+-  static constexpr uint32_t kMetadataSchemaVersion = 1;
++  static constexpr uint32_t kLegacyStaticAddMetadataSchemaVersion = 1;
++  static constexpr uint32_t kFusedPointwiseMetadataSchemaVersion = 2;
+ 
+   TensorIrModule() = delete;
+   TensorIrModule(const TensorIrModule&) = default;
+@@ -82,8 +93,11 @@ class TensorIrModule {
+   TensorIrModule& operator=(const TensorIrModule&) = delete;
+   TensorIrModule& operator=(TensorIrModule&&) = delete;
+ 
++  [[nodiscard]] TensorIrModuleKind GetKind() const noexcept { return kind_; }
+   [[nodiscard]] constexpr uint32_t GetMetadataSchemaVersion() const noexcept {
+-    return kMetadataSchemaVersion;
++    return kind_ == TensorIrModuleKind::LegacyStaticAddV1
++               ? kLegacyStaticAddMetadataSchemaVersion
++               : kFusedPointwiseMetadataSchemaVersion;
+   }
+   [[nodiscard]] const std::string& GetCanonicalSource() const noexcept {
+     return canonical_source_;
+@@ -98,10 +112,12 @@ class TensorIrModule {
+   }
+ 
+  private:
+-  TensorIrModule(std::string canonical_source,
++  TensorIrModule(TensorIrModuleKind kind, std::string canonical_source,
+                  std::vector<TensorIrValueMetadata> value_metadata, uint32_t input_count);
+   friend TensorIrModule EmitTensorIr(const ir::ProgramPtr& program);
++  friend TensorIrModule detail::EmitLegacyStaticAddV1(const ir::ProgramPtr& program);
+ 
++  TensorIrModuleKind kind_;
+   std::string canonical_source_;
+   std::string entry_name_;
+   std::vector<TensorIrValueMetadata> value_metadata_;
+@@ -109,13 +125,14 @@ class TensorIrModule {
+ };
+ 
+ /**
+- * Emit the first strict PyPTO HIR subset as deterministic TensorIR text.
++ * Emit a strict PyPTO HIR pointwise subset as deterministic TensorIR text.
+  *
+- * V1 accepts exactly one Opaque function whose body is exactly a SeqStmts with
+- * two children: AssignStmt(result, Call(tensor.add, {param0, param1})) followed
+- * by ReturnStmt({result}). Inputs and the result must be plain, static,
+- * contiguous BF16 or FP32 tensors with identical types and shapes. Rejected HIR
+- * raises ValueError; this function never invokes TensorIR or any device compiler.
++ * The accepted legacy two-input tensor.add form remains LegacyStaticAddV1.
++ * FusedPointwiseV2 accepts a bounded linear SSA chain over registered tensor
++ * add/adds/sub/subs/mul/muls/neg/exp/recip/rsqrt operations. Inputs and the
++ * result must be plain, static, contiguous BF16 or FP32 tensors with identical
++ * types and shapes. Rejected HIR raises ValueError; this function never invokes
++ * TensorIR or any device compiler.
+  */
+ [[nodiscard]] TensorIrModule EmitTensorIr(const ir::ProgramPtr& program);
+ 
+diff --git a/src/compiler/structured_tensor_ir_build_spec.cpp b/src/compiler/structured_tensor_ir_build_spec.cpp
+index f89e99a3a7bf9d26e58be9b175c063c12b38e94d..28b28a5573e2426ff05e826e1794b2dafe091a97 100644
+--- a/src/compiler/structured_tensor_ir_build_spec.cpp
++++ b/src/compiler/structured_tensor_ir_build_spec.cpp
+@@ -15,6 +15,7 @@
+ #include <array>
+ #include <cstddef>
+ #include <cstdint>
++#include <limits>
+ #include <msgpack.hpp>
+ #include <optional>
+ #include <string>
+@@ -26,6 +27,7 @@
+ #include "digest.h"
+ #include "pypto/compiler/artifact.h"
+ #include "pypto/core/error.h"
++#include "pypto/core/logging.h"
+ #include "src/codegen/nvidia/tensor_ir_codegen.h"
+ 
+ namespace pypto::compiler::detail {
+@@ -39,8 +41,40 @@ constexpr std::string_view kSymbolicSpecializationContract =
+ constexpr std::string_view kArgumentAbiContract = "pypto.frontend.argument_abi.v1";
+ constexpr std::string_view kResultAbiContract = "pypto.frontend.result_abi.v1";
+ constexpr std::string_view kMutationAbiContract = "pypto.frontend.mutation_abi.v1";
++constexpr std::string_view kStaticSpecializationV2Contract =
++    "pypto.frontend.static_specialization.v2";
++constexpr std::string_view kSymbolicSpecializationV2Contract =
++    "pypto.frontend.symbolic_specialization.v2";
++constexpr std::string_view kArgumentAbiV2Contract = "pypto.frontend.argument_abi.v2";
++constexpr std::string_view kResultAbiV2Contract = "pypto.frontend.result_abi.v2";
++constexpr std::string_view kMutationAbiV2Contract = "pypto.frontend.mutation_abi.v2";
+ constexpr std::string_view kRuntimeKernelName = "tensor_ir_rtk";
+ 
++struct FrontendProjectionSchema {
++  uint32_t version;
++  std::string_view static_specialization_contract;
++  std::string_view symbolic_specialization_contract;
++  std::string_view argument_abi_contract;
++  std::string_view result_abi_contract;
++  std::string_view mutation_abi_contract;
++};
++
++FrontendProjectionSchema ProjectionSchemaFor(
++    PreparedStructuredTensorIrModuleKind module_kind) {
++  if (module_kind == PreparedStructuredTensorIrModuleKind::LegacyStaticAddV1) {
++    return FrontendProjectionSchema{1, kStaticSpecializationContract,
++                                    kSymbolicSpecializationContract, kArgumentAbiContract,
++                                    kResultAbiContract, kMutationAbiContract};
++  }
++  if (module_kind == PreparedStructuredTensorIrModuleKind::FusedPointwiseV2) {
++    return FrontendProjectionSchema{2, kStaticSpecializationV2Contract,
++                                    kSymbolicSpecializationV2Contract,
++                                    kArgumentAbiV2Contract, kResultAbiV2Contract,
++                                    kMutationAbiV2Contract};
++  }
++  INTERNAL_UNREACHABLE << "prepared structured TensorIR module kind is invalid";
++}
++
+ [[noreturn]] void RejectFinalization(std::string message) {
+   throw InternalError("structured TensorIR finalization contract violation: " + std::move(message));
+ }
+@@ -98,79 +132,85 @@ std::vector<uint8_t> FinishProjection(const msgpack::sbuffer& buffer,
+   std::vector<uint8_t> bytes = FinishBuffer(buffer);
+   if (bytes.empty() || bytes.size() > kMaximumProjectionBytes) {
+     throw InternalError(std::string(projection_name) +
+-                        " projection is empty or exceeds the 1 MiB v1 limit");
++                        " projection is empty or exceeds the 1 MiB frontend limit");
+   }
+   return bytes;
+ }
+ 
+ std::vector<uint8_t> SerializeStaticSpecialization(
+-    const std::vector<PreparedStructuredTensorIrValueMetadata>& metadata) {
++    const std::vector<PreparedStructuredTensorIrValueMetadata>& metadata,
++    const FrontendProjectionSchema& schema) {
+   msgpack::sbuffer buffer;
+   CanonicalPacker packer(buffer);
+   packer.pack_map(3);
+   PackKey(packer, "contract");
+-  PackText(packer, kStaticSpecializationContract);
++  PackText(packer, schema.static_specialization_contract);
+   PackKey(packer, "static_specialization_schema_version");
+-  packer.pack(1);
++  packer.pack(schema.version);
+   PackKey(packer, "values");
+   packer.pack_array(static_cast<uint32_t>(metadata.size()));
+   for (const auto& value : metadata) PackStaticValue(packer, value);
+   return FinishProjection(buffer, "static specialization");
+ }
+ 
+-std::vector<uint8_t> SerializeSymbolicSpecialization() {
++std::vector<uint8_t> SerializeSymbolicSpecialization(
++    const FrontendProjectionSchema& schema) {
+   msgpack::sbuffer buffer;
+   CanonicalPacker packer(buffer);
+   packer.pack_map(4);
+   PackKey(packer, "constraints");
+   packer.pack_array(0);
+   PackKey(packer, "contract");
+-  PackText(packer, kSymbolicSpecializationContract);
++  PackText(packer, schema.symbolic_specialization_contract);
+   PackKey(packer, "symbolic_specialization_schema_version");
+-  packer.pack(1);
++  packer.pack(schema.version);
+   PackKey(packer, "symbols");
+   packer.pack_array(0);
+   return FinishProjection(buffer, "symbolic specialization");
+ }
+ 
+ std::vector<uint8_t> SerializeArgumentAbi(
+-    const std::vector<PreparedStructuredTensorIrValueMetadata>& metadata) {
++    const std::vector<PreparedStructuredTensorIrValueMetadata>& metadata,
++    uint32_t input_count, const FrontendProjectionSchema& schema) {
+   msgpack::sbuffer buffer;
+   CanonicalPacker packer(buffer);
+   packer.pack_map(3);
+   PackKey(packer, "argument_abi_schema_version");
+-  packer.pack(1);
++  packer.pack(schema.version);
+   PackKey(packer, "arguments");
+-  packer.pack_array(2);
+-  PackAbiDescriptor(packer, metadata[0], /*include_direction=*/true);
+-  PackAbiDescriptor(packer, metadata[1], /*include_direction=*/true);
++  packer.pack_array(input_count);
++  for (uint32_t index = 0; index < input_count; ++index) {
++    PackAbiDescriptor(packer, metadata[index], /*include_direction=*/true);
++  }
+   PackKey(packer, "contract");
+-  PackText(packer, kArgumentAbiContract);
++  PackText(packer, schema.argument_abi_contract);
+   return FinishProjection(buffer, "argument ABI");
+ }
+ 
+ std::vector<uint8_t> SerializeResultAbi(
+-    const std::vector<PreparedStructuredTensorIrValueMetadata>& metadata) {
++    const std::vector<PreparedStructuredTensorIrValueMetadata>& metadata,
++    uint32_t input_count, const FrontendProjectionSchema& schema) {
+   msgpack::sbuffer buffer;
+   CanonicalPacker packer(buffer);
+   packer.pack_map(3);
+   PackKey(packer, "contract");
+-  PackText(packer, kResultAbiContract);
++  PackText(packer, schema.result_abi_contract);
+   PackKey(packer, "result_abi_schema_version");
+-  packer.pack(1);
++  packer.pack(schema.version);
+   PackKey(packer, "results");
+   packer.pack_array(1);
+-  PackAbiDescriptor(packer, metadata[2], /*include_direction=*/false);
++  PackAbiDescriptor(packer, metadata[input_count], /*include_direction=*/false);
+   return FinishProjection(buffer, "result ABI");
+ }
+ 
+-std::vector<uint8_t> SerializeMutationAbi() {
++std::vector<uint8_t> SerializeMutationAbi(uint32_t input_count,
++                                          const FrontendProjectionSchema& schema) {
+   msgpack::sbuffer buffer;
+   CanonicalPacker packer(buffer);
+   packer.pack_map(4);
+   PackKey(packer, "argument_effects");
+-  packer.pack_array(2);
+-  for (uint32_t ordinal = 0; ordinal < 2; ++ordinal) {
++  packer.pack_array(input_count);
++  for (uint32_t ordinal = 0; ordinal < input_count; ++ordinal) {
+     packer.pack_map(2);
+     PackKey(packer, "effect");
+     PackText(packer, "read-only");
+@@ -178,9 +218,9 @@ std::vector<uint8_t> SerializeMutationAbi() {
+     packer.pack(ordinal);
+   }
+   PackKey(packer, "contract");
+-  PackText(packer, kMutationAbiContract);
++  PackText(packer, schema.mutation_abi_contract);
+   PackKey(packer, "mutation_abi_schema_version");
+-  packer.pack(1);
++  packer.pack(schema.version);
+   PackKey(packer, "result_aliases");
+   packer.pack_array(1);
+   packer.pack_nil();
+@@ -194,6 +234,74 @@ std::vector<std::optional<int64_t>> StaticValues(const std::vector<int64_t>& val
+   return output;
+ }
+ 
++uint64_t StaticElementCount(const PreparedStructuredTensorIrValueMetadata& metadata) {
++  uint64_t count = 1;
++  for (int64_t dimension : metadata.GetShape()) {
++    INTERNAL_CHECK(dimension > 0)
++        << "prepared structured TensorIR shape contains a non-positive dimension";
++    INTERNAL_CHECK(static_cast<uint64_t>(dimension) <=
++                   std::numeric_limits<uint64_t>::max() / count)
++        << "prepared structured TensorIR element count overflows uint64";
++    count *= static_cast<uint64_t>(dimension);
++  }
++  return count;
++}
++
++void ValidateFusedPointwiseSchedule(
++    const codegen::nvidia::TensorIrModule& module,
++    const StrictTensorIrProducerOptions& resolved_options,
++    const CompileRequest& request) {
++  if (module.GetKind() != codegen::nvidia::TensorIrModuleKind::FusedPointwiseV2) return;
++  CHECK(resolved_options.tile_sizes.size() == 1)
++      << "fused pointwise v2 requires exactly one flattened tile size dim_000, got "
++      << resolved_options.tile_sizes.size();
++  const uint32_t tile_size = resolved_options.tile_sizes[0];
++  CHECK(tile_size != 0 && (tile_size & (tile_size - 1)) == 0)
++      << "fused pointwise v2 tile dim_000 must be a positive power of two, got "
++      << tile_size;
++
++  INTERNAL_CHECK(!module.GetValueMetadata().empty())
++      << "fused pointwise v2 module has no value metadata";
++  uint64_t element_count = 1;
++  for (int64_t dimension : module.GetValueMetadata()[0].GetShape()) {
++    INTERNAL_CHECK(dimension > 0)
++        << "fused pointwise v2 metadata contains a non-positive shape dimension";
++    INTERNAL_CHECK(static_cast<uint64_t>(dimension) <=
++                   std::numeric_limits<uint64_t>::max() / element_count)
++        << "fused pointwise v2 element count overflows uint64";
++    element_count *= static_cast<uint64_t>(dimension);
++  }
++  CHECK(static_cast<uint64_t>(tile_size) <= element_count)
++      << "fused pointwise v2 tile dim_000 must not exceed the flattened static element count "
++      << element_count << ", got " << tile_size;
++  const uint64_t expected_grid_x =
++      element_count / tile_size + (element_count % tile_size == 0 ? 0 : 1);
++  const int64_t max_grid_x = request.GetTargetInfo().GetTraits().GetMaxGridDimX();
++  CHECK(expected_grid_x <= static_cast<uint64_t>(std::numeric_limits<int32_t>::max()) &&
++        expected_grid_x <= static_cast<uint64_t>(max_grid_x))
++      << "fused pointwise v2 flattened grid x=" << expected_grid_x
++      << " exceeds the prepared target limit " << max_grid_x;
++}
++
++uint32_t ExpectedFusedPointwiseGridX(
++    const PreparedStructuredTensorIrCompilation& prepared) {
++  INTERNAL_CHECK(prepared.GetModuleKind() ==
++                 PreparedStructuredTensorIrModuleKind::FusedPointwiseV2)
++      << "expected-grid calculation requires a fused pointwise v2 preparation";
++  INTERNAL_CHECK(!prepared.GetValueMetadata().empty())
++      << "fused pointwise v2 preparation has no value metadata";
++  INTERNAL_CHECK(prepared.GetResolvedOptions().tile_sizes.size() == 1)
++      << "fused pointwise v2 preparation does not contain one flattened tile";
++  const uint64_t element_count = StaticElementCount(prepared.GetValueMetadata()[0]);
++  const uint32_t tile_size = prepared.GetResolvedOptions().tile_sizes[0];
++  INTERNAL_CHECK(tile_size != 0) << "fused pointwise v2 tile size is zero";
++  const uint64_t grid_x =
++      element_count / tile_size + (element_count % tile_size == 0 ? 0 : 1);
++  INTERNAL_CHECK(grid_x <= std::numeric_limits<uint32_t>::max())
++      << "fused pointwise v2 grid exceeds uint32 after preparation";
++  return static_cast<uint32_t>(grid_x);
++}
++
+ void ValidateDescriptor(const ArtifactArgumentDescriptor& descriptor,
+                         const PreparedStructuredTensorIrValueMetadata& metadata,
+                         size_t descriptor_index) {
+@@ -233,17 +341,34 @@ void ValidateKernelAbi(const PreparedStructuredTensorIrCompilation& prepared,
+   const ArtifactArgumentLayout& layout = kernel_abi.GetArgumentLayout();
+   const auto& descriptors = layout.GetOperandDescriptors();
+   const auto& metadata = prepared.GetValueMetadata();
+-  if (metadata.size() != 3 || descriptors.size() != metadata.size()) {
+-    RejectFinalization("descriptor count must be ordered Input0, Input1, Result0");
++  const uint32_t input_count = prepared.GetInputCount();
++  if (metadata.size() != static_cast<size_t>(input_count) + 1 ||
++      descriptors.size() != metadata.size()) {
++    if (prepared.GetModuleKind() ==
++        PreparedStructuredTensorIrModuleKind::LegacyStaticAddV1) {
++      RejectFinalization("descriptor count must be ordered Input0, Input1, Result0");
++    }
++    RejectFinalization("descriptor count must contain ordered inputs followed by Result0");
+   }
+-  if (layout.GetInputOperandCount() != 2 || layout.HasUniformSignature()) {
+-    RejectFinalization("argument layout must contain two inputs and no uniform ABI");
++  if (layout.GetInputOperandCount() != input_count) {
++    if (prepared.GetModuleKind() ==
++        PreparedStructuredTensorIrModuleKind::LegacyStaticAddV1) {
++      RejectFinalization("argument layout must contain two inputs and no uniform ABI");
++    }
++    RejectFinalization("argument layout input count differs from prepared metadata");
++  }
++  if (layout.HasUniformSignature()) {
++    RejectFinalization("argument layout must contain no uniform ABI");
+   }
+   for (size_t index = 0; index < metadata.size(); ++index) {
+     ValidateDescriptor(descriptors[index], metadata[index], index);
+   }
+-  if (layout.GetTotalKernelArgumentCount() != 3) {
+-    RejectFinalization("argument layout must contain exactly three pointer arguments");
++  if (layout.GetTotalKernelArgumentCount() != metadata.size()) {
++    if (prepared.GetModuleKind() ==
++        PreparedStructuredTensorIrModuleKind::LegacyStaticAddV1) {
++      RejectFinalization("argument layout must contain exactly three pointer arguments");
++    }
++    RejectFinalization("argument layout must contain one pointer per input and result");
+   }
+   if (kernel_abi.GetArgumentPackingPolicy() != ArtifactArgumentPackingPolicy::PointerOnly) {
+     RejectFinalization("argument packing policy must be pointer-only");
+@@ -270,6 +395,12 @@ void ValidateKernelAbi(const PreparedStructuredTensorIrCompilation& prepared,
+   if (dimensions[1] != 1 || dimensions[2] != 1) {
+     RejectFinalization("static grid must use the producer-shaped one-dimensional y=z=1 layout");
+   }
++  if (prepared.GetModuleKind() ==
++          PreparedStructuredTensorIrModuleKind::FusedPointwiseV2 &&
++      dimensions[0] != ExpectedFusedPointwiseGridX(prepared)) {
++    RejectFinalization(
++        "fused pointwise static grid x differs from the flattened shape and tile");
++  }
+ 
+   const ArtifactWorkspaceAbi& workspace = kernel_abi.GetWorkspaceAbi();
+   if (workspace.GetKind() != ArtifactWorkspaceKind::Static || workspace.GetSizeBytes() != 0 ||
+@@ -314,6 +445,8 @@ PreparedStructuredTensorIrCompilation::PreparedStructuredTensorIrCompilation(
+     CompileRequest request, CanonicalSchedule schedule,
+     StrictTensorIrProducerOptions resolved_options, std::vector<uint8_t> canonical_source,
+     std::string source_ir_digest, std::string entry_name,
++    PreparedStructuredTensorIrModuleKind module_kind,
++    uint32_t frontend_metadata_schema_version, uint32_t input_count,
+     std::vector<PreparedStructuredTensorIrValueMetadata> value_metadata,
+     StructuredTensorIrIdentityProjection static_specialization,
+     StructuredTensorIrIdentityProjection symbolic_specialization,
+@@ -326,6 +459,9 @@ PreparedStructuredTensorIrCompilation::PreparedStructuredTensorIrCompilation(
+       canonical_source_(std::move(canonical_source)),
+       source_ir_digest_(std::move(source_ir_digest)),
+       entry_name_(std::move(entry_name)),
++      module_kind_(module_kind),
++      frontend_metadata_schema_version_(frontend_metadata_schema_version),
++      input_count_(input_count),
+       value_metadata_(std::move(value_metadata)),
+       static_specialization_(std::move(static_specialization)),
+       symbolic_specialization_(std::move(symbolic_specialization)),
+@@ -339,10 +475,23 @@ PreparedStructuredTensorIrCompilation PrepareStructuredTensorIrCompilation(
+   const codegen::nvidia::TensorIrModule module = codegen::nvidia::EmitTensorIr(program);
+   const StrictTensorIrProducerOptions resolved_options =
+       ResolveStrictTensorIrProducerOptions(request, schedule);
+-  if (module.GetMetadataSchemaVersion() != 1 || module.GetInputCount() != 2 ||
+-      module.GetResultCount() != 1 || module.GetValueMetadata().size() != 3) {
+-    throw InternalError(
+-        "prepared TensorIR module must use metadata schema 1 with two inputs and one result");
++  ValidateFusedPointwiseSchedule(module, resolved_options, request);
++
++  PreparedStructuredTensorIrModuleKind module_kind =
++      PreparedStructuredTensorIrModuleKind::LegacyStaticAddV1;
++  if (module.GetKind() == codegen::nvidia::TensorIrModuleKind::LegacyStaticAddV1) {
++    module_kind = PreparedStructuredTensorIrModuleKind::LegacyStaticAddV1;
++    INTERNAL_CHECK(module.GetMetadataSchemaVersion() == 1 && module.GetInputCount() == 2 &&
++                   module.GetResultCount() == 1 && module.GetValueMetadata().size() == 3)
++        << "prepared legacy TensorIR module must use schema 1 with two inputs and one result";
++  } else if (module.GetKind() == codegen::nvidia::TensorIrModuleKind::FusedPointwiseV2) {
++    module_kind = PreparedStructuredTensorIrModuleKind::FusedPointwiseV2;
++    INTERNAL_CHECK(module.GetMetadataSchemaVersion() == 2 && module.GetInputCount() >= 1 &&
++                   module.GetInputCount() <= 16 && module.GetResultCount() == 1 &&
++                   module.GetValueMetadata().size() == module.GetInputCount() + 1)
++        << "prepared fused pointwise TensorIR module must use schema 2 with 1-16 inputs and one result";
++  } else {
++    INTERNAL_UNREACHABLE << "emitted TensorIR module kind is invalid";
+   }
+ 
+   const std::string& source = module.GetCanonicalSource();
+@@ -360,30 +509,36 @@ PreparedStructuredTensorIrCompilation PrepareStructuredTensorIrCompilation(
+         role, value.GetOrdinal(), value.GetDtypeCode(), value.GetDtypeName(), value.GetShape(),
+         value.GetLogicalDenseStrides(), value.HasExplicitStrides()));
+   }
+-  if (metadata.size() != 3 ||
+-      metadata[0].GetRole() != PreparedStructuredTensorIrValueRole::Argument ||
+-      metadata[0].GetOrdinal() != 0 ||
+-      metadata[1].GetRole() != PreparedStructuredTensorIrValueRole::Argument ||
+-      metadata[1].GetOrdinal() != 1 ||
+-      metadata[2].GetRole() != PreparedStructuredTensorIrValueRole::Result ||
+-      metadata[2].GetOrdinal() != 0) {
+-    throw InternalError("prepared TensorIR metadata is not ordered Input0, Input1, Result0");
++  for (size_t index = 0; index < metadata.size(); ++index) {
++    const bool is_input = index < module.GetInputCount();
++    const PreparedStructuredTensorIrValueRole expected_role =
++        is_input ? PreparedStructuredTensorIrValueRole::Argument
++                 : PreparedStructuredTensorIrValueRole::Result;
++    const uint32_t expected_ordinal = is_input ? static_cast<uint32_t>(index) : 0;
++    INTERNAL_CHECK(metadata[index].GetRole() == expected_role &&
++                   metadata[index].GetOrdinal() == expected_ordinal)
++        << "prepared TensorIR metadata roles or ordinals are not canonical";
+   }
+ 
++  const FrontendProjectionSchema projection_schema = ProjectionSchemaFor(module_kind);
+   StructuredTensorIrIdentityProjection static_specialization(
+-      SerializeStaticSpecialization(metadata));
++      SerializeStaticSpecialization(metadata, projection_schema));
+   StructuredTensorIrIdentityProjection symbolic_specialization(
+-      SerializeSymbolicSpecialization());
+-  StructuredTensorIrIdentityProjection argument_abi(SerializeArgumentAbi(metadata));
+-  StructuredTensorIrIdentityProjection result_abi(SerializeResultAbi(metadata));
+-  StructuredTensorIrIdentityProjection mutation_abi(SerializeMutationAbi());
++      SerializeSymbolicSpecialization(projection_schema));
++  StructuredTensorIrIdentityProjection argument_abi(
++      SerializeArgumentAbi(metadata, module.GetInputCount(), projection_schema));
++  StructuredTensorIrIdentityProjection result_abi(
++      SerializeResultAbi(metadata, module.GetInputCount(), projection_schema));
++  StructuredTensorIrIdentityProjection mutation_abi(
++      SerializeMutationAbi(module.GetInputCount(), projection_schema));
+ 
+   const std::string source_ir_digest = Artifact::ComputeSourceIrDigest(canonical_source);
+   return PreparedStructuredTensorIrCompilation(
+       request, schedule, resolved_options, std::move(canonical_source), source_ir_digest,
+-      module.GetEntryName(), std::move(metadata), std::move(static_specialization),
+-      std::move(symbolic_specialization), std::move(argument_abi), std::move(result_abi),
+-      std::move(mutation_abi));
++      module.GetEntryName(), module_kind, module.GetMetadataSchemaVersion(),
++      module.GetInputCount(), std::move(metadata), std::move(static_specialization),
++      std::move(symbolic_specialization), std::move(argument_abi),
++      std::move(result_abi), std::move(mutation_abi));
+ }
+ 
+ KernelBuildSpec FinalizeStructuredTensorIrBuildSpec(
+diff --git a/src/compiler/structured_tensor_ir_build_spec.h b/src/compiler/structured_tensor_ir_build_spec.h
+index a5664b060f5817249a51bb762acb82d9cf5e659a..29d0b1a6cb2c356639485ad1431f71c5b10af352 100644
+--- a/src/compiler/structured_tensor_ir_build_spec.h
++++ b/src/compiler/structured_tensor_ir_build_spec.h
+@@ -39,6 +39,12 @@ enum class PreparedStructuredTensorIrValueRole : uint8_t {
+   Result = 1,
+ };
+ 
++/** Frontend family retained after TensorIrModule is copied away. */
++enum class PreparedStructuredTensorIrModuleKind : uint8_t {
++  LegacyStaticAddV1 = 0,
++  FusedPointwiseV2 = 1,
++};
++
+ /** Owned metadata copied out of TensorIR source emission. */
+ class PreparedStructuredTensorIrValueMetadata {
+  public:
+@@ -129,6 +135,16 @@ class PreparedStructuredTensorIrCompilation {
+   }
+   [[nodiscard]] const std::string& GetSourceIrDigest() const noexcept { return source_ir_digest_; }
+   [[nodiscard]] const std::string& GetEntryName() const noexcept { return entry_name_; }
++  [[nodiscard]] PreparedStructuredTensorIrModuleKind GetModuleKind() const noexcept {
++    return module_kind_;
++  }
++  [[nodiscard]] uint32_t GetFrontendMetadataSchemaVersion() const noexcept {
++    return frontend_metadata_schema_version_;
++  }
++  [[nodiscard]] uint32_t GetInputCount() const noexcept { return input_count_; }
++  [[nodiscard]] uint32_t GetResultCount() const noexcept {
++    return static_cast<uint32_t>(value_metadata_.size()) - input_count_;
++  }
+   [[nodiscard]] const std::vector<PreparedStructuredTensorIrValueMetadata>& GetValueMetadata()
+       const noexcept {
+     return value_metadata_;
+@@ -155,6 +171,8 @@ class PreparedStructuredTensorIrCompilation {
+       CompileRequest request, CanonicalSchedule schedule,
+       StrictTensorIrProducerOptions resolved_options, std::vector<uint8_t> canonical_source,
+       std::string source_ir_digest, std::string entry_name,
++      PreparedStructuredTensorIrModuleKind module_kind,
++      uint32_t frontend_metadata_schema_version, uint32_t input_count,
+       std::vector<PreparedStructuredTensorIrValueMetadata> value_metadata,
+       StructuredTensorIrIdentityProjection static_specialization,
+       StructuredTensorIrIdentityProjection symbolic_specialization,
+@@ -171,6 +189,9 @@ class PreparedStructuredTensorIrCompilation {
+   std::vector<uint8_t> canonical_source_;
+   std::string source_ir_digest_;
+   std::string entry_name_;
++  PreparedStructuredTensorIrModuleKind module_kind_;
++  uint32_t frontend_metadata_schema_version_;
++  uint32_t input_count_;
+   std::vector<PreparedStructuredTensorIrValueMetadata> value_metadata_;
+   StructuredTensorIrIdentityProjection static_specialization_;
+   StructuredTensorIrIdentityProjection symbolic_specialization_;
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index 0efd5515b0c9a8c2b7701e614e276384794d2933..60eb579848151080aa364f6abeb0a2519022c1f3 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -52,6 +52,55 @@ def _program() -> ir.Program:
+     return ir.Program([function], "structured_compile", span)
+ 
+ 
++def _fused_program() -> ir.Program:
++    span = ir.Span("structured_compile_test.py", 2, 1)
++    tensor_type = ir.TensorType([8, 8], pypto.DataType.FP32)
++    x = ir.Var("x", tensor_type, span)
++    y = ir.Var("y", tensor_type, span)
++    statements: list[ir.Stmt] = []
++    previous: ir.Var | None = None
++
++    def append(op_name: str, arguments: list[ir.Expr]) -> None:
++        nonlocal previous
++        value = ir.Var("ignored", tensor_type, span)
++        call = ir.Call(ir.get_op(op_name), arguments, tensor_type, span)
++        statements.append(ir.AssignStmt(value, call, span))
++        previous = value
++
++    def scalar(value: float) -> ir.ConstFloat:
++        return ir.ConstFloat(value, pypto.DataType.FP32, span)
++
++    append("tensor.add", [x, y])
++    assert previous is not None
++    append("tensor.adds", [previous, scalar(1.5)])
++    assert previous is not None
++    append("tensor.sub", [previous, x])
++    assert previous is not None
++    append("tensor.subs", [previous, scalar(0.25)])
++    assert previous is not None
++    append("tensor.mul", [previous, y])
++    assert previous is not None
++    append("tensor.muls", [previous, scalar(2.0)])
++    assert previous is not None
++    append("tensor.neg", [previous])
++    assert previous is not None
++    append("tensor.exp", [previous])
++    assert previous is not None
++    append("tensor.recip", [previous])
++    assert previous is not None
++    append("tensor.rsqrt", [previous])
++    assert previous is not None
++    statements.append(ir.ReturnStmt([previous], span))
++    function = ir.Function(
++        "ignored_fused_name",
++        [x, y],
++        [tensor_type],
++        ir.SeqStmts(statements, span),
++        span,
++    )
++    return ir.Program([function], "structured_compile_fused", span)
++
++
+ def _traits() -> TargetTraits:
+     return TargetTraits(
+         compute_capability=120,
+@@ -152,8 +201,9 @@ def test_compile_structured_strict_functional() -> None:
+     schedule = _schedule()
+ 
+     if not info.compiled:
+-        with pytest.raises(ValueError, match="requires the compiled private NVIDIA backend"):
+-            compile_structured_strict(program, request, schedule)
++        for candidate in (program, _fused_program()):
++            with pytest.raises(ValueError, match="requires the compiled private NVIDIA backend"):
++                compile_structured_strict(candidate, request, schedule)
+         return
+ 
+     result = compile_structured_strict(program, request, schedule)
+@@ -190,6 +240,19 @@ def test_compile_structured_strict_functional() -> None:
+     artifact_bytes = artifact.serialize()
+     assert Artifact.deserialize(artifact_bytes, request, build_spec).serialize() == artifact_bytes
+ 
++    fused = compile_structured_strict(_fused_program(), request, schedule)
++    fused_kernel = fused.artifact.kernel_abi
++    assert fused_kernel.entry_function_name == "pypto_fused_pointwise_v2"
++    assert fused_kernel.argument_packing_policy == ArtifactArgumentPackingPolicy.PointerOnly
++    assert fused_kernel.grid_abi.policy == ArtifactGridPolicy.Static
++    assert fused_kernel.grid_abi.shape_operand_index == 0
++    assert fused_kernel.grid_abi.static_dimensions == [4, 1, 1]
++    assert len(fused_kernel.argument_layout.operand_descriptors) == 3
++    assert fused_kernel.argument_layout.input_operand_count == 2
++    assert fused_kernel.argument_layout.total_kernel_argument_count == 3
++    assert fused.build_spec.callable_abi_digest == fused_kernel.identity_digest
++    assert fused.artifact.identities.kernel_build_spec_digest == fused.build_spec.identity_digest
++
+ 
+ if __name__ == "__main__":
+     pytest.main([__file__, "-v"])
+diff --git a/tests/ut/cpp/structured_compile_test.cpp b/tests/ut/cpp/structured_compile_test.cpp
+index 5b598a5f68599ed2a4c1267bacecc9e78a4467ef..1d72984e7e3fab1ca1ca9a0089ed28555065f5e3 100644
+--- a/tests/ut/cpp/structured_compile_test.cpp
++++ b/tests/ut/cpp/structured_compile_test.cpp
+@@ -32,6 +32,7 @@
+ #include "pypto/ir/function.h"
+ #include "pypto/ir/op_registry.h"
+ #include "pypto/ir/program.h"
++#include "pypto/ir/scalar_expr.h"
+ #include "pypto/ir/span.h"
+ #include "pypto/ir/stmt.h"
+ #include "pypto/ir/type.h"
+@@ -87,9 +88,10 @@ const ir::Span& TestSpan() {
+   return span;
+ }
+ 
+-ir::ProgramPtr MakeProgram() {
++ir::ProgramPtr MakeProgram(const std::vector<int64_t>& shape = {8, 8},
++                           DataType dtype = DataType::FP32) {
+   auto type = std::make_shared<ir::TensorType>(
+-      std::vector<int64_t>{8, 8}, DataType::FP32, std::optional<ir::MemRefPtr>{});
++      shape, dtype, std::optional<ir::MemRefPtr>{});
+   auto lhs = std::make_shared<ir::Var>("lhs", type, TestSpan());
+   auto rhs = std::make_shared<ir::Var>("rhs", type, TestSpan());
+   auto result = std::make_shared<ir::Var>("sum", type, TestSpan());
+@@ -109,6 +111,91 @@ ir::ProgramPtr MakeProgram() {
+   return std::make_shared<ir::Program>(std::vector<ir::FunctionPtr>{function}, "test", TestSpan());
+ }
+ 
++ir::ProgramPtr MakeFusedProgram(DataType dtype) {
++  auto type = std::make_shared<ir::TensorType>(
++      std::vector<int64_t>{8, 8}, dtype, std::optional<ir::MemRefPtr>{});
++  auto x = std::make_shared<ir::Var>("x", type, TestSpan());
++  auto y = std::make_shared<ir::Var>("y", type, TestSpan());
++  std::vector<ir::StmtPtr> statements;
++  ir::VarPtr previous;
++  const auto append = [&](const std::string& op_name,
++                          const std::vector<ir::ExprPtr>& arguments) {
++    auto result = std::make_shared<ir::Var>("ignored", type, TestSpan());
++    auto call = std::make_shared<ir::Call>(
++        ir::OpRegistry::GetInstance().GetOp(op_name), arguments,
++        std::vector<std::pair<std::string, std::any>>{},
++        std::vector<std::pair<std::string, std::any>>{}, type, TestSpan());
++    statements.push_back(
++        std::make_shared<ir::AssignStmt>(result, call, TestSpan()));
++    previous = result;
++  };
++  const auto scalar = [&](double value) {
++    return std::make_shared<ir::ConstFloat>(value, dtype, TestSpan());
++  };
++  append("tensor.add", {x, y});
++  append("tensor.adds", {previous, scalar(1.5)});
++  append("tensor.sub", {previous, x});
++  append("tensor.subs", {previous, scalar(0.25)});
++  append("tensor.mul", {previous, y});
++  append("tensor.muls", {previous, scalar(2.0)});
++  append("tensor.neg", {previous});
++  append("tensor.exp", {previous});
++  append("tensor.recip", {previous});
++  append("tensor.rsqrt", {previous});
++  statements.push_back(std::make_shared<ir::ReturnStmt>(
++      std::vector<ir::ExprPtr>{previous}, TestSpan()));
++  auto body = std::make_shared<ir::SeqStmts>(statements, TestSpan());
++  auto function = std::make_shared<ir::Function>(
++      "ignored", std::vector<ir::VarPtr>{x, y},
++      std::vector<ir::ParamDirection>{ir::ParamDirection::In,
++                                      ir::ParamDirection::In},
++      std::vector<ir::TypePtr>{type}, body, TestSpan());
++  return std::make_shared<ir::Program>(std::vector<ir::FunctionPtr>{function}, "test",
++                                      TestSpan());
++}
++
++ir::ProgramPtr MakeMaximumFusedProgram() {
++  auto type = std::make_shared<ir::TensorType>(
++      std::vector<int64_t>{16}, DataType::FP32, std::optional<ir::MemRefPtr>{});
++  std::vector<ir::VarPtr> parameters;
++  std::vector<ir::ParamDirection> directions;
++  for (size_t index = 0; index < 16; ++index) {
++    parameters.push_back(
++        std::make_shared<ir::Var>("ignored", type, TestSpan()));
++    directions.push_back(ir::ParamDirection::In);
++  }
++  const auto call = [&](const std::string& name,
++                        const std::vector<ir::ExprPtr>& arguments) {
++    return std::make_shared<ir::Call>(
++        ir::OpRegistry::GetInstance().GetOp(name), arguments,
++        std::vector<std::pair<std::string, std::any>>{},
++        std::vector<std::pair<std::string, std::any>>{}, type, TestSpan());
++  };
++  std::vector<ir::StmtPtr> statements;
++  auto previous = std::make_shared<ir::Var>("ignored", type, TestSpan());
++  statements.push_back(std::make_shared<ir::AssignStmt>(
++      previous, call("tensor.add", {parameters[0], parameters[1]}), TestSpan()));
++  for (size_t input_index = 2; input_index < parameters.size(); ++input_index) {
++    auto next = std::make_shared<ir::Var>("ignored", type, TestSpan());
++    statements.push_back(std::make_shared<ir::AssignStmt>(
++        next, call("tensor.add", {previous, parameters[input_index]}), TestSpan()));
++    previous = next;
++  }
++  while (statements.size() < 64) {
++    auto next = std::make_shared<ir::Var>("ignored", type, TestSpan());
++    statements.push_back(std::make_shared<ir::AssignStmt>(
++        next, call("tensor.neg", {previous}), TestSpan()));
++    previous = next;
++  }
++  statements.push_back(std::make_shared<ir::ReturnStmt>(
++      std::vector<ir::ExprPtr>{previous}, TestSpan()));
++  auto function = std::make_shared<ir::Function>(
++      "ignored", parameters, directions, std::vector<ir::TypePtr>{type},
++      std::make_shared<ir::SeqStmts>(statements, TestSpan()), TestSpan());
++  return std::make_shared<ir::Program>(std::vector<ir::FunctionPtr>{function}, "test",
++                                      TestSpan());
++}
++
+ TargetTraits MakeTraits(int multiprocessor_count = 82) {
+   return TargetTraits(120, multiprocessor_count, 32, 1024, 1536, 24, 1024, 1024, 64,
+                       2147483647, 65535,
+@@ -264,6 +351,23 @@ int TestRealProducerSuccess() {
+   REQUIRE(kernel.GetGridAbi().GetShapeOperandIndex() == 0);
+   REQUIRE((kernel.GetGridAbi().GetStaticDimensions() == std::array<uint32_t, 3>{4, 1, 1}));
+   REQUIRE(kernel.GetGridAbi().GetTileSizes() == std::vector<uint32_t>({16}));
++  REQUIRE(build_spec.GetSourceIrDigest() ==
++          "0e5fbaf1cd70dffa0c81d43a1d2cad454f97cbf9a57ae5247da1cb27f6a049d3");
++  REQUIRE(build_spec.GetStaticSpecializationDigest() ==
++          "0bad0b86c36c86808f12b908692925e6493b4c78027da334d612b57bac5459aa");
++  REQUIRE(build_spec.GetSymbolicSpecializationDigest() ==
++          "1a2d6d32c956e86f41c0dc50dbafe53d33e3f63bd58bd683e78a06595b6ff58c");
++  REQUIRE(build_spec.GetArgumentAbiDigest() ==
++          "2bf59cefa95a2e95ac4e4647a654118b6d8c6fbfaa91a294621a9160d68dbd9b");
++  REQUIRE(build_spec.GetResultAbiDigest() ==
++          "5a786136731e5c62c80597edbb57551cd010d344bfeab14456a9f6b263e99ea5");
++  REQUIRE(build_spec.GetMutationAbiDigest() ==
++          "4adb7fa8fdbdee33582778c543686a6c63953852be40079649e4d2d6f07c766d");
++  REQUIRE(kernel.GetIdentityDigest() ==
++          "4eee741cbe0c7322f938b83b01b34844c5f12fb1b01da52c2029e6687e24c640");
++  REQUIRE(artifact.GetDeviceCode().size() == 13784);
++  REQUIRE(artifact.GetDeviceCodeSha256() ==
++          "dcc529fc856a508642c8b5a98c6fc4e223e10a49cc9f8a200b8984f92b6483ab");
+   REQUIRE(build_spec.GetCallableAbiDigest() == artifact.GetKernelAbi().GetIdentityDigest());
+   REQUIRE(artifact.GetIdentities().GetKernelBuildSpecDigest() == build_spec.GetIdentityDigest());
+   REQUIRE(artifact.GetIdentities().GetSourceIrDigest() == build_spec.GetSourceIrDigest());
+@@ -282,6 +386,33 @@ int TestRealProducerSuccess() {
+   REQUIRE(Artifact::DeserializeCanonical(artifact_bytes, request, build_spec).SerializeCanonical() ==
+           artifact_bytes);
+ 
++  const uint64_t before_bf16 =
++      GetStrictNvidiaProducerInvocationCountForTesting();
++  const StructuredCompileResult bf16_result = CompileStructuredStrict(
++      MakeProgram({128}, DataType::BF16), request, MakeSchedule());
++  REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before_bf16 + 1);
++  const KernelBuildSpec& bf16_spec = bf16_result.GetBuildSpec();
++  const Artifact& bf16_artifact = bf16_result.GetArtifact();
++  REQUIRE(bf16_spec.GetSourceIrDigest() ==
++          "c22f2459ad794e89f88de1bbd427f17876c6059b9fd222be706dd5ce300a0a7f");
++  REQUIRE(bf16_spec.GetStaticSpecializationDigest() ==
++          "146fbdd823eb18c77190894a272a39d1298b557acf8d3156226d44d5ce7a6051");
++  REQUIRE(bf16_spec.GetSymbolicSpecializationDigest() ==
++          "1a2d6d32c956e86f41c0dc50dbafe53d33e3f63bd58bd683e78a06595b6ff58c");
++  REQUIRE(bf16_spec.GetArgumentAbiDigest() ==
++          "5408cc8d6adb1f52d11d850c745a33dbe6a43c470fa907a238b71371f4bf04c1");
++  REQUIRE(bf16_spec.GetResultAbiDigest() ==
++          "e8111628d00263e8f568dc8844a2e0fe5d08576bf77d81682b338dbeb977460a");
++  REQUIRE(bf16_spec.GetMutationAbiDigest() ==
++          "4adb7fa8fdbdee33582778c543686a6c63953852be40079649e4d2d6f07c766d");
++  REQUIRE(bf16_artifact.GetKernelAbi().GetIdentityDigest() ==
++          "e3d31183b4ba5b2f09f01ef777043b9f51818e33d6bdbf18333257211d57c0e8");
++  REQUIRE((bf16_artifact.GetKernelAbi().GetGridAbi().GetStaticDimensions() ==
++           std::array<uint32_t, 3>{8, 1, 1}));
++  REQUIRE(bf16_artifact.GetDeviceCode().size() == 13784);
++  REQUIRE(bf16_artifact.GetDeviceCodeSha256() ==
++          "83afb2df234ad90167351d608052d44f86e26a8ca73959369992cd139943bc13");
++
+   const KernelBuildSpec mismatched_build_spec(
+       std::string(64, 'f'), build_spec.GetCallableAbiDigest(), build_spec.GetSemanticRoute(),
+       build_spec.GetPipelineRevision(), build_spec.GetResolvedSchedule(),
+@@ -356,6 +487,51 @@ int TestRealProducerSuccess() {
+   return 0;
+ }
+ 
++int TestRealFusedPointwiseProducerSuccess() {
++#if defined(PYPTO_ENABLE_NVIDIA_COMPILER_BACKEND)
++  const CompileRequest request = MakeRequest();
++  for (DataType dtype : {DataType::FP32, DataType::BF16}) {
++    const uint64_t before = GetStrictNvidiaProducerInvocationCountForTesting();
++    const StructuredCompileResult result =
++        CompileStructuredStrict(MakeFusedProgram(dtype), request, MakeSchedule());
++    REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before + 1);
++    const Artifact& artifact = result.GetArtifact();
++    const KernelBuildSpec& build_spec = result.GetBuildSpec();
++    const auto& kernel = artifact.GetKernelAbi();
++    REQUIRE(kernel.GetEntryFunctionName() == "pypto_fused_pointwise_v2");
++    REQUIRE(kernel.GetArgumentLayout().GetInputOperandCount() == 2);
++    REQUIRE(kernel.GetArgumentLayout().GetOperandDescriptors().size() == 3);
++    REQUIRE(kernel.GetArgumentLayout().GetTotalKernelArgumentCount() == 3);
++    REQUIRE(kernel.GetArgumentPackingPolicy() ==
++            pypto::compiler::ArtifactArgumentPackingPolicy::PointerOnly);
++    REQUIRE((kernel.GetGridAbi().GetStaticDimensions() ==
++             std::array<uint32_t, 3>{4, 1, 1}));
++    REQUIRE(kernel.GetGridAbi().GetShapeOperandIndex() == 0);
++    REQUIRE(kernel.GetGridAbi().GetTileSizes() == std::vector<uint32_t>({16}));
++    REQUIRE(!artifact.GetDeviceCode().empty());
++    REQUIRE(!artifact.GetDeviceCodeSha256().empty());
++    REQUIRE(build_spec.GetCallableAbiDigest() == kernel.GetIdentityDigest());
++    REQUIRE(artifact.GetIdentities().GetKernelBuildSpecDigest() ==
++            build_spec.GetIdentityDigest());
++  }
++
++  const uint64_t before_maximum =
++      GetStrictNvidiaProducerInvocationCountForTesting();
++  const StructuredCompileResult maximum = CompileStructuredStrict(
++      MakeMaximumFusedProgram(), request, MakeSchedule());
++  REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before_maximum + 1);
++  const auto& maximum_kernel = maximum.GetArtifact().GetKernelAbi();
++  REQUIRE(maximum_kernel.GetEntryFunctionName() == "pypto_fused_pointwise_v2");
++  REQUIRE(maximum_kernel.GetArgumentLayout().GetInputOperandCount() == 16);
++  REQUIRE(maximum_kernel.GetArgumentLayout().GetOperandDescriptors().size() == 17);
++  REQUIRE(maximum_kernel.GetArgumentLayout().GetTotalKernelArgumentCount() == 17);
++  REQUIRE((maximum_kernel.GetGridAbi().GetStaticDimensions() ==
++           std::array<uint32_t, 3>{1, 1, 1}));
++  REQUIRE(!maximum.GetArtifact().GetDeviceCode().empty());
++#endif
++  return 0;
++}
++
+ }  // namespace
+ 
+ int main() {
+@@ -370,5 +546,6 @@ int main() {
+   if (const int result = TestPrevalidationMakesZeroProducerCalls()) return result;
+   if (const int result = TestLegacyBackendOffRegression()) return result;
+   if (const int result = TestRealProducerSuccess()) return result;
++  if (const int result = TestRealFusedPointwiseProducerSuccess()) return result;
+   return 0;
+ }
+diff --git a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+index e5ec1597c7e0c0248565fb728aa48ae7fe06a329..9498980f7b5c9d5c7438c98a9163129acfca72e7 100644
+--- a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
++++ b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+@@ -9,6 +9,7 @@
+  * -----------------------------------------------------------------------------------------------------------
+  */
+ 
++#include <algorithm>
+ #include <any>
+ #include <array>
+ #include <cstdint>
+@@ -32,6 +33,7 @@
+ #include "pypto/ir/function.h"
+ #include "pypto/ir/op_registry.h"
+ #include "pypto/ir/program.h"
++#include "pypto/ir/scalar_expr.h"
+ #include "pypto/ir/span.h"
+ #include "pypto/ir/stmt.h"
+ #include "pypto/ir/type.h"
+@@ -66,6 +68,7 @@ using pypto::compiler::ToolchainIdentity;
+ using pypto::compiler::detail::FinalizeStructuredTensorIrBuildSpec;
+ using pypto::compiler::detail::PrepareStructuredTensorIrCompilation;
+ using pypto::compiler::detail::PreparedStructuredTensorIrCompilation;
++using pypto::compiler::detail::PreparedStructuredTensorIrModuleKind;
+ using pypto::compiler::detail::PreparedStructuredTensorIrValueMetadata;
+ using pypto::compiler::detail::PreparedStructuredTensorIrValueRole;
+ using pypto::compiler::detail::ResolveStrictTensorIrProducerOptions;
+@@ -135,6 +138,36 @@ constexpr std::string_view kRankOneResultGoldenHex =
+     "62695f736368656d615f76657273696f6e01a7726573756c74739188aa636f6e746967756f7573c3aa64747970655f63"
+     "6f646540aa64747970655f6e616d65a862666c6f61743136b06578706c696369745f73747269646573c2a76f7264696e"
+     "616c00a472616e6b01a5736861706591cc80a7737472696465739101";
++constexpr std::string_view kFusedStaticGoldenHex =
++    "83a8636f6e7472616374d927707970746f2e66726f6e74656e642e7374617469635f7370656369616c697a6174696f6e"
++    "2e7632d9247374617469635f7370656369616c697a6174696f6e5f736368656d615f76657273696f6e02a676616c7565"
++    "739483a76f7264696e616c00a4726f6c65a8617267756d656e74a5736861706592080883a76f7264696e616c01a4726f"
++    "6c65a8617267756d656e74a5736861706592080883a76f7264696e616c02a4726f6c65a8617267756d656e74a5736861"
++    "706592080883a76f7264696e616c00a4726f6c65a6726573756c74a57368617065920808";
++constexpr std::string_view kFusedSymbolicGoldenHex =
++    "84ab636f6e73747261696e747390a8636f6e7472616374d929707970746f2e66726f6e74656e642e73796d626f6c6963"
++    "5f7370656369616c697a6174696f6e2e7632d92673796d626f6c69635f7370656369616c697a6174696f6e5f73636865"
++    "6d615f76657273696f6e02a773796d626f6c7390";
++constexpr std::string_view kFusedArgumentGoldenHex =
++    "83bb617267756d656e745f6162695f736368656d615f76657273696f6e02a9617267756d656e74739389aa636f6e7469"
++    "67756f7573c3a9646972656374696f6ea2696eaa64747970655f636f646534aa64747970655f6e616d65a466703332b0"
++    "6578706c696369745f73747269646573c3a76f7264696e616c00a472616e6b02a57368617065920808a7737472696465"
++    "7392080189aa636f6e746967756f7573c3a9646972656374696f6ea2696eaa64747970655f636f646534aa6474797065"
++    "5f6e616d65a466703332b06578706c696369745f73747269646573c3a76f7264696e616c01a472616e6b02a573686170"
++    "65920808a77374726964657392080189aa636f6e746967756f7573c3a9646972656374696f6ea2696eaa64747970655f"
++    "636f646534aa64747970655f6e616d65a466703332b06578706c696369745f73747269646573c3a76f7264696e616c"
++    "02a472616e6b02a57368617065920808a773747269646573920801a8636f6e7472616374be707970746f2e66726f6e74"
++    "656e642e617267756d656e745f6162692e7632";
++constexpr std::string_view kFusedResultGoldenHex =
++    "83a8636f6e7472616374bc707970746f2e66726f6e74656e642e726573756c745f6162692e7632b9726573756c745f61"
++    "62695f736368656d615f76657273696f6e02a7726573756c74739188aa636f6e746967756f7573c3aa64747970655f63"
++    "6f646534aa64747970655f6e616d65a466703332b06578706c696369745f73747269646573c3a76f7264696e616c00a4"
++    "72616e6b02a57368617065920808a773747269646573920801";
++constexpr std::string_view kFusedMutationGoldenHex =
++    "84b0617267756d656e745f656666656374739382a6656666656374a9726561642d6f6e6c79a76f7264696e616c0082a6"
++    "656666656374a9726561642d6f6e6c79a76f7264696e616c0182a6656666656374a9726561642d6f6e6c79a76f726469"
++    "6e616c02a8636f6e7472616374be707970746f2e66726f6e74656e642e6d75746174696f6e5f6162692e7632bb6d7574"
++    "6174696f6e5f6162695f736368656d615f76657273696f6e02ae726573756c745f616c696173657391c0";
+ 
+ const ir::Span& TestSpan() {
+   static const ir::Span span("structured_tensor_ir_build_spec_test.cpp", 7, 3);
+@@ -173,15 +206,52 @@ ir::ProgramPtr MakeProgram(const std::vector<int64_t>& shape = {8, 8},
+   return std::make_shared<ir::Program>(std::vector<ir::FunctionPtr>{function}, "test", TestSpan());
+ }
+ 
+-TargetTraits ValidTraits(int multiprocessor_count = 82) {
++ir::ProgramPtr MakeFusedProgram(const std::vector<int64_t>& shape = {8, 8},
++                                DataType dtype = DataType::FP32) {
++  auto type = PlainTensor(shape, dtype);
++  auto x = std::make_shared<ir::Var>("x", type, TestSpan());
++  auto y = std::make_shared<ir::Var>("y", type, TestSpan());
++  auto z = std::make_shared<ir::Var>("z", type, TestSpan());
++  auto value0 = std::make_shared<ir::Var>("value0", type, TestSpan());
++  auto value1 = std::make_shared<ir::Var>("value1", type, TestSpan());
++  auto value2 = std::make_shared<ir::Var>("value2", type, TestSpan());
++  const auto call = [&](const std::string& name,
++                        const std::vector<ir::ExprPtr>& arguments) {
++    return std::make_shared<ir::Call>(
++        ir::OpRegistry::GetInstance().GetOp(name), arguments,
++        std::vector<std::pair<std::string, std::any>>{},
++        std::vector<std::pair<std::string, std::any>>{}, type, TestSpan());
++  };
++  auto scalar = std::make_shared<ir::ConstFloat>(1.5, dtype, TestSpan());
++  auto body = std::make_shared<ir::SeqStmts>(
++      std::vector<ir::StmtPtr>{
++          std::make_shared<ir::AssignStmt>(value0, call("tensor.mul", {x, y}), TestSpan()),
++          std::make_shared<ir::AssignStmt>(
++              value1, call("tensor.adds", {value0, scalar}), TestSpan()),
++          std::make_shared<ir::AssignStmt>(value2, call("tensor.sub", {value1, z}), TestSpan()),
++          std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{value2}, TestSpan())},
++      TestSpan());
++  auto function = std::make_shared<ir::Function>(
++      "ignored", std::vector<ir::VarPtr>{x, y, z},
++      std::vector<ir::ParamDirection>{ir::ParamDirection::In, ir::ParamDirection::In,
++                                      ir::ParamDirection::In},
++      std::vector<ir::TypePtr>{type}, body, TestSpan());
++  return std::make_shared<ir::Program>(std::vector<ir::FunctionPtr>{function}, "test",
++                                      TestSpan());
++}
++
++TargetTraits ValidTraits(int multiprocessor_count = 82,
++                         int max_grid_dim_x = 2147483647) {
+   return TargetTraits(120, multiprocessor_count, 32, 1024, 1536, 24, 1024, 1024, 64,
+-                      2147483647, 65535, 65535, 128, 48 * 1024, 101376, 131072, 65536, 255,
++                      max_grid_dim_x, 65535, 65535, 128, 48 * 1024, 101376, 131072, 65536, 255,
+                       65536, 96ULL * 1024 * 1024, 24463ULL * 1024 * 1024);
+ }
+ 
+-CompileRequest ValidRequest(int multiprocessor_count = 82) {
++CompileRequest ValidRequest(int multiprocessor_count = 82,
++                            int max_grid_dim_x = 2147483647) {
+   NvidiaTargetInfo target(
+-      0, "NVIDIA test device", "GPU-test", "0000:01:00.0", ValidTraits(multiprocessor_count),
++      0, "NVIDIA test device", "GPU-test", "0000:01:00.0",
++      ValidTraits(multiprocessor_count, max_grid_dim_x),
+       "13.3", "610.74", std::string(kTensorIrRevision), std::string(kCudaTileRevision),
+       {DataType::FP32, DataType::BF16});
+   ToolchainIdentity toolchain(
+@@ -237,6 +307,10 @@ std::vector<uint8_t> BytesFromHex(std::string_view hex) {
+   return bytes;
+ }
+ 
++bool ContainsAscii(const std::vector<uint8_t>& bytes, std::string_view text) {
++  return std::search(bytes.begin(), bytes.end(), text.begin(), text.end()) != bytes.end();
++}
++
+ std::vector<std::optional<int64_t>> OptionalValues(const std::vector<int64_t>& values) {
+   std::vector<std::optional<int64_t>> output;
+   output.reserve(values.size());
+@@ -313,6 +387,29 @@ KernelOptions ValidKernelOptions(const std::vector<int64_t>& shape = {8, 8},
+   return options;
+ }
+ 
++KernelOptions FusedKernelOptions(const std::vector<int64_t>& shape = {8, 8},
++                                 uint32_t input_count = 3,
++                                 const std::vector<uint32_t>& tile_sizes = {16},
++                                 uint32_t grid_x = 4) {
++  KernelOptions options = ValidKernelOptions(shape, tile_sizes, grid_x);
++  options.entry_function_name = "pypto_fused_pointwise_v2";
++  options.input_count = input_count;
++  std::vector<int64_t> strides(shape.size());
++  int64_t running = 1;
++  for (size_t reverse_index = shape.size(); reverse_index > 0; --reverse_index) {
++    const size_t index = reverse_index - 1;
++    strides[index] = running;
++    running *= shape[index];
++  }
++  const bool explicit_strides = shape.size() >= 2;
++  options.descriptors.clear();
++  for (uint32_t index = 0; index < input_count + 1; ++index) {
++    options.descriptors.push_back(
++        TensorDescriptor(shape, strides, 0, 0, explicit_strides));
++  }
++  return options;
++}
++
+ uint32_t TotalArguments(const std::vector<ArtifactArgumentDescriptor>& descriptors) {
+   uint32_t total = 0;
+   for (const auto& descriptor : descriptors) {
+@@ -370,6 +467,11 @@ int TestPreparationGoldenAndOwnership() {
+   REQUIRE(prepared.GetSchedule().SerializeCanonical() == schedule.SerializeCanonical());
+   REQUIRE(prepared.GetResolvedOptions().tile_sizes == std::vector<uint32_t>({16}));
+   REQUIRE(prepared.GetResolvedOptions().sm_count == 82);
++  REQUIRE(prepared.GetModuleKind() ==
++          PreparedStructuredTensorIrModuleKind::LegacyStaticAddV1);
++  REQUIRE(prepared.GetFrontendMetadataSchemaVersion() == 1);
++  REQUIRE(prepared.GetInputCount() == 2);
++  REQUIRE(prepared.GetResultCount() == 1);
+   REQUIRE(prepared.GetEntryName() == "pypto_vector_add");
+   REQUIRE(prepared.GetSourceIrDigest() ==
+           "0e5fbaf1cd70dffa0c81d43a1d2cad454f97cbf9a57ae5247da1cb27f6a049d3");
+@@ -411,6 +513,155 @@ int TestPreparationGoldenAndOwnership() {
+   return 0;
+ }
+ 
++int TestFusedPointwiseV2ProjectionAndFinalization() {
++  const CompileRequest request = ValidRequest();
++  const CanonicalSchedule schedule = ValidSchedule({16});
++  const PreparedStructuredTensorIrCompilation prepared =
++      PrepareStructuredTensorIrCompilation(MakeFusedProgram(), request, schedule);
++  const PreparedStructuredTensorIrCompilation repeated =
++      PrepareStructuredTensorIrCompilation(MakeFusedProgram(), request, schedule);
++
++  REQUIRE(prepared.GetModuleKind() ==
++          PreparedStructuredTensorIrModuleKind::FusedPointwiseV2);
++  REQUIRE(prepared.GetFrontendMetadataSchemaVersion() == 2);
++  REQUIRE(prepared.GetEntryName() == "pypto_fused_pointwise_v2");
++  REQUIRE(prepared.GetCanonicalSource().size() == 577);
++  REQUIRE(prepared.GetSourceIrDigest() ==
++          "5ada2305f0647621547be97d9e53e0d12f1e44b4ebbd464f4bd84cc5a835b4cd");
++  REQUIRE(prepared.GetInputCount() == 3);
++  REQUIRE(prepared.GetResultCount() == 1);
++  REQUIRE(prepared.GetValueMetadata().size() == 4);
++  for (size_t index = 0; index < 3; ++index) {
++    REQUIRE(prepared.GetValueMetadata()[index].GetRole() ==
++            PreparedStructuredTensorIrValueRole::Argument);
++    REQUIRE(prepared.GetValueMetadata()[index].GetOrdinal() == index);
++  }
++  REQUIRE(prepared.GetValueMetadata()[3].GetRole() ==
++          PreparedStructuredTensorIrValueRole::Result);
++  REQUIRE(prepared.GetValueMetadata()[3].GetOrdinal() == 0);
++
++  REQUIRE(ContainsAscii(prepared.GetStaticSpecialization().GetCanonicalBytes(),
++                        "pypto.frontend.static_specialization.v2"));
++  REQUIRE(ContainsAscii(prepared.GetSymbolicSpecialization().GetCanonicalBytes(),
++                        "pypto.frontend.symbolic_specialization.v2"));
++  REQUIRE(ContainsAscii(prepared.GetArgumentAbi().GetCanonicalBytes(),
++                        "pypto.frontend.argument_abi.v2"));
++  REQUIRE(ContainsAscii(prepared.GetResultAbi().GetCanonicalBytes(),
++                        "pypto.frontend.result_abi.v2"));
++  REQUIRE(ContainsAscii(prepared.GetMutationAbi().GetCanonicalBytes(),
++                        "pypto.frontend.mutation_abi.v2"));
++  REQUIRE(prepared.GetStaticSpecialization().GetCanonicalBytes() ==
++          BytesFromHex(kFusedStaticGoldenHex));
++  REQUIRE(prepared.GetStaticSpecialization().GetIdentityDigest() ==
++          "6927816f0cdbc7b16e6f220304100405d1f969fa78b48780f4f43468a0d714b0");
++  REQUIRE(prepared.GetSymbolicSpecialization().GetCanonicalBytes() ==
++          BytesFromHex(kFusedSymbolicGoldenHex));
++  REQUIRE(prepared.GetSymbolicSpecialization().GetIdentityDigest() ==
++          "9372e99f73d788b3d6431e5e5532d5b3926a46fc14e679c980ca5f0a3517a905");
++  REQUIRE(prepared.GetArgumentAbi().GetCanonicalBytes() ==
++          BytesFromHex(kFusedArgumentGoldenHex));
++  REQUIRE(prepared.GetArgumentAbi().GetIdentityDigest() ==
++          "08471c182a4ddfe673e18fcf4aa16233bdc8a2c3425a1a82d7428f151af6fd27");
++  REQUIRE(prepared.GetResultAbi().GetCanonicalBytes() ==
++          BytesFromHex(kFusedResultGoldenHex));
++  REQUIRE(prepared.GetResultAbi().GetIdentityDigest() ==
++          "023947e1cc20492dd447174ed3f74917456c127075f381afac28b133d4c065bf");
++  REQUIRE(prepared.GetMutationAbi().GetCanonicalBytes() ==
++          BytesFromHex(kFusedMutationGoldenHex));
++  REQUIRE(prepared.GetMutationAbi().GetIdentityDigest() ==
++          "18d467311b213f6b372cc3016cd126dc4ad1d35b0b9daf8acc4e80e00f4b62f2");
++  REQUIRE(prepared.GetStaticSpecialization().GetCanonicalBytes() ==
++          repeated.GetStaticSpecialization().GetCanonicalBytes());
++  REQUIRE(prepared.GetSymbolicSpecialization().GetCanonicalBytes() ==
++          repeated.GetSymbolicSpecialization().GetCanonicalBytes());
++  REQUIRE(prepared.GetArgumentAbi().GetCanonicalBytes() ==
++          repeated.GetArgumentAbi().GetCanonicalBytes());
++  REQUIRE(prepared.GetResultAbi().GetCanonicalBytes() ==
++          repeated.GetResultAbi().GetCanonicalBytes());
++  REQUIRE(prepared.GetMutationAbi().GetCanonicalBytes() ==
++          repeated.GetMutationAbi().GetCanonicalBytes());
++
++  const ArtifactKernelAbi kernel = MakeKernelAbi(FusedKernelOptions());
++  const KernelBuildSpec build_spec = FinalizeStructuredTensorIrBuildSpec(prepared, kernel);
++  REQUIRE(kernel.GetEntryFunctionName() == "pypto_fused_pointwise_v2");
++  REQUIRE(kernel.GetArgumentLayout().GetInputOperandCount() == 3);
++  REQUIRE(kernel.GetArgumentLayout().GetOperandDescriptors().size() == 4);
++  REQUIRE(kernel.GetArgumentLayout().GetTotalKernelArgumentCount() == 4);
++  REQUIRE(kernel.GetArgumentPackingPolicy() ==
++          ArtifactArgumentPackingPolicy::PointerOnly);
++  REQUIRE(kernel.GetWorkspaceAbi().GetKind() == ArtifactWorkspaceKind::Static);
++  REQUIRE(kernel.GetWorkspaceAbi().GetSizeBytes() == 0);
++  REQUIRE(kernel.GetWorkspaceAbi().GetAlignmentBytes() == 1);
++  REQUIRE(kernel.GetGridAbi().GetShapeOperandIndex() == 0);
++  REQUIRE((kernel.GetGridAbi().GetStaticDimensions() ==
++           std::array<uint32_t, 3>{4, 1, 1}));
++  REQUIRE(build_spec.GetCallableAbiDigest() == kernel.GetIdentityDigest());
++  REQUIRE(build_spec.GetArgumentAbiDigest() ==
++          prepared.GetArgumentAbi().GetIdentityDigest());
++  REQUIRE(build_spec.GetResultAbiDigest() == prepared.GetResultAbi().GetIdentityDigest());
++  REQUIRE(build_spec.GetMutationAbiDigest() ==
++          prepared.GetMutationAbi().GetIdentityDigest());
++
++  KernelOptions wrong_input_count = FusedKernelOptions();
++  wrong_input_count.input_count = 2;
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(wrong_input_count)),
++                              "input count"));
++  KernelOptions wrong_grid = FusedKernelOptions();
++  wrong_grid.static_grid = {5, 1, 1};
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(wrong_grid)),
++                              "flattened shape and tile"));
++  return 0;
++}
++
++int TestFusedPointwiseV2ScheduleRejections() {
++  const CompileRequest request = ValidRequest();
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(MakeFusedProgram(), request,
++                                                   ValidSchedule({8, 8}));
++      },
++      "exactly one flattened tile"));
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(MakeFusedProgram(), request,
++                                                   ValidSchedule({12}));
++      },
++      "positive power of two"));
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(MakeFusedProgram(), request,
++                                                   ValidSchedule({128}));
++      },
++      "flattened static element count"));
++
++  const PreparedStructuredTensorIrCompilation non_power_of_two_extent =
++      PrepareStructuredTensorIrCompilation(MakeFusedProgram({7}), request,
++                                           ValidSchedule({4}));
++  REQUIRE(non_power_of_two_extent.GetResolvedOptions().tile_sizes ==
++          std::vector<uint32_t>({4}));
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(MakeFusedProgram({7}), request,
++                                                   ValidSchedule({8}));
++      },
++      "flattened static element count"));
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(
++            MakeFusedProgram({64}), ValidRequest(82, 32), ValidSchedule({1}));
++      },
++      "exceeds the prepared target limit"));
++
++  // Compile-free V1 preparation historically records producer-owned schedules
++  // without applying the V2 flattened-pointwise tile preflight.
++  const PreparedStructuredTensorIrCompilation legacy =
++      PrepareStructuredTensorIrCompilation(MakeProgram(), request, ValidSchedule({8, 8}));
++  REQUIRE(legacy.GetModuleKind() ==
++          PreparedStructuredTensorIrModuleKind::LegacyStaticAddV1);
++  REQUIRE(legacy.GetResolvedOptions().tile_sizes == std::vector<uint32_t>({8, 8}));
++  return 0;
++}
++
+ int TestRankOneBf16ImplicitStrideGoldenAndFinalization() {
+   const CompileRequest request = ValidRequest();
+   const PreparedStructuredTensorIrCompilation prepared =
+@@ -753,6 +1004,8 @@ int main() {
+                                          CanonicalSchedule>);
+ 
+   if (const int result = TestPreparationGoldenAndOwnership()) return result;
++  if (const int result = TestFusedPointwiseV2ProjectionAndFinalization()) return result;
++  if (const int result = TestFusedPointwiseV2ScheduleRejections()) return result;
+   if (const int result = TestRankOneBf16ImplicitStrideGoldenAndFinalization()) return result;
+   if (const int result = TestStrictScheduleOverloadParity()) return result;
+   if (const int result = TestDeterminismAndIdentityChanges()) return result;
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index e73c18c34c284299065704aca464a18fcc78d4cb..1a8f858c883f91c6a4ca5b6629697dad2e7aa8bc 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -41,6 +41,7 @@ using pypto::DataType;
+ using pypto::ValueError;
+ using pypto::codegen::nvidia::EmitTensorIr;
+ using pypto::codegen::nvidia::TensorIrModule;
++using pypto::codegen::nvidia::TensorIrModuleKind;
+ using pypto::codegen::nvidia::TensorIrValueMetadata;
+ using pypto::codegen::nvidia::TensorIrValueRole;
+ 
+@@ -77,6 +78,15 @@ ir::CallPtr AddCall(const ir::ExprPtr& lhs, const ir::ExprPtr& rhs,
+   return CallWith(ir::OpRegistry::GetInstance().GetOp("tensor.add"), {lhs, rhs}, type);
+ }
+ 
++ir::CallPtr OpCall(const std::string& op_name,
++                   const std::vector<ir::ExprPtr>& arguments,
++                   const ir::TypePtr& type,
++                   std::vector<std::pair<std::string, std::any>> kwargs = {},
++                   std::vector<std::pair<std::string, std::any>> attrs = {}) {
++  return CallWith(ir::OpRegistry::GetInstance().GetOp(op_name), arguments, type,
++                  std::move(kwargs), std::move(attrs));
++}
++
+ ir::ProgramPtr MakeProgram(const std::string& function_name,
+                            const std::vector<ir::VarPtr>& parameters,
+                            const std::vector<ir::ParamDirection>& directions,
+@@ -187,6 +197,7 @@ int TestFp32CanonicalSourceAndMetadata() {
+       "  }\n"
+       "}\n";
+   REQUIRE(module.GetCanonicalSource() == expected);
++  REQUIRE(module.GetKind() == TensorIrModuleKind::LegacyStaticAddV1);
+   REQUIRE(module.GetMetadataSchemaVersion() == 1);
+   REQUIRE(module.GetEntryName() == "pypto_vector_add");
+   REQUIRE(module.GetInputCount() == 2);
+@@ -214,6 +225,87 @@ int TestFp32CanonicalSourceAndMetadata() {
+   return 0;
+ }
+ 
++int TestFusedPointwiseV2CanonicalSourceAndMetadata() {
++  auto type = PlainTensor({2, 3}, DataType::FP32);
++  auto x = std::make_shared<ir::Var>("x", type, TestSpan());
++  auto y = std::make_shared<ir::Var>("y", type, TestSpan());
++  auto z = std::make_shared<ir::Var>("z", type, TestSpan());
++  std::vector<ir::StmtPtr> statements;
++  std::vector<ir::VarPtr> values;
++  const auto append = [&](const std::string& op_name,
++                          const std::vector<ir::ExprPtr>& arguments) {
++    auto value = std::make_shared<ir::Var>("ignored", type, TestSpan());
++    statements.push_back(std::make_shared<ir::AssignStmt>(
++        value, OpCall(op_name, arguments, type), TestSpan()));
++    values.push_back(value);
++  };
++  append("tensor.mul", {x, y});
++  append("tensor.add", {values.back(), z});
++  append("tensor.adds",
++         {values.back(), std::make_shared<ir::ConstFloat>(1.5, DataType::FP32,
++                                                         TestSpan())});
++  append("tensor.sub", {values.back(), x});
++  append("tensor.subs",
++         {values.back(), std::make_shared<ir::ConstFloat>(-2.0, DataType::FP32,
++                                                         TestSpan())});
++  append("tensor.mul", {values.back(), y});
++  append("tensor.muls",
++         {values.back(), std::make_shared<ir::ConstFloat>(4.0, DataType::FP32,
++                                                         TestSpan())});
++  append("tensor.neg", {values.back()});
++  append("tensor.exp", {values.back()});
++  append("tensor.recip", {values.back()});
++  append("tensor.rsqrt", {values.back()});
++  statements.push_back(std::make_shared<ir::ReturnStmt>(
++      std::vector<ir::ExprPtr>{values.back()}, TestSpan()));
++  const TensorIrModule module = EmitTensorIr(MakeProgram(
++      "ignored_fused_name", {x, y, z},
++      {ir::ParamDirection::In, ir::ParamDirection::In, ir::ParamDirection::In},
++      {type}, statements));
++
++  const std::string expected =
++      "module {\n"
++      "  nv_tensor_ir.graph @pypto_fused_pointwise_v2(\n"
++      "    %arg0: tensor<2x3xf32> {nv_tensor_ir.stride = \"(3,1)\"},\n"
++      "    %arg1: tensor<2x3xf32> {nv_tensor_ir.stride = \"(3,1)\"},\n"
++      "    %arg2: tensor<2x3xf32> {nv_tensor_ir.stride = \"(3,1)\"}\n"
++      "  ) -> (tensor<2x3xf32> {nv_tensor_ir.stride = \"(3,1)\"}) {\n"
++      "    %value0 = mul %arg0, %arg1 : tensor<2x3xf32>\n"
++      "    %value1 = add %value0, %arg2 : tensor<2x3xf32>\n"
++      "    %constant0 = constant 1.5 : f32\n"
++      "    %splat0 = splat %constant0 : tensor<2x3xf32>\n"
++      "    %value2 = add %value1, %splat0 : tensor<2x3xf32>\n"
++      "    %value3 = sub %value2, %arg0 : tensor<2x3xf32>\n"
++      "    %constant1 = constant -2.0 : f32\n"
++      "    %splat1 = splat %constant1 : tensor<2x3xf32>\n"
++      "    %value4 = sub %value3, %splat1 : tensor<2x3xf32>\n"
++      "    %value5 = mul %value4, %arg1 : tensor<2x3xf32>\n"
++      "    %constant2 = constant 4.0 : f32\n"
++      "    %splat2 = splat %constant2 : tensor<2x3xf32>\n"
++      "    %value6 = mul %value5, %splat2 : tensor<2x3xf32>\n"
++      "    %value7 = neg %value6 : tensor<2x3xf32>\n"
++      "    %value8 = exp %value7 : tensor<2x3xf32>\n"
++      "    %value9 = reciprocal %value8 : tensor<2x3xf32>\n"
++      "    %value10 = rsqrt %value9 : tensor<2x3xf32>\n"
++      "    results %value10 : tensor<2x3xf32>\n"
++      "  }\n"
++      "}\n";
++  REQUIRE(module.GetKind() == TensorIrModuleKind::FusedPointwiseV2);
++  REQUIRE(module.GetMetadataSchemaVersion() == 2);
++  REQUIRE(module.GetEntryName() == "pypto_fused_pointwise_v2");
++  REQUIRE(module.GetCanonicalSource() == expected);
++  REQUIRE(module.GetInputCount() == 3);
++  REQUIRE(module.GetResultCount() == 1);
++  REQUIRE(module.GetValueMetadata().size() == 4);
++  for (size_t index = 0; index < 3; ++index) {
++    REQUIRE(module.GetValueMetadata()[index].GetRole() == TensorIrValueRole::Input);
++    REQUIRE(module.GetValueMetadata()[index].GetOrdinal() == index);
++  }
++  REQUIRE(module.GetValueMetadata()[3].GetRole() == TensorIrValueRole::Result);
++  REQUIRE(module.GetValueMetadata()[3].GetOrdinal() == 0);
++  return 0;
++}
++
+ int TestRankOneExactCanonicalSources() {
+   const ValidProgram valid = MakeValid({7}, DataType::BF16, "bf16_add");
+   const TensorIrModule module = EmitTensorIr(valid.program);
+@@ -329,7 +421,7 @@ int TestStructuralRejections() {
+   auto wrong_parameter_count = MakeRawProgram(
+       {valid.lhs}, {ir::ParamDirection::In}, {valid.tensor_type}, valid_function->body_);
+   REQUIRE(Rejects([&] { (void)EmitTensorIr(wrong_parameter_count); },
+-                  "exactly two function parameters"));
++                  "not a function parameter or SSA result"));
+ 
+   auto wrong_return_count = MakeRawProgram(
+       {valid.lhs, valid.rhs}, {ir::ParamDirection::In, ir::ParamDirection::In}, {},
+@@ -378,7 +470,7 @@ int TestStructuralRejections() {
+       {ir::ParamDirection::In, ir::ParamDirection::In}, {valid.tensor_type},
+       {assignment, returned, returned});
+   REQUIRE(Rejects([&] { (void)EmitTensorIr(multiple_returns); },
+-                  "exactly one assignment and one return"));
++                  "before the return must be an assignment"));
+ 
+   auto incore_function = std::make_shared<ir::Function>(
+       "add_main", std::vector<ir::VarPtr>{valid.lhs, valid.rhs},
+@@ -419,7 +511,7 @@ int TestStructuralRejections() {
+       {std::make_shared<ir::EvalStmt>(AddCall(valid.lhs, valid.rhs, valid.tensor_type), TestSpan()),
+        returned});
+   REQUIRE(Rejects([&] { (void)EmitTensorIr(eval_body); },
+-                  "first function statement must assign"));
++                  "before the return must be an assignment"));
+ 
+   auto return_call = MakeProgram(
+       "add_main", {valid.lhs, valid.rhs},
+@@ -456,14 +548,14 @@ int TestStructuralRejections() {
+       {ir::ParamDirection::In, ir::ParamDirection::In}, {valid.tensor_type},
+       {non_call_assignment, returned});
+   REQUIRE(Rejects([&] { (void)EmitTensorIr(non_call); },
+-                  "assigned value must be a tensor.add call"));
++                  "assignment value must be a direct registered tensor call"));
+ 
+   auto eval_second = MakeProgram(
+       "add_main", {valid.lhs, valid.rhs},
+       {ir::ParamDirection::In, ir::ParamDirection::In}, {valid.tensor_type},
+       {assignment, std::make_shared<ir::EvalStmt>(valid.lhs, TestSpan())});
+   REQUIRE(Rejects([&] { (void)EmitTensorIr(eval_second); },
+-                  "second function statement must be exactly one return"));
++                  "body must end with exactly one return"));
+   return 0;
+ }
+ 
+@@ -551,12 +643,12 @@ int TestTypeAndExpressionRejections() {
+       [&] { (void)EmitTensorIr(nested_program); },
+       "nested expressions are unsupported"));
+ 
+-  auto sub = std::make_shared<ir::Op>("tensor.sub");
++  const ir::OpPtr& div = ir::OpRegistry::GetInstance().GetOp("tensor.div");
+   REQUIRE(Rejects(
+       [&] {
+-        (void)EmitTensorIr(MakeCustomProgram(fp32, fp32, fp32, fp32, fp32, sub));
++        (void)EmitTensorIr(MakeCustomProgram(fp32, fp32, fp32, fp32, fp32, div));
+       },
+-      "only tensor.add"));
++      "supports only tensor"));
+ 
+   REQUIRE(Rejects(
+       [&] {
+@@ -672,6 +764,388 @@ int TestTypeAndExpressionRejections() {
+   return 0;
+ }
+ 
++int TestFusedPointwiseV2BoundsAndScalarFormatting() {
++  auto type = PlainTensor({64}, DataType::FP32);
++  std::vector<ir::VarPtr> parameters;
++  std::vector<ir::ParamDirection> directions;
++  for (size_t index = 0; index < 16; ++index) {
++    parameters.push_back(
++        std::make_shared<ir::Var>("ignored", type, TestSpan()));
++    directions.push_back(ir::ParamDirection::In);
++  }
++  std::vector<ir::StmtPtr> statements;
++  auto previous = std::make_shared<ir::Var>("ignored", type, TestSpan());
++  statements.push_back(std::make_shared<ir::AssignStmt>(
++      previous, OpCall("tensor.add", {parameters[0], parameters[1]}, type), TestSpan()));
++  for (size_t input_index = 2; input_index < parameters.size(); ++input_index) {
++    auto next = std::make_shared<ir::Var>("ignored", type, TestSpan());
++    statements.push_back(std::make_shared<ir::AssignStmt>(
++        next, OpCall("tensor.add", {previous, parameters[input_index]}, type), TestSpan()));
++    previous = next;
++  }
++  while (statements.size() < 64) {
++    auto next = std::make_shared<ir::Var>("ignored", type, TestSpan());
++    statements.push_back(std::make_shared<ir::AssignStmt>(
++        next, OpCall("tensor.neg", {previous}, type), TestSpan()));
++    previous = next;
++  }
++  statements.push_back(std::make_shared<ir::ReturnStmt>(
++      std::vector<ir::ExprPtr>{previous}, TestSpan()));
++  const TensorIrModule maximum = EmitTensorIr(
++      MakeProgram("ignored", parameters, directions, {type}, statements));
++  REQUIRE(maximum.GetKind() == TensorIrModuleKind::FusedPointwiseV2);
++  REQUIRE(maximum.GetInputCount() == 16);
++  REQUIRE(maximum.GetValueMetadata().size() == 17);
++  REQUIRE(maximum.GetCanonicalSource().find("%arg15") != std::string::npos);
++  REQUIRE(maximum.GetCanonicalSource().find("%value63") != std::string::npos);
++
++  auto bf16_type = PlainTensor({7}, DataType::BF16);
++  auto input = std::make_shared<ir::Var>("input", bf16_type, TestSpan());
++  auto result = std::make_shared<ir::Var>("result", bf16_type, TestSpan());
++  auto negative_zero = std::make_shared<ir::ConstFloat>(-0.0, DataType::BF16, TestSpan());
++  const ir::ProgramPtr bf16_program = MakeProgram(
++      "ignored", {input}, {ir::ParamDirection::In}, {bf16_type},
++      {std::make_shared<ir::AssignStmt>(
++           result, OpCall("tensor.adds", {input, negative_zero}, bf16_type), TestSpan()),
++       std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{result}, TestSpan())});
++  const TensorIrModule minimum = EmitTensorIr(bf16_program);
++  REQUIRE(minimum.GetInputCount() == 1);
++  REQUIRE(minimum.GetCanonicalSource().find("constant -0.0 : bf16") !=
++          std::string::npos);
++  REQUIRE(minimum.GetCanonicalSource().find("splat %constant0 : tensor<7xbf16>") !=
++          std::string::npos);
++  const std::locale previous_locale = std::locale();
++  std::locale::global(std::locale(std::locale::classic(), new GroupedNumpunct));
++  const std::string hostile_locale_source = EmitTensorIr(bf16_program).GetCanonicalSource();
++  std::locale::global(previous_locale);
++  REQUIRE(hostile_locale_source == minimum.GetCanonicalSource());
++  return 0;
++}
++
++int TestFusedPointwiseV2Rejections() {
++  auto type = PlainTensor({8}, DataType::FP32);
++  auto x = std::make_shared<ir::Var>("x", type, TestSpan());
++  auto y = std::make_shared<ir::Var>("y", type, TestSpan());
++  const auto program_with = [&](const std::vector<ir::StmtPtr>& statements,
++                                std::vector<ir::VarPtr> parameters = {}) {
++    if (parameters.empty()) parameters = {x, y};
++    return MakeProgram("ignored", parameters,
++                       std::vector<ir::ParamDirection>(parameters.size(),
++                                                       ir::ParamDirection::In),
++                       {type}, statements);
++  };
++
++  auto first = std::make_shared<ir::Var>("first", type, TestSpan());
++  auto second = std::make_shared<ir::Var>("second", type, TestSpan());
++  auto third = std::make_shared<ir::Var>("third", type, TestSpan());
++  auto return_third = std::make_shared<ir::ReturnStmt>(
++      std::vector<ir::ExprPtr>{third}, TestSpan());
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(program_with(
++            {std::make_shared<ir::AssignStmt>(
++                 first, OpCall("tensor.mul", {x, y}, type), TestSpan()),
++             std::make_shared<ir::AssignStmt>(
++                 second, OpCall("tensor.neg", {first}, type), TestSpan()),
++             std::make_shared<ir::AssignStmt>(
++                 third, OpCall("tensor.add", {second, first}, type), TestSpan()),
++             return_third}));
++      },
++      "only the immediately preceding"));
++
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(program_with(
++            {std::make_shared<ir::AssignStmt>(
++                 first, OpCall("tensor.mul", {x, y}, type), TestSpan()),
++             std::make_shared<ir::AssignStmt>(
++                 second, OpCall("tensor.add", {x, y}, type), TestSpan()),
++             std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{second},
++                                              TestSpan())}));
++      },
++      "must consume the immediately preceding"));
++
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(program_with(
++            {std::make_shared<ir::AssignStmt>(
++                 first, OpCall("tensor.neg", {second}, type), TestSpan()),
++             std::make_shared<ir::AssignStmt>(
++                 second, OpCall("tensor.neg", {first}, type), TestSpan()),
++             std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{second},
++                                              TestSpan())},
++            {x}));
++      },
++      "only the immediately preceding"));
++
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(program_with(
++            {std::make_shared<ir::AssignStmt>(
++                 first, OpCall("tensor.neg", {first}, type), TestSpan()),
++             std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{first},
++                                              TestSpan())},
++            {x}));
++      },
++      "only the immediately preceding"));
++
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(program_with(
++            {std::make_shared<ir::AssignStmt>(
++                 first, OpCall("tensor.mul", {x, y}, type), TestSpan()),
++             std::make_shared<ir::AssignStmt>(
++                 first, OpCall("tensor.neg", {first}, type), TestSpan()),
++             std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{first},
++                                              TestSpan())}));
++      },
++      "fresh SSA"));
++
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(program_with(
++            {std::make_shared<ir::AssignStmt>(
++                 x, OpCall("tensor.mul", {x, y}, type), TestSpan()),
++             std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{x},
++                                              TestSpan())}));
++      },
++      "must not reuse a parameter"));
++
++  auto external = std::make_shared<ir::Var>("external", type, TestSpan());
++  auto external_result = std::make_shared<ir::Var>("external_result", type, TestSpan());
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(program_with(
++            {std::make_shared<ir::AssignStmt>(
++                 external_result, OpCall("tensor.neg", {external}, type), TestSpan()),
++             std::make_shared<ir::ReturnStmt>(
++                 std::vector<ir::ExprPtr>{external_result}, TestSpan())},
++            {x}));
++      },
++      "not a function parameter or SSA result"));
++
++  auto nested_result = std::make_shared<ir::Var>("nested_result", type, TestSpan());
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(program_with(
++            {std::make_shared<ir::AssignStmt>(
++                 nested_result,
++                 OpCall("tensor.exp", {OpCall("tensor.neg", {x}, type)}, type),
++                 TestSpan()),
++             std::make_shared<ir::ReturnStmt>(
++                 std::vector<ir::ExprPtr>{nested_result}, TestSpan())},
++            {x}));
++      },
++      "direct exact Var"));
++
++  auto unsupported_result =
++      std::make_shared<ir::Var>("unsupported_result", type, TestSpan());
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(program_with(
++            {std::make_shared<ir::AssignStmt>(
++                 unsupported_result, OpCall("tensor.div", {x, y}, type), TestSpan()),
++             std::make_shared<ir::ReturnStmt>(
++                 std::vector<ir::ExprPtr>{unsupported_result}, TestSpan())}));
++      },
++      "supports only tensor"));
++
++  auto wrong_arity_result =
++      std::make_shared<ir::Var>("wrong_arity_result", type, TestSpan());
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(program_with(
++            {std::make_shared<ir::AssignStmt>(
++                 wrong_arity_result, OpCall("tensor.neg", {x, y}, type), TestSpan()),
++             std::make_shared<ir::ReturnStmt>(
++                 std::vector<ir::ExprPtr>{wrong_arity_result}, TestSpan())}));
++      },
++      "tensor.neg expects 1 operands, got 2"));
++
++  auto wrong_return0 = std::make_shared<ir::Var>("wrong_return0", type, TestSpan());
++  auto wrong_return1 = std::make_shared<ir::Var>("wrong_return1", type, TestSpan());
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(program_with(
++            {std::make_shared<ir::AssignStmt>(
++                 wrong_return0, OpCall("tensor.mul", {x, y}, type), TestSpan()),
++             std::make_shared<ir::AssignStmt>(
++                 wrong_return1, OpCall("tensor.neg", {wrong_return0}, type),
++                 TestSpan()),
++             std::make_shared<ir::ReturnStmt>(
++                 std::vector<ir::ExprPtr>{wrong_return0}, TestSpan())}));
++      },
++      "final fused pointwise assignment"));
++
++  auto only_x = std::make_shared<ir::Var>("only_x", type, TestSpan());
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(program_with(
++            {std::make_shared<ir::AssignStmt>(
++                 only_x, OpCall("tensor.neg", {x}, type), TestSpan()),
++             std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{only_x},
++                                              TestSpan())}));
++      },
++      "parameter must be used"));
++
++  const auto reject_scalar = [&](const ir::ExprPtr& scalar,
++                                 std::string_view expected) {
++    auto value = std::make_shared<ir::Var>("value", type, TestSpan());
++    return Rejects(
++        [&] {
++          (void)EmitTensorIr(program_with(
++              {std::make_shared<ir::AssignStmt>(
++                   value, OpCall("tensor.adds", {x, scalar}, type), TestSpan()),
++               std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{value},
++                                                TestSpan())},
++              {x}));
++        },
++        expected);
++  };
++  REQUIRE(reject_scalar(
++      std::make_shared<ir::ConstInt>(1, DataType::FP32, TestSpan()), "ConstFloat"));
++  REQUIRE(reject_scalar(
++      std::make_shared<ir::ConstFloat>(1.0, DataType::BF16, TestSpan()),
++      "dtype must exactly match"));
++  REQUIRE(reject_scalar(
++      std::make_shared<ir::ConstFloat>(std::numeric_limits<double>::infinity(),
++                                      DataType::FP32, TestSpan()),
++      "remain finite"));
++  REQUIRE(reject_scalar(
++      std::make_shared<ir::ConstFloat>(-std::numeric_limits<double>::infinity(),
++                                      DataType::FP32, TestSpan()),
++      "remain finite"));
++  REQUIRE(reject_scalar(
++      std::make_shared<ir::ConstFloat>(std::numeric_limits<double>::quiet_NaN(),
++                                      DataType::FP32, TestSpan()),
++      "remain finite"));
++  REQUIRE(reject_scalar(
++      std::make_shared<ir::ConstFloat>(1.0e300, DataType::FP32, TestSpan()),
++      "remain finite"));
++
++  auto bf16_type = PlainTensor({8}, DataType::BF16);
++  auto bf16_input = std::make_shared<ir::Var>("bf16_input", bf16_type, TestSpan());
++  auto bf16_result = std::make_shared<ir::Var>("bf16_result", bf16_type, TestSpan());
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(MakeProgram(
++            "ignored", {bf16_input}, {ir::ParamDirection::In}, {bf16_type},
++            {std::make_shared<ir::AssignStmt>(
++                 bf16_result,
++                 OpCall("tensor.adds",
++                        {bf16_input,
++                         std::make_shared<ir::ConstFloat>(3.4e38, DataType::BF16,
++                                                         TestSpan())},
++                        bf16_type),
++                 TestSpan()),
++             std::make_shared<ir::ReturnStmt>(
++                 std::vector<ir::ExprPtr>{bf16_result}, TestSpan())}));
++      },
++      "remain finite"));
++
++  auto attributed = std::make_shared<ir::Var>("attributed", type, TestSpan());
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(program_with(
++            {std::make_shared<ir::AssignStmt>(
++                 attributed,
++                 OpCall("tensor.recip", {x}, type, {{"high_precision", true}}),
++                 TestSpan()),
++             std::make_shared<ir::ReturnStmt>(
++                 std::vector<ir::ExprPtr>{attributed}, TestSpan())},
++            {x}));
++      },
++      "keyword arguments"));
++
++  auto with_attrs = std::make_shared<ir::Var>("with_attrs", type, TestSpan());
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(program_with(
++            {std::make_shared<ir::AssignStmt>(
++                 with_attrs,
++                 OpCall("tensor.rsqrt", {x}, type, {}, {{"high_precision", true}}),
++                 TestSpan()),
++             std::make_shared<ir::ReturnStmt>(
++                 std::vector<ir::ExprPtr>{with_attrs}, TestSpan())},
++            {x}));
++      },
++      "attributes"));
++
++  std::vector<ir::VarPtr> too_many_parameters;
++  for (size_t index = 0; index < 17; ++index) {
++    too_many_parameters.push_back(
++        std::make_shared<ir::Var>("ignored", type, TestSpan()));
++  }
++  REQUIRE(Rejects(
++      [&] {
++        auto value = std::make_shared<ir::Var>("value", type, TestSpan());
++        (void)EmitTensorIr(program_with(
++            {std::make_shared<ir::AssignStmt>(
++                 value,
++                 OpCall("tensor.mul",
++                        {too_many_parameters[0], too_many_parameters[1]}, type),
++                 TestSpan()),
++             std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{value},
++                                              TestSpan())},
++            too_many_parameters));
++      },
++      "between 1 and 16"));
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(MakeProgram(
++            "ignored", {}, {}, {type},
++            {std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{x},
++                                              TestSpan())}));
++      },
++      "between 1 and 16"));
++  REQUIRE(Rejects(
++      [&] {
++        auto value = std::make_shared<ir::Var>("value", type, TestSpan());
++        auto body = std::make_shared<ir::SeqStmts>(
++            std::vector<ir::StmtPtr>{
++                std::make_shared<ir::AssignStmt>(
++                    value, OpCall("tensor.neg", {x}, type), TestSpan()),
++                std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{value},
++                                                 TestSpan())},
++            TestSpan());
++        auto function = std::make_shared<ir::Function>(
++            "ignored", std::vector<ir::VarPtr>{x},
++            std::vector<ir::ParamDirection>{ir::ParamDirection::In},
++            std::vector<ir::TypePtr>{type}, body, TestSpan());
++        function->param_directions_.clear();
++        auto malformed = std::make_shared<ir::Program>(
++            std::vector<ir::FunctionPtr>{function}, "test", TestSpan());
++        (void)EmitTensorIr(malformed);
++      },
++      "expected 1, got 0"));
++
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(program_with(
++            {std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{x},
++                                              TestSpan())},
++            {x}));
++      },
++      "between 1 and 64 assignments"));
++
++  REQUIRE(Rejects(
++      [&] {
++        std::vector<ir::StmtPtr> too_many_assignments;
++        ir::VarPtr previous = x;
++        for (size_t index = 0; index < 65; ++index) {
++          auto next = std::make_shared<ir::Var>("next", type, TestSpan());
++          too_many_assignments.push_back(std::make_shared<ir::AssignStmt>(
++              next, OpCall("tensor.neg", {previous}, type), TestSpan()));
++          previous = next;
++        }
++        too_many_assignments.push_back(std::make_shared<ir::ReturnStmt>(
++            std::vector<ir::ExprPtr>{previous}, TestSpan()));
++        (void)EmitTensorIr(program_with(too_many_assignments, {x}));
++      },
++      "between 1 and 64 assignments"));
++  return 0;
++}
++
+ int TestStaticShapeRejections() {
+   const ir::OpPtr& add = ir::OpRegistry::GetInstance().GetOp("tensor.add");
+   const auto reject_shape = [&](const std::vector<int64_t>& shape,
+@@ -737,11 +1211,14 @@ int main() {
+                                          std::vector<TensorIrValueMetadata>, uint32_t>);
+ 
+   if (const int result = TestFp32CanonicalSourceAndMetadata()) return result;
++  if (const int result = TestFusedPointwiseV2CanonicalSourceAndMetadata()) return result;
+   if (const int result = TestRankOneExactCanonicalSources()) return result;
+   if (const int result = TestDeterministicGeneratedNamesAndOperandIdentity()) return result;
+   if (const int result = TestCanonicalSourceIgnoresGlobalLocale()) return result;
+   if (const int result = TestStructuralRejections()) return result;
+   if (const int result = TestTypeAndExpressionRejections()) return result;
++  if (const int result = TestFusedPointwiseV2BoundsAndScalarFormatting()) return result;
++  if (const int result = TestFusedPointwiseV2Rejections()) return result;
+   if (const int result = TestStaticShapeRejections()) return result;
+   if (const int result = TestCosmeticNamesAndDiagnosticBounds()) return result;
+   return 0;

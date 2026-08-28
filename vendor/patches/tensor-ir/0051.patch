@@ -1,0 +1,46 @@
+From 09e40e620a0212633d469d3c19bbcd575e65367d Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 02:19:50 +0800
+Subject: [PATCH 51/82] Run layout conversion as one shot
+
+---
+ .../LayoutPropagationImpl.cpp                 | 19 ++++++++++++++-----
+ 1 file changed, 14 insertions(+), 5 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index 3b346b4384a0954a9d449e0b50732d68f974e4c2..305f0a24a9ba608331f48258752f4a8053e2244f 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -877,9 +877,11 @@ public:
+ LogicalResult ConversionStateImpl::start(GraphOp graphOp) {
+   LLVM_DEBUG(llvm::dbgs() << "Processing graph: " << graphOp.getName() << "\n");
+ 
+-  // Validate graph-level preconditions; on failure the helper has already
+-  // emitted the diagnostic.
+-  if (failed(verifyGraphLevelLayoutPropLowerable(graphOp))) {
++  // Validate every graph and per-op lowerability condition before entering the
++  // stateful conversion. The conversion state stores blocks, descriptors and
++  // loaded Values created by GraphOpConversion, so those references must share
++  // the lifetime of one conversion attempt rather than survive a rollback.
++  if (failed(verifyLayoutPropLowerable(graphOp))) {
+     return failure();
+   }
+ 
+@@ -922,8 +924,15 @@ LogicalResult ConversionStateImpl::start(GraphOp graphOp) {
+   layouts.clear();
+   operandIndex = 0;
+ 
+-  // Start the conversion for the current graph.
+-  return applyFullConversion(graphOp, conversionTarget, patterns);
++  // This converter is deliberately one-shot: GraphOpConversion materializes
++  // the skeleton and records its IR objects in ConversionStateImpl for later
++  // operation patterns. Rolling back that graph rewrite would invalidate the
++  // recorded objects while leaving the side tables alive. Full prevalidation
++  // above ensures ordinary unsupported inputs fail before any rewrite.
++  ConversionConfig conversionConfig;
++  conversionConfig.allowPatternRollback = false;
++  return applyFullConversion(graphOp, conversionTarget, patterns,
++                             conversionConfig);
+ }
+ 
+ /// Prepare the conversion state for an operation conversion.

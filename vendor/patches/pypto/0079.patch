@@ -1,0 +1,95 @@
+From 24dc0878bba514d5d67a84a4dfa8279936e27247 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 20:21:52 +0800
+Subject: [PATCH 079/212] test: use producer-supported native tile shapes
+
+---
+ tests/ut/compiler/test_structured_compile.py | 40 ++++++++++----------
+ 1 file changed, 20 insertions(+), 20 deletions(-)
+
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index 30abd6c10b7e0bd9e394c6f9336d16c748713b13..d9bdd238d3ee6d5ec56bd248bc9fd37beec58558 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -34,13 +34,13 @@ from pypto.pypto_core import ir
+ 
+ @pl.jit
+ def _native_tile_add(
+-    lhs: pl.Tensor[[8, 8], pl.FP32],
+-    rhs: pl.Tensor[[8, 8], pl.FP32],
+-    out: pl.Out[pl.Tensor[[8, 8], pl.FP32]],
++    lhs: pl.Tensor[[32, 32], pl.FP32],
++    rhs: pl.Tensor[[32, 32], pl.FP32],
++    out: pl.Out[pl.Tensor[[32, 32], pl.FP32]],
+ ):
+     with pl.at(level=pl.Level.CORE_GROUP):
+-        lhs_tile = pl.load(lhs, [0, 0], [8, 8])
+-        rhs_tile = pl.load(rhs, [0, 0], [8, 8])
++        lhs_tile = pl.load(lhs, [0, 0], [32, 32])
++        rhs_tile = pl.load(rhs, [0, 0], [32, 32])
+         summed = pl.add(lhs_tile, rhs_tile)
+         scaled = pl.mul(summed, 2.0)
+         pl.store(scaled, [0, 0], out)
+@@ -49,17 +49,17 @@ def _native_tile_add(
+ 
+ @pl.jit
+ def _native_tiled_add(
+-    lhs: pl.Tensor[[8, 8], pl.FP32],
+-    rhs: pl.Tensor[[8, 8], pl.FP32],
+-    out: pl.Out[pl.Tensor[[8, 8], pl.FP32]],
++    lhs: pl.Tensor[[64, 128], pl.FP32],
++    rhs: pl.Tensor[[64, 128], pl.FP32],
++    out: pl.Out[pl.Tensor[[64, 128], pl.FP32]],
+ ):
+     with pl.at(level=pl.Level.CORE_GROUP):
+         for tile_row in pl.range(2):
+-            for tile_col in pl.range(2):
+-                lhs_tile = pl.load(lhs, [tile_row * 4, tile_col * 4], [4, 4])
+-                rhs_tile = pl.load(rhs, [tile_row * 4, tile_col * 4], [4, 4])
++            for tile_col in pl.range(4):
++                lhs_tile = pl.load(lhs, [tile_row * 32, tile_col * 32], [32, 32])
++                rhs_tile = pl.load(rhs, [tile_row * 32, tile_col * 32], [32, 32])
+                 summed = pl.add(lhs_tile, rhs_tile)
+-                pl.store(summed, [tile_row * 4, tile_col * 4], out)
++                pl.store(summed, [tile_row * 32, tile_col * 32], out)
+     return out
+ 
+ 
+@@ -286,29 +286,29 @@ def _schedule(tile_size: int | list[int] = 16) -> CanonicalSchedule:
+ 
+ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+     native_tile = compile_structured_strict(
+-        _native_tile_add.specialize(), request, _schedule([8, 8])
++        _native_tile_add.specialize(), request, _schedule([32, 32])
+     )
+     native_kernel = native_tile.artifact.kernel_abi
+     assert native_kernel.entry_function_name == "pypto_fused_pointwise_v2"
+     assert native_kernel.argument_packing_policy == ArtifactArgumentPackingPolicy.PointerOnly
+     assert native_kernel.grid_abi.policy == ArtifactGridPolicy.Static
+     assert native_kernel.grid_abi.static_dimensions == [1, 1, 1]
+-    assert native_kernel.grid_abi.tile_sizes == [8, 8]
++    assert native_kernel.grid_abi.tile_sizes == [32, 32]
+     assert native_kernel.argument_layout.input_operand_count == 2
+     assert native_kernel.argument_layout.total_kernel_argument_count == 3
+     assert [d.shape for d in native_kernel.argument_layout.operand_descriptors] == [
+-        [8, 8],
+-        [8, 8],
+-        [8, 8],
++        [32, 32],
++        [32, 32],
++        [32, 32],
+     ]
+     assert not native_tile.artifact.fallback_used
+ 
+     tiled = compile_structured_strict(
+-        _native_tiled_add.specialize(), request, _schedule([4, 4])
++        _native_tiled_add.specialize(), request, _schedule([32, 32])
+     )
+     assert tiled.artifact.kernel_abi.entry_function_name == "pypto_fused_pointwise_v2"
+-    assert tiled.artifact.kernel_abi.grid_abi.static_dimensions == [4, 1, 1]
+-    assert tiled.artifact.kernel_abi.grid_abi.tile_sizes == [4, 4]
++    assert tiled.artifact.kernel_abi.grid_abi.static_dimensions == [8, 1, 1]
++    assert tiled.artifact.kernel_abi.grid_abi.tile_sizes == [32, 32]
+     assert not tiled.artifact.fallback_used
+ 
+ 

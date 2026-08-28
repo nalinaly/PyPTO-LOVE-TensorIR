@@ -1,0 +1,73 @@
+From 4b69fac19aa415b1dc91e2252bedab30e4dfa187 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 02:29:30 +0800
+Subject: [PATCH 55/82] Build one-shot loads outside rewrite bookkeeping
+
+---
+ .../LayoutPropagationImpl.cpp                 | 23 +++++++++++--------
+ 1 file changed, 13 insertions(+), 10 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index f26f99141be3ab3ba5dce3abcbe10a8f50f04fee..adc1a7770b9db78767bc609d4a64421fa2e44298 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -585,7 +585,7 @@ private:
+   friend class ConversionStateImpl;
+ 
+   /// Load tile and optionally broadcast to the tile shape.
+-  static Value emitLoadMaybeBroadcast(ConversionPatternRewriter &rewriter,
++  static Value emitLoadMaybeBroadcast(OpBuilder &builder,
+                                       const TensorDescriptor &desc,
+                                       const IterationSpace &iterationSpace,
+                                       Value zeroIndex) {
+@@ -605,7 +605,7 @@ private:
+ 
+     // If there are no broadcasted dimensions, use simple load.
+     if (broadcastDims.empty()) {
+-      return emitLoad(rewriter, desc, tileType, iterationSpace.indexValues);
++      return emitLoad(builder, desc, tileType, iterationSpace.indexValues);
+     }
+ 
+     // Update tile shape and index values for broadcasted dimensions.
+@@ -618,9 +618,9 @@ private:
+ 
+     // Emit load and broadcast together in the current one-shot pattern.
+     auto loadType = cast<ShapedType>(tileType).clone(tileShape);
+-    Value result = emitLoad(rewriter, desc, loadType, indexValues);
++    Value result = emitLoad(builder, desc, loadType, indexValues);
+     if (loadType != tileType) {
+-      result = cuda_tile::BroadcastOp::create(rewriter, result.getLoc(),
++      result = cuda_tile::BroadcastOp::create(builder, result.getLoc(),
+                                               tileType, result);
+     }
+     return result;
+@@ -1052,20 +1052,23 @@ Value ConversionStateImpl::getTile(Value operand) {
+            "layout has no associated value");
+     (void)it;
+     assert(activeRewriter && "missing active conversion rewriter");
+-    RewriterBase::InsertionGuard guard(*activeRewriter);
++    // These already-legal CUDA Tile ops are inserted into a prebuilt skeleton
++    // block. The surrounding conversion is one-shot, so a plain builder keeps
++    // them out of dialect-conversion's cross-block transaction bookkeeping.
++    OpBuilder builder(activeRewriter->getContext());
+     Block *block = iterationSpace->insertionBlock;
+     if (Operation *terminator = block->getTerminator()) {
+-      activeRewriter->setInsertionPoint(terminator);
++      builder.setInsertionPoint(terminator);
+     } else {
+-      activeRewriter->setInsertionPointToEnd(block);
++      builder.setInsertionPointToEnd(block);
+     }
+     const size_t tensorId = tensorSource.getTensorId();
+     assert(tensorId < inputDescriptors.size() &&
+            "tensor source ID is out of bounds");
+-    auto layoutDesc =
+-        applyLayout(*activeRewriter, inputDescriptors[tensorId], tensorSource);
++    auto layoutDesc = applyLayout(builder, inputDescriptors[tensorId],
++                                  tensorSource);
+     return GraphOpConversion::emitLoadMaybeBroadcast(
+-        *activeRewriter, layoutDesc, *iterationSpace, zeroIndex);
++        builder, layoutDesc, *iterationSpace, zeroIndex);
+   }
+ 
+   // The operand must have a tile type at this point.

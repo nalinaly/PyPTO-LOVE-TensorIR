@@ -1,0 +1,195 @@
+From 68ae16eaa3a29133c1e7e18241e152a55380460b Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 12:39:33 +0800
+Subject: [PATCH 064/212] codegen: DAG operand chains and broadcast
+ materialization
+
+Fused pointwise assignments may now consume any earlier SSA result, not
+just the immediately preceding one, so branching norm/activation chains
+compile. tensor.row_expand materializes the broadcast row as an SSA
+value for base ops whose broadcast operand sits left of a
+non-commutative operator (Inductor rewrites t*rsqrt(v) into t/sqrt(v)).
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 39 +++++++++-----
+ tests/ut/cpp/tensor_ir_codegen_test.cpp  | 65 ++++++++++++++----------
+ 2 files changed, 66 insertions(+), 38 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index a4196dd08d70f32698a62b25a288959b4ab217a2..1097797f3470a4384fffafaeeea9c957e1f364e0 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -633,6 +633,11 @@ std::optional<FusedOperationSpec> GetFusedOperationSpec(const ir::CallPtr& call)
+   if (ir::IsOp(call, "tensor.row_expand_min")) {
+     return FusedOperationSpec{"min", 2, false, true};
+   }
++  // Materializes the broadcast row as an SSA value for arithmetic whose
++  // broadcast operand sits on the left of a non-commutative base op.
++  if (ir::IsOp(call, "tensor.row_expand")) {
++    return FusedOperationSpec{"__broadcast__", 2, false, true};
++  }
+   return std::nullopt;
+ }
+ 
+@@ -815,7 +820,6 @@ FusedPointwiseGraph AnalyzeFusedPointwiseV2(const ir::ProgramPtr& program) {
+ 
+     FusedPointwiseInstruction instruction{spec->tensor_ir_op, {}, std::nullopt};
+     instruction.tensor_operands.reserve(spec->tensor_operand_count);
+-    bool consumes_previous = false;
+     for (size_t operand_index = 0; operand_index < spec->tensor_operand_count;
+          ++operand_index) {
+       const ir::ExprPtr& argument = call->args_[operand_index];
+@@ -863,18 +867,14 @@ FusedPointwiseGraph AnalyzeFusedPointwiseV2(const ir::ProgramPtr& program) {
+         Reject("fused pointwise tensor operand is not a function parameter or SSA result",
+                &variable->span_);
+       }
+-      if (index == 0 || assigned->second != index - 1) {
+-        Reject("fused pointwise tensor operands may reference only the immediately "
+-               "preceding assignment result",
++      if (assigned->second >= index) {
++        Reject("fused pointwise tensor operands may reference only earlier "
++               "assignment results",
+                &variable->span_);
+       }
+-      consumes_previous = true;
+       instruction.tensor_operands.push_back(
+-          FusedTensorOperand{FusedTensorOperandKind::PreviousResult, 0});
+-    }
+-    if (index != 0 && !consumes_previous) {
+-      Reject("each fused pointwise assignment after the first must consume the immediately preceding result",
+-             &call->span_);
++          FusedTensorOperand{FusedTensorOperandKind::PreviousResult,
++                             assigned->second});
+     }
+ 
+     if (spec->has_scalar) {
+@@ -930,9 +930,9 @@ void AppendFusedOperand(std::string& source, const FusedTensorOperand& operand,
+     AppendIndex(source, operand.input_index);
+     return;
+   }
+-  if (operand.kind == FusedTensorOperandKind::PreviousResult && instruction_index != 0) {
++  if (operand.kind == FusedTensorOperandKind::PreviousResult) {
+     source += "%value";
+-    AppendIndex(source, instruction_index - 1);
++    AppendIndex(source, operand.input_index);
+     return;
+   }
+   InternalReject("fused pointwise source operand is invalid");
+@@ -999,6 +999,21 @@ std::string EmitFusedPointwiseSource(const FusedPointwiseGraph& graph) {
+       source += type;
+       source += "\n";
+     }
++    if (instruction.tensor_ir_op == "__broadcast__") {
++      // Materialize the row-broadcast input as an SSA value: the first
++      // operand only fixes the target shape and the broadcast input expands.
++      source += "    %value";
++      AppendIndex(source, instruction_index);
++      source += " = broadcast ";
++      AppendFusedOperand(source, instruction.tensor_operands[1], instruction_index);
++      source += " : ";
++      source += TensorTypeText(graph.input_tensors[
++          instruction.tensor_operands[1].input_index]);
++      source += " -> ";
++      source += type;
++      source += "\n";
++      continue;
++    }
+     source += "    %value";
+     AppendIndex(source, instruction_index);
+     source += " = ";
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index ef4c2efa40a8cb220e326d5835ea8852b54b0ece..5338c5b09c78ae45626d3c2241097bd2f8c776a3 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -1080,30 +1080,20 @@ int TestFusedPointwiseV2Rejections() {
+   auto third = std::make_shared<ir::Var>("third", type, TestSpan());
+   auto return_third = std::make_shared<ir::ReturnStmt>(
+       std::vector<ir::ExprPtr>{third}, TestSpan());
+-  REQUIRE(Rejects(
+-      [&] {
+-        (void)EmitTensorIr(program_with(
+-            {std::make_shared<ir::AssignStmt>(
+-                 first, OpCall("tensor.mul", {x, y}, type), TestSpan()),
+-             std::make_shared<ir::AssignStmt>(
+-                 second, OpCall("tensor.neg", {first}, type), TestSpan()),
+-             std::make_shared<ir::AssignStmt>(
+-                 third, OpCall("tensor.add", {second, first}, type), TestSpan()),
+-             return_third}));
+-      },
+-      "only the immediately preceding"));
+-
+-  REQUIRE(Rejects(
+-      [&] {
+-        (void)EmitTensorIr(program_with(
+-            {std::make_shared<ir::AssignStmt>(
+-                 first, OpCall("tensor.mul", {x, y}, type), TestSpan()),
+-             std::make_shared<ir::AssignStmt>(
+-                 second, OpCall("tensor.add", {x, y}, type), TestSpan()),
+-             std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{second},
+-                                              TestSpan())}));
+-      },
+-      "must consume the immediately preceding"));
++  {
++    // Branching chains may reference any earlier assignment result.
++    const TensorIrModule module = EmitTensorIr(program_with(
++        {std::make_shared<ir::AssignStmt>(
++             first, OpCall("tensor.mul", {x, y}, type), TestSpan()),
++         std::make_shared<ir::AssignStmt>(
++             second, OpCall("tensor.neg", {first}, type), TestSpan()),
++         std::make_shared<ir::AssignStmt>(
++             third, OpCall("tensor.add", {second, first}, type), TestSpan()),
++         return_third}));
++    const std::string source = module.GetCanonicalSource();
++    REQUIRE(source.find("%value2 = add %value1, %value0 : tensor<2x3xf32>") !=
++            std::string::npos);
++  }
+ 
+   REQUIRE(Rejects(
+       [&] {
+@@ -1116,7 +1106,7 @@ int TestFusedPointwiseV2Rejections() {
+                                               TestSpan())},
+             {x}));
+       },
+-      "only the immediately preceding"));
++      "may reference only earlier"));
+ 
+   REQUIRE(Rejects(
+       [&] {
+@@ -1127,7 +1117,7 @@ int TestFusedPointwiseV2Rejections() {
+                                               TestSpan())},
+             {x}));
+       },
+-      "only the immediately preceding"));
++      "may reference only earlier"));
+ 
+   REQUIRE(Rejects(
+       [&] {
+@@ -1670,6 +1660,29 @@ int TestFusedPointwiseV2RowBroadcast() {
+   REQUIRE(metadata.size() == 3);
+   REQUIRE(metadata[1].GetShape() == std::vector<int64_t>({4, 1}));
+ 
++  // Materializing the broadcast row then dividing covers the left-broadcast
++  // shapes norm chains produce after Inductor's algebraic rewrites.
++  {
++    auto expanded = std::make_shared<ir::Var>("expanded", type, TestSpan());
++    auto quotient = std::make_shared<ir::Var>("quotient", type, TestSpan());
++    auto expand_assignment = std::make_shared<ir::AssignStmt>(
++        expanded, OpCall("tensor.row_expand", {x, scale}, type), TestSpan());
++    auto div_assignment = std::make_shared<ir::AssignStmt>(
++        quotient, OpCall("tensor.div", {expanded, x}, type), TestSpan());
++    auto div_return = std::make_shared<ir::ReturnStmt>(
++        std::vector<ir::ExprPtr>{quotient}, TestSpan());
++    const TensorIrModule materialized = EmitTensorIr(MakeProgram(
++        "ignored_fused_name", {x, scale},
++        {ir::ParamDirection::In, ir::ParamDirection::In}, {type},
++        {expand_assignment, div_assignment, div_return}));
++    const std::string materialized_source = materialized.GetCanonicalSource();
++    REQUIRE(materialized_source.find(
++                "%value0 = broadcast %bcarg1 : tensor<4x1xf32> -> tensor<4x6xf32>") !=
++            std::string::npos);
++    REQUIRE(materialized_source.find("%value1 = div %value0, %arg0 : tensor<4x6xf32>") !=
++            std::string::npos);
++  }
++
+   // A broadcast input feeding a plain op is rejected fail-closed.
+   auto plain = std::make_shared<ir::Var>("plain", type, TestSpan());
+   auto misuse = std::make_shared<ir::Var>("misuse", type, TestSpan());

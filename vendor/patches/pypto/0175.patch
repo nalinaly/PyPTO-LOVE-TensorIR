@@ -1,0 +1,103 @@
+From 8a9ab856dc3358749628e324d5d774ef4ef2c11c Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 11:02:04 +0800
+Subject: [PATCH 175/212] Slice rank-two state index columns directly
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 34 ++++++------------------
+ 1 file changed, 8 insertions(+), 26 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 1370603c1954133ea24665d4eca84f59668b2685..07edd4401077dc721d926e0bb27c0e59d251d035 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -1231,7 +1231,6 @@ std::string EmitNativeTileStatefulCausalConvSource(
+   const int64_t state_width = graph.channels * 3;
+   StaticTensor indices_i32 = graph.state_indices;
+   indices_i32.dtype = DataType::INT32;
+-  StaticTensor index_scalar{DataType::INT32, {1}, {1}};
+   StaticTensor indices_column{DataType::INT32, {1, 1}, {}};
+   indices_column.dense_strides =
+       MakeDenseStridesForMetadata(indices_column.shape);
+@@ -1278,7 +1277,6 @@ std::string EmitNativeTileStatefulCausalConvSource(
+   const std::string state_type = TensorTypeText(graph.state);
+   const std::string indices_type = TensorTypeText(graph.state_indices);
+   const std::string indices_i32_type = TensorTypeText(indices_i32);
+-  const std::string index_scalar_type = TensorTypeText(index_scalar);
+   const std::string indices_column_type = TensorTypeText(indices_column);
+   const std::string indices_full_type = TensorTypeText(indices_full);
+   const std::string state_rows_type = TensorTypeText(state_rows);
+@@ -1333,24 +1331,17 @@ std::string EmitNativeTileStatefulCausalConvSource(
+   for (int64_t batch = 0; batch < graph.batch_size; ++batch) {
+     const std::string batch_suffix = "b" + std::to_string(batch);
+     const std::string index_name = "%state_index_" + batch_suffix;
+-    const std::string index_column_name =
+-        "%state_index_column_" + batch_suffix;
+     const std::string indices_full_name =
+         "%state_indices_full_" + batch_suffix;
+     const std::string state_rows_name = "%state_rows_" + batch_suffix;
+     source += "\n    " + index_name + " = slice " + indices_value +
+-              " starts = [" + std::to_string(batch) + "] limits = [" +
+-              std::to_string(batch + 1) + "] strides = [1] : ";
++              " starts = [" + std::to_string(batch) + ", 0] limits = [" +
++              std::to_string(batch + 1) + ", 1] strides = [1, 1] : ";
+     source += indices_i32_type;
+     source += " -> ";
+-    source += index_scalar_type;
+-    source += "\n    " + index_column_name + " = reshape " + index_name +
+-              " : ";
+-    source += index_scalar_type;
+-    source += " -> ";
+     source += indices_column_type;
+-    source += "\n    " + indices_full_name + " = broadcast " +
+-              index_column_name + " : ";
++    source += "\n    " + indices_full_name + " = broadcast " + index_name +
++              " : ";
+     source += indices_column_type;
+     source += " -> ";
+     source += indices_full_type;
+@@ -8430,7 +8421,6 @@ std::string EmitNativeTileGdnRecurrentSource(
+   const int64_t state_width = graph.value_heads * graph.value_dim * graph.key_dim;
+   StaticTensor indices_i32 = graph.state_indices;
+   indices_i32.dtype = DataType::INT32;
+-  StaticTensor index_scalar{DataType::INT32, {1}, {1}};
+   StaticTensor indices_column{DataType::INT32, {1, 1}, {}};
+   indices_column.dense_strides =
+       MakeDenseStridesForMetadata(indices_column.shape);
+@@ -8507,7 +8497,6 @@ std::string EmitNativeTileGdnRecurrentSource(
+   const std::string state_type = TensorTypeText(graph.state);
+   const std::string indices_type = TensorTypeText(graph.state_indices);
+   const std::string indices_i32_type = TensorTypeText(indices_i32);
+-  const std::string index_scalar_type = TensorTypeText(index_scalar);
+   const std::string indices_column_type = TensorTypeText(indices_column);
+   const std::string indices_full_type = TensorTypeText(indices_full);
+   const std::string state_rows_type = TensorTypeText(state_rows);
+@@ -8588,24 +8577,17 @@ std::string EmitNativeTileGdnRecurrentSource(
+   for (int64_t batch = 0; batch < graph.batch_size; ++batch) {
+     const std::string batch_suffix = "b" + std::to_string(batch);
+     const std::string index_name = "%state_index_" + batch_suffix;
+-    const std::string index_column_name =
+-        "%state_index_column_" + batch_suffix;
+     const std::string indices_full_name =
+         "%state_indices_full_" + batch_suffix;
+     const std::string state_rows_name = "%state_rows_" + batch_suffix;
+     source += "\n    " + index_name + " = slice " + indices_value +
+-              " starts = [" + std::to_string(batch) + "] limits = [" +
+-              std::to_string(batch + 1) + "] strides = [1] : ";
++              " starts = [" + std::to_string(batch) + ", 0] limits = [" +
++              std::to_string(batch + 1) + ", 1] strides = [1, 1] : ";
+     source += indices_i32_type;
+     source += " -> ";
+-    source += index_scalar_type;
+-    source += "\n    " + index_column_name + " = reshape " + index_name +
+-              " : ";
+-    source += index_scalar_type;
+-    source += " -> ";
+     source += indices_column_type;
+-    source += "\n    " + indices_full_name + " = broadcast " +
+-              index_column_name + " : ";
++    source += "\n    " + indices_full_name + " = broadcast " + index_name +
++              " : ";
+     source += indices_column_type;
+     source += " -> ";
+     source += indices_full_type;

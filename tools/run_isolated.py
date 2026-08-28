@@ -27,22 +27,33 @@ import stop_run
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ENVIRONMENTS = {
+    "pypto-release": ROOT / "envs" / "pypto-release",
+    "sglang-baseline": ROOT / "envs" / "sglang-baseline",
+    # Compatibility names for historical evidence and exact smoke controls.
     "pypto-nvidia": ROOT / "envs" / "pypto-nvidia",
     "sglang-baseline-py312": ROOT / "envs" / "sglang-baseline-py312",
 }
 ENVIRONMENT_LOCKS = {
+    "pypto-release": ROOT / "envs" / "pypto-release" / ".identity-lock.json",
+    "sglang-baseline": ROOT / "envs" / "sglang-baseline" / ".identity-lock.json",
     "pypto-nvidia": ROOT / "ENVIRONMENT.lock",
     "sglang-baseline-py312": (
         ROOT / "state" / "environments" / "sglang-baseline-py312.lock.json"
     ),
 }
 ENVIRONMENT_TRANSACTION_LOCKS = {
+    "pypto-release": ROOT / "runs" / "environment-pypto-release.lock",
+    "sglang-baseline": ROOT / "runs" / "environment-sglang-baseline.lock",
     "pypto-nvidia": ROOT / "runs" / "environment-pypto-nvidia.lock",
     "sglang-baseline-py312": (ROOT / "runs" / "environment-sglang-baseline-py312.lock"),
 }
 PROFILE_ENVIRONMENTS = {
-    "pypto": "pypto-nvidia",
-    "baseline": "sglang-baseline-py312",
+    "pypto": "pypto-release",
+    "baseline": "sglang-baseline",
+}
+PROFILE_ENVIRONMENT_ALIASES = {
+    "pypto": frozenset(("pypto-release", "pypto-nvidia")),
+    "baseline": frozenset(("sglang-baseline", "sglang-baseline-py312")),
 }
 PASSTHROUGH_ENV_NAMES = {
     "HOME",
@@ -630,11 +641,18 @@ def isolated_environment(
 ) -> dict[str, str]:
     if framework_profile not in PROFILE_ENVIRONMENTS:
         raise ValueError(f"unknown framework profile: {framework_profile!r}")
-    expected_prefix = ENVIRONMENTS[PROFILE_ENVIRONMENTS[framework_profile]].resolve()
-    if environment_prefix.resolve() != expected_prefix:
+    selected_prefix = environment_prefix.resolve()
+    release_prefix = ENVIRONMENTS[PROFILE_ENVIRONMENTS[framework_profile]].resolve()
+    release_profile = selected_prefix == release_prefix
+    expected_prefixes = {
+        ENVIRONMENTS[name].resolve()
+        for name in PROFILE_ENVIRONMENT_ALIASES[framework_profile]
+    }
+    if selected_prefix not in expected_prefixes:
         raise ValueError(
             f"framework profile {framework_profile!r} requires environment "
-            f"{expected_prefix}, got {environment_prefix.resolve()}"
+            f"in {sorted(map(str, expected_prefixes))}, "
+            f"got {environment_prefix.resolve()}"
         )
     environment = {
         name: value
@@ -685,17 +703,28 @@ def isolated_environment(
         path.mkdir(parents=True, exist_ok=True)
 
     environment.update({name: str(path) for name, path in paths.items()})
-    common_python_paths = (str(ROOT / "upstream" / "sglang" / "python"),)
+    sglang_source_root = (
+        ROOT / ".sources" / "sglang"
+        if release_profile
+        else ROOT / "upstream" / "sglang"
+    )
+    common_python_paths = (str(sglang_source_root / "python"),)
     if exact_nvidia_smoke:
         python_paths: tuple[str, ...] = ()
         sglang_plugins = "__pypto_exact_nvidia_smoke_no_plugins__"
     elif framework_profile == "pypto":
-        python_paths = (
-            str(ROOT / "projects" / "pypto-framework-plugins" / "src"),
-            str(ROOT / "projects" / "pypto-kernels" / "src"),
-            str(ROOT / "projects" / "pypto" / "python"),
-            *common_python_paths,
-        )
+        if release_profile:
+            # PyPTO, the kernel library, and the framework plugin are installed
+            # distributions in the formal prefix.  Only the source-locked
+            # SGLang tree is projected through PYTHONPATH.
+            python_paths = common_python_paths
+        else:
+            python_paths = (
+                str(ROOT / "projects" / "pypto-framework-plugins" / "src"),
+                str(ROOT / "projects" / "pypto-kernels" / "src"),
+                str(ROOT / "projects" / "pypto" / "python"),
+                *common_python_paths,
+            )
         sglang_plugins = "pypto"
     elif framework_profile == "baseline":
         python_paths = common_python_paths
@@ -723,7 +752,7 @@ def isolated_environment(
             "PYPTO_FRAMEWORK_PROFILE": framework_profile,
             "PYPTO_RUN_ID": run_id,
             "PYPTO_WORKSPACE_ROOT": str(ROOT),
-            "PYPTO_SGLANG_SOURCE_ROOT": str(ROOT / "upstream" / "sglang"),
+            "PYPTO_SGLANG_SOURCE_ROOT": str(sglang_source_root),
             "SGLANG_PLUGINS": sglang_plugins,
         }
     )
@@ -1300,11 +1329,11 @@ def main() -> int:
             "timeout/disk watchdog controls require a watched heavy, GPU-smoke, "
             "or GPU-benchmark mode"
         )
-    expected_environment = PROFILE_ENVIRONMENTS[args.framework_profile]
-    if args.environment != expected_environment:
+    expected_environments = PROFILE_ENVIRONMENT_ALIASES[args.framework_profile]
+    if args.environment not in expected_environments:
         parser.error(
             f"--framework-profile {args.framework_profile} requires "
-            f"--environment {expected_environment}"
+            f"--environment in {sorted(expected_environments)}"
         )
 
     environment_prefix = ENVIRONMENTS[args.environment].resolve()

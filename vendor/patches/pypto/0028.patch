@@ -1,0 +1,152 @@
+From 9e9156979d9fcc6e1dbf56283e8fbdf53fc4f5d6 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 04:18:19 +0800
+Subject: [PATCH 028/212] Allow bounded tileiras scratch files
+
+---
+ 3rdparty/nvidia/tensor-ir                                | 2 +-
+ cmake/nvidia_backend.cmake                               | 4 ++--
+ docs/en/dev/backend/01-nvidia-target-info.md             | 4 ++--
+ docs/zh/dev/backend/01-nvidia-target-info.md             | 4 ++--
+ include/pypto/compiler/artifact.h                        | 2 +-
+ src/compiler/nvidia/structured_tensorir_explicit_v1.json | 2 +-
+ src/compiler/strict_tensor_ir_options.h                  | 2 +-
+ tests/ut/compiler/test_artifact.py                       | 2 +-
+ tests/ut/compiler/test_nvidia_backend_build_info.py      | 2 +-
+ 9 files changed, 12 insertions(+), 12 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 96201e1a1fd36bafab23cd9dc9501c8ffd43a6e7..2c870f975a950af9c234821864a183c86f6252c6 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 96201e1a1fd36bafab23cd9dc9501c8ffd43a6e7
++Subproject commit 2c870f975a950af9c234821864a183c86f6252c6
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 3bdc659fc6498f3cb23eb2262297ff4b8ea6cf09..277924e4b584279fcc3382cf1198255c335c3d12 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -33,7 +33,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "96201e1a1fd36bafab23cd9dc9501c8ffd43a6e7")
++    "2c870f975a950af9c234821864a183c86f6252c6")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+@@ -49,7 +49,7 @@ set(PYPTO_NVIDIA_TILEIRAS_SHA256
+ set(PYPTO_NVIDIA_STRUCTURED_PIPELINE_SPEC
+     "${CMAKE_SOURCE_DIR}/src/compiler/nvidia/structured_tensorir_explicit_v1.json")
+ set(PYPTO_NVIDIA_STRUCTURED_PIPELINE_REVISION
+-    "a72996d3837bf2a344b21a37c770eb7be44a7dc9")
++    "5b38d36215c89af6e2de42df7ae72c3f7819883c")
+ 
+ find_package(Git REQUIRED)
+ 
+diff --git a/docs/en/dev/backend/01-nvidia-target-info.md b/docs/en/dev/backend/01-nvidia-target-info.md
+index f26867bf02470c11234919de30949af1fcb907b2..2f187d2136086d68251936eb620255be6b5d13c3 100644
+--- a/docs/en/dev/backend/01-nvidia-target-info.md
++++ b/docs/en/dev/backend/01-nvidia-target-info.md
+@@ -234,14 +234,14 @@ The assembler CLI spelling and semantic target are separate identity fields:
+ `assembler_gpu_name=sm_120`, while TensorIR's exact-architecture policy is
+ `tensor_ir_target=sm_120a`. The canonical pipeline specification is
+ [`structured_tensorir_explicit_v1.json`](../../../../src/compiler/nvidia/structured_tensorir_explicit_v1.json).
+-Its Git-blob identity is `a72996d3837bf2a344b21a37c770eb7be44a7dc9`;
++Its Git-blob identity is `5b38d36215c89af6e2de42df7ae72c3f7819883c`;
+ CMake verifies that identity so the pipeline revision cannot be an unexplained
+ placeholder.
+ 
+ The fixed resource and producer policy is also explicit: occupancy `1`, SM
+ count from `NvidiaTargetInfo`, reduction tile size `128`, persistence `none`,
+ sanitized assembler environment v1, a 300-second assembler limit, 4096 MiB
+-child data/RSS limit, a 64 MiB per-file limit enforced by `RLIMIT_FSIZE`,
++child data/RSS limit, a 512 MiB per-file limit enforced by `RLIMIT_FSIZE`,
+ and a 64 KiB returned-diagnostic limit. The Linux strict child closes every
+ descriptor above stderr with fail-closed `close_range` before exact `execve`.
+ All TensorIR IR dump/load, print-tree, and timing debug options are empty or
+diff --git a/docs/zh/dev/backend/01-nvidia-target-info.md b/docs/zh/dev/backend/01-nvidia-target-info.md
+index 6c0e711dbc3ced419ea82886a56601634ba07ca6..408f457671fcc08700ece1515790880e839a57ab 100644
+--- a/docs/zh/dev/backend/01-nvidia-target-info.md
++++ b/docs/zh/dev/backend/01-nvidia-target-info.md
+@@ -210,13 +210,13 @@ assembler CLI spelling 与 semantic target 是两个不同 identity field：
+ `assembler_gpu_name=sm_120`，TensorIR exact-architecture policy 则是
+ `tensor_ir_target=sm_120a`。canonical pipeline specification 位于
+ [`structured_tensorir_explicit_v1.json`](../../../../src/compiler/nvidia/structured_tensorir_explicit_v1.json)，
+-其 Git-blob identity 为 `a72996d3837bf2a344b21a37c770eb7be44a7dc9`。
++其 Git-blob identity 为 `5b38d36215c89af6e2de42df7ae72c3f7819883c`。
+ CMake 会验证该 identity，避免 pipeline revision 变成无法解释的 placeholder。
+ 
+ 固定 resource/producer policy 也被显式记录：occupancy 为 `1`、SM count 来自
+ `NvidiaTargetInfo`、reduction tile size 为 `128`、persistence 为 `none`，并使用
+ sanitized assembler environment v1、300 秒 assembler 上限、4096 MiB child data/RSS
+-上限、由 `RLIMIT_FSIZE` 强制的每文件 64 MiB 上限，以及 64 KiB returned-diagnostic
++上限、由 `RLIMIT_FSIZE` 强制的每文件 512 MiB 上限，以及 64 KiB returned-diagnostic
+ 上限。Linux strict child 会在 exact `execve` 前通过 fail-closed `close_range` 关闭
+ stderr 以上的所有 file descriptor。
+ 所有 TensorIR IR dump/load、print-tree 与 timing debug option 都必须为空或关闭，
+diff --git a/include/pypto/compiler/artifact.h b/include/pypto/compiler/artifact.h
+index 5e2ef30a42774d7a0bef0db842fe5eb5e1b544f9..c2fd115e98db07fc4d3a7f7280c1aa86f44ebcd5 100644
+--- a/include/pypto/compiler/artifact.h
++++ b/include/pypto/compiler/artifact.h
+@@ -473,7 +473,7 @@ class Artifact {
+   static constexpr std::string_view kProducerOptionsContract =
+       "pypto.nvidia.tensorir_options.v1";
+   static constexpr std::string_view kStructuredTensorIrPipelineRevision =
+-      "a72996d3837bf2a344b21a37c770eb7be44a7dc9";
++      "5b38d36215c89af6e2de42df7ae72c3f7819883c";
+   static constexpr uint32_t kArtifactSchemaVersion = 1;
+   static constexpr uint32_t kCompilerAbiVersion = CompileRequest::kCompilerAbiVersion;
+   static constexpr int32_t kRequiredComputeCapability = 120;
+diff --git a/src/compiler/nvidia/structured_tensorir_explicit_v1.json b/src/compiler/nvidia/structured_tensorir_explicit_v1.json
+index a72996d3837bf2a344b21a37c770eb7be44a7dc9..5b38d36215c89af6e2de42df7ae72c3f7819883c 100644
+--- a/src/compiler/nvidia/structured_tensorir_explicit_v1.json
++++ b/src/compiler/nvidia/structured_tensorir_explicit_v1.json
+@@ -1,7 +1,7 @@
+ {
+   "artifact_kind": "cubin",
+   "assembler_environment_contract": "pypto-tileiras-sanitized-v1",
+-  "assembler_file_size_limit_bytes": 67108864,
++  "assembler_file_size_limit_bytes": 536870912,
+   "assembler_gpu_name": "sm_120",
+   "assembler_memory_limit_mib": 4096,
+   "assembler_timeout_seconds": 300,
+diff --git a/src/compiler/strict_tensor_ir_options.h b/src/compiler/strict_tensor_ir_options.h
+index 3750f7222b23c5b600aee36a37a45be597651db7..f7a126aaf0122ebc22b0a23a70e01830518fd6b3 100644
+--- a/src/compiler/strict_tensor_ir_options.h
++++ b/src/compiler/strict_tensor_ir_options.h
+@@ -37,7 +37,7 @@ struct StrictTensorIrProducerOptions {
+   uint16_t bytecode_tag = 0;
+   uint32_t assembler_timeout_seconds = 300;
+   uint32_t assembler_memory_limit_mib = 4096;
+-  uint64_t assembler_file_size_limit_bytes = 64ULL * 1024ULL * 1024ULL;
++  uint64_t assembler_file_size_limit_bytes = 512ULL * 1024ULL * 1024ULL;
+   uint32_t diagnostic_limit_bytes = 64 * 1024;
+   std::vector<uint32_t> tile_sizes;
+ };
+diff --git a/tests/ut/compiler/test_artifact.py b/tests/ut/compiler/test_artifact.py
+index cca18442e320ba87caa7ba1db0d6268ec9c89025..c3dddf5c180b27723a0bdeee99cb85f6ca1314bb 100644
+--- a/tests/ut/compiler/test_artifact.py
++++ b/tests/ut/compiler/test_artifact.py
+@@ -45,7 +45,7 @@ from pypto.compiler import (
+     get_nvidia_backend_build_info,
+ )
+ 
+-PIPELINE_REVISION = "a72996d3837bf2a344b21a37c770eb7be44a7dc9"
++PIPELINE_REVISION = "5b38d36215c89af6e2de42df7ae72c3f7819883c"
+ ARTIFACT_PAYLOAD_LIMIT = 68 * 1024 * 1024
+ CANONICAL_SOURCE = b"""module {
+   nv_tensor_ir.graph @add_op_simple(
+diff --git a/tests/ut/compiler/test_nvidia_backend_build_info.py b/tests/ut/compiler/test_nvidia_backend_build_info.py
+index c4e4019dc882cf2dba7c9a093849b6b97c50e83b..5cd5402ee3f994635c18423698e0fa77eade9413 100644
+--- a/tests/ut/compiler/test_nvidia_backend_build_info.py
++++ b/tests/ut/compiler/test_nvidia_backend_build_info.py
+@@ -30,7 +30,7 @@ def test_nvidia_backend_build_info_is_immutable_and_self_consistent() -> None:
+     assert info.compiler_factory_available
+     assert len(info.pypto_revision) == 40
+     assert set(info.pypto_revision) <= set("0123456789abcdef")
+-    assert info.tensor_ir_revision == "96201e1a1fd36bafab23cd9dc9501c8ffd43a6e7"
++    assert info.tensor_ir_revision == "2c870f975a950af9c234821864a183c86f6252c6"
+     assert info.cuda_tile_revision == "af2417041cc939b87ef56d92cfdcf61737c5457e"
+     assert info.llvm_revision == "57109befac92811d2253109242ca6fa69c961fb2"
+     assert info.cuda_toolkit_root == "/usr/local/cuda-13.3"

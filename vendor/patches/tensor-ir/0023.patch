@@ -1,0 +1,50 @@
+From 1eaf1e0615abce26b32f55af8b639ed156c11b97 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 04:50:22 +0800
+Subject: [PATCH 23/82] Harden tileiras closed-stdio launch
+
+---
+ lib/Compiler/CudaTile/TileIRAssembly.cpp | 20 +++++++++++++++++---
+ 1 file changed, 17 insertions(+), 3 deletions(-)
+
+diff --git a/lib/Compiler/CudaTile/TileIRAssembly.cpp b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+index 3ed2a700233b976b2ef893e6101d0f1586d91749..a2db6ba9ced33a5b0ee3457185ae4752885fdc46 100644
+--- a/lib/Compiler/CudaTile/TileIRAssembly.cpp
++++ b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+@@ -137,19 +137,33 @@ ProcessResult runProgramWithFileLimit(
+   const std::string stderrFile = stderrPath.str();
+   const std::string scratchDirectory =
+       llvm::sys::path::parent_path(stdoutPath).str();
+-  int stdoutFd = ::open(stdoutFile.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
++  const auto reserveAboveStdio = [](int descriptor) {
++    if (descriptor < 0 || descriptor > STDERR_FILENO) {
++      return descriptor;
++    }
++    int reserved = ::fcntl(descriptor, F_DUPFD_CLOEXEC, STDERR_FILENO + 1);
++    int savedErrno = errno;
++    (void)::close(descriptor);
++    errno = savedErrno;
++    return reserved;
++  };
++  int stdoutFd = reserveAboveStdio(
++      ::open(stdoutFile.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC,
++             0600));
+   if (stdoutFd < 0) {
+     return {-1, "failed to open bounded child stdout: " +
+                     std::string(std::strerror(errno))};
+   }
+-  int stderrFd = ::open(stderrFile.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
++  int stderrFd = reserveAboveStdio(
++      ::open(stderrFile.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC,
++             0600));
+   if (stderrFd < 0) {
+     int savedErrno = errno;
+     (void)::close(stdoutFd);
+     return {-1, "failed to open bounded child stderr: " +
+                     std::string(std::strerror(savedErrno))};
+   }
+-  int stdinFd = ::open("/dev/null", O_RDONLY);
++  int stdinFd = reserveAboveStdio(::open("/dev/null", O_RDONLY | O_CLOEXEC));
+   if (stdinFd < 0) {
+     int savedErrno = errno;
+     (void)::close(stdoutFd);

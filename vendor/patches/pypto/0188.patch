@@ -1,0 +1,30 @@
+From 868a9b70c990bcb33c0a492e0fab18de91f0df2d Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 12:29:04 +0800
+Subject: [PATCH 188/212] Lock recurrent scatter diagnostics
+
+---
+ 3rdparty/nvidia/tensor-ir  | 2 +-
+ cmake/nvidia_backend.cmake | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index c165ecb1e62b7606f9e04bb243e490ebebc4823b..a8898e63938563f56a76576368823b17599e6ddc 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit c165ecb1e62b7606f9e04bb243e490ebebc4823b
++Subproject commit a8898e63938563f56a76576368823b17599e6ddc
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index d226f52aff874ffefee5d5a216dabc0badecc1b1..7bc7c346b1a2068bb120e6b50d0f32a1a04e7efd 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "c165ecb1e62b7606f9e04bb243e490ebebc4823b")
++    "a8898e63938563f56a76576368823b17599e6ddc")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

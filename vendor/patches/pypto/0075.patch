@@ -1,0 +1,695 @@
+From 5ddf1e7f231d946af6b5e38eccb8955f71d71b3f Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Wed, 26 Aug 2026 14:03:37 +0800
+Subject: [PATCH 075/212] nvidia: enable broadcast views in pointwise producer
+
+---
+ ...e-broadcast-view-tensor-ir-broadcast.patch | 192 ++++++++++++++++++
+ 3rdparty/nvidia/tensor-ir                     |   2 +-
+ cmake/nvidia_backend.cmake                    |   2 +-
+ src/codegen/nvidia/tensor_ir_codegen.cpp      |  60 +++---
+ .../structured_tensor_ir_build_spec.cpp       | 129 ++++++++----
+ .../test_nvidia_backend_build_info.py         |   2 +-
+ tests/ut/cpp/structured_compile_test.cpp      |  51 +++++
+ .../structured_tensor_ir_build_spec_test.cpp  |  39 +++-
+ tests/ut/cpp/tensor_ir_codegen_test.cpp       |   9 +-
+ 9 files changed, 400 insertions(+), 86 deletions(-)
+ create mode 100644 3rdparty/nvidia/0001-Lower-zero-stride-broadcast-view-tensor-ir-broadcast.patch
+
+diff --git a/3rdparty/nvidia/0001-Lower-zero-stride-broadcast-view-tensor-ir-broadcast.patch b/3rdparty/nvidia/0001-Lower-zero-stride-broadcast-view-tensor-ir-broadcast.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..8cb19b398ea06ac991b6fe98b580ba6b476f0712
+--- /dev/null
++++ b/3rdparty/nvidia/0001-Lower-zero-stride-broadcast-view-tensor-ir-broadcast.patch
+@@ -0,0 +1,192 @@
++From d540d54760de9ed5e112088d27cc0eded9ccbb14 Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Thu, 27 Aug 2026 18:36:34 +0800
++Subject: [PATCH] Lower zero-stride broadcast views into pointwise
++
++---
++ include/tensor_ir/Dialect/TensorOps.td        |  8 ++--
++ lib/Dialect/TensorDialect.cpp                 | 40 ++++++-------------
++ .../TensorToCudaTile/broadcast_layout.mlir    | 25 ++++++++++++
++ test/Dialect/invalid.mlir                     | 10 -----
++ test/Dialect/ops.mlir                         | 17 ++++++++
++ 5 files changed, 59 insertions(+), 41 deletions(-)
++
++diff --git a/include/tensor_ir/Dialect/TensorOps.td b/include/tensor_ir/Dialect/TensorOps.td
++index 681f2e2..7549281 100644
++--- a/include/tensor_ir/Dialect/TensorOps.td
+++++ b/include/tensor_ir/Dialect/TensorOps.td
++@@ -750,9 +750,11 @@ def TensorIR_BroadcastOp : TensorIR_PointWiseOpBase<"broadcast", [
++ 
++     Every broadcast dim must change from a literal `1` in the input to either a
++     dynamic `?` or a literal `>1` in the output (the "shape=1 + dynamic stride"
++-    convention). The legacy "shape=? + stride=0" convention is no longer
++-    accepted. Non-broadcast dims must be either identical or both dynamic; a
++-    no-op broadcast (no dim changes) is also rejected — remove the op instead.
+++    convention). A `broadcast` op does not use a full-extent, stride-zero input;
+++    graph signature attributes may represent such broadcast views directly and
+++    layout-propagation lowers them at the load. Non-broadcast dims must be either
+++    identical or both dynamic; a no-op broadcast (no dim changes) is also
+++    rejected — remove the op instead.
++ 
++     `dynamic_dims` may supply one index scalar for every dynamic result
++     dimension, in dimension order. It may be omitted during migration from
++diff --git a/lib/Dialect/TensorDialect.cpp b/lib/Dialect/TensorDialect.cpp
++index 7a39a20..adac4aa 100644
++--- a/lib/Dialect/TensorDialect.cpp
+++++ b/lib/Dialect/TensorDialect.cpp
++@@ -44,8 +44,7 @@ tcutegen::Shape getShapeRef(TensorType tensorType) {
++ } // namespace mlir::nv_tensor_ir
++ 
++ static LogicalResult verifyTensorSignatureAttribute(Operation *op, Type type,
++-                                                    NamedAttribute attr,
++-                                                    bool isInput) {
+++                                                    NamedAttribute attr) {
++   StringRef attrName = attr.getName().strref();
++   StringRef displayName = attrName.rsplit('.').second;
++   auto tensorType = dyn_cast<nv_tensor_ir::TensorType>(type);
++@@ -99,27 +98,13 @@ static LogicalResult verifyTensorSignatureAttribute(Operation *op, Type type,
++              << tcg::to_string(*stride) << "\"";
++     }
++ 
++-    // Reject stride=0 on input dimensions with shape != 1. Outputs are
++-    // unrestricted because their storage may intentionally represent a
++-    // broadcasted destination.
++-    if (isInput) {
++-      for (size_t i = 0; i < tcg::rank(*stride); ++i) {
++-        const auto &strideDim = (*stride)[i];
++-        if (!tcg::is_static(strideDim) || strideDim != 0) {
++-          continue;
++-        }
++-        const auto &shapeDim = shape[i];
++-        if (!tcg::is_static(shapeDim) || shapeDim != 1) {
++-          return op->emitError()
++-                 << "stride=0 is not allowed in graph input stride attribute "
++-                    "on a non-shape-1 dim (legacy broadcast convention is "
++-                    "deprecated; use shape=1 + an explicit broadcast op "
++-                    "instead), but got \""
++-                 << tcg::to_string(*stride) << "\" with shape \""
++-                 << tcg::to_string(shape) << "\"";
++-        }
++-      }
++-    }
+++    // A zero stride is a valid graph-signature broadcast view, including when
+++    // the corresponding logical extent is greater than one. The
+++    // layout-propagation conversion lowers such an input to a unit-extent load
+++    // followed by cuda_tile.broadcast, so it neither advances the source
+++    // pointer nor reads outside the physical view. Keep explicit BroadcastOp's
+++    // shape-changing contract separate: that op still requires a literal unit
+++    // input extent and is verified in BroadcastOp::verify().
++     return success();
++   }
++ 
++@@ -221,8 +206,8 @@ TensorIRDialect::verifyRegionArgAttribute(Operation *op, unsigned regionIndex,
++                                           NamedAttribute argAttr) {
++   auto function = cast<FunctionOpInterface>(op);
++   assert(regionIndex == 0 && "function arguments must belong to region zero");
++-  return verifyTensorSignatureAttribute(
++-      op, function.getArgumentTypes()[argIndex], argAttr, /*isInput=*/true);
+++  return verifyTensorSignatureAttribute(op, function.getArgumentTypes()[argIndex],
+++                                        argAttr);
++ }
++ 
++ LogicalResult TensorIRDialect::verifyRegionResultAttribute(
++@@ -230,9 +215,8 @@ LogicalResult TensorIRDialect::verifyRegionResultAttribute(
++     NamedAttribute resultAttr) {
++   auto function = cast<FunctionOpInterface>(op);
++   assert(regionIndex == 0 && "function results must belong to region zero");
++-  return verifyTensorSignatureAttribute(op,
++-                                        function.getResultTypes()[resultIndex],
++-                                        resultAttr, /*isInput=*/false);
+++  return verifyTensorSignatureAttribute(
+++      op, function.getResultTypes()[resultIndex], resultAttr);
++ }
++ 
++ #define GET_ATTRDEF_CLASSES
++diff --git a/test/Conversion/TensorToCudaTile/broadcast_layout.mlir b/test/Conversion/TensorToCudaTile/broadcast_layout.mlir
++index df62a5b..a1bd968 100644
++--- a/test/Conversion/TensorToCudaTile/broadcast_layout.mlir
+++++ b/test/Conversion/TensorToCudaTile/broadcast_layout.mlir
++@@ -25,6 +25,31 @@ module {
++ 
++ // -----
++ 
+++// A producer may encode an already-expanded logical input with a zero stride.
+++// The conversion must load one physical value along that dimension, then
+++// broadcast the loaded tile before the pointwise operation.
+++// CHECK-LABEL: entry @broadcast_view_into_pointwise
+++// CHECK: %[[ZERO:.*]] = constant <i32: 0> : tile<i32>
+++// CHECK: %[[ROW_VIEW:.*]] = make_tensor_view {{.*}}, shape = [32, 32], strides = [1, 0] : tensor_view<32x32xf32, strides=[1,0]>
+++// CHECK: %[[ROW_PART:.*]] = make_partition_view %[[ROW_VIEW]] : partition_view<tile=(1x1), tensor_view<32x32xf32, strides=[1,0]>>
+++// CHECK: %[[ROW_LOAD:.*]], {{.*}} = load_view_tko weak %[[ROW_PART]][{{.*}}, %[[ZERO]]]
+++// CHECK: %[[ROW_TILE:.*]] = broadcast %[[ROW_LOAD]] : tile<1x1xf32> -> tile<1x32xf32>
+++// CHECK: %[[FULL_TILE:.*]], {{.*}} = load_view_tko weak
+++// CHECK: %[[MUL:.*]] = mulf %[[ROW_TILE]], %[[FULL_TILE]] : tile<1x32xf32>
+++// CHECK: store_view_tko weak %[[MUL]]
+++module {
+++  nv_tensor_ir.graph @broadcast_view_into_pointwise(
+++      %row: tensor<32x32xf32> {nv_tensor_ir.stride = "(1,0)"},
+++      %full: tensor<32x32xf32>)
+++      -> (tensor<32x32xf32>)
+++      attributes {tile_size = array<i32: 1, 32>} {
+++    %mul = mul %row, %full : tensor<32x32xf32>
+++    results %mul : tensor<32x32xf32>
+++  }
+++}
+++
+++// -----
+++
++ // CHECK-LABEL: entry @broadcast_two_dimensions
++ // CHECK: %[[ZERO:.*]] = constant <i32: 0> : tile<i32>
++ // CHECK: %[[TVIEW1:.*]] = make_tensor_view {{.*}}, shape = [1, 1], strides = [1, 1] : tensor_view<1x1xf32, strides=[1,1]>
++diff --git a/test/Dialect/invalid.mlir b/test/Dialect/invalid.mlir
++index 7e5b5ff..13e5da9 100644
++--- a/test/Dialect/invalid.mlir
+++++ b/test/Dialect/invalid.mlir
++@@ -246,16 +246,6 @@ nv_tensor_ir.graph @graphOpVerifyGraphStride(
++   results %res: tensor<?x?x?xf32>
++ }
++ 
++-// -----
++-// expected-error @below {{stride=0 is not allowed in graph input stride attribute}}
++-nv_tensor_ir.graph @graphOpVerifyStrideZeroRejected(
++-  %lhs: tensor<?x?x?xf32> {nv_tensor_ir.stride = "(0,?,1)"},
++-  %rhs: tensor<?x?x?xf32>
++-) -> tensor<?x?x?xf32> {
++-  %res = add %lhs, %rhs : tensor<?x?x?xf32>
++-  results %res: tensor<?x?x?xf32>
++-}
++-
++ // -----
++ // Broadcast verifier: no-op broadcast (no dim changes from 1 to non-1).
++ nv_tensor_ir.graph @broadcastNoOp(
++diff --git a/test/Dialect/ops.mlir b/test/Dialect/ops.mlir
++index cc69210..95eda48 100644
++--- a/test/Dialect/ops.mlir
+++++ b/test/Dialect/ops.mlir
++@@ -11,6 +11,23 @@ nv_tensor_ir.graph @someGraph() {
++   results
++ }
++ 
+++// -----
+++
+++// A full-logical-extent graph input may describe a broadcast view with a zero
+++// stride. This is distinct from the shape-changing broadcast op below.
+++// CHECK-LABEL: nv_tensor_ir.graph @zeroStrideBroadcastView
+++// CHECK-SAME: %[[ROW:.*]]: tensor<4x8xf32> {nv_tensor_ir.stride = "(1,0)"}
+++// CHECK-SAME: %[[FULL:.*]]: tensor<4x8xf32> {nv_tensor_ir.stride = "(8,1)"}
+++// CHECK: %[[MUL:.*]] = mul %[[ROW]], %[[FULL]] : tensor<4x8xf32>
+++// CHECK: results %[[MUL]] : tensor<4x8xf32>
+++nv_tensor_ir.graph @zeroStrideBroadcastView(
+++  %row: tensor<4x8xf32> {nv_tensor_ir.stride = "(1,0)"},
+++  %full: tensor<4x8xf32> {nv_tensor_ir.stride = "(8,1)"}
+++) -> (tensor<4x8xf32> {nv_tensor_ir.stride = "(8,1)"}) {
+++  %mul = mul %row, %full : tensor<4x8xf32>
+++  results %mul : tensor<4x8xf32>
+++}
+++
++ // Pointwise binary operations
++ // CHECK-LABEL: nv_tensor_ir.graph @pointwiseBinaryFloatTestGraph
++ // CHECK-SAME: %[[arg0:.*]]: tensor<10xf32>, %[[arg1:.*]]: tensor<10xf32>, %[[arg2:.*]]: tensor<10xf32>
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 1dcb38c20e53d07c97d3781cae538e33901bae30..d540d54760de9ed5e112088d27cc0eded9ccbb14 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 1dcb38c20e53d07c97d3781cae538e33901bae30
++Subproject commit d540d54760de9ed5e112088d27cc0eded9ccbb14
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 921dcaa818e1e25350802575667c470e33a125e9..51cfb40946d291996b665d03ffe2664ecbdb715f 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "1dcb38c20e53d07c97d3781cae538e33901bae30")
++    "d540d54760de9ed5e112088d27cc0eded9ccbb14")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 5a3184de000664670217ed669e16cead0a0e59f7..39746ac08870a25269b4ca0b792683983416e48d 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -274,32 +274,6 @@ std::string TensorWithStrideText(const StaticTensor& tensor) {
+          ")\"}";
+ }
+ 
+-std::string TensorBroadcastStrideText(const StaticTensor& tensor) {
+-  // Layout-propagation lowers broadcast inputs through the stride-0
+-  // convention: unit trailing extents carry a zero stride so the load
+-  // itself expands them. Addressing is unchanged because a unit extent can
+-  // only ever be indexed at zero.
+-  std::vector<int64_t> strides = tensor.dense_strides;
+-  for (size_t index = 1; index < strides.size(); ++index) {
+-    if (tensor.shape[index] == 1) strides[index] = 0;
+-  }
+-  const std::string type = TensorTypeText(tensor);
+-  return type + " {nv_tensor_ir.stride = \"(" + JoinIntegers(strides, ',') +
+-         ")\"}";
+-}
+-
+-std::string TensorExpandedInputText(const StaticTensor& row,
+-                                    const StaticTensor& full) {
+-  // A row-broadcast [M,1,...] HIR input enters the TensorIR signature with
+-  // the full iteration-space extent and the row's own strides (unit stride
+-  // along dim zero, zero elsewhere): the layout-propagation load itself
+-  // performs the expansion, so no broadcast op is emitted.
+-  std::vector<int64_t> strides(full.shape.size(), 0);
+-  if (!row.dense_strides.empty()) strides[0] = row.dense_strides[0];
+-  return TensorTypeText(full) + " {nv_tensor_ir.stride = \"(" +
+-         JoinIntegers(strides, ',') + ")\"}";
+-}
+-
+ std::string EmitLegacyStaticAddSource(const StaticTensor& tensor, size_t lhs_index,
+                                       size_t rhs_index) {
+   const std::string type = TensorTypeText(tensor);
+@@ -1474,14 +1448,16 @@ FusedPointwiseGraph AnalyzeFusedPointwiseV2(const ir::ProgramPtr& program) {
+ 
+ void AppendFusedOperand(std::string& source, const FusedTensorOperand& operand,
+                         size_t instruction_index) {
+-  if (operand.kind == FusedTensorOperandKind::Input ||
+-      operand.kind == FusedTensorOperandKind::BroadcastInput) {
+-    // Broadcast inputs carry the full extent with zero trailing strides in
+-    // the signature, so the layout-propagation load already expanded them.
++  if (operand.kind == FusedTensorOperandKind::Input) {
+     source += "%arg";
+     AppendIndex(source, operand.input_index);
+     return;
+   }
++  if (operand.kind == FusedTensorOperandKind::BroadcastInput) {
++    source += "%broadcast";
++    AppendIndex(source, operand.input_index);
++    return;
++  }
+   if (operand.kind == FusedTensorOperandKind::PreviousResult) {
+     source += "%value";
+     AppendIndex(source, operand.input_index);
+@@ -1504,8 +1480,7 @@ std::string EmitFusedPointwiseSource(const FusedPointwiseGraph& graph) {
+     AppendIndex(source, input_index);
+     source += ": ";
+     if (graph.broadcast_inputs[input_index]) {
+-      source += TensorExpandedInputText(graph.input_tensors[input_index],
+-                                        graph.tensor);
++      source += TensorWithStrideText(graph.input_tensors[input_index]);
+     } else {
+       source += type_with_stride;
+     }
+@@ -1521,6 +1496,23 @@ std::string EmitFusedPointwiseSource(const FusedPointwiseGraph& graph) {
+   }
+   source += " {\n";
+ 
++  // Preserve the physical [M,1,...] ABI in the graph signature, then make the
++  // logical expansion explicit inside TensorIR. This keeps prepared metadata,
++  // producer descriptors, and launch-time tensor shapes identical while the
++  // layout-propagation path lowers the broadcast into the consumer tile.
++  for (size_t input_index = 0; input_index < graph.input_count; ++input_index) {
++    if (!graph.broadcast_inputs[input_index]) continue;
++    source += "    %broadcast";
++    AppendIndex(source, input_index);
++    source += " = broadcast %arg";
++    AppendIndex(source, input_index);
++    source += " : ";
++    source += TensorTypeText(graph.input_tensors[input_index]);
++    source += " -> ";
++    source += type;
++    source += "\n";
++  }
++
+   size_t scalar_index = 0;
+   for (size_t instruction_index = 0; instruction_index < graph.instructions.size();
+        ++instruction_index) {
+@@ -1541,8 +1533,8 @@ std::string EmitFusedPointwiseSource(const FusedPointwiseGraph& graph) {
+       source += "\n";
+     }
+     if (instruction.tensor_ir_op == "__broadcast__") {
+-      // Materialize the (already load-expanded) broadcast input as an SSA
+-      // value via a bitwise-exact multiply by 1.0: x*1 preserves -0 and NaN.
++      // Materialize the explicit broadcast input as an SSA value via a
++      // bitwise-exact multiply by 1.0: x*1 preserves -0 and NaN.
+       const std::string constant_index = std::to_string(scalar_index);
+       ++scalar_index;
+       source += "    %constant" + constant_index + " = constant 1.0 : ";
+diff --git a/src/compiler/structured_tensor_ir_build_spec.cpp b/src/compiler/structured_tensor_ir_build_spec.cpp
+index 8e08a433a96c0b7cf6c392b4e9f987f6ad6bfb3d..812f9d890db35e1cda84be2c4cb9ec9c237fef86 100644
+--- a/src/compiler/structured_tensor_ir_build_spec.cpp
++++ b/src/compiler/structured_tensor_ir_build_spec.cpp
+@@ -264,17 +264,43 @@ std::vector<std::optional<int64_t>> StaticValues(const std::vector<int64_t>& val
+   return output;
+ }
+ 
+-uint64_t StaticElementCount(const PreparedStructuredTensorIrValueMetadata& metadata) {
+-  uint64_t count = 1;
+-  for (int64_t dimension : metadata.GetShape()) {
+-    INTERNAL_CHECK(dimension > 0)
+-        << "prepared structured TensorIR shape contains a non-positive dimension";
+-    INTERNAL_CHECK(static_cast<uint64_t>(dimension) <=
+-                   std::numeric_limits<uint64_t>::max() / count)
+-        << "prepared structured TensorIR element count overflows uint64";
+-    count *= static_cast<uint64_t>(dimension);
+-  }
+-  return count;
++uint64_t FusedPointwiseGridX(const std::vector<int64_t>& shape,
++                             const std::vector<uint32_t>& tile_sizes) {
++  INTERNAL_CHECK(!shape.empty())
++      << "fused pointwise v2 shape must have rank between 1 and 32";
++  INTERNAL_CHECK(tile_sizes.size() == 1 || tile_sizes.size() == shape.size())
++      << "fused pointwise v2 schedule must contain one flattened tile or one "
++         "tile per static tensor dimension";
++  if (tile_sizes.size() == 1) {
++    uint64_t element_count = 1;
++    for (int64_t dimension : shape) {
++      INTERNAL_CHECK(dimension > 0)
++          << "fused pointwise v2 shape contains a non-positive dimension";
++      INTERNAL_CHECK(static_cast<uint64_t>(dimension) <=
++                     std::numeric_limits<uint64_t>::max() / element_count)
++          << "fused pointwise v2 element count overflows uint64";
++      element_count *= static_cast<uint64_t>(dimension);
++    }
++    const uint64_t tile_size = tile_sizes[0];
++    INTERNAL_CHECK(tile_size > 0) << "fused pointwise v2 tile size is zero";
++    return element_count / tile_size +
++           (element_count % tile_size == 0 ? 0 : 1);
++  }
++
++  uint64_t grid_x = 1;
++  for (size_t index = 0; index < shape.size(); ++index) {
++    INTERNAL_CHECK(shape[index] > 0 && tile_sizes[index] > 0)
++        << "fused pointwise v2 multidimensional shape/tile is non-positive";
++    const uint64_t dimension = static_cast<uint64_t>(shape[index]);
++    const uint64_t tile_size = tile_sizes[index];
++    const uint64_t dimension_tiles =
++        dimension / tile_size + (dimension % tile_size == 0 ? 0 : 1);
++    INTERNAL_CHECK(dimension_tiles <=
++                   std::numeric_limits<uint64_t>::max() / grid_x)
++        << "fused pointwise v2 multidimensional grid overflows uint64";
++    grid_x *= dimension_tiles;
++  }
++  return grid_x;
+ }
+ 
+ uint64_t StaticRowCount(const std::vector<int64_t>& shape) {
+@@ -315,34 +341,48 @@ void ValidateFusedPointwiseSchedule(
+     const StrictTensorIrProducerOptions& resolved_options,
+     const CompileRequest& request) {
+   if (module.GetKind() != codegen::nvidia::TensorIrModuleKind::FusedPointwiseV2) return;
+-  CHECK(resolved_options.tile_sizes.size() == 1)
+-      << "fused pointwise v2 requires exactly one flattened tile size dim_000, got "
+-      << resolved_options.tile_sizes.size();
+-  const uint32_t tile_size = resolved_options.tile_sizes[0];
+-  CHECK(tile_size != 0 && (tile_size & (tile_size - 1)) == 0)
+-      << "fused pointwise v2 tile dim_000 must be a positive power of two, got "
+-      << tile_size;
+-
+   INTERNAL_CHECK(!module.GetValueMetadata().empty())
+       << "fused pointwise v2 module has no value metadata";
+-  uint64_t element_count = 1;
+-  for (int64_t dimension : module.GetValueMetadata()[0].GetShape()) {
+-    INTERNAL_CHECK(dimension > 0)
+-        << "fused pointwise v2 metadata contains a non-positive shape dimension";
+-    INTERNAL_CHECK(static_cast<uint64_t>(dimension) <=
+-                   std::numeric_limits<uint64_t>::max() / element_count)
+-        << "fused pointwise v2 element count overflows uint64";
+-    element_count *= static_cast<uint64_t>(dimension);
+-  }
+-  CHECK(static_cast<uint64_t>(tile_size) <= element_count)
+-      << "fused pointwise v2 tile dim_000 must not exceed the flattened static element count "
+-      << element_count << ", got " << tile_size;
+-  const uint64_t expected_grid_x =
+-      element_count / tile_size + (element_count % tile_size == 0 ? 0 : 1);
++  const std::vector<int64_t>& shape = module.GetValueMetadata()[0].GetShape();
++  const std::vector<uint32_t>& tile_sizes = resolved_options.tile_sizes;
++  CHECK(tile_sizes.size() == 1 || tile_sizes.size() == shape.size())
++      << "fused pointwise v2 requires one flattened tile or one tile per "
++         "static tensor dimension, got "
++      << tile_sizes.size() << " tiles for rank " << shape.size();
++  for (size_t index = 0; index < tile_sizes.size(); ++index) {
++    const uint32_t tile_size = tile_sizes[index];
++    CHECK(tile_size != 0 && (tile_size & (tile_size - 1)) == 0)
++        << "fused pointwise v2 tile dim_" << index
++        << " must be a positive power of two, got " << tile_size;
++  }
++  if (tile_sizes.size() == 1) {
++    uint64_t element_count = 1;
++    for (int64_t dimension : shape) {
++      INTERNAL_CHECK(dimension > 0)
++          << "fused pointwise v2 metadata contains a non-positive shape dimension";
++      INTERNAL_CHECK(static_cast<uint64_t>(dimension) <=
++                     std::numeric_limits<uint64_t>::max() / element_count)
++          << "fused pointwise v2 element count overflows uint64";
++      element_count *= static_cast<uint64_t>(dimension);
++    }
++    CHECK(static_cast<uint64_t>(tile_sizes[0]) <= element_count)
++        << "fused pointwise v2 tile dim_000 must not exceed the flattened "
++           "static element count "
++        << element_count << ", got " << tile_sizes[0];
++  } else {
++    for (size_t index = 0; index < shape.size(); ++index) {
++      CHECK(static_cast<uint64_t>(tile_sizes[index]) <=
++            static_cast<uint64_t>(shape[index]))
++          << "fused pointwise v2 tile dim_" << index
++          << " must not exceed static extent " << shape[index] << ", got "
++          << tile_sizes[index];
++    }
++  }
++  const uint64_t expected_grid_x = FusedPointwiseGridX(shape, tile_sizes);
+   const int64_t max_grid_x = request.GetTargetInfo().GetTraits().GetMaxGridDimX();
+   CHECK(expected_grid_x <= static_cast<uint64_t>(std::numeric_limits<int32_t>::max()) &&
+         expected_grid_x <= static_cast<uint64_t>(max_grid_x))
+-      << "fused pointwise v2 flattened grid x=" << expected_grid_x
++      << "fused pointwise v2 normalized grid x=" << expected_grid_x
+       << " exceeds the prepared target limit " << max_grid_x;
+ }
+ 
+@@ -498,13 +538,9 @@ uint32_t ExpectedFusedPointwiseGridX(
+       << "expected-grid calculation requires a fused pointwise v2 preparation";
+   INTERNAL_CHECK(!prepared.GetValueMetadata().empty())
+       << "fused pointwise v2 preparation has no value metadata";
+-  INTERNAL_CHECK(prepared.GetResolvedOptions().tile_sizes.size() == 1)
+-      << "fused pointwise v2 preparation does not contain one flattened tile";
+-  const uint64_t element_count = StaticElementCount(prepared.GetValueMetadata()[0]);
+-  const uint32_t tile_size = prepared.GetResolvedOptions().tile_sizes[0];
+-  INTERNAL_CHECK(tile_size != 0) << "fused pointwise v2 tile size is zero";
+-  const uint64_t grid_x =
+-      element_count / tile_size + (element_count % tile_size == 0 ? 0 : 1);
++  const uint64_t grid_x = FusedPointwiseGridX(
++      prepared.GetValueMetadata()[0].GetShape(),
++      prepared.GetResolvedOptions().tile_sizes);
+   INTERNAL_CHECK(grid_x <= std::numeric_limits<uint32_t>::max())
+       << "fused pointwise v2 grid exceeds uint32 after preparation";
+   return static_cast<uint32_t>(grid_x);
+@@ -632,6 +668,15 @@ void ValidateKernelAbi(const PreparedStructuredTensorIrCompilation& prepared,
+       RejectFinalization(
+           "structured matmul grid ABI must be static and selected by Result0");
+     }
++  } else if (prepared.GetModuleKind() ==
++             PreparedStructuredTensorIrModuleKind::FusedPointwiseV2) {
++    const uint32_t shape_operand = grid.GetShapeOperandIndex();
++    const uint32_t result_operand = prepared.GetInputCount();
++    if (grid.GetPolicy() != ArtifactGridPolicy::Static ||
++        (shape_operand != 0 && shape_operand != result_operand)) {
++      RejectFinalization(
++          "fused pointwise grid ABI must be static and selected by Input0 or Result0");
++    }
+   } else if (grid.GetPolicy() != ArtifactGridPolicy::Static ||
+              grid.GetShapeOperandIndex() != 0) {
+     RejectFinalization("grid ABI must be static and selected by Input0");
+@@ -657,7 +702,7 @@ void ValidateKernelAbi(const PreparedStructuredTensorIrCompilation& prepared,
+           PreparedStructuredTensorIrModuleKind::FusedPointwiseV2 &&
+       dimensions[0] != ExpectedFusedPointwiseGridX(prepared)) {
+     RejectFinalization(
+-        "fused pointwise static grid x differs from the flattened shape and tile");
++        "fused pointwise static grid x differs from the normalized shape and tiles");
+   }
+   if (prepared.GetModuleKind() ==
+           PreparedStructuredTensorIrModuleKind::RowReductionV3 &&
+diff --git a/tests/ut/compiler/test_nvidia_backend_build_info.py b/tests/ut/compiler/test_nvidia_backend_build_info.py
+index 570e58a97578164ff6ea8cdcbcf04482d3479d2b..a14cf12ee1edfae8ad71057c0c708f0e9762531f 100644
+--- a/tests/ut/compiler/test_nvidia_backend_build_info.py
++++ b/tests/ut/compiler/test_nvidia_backend_build_info.py
+@@ -30,7 +30,7 @@ def test_nvidia_backend_build_info_is_immutable_and_self_consistent() -> None:
+     assert info.compiler_factory_available
+     assert len(info.pypto_revision) == 40
+     assert set(info.pypto_revision) <= set("0123456789abcdef")
+-    assert info.tensor_ir_revision == "1dcb38c20e53d07c97d3781cae538e33901bae30"
++    assert info.tensor_ir_revision == "d540d54760de9ed5e112088d27cc0eded9ccbb14"
+     assert info.cuda_tile_revision == "af2417041cc939b87ef56d92cfdcf61737c5457e"
+     assert info.llvm_revision == "57109befac92811d2253109242ca6fa69c961fb2"
+     assert info.cuda_toolkit_root == "/usr/local/cuda-13.3"
+diff --git a/tests/ut/cpp/structured_compile_test.cpp b/tests/ut/cpp/structured_compile_test.cpp
+index 8647b5c183e4f4bc51e423fa90cd67999fd88463..966538750f4a091aa21d5f67c91d058e20ab9ec1 100644
+--- a/tests/ut/cpp/structured_compile_test.cpp
++++ b/tests/ut/cpp/structured_compile_test.cpp
+@@ -154,6 +154,34 @@ ir::ProgramPtr MakeFusedProgram(DataType dtype) {
+                                       TestSpan());
+ }
+ 
++ir::ProgramPtr MakeBroadcastIntoPointwiseProgram(DataType dtype) {
++  auto full_type = std::make_shared<ir::TensorType>(
++      std::vector<int64_t>{8, 16}, dtype, std::optional<ir::MemRefPtr>{});
++  auto row_type = std::make_shared<ir::TensorType>(
++      std::vector<int64_t>{8, 1}, dtype, std::optional<ir::MemRefPtr>{});
++  auto full = std::make_shared<ir::Var>("full", full_type, TestSpan());
++  auto row = std::make_shared<ir::Var>("row", row_type, TestSpan());
++  auto result = std::make_shared<ir::Var>("result", full_type, TestSpan());
++  auto call = std::make_shared<ir::Call>(
++      ir::OpRegistry::GetInstance().GetOp("tensor.row_expand_mul"),
++      std::vector<ir::ExprPtr>{full, row},
++      std::vector<std::pair<std::string, std::any>>{},
++      std::vector<std::pair<std::string, std::any>>{}, full_type, TestSpan());
++  auto body = std::make_shared<ir::SeqStmts>(
++      std::vector<ir::StmtPtr>{
++          std::make_shared<ir::AssignStmt>(result, call, TestSpan()),
++          std::make_shared<ir::ReturnStmt>(
++              std::vector<ir::ExprPtr>{result}, TestSpan())},
++      TestSpan());
++  auto function = std::make_shared<ir::Function>(
++      "ignored", std::vector<ir::VarPtr>{full, row},
++      std::vector<ir::ParamDirection>{ir::ParamDirection::In,
++                                      ir::ParamDirection::In},
++      std::vector<ir::TypePtr>{full_type}, body, TestSpan());
++  return std::make_shared<ir::Program>(
++      std::vector<ir::FunctionPtr>{function}, "test", TestSpan());
++}
++
+ ir::ProgramPtr MakeRowReductionProgram(
+     const std::vector<int64_t>& shape, DataType dtype,
+     const std::string& op_name) {
+@@ -619,6 +647,29 @@ int TestRealFusedPointwiseProducerSuccess() {
+             build_spec.GetIdentityDigest());
+   }
+ 
++  // Producer golden for the PyPTO row-expand contract: the second logical
++  // input has physical shape [8, 1], while TensorIR receives a full [8, 16]
++  // view with stride [1, 0]. The private producer must lower its load to one
++  // value per row plus cuda_tile.broadcast and produce a real Cubin.
++  const uint64_t before_broadcast =
++      GetStrictNvidiaProducerInvocationCountForTesting();
++  const StructuredCompileResult broadcast = CompileStructuredStrict(
++      MakeBroadcastIntoPointwiseProgram(DataType::BF16), request,
++      MakeSchedule(std::vector<uint32_t>{8, 16}));
++  REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() ==
++          before_broadcast + 1);
++  const auto& broadcast_artifact = broadcast.GetArtifact();
++  const auto& broadcast_kernel = broadcast_artifact.GetKernelAbi();
++  REQUIRE(broadcast_kernel.GetEntryFunctionName() ==
++          "pypto_fused_pointwise_v2");
++  REQUIRE(broadcast_kernel.GetArgumentLayout().GetInputOperandCount() == 2);
++  REQUIRE(broadcast_kernel.GetArgumentLayout().GetOperandDescriptors().size() ==
++          3);
++  REQUIRE(broadcast_kernel.GetGridAbi().GetTileSizes() ==
++          std::vector<uint32_t>({8, 16}));
++  REQUIRE(!broadcast_artifact.GetDeviceCode().empty());
++  REQUIRE(!broadcast_artifact.GetDeviceCodeSha256().empty());
++
+   const uint64_t before_maximum =
+       GetStrictNvidiaProducerInvocationCountForTesting();
+   const StructuredCompileResult maximum = CompileStructuredStrict(
+diff --git a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+index 19a728512203583846119a3826e7f0c1a0cbd6db..5b3b4a896e1cc936608c7cdf0a33d45b0edb341b 100644
+--- a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
++++ b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+@@ -858,6 +858,16 @@ int TestFusedPointwiseV2ProjectionAndFinalization() {
+   REQUIRE(build_spec.GetMutationAbiDigest() ==
+           prepared.GetMutationAbi().GetIdentityDigest());
+ 
++  KernelOptions output_grid = FusedKernelOptions();
++  output_grid.grid_shape_operand_index = 3;
++  (void)FinalizeStructuredTensorIrBuildSpec(
++      prepared, MakeKernelAbi(std::move(output_grid)));
++  KernelOptions wrong_shape_owner = FusedKernelOptions();
++  wrong_shape_owner.grid_shape_operand_index = 1;
++  REQUIRE(RejectsFinalization(
++      prepared, MakeKernelAbi(std::move(wrong_shape_owner)),
++      "selected by Input0 or Result0"));
++
+   KernelOptions wrong_input_count = FusedKernelOptions();
+   wrong_input_count.input_count = 2;
+   REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(wrong_input_count)),
+@@ -865,18 +875,39 @@ int TestFusedPointwiseV2ProjectionAndFinalization() {
+   KernelOptions wrong_grid = FusedKernelOptions();
+   wrong_grid.static_grid = {5, 1, 1};
+   REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(wrong_grid)),
+-                              "flattened shape and tile"));
++                              "normalized shape and tiles"));
+   return 0;
+ }
+ 
+ int TestFusedPointwiseV2ScheduleRejections() {
+   const CompileRequest request = ValidRequest();
++  const PreparedStructuredTensorIrCompilation multidimensional =
++      PrepareStructuredTensorIrCompilation(MakeFusedProgram(), request,
++                                           ValidSchedule({8, 8}));
++  REQUIRE(multidimensional.GetResolvedOptions().tile_sizes ==
++          std::vector<uint32_t>({8, 8}));
++  const ArtifactKernelAbi multidimensional_kernel =
++      MakeKernelAbi(FusedKernelOptions({8, 8}, 3, {8, 8}, 1));
++  (void)FinalizeStructuredTensorIrBuildSpec(multidimensional,
++                                           multidimensional_kernel);
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(MakeFusedProgram(), request,
++                                                   ValidSchedule({4, 4, 4}));
++      },
++      "one flattened tile or one tile per static tensor dimension"));
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(MakeFusedProgram(), request,
++                                                   ValidSchedule({4, 3}));
++      },
++      "positive power of two"));
+   REQUIRE(RejectsPreparation(
+       [&] {
+         (void)PrepareStructuredTensorIrCompilation(MakeFusedProgram(), request,
+-                                                   ValidSchedule({8, 8}));
++                                                   ValidSchedule({16, 8}));
+       },
+-      "exactly one flattened tile"));
++      "must not exceed static extent"));
+   REQUIRE(RejectsPreparation(
+       [&] {
+         (void)PrepareStructuredTensorIrCompilation(MakeFusedProgram(), request,
+@@ -909,7 +940,7 @@ int TestFusedPointwiseV2ScheduleRejections() {
+       "exceeds the prepared target limit"));
+ 
+   // Compile-free V1 preparation historically records producer-owned schedules
+-  // without applying the V2 flattened-pointwise tile preflight.
++  // without applying the V2 pointwise tile preflight.
+   const PreparedStructuredTensorIrCompilation legacy =
+       PrepareStructuredTensorIrCompilation(MakeProgram(), request, ValidSchedule({8, 8}));
+   REQUIRE(legacy.GetModuleKind() ==
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index 03b8e80634d091ab23d789fe46b1fe2583ea0b2a..fced5ce7b11ee6b3ad0e4dca4d9866c25e2958e2 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -2199,9 +2199,11 @@ int TestFusedPointwiseV2RowBroadcast() {
+   REQUIRE(module.GetKind() == TensorIrModuleKind::FusedPointwiseV2);
+   const std::string source = module.GetCanonicalSource();
+   std::fprintf(stderr, "ROWBC source:\n%s\n", source.c_str());
+-  REQUIRE(source.find("%arg1: tensor<4x6xf32> {nv_tensor_ir.stride = \"(1,0)\"}") !=
++  REQUIRE(source.find("%arg1: tensor<4x1xf32> {nv_tensor_ir.stride = \"(1,1)\"}") !=
+           std::string::npos);
+-  REQUIRE(source.find("%value0 = mul %arg0, %arg1 : tensor<4x6xf32>") !=
++  REQUIRE(source.find("%broadcast1 = broadcast %arg1 : tensor<4x1xf32> -> "
++                      "tensor<4x6xf32>") != std::string::npos);
++  REQUIRE(source.find("%value0 = mul %arg0, %broadcast1 : tensor<4x6xf32>") !=
+           std::string::npos);
+   const auto& metadata = module.GetValueMetadata();
+   REQUIRE(metadata.size() == 3);
+@@ -2224,7 +2226,8 @@ int TestFusedPointwiseV2RowBroadcast() {
+         {ir::ParamDirection::In, ir::ParamDirection::In}, {type},
+         {expand_assignment, div_assignment, div_return}));
+     const std::string materialized_source = materialized.GetCanonicalSource();
+-    REQUIRE(materialized_source.find("%value0 = mul %arg1, %splat0 : tensor<4x6xf32>") !=
++    REQUIRE(materialized_source.find("%value0 = mul %broadcast1, %splat0 : "
++                                     "tensor<4x6xf32>") !=
+             std::string::npos);
+     REQUIRE(materialized_source.find("%value1 = div %value0, %arg0 : tensor<4x6xf32>") !=
+             std::string::npos);

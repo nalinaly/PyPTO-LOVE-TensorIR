@@ -1,0 +1,115 @@
+From c8f643822fa7a064b03450809cbbc11f2249d281 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 01:18:31 +0800
+Subject: [PATCH 121/212] Keep fused QK outputs in packed head layout
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 42 ++++++++----------------
+ 1 file changed, 13 insertions(+), 29 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 0553dfe9e286191201a66ff866e7913decc7cf3d..86d8df26d5181106bfcaaaf9a66ab1dfc856c24e 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -1544,10 +1544,6 @@ std::string EmitNativeTileQkRmsNormRopeSource(
+       tensor(DataType::FP32, {tokens, qHeads, rotaryDim});
+   const StaticTensor kRotary =
+       tensor(DataType::FP32, {tokens, kvHeads, rotaryDim});
+-  const StaticTensor qFlat =
+-      tensor(DataType::BF16, {tokens * qHeads * headDim});
+-  const StaticTensor kFlat =
+-      tensor(DataType::BF16, {tokens * kvHeads * headDim});
+   StaticTensor positions32 = graph.positions;
+   positions32.dtype = DataType::INT32;
+   StaticTensor weightF = graph.weight;
+@@ -1574,8 +1570,6 @@ std::string EmitNativeTileQkRmsNormRopeSource(
+   const std::string kTailType = TensorTypeText(kTail);
+   const std::string qRotaryType = TensorTypeText(qRotary);
+   const std::string kRotaryType = TensorTypeText(kRotary);
+-  const std::string qFlatType = TensorTypeText(qFlat);
+-  const std::string kFlatType = TensorTypeText(kFlat);
+ 
+   std::string source;
+   source.reserve(12288);
+@@ -1594,7 +1588,7 @@ std::string EmitNativeTileQkRmsNormRopeSource(
+   source += ",\n    %arg5: ";
+   source += TensorWithStrideText(graph.positions);
+   source += "\n  ) -> (";
+-  source += TensorTypeText(graph.result);
++  source += TensorWithStrideText(graph.result);
+   source += ") {\n";
+ 
+   StaticTensor qGate3 =
+@@ -1760,8 +1754,7 @@ std::string EmitNativeTileQkRmsNormRopeSource(
+                               const std::string& halfType,
+                               const std::string& tailType,
+                               const std::string& rotaryType,
+-                              const std::string& bf16Type,
+-                              const std::string& flatType) {
++                              const std::string& bf16Type) {
+     source += "    %" + std::string(prefix) +
+               "_low = slice %" + std::string(prefix) +
+               "_ready starts = [0, 0, 0] limits = [";
+@@ -1823,25 +1816,16 @@ std::string EmitNativeTileQkRmsNormRopeSource(
+               ") -> " + readyType;
+     source += "\n    %" + std::string(prefix) +
+               "_result = convert %" + std::string(prefix) +
+-              "_complete : " + readyType + " -> " + bf16Type;
+-    source += "\n    %" + std::string(prefix) +
+-              "_flat = reshape %" + std::string(prefix) +
+-              "_result : " + bf16Type + " -> " + flatType + "\n";
++              "_complete : " + readyType + " -> " + bf16Type + "\n";
+   };
+-  appendRope("q", qfType, qHalfType, qTailType, qRotaryType, q3Type,
+-             qFlatType);
+-  appendRope("k", kfType, kHalfType, kTailType, kRotaryType, k3Type,
+-             kFlatType);
+-  source += "    %gate_flat = reshape %gate3 : ";
++  appendRope("q", qfType, qHalfType, qTailType, qRotaryType, q3Type);
++  appendRope("k", kfType, kHalfType, kTailType, kRotaryType, k3Type);
++  source += "    %result0 = concatenate %q_result, %k_result, %gate3 dimension = 1 : (";
+   source += q3Type;
+-  source += " -> ";
+-  source += qFlatType;
+-  source += "\n    %result0 = concatenate %q_flat, %k_flat, %gate_flat dimension = 0 : (";
+-  source += qFlatType;
+   source += ", ";
+-  source += kFlatType;
++  source += k3Type;
+   source += ", ";
+-  source += qFlatType;
++  source += q3Type;
+   source += ") -> ";
+   source += TensorTypeText(graph.result);
+   source += "\n    results %result0 : ";
+@@ -3763,7 +3747,7 @@ NativeTileQkRmsNormRopeGraph AnalyzeNativeTileQkRmsNormRope(
+   if (qGate.shape.size() != 2 || key.shape.size() != 2 ||
+       qWeight.shape.size() != 2 || kWeight.shape.size() != 2 ||
+       cache.shape.size() != 2 || positions.shape.size() != 2 ||
+-      result.shape.size() != 1 || !SameTensor(qWeight, kWeight) ||
++      result.shape.size() != 3 || !SameTensor(qWeight, kWeight) ||
+       !SameTensor(result, declared) || qWeight.shape[0] != 1 ||
+       qGate.shape[0] != key.shape[0] ||
+       positions.shape !=
+@@ -3781,9 +3765,9 @@ NativeTileQkRmsNormRopeGraph AnalyzeNativeTileQkRmsNormRope(
+   }
+   const int64_t qHeads = qGate.shape[1] / (2 * headDim);
+   const int64_t kvHeads = key.shape[1] / headDim;
+-  const int64_t expectedElements =
+-      qGate.shape[0] * (2 * qHeads * headDim + kvHeads * headDim);
+-  if (qHeads <= 0 || kvHeads <= 0 || result.shape[0] != expectedElements) {
++  const std::vector<int64_t> expectedResult = {
++      qGate.shape[0], 2 * qHeads + kvHeads, headDim};
++  if (qHeads <= 0 || kvHeads <= 0 || result.shape != expectedResult) {
+     Reject("native QK RMSNorm/RoPE packed output extent is invalid",
+            &function->span_);
+   }
+@@ -6024,7 +6008,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+     metadata.push_back(TensorIrValueMetadata(
+         TensorIrValueRole::Result, 0, graph.result.dtype,
+         graph.result.shape, graph.result.dense_strides,
+-        /*has_explicit_strides=*/false));
++        /*has_explicit_strides=*/true));
+     return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+                           EmitNativeTileQkRmsNormRopeSource(graph),
+                           std::move(metadata), /*input_count=*/6);

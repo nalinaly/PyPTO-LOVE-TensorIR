@@ -1,0 +1,54 @@
+From 7f6c6cd62975560423127a252371b87b1a86893c Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 08:50:37 +0800
+Subject: [PATCH 66/82] Handle scalar gather projections
+
+---
+ .../LayoutPropagationImpl.cpp                 | 20 +++++++++++--------
+ 1 file changed, 12 insertions(+), 8 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index 5f21f29d9465e6a959be97002a16649c4044a66a..6366cfd5311483eba5025471e48fac2ba522af73 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -266,17 +266,21 @@ public:
+             "data layout cannot be projected to one row and one column axis");
+       }
+     }
++    const bool scalarRowProjection =
++        rowDim == iterationRank &&
++        op.getOutput().getType().getDimSize(0) == 1;
+     const bool scalarColumnProjection =
+         columnDim == iterationRank && unitColumnDescriptor &&
+         op.getOutput().getType().getDimSize(1) == 1;
+-    if ((!scalarColumnProjection && columnDim == iterationRank) ||
+-        rowDim == columnDim) {
+-      return op.emitError("data layout is missing an unambiguous column axis");
++    if ((!scalarRowProjection && rowDim == iterationRank) ||
++        (!scalarColumnProjection && columnDim == iterationRank) ||
++        (rowDim != iterationRank && columnDim != iterationRank &&
++         rowDim == columnDim)) {
++      return op.emitError("data layout is missing an unambiguous rank-2 axis");
+     }
+     // A logical one-row gather can be transposed and broadcast into a wider
+     // fused space. Its data projection then retains only the column axis,
+     // while the repeated index is a scalar row selector on every fused axis.
+-    const bool scalarRowProjection = rowDim == iterationRank;
+     if (scalarRowProjection && op.getOutput().getType().getDimSize(0) != 1) {
+       return op.emitError(
+           "data layout may omit the row axis only for a single-row gather");
+@@ -1636,10 +1640,10 @@ LogicalResult verifyLayoutPropLowerable(GraphOp graphOp) {
+       if (failed(validateMatmulOpLowerable(matmulOp))) {
+         return WalkResult::interrupt();
+       }
+-    } else if (auto iotaOp = dyn_cast<IotaOp>(op)) {
+-      if (failed(validateIotaOpLowerable(iotaOp, tileShape))) {
+-        return WalkResult::interrupt();
+-      }
++    } else if (isa<IotaOp>(op)) {
++      // Graph splitting may project an iota into its own lower-rank iteration
++      // space. The graph-level tile is not that operation's real tile; defer
++      // rank validation to IotaOpConversion after the skeleton is built.
+     }
+     return WalkResult::advance();
+   });

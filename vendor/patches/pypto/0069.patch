@@ -1,0 +1,166 @@
+From 519185d009a1f0e39c2c8c684c0368bf6afa6362 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 12:55:52 +0800
+Subject: [PATCH 069/212] codegen: lower broadcast inputs as full-extent
+ stride-0 loads
+
+The layout-propagation load itself expands stride-0 unit extents, so
+row-expand fused ops lower to the plain base op over the input and the
+materialization becomes a bitwise-exact multiply by 1.0. The ABI records
+the full extent; the wrapper passes the expanded view.
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 69 ++++++++++--------------
+ tests/ut/cpp/tensor_ir_codegen_test.cpp  | 12 ++---
+ 2 files changed, 34 insertions(+), 47 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 9e41c2aa802ad84b0a6ad67acc8607b64d49cdc4..6800f96de3b38c6ac17d881313dadea994164749 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -274,6 +274,18 @@ std::string TensorBroadcastStrideText(const StaticTensor& tensor) {
+          ")\"}";
+ }
+ 
++std::string TensorExpandedInputText(const StaticTensor& row,
++                                    const StaticTensor& full) {
++  // A row-broadcast [M,1,...] HIR input enters the TensorIR signature with
++  // the full iteration-space extent and the row's own strides (unit stride
++  // along dim zero, zero elsewhere): the layout-propagation load itself
++  // performs the expansion, so no broadcast op is emitted.
++  std::vector<int64_t> strides(full.shape.size(), 0);
++  if (!row.dense_strides.empty()) strides[0] = row.dense_strides[0];
++  return TensorTypeText(full) + " {nv_tensor_ir.stride = \"(" +
++         JoinIntegers(strides, ',') + ")\"}";
++}
++
+ std::string EmitLegacyStaticAddSource(const StaticTensor& tensor, size_t lhs_index,
+                                       size_t rhs_index) {
+   const std::string type = TensorTypeText(tensor);
+@@ -934,16 +946,14 @@ FusedPointwiseGraph AnalyzeFusedPointwiseV2(const ir::ProgramPtr& program) {
+ 
+ void AppendFusedOperand(std::string& source, const FusedTensorOperand& operand,
+                         size_t instruction_index) {
+-  if (operand.kind == FusedTensorOperandKind::Input) {
++  if (operand.kind == FusedTensorOperandKind::Input ||
++      operand.kind == FusedTensorOperandKind::BroadcastInput) {
++    // Broadcast inputs carry the full extent with zero trailing strides in
++    // the signature, so the layout-propagation load already expanded them.
+     source += "%arg";
+     AppendIndex(source, operand.input_index);
+     return;
+   }
+-  if (operand.kind == FusedTensorOperandKind::BroadcastInput) {
+-    source += "%bcarg";
+-    AppendIndex(source, operand.input_index);
+-    return;
+-  }
+   if (operand.kind == FusedTensorOperandKind::PreviousResult) {
+     source += "%value";
+     AppendIndex(source, operand.input_index);
+@@ -966,7 +976,8 @@ std::string EmitFusedPointwiseSource(const FusedPointwiseGraph& graph) {
+     AppendIndex(source, input_index);
+     source += ": ";
+     if (graph.broadcast_inputs[input_index]) {
+-      source += TensorBroadcastStrideText(graph.input_tensors[input_index]);
++      source += TensorExpandedInputText(graph.input_tensors[input_index],
++                                        graph.tensor);
+     } else {
+       source += type_with_stride;
+     }
+@@ -981,27 +992,6 @@ std::string EmitFusedPointwiseSource(const FusedPointwiseGraph& graph) {
+     source += ")";
+   }
+   source += " {\n";
+-  std::vector<bool> eager_broadcast(graph.input_count, false);
+-  for (const FusedPointwiseInstruction& instruction : graph.instructions) {
+-    if (instruction.tensor_ir_op == "__broadcast__") continue;
+-    for (const FusedTensorOperand& operand : instruction.tensor_operands) {
+-      if (operand.kind == FusedTensorOperandKind::BroadcastInput) {
+-        eager_broadcast[operand.input_index] = true;
+-      }
+-    }
+-  }
+-  for (size_t input_index = 0; input_index < graph.input_count; ++input_index) {
+-    if (!eager_broadcast[input_index]) continue;
+-    source += "    %bcarg";
+-    AppendIndex(source, input_index);
+-    source += " = broadcast %arg";
+-    AppendIndex(source, input_index);
+-    source += " : ";
+-    source += TensorTypeText(graph.input_tensors[input_index]);
+-    source += " -> ";
+-    source += type;
+-    source += "\n";
+-  }
+ 
+   size_t scalar_index = 0;
+   for (size_t instruction_index = 0; instruction_index < graph.instructions.size();
+@@ -1023,20 +1013,19 @@ std::string EmitFusedPointwiseSource(const FusedPointwiseGraph& graph) {
+       source += "\n";
+     }
+     if (instruction.tensor_ir_op == "__broadcast__") {
+-      // Materialize the row-broadcast input as an SSA value. This broadcasts
+-      // the raw %arg (unit trailing extents) directly: the eagerly emitted
+-      // %bcarg expansion is already full-shaped and would be a rejected
+-      // no-op broadcast.
++      // Materialize the (already load-expanded) broadcast input as an SSA
++      // value via a bitwise-exact multiply by 1.0: x*1 preserves -0 and NaN.
++      const std::string constant_index = std::to_string(scalar_index);
++      ++scalar_index;
++      source += "    %constant" + constant_index + " = constant 1.0 : ";
++      source += TensorIrDtype(graph.tensor.dtype);
++      source += "\n    %splat" + constant_index + " = splat %constant" +
++                constant_index + " : " + type + "\n";
+       source += "    %value";
+       AppendIndex(source, instruction_index);
+-      source += " = broadcast %arg";
+-      AppendIndex(source, instruction.tensor_operands[1].input_index);
+-      source += " : ";
+-      source += TensorTypeText(graph.input_tensors[
+-          instruction.tensor_operands[1].input_index]);
+-      source += " -> ";
+-      source += type;
+-      source += "\n";
++      source += " = mul ";
++      AppendFusedOperand(source, instruction.tensor_operands[1], instruction_index);
++      source += ", %splat" + constant_index + " : " + type + "\n";
+       continue;
+     }
+     source += "    %value";
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index 0cf00788517068dd2f30e7e0a8dd7a30c54658b7..b15825673e4903badecbb10bd00b7ea73cefc843 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -1650,18 +1650,17 @@ int TestFusedPointwiseV2RowBroadcast() {
+ 
+   REQUIRE(module.GetKind() == TensorIrModuleKind::FusedPointwiseV2);
+   const std::string source = module.GetCanonicalSource();
+-  REQUIRE(source.find("%arg1: tensor<4x1xf32> {nv_tensor_ir.stride = \"(1,0)\"}") !=
++  REQUIRE(source.find("%arg1: tensor<4x6xf32> {nv_tensor_ir.stride = \"(1,0)\"}") !=
+           std::string::npos);
+-  REQUIRE(source.find("%bcarg1 = broadcast %arg1 : tensor<4x1xf32> -> tensor<4x6xf32>") !=
+-          std::string::npos);
+-  REQUIRE(source.find("%value0 = mul %arg0, %bcarg1 : tensor<4x6xf32>") !=
++  REQUIRE(source.find("%value0 = mul %arg0, %arg1 : tensor<4x6xf32>") !=
+           std::string::npos);
+   const auto& metadata = module.GetValueMetadata();
+   REQUIRE(metadata.size() == 3);
+   REQUIRE(metadata[1].GetShape() == std::vector<int64_t>({4, 1}));
+ 
+   // Materializing the broadcast row then dividing covers the left-broadcast
+-  // shapes norm chains produce after Inductor's algebraic rewrites.
++  // shapes norm chains produce after Inductor's algebraic rewrites; the
++  // materialization is a bitwise-exact multiply by 1.0.
+   {
+     auto expanded = std::make_shared<ir::Var>("expanded", type, TestSpan());
+     auto quotient = std::make_shared<ir::Var>("quotient", type, TestSpan());
+@@ -1676,8 +1675,7 @@ int TestFusedPointwiseV2RowBroadcast() {
+         {ir::ParamDirection::In, ir::ParamDirection::In}, {type},
+         {expand_assignment, div_assignment, div_return}));
+     const std::string materialized_source = materialized.GetCanonicalSource();
+-    REQUIRE(materialized_source.find(
+-                "%value0 = broadcast %arg1 : tensor<4x1xf32> -> tensor<4x6xf32>") !=
++    REQUIRE(materialized_source.find("%value0 = mul %arg1, %splat0 : tensor<4x6xf32>") !=
+             std::string::npos);
+     REQUIRE(materialized_source.find("%value1 = div %value0, %arg0 : tensor<4x6xf32>") !=
+             std::string::npos);

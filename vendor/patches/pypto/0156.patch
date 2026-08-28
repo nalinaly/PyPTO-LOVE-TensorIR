@@ -1,0 +1,295 @@
+From f34c3f57890785e7e02bc78491bd7ca3de519d88 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 07:51:15 +0800
+Subject: [PATCH 156/212] Add GDN projection split emitter
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 254 +++++++++++++++++++++++
+ 1 file changed, 254 insertions(+)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 4a69f49d45fd9ef646306735cff73c24cf096016..3b22fa2a1dce9566e20ba34f1d899da74822385b 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -4509,6 +4509,15 @@ struct NativeTileGdnRecurrentGraph {
+   double scale;
+ };
+ 
++struct NativeTileGdnProjectionGraph {
++  StaticTensor projected_qkvz;
++  StaticTensor projected_ba;
++  StaticTensor mixed_qkv;
++  StaticTensor z;
++  StaticTensor b;
++  StaticTensor a;
++};
++
+ bool IsNativeTileMatmulCandidate(const ir::ProgramPtr& program) {
+   if (!IsNativeTilePointwiseCandidate(program)) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+@@ -4688,6 +4697,139 @@ StructuredMatmulGraph AnalyzeNativeTileMatmul(
+                                /*b_trans=*/true, lhs.shape[1]};
+ }
+ 
++bool IsNativeTileGdnProjectionCandidate(const ir::ProgramPtr& program) {
++  if (!IsNativeTilePointwiseCandidate(program)) return false;
++  const ir::FunctionPtr& function = program->functions_.begin()->second;
++  if (function->params_.size() != 6) return false;
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = top && !top->stmts_.empty()
++                         ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
++                         : nullptr;
++  const auto loop = scope ? ir::As<ir::ForStmt>(scope->body_) : nullptr;
++  const auto body = loop ? ir::As<ir::SeqStmts>(loop->body_) : nullptr;
++  return body && body->stmts_.size() == 9;
++}
++
++NativeTileGdnProjectionGraph AnalyzeNativeTileGdnProjection(
++    const ir::ProgramPtr& program) {
++  const auto& [global, function] = *program->functions_.begin();
++  if (!global || !function || global->name_ != function->name_ ||
++      function->requires_runtime_binding_ ||
++      function->func_type_ != ir::FunctionType::Orchestration ||
++      !function->level_.has_value() || *function->level_ != ir::Level::CHIP ||
++      !function->role_.has_value() ||
++      *function->role_ != ir::Role::Orchestrator || !function->attrs_.empty()) {
++    Reject("native GDN projection must be one canonical CHIP @pl.jit function",
++           function ? &function->span_ : &program->span_);
++  }
++  if (function->params_.size() != 6 ||
++      function->param_directions_.size() != 6 ||
++      function->return_types_.size() != 4 ||
++      function->param_directions_[0] != ir::ParamDirection::In ||
++      function->param_directions_[1] != ir::ParamDirection::In) {
++    Reject("native GDN projection parameter contract is invalid",
++           &function->span_);
++  }
++  for (size_t index = 2; index < 6; ++index) {
++    if (function->param_directions_[index] != ir::ParamDirection::Out) {
++      Reject("native GDN projection outputs must have direction Out",
++             &function->span_);
++    }
++  }
++  const StaticTensor projected_qkvz = ReadStaticTensor(
++      function->params_[0]->GetType(), function->params_[0]->span_,
++      "native GDN projected QKVZ");
++  const StaticTensor projected_ba = ReadStaticTensor(
++      function->params_[1]->GetType(), function->params_[1]->span_,
++      "native GDN projected BA");
++  const StaticTensor mixed_qkv = ReadStaticTensor(
++      function->params_[2]->GetType(), function->params_[2]->span_,
++      "native GDN packed QKV output");
++  const StaticTensor z = ReadStaticTensor(
++      function->params_[3]->GetType(), function->params_[3]->span_,
++      "native GDN z output");
++  const StaticTensor b = ReadStaticTensor(
++      function->params_[4]->GetType(), function->params_[4]->span_,
++      "native GDN b output");
++  const StaticTensor a = ReadStaticTensor(
++      function->params_[5]->GetType(), function->params_[5]->span_,
++      "native GDN a output");
++  if (projected_qkvz.dtype != DataType::BF16 ||
++      projected_ba.dtype != DataType::BF16 ||
++      projected_qkvz.shape.size() != 2 || projected_ba.shape.size() != 2 ||
++      mixed_qkv.dtype != DataType::BF16 || mixed_qkv.shape.size() != 2 ||
++      z.dtype != DataType::BF16 || z.shape.size() != 3 ||
++      b.dtype != DataType::BF16 || b.shape.size() != 2 ||
++      !SameTensor(b, a)) {
++    Reject("native GDN projection tensor types or ranks are invalid",
++           &function->span_);
++  }
++  const int64_t rows = projected_qkvz.shape[0];
++  if (rows <= 0 || mixed_qkv.shape[0] != rows || z.shape[0] != rows ||
++      b.shape[0] != rows || z.shape[1] <= 0 || z.shape[2] <= 0 ||
++      b.shape[1] != z.shape[1] ||
++      z.shape[1] > std::numeric_limits<int64_t>::max() / z.shape[2]) {
++    Reject("native GDN projection shared rows or heads are invalid",
++           &function->span_);
++  }
++  const int64_t z_width = z.shape[1] * z.shape[2];
++  if (mixed_qkv.shape[1] <= z_width ||
++      b.shape[1] > std::numeric_limits<int64_t>::max() / 2 ||
++      projected_qkvz.shape !=
++          std::vector<int64_t>{rows, mixed_qkv.shape[1] + z_width} ||
++      projected_ba.shape != std::vector<int64_t>{rows, 2 * b.shape[1]}) {
++    Reject("native GDN projection packed widths are invalid", &function->span_);
++  }
++  for (size_t index = 0; index < 4; ++index) {
++    const StaticTensor declared = ReadStaticTensor(
++        function->return_types_[index], function->span_,
++        "native GDN projection declared result");
++    const std::array<StaticTensor, 4> results = {mixed_qkv, z, b, a};
++    if (!SameTensor(declared, results[index])) {
++      Reject("native GDN projection return types are invalid", &function->span_);
++    }
++  }
++
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = top && top->stmts_.size() == 2
++                         ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
++                         : nullptr;
++  const auto returned = top && top->stmts_.size() == 2
++                            ? ir::As<ir::ReturnStmt>(top->stmts_[1])
++                            : nullptr;
++  const auto loop = scope ? ir::As<ir::ForStmt>(scope->body_) : nullptr;
++  const auto stop = loop ? ir::As<ir::ConstInt>(loop->stop_) : nullptr;
++  const auto body = loop ? ir::As<ir::SeqStmts>(loop->body_) : nullptr;
++  if (!scope || scope->split_ != ir::SplitMode::None ||
++      !scope->attrs_.empty() || !returned || returned->value_.size() != 4 ||
++      !loop || !stop || stop->value_ != rows || !body ||
++      body->stmts_.size() != 9) {
++    Reject("native GDN projection loop or return is invalid",
++           &function->span_);
++  }
++  constexpr std::array<std::string_view, 5> kExpectedOps = {
++      "tile.load", "tile.load", "tile.load", "tile.load", "tile.reshape"};
++  for (size_t index = 0; index < kExpectedOps.size(); ++index) {
++    const auto assignment = ir::As<ir::AssignStmt>(body->stmts_[index]);
++    const auto call = assignment ? ir::As<ir::Call>(assignment->value_) : nullptr;
++    if (!call || !ir::IsOp(call, std::string(kExpectedOps[index]))) {
++      Reject("native GDN projection operation sequence is invalid",
++             &body->stmts_[index]->span_);
++    }
++  }
++  for (size_t index = 0; index < 4; ++index) {
++    const auto store = ir::As<ir::EvalStmt>(body->stmts_[index + 5]);
++    const auto call = store ? ir::As<ir::Call>(store->expr_) : nullptr;
++    if (!call || !ir::IsOp(call, "tile.store") || call->args_.size() != 3 ||
++        call->args_[2].get() != function->params_[index + 2].get()) {
++      Reject("native GDN projection store targets are invalid",
++             &body->stmts_[index + 5]->span_);
++    }
++  }
++  return NativeTileGdnProjectionGraph{
++      projected_qkvz, projected_ba, mixed_qkv, z, b, a};
++}
++
+ bool IsNativeTileGdnRecurrentCandidate(const ir::ProgramPtr& program) {
+   if (!IsNativeTilePointwiseCandidate(program)) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+@@ -8094,6 +8236,93 @@ std::string EmitNativeTileAttentionSource(
+   return source;
+ }
+ 
++std::string EmitNativeTileGdnProjectionSource(
++    const NativeTileGdnProjectionGraph& graph) {
++  StaticTensor z_flat = graph.z;
++  z_flat.shape = {graph.z.shape[0], graph.z.shape[1] * graph.z.shape[2]};
++  z_flat.dense_strides = MakeDenseStridesForMetadata(z_flat.shape);
++  const std::string qkvz_type = TensorTypeText(graph.projected_qkvz);
++  const std::string ba_type = TensorTypeText(graph.projected_ba);
++  const std::string mixed_type = TensorTypeText(graph.mixed_qkv);
++  const std::string z_flat_type = TensorTypeText(z_flat);
++  const std::string z_type = TensorTypeText(graph.z);
++  const std::string gate_type = TensorTypeText(graph.b);
++  const int64_t rows = graph.projected_qkvz.shape[0];
++  const int64_t mixed_width = graph.mixed_qkv.shape[1];
++  const int64_t z_width = z_flat.shape[1];
++  const int64_t gate_width = graph.b.shape[1];
++
++  std::string source;
++  source.reserve(2048);
++  source += "module {\n  nv_tensor_ir.graph @";
++  source += kFusedPointwiseEntryName;
++  source += "(\n    %arg0: ";
++  source += TensorWithStrideText(graph.projected_qkvz);
++  source += ",\n    %arg1: ";
++  source += TensorWithStrideText(graph.projected_ba);
++  source += "\n  ) -> (";
++  source += TensorWithStrideText(graph.mixed_qkv);
++  source += ", ";
++  source += TensorWithStrideText(graph.z);
++  source += ", ";
++  source += TensorWithStrideText(graph.b);
++  source += ", ";
++  source += TensorWithStrideText(graph.a);
++  source += ") {\n    %mixed = slice %arg0 starts = [0, 0] limits = [";
++  source += std::to_string(rows);
++  source += ", ";
++  source += std::to_string(mixed_width);
++  source += "] strides = [1, 1] : ";
++  source += qkvz_type;
++  source += " -> ";
++  source += mixed_type;
++  source += "\n    %z_flat = slice %arg0 starts = [0, ";
++  source += std::to_string(mixed_width);
++  source += "] limits = [";
++  source += std::to_string(rows);
++  source += ", ";
++  source += std::to_string(mixed_width + z_width);
++  source += "] strides = [1, 1] : ";
++  source += qkvz_type;
++  source += " -> ";
++  source += z_flat_type;
++  source += "\n    %z = reshape %z_flat : ";
++  source += z_flat_type;
++  source += " -> ";
++  source += z_type;
++  source += "\n    %b = slice %arg1 starts = [0, 0] limits = [";
++  source += std::to_string(rows);
++  source += ", ";
++  source += std::to_string(gate_width);
++  source += "] strides = [1, 1] : ";
++  source += ba_type;
++  source += " -> ";
++  source += gate_type;
++  source += "\n    %a = slice %arg1 starts = [0, ";
++  source += std::to_string(gate_width);
++  source += "] limits = [";
++  source += std::to_string(rows);
++  source += ", ";
++  source += std::to_string(2 * gate_width);
++  source += "] strides = [1, 1] : ";
++  source += ba_type;
++  source += " -> ";
++  source += gate_type;
++  source += "\n    results %mixed, %z, %b, %a : ";
++  source += mixed_type;
++  source += ", ";
++  source += z_type;
++  source += ", ";
++  source += gate_type;
++  source += ", ";
++  source += gate_type;
++  source += "\n  }\n}\n";
++  if (source.size() > kMaximumCanonicalSourceBytes) {
++    Reject("canonical TensorIR source exceeds 16 MiB");
++  }
++  return source;
++}
++
+ std::string EmitNativeTileGdnRecurrentSource(
+     const NativeTileGdnRecurrentGraph& graph) {
+   const int64_t state_width = graph.value_heads * graph.value_dim * graph.key_dim;
+@@ -9374,6 +9603,31 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+                           /*input_count=*/2,
+                           /*contraction_extent=*/static_cast<uint64_t>(graph.k));
+   }
++  if (IsNativeTileGdnProjectionCandidate(program)) {
++    const NativeTileGdnProjectionGraph graph =
++        AnalyzeNativeTileGdnProjection(program);
++    std::vector<TensorIrValueMetadata> metadata;
++    metadata.reserve(6);
++    const std::array<StaticTensor, 2> inputs = {
++        graph.projected_qkvz, graph.projected_ba};
++    for (uint32_t index = 0; index < inputs.size(); ++index) {
++      metadata.push_back(TensorIrValueMetadata(
++          TensorIrValueRole::Input, index, inputs[index].dtype,
++          inputs[index].shape, inputs[index].dense_strides,
++          /*has_explicit_strides=*/true));
++    }
++    const std::array<StaticTensor, 4> results = {
++        graph.mixed_qkv, graph.z, graph.b, graph.a};
++    for (uint32_t index = 0; index < results.size(); ++index) {
++      metadata.push_back(TensorIrValueMetadata(
++          TensorIrValueRole::Result, index, results[index].dtype,
++          results[index].shape, results[index].dense_strides,
++          /*has_explicit_strides=*/true));
++    }
++    return TensorIrModule(TensorIrModuleKind::FusedPointwise,
++                          EmitNativeTileGdnProjectionSource(graph),
++                          std::move(metadata), /*input_count=*/2);
++  }
+   if (IsNativeTileGdnRecurrentCandidate(program)) {
+     const NativeTileGdnRecurrentGraph graph =
+         AnalyzeNativeTileGdnRecurrent(program);

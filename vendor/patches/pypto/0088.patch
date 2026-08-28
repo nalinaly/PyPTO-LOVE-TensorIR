@@ -1,0 +1,36 @@
+From 45c107073ebbb335b53624084a15538e69a82a58 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 21:10:17 +0800
+Subject: [PATCH 088/212] build: lock diagnostic TensorIR revision
+
+---
+ cmake/nvidia_backend.cmake                          | 2 +-
+ tests/ut/compiler/test_nvidia_backend_build_info.py | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 51cfb40946d291996b665d03ffe2664ecbdb715f..e1922b4759aa919d2ac4c75c00e2e2d73954056a 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "d540d54760de9ed5e112088d27cc0eded9ccbb14")
++    "f8e9272e14b7176ca10f43419db305cd46e88979")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+diff --git a/tests/ut/compiler/test_nvidia_backend_build_info.py b/tests/ut/compiler/test_nvidia_backend_build_info.py
+index a14cf12ee1edfae8ad71057c0c708f0e9762531f..4ff5b91856d9c993a7a6b2199d8ea23eda5fe429 100644
+--- a/tests/ut/compiler/test_nvidia_backend_build_info.py
++++ b/tests/ut/compiler/test_nvidia_backend_build_info.py
+@@ -30,7 +30,7 @@ def test_nvidia_backend_build_info_is_immutable_and_self_consistent() -> None:
+     assert info.compiler_factory_available
+     assert len(info.pypto_revision) == 40
+     assert set(info.pypto_revision) <= set("0123456789abcdef")
+-    assert info.tensor_ir_revision == "d540d54760de9ed5e112088d27cc0eded9ccbb14"
++    assert info.tensor_ir_revision == "f8e9272e14b7176ca10f43419db305cd46e88979"
+     assert info.cuda_tile_revision == "af2417041cc939b87ef56d92cfdcf61737c5457e"
+     assert info.llvm_revision == "57109befac92811d2253109242ca6fa69c961fb2"
+     assert info.cuda_toolkit_root == "/usr/local/cuda-13.3"

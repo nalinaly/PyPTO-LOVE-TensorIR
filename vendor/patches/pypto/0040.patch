@@ -1,0 +1,1577 @@
+From 02cac3e7ed9af300ed3ba1d96765ebf92c8fbdfc Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 06:41:31 +0800
+Subject: [PATCH 040/212] Add compiler-owned ArtifactCache v1
+
+---
+ CMakeLists.txt                                |   1 +
+ docs/en/dev/backend/01-nvidia-target-info.md  |  46 +-
+ docs/zh/dev/backend/01-nvidia-target-info.md  |  45 +-
+ include/pypto/compiler/artifact_cache.h       |  79 ++
+ python/bindings/modules/compiler.cpp          |  36 +
+ python/pypto/compiler/__init__.py             |   6 +-
+ python/pypto/pypto_core/compiler.pyi          |  24 +-
+ src/compiler/artifact_cache.cpp               | 709 ++++++++++++++++++
+ tests/ut/compiler/test_artifact.py            | 216 +++++-
+ tests/ut/compiler/test_artifact_public_api.py |  45 +-
+ tests/ut/cpp/CMakeLists.txt                   |   1 +
+ tests/ut/cpp/artifact_test.cpp                | 135 ++++
+ 12 files changed, 1324 insertions(+), 19 deletions(-)
+ create mode 100644 include/pypto/compiler/artifact_cache.h
+ create mode 100644 src/compiler/artifact_cache.cpp
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 2b8c4ce7abe1ad4526c90ebe95ee2a3eab03541d..5175b2cf75934f01e09b335e0cd2bfd475ddaed7 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -87,6 +87,7 @@ endif()
+ set(PYPTO_SOURCES
+     # Compiler target contracts
+     src/compiler/artifact.cpp
++    src/compiler/artifact_cache.cpp
+     src/compiler/canonical_msgpack.cpp
+     src/compiler/compile_request.cpp
+     src/compiler/digest.cpp
+diff --git a/docs/en/dev/backend/01-nvidia-target-info.md b/docs/en/dev/backend/01-nvidia-target-info.md
+index 64b756fc84a6ed0ad624046abe1c7e28ef22ba05..57cf026b493feecf1914a91f954400ed45bab4a8 100644
+--- a/docs/en/dev/backend/01-nvidia-target-info.md
++++ b/docs/en/dev/backend/01-nvidia-target-info.md
+@@ -332,4 +332,48 @@ with another structurally valid ABI-compatible Cubin and recompute the hashes.
+ Any cache that crosses a trust boundary must additionally use authenticated
+ storage, verify a trusted externally supplied complete-Artifact digest or
+ signature, or deterministically recompile. That authentication layer is a
+-future cache transaction and is not claimed by Artifact v1.
++future authenticated-cache transaction and is not claimed by Artifact v1.
++
++### ArtifactCache v1
++
++`ArtifactCache` is the only physical compiler-artifact cache. Its v1 API is
++limited to `lookup(request, build_spec)` and atomic
++`publish(artifact, request, build_spec)`. It has no compile callback, eviction,
++deletion, CUDA loader or framework surface. The key is exclusively
++`Artifact.get_cache_key_digest_for(request, build_spec)`; device identity,
++loader compatibility, cache root and model/framework data do not enter it.
++
++The caller supplies an existing absolute canonical non-root directory owned by
++the effective user with exact mode `0700`. Linux opens the whole root path with
++`openat2` no-symlink resolution, rejects writable non-sticky ancestors, and
++creates only this fixed owner-private layout:
++
++```text
++<root>/pypto-nvidia-artifacts/v1/sha256/<first-two-hex>/<64-hex>.artifact
++```
++
++Every component and entry is opened descriptor-relatively without following
++symlinks. A final entry must be one owner-owned regular file, mode `0400`, link
++count one and size 1 through 68 MiB. The reader bounds before allocation, uses
++exact positioned reads, rechecks metadata, performs full canonical Artifact
++deserialization against the expected request/build spec, and compares the full
++cache-key projection with the digest-derived filename. Only `ENOENT` is a
++cache miss; corruption, permission, type, provenance or canonical failures are
++errors and ordinary lookup never mutates the cache.
++
++Publication first round-trips the candidate against the exact request/spec. It
++writes a random same-shard exclusive temporary file, syncs and reads back the
++complete bytes, changes it to mode `0400`, syncs again, then publishes with
++`renameat2(RENAME_NOREPLACE)` and syncs the shard directory. A concurrent
++winner is accepted only when its fully revalidated canonical bytes are exactly
++identical; a different or corrupt winner is a fatal conflict and is never
++replaced. A failed writer removes only its own temporary name. Broad
++scavenging, quarantine and self-healing are not v1 behavior.
++
++The cache handle is bound to its creator process and rejected after `fork`;
++each child constructs its own handle while all coordination remains in atomic
++filesystem primitives. V1 has no cache-wide quota or eviction: `ENOSPC` fails
++publication, so capacity management is an explicit availability task rather
++than a correctness claim. The cache contains no CUDA handle, device query,
++module, stream, workspace, online tuning or framework state. It remains a
++trusted-local cache, not authenticated storage.
+diff --git a/docs/zh/dev/backend/01-nvidia-target-info.md b/docs/zh/dev/backend/01-nvidia-target-info.md
+index 3aa67dcc6ad04264fd732d301db2b158eefaf369..128dae7649d864e85607054fc20a6f6f8df7e493 100644
+--- a/docs/zh/dev/backend/01-nvidia-target-info.md
++++ b/docs/zh/dev/backend/01-nvidia-target-info.md
+@@ -291,5 +291,46 @@ self-contained payload 内的声明；它们提供 deterministic identity 与 co
+ 不提供 cryptographic origin authentication。能控制 cache bytes 的攻击者可以换入另一份
+ structure/ABI 均有效的 Cubin，再重新计算 hash。任何跨 trust boundary 的 cache 都必须额外
+ 使用 authenticated storage、核对外部可信的完整 Artifact digest/signature，或执行
+-deterministic recompilation。该 authentication layer 属于后续 cache transaction，
+-不在 Artifact v1 的能力声明内。
++deterministic recompilation。该 authentication layer 属于后续 authenticated-cache
++transaction，不在 Artifact v1 的能力声明内。
++
++### ArtifactCache v1
++
++`ArtifactCache` 是唯一的物理 compiler-artifact cache。v1 API 仅包含
++`lookup(request, build_spec)` 与 atomic
++`publish(artifact, request, build_spec)`；没有 compile callback、eviction、
++delete、CUDA loader 或 framework surface。key 只使用
++`Artifact.get_cache_key_digest_for(request, build_spec)`；device identity、
++loader compatibility、cache root 与 model/framework data 都不进入 key。
++
++调用方提供已经存在的 absolute canonical non-root directory；它必须属于 effective
++user 且 mode 精确为 `0700`。Linux 使用无 symlink resolution 的 `openat2` 打开完整
++root path，拒绝 writable 且非 sticky 的 ancestor，并且只创建以下固定
++owner-private layout：
++
++```text
++<root>/pypto-nvidia-artifacts/v1/sha256/<first-two-hex>/<64-hex>.artifact
++```
++
++所有 component 与 entry 都通过 descriptor-relative 且不 follow symlink 的方式打开。
++final entry 必须是 owner-owned regular file、mode `0400`、link count 为一，大小位于
++1 到 68 MiB。reader 在 allocation 前做 bound，使用精确 positioned read，随后再次
++检查 metadata，按 expected request/build spec 完整执行 canonical Artifact
++deserialization，并把完整 cache-key projection 与 digest-derived filename 对比。只有
++`ENOENT` 表示 cache miss；corruption、permission、type、provenance 或 canonical
++failure 都是 error，普通 lookup 永不修改 cache。
++
++publication 先按精确 request/spec round-trip candidate。它在同一 shard 写入随机且
++exclusive 的 temporary file，sync 并 read back 完整 bytes，再改为 mode `0400` 并
++再次 sync，之后使用 `renameat2(RENAME_NOREPLACE)` publish，最后 sync shard
++directory。concurrent winner 只有在完整 revalidation 后 canonical bytes 逐 byte
++一致时才会被接受；不同或 corrupt winner 是 fatal conflict，绝不 overwrite。失败
++writer 只删除自己的 temporary name。broad scavenging、quarantine 与 self-healing
++都不属于 v1。
++
++cache handle 绑定 creator process，fork 后会被拒绝；每个 child 都要新建自己的
++handle，跨进程协调只依赖 atomic filesystem primitive。v1 没有 cache-wide quota 或
++eviction；`ENOSPC` 会使 publication 失败，因此 capacity management 是显式的
++availability 后续任务，而不是 correctness claim。cache 不含 CUDA handle、device
++query、module、stream、workspace、online tuning 或 framework state，并且仍然只适用
++于 trusted-local storage，不是 authenticated storage。
+diff --git a/include/pypto/compiler/artifact_cache.h b/include/pypto/compiler/artifact_cache.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..9f42a1476ac5983c4ab165ce8c523a439dd6ea42
+--- /dev/null
++++ b/include/pypto/compiler/artifact_cache.h
+@@ -0,0 +1,79 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#ifndef PYPTO_COMPILER_ARTIFACT_CACHE_H_
++#define PYPTO_COMPILER_ARTIFACT_CACHE_H_
++
++#include <cstdint>
++#include <memory>
++#include <optional>
++#include <string>
++#include <string_view>
++
++#include "pypto/compiler/artifact.h"
++
++namespace pypto::compiler {
++
++enum class ArtifactCachePublishResult : uint8_t {
++  Published = 0,
++  AlreadyPresent = 1,
++};
++
++/**
++ * Compiler-owned persistent cache for immutable Artifact v1 payloads.
++ *
++ * The cache is runtime-free: it owns no CUDA device, context, module, function,
++ * stream, event or workspace state. Its root must already exist as an absolute,
++ * canonical, owner-only directory. Entries are immutable canonical Artifact
++ * bytes and are published atomically without replacing an existing key.
++ */
++class ArtifactCache {
++ public:
++  static constexpr std::string_view kContract = "pypto.nvidia.artifact_cache.v1";
++  static constexpr std::string_view kNamespaceDirectory = "pypto-nvidia-artifacts";
++  static constexpr std::string_view kSchemaDirectory = "v1";
++  static constexpr std::string_view kHashDirectory = "sha256";
++  static constexpr std::string_view kEntrySuffix = ".artifact";
++  static constexpr uint32_t kMaximumRootPathBytes = 4096;
++
++  explicit ArtifactCache(std::string root_directory);
++  ~ArtifactCache();
++
++  ArtifactCache(const ArtifactCache&) = delete;
++  ArtifactCache& operator=(const ArtifactCache&) = delete;
++  ArtifactCache(ArtifactCache&&) = delete;
++  ArtifactCache& operator=(ArtifactCache&&) = delete;
++
++  [[nodiscard]] const std::string& GetRootDirectory() const noexcept;
++
++  /** Return a fully revalidated Artifact, or nullopt on an exact cache miss. */
++  [[nodiscard]] std::optional<Artifact> Lookup(
++      const CompileRequest& request, const KernelBuildSpec& build_spec) const;
++
++  /**
++   * Atomically publish an Artifact without replacement.
++   *
++   * Returns Published when this call creates the entry and AlreadyPresent when
++   * an identical, already-valid entry exists. A corrupt or different existing
++   * entry is a fail-closed conflict and is never removed or overwritten.
++   */
++  [[nodiscard]] ArtifactCachePublishResult Publish(
++      const Artifact& artifact, const CompileRequest& request,
++      const KernelBuildSpec& build_spec) const;
++
++ private:
++  struct Impl;
++  std::unique_ptr<Impl> impl_;
++};
++
++}  // namespace pypto::compiler
++
++#endif  // PYPTO_COMPILER_ARTIFACT_CACHE_H_
+diff --git a/python/bindings/modules/compiler.cpp b/python/bindings/modules/compiler.cpp
+index 6c9e2d2dcd57553695ea1e3f55ef92f3fd71b7db..ccea664d51e9ffb4c880b203ec619bf3082f315b 100644
+--- a/python/bindings/modules/compiler.cpp
++++ b/python/bindings/modules/compiler.cpp
+@@ -20,6 +20,7 @@
+ 
+ #include "../module.h"
+ #include "pypto/compiler/artifact.h"
++#include "pypto/compiler/artifact_cache.h"
+ #include "pypto/compiler/compile_request.h"
+ #include "pypto/compiler/kernel_build_spec.h"
+ #include "pypto/compiler/nvidia_backend_build_info.h"
+@@ -652,6 +653,41 @@ void BindCompiler(nb::module_& m) {
+       })
+       .def_prop_ro("device_code_sha256", &compiler::Artifact::GetDeviceCodeSha256);
+ 
++  nb::enum_<compiler::ArtifactCachePublishResult>(
++      compiler_mod, "ArtifactCachePublishResult",
++      "Result of an atomic no-replace ArtifactCache publication")
++      .value("Published", compiler::ArtifactCachePublishResult::Published)
++      .value("AlreadyPresent",
++             compiler::ArtifactCachePublishResult::AlreadyPresent);
++
++  nb::class_<compiler::ArtifactCache>(
++      compiler_mod, "ArtifactCache",
++      "Compiler-owned persistent cache for immutable Artifact v1 payloads")
++      .def(nb::init<std::string>(), nb::arg("root_directory"))
++      .def_prop_ro("root_directory",
++                   &compiler::ArtifactCache::GetRootDirectory)
++      .def(
++          "lookup",
++          [](const compiler::ArtifactCache& cache,
++             const compiler::CompileRequest& request,
++             const compiler::KernelBuildSpec& build_spec) {
++            nb::gil_scoped_release release;
++            return cache.Lookup(request, build_spec);
++          },
++          nb::arg("request"), nb::arg("build_spec"),
++          "Return a revalidated Artifact or None on an exact cache miss")
++      .def(
++          "publish",
++          [](const compiler::ArtifactCache& cache,
++             const compiler::Artifact& artifact,
++             const compiler::CompileRequest& request,
++             const compiler::KernelBuildSpec& build_spec) {
++            nb::gil_scoped_release release;
++            return cache.Publish(artifact, request, build_spec);
++          },
++          nb::arg("artifact"), nb::arg("request"), nb::arg("build_spec"),
++          "Atomically publish without replacement or validate an identical winner");
++
+   compiler_mod.def("is_supported_nvidia_compute_capability",
+                    &compiler::IsSupportedNvidiaComputeCapability, nb::arg("compute_capability"));
+ }
+diff --git a/python/pypto/compiler/__init__.py b/python/pypto/compiler/__init__.py
+index 9c1bb7066640c0adcba9c1949cd2bb9b02983c8c..31d227ed3cfa09c9a1126ff05a2fcd1f98e9bb4e 100644
+--- a/python/pypto/compiler/__init__.py
++++ b/python/pypto/compiler/__init__.py
+@@ -7,7 +7,7 @@
+ # See LICENSE in the root of the software repository for the full text of the License.
+ # -----------------------------------------------------------------------------------------------------------
+ 
+-"""Immutable compiler target, request, per-region build, and Artifact contracts."""
++"""Immutable compiler requests, Artifacts, and the compiler-owned Artifact cache."""
+ 
+ from pypto.pypto_core.compiler import (
+     Artifact,
+@@ -15,6 +15,8 @@ from pypto.pypto_core.compiler import (
+     ArtifactArgumentLayout,
+     ArtifactArgumentPackingPolicy,
+     ArtifactBytecodeVersion,
++    ArtifactCache,
++    ArtifactCachePublishResult,
+     ArtifactClusterSchedulingPolicy,
+     ArtifactGridAbi,
+     ArtifactGridPolicy,
+@@ -54,6 +56,8 @@ __all__ = [
+     "ArtifactArgumentLayout",
+     "ArtifactArgumentPackingPolicy",
+     "ArtifactBytecodeVersion",
++    "ArtifactCache",
++    "ArtifactCachePublishResult",
+     "ArtifactClusterSchedulingPolicy",
+     "ArtifactGridAbi",
+     "ArtifactGridPolicy",
+diff --git a/python/pypto/pypto_core/compiler.pyi b/python/pypto/pypto_core/compiler.pyi
+index 6e68e01d7425a59c85792f2720087fbca849c0ab..69fe5ba7c63c0aef7351fb80ed291899c9afe2b5 100644
+--- a/python/pypto/pypto_core/compiler.pyi
++++ b/python/pypto/pypto_core/compiler.pyi
+@@ -7,7 +7,7 @@
+ # See LICENSE in the root of the software repository for the full text of the License.
+ # -----------------------------------------------------------------------------------------------------------
+ 
+-"""Type stubs for immutable compiler target, build, and Artifact contracts."""
++"""Type stubs for immutable compiler requests, Artifacts, and ArtifactCache."""
+ 
+ from enum import Enum
+ 
+@@ -746,4 +746,26 @@ class Artifact:
+     @property
+     def device_code_sha256(self) -> str: ...
+ 
++class ArtifactCachePublishResult(Enum):
++    Published = ...
++    AlreadyPresent = ...
++
++class ArtifactCache:
++    """Compiler-owned persistent cache for immutable Artifact v1 payloads."""
++
++    def __init__(self, root_directory: str) -> None: ...
++    @property
++    def root_directory(self) -> str: ...
++    def lookup(
++        self,
++        request: CompileRequest,
++        build_spec: KernelBuildSpec,
++    ) -> Artifact | None: ...
++    def publish(
++        self,
++        artifact: Artifact,
++        request: CompileRequest,
++        build_spec: KernelBuildSpec,
++    ) -> ArtifactCachePublishResult: ...
++
+ def is_supported_nvidia_compute_capability(compute_capability: int) -> bool: ...
+diff --git a/src/compiler/artifact_cache.cpp b/src/compiler/artifact_cache.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..7b0eacad4ab1ce56916bd527a43364b984e4b1f8
+--- /dev/null
++++ b/src/compiler/artifact_cache.cpp
+@@ -0,0 +1,709 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#include "pypto/compiler/artifact_cache.h"
++
++#include <algorithm>
++#include <array>
++#include <cerrno>
++#include <cstddef>
++#include <filesystem>
++#include <string>
++#include <system_error>
++#include <utility>
++#include <vector>
++
++#if defined(__linux__)
++#include <fcntl.h>
++#include <linux/fs.h>
++#include <linux/openat2.h>
++#include <sys/random.h>
++#include <sys/stat.h>
++#include <sys/syscall.h>
++#include <unistd.h>
++#endif
++
++#include "pypto/core/error.h"
++
++namespace pypto::compiler {
++namespace {
++
++constexpr unsigned int kRequiredDirectoryMode = 0700;
++constexpr unsigned int kRequiredEntryMode = 0400;
++constexpr unsigned int kMaximumTemporaryNameAttempts = 32;
++
++[[noreturn]] void ThrowSystemError(const std::string& action, int error_number) {
++  throw RuntimeError(action + ": " +
++                     std::error_code(error_number, std::generic_category())
++                         .message());
++}
++
++void RequireCanonicalRootPath(const std::string& root_directory) {
++  if (root_directory.empty() ||
++      root_directory.size() > ArtifactCache::kMaximumRootPathBytes ||
++      root_directory.find('\0') != std::string::npos) {
++    throw ValueError("ArtifactCache root must contain 1 to 4096 non-NUL bytes");
++  }
++  const std::filesystem::path path(root_directory);
++  if (!path.is_absolute() || root_directory == "/" ||
++      root_directory.back() == '/' ||
++      path.lexically_normal().string() != root_directory) {
++    throw ValueError(
++        "ArtifactCache root must be an absolute canonical non-root path without a trailing separator");
++  }
++}
++
++bool IsLowercaseSha256(const std::string& digest) {
++  if (digest.size() != 64) return false;
++  for (char value : digest) {
++    if (!((value >= '0' && value <= '9') || (value >= 'a' && value <= 'f'))) {
++      return false;
++    }
++  }
++  return true;
++}
++
++struct EntryAddress {
++  std::string digest;
++  std::string shard;
++  std::string name;
++};
++
++EntryAddress ResolveEntryAddress(const CompileRequest& request,
++                                 const KernelBuildSpec& build_spec) {
++  const std::string digest = Artifact::GetCacheKeyDigest(request, build_spec);
++  if (!IsLowercaseSha256(digest)) {
++    throw InternalError("Artifact cache-key digest is not canonical SHA-256");
++  }
++  return {digest, digest.substr(0, 2),
++          digest + std::string(ArtifactCache::kEntrySuffix)};
++}
++
++#if defined(__linux__)
++
++int OpenAndValidateRootComponents(const std::string& root_directory) {
++  int current = ::open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
++  if (current < 0) ThrowSystemError("failed to open filesystem root", errno);
++  size_t begin = 1;
++  while (begin < root_directory.size()) {
++    const size_t separator = root_directory.find('/', begin);
++    const bool final_component = separator == std::string::npos;
++    const std::string component = root_directory.substr(
++        begin, final_component ? std::string::npos : separator - begin);
++    int next = ::openat(current, component.c_str(),
++                        O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
++    const int saved_error = errno;
++    (void)::close(current);
++    if (next < 0) {
++      ThrowSystemError("failed to open ArtifactCache root path component",
++                       saved_error);
++    }
++    struct stat status {};
++    if (::fstat(next, &status) != 0) {
++      const int stat_error = errno;
++      (void)::close(next);
++      ThrowSystemError("failed to inspect ArtifactCache root path component",
++                       stat_error);
++    }
++    if (!S_ISDIR(status.st_mode)) {
++      (void)::close(next);
++      throw ValueError("ArtifactCache root path contains a non-directory component");
++    }
++    if (!final_component && (status.st_mode & 0022) != 0 &&
++        (status.st_mode & S_ISVTX) == 0) {
++      (void)::close(next);
++      throw ValueError(
++          "ArtifactCache root ancestor is group/world-writable without sticky protection");
++    }
++    current = next;
++    if (final_component) return current;
++    begin = separator + 1;
++  }
++  (void)::close(current);
++  throw InternalError("ArtifactCache canonical path contained no components");
++}
++
++int OpenRootNoSymlinks(const std::string& root_directory) {
++#if defined(SYS_openat2)
++  int slash = ::open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
++  if (slash < 0) ThrowSystemError("failed to open filesystem root", errno);
++  struct open_how how {};
++  how.flags = O_RDONLY | O_DIRECTORY | O_CLOEXEC;
++  how.resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS |
++                RESOLVE_NO_MAGICLINKS;
++  const std::string relative = root_directory.substr(1);
++  int descriptor = static_cast<int>(
++      ::syscall(SYS_openat2, slash, relative.c_str(), &how, sizeof(how)));
++  const int saved_error = errno;
++  (void)::close(slash);
++  if (descriptor < 0) {
++    ThrowSystemError("failed to open canonical ArtifactCache root", saved_error);
++  }
++  int component_descriptor = -1;
++  try {
++    component_descriptor = OpenAndValidateRootComponents(root_directory);
++    struct stat direct_status {};
++    struct stat component_status {};
++    if (::fstat(descriptor, &direct_status) != 0 ||
++        ::fstat(component_descriptor, &component_status) != 0) {
++      ThrowSystemError("failed to compare ArtifactCache root identity", errno);
++    }
++    if (direct_status.st_dev != component_status.st_dev ||
++        direct_status.st_ino != component_status.st_ino) {
++      throw RuntimeError("ArtifactCache root changed while it was opened");
++    }
++    (void)::close(component_descriptor);
++  } catch (...) {
++    if (component_descriptor >= 0) (void)::close(component_descriptor);
++    (void)::close(descriptor);
++    throw;
++  }
++  return descriptor;
++#else
++  (void)root_directory;
++  throw NotImplementedError("ArtifactCache requires Linux openat2");
++#endif
++}
++
++void ValidatePrivateDirectoryDescriptor(int descriptor,
++                                        const std::string& description) {
++  struct stat status {};
++  if (::fstat(descriptor, &status) != 0) {
++    ThrowSystemError("failed to inspect " + description, errno);
++  }
++  if (!S_ISDIR(status.st_mode) || status.st_uid != ::geteuid() ||
++      (status.st_mode & 07777) != kRequiredDirectoryMode) {
++    throw ValueError(description +
++                     " must be an owner-owned directory with exact mode 0700");
++  }
++}
++
++void ValidateCacheProcess(pid_t owner_process) {
++  if (::getpid() != owner_process) {
++    throw RuntimeError(
++        "ArtifactCache handle cannot be reused after fork; construct a child-local cache handle");
++  }
++}
++
++int OpenPrivateDirectoryAt(int parent_descriptor, const std::string& name,
++                           bool* missing) {
++  *missing = false;
++  int descriptor =
++      ::openat(parent_descriptor, name.c_str(),
++               O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
++  if (descriptor < 0) {
++    if (errno == ENOENT) {
++      *missing = true;
++      return -1;
++    }
++    ThrowSystemError("failed to open ArtifactCache directory component", errno);
++  }
++  try {
++    ValidatePrivateDirectoryDescriptor(
++        descriptor, "ArtifactCache directory component");
++  } catch (...) {
++    (void)::close(descriptor);
++    throw;
++  }
++  return descriptor;
++}
++
++class ScopedDescriptor {
++ public:
++  explicit ScopedDescriptor(int descriptor = -1) : descriptor_(descriptor) {}
++  ~ScopedDescriptor() {
++    if (descriptor_ >= 0) (void)::close(descriptor_);
++  }
++
++  ScopedDescriptor(const ScopedDescriptor&) = delete;
++  ScopedDescriptor& operator=(const ScopedDescriptor&) = delete;
++  ScopedDescriptor(ScopedDescriptor&& other) noexcept
++      : descriptor_(other.descriptor_) {
++    other.descriptor_ = -1;
++  }
++
++  [[nodiscard]] int Get() const noexcept { return descriptor_; }
++
++ private:
++  int descriptor_;
++};
++
++int EnsurePrivateDirectoryAt(int parent_descriptor, const std::string& name) {
++  bool created = false;
++  if (::mkdirat(parent_descriptor, name.c_str(), kRequiredDirectoryMode) == 0) {
++    created = true;
++  } else if (errno != EEXIST) {
++    ThrowSystemError("failed to create ArtifactCache directory component", errno);
++  }
++  struct stat created_identity {};
++  if (created) {
++    int path_descriptor =
++        ::openat(parent_descriptor, name.c_str(),
++                 O_PATH | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
++    if (path_descriptor < 0) {
++      ThrowSystemError("failed to open new ArtifactCache directory component",
++                       errno);
++    }
++    ScopedDescriptor path_closer(path_descriptor);
++#if defined(SYS_fchmodat2)
++    if (::syscall(SYS_fchmodat2, path_descriptor, "", kRequiredDirectoryMode,
++                  AT_EMPTY_PATH) != 0) {
++      ThrowSystemError(
++          "failed to set new ArtifactCache directory permissions", errno);
++    }
++#else
++    throw NotImplementedError(
++        "ArtifactCache directory creation requires Linux fchmodat2");
++#endif
++    if (::fstat(path_descriptor, &created_identity) != 0) {
++      ThrowSystemError("failed to inspect new ArtifactCache directory", errno);
++    }
++  }
++  bool missing = false;
++  int descriptor = OpenPrivateDirectoryAt(parent_descriptor, name, &missing);
++  if (missing) {
++    throw RuntimeError(
++        "ArtifactCache directory component disappeared during creation");
++  }
++  if (created) {
++    struct stat opened_identity {};
++    if (::fstat(descriptor, &opened_identity) != 0) {
++      const int saved_error = errno;
++      (void)::close(descriptor);
++      ThrowSystemError("failed to inspect opened ArtifactCache directory",
++                       saved_error);
++    }
++    if (created_identity.st_dev != opened_identity.st_dev ||
++        created_identity.st_ino != opened_identity.st_ino) {
++      (void)::close(descriptor);
++      throw RuntimeError(
++          "ArtifactCache directory changed while permissions were finalized");
++    }
++    if (::fchmod(descriptor, kRequiredDirectoryMode) != 0) {
++      const int saved_error = errno;
++      (void)::close(descriptor);
++      ThrowSystemError("failed to confirm ArtifactCache directory permissions",
++                       saved_error);
++    }
++    if (::fsync(descriptor) != 0) {
++      const int saved_error = errno;
++      (void)::close(descriptor);
++      ThrowSystemError("failed to sync new ArtifactCache directory",
++                       saved_error);
++    }
++    if (::fsync(parent_descriptor) != 0) {
++      const int saved_error = errno;
++      (void)::close(descriptor);
++      ThrowSystemError("failed to sync ArtifactCache parent directory",
++                       saved_error);
++    }
++  }
++  return descriptor;
++}
++
++std::array<uint8_t, 16> RandomBytes() {
++  std::array<uint8_t, 16> bytes{};
++  size_t offset = 0;
++  while (offset < bytes.size()) {
++    const ssize_t result =
++        ::getrandom(bytes.data() + offset, bytes.size() - offset, 0);
++    if (result < 0) {
++      if (errno == EINTR) continue;
++      ThrowSystemError("failed to obtain ArtifactCache temporary-name entropy",
++                       errno);
++    }
++    if (result == 0) {
++      throw RuntimeError(
++          "failed to obtain ArtifactCache temporary-name entropy: zero-byte result");
++    }
++    offset += static_cast<size_t>(result);
++  }
++  return bytes;
++}
++
++std::string HexBytes(const std::array<uint8_t, 16>& bytes) {
++  constexpr char kHex[] = "0123456789abcdef";
++  std::string result(bytes.size() * 2, '0');
++  for (size_t index = 0; index < bytes.size(); ++index) {
++    result[index * 2] = kHex[bytes[index] >> 4U];
++    result[index * 2 + 1] = kHex[bytes[index] & 0x0fU];
++  }
++  return result;
++}
++
++class PendingEntry {
++ public:
++  PendingEntry(int root_descriptor, std::string name, int descriptor)
++      : root_descriptor_(root_descriptor),
++        name_(std::move(name)),
++        descriptor_(descriptor) {}
++
++  ~PendingEntry() {
++    if (descriptor_ >= 0) (void)::close(descriptor_);
++    if (!name_.empty()) {
++      (void)::unlinkat(root_descriptor_, name_.c_str(), 0);
++    }
++  }
++
++  PendingEntry(const PendingEntry&) = delete;
++  PendingEntry& operator=(const PendingEntry&) = delete;
++
++  [[nodiscard]] int GetDescriptor() const noexcept { return descriptor_; }
++  [[nodiscard]] const std::string& GetName() const noexcept { return name_; }
++  void Published() noexcept { name_.clear(); }
++
++ private:
++  int root_descriptor_;
++  std::string name_;
++  int descriptor_;
++};
++
++std::unique_ptr<PendingEntry> CreatePendingEntry(int root_descriptor) {
++  for (unsigned int attempt = 0; attempt < kMaximumTemporaryNameAttempts;
++       ++attempt) {
++    const std::string name = ".artifact-cache-v1-tmp-" +
++                             HexBytes(RandomBytes());
++    int descriptor =
++        ::openat(root_descriptor, name.c_str(),
++                 O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
++                 0600);
++    if (descriptor >= 0) {
++      return std::make_unique<PendingEntry>(root_descriptor, name,
++                                            descriptor);
++    }
++    if (errno != EEXIST) {
++      ThrowSystemError("failed to create ArtifactCache temporary entry", errno);
++    }
++  }
++  throw RuntimeError(
++      "failed to create ArtifactCache temporary entry after bounded retries");
++}
++
++void WriteComplete(int descriptor, const std::vector<uint8_t>& bytes) {
++  size_t offset = 0;
++  while (offset < bytes.size()) {
++    const ssize_t result =
++        ::write(descriptor, bytes.data() + offset, bytes.size() - offset);
++    if (result < 0) {
++      if (errno == EINTR) continue;
++      ThrowSystemError("failed to write ArtifactCache entry", errno);
++    }
++    if (result == 0) {
++      throw RuntimeError("failed to write ArtifactCache entry: zero-byte write");
++    }
++    offset += static_cast<size_t>(result);
++  }
++}
++
++void VerifyStagedBytes(int descriptor, const std::vector<uint8_t>& expected) {
++  struct stat status {};
++  if (::fstat(descriptor, &status) != 0) {
++    ThrowSystemError("failed to inspect staged ArtifactCache entry", errno);
++  }
++  if (!S_ISREG(status.st_mode) || status.st_size < 0 ||
++      static_cast<uint64_t>(status.st_size) != expected.size()) {
++    throw RuntimeError("staged ArtifactCache entry size differs after sync");
++  }
++  std::array<uint8_t, 64 * 1024> buffer{};
++  size_t offset = 0;
++  while (offset < expected.size()) {
++    const size_t count = std::min(buffer.size(), expected.size() - offset);
++    const ssize_t result =
++        ::pread(descriptor, buffer.data(), count, static_cast<off_t>(offset));
++    if (result < 0) {
++      if (errno == EINTR) continue;
++      ThrowSystemError("failed to read back staged ArtifactCache entry", errno);
++    }
++    if (result == 0) {
++      throw RuntimeError("staged ArtifactCache entry was truncated during readback");
++    }
++    if (!std::equal(buffer.begin(), buffer.begin() + result,
++                    expected.begin() + static_cast<ptrdiff_t>(offset))) {
++      throw RuntimeError("staged ArtifactCache entry differs during readback");
++    }
++    offset += static_cast<size_t>(result);
++  }
++  uint8_t extra = 0;
++  while (true) {
++    const ssize_t result = ::pread(descriptor, &extra, 1,
++                                   static_cast<off_t>(expected.size()));
++    if (result < 0 && errno == EINTR) continue;
++    if (result < 0) {
++      ThrowSystemError("failed to finish staged ArtifactCache readback", errno);
++    }
++    if (result != 0) {
++      throw RuntimeError("staged ArtifactCache entry grew during readback");
++    }
++    break;
++  }
++}
++
++void ValidateImmutableStagedEntry(int descriptor, size_t expected_size) {
++  struct stat status {};
++  if (::fstat(descriptor, &status) != 0) {
++    ThrowSystemError("failed to inspect immutable staged ArtifactCache entry",
++                     errno);
++  }
++  if (!S_ISREG(status.st_mode) || status.st_uid != ::geteuid() ||
++      status.st_nlink != 1 ||
++      (status.st_mode & 07777) != kRequiredEntryMode || status.st_size < 0 ||
++      static_cast<uint64_t>(status.st_size) != expected_size) {
++    throw RuntimeError(
++        "immutable staged ArtifactCache entry metadata is inconsistent");
++  }
++}
++
++std::vector<uint8_t> ReadCompleteEntry(int root_descriptor,
++                                       const std::string& name,
++                                       bool* missing) {
++  *missing = false;
++  int descriptor = ::openat(root_descriptor, name.c_str(),
++                            O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
++  if (descriptor < 0) {
++    if (errno == ENOENT) {
++      *missing = true;
++      return {};
++    }
++    ThrowSystemError("failed to open ArtifactCache entry", errno);
++  }
++  ScopedDescriptor closer(descriptor);
++
++  struct stat before {};
++  if (::fstat(descriptor, &before) != 0) {
++    ThrowSystemError("failed to inspect ArtifactCache entry", errno);
++  }
++  if (!S_ISREG(before.st_mode) || before.st_uid != ::geteuid() ||
++      before.st_nlink != 1 ||
++      (before.st_mode & 07777) != kRequiredEntryMode || before.st_size <= 0 ||
++      static_cast<uint64_t>(before.st_size) >
++          Artifact::kMaximumSerializedArtifactBytes) {
++    throw RuntimeError(
++        "ArtifactCache entry is not an immutable owner-only bounded regular file");
++  }
++
++  std::vector<uint8_t> bytes(static_cast<size_t>(before.st_size));
++  size_t offset = 0;
++  while (offset < bytes.size()) {
++    const ssize_t result =
++        ::pread(descriptor, bytes.data() + offset, bytes.size() - offset,
++                static_cast<off_t>(offset));
++    if (result < 0) {
++      if (errno == EINTR) continue;
++      ThrowSystemError("failed to read ArtifactCache entry", errno);
++    }
++    if (result == 0) {
++      throw RuntimeError("ArtifactCache entry was truncated while reading");
++    }
++    offset += static_cast<size_t>(result);
++  }
++  uint8_t extra = 0;
++  while (true) {
++    const ssize_t result =
++        ::pread(descriptor, &extra, 1, static_cast<off_t>(bytes.size()));
++    if (result < 0 && errno == EINTR) continue;
++    if (result < 0) ThrowSystemError("failed to finish reading ArtifactCache entry", errno);
++    if (result != 0) {
++      throw RuntimeError("ArtifactCache entry grew while reading");
++    }
++    break;
++  }
++  struct stat after {};
++  if (::fstat(descriptor, &after) != 0) {
++    ThrowSystemError("failed to re-inspect ArtifactCache entry", errno);
++  }
++  if (before.st_dev != after.st_dev || before.st_ino != after.st_ino ||
++      before.st_size != after.st_size || before.st_mode != after.st_mode ||
++      before.st_uid != after.st_uid || before.st_nlink != after.st_nlink) {
++    throw RuntimeError("ArtifactCache entry metadata changed while reading");
++  }
++  return bytes;
++}
++
++#endif
++
++}  // namespace
++
++struct ArtifactCache::Impl {
++  std::string root_directory;
++#if defined(__linux__)
++  int root_descriptor = -1;
++  int entries_descriptor = -1;
++  pid_t owner_process = 0;
++
++  ~Impl() {
++    if (entries_descriptor >= 0) (void)::close(entries_descriptor);
++    if (root_descriptor >= 0) (void)::close(root_descriptor);
++  }
++#endif
++};
++
++ArtifactCache::ArtifactCache(std::string root_directory)
++    : impl_(std::make_unique<Impl>()) {
++  RequireCanonicalRootPath(root_directory);
++#if defined(__linux__)
++  impl_->root_directory = std::move(root_directory);
++  impl_->root_descriptor = OpenRootNoSymlinks(impl_->root_directory);
++  impl_->owner_process = ::getpid();
++  try {
++    ValidateCacheProcess(impl_->owner_process);
++    ValidatePrivateDirectoryDescriptor(impl_->root_descriptor,
++                                       "ArtifactCache root");
++    int namespace_descriptor = EnsurePrivateDirectoryAt(
++        impl_->root_descriptor,
++        std::string(ArtifactCache::kNamespaceDirectory));
++    int schema_descriptor = -1;
++    try {
++      schema_descriptor = EnsurePrivateDirectoryAt(
++          namespace_descriptor,
++          std::string(ArtifactCache::kSchemaDirectory));
++      impl_->entries_descriptor = EnsurePrivateDirectoryAt(
++          schema_descriptor, std::string(ArtifactCache::kHashDirectory));
++    } catch (...) {
++      if (schema_descriptor >= 0) (void)::close(schema_descriptor);
++      (void)::close(namespace_descriptor);
++      throw;
++    }
++    (void)::close(schema_descriptor);
++    (void)::close(namespace_descriptor);
++  } catch (...) {
++    impl_.reset();
++    throw;
++  }
++#else
++  (void)root_directory;
++  throw NotImplementedError("ArtifactCache requires Linux");
++#endif
++}
++
++ArtifactCache::~ArtifactCache() = default;
++
++const std::string& ArtifactCache::GetRootDirectory() const noexcept {
++  return impl_->root_directory;
++}
++
++std::optional<Artifact> ArtifactCache::Lookup(
++    const CompileRequest& request, const KernelBuildSpec& build_spec) const {
++#if defined(__linux__)
++  ValidateCacheProcess(impl_->owner_process);
++  ValidatePrivateDirectoryDescriptor(impl_->root_descriptor,
++                                     "ArtifactCache root");
++  ValidatePrivateDirectoryDescriptor(impl_->entries_descriptor,
++                                     "ArtifactCache hash directory");
++  const EntryAddress address = ResolveEntryAddress(request, build_spec);
++  const std::vector<uint8_t> expected_cache_identity =
++      Artifact::SerializeCacheKeyIdentity(request, build_spec);
++  bool shard_missing = false;
++  ScopedDescriptor shard(OpenPrivateDirectoryAt(
++      impl_->entries_descriptor, address.shard, &shard_missing));
++  if (shard_missing) return std::nullopt;
++  bool missing = false;
++  std::vector<uint8_t> bytes =
++      ReadCompleteEntry(shard.Get(), address.name, &missing);
++  if (missing) return std::nullopt;
++  Artifact artifact =
++      Artifact::DeserializeCanonical(bytes, request, build_spec);
++  if (artifact.SerializeCacheKeyIdentity() != expected_cache_identity ||
++      artifact.GetCacheKeyDigest() != address.digest) {
++    throw RuntimeError("ArtifactCache entry differs from its filename cache key");
++  }
++  return std::optional<Artifact>(std::move(artifact));
++#else
++  (void)request;
++  (void)build_spec;
++  throw NotImplementedError("ArtifactCache requires Linux");
++#endif
++}
++
++ArtifactCachePublishResult ArtifactCache::Publish(
++    const Artifact& artifact, const CompileRequest& request,
++    const KernelBuildSpec& build_spec) const {
++#if defined(__linux__)
++  ValidateCacheProcess(impl_->owner_process);
++  ValidatePrivateDirectoryDescriptor(impl_->root_descriptor,
++                                     "ArtifactCache root");
++  ValidatePrivateDirectoryDescriptor(impl_->entries_descriptor,
++                                     "ArtifactCache hash directory");
++  const EntryAddress address = ResolveEntryAddress(request, build_spec);
++  const std::vector<uint8_t> expected_cache_identity =
++      Artifact::SerializeCacheKeyIdentity(request, build_spec);
++  if (artifact.SerializeCacheKeyIdentity() != expected_cache_identity ||
++      artifact.GetCacheKeyDigest() != address.digest) {
++    throw ValueError(
++        "ArtifactCache publication does not match the expected request/build cache key");
++  }
++  const std::vector<uint8_t> bytes = artifact.SerializeCanonical();
++  const Artifact reconstructed =
++      Artifact::DeserializeCanonical(bytes, request, build_spec);
++  if (reconstructed.SerializeCanonical() != bytes) {
++    throw InternalError(
++        "ArtifactCache publication changed identity during canonical validation");
++  }
++
++  ScopedDescriptor shard(
++      EnsurePrivateDirectoryAt(impl_->entries_descriptor, address.shard));
++  std::unique_ptr<PendingEntry> pending =
++      CreatePendingEntry(shard.Get());
++  WriteComplete(pending->GetDescriptor(), bytes);
++  if (::fsync(pending->GetDescriptor()) != 0) {
++    ThrowSystemError("failed to sync ArtifactCache entry", errno);
++  }
++  VerifyStagedBytes(pending->GetDescriptor(), bytes);
++  if (::fchmod(pending->GetDescriptor(), kRequiredEntryMode) != 0) {
++    ThrowSystemError("failed to make ArtifactCache entry immutable", errno);
++  }
++  if (::fsync(pending->GetDescriptor()) != 0) {
++    ThrowSystemError("failed to sync immutable ArtifactCache entry", errno);
++  }
++  ValidateImmutableStagedEntry(pending->GetDescriptor(), bytes.size());
++
++#if defined(SYS_renameat2)
++  int result = static_cast<int>(::syscall(
++      SYS_renameat2, shard.Get(), pending->GetName().c_str(), shard.Get(),
++      address.name.c_str(), RENAME_NOREPLACE));
++  if (result == 0) {
++    pending->Published();
++    if (::fsync(shard.Get()) != 0) {
++      ThrowSystemError("failed to sync ArtifactCache directory", errno);
++    }
++    return ArtifactCachePublishResult::Published;
++  }
++  const int rename_error = errno;
++  if (rename_error != EEXIST) {
++    ThrowSystemError("failed to atomically publish ArtifactCache entry",
++                     rename_error);
++  }
++#else
++  throw NotImplementedError("ArtifactCache publication requires Linux renameat2");
++#endif
++
++  pending.reset();
++  std::optional<Artifact> existing = Lookup(request, build_spec);
++  if (!existing) {
++    throw RuntimeError(
++        "ArtifactCache publication lost a concurrent no-replace winner");
++  }
++  if (existing->SerializeCanonical() != bytes) {
++    throw RuntimeError(
++        "ArtifactCache key was concurrently populated with a different Artifact");
++  }
++  if (::fsync(shard.Get()) != 0) {
++    ThrowSystemError("failed to sync concurrent ArtifactCache directory", errno);
++  }
++  return ArtifactCachePublishResult::AlreadyPresent;
++#else
++  (void)artifact;
++  (void)request;
++  (void)build_spec;
++  throw NotImplementedError("ArtifactCache requires Linux");
++#endif
++}
++
++}  // namespace pypto::compiler
+diff --git a/tests/ut/compiler/test_artifact.py b/tests/ut/compiler/test_artifact.py
+index d3dd52d7b9653c3cccad1cb465574f485359ea3b..951c84fe0519a74779ec82ef65b4cce20b079f2a 100644
+--- a/tests/ut/compiler/test_artifact.py
++++ b/tests/ut/compiler/test_artifact.py
+@@ -10,6 +10,10 @@
+ """Canonical, immutable and runtime-free NVIDIA Artifact v1 contract."""
+ 
+ import hashlib
++import os
++import stat
++import time
++from pathlib import Path
+ 
+ import msgpack
+ import pypto
+@@ -20,6 +24,8 @@ from pypto.compiler import (
+     ArtifactArgumentDescriptor,
+     ArtifactArgumentLayout,
+     ArtifactArgumentPackingPolicy,
++    ArtifactCache,
++    ArtifactCachePublishResult,
+     ArtifactClusterSchedulingPolicy,
+     ArtifactGridAbi,
+     ArtifactGridPolicy,
+@@ -296,14 +302,8 @@ def test_static_artifact_round_trip_and_all_identity_projections(
+     assert artifact.identities.argument_abi_digest == build_spec.argument_abi_digest
+     assert artifact.identities.result_abi_digest == build_spec.result_abi_digest
+     assert artifact.identities.mutation_abi_digest == build_spec.mutation_abi_digest
+-    assert (
+-        artifact.identities.static_specialization_digest
+-        == build_spec.static_specialization_digest
+-    )
+-    assert (
+-        artifact.identities.symbolic_specialization_digest
+-        == build_spec.symbolic_specialization_digest
+-    )
++    assert artifact.identities.static_specialization_digest == build_spec.static_specialization_digest
++    assert artifact.identities.symbolic_specialization_digest == build_spec.symbolic_specialization_digest
+ 
+     options_identity = Artifact.serialize_producer_options_identity(request, build_spec)
+     options_digest = Artifact.get_producer_options_identity_digest(request, build_spec)
+@@ -426,5 +426,205 @@ def test_python_artifact_bytes_bound_rejects_before_cpp_copy(
+         )
+ 
+ 
++def _private_cache_root(tmp_path: Path, name: str) -> Path:
++    root = tmp_path / name
++    root.mkdir(mode=0o700)
++    root.chmod(0o700)
++    return root
++
++
++def _cache_entry_path(root: Path, artifact: Artifact) -> Path:
++    digest = artifact.cache_key_digest
++    return root / "pypto-nvidia-artifacts" / "v1" / "sha256" / digest[:2] / f"{digest}.artifact"
++
++
++def test_artifact_cache_fixed_directories_ignore_hostile_umask(
++    tmp_path: Path,
++) -> None:
++    root = _private_cache_root(tmp_path, "hostile-umask")
++    previous_umask = os.umask(0o777)
++    try:
++        cache = ArtifactCache(str(root))
++    finally:
++        os.umask(previous_umask)
++    assert cache.root_directory == str(root)
++    directory = root
++    for component in ("pypto-nvidia-artifacts", "v1", "sha256"):
++        directory /= component
++        assert stat.S_IMODE(directory.stat().st_mode) == 0o700
++
++
++def test_artifact_cache_miss_atomic_publish_hit_and_idempotence(
++    tmp_path: Path,
++    artifact_case: tuple[bytes, CompileRequest, KernelBuildSpec, ArtifactKernelAbi, Artifact],
++) -> None:
++    _, request, build_spec, _, artifact = artifact_case
++    root = _private_cache_root(tmp_path, "cache")
++    cache = ArtifactCache(str(root))
++
++    assert cache.root_directory == str(root)
++    assert cache.lookup(request, build_spec) is None
++    assert cache.publish(artifact, request, build_spec) == ArtifactCachePublishResult.Published
++    cached = cache.lookup(request, build_spec)
++    assert cached is not None
++    assert cached.serialize() == artifact.serialize()
++    assert cache.publish(artifact, request, build_spec) == ArtifactCachePublishResult.AlreadyPresent
++
++    entry = _cache_entry_path(root, artifact)
++    assert entry.read_bytes() == artifact.serialize()
++    assert stat.S_IMODE(entry.stat().st_mode) == 0o400
++    for directory in [entry.parent, entry.parent.parent, entry.parent.parent.parent]:
++        assert stat.S_IMODE(directory.stat().st_mode) == 0o700
++    assert not list(root.rglob(".artifact-cache-v1-tmp-*"))
++    stale_temporary = entry.parent / ".artifact-cache-v1-tmp-stale"
++    stale_temporary.write_bytes(b"incomplete")
++    stale_temporary.chmod(0o600)
++    assert cache.lookup(request, build_spec) is not None
++    assert cache.publish(artifact, request, build_spec) == ArtifactCachePublishResult.AlreadyPresent
++    assert stale_temporary.read_bytes() == b"incomplete"
++
++
++def test_artifact_cache_root_and_entry_security_fail_closed(
++    tmp_path: Path,
++    artifact_case: tuple[bytes, CompileRequest, KernelBuildSpec, ArtifactKernelAbi, Artifact],
++) -> None:
++    _, request, build_spec, _, artifact = artifact_case
++    with pytest.raises(ValueError, match="absolute canonical"):
++        ArtifactCache("relative/cache")
++    with pytest.raises(ValueError, match="absolute canonical"):
++        ArtifactCache(str(tmp_path / "trailing") + "/")
++    with pytest.raises(ValueError, match="absolute canonical"):
++        ArtifactCache(str(tmp_path / "dot" / ".." / "cache"))
++    with pytest.raises(ValueError, match="non-NUL"):
++        ArtifactCache(str(tmp_path / "nul") + "\0")
++
++    insecure_root = _private_cache_root(tmp_path, "insecure")
++    insecure_root.chmod(0o755)
++    with pytest.raises(ValueError, match="mode 0700"):
++        ArtifactCache(str(insecure_root))
++
++    unsafe_parent = tmp_path / "unsafe-parent"
++    unsafe_parent.mkdir(mode=0o700)
++    unsafe_parent.chmod(0o777)
++    unsafe_child = unsafe_parent / "cache"
++    unsafe_child.mkdir(mode=0o700)
++    unsafe_child.chmod(0o700)
++    with pytest.raises(ValueError, match="ancestor"):
++        ArtifactCache(str(unsafe_child))
++
++    real_root = _private_cache_root(tmp_path, "real")
++    symlink_root = tmp_path / "symlink-root"
++    symlink_root.symlink_to(real_root, target_is_directory=True)
++    with pytest.raises(RuntimeError, match="failed to open canonical"):
++        ArtifactCache(str(symlink_root))
++
++    fixed_component_root = _private_cache_root(tmp_path, "fixed-component")
++    fixed_target = _private_cache_root(tmp_path, "fixed-target")
++    (fixed_component_root / "pypto-nvidia-artifacts").symlink_to(
++        fixed_target,
++        target_is_directory=True,
++    )
++    with pytest.raises(RuntimeError, match="directory component"):
++        ArtifactCache(str(fixed_component_root))
++
++    root = _private_cache_root(tmp_path, "entry-security")
++    cache = ArtifactCache(str(root))
++    assert cache.publish(artifact, request, build_spec) == ArtifactCachePublishResult.Published
++    entry = _cache_entry_path(root, artifact)
++    canonical = artifact.serialize()
++
++    entry.chmod(0o600)
++    with pytest.raises(RuntimeError, match="immutable owner-only"):
++        cache.lookup(request, build_spec)
++    entry.chmod(0o400)
++
++    hardlink = tmp_path / "entry-hardlink"
++    os.link(entry, hardlink)
++    with pytest.raises(RuntimeError, match="immutable owner-only"):
++        cache.lookup(request, build_spec)
++    hardlink.unlink()
++
++    entry.chmod(0o600)
++    entry.write_bytes(b"\xc1")
++    entry.chmod(0o400)
++    with pytest.raises(ValueError, match="malformed Artifact"):
++        cache.lookup(request, build_spec)
++    with pytest.raises(ValueError, match="malformed Artifact"):
++        cache.publish(artifact, request, build_spec)
++    assert entry.read_bytes() == b"\xc1"
++
++    entry.chmod(0o600)
++    entry.write_bytes(canonical)
++    with entry.open("r+b") as stream:
++        stream.truncate(ARTIFACT_PAYLOAD_LIMIT + 1)
++    entry.chmod(0o400)
++    with pytest.raises(RuntimeError, match="bounded regular file"):
++        cache.lookup(request, build_spec)
++
++    entry.chmod(0o600)
++    entry.write_bytes(canonical)
++    entry.unlink()
++    outside = tmp_path / "outside-artifact"
++    outside.write_bytes(canonical)
++    outside.chmod(0o400)
++    entry.symlink_to(outside)
++    with pytest.raises(RuntimeError, match="failed to open ArtifactCache entry"):
++        cache.lookup(request, build_spec)
++    with pytest.raises(RuntimeError, match="failed to open ArtifactCache entry"):
++        cache.publish(artifact, request, build_spec)
++    entry.unlink()
++
++    os.mkfifo(entry, mode=0o400)
++    with pytest.raises(RuntimeError, match="immutable owner-only"):
++        cache.lookup(request, build_spec)
++    entry.unlink()
++
++    shard = entry.parent
++    outside_shard = _private_cache_root(tmp_path, "outside-shard")
++    shard.rmdir()
++    shard.symlink_to(outside_shard, target_is_directory=True)
++    with pytest.raises(RuntimeError, match="directory component"):
++        cache.lookup(request, build_spec)
++
++
++def test_artifact_cache_rejects_inherited_handle_and_wrong_build_identity(
++    tmp_path: Path,
++    artifact_case: tuple[bytes, CompileRequest, KernelBuildSpec, ArtifactKernelAbi, Artifact],
++) -> None:
++    canonical_source, request, build_spec, expected_kernel_abi, artifact = artifact_case
++    root = _private_cache_root(tmp_path, "fork-and-identity")
++    cache = ArtifactCache(str(root))
++    wrong_spec = _build_spec(
++        request,
++        canonical_source + b"\n",
++        expected_kernel_abi,
++    )
++    with pytest.raises(ValueError, match="request/build cache key"):
++        cache.publish(artifact, request, wrong_spec)
++
++    if not hasattr(os, "fork"):
++        pytest.skip("fork inheritance contract requires POSIX")
++    child = os.fork()
++    if child == 0:
++        try:
++            cache.lookup(request, build_spec)
++        except RuntimeError as error:
++            os._exit(0 if "after fork" in str(error) else 1)
++        os._exit(1)
++    deadline = time.monotonic() + 10
++    status = None
++    while time.monotonic() < deadline:
++        waited, candidate_status = os.waitpid(child, os.WNOHANG)
++        if waited == child:
++            status = candidate_status
++            break
++        time.sleep(0.01)
++    if status is None:
++        os.kill(child, 9)
++        os.waitpid(child, 0)
++        pytest.fail("inherited ArtifactCache child did not exit within 10 seconds")
++    assert os.waitstatus_to_exitcode(status) == 0
++
++
+ if __name__ == "__main__":
+     pytest.main([__file__, "-v"])
+diff --git a/tests/ut/compiler/test_artifact_public_api.py b/tests/ut/compiler/test_artifact_public_api.py
+index 05eac7684e2c4d99b03dcead2d09ae510b267d30..7e306a66916ca84e040fd62ca342729ea5efde57 100644
+--- a/tests/ut/compiler/test_artifact_public_api.py
++++ b/tests/ut/compiler/test_artifact_public_api.py
+@@ -79,12 +79,44 @@ def test_bytes_only_artifact_method_signatures() -> None:
+         assert "producer_identity" not in cache_key_signature
+ 
+ 
++def test_artifact_cache_public_surface_is_storage_only() -> None:
++    assert compiler_api.ArtifactCache is compiler_core.ArtifactCache
++    assert "ArtifactCache" in compiler_api.__all__
++    assert "ArtifactCachePublishResult" in compiler_api.__all__
++
++    lookup_signature = _signature_line(compiler_api.ArtifactCache.lookup)
++    assert lookup_signature.count(",") == 2
++    assert "CompileRequest" in lookup_signature
++    assert "KernelBuildSpec" in lookup_signature
++    assert "Optional[" in lookup_signature or "| None" in lookup_signature
++
++    publish_signature = _signature_line(compiler_api.ArtifactCache.publish)
++    assert publish_signature.count(",") == 3
++    assert "Artifact" in publish_signature
++    assert "CompileRequest" in publish_signature
++    assert "KernelBuildSpec" in publish_signature
++    assert "ArtifactCachePublishResult" in publish_signature
++
++    for forbidden in (
++        "clear",
++        "delete",
++        "evict",
++        "get_or_compile",
++        "load",
++        "launch",
++        "lookup_or_compile",
++        "remove",
++    ):
++        assert not hasattr(compiler_api.ArtifactCache, forbidden)
++
++
+ def test_source_ir_digest_hashes_exact_bytes_and_rejects_str() -> None:
+     canonical_source = b"module {\n  func.func @main()\n}\n"
+ 
+-    assert compiler_api.Artifact.compute_source_ir_digest(
+-        canonical_source
+-    ) == hashlib.sha256(canonical_source).hexdigest()
++    assert (
++        compiler_api.Artifact.compute_source_ir_digest(canonical_source)
++        == hashlib.sha256(canonical_source).hexdigest()
++    )
+     with pytest.raises(TypeError):
+         compiler_api.Artifact.compute_source_ir_digest(canonical_source.decode("ascii"))
+ 
+@@ -96,9 +128,10 @@ def test_source_ir_digest_validates_content_and_size_boundary() -> None:
+         compiler_api.Artifact.compute_source_ir_digest(b"module {}\x00")
+ 
+     maximum_source = b"x" * CANONICAL_SOURCE_LIMIT_BYTES
+-    assert compiler_api.Artifact.compute_source_ir_digest(
+-        maximum_source
+-    ) == hashlib.sha256(maximum_source).hexdigest()
++    assert (
++        compiler_api.Artifact.compute_source_ir_digest(maximum_source)
++        == hashlib.sha256(maximum_source).hexdigest()
++    )
+     with pytest.raises(ValueError, match="16 MiB"):
+         compiler_api.Artifact.compute_source_ir_digest(maximum_source + b"x")
+ 
+diff --git a/tests/ut/cpp/CMakeLists.txt b/tests/ut/cpp/CMakeLists.txt
+index 5fb71d5096201d9ba8f6d6d0def41f6832bf29ba..b4fb94a9010ec110cacadf3e8073ae841987e534 100644
+--- a/tests/ut/cpp/CMakeLists.txt
++++ b/tests/ut/cpp/CMakeLists.txt
+@@ -137,6 +137,7 @@ if(PYPTO_ENABLE_NVIDIA_BACKEND)
+     add_executable(pypto_nvidia_artifact_test
+         artifact_test.cpp
+         ${CMAKE_SOURCE_DIR}/src/compiler/artifact.cpp
++        ${CMAKE_SOURCE_DIR}/src/compiler/artifact_cache.cpp
+         ${CMAKE_SOURCE_DIR}/src/compiler/canonical_msgpack.cpp
+         ${CMAKE_SOURCE_DIR}/src/compiler/compile_request.cpp
+         ${CMAKE_SOURCE_DIR}/src/compiler/digest.cpp
+diff --git a/tests/ut/cpp/artifact_test.cpp b/tests/ut/cpp/artifact_test.cpp
+index 10a5f16a65553a76f07d2ac6edc33cadeafeeea8..55cd7e77a505e90dd332c0ba1208a262ec6ccf89 100644
+--- a/tests/ut/cpp/artifact_test.cpp
++++ b/tests/ut/cpp/artifact_test.cpp
+@@ -16,6 +16,7 @@
+ #include <cstddef>
+ #include <csignal>
+ #include <cstdint>
++#include <filesystem>
+ #include <msgpack.hpp>
+ #include <optional>
+ #include <string>
+@@ -26,11 +27,13 @@
+ #include <vector>
+ 
+ #if defined(__linux__)
++#include <sys/stat.h>
+ #include <sys/wait.h>
+ #include <unistd.h>
+ #endif
+ 
+ #include "pypto/compiler/artifact.h"
++#include "pypto/compiler/artifact_cache.h"
+ #include "pypto/compiler/nvidia_backend_build_info.h"
+ #include "pypto/core/dtype.h"
+ #include "pypto/core/error.h"
+@@ -38,6 +41,8 @@
+ using pypto::ValueError;
+ using pypto::RuntimeError;
+ using pypto::compiler::Artifact;
++using pypto::compiler::ArtifactCache;
++using pypto::compiler::ArtifactCachePublishResult;
+ using pypto::compiler::ArtifactArgumentDescriptor;
+ using pypto::compiler::ArtifactArgumentLayout;
+ using pypto::compiler::ArtifactArgumentPackingPolicy;
+@@ -106,6 +111,8 @@ static_assert(!IsComplete<pypto::compiler::detail::ArtifactBuilder>::value);
+ static_assert(!HasCreateStrict<Artifact>::value);
+ static_assert(HasCompileStrict<Artifact>::value);
+ static_assert(!HasLegacyCacheKeyProjection<Artifact>::value);
++static_assert(!std::is_copy_constructible_v<ArtifactCache>);
++static_assert(!std::is_move_constructible_v<ArtifactCache>);
+ static_assert(!std::is_constructible_v<
+               ArtifactProducerIdentity, ArtifactProducerKind, ToolchainIdentity,
+               std::string, std::string, std::string, bool, bool>);
+@@ -665,6 +672,132 @@ int TestForkAfterProducerUseIsRejected(
+   return 0;
+ }
+ 
++struct TemporaryCacheDirectory {
++  explicit TemporaryCacheDirectory(std::string prefix) {
++#if defined(__linux__)
++    std::string model = "/tmp/" + std::move(prefix) + "-XXXXXX";
++    std::vector<char> bytes(model.begin(), model.end());
++    bytes.push_back('\0');
++    char* created = ::mkdtemp(bytes.data());
++    if (created != nullptr) path = created;
++#else
++    (void)prefix;
++#endif
++  }
++
++  ~TemporaryCacheDirectory() {
++    if (!path.empty()) {
++      std::error_code error;
++      (void)std::filesystem::remove_all(path, error);
++    }
++  }
++
++  TemporaryCacheDirectory(const TemporaryCacheDirectory&) = delete;
++  TemporaryCacheDirectory& operator=(const TemporaryCacheDirectory&) = delete;
++
++  std::string path;
++};
++
++#if defined(__linux__)
++bool WaitForOwnedChild(pid_t child, int* exit_code) {
++  const auto deadline =
++      std::chrono::steady_clock::now() + std::chrono::seconds(10);
++  int status = 0;
++  while (std::chrono::steady_clock::now() < deadline) {
++    const pid_t waited = ::waitpid(child, &status, WNOHANG);
++    if (waited == child) {
++      if (!WIFEXITED(status)) return false;
++      *exit_code = WEXITSTATUS(status);
++      return true;
++    }
++    if (waited == -1) {
++      if (errno == EINTR) continue;
++      return false;
++    }
++    std::this_thread::sleep_for(std::chrono::milliseconds(10));
++  }
++  (void)::kill(child, SIGKILL);
++  while (::waitpid(child, &status, 0) == -1 && errno == EINTR) {
++  }
++  return false;
++}
++#endif
++
++int TestArtifactCache(const Artifact& artifact, const CompileRequest& request,
++                      const KernelBuildSpec& build_spec) {
++#if defined(__linux__)
++  TemporaryCacheDirectory directory("pypto-artifact-cache");
++  REQUIRE(!directory.path.empty());
++  ArtifactCache cache(directory.path);
++  REQUIRE(cache.GetRootDirectory() == directory.path);
++  REQUIRE(!cache.Lookup(request, build_spec).has_value());
++  REQUIRE(cache.Publish(artifact, request, build_spec) ==
++          ArtifactCachePublishResult::Published);
++  auto cached = cache.Lookup(request, build_spec);
++  REQUIRE(cached.has_value());
++  REQUIRE(cached->SerializeCanonical() == artifact.SerializeCanonical());
++  REQUIRE(cache.Publish(artifact, request, build_spec) ==
++          ArtifactCachePublishResult::AlreadyPresent);
++
++  REQUIRE(::chmod(directory.path.c_str(), 0755) == 0);
++  REQUIRE(Rejects([&]() {
++    (void)cache.Lookup(request, build_spec);
++  }));
++  REQUIRE(::chmod(directory.path.c_str(), 0700) == 0);
++
++  const pid_t inherited_child = ::fork();
++  REQUIRE(inherited_child >= 0);
++  if (inherited_child == 0) {
++    bool rejected = false;
++    try {
++      (void)cache.Lookup(request, build_spec);
++    } catch (const RuntimeError& error) {
++      rejected = std::string(error.what()).find("after fork") !=
++                 std::string::npos;
++    }
++    _exit(rejected ? 0 : 1);
++  }
++  int inherited_exit_code = -1;
++  REQUIRE(WaitForOwnedChild(inherited_child, &inherited_exit_code));
++  REQUIRE(inherited_exit_code == 0);
++
++  TemporaryCacheDirectory concurrent_directory(
++      "pypto-artifact-cache-concurrent");
++  REQUIRE(!concurrent_directory.path.empty());
++  std::array<pid_t, 2> children{};
++  for (pid_t& child : children) {
++    child = ::fork();
++    REQUIRE(child >= 0);
++    if (child == 0) {
++      try {
++        ArtifactCache child_cache(concurrent_directory.path);
++        const ArtifactCachePublishResult result =
++            child_cache.Publish(artifact, request, build_spec);
++        _exit(result == ArtifactCachePublishResult::Published ? 10 : 11);
++      } catch (...) {
++        _exit(1);
++      }
++    }
++  }
++  std::array<int, 2> exit_codes{};
++  for (size_t index = 0; index < children.size(); ++index) {
++    REQUIRE(WaitForOwnedChild(children[index], &exit_codes[index]));
++  }
++  std::sort(exit_codes.begin(), exit_codes.end());
++  REQUIRE((exit_codes == std::array<int, 2>{10, 11}));
++  ArtifactCache concurrent_cache(concurrent_directory.path);
++  auto concurrent_artifact = concurrent_cache.Lookup(request, build_spec);
++  REQUIRE(concurrent_artifact.has_value());
++  REQUIRE(concurrent_artifact->SerializeCanonical() ==
++          artifact.SerializeCanonical());
++#else
++  (void)artifact;
++  (void)request;
++  (void)build_spec;
++#endif
++  return 0;
++}
++
+ int TestStaticArtifact() {
+   const CompileRequest request = MakeRequest();
+   const ArtifactKernelAbi expected_kernel = MakeStaticKernelAbi();
+@@ -719,6 +852,8 @@ int TestStaticArtifact() {
+   int result =
+       TestCanonicalDeserializeAndTamper(artifact, request, build_spec);
+   if (result != 0) return result;
++  result = TestArtifactCache(artifact, request, build_spec);
++  if (result != 0) return result;
+   return TestForkAfterProducerUseIsRejected(source, request, build_spec);
+ }
+ 

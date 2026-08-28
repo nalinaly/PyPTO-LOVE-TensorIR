@@ -1,0 +1,44 @@
+From 5f755687674bd23a513e913cd6f2f20e8b6397ef Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Mon, 24 Aug 2026 22:25:56 +0800
+Subject: [PATCH 015/212] build: finalize embedded TensorIR consumer boundary
+
+---
+ 3rdparty/nvidia/tensor-ir                           | 2 +-
+ cmake/nvidia_backend.cmake                          | 2 +-
+ tests/ut/compiler/test_nvidia_backend_build_info.py | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index ca8640e71cd5a95a041f60d8e18672c806f38e42..233ab6ed25f0ae9c6c4b122072bd31079f8fa185 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit ca8640e71cd5a95a041f60d8e18672c806f38e42
++Subproject commit 233ab6ed25f0ae9c6c4b122072bd31079f8fa185
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index a92a874aabdb964e9cbc1e489b45c5524b83ca7d..e7b7531c1b39f21a12b2ea3b4917120d80492814 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -19,7 +19,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "ca8640e71cd5a95a041f60d8e18672c806f38e42"
++    "233ab6ed25f0ae9c6c4b122072bd31079f8fa185"
+     CACHE STRING "Exact private TensorIR revision")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e"
+diff --git a/tests/ut/compiler/test_nvidia_backend_build_info.py b/tests/ut/compiler/test_nvidia_backend_build_info.py
+index 5794f8356a8ee764b9b3ab239b432d20809dfd43..e3d59b48d1056cd74e1a04805319818a095bf17b 100644
+--- a/tests/ut/compiler/test_nvidia_backend_build_info.py
++++ b/tests/ut/compiler/test_nvidia_backend_build_info.py
+@@ -18,7 +18,7 @@ def test_nvidia_backend_build_info_is_immutable_and_self_consistent() -> None:
+         return
+ 
+     assert info.compiler_factory_available
+-    assert info.tensor_ir_revision == "ca8640e71cd5a95a041f60d8e18672c806f38e42"
++    assert info.tensor_ir_revision == "233ab6ed25f0ae9c6c4b122072bd31079f8fa185"
+     assert info.cuda_tile_revision == "af2417041cc939b87ef56d92cfdcf61737c5457e"
+     assert info.llvm_revision == "57109befac92811d2253109242ca6fa69c961fb2"
+     assert info.cuda_toolkit_root == "/usr/local/cuda-13.3"

@@ -1,0 +1,27 @@
+From b61650ee4331a1841c43c39e8fa6d6d130652663 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 00:24:33 +0800
+Subject: [PATCH 36/82] Use TensorIR signed indices in gather golden
+
+---
+ test/Conversion/TensorToCudaTile/gather_rows_layout.mlir | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
+index c68ee52016f139e049f5e4b70cd8dc25890a4549..9c8d46d9f25929dd67d053342f3a5dd2e513b440 100644
+--- a/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
++++ b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
+@@ -11,11 +11,11 @@
+ module {
+   nv_tensor_ir.graph @gather_rows(
+       %data: tensor<1024x128xbf16>,
+-      %indices: tensor<32x128xi32> {nv_tensor_ir.stride = "(1,0)"})
++      %indices: tensor<32x128xsi32> {nv_tensor_ir.stride = "(1,0)"})
+       -> tensor<32x128xbf16>
+       attributes {tile_size = array<i32: 8, 128>} {
+     %gathered = gather_rows %data, %indices
+-        : (tensor<1024x128xbf16>, tensor<32x128xi32>)
++        : (tensor<1024x128xbf16>, tensor<32x128xsi32>)
+        -> tensor<32x128xbf16>
+     results %gathered : tensor<32x128xbf16>
+   }

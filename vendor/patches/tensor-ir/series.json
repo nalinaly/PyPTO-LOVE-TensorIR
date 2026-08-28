@@ -1,0 +1,673 @@
+{
+  "base_commit": "3b5a8bebc00510b46a1e8b97229d06dd0d006215",
+  "base_tree": "1cb1598849e2be37c3455f2bab7e3e9643acf922",
+  "commit_count": 82,
+  "format_patch_options": [
+    "--binary",
+    "--full-index",
+    "--no-signature",
+    "--numbered-files"
+  ],
+  "head_commit": "b478e09a49c13d8ee330f770a19fef48b759f8b8",
+  "head_tree": "e01988d10b9363662ce4da07b491463055b34943",
+  "patches": [
+    {
+      "bytes": 4761,
+      "file": "0001.patch",
+      "order": 1,
+      "sha256": "faa2f775ae45f3333b15dd6112ed95cf86bac36cbd6aa321f9bf1f43dd3bba61",
+      "source_commit": "ca8640e71cd5a95a041f60d8e18672c806f38e42",
+      "subject": "[PATCH 01/82] build: support private embedded compiler mode"
+    },
+    {
+      "bytes": 1332,
+      "file": "0002.patch",
+      "order": 2,
+      "sha256": "d05e3169f255c946539115f61bf143ea6453ceb87e126bdaf90522f6a962122d",
+      "source_commit": "f2270c6cebae9edcb6558c0c1f7afb21f1028737",
+      "subject": "[PATCH 02/82] build: export compiler dependency headers"
+    },
+    {
+      "bytes": 1548,
+      "file": "0003.patch",
+      "order": 3,
+      "sha256": "e3785030a39dd47955b6a6820372d21125c70dc5b93c3784dd174376c4441d6d",
+      "source_commit": "233ab6ed25f0ae9c6c4b122072bd31079f8fa185",
+      "subject": "[PATCH 03/82] build: avoid CUDA toolkit runpath leakage"
+    },
+    {
+      "bytes": 989,
+      "file": "0004.patch",
+      "order": 4,
+      "sha256": "3dff5643883a086a6616d30759b433e60c01dc241f1660b2c8e4fe92511ff504",
+      "source_commit": "785843846e9516808ac7a52cbfe6c213c896030d",
+      "subject": "[PATCH 04/82] build: align runtime with LLVM ABI policy"
+    },
+    {
+      "bytes": 38797,
+      "file": "0005.patch",
+      "order": 5,
+      "sha256": "00011663583322a4d0313e97a89f75c627678f9635245721116042e2987b3ae8",
+      "source_commit": "156b8f7e86c27ec6875bee539a321bda95b1c576",
+      "subject": "[PATCH 05/82] compiler: expose deterministic CUDA Tile artifacts"
+    },
+    {
+      "bytes": 27522,
+      "file": "0006.patch",
+      "order": 6,
+      "sha256": "875853628f189ef12ca5c0ba740e8ddb55e9179daa0d1945193bc081ef998211",
+      "source_commit": "151d55176f67274cb6a3edb8d25833c1a90698f6",
+      "subject": "[PATCH 06/82] compiler: harden CUDA Tile artifact validation"
+    },
+    {
+      "bytes": 9480,
+      "file": "0007.patch",
+      "order": 7,
+      "sha256": "d1c4f1df0fecb547896fc12f79f61c31d62f1b5c8e6dc29ad244f03069f5c8f0",
+      "source_commit": "e0998b9ec42cf590ca389c9ffba3c9cd0d5b6571",
+      "subject": "[PATCH 07/82] compiler: fully validate emitted device artifacts"
+    },
+    {
+      "bytes": 7785,
+      "file": "0008.patch",
+      "order": 8,
+      "sha256": "f0c6f31baba2117f646da127022724aa184e1be67ffabdfec730676ece898100",
+      "source_commit": "7a15076631b92e9d41964895181a2a8bac11b207",
+      "subject": "[PATCH 08/82] compiler: validate complete cubin structure"
+    },
+    {
+      "bytes": 2962,
+      "file": "0009.patch",
+      "order": 9,
+      "sha256": "2ebb97a1e82be30835cd3be90fc7169df4f1479b529ea004e4595e22fe58d872",
+      "source_commit": "2677d1a99ae9e4c6627872f01a26a62bf6e832c8",
+      "subject": "[PATCH 09/82] compiler: decode cubin target by ABI version"
+    },
+    {
+      "bytes": 5122,
+      "file": "0010.patch",
+      "order": 10,
+      "sha256": "ba5f38e3923bc236081a6899e35887ca757334d180b952f260c1676089de90c8",
+      "source_commit": "1357285e8a86af6c447cb34282df569cd3bf8e40",
+      "subject": "[PATCH 10/82] compiler: expose runtime-free device code validation"
+    },
+    {
+      "bytes": 29366,
+      "file": "0011.patch",
+      "order": 11,
+      "sha256": "a470981f43f6a0c1ec9ac23a5c9fe886b2ed8f85e3b4c3b4205a4de269256f37",
+      "source_commit": "1c701ec6f7e7c547f6af02862603981f64e01091",
+      "subject": "[PATCH 11/82] Validate CUDA Cubin entry parameter ABI"
+    },
+    {
+      "bytes": 6636,
+      "file": "0012.patch",
+      "order": 12,
+      "sha256": "14af5c3498e043c3780d25c8dac1ee91e2600ae30dd721f11159b3f7eac4efea",
+      "source_commit": "b25081afbeb53c9a882c68b440d06baa9e0f6b31",
+      "subject": "[PATCH 12/82] Bind Cubin sections to load segments"
+    },
+    {
+      "bytes": 4783,
+      "file": "0013.patch",
+      "order": 13,
+      "sha256": "e53087f11edd422b9ecbfeb7a041c53042d4f322080b9a6ceccf8b4914e2d38f",
+      "source_commit": "9e36b82173ae48a2501bc1848feae392dcce633b",
+      "subject": "[PATCH 13/82] Expose CUDA Tile pipeline resource options"
+    },
+    {
+      "bytes": 10710,
+      "file": "0014.patch",
+      "order": 14,
+      "sha256": "765123169ace79411068f6d11f212c34e3ec5d6db60e700c562c90edf6fc4e05",
+      "source_commit": "255ab5a2216ea0a0660010f7dfbc6d83221d2ff8",
+      "subject": "[PATCH 14/82] Harden deterministic CUDA Tile production"
+    },
+    {
+      "bytes": 8814,
+      "file": "0015.patch",
+      "order": 15,
+      "sha256": "8c12c055bd6a234ac125cd400371ce3c0da19b43203146ed8cb2e68772839935",
+      "source_commit": "0a1f76362e1f673d34fa5a63c254279c0b88b5fd",
+      "subject": "[PATCH 15/82] Bound strict CUDA Tile compiler subprocesses"
+    },
+    {
+      "bytes": 1305,
+      "file": "0016.patch",
+      "order": 16,
+      "sha256": "9dc3f32b754ad596cb630d105c7c59cbd9746a4ae9b1fa543fdf1634ba1e6750",
+      "source_commit": "96201e1a1fd36bafab23cd9dc9501c8ffd43a6e7",
+      "subject": "[PATCH 16/82] Preserve bounded tileiras memory semantics"
+    },
+    {
+      "bytes": 1566,
+      "file": "0017.patch",
+      "order": 17,
+      "sha256": "664da15220a29183763db74c99f372a4a0d37a1e1b05d98d32527385c6336902",
+      "source_commit": "2c870f975a950af9c234821864a183c86f6252c6",
+      "subject": "[PATCH 17/82] Allow bounded tileiras scratch files"
+    },
+    {
+      "bytes": 1090,
+      "file": "0018.patch",
+      "order": 18,
+      "sha256": "f4812afdd48629d74fa090ac244953f55f56d0009ded9650eb02ef67bf5668d8",
+      "source_commit": "4f57099880f85684ebe245bff9216463cc1483fb",
+      "subject": "[PATCH 18/82] Raise bounded tileiras scratch quota"
+    },
+    {
+      "bytes": 1507,
+      "file": "0019.patch",
+      "order": 19,
+      "sha256": "ffb5f42c299800090f3a9cd1a92869e179ddbc201b761ea1f5b5e72cca3f0924",
+      "source_commit": "ee94ad1bf23f22ded1427b72158f343afa0c8c93",
+      "subject": "[PATCH 19/82] Match tileiras soft memory limits"
+    },
+    {
+      "bytes": 1313,
+      "file": "0020.patch",
+      "order": 20,
+      "sha256": "bc937a6632c685e9ff55a40c2c0a1fdead15d53ff14ab5d0eff403410f953376",
+      "source_commit": "2056a52c498c789cbd75d17b29e2c7226710440a",
+      "subject": "[PATCH 20/82] Match tileiras soft file limit"
+    },
+    {
+      "bytes": 1304,
+      "file": "0021.patch",
+      "order": 21,
+      "sha256": "8504c94be4fdc19c580b2122cfd11da753c9022d32b29f8d7c5727a62a224795",
+      "source_commit": "9506797cdde1f62675c6777904f9884bfbac67e0",
+      "subject": "[PATCH 21/82] Bind tileiras toolkit environment"
+    },
+    {
+      "bytes": 8596,
+      "file": "0022.patch",
+      "order": 22,
+      "sha256": "31eedd93565bccc2cfca1b0a2a4cc26f46d784b5a201005cc498e67bab4d5f44",
+      "source_commit": "0216fbf81f59b6bd7cae60eeb96143c6dfac0eef",
+      "subject": "[PATCH 22/82] Bound tileiras private scratch space"
+    },
+    {
+      "bytes": 2167,
+      "file": "0023.patch",
+      "order": 23,
+      "sha256": "c060b063d109b0fddda76e461aae1710fcd63c3c87157cb845e0f3fd9a372bb8",
+      "source_commit": "1eaf1e0615abce26b32f55af8b639ed156c11b97",
+      "subject": "[PATCH 23/82] Harden tileiras closed-stdio launch"
+    },
+    {
+      "bytes": 1600,
+      "file": "0024.patch",
+      "order": 24,
+      "sha256": "392d2e4b9e351eb1a19d98ebd93f290467526e050aed05fc9baea72d1ee7ca2b",
+      "source_commit": "bbe6c731379e3af6280aa07469371860dacb740b",
+      "subject": "[PATCH 24/82] Tolerate transient tileiras scratch churn"
+    },
+    {
+      "bytes": 7937,
+      "file": "0025.patch",
+      "order": 25,
+      "sha256": "844908f96934ba0b9d01194ea9a614a26ee158855e7d3b7f5316a92ec349727e",
+      "source_commit": "b06b0b3fb9a61eda733b57c9caae99303d72ce44",
+      "subject": "[PATCH 25/82] Fail closed on tileiras scratch scan errors"
+    },
+    {
+      "bytes": 9988,
+      "file": "0026.patch",
+      "order": 26,
+      "sha256": "ec5bee5f21eeb1041826968a6034edaf5af5307c1347beb2b215aa2925c8f771",
+      "source_commit": "1dcb38c20e53d07c97d3781cae538e33901bae30",
+      "subject": "[PATCH 26/82] Traverse tileiras scratch through directory descriptors"
+    },
+    {
+      "bytes": 9554,
+      "file": "0027.patch",
+      "order": 27,
+      "sha256": "74d32ca1dd22386930bcc02af7f2669b7488071d3127822c43136331617b01b0",
+      "source_commit": "d540d54760de9ed5e112088d27cc0eded9ccbb14",
+      "subject": "[PATCH 27/82] Lower zero-stride broadcast views into pointwise"
+    },
+    {
+      "bytes": 3043,
+      "file": "0028.patch",
+      "order": 28,
+      "sha256": "5690f2256c7cc17221c1d6e50762c0db7bb5b0d13b4521acdf7b2f3d5e823c24",
+      "source_commit": "f8e9272e14b7176ca10f43419db305cd46e88979",
+      "subject": "[PATCH 28/82] Preserve bounded diagnostics in strict compilation errors"
+    },
+    {
+      "bytes": 6226,
+      "file": "0029.patch",
+      "order": 29,
+      "sha256": "abc9768970796c347b3dc41548d3807cf12338ece54f7f0058dee674d2fbd1eb",
+      "source_commit": "0449388f5499cd750dbfc0fb671a58a01271f163",
+      "subject": "[PATCH 29/82] Support compatible multi-output layout fusion"
+    },
+    {
+      "bytes": 5866,
+      "file": "0030.patch",
+      "order": 30,
+      "sha256": "7a5aa75e10e962d272c04a7493c6a080aa2206515239a2ee8161f3b1a0564726",
+      "source_commit": "693f907e54675529ac4543648462a3c7278cac79",
+      "subject": "[PATCH 30/82] Materialize compatible multi-output graphs"
+    },
+    {
+      "bytes": 2990,
+      "file": "0031.patch",
+      "order": 31,
+      "sha256": "82e01e5fa6d62bde03c8c72b0dc5244098c3ff518756dc130eebad81531e17b8",
+      "source_commit": "a55333d4ef52169cdcf6a899ddfd288908f43de9",
+      "subject": "[PATCH 31/82] Lower compatible multi-output layout graphs"
+    },
+    {
+      "bytes": 3222,
+      "file": "0032.patch",
+      "order": 32,
+      "sha256": "89446a7565dca9f6aa1dcf8aaf957eaacf081dbde51831df75ff6529c5fb7565",
+      "source_commit": "a2aa598600989008665fa2b2cc5c8c89ecc093b6",
+      "subject": "[PATCH 32/82] Store every layout-propagation result"
+    },
+    {
+      "bytes": 1107,
+      "file": "0033.patch",
+      "order": 33,
+      "sha256": "b267b357c87fa120059b3bb5aae579f173684a517f96993c52baaaeadec886d9",
+      "source_commit": "ec57ae0879462086495b5121abb10e8719ec21d4",
+      "subject": "[PATCH 33/82] Fix multi-output golden tile rank"
+    },
+    {
+      "bytes": 15297,
+      "file": "0034.patch",
+      "order": 34,
+      "sha256": "4cf445f4f98dc60e2b4f6257c9f5a72c1256fce8f6f48319220bdb4988c2bed3",
+      "source_commit": "6cdb50c69008ce99af1d8cd88f6ff2852b76573f",
+      "subject": "[PATCH 34/82] Add row gather layout lowering"
+    },
+    {
+      "bytes": 1610,
+      "file": "0035.patch",
+      "order": 35,
+      "sha256": "895661fb56c0befe94c8e4a881ed4259fc5035c383ac7ca64a54173648875f71",
+      "source_commit": "c05ab8fe2832ec46d72eb43ca9afb90b378c0ad6",
+      "subject": "[PATCH 35/82] Construct gather index tile types explicitly"
+    },
+    {
+      "bytes": 1262,
+      "file": "0036.patch",
+      "order": 36,
+      "sha256": "ebd735fad233ef8fbdab4d18a3135f3f6c611100cc30694854e4d55cbd94dd76",
+      "source_commit": "b61650ee4331a1841c43c39e8fa6d6d130652663",
+      "subject": "[PATCH 36/82] Use TensorIR signed indices in gather golden"
+    },
+    {
+      "bytes": 897,
+      "file": "0037.patch",
+      "order": 37,
+      "sha256": "f6f05ee25a8421b2f0e84d2587225ecccdde16dd45453563a695efd22f9f496b",
+      "source_commit": "353850f736de4e0793d5f716b9733ab2ea6aa77f",
+      "subject": "[PATCH 37/82] Admit row gathers in the CUDA Tile frontend"
+    },
+    {
+      "bytes": 2758,
+      "file": "0038.patch",
+      "order": 38,
+      "sha256": "08fd9aff4d813670f1b1a0fbd08370e82dbcad8f454a71ee9e57b81eabfac6f6",
+      "source_commit": "494ebe55345a00a2e9ad034725b7c464217e7308",
+      "subject": "[PATCH 38/82] Scale dense gather coordinates to element offsets"
+    },
+    {
+      "bytes": 1428,
+      "file": "0039.patch",
+      "order": 39,
+      "sha256": "a5615c6984ff91e77c48454425802b8f8ee2076ee35dd3407b1833f805c618c8",
+      "source_commit": "9b6c0b293a32dc3fdcb2c20a05be1618ac33d084",
+      "subject": "[PATCH 39/82] Make gather golden robust to constant hoisting"
+    },
+    {
+      "bytes": 876,
+      "file": "0040.patch",
+      "order": 40,
+      "sha256": "f37af5cd36e8e6b6d7034ec269481dbcf3663f90aff17c9287b25105598052e9",
+      "source_commit": "aa112b2a1ef54bd9a0ca0e512fb1cd2be442b8c3",
+      "subject": "[PATCH 40/82] Name layout inference failures"
+    },
+    {
+      "bytes": 3128,
+      "file": "0041.patch",
+      "order": 41,
+      "sha256": "9396780541d1e26946e469903f90dcde46bec89d5bb2c7dd6ba81f94f876ae66",
+      "source_commit": "2777ef23ad24580854b732e62fb462dea6ba6ef0",
+      "subject": "[PATCH 41/82] Support slicing reduction result layouts"
+    },
+    {
+      "bytes": 14789,
+      "file": "0042.patch",
+      "order": 42,
+      "sha256": "8e62b76ab674c62bab33c55d90f799608fb045368dd521942584dc0612488d90",
+      "source_commit": "a6a00b66fb59815a4c1652429750896a924cb87b",
+      "subject": "[PATCH 42/82] Materialize layout input loads lazily"
+    },
+    {
+      "bytes": 2347,
+      "file": "0043.patch",
+      "order": 43,
+      "sha256": "90a1ea1c52c4a3db04c3f0ba8956618b82e656e3ec8e1c342315d47ed0091ff4",
+      "source_commit": "2075d7addcf3e980d3bbc5696fdbcf9d5c9fed79",
+      "subject": "[PATCH 43/82] Scope lazy input loads to one rewrite"
+    },
+    {
+      "bytes": 3467,
+      "file": "0044.patch",
+      "order": 44,
+      "sha256": "08f50d51570240f353f487cdd1f143b305cea8b7d0743d0abc415658682bb23c",
+      "source_commit": "4c3f0821f8ffe33ca1f6995e5c6943889a19e816",
+      "subject": "[PATCH 44/82] Key lazy input loads by rewrite owner"
+    },
+    {
+      "bytes": 3343,
+      "file": "0045.patch",
+      "order": 45,
+      "sha256": "2787938b452381efb48a0d3600dad671d249519fd0cfa238589dcb7570376fe7",
+      "source_commit": "76a49bb3db2922e3c6dd06c1218497fe8e9f9b92",
+      "subject": "[PATCH 45/82] Invalidate lazy loads on every rewrite attempt"
+    },
+    {
+      "bytes": 4959,
+      "file": "0046.patch",
+      "order": 46,
+      "sha256": "5d453b45147582c59fcefe24e86abd57d076f112c8214745228c1f36c6315703",
+      "source_commit": "19d71d94d4fdfc0804def90b90c3b2bf7995547c",
+      "subject": "[PATCH 46/82] Materialize every direct input consumption"
+    },
+    {
+      "bytes": 7327,
+      "file": "0047.patch",
+      "order": 47,
+      "sha256": "abc5a0476c4c40da1280f6c50bd175878e330c460055b82c77e374f5d8024b51",
+      "source_commit": "0494d49737aaf83511ae30b1f9a1afcb71e091d8",
+      "subject": "[PATCH 47/82] Delay pure broadcasts until input consumption"
+    },
+    {
+      "bytes": 1242,
+      "file": "0048.patch",
+      "order": 48,
+      "sha256": "d5970b371befb03f06f77c1291ee755d027903144b387be6994daa6903a72632",
+      "source_commit": "9137c902ed01f8836bf004994ef095b6fed77eeb",
+      "subject": "[PATCH 48/82] Compare delayed broadcast tile shapes portably"
+    },
+    {
+      "bytes": 5804,
+      "file": "0049.patch",
+      "order": 49,
+      "sha256": "9c0db60e6d5c5b2a23a84f8dc680b3079826afa5e506d993b15c2e5376e05f1a",
+      "source_commit": "7db1972f51b383e2c55f10578e5ff0cc7003cff2",
+      "subject": "[PATCH 49/82] Keep lazy loads inside rewrite transactions"
+    },
+    {
+      "bytes": 4706,
+      "file": "0050.patch",
+      "order": 50,
+      "sha256": "705ae3cc63a7b7be3c83a257c72809c41d1210edfb3106d858b63587be94458f",
+      "source_commit": "20367d1c5e10aa081ff1a0856c260aa18bdde871",
+      "subject": "[PATCH 50/82] Anchor narrow loads before lazy broadcasts"
+    },
+    {
+      "bytes": 2345,
+      "file": "0051.patch",
+      "order": 51,
+      "sha256": "5767dbd3efc58d9caafe30edc3e6af337e916bad90a1eb742f38e066f03bb048",
+      "source_commit": "09e40e620a0212633d469d3c19bbcd575e65367d",
+      "subject": "[PATCH 51/82] Run layout conversion as one shot"
+    },
+    {
+      "bytes": 2938,
+      "file": "0052.patch",
+      "order": 52,
+      "sha256": "c14bd1ac00a961268cd6a94a0e0aea803aabea8c25b895097db8c7e1c2b0cf78",
+      "source_commit": "1cf0150daaeaed956c13d1c66598fcbd088c8615",
+      "subject": "[PATCH 52/82] Preserve result layouts for one-shot conversion"
+    },
+    {
+      "bytes": 1646,
+      "file": "0053.patch",
+      "order": 53,
+      "sha256": "5aa94184a153ee967a9abb363f48e5b17564401ef8cf7d9c3ab44af1c4406a85",
+      "source_commit": "d2ed3e43e63dfb2ac6767431db30cac91ad84b44",
+      "subject": "[PATCH 53/82] Validate gather tiles in their real space"
+    },
+    {
+      "bytes": 5422,
+      "file": "0054.patch",
+      "order": 54,
+      "sha256": "580a43d6512d6e55e9128c9099a1fee29634671754c72217a04ed73c00353ef0",
+      "source_commit": "6944dcecdb7887f1ee9e4febb2a845ae5bbbbea5",
+      "subject": "[PATCH 54/82] Materialize inputs in one-shot consumers"
+    },
+    {
+      "bytes": 3644,
+      "file": "0055.patch",
+      "order": 55,
+      "sha256": "65cafb500c8019bdbbc5d5415c815d3138fbb6dc0e3c8c3c2932ee248cad5829",
+      "source_commit": "4b69fac19aa415b1dc91e2252bedab30e4dfa187",
+      "subject": "[PATCH 55/82] Build one-shot loads outside rewrite bookkeeping"
+    },
+    {
+      "bytes": 1332,
+      "file": "0056.patch",
+      "order": 56,
+      "sha256": "a2fe364bf673cb4a78c3fed48379bcd534175a19b6532d149aca186a341af661",
+      "source_commit": "a259794aa4b40146073e3a064c723110e56ffeae",
+      "subject": "[PATCH 56/82] Append lazy loads with their consumers"
+    },
+    {
+      "bytes": 8603,
+      "file": "0057.patch",
+      "order": 57,
+      "sha256": "ccc93818bd919a6d2c07017a0110667eee65deabf573ae3b9bc96c325cd2127c",
+      "source_commit": "d045a84ab258057c5bbd716459c1fcbf1d9f3123",
+      "subject": "[PATCH 57/82] Project gather rows through fused layouts"
+    },
+    {
+      "bytes": 2829,
+      "file": "0058.patch",
+      "order": 58,
+      "sha256": "db476218f2dc41f9c83a63f0c0d0c30c1bf5d66efd27d113e42b983d2876afbb",
+      "source_commit": "032d67a4fdf83f03613fba745ea5ce2aa6b66df3",
+      "subject": "[PATCH 58/82] Restore propagated reduction result rank"
+    },
+    {
+      "bytes": 1872,
+      "file": "0059.patch",
+      "order": 59,
+      "sha256": "e55254970852a8c8e82e25ec03e8e47cc494d2e5ac2423397d0ad3d6da636b50",
+      "source_commit": "a48606b88c7fdce4b31ebdf33cd3e6af113cf985",
+      "subject": "[PATCH 59/82] Project gather index producers into fused space"
+    },
+    {
+      "bytes": 10513,
+      "file": "0060.patch",
+      "order": 60,
+      "sha256": "eb9e2d5e5257baf02c9f8ba0ddce4d2ed0c601eaed9ea28bfd39abc563ea33ec",
+      "source_commit": "4407530b39307866e7d6cc032dcf711c5954f086",
+      "subject": "[PATCH 60/82] Handle unit dimensions in fused matmul layouts"
+    },
+    {
+      "bytes": 3031,
+      "file": "0061.patch",
+      "order": 61,
+      "sha256": "3db49ae3449b7adb174c9fbb654a605b499b65ff3cbba381a01735c7891bc253",
+      "source_commit": "83dd4a59c0edfbf74794faf4b55207a9b86c3378",
+      "subject": "[PATCH 61/82] Cover valid-length masked paged decode"
+    },
+    {
+      "bytes": 2622,
+      "file": "0062.patch",
+      "order": 62,
+      "sha256": "63693548b5827e968db8108cffb92c558599e7bdde0892b03db1bee1296815d5",
+      "source_commit": "70795842ee1c5de92b56c0570e5d51bd79601f27",
+      "subject": "[PATCH 62/82] Read decode slots from request table"
+    },
+    {
+      "bytes": 5733,
+      "file": "0063.patch",
+      "order": 63,
+      "sha256": "f3b5d8335ea514609c343d475175769d1b2dfb963503c5c49c417c0ce658c74a",
+      "source_commit": "be77cc98ab292b58d55fb1e717092a39cbfc50df",
+      "subject": "[PATCH 63/82] Lower scalar-row gather projections"
+    },
+    {
+      "bytes": 20381,
+      "file": "0064.patch",
+      "order": 64,
+      "sha256": "f5a579918c9da7109767e64a1a62c3b766ce5a8693e407fdde5bcbc81d404b8c",
+      "source_commit": "6b7599a57efea5fc67e1a696b6a2142671f0b95d",
+      "subject": "[PATCH 64/82] Add row scatter layout lowering"
+    },
+    {
+      "bytes": 5735,
+      "file": "0065.patch",
+      "order": 65,
+      "sha256": "0cbe1f3af81e525b68d26c7ac13160c867add5f5a1906b6196afdf130de6ff38",
+      "source_commit": "d93401f6cbe825421b4b8d74256bac9f234a4df6",
+      "subject": "[PATCH 65/82] Lower single-column gather rows"
+    },
+    {
+      "bytes": 2769,
+      "file": "0066.patch",
+      "order": 66,
+      "sha256": "0d566e06dd7e323b0c2cfb1bfb97b79964e55674d2b2d8ab29bfbf14bd15aa3a",
+      "source_commit": "7f6c6cd62975560423127a252371b87b1a86893c",
+      "subject": "[PATCH 66/82] Handle scalar gather projections"
+    },
+    {
+      "bytes": 7019,
+      "file": "0067.patch",
+      "order": 67,
+      "sha256": "3c8f2a663867dc6ac55d82263ed64463236bb3865dd253ff9288ae8d0c1d16a8",
+      "source_commit": "d6cfe933f9fa30492912400fe537dda3a39ce9a9",
+      "subject": "[PATCH 67/82] Project composite gather scatter indices"
+    },
+    {
+      "bytes": 6310,
+      "file": "0068.patch",
+      "order": 68,
+      "sha256": "ca5c2f3863bb9cd7a095e905d514056613a87370fe7ee349d6f2b6b4356e8b26",
+      "source_commit": "ee75208b1fde213e731baffb935bf8ba91c335a3",
+      "subject": "[PATCH 68/82] Accept compatible composite index projections"
+    },
+    {
+      "bytes": 5708,
+      "file": "0069.patch",
+      "order": 69,
+      "sha256": "e5aeec573f5dfb610af612edfe7148a1a6c5408e612e36d95e759fe5de797d24",
+      "source_commit": "20fab98254e0b14a587e0abf285bec951bf9382c",
+      "subject": "[PATCH 69/82] Infer gather row axes from indices"
+    },
+    {
+      "bytes": 5880,
+      "file": "0070.patch",
+      "order": 70,
+      "sha256": "d034732471041e0215a607bdabc71e222cf2a599a4bb36f3d7323c6c358a8639",
+      "source_commit": "1cae26fa225b377501ec9e544fa972590bd1b8fe",
+      "subject": "[PATCH 70/82] Infer scatter row axes from indices"
+    },
+    {
+      "bytes": 14373,
+      "file": "0071.patch",
+      "order": 71,
+      "sha256": "bcb63d210f647e4a5558fa20cb677ec37f8bcce877eb55f3f3ce96e704a98cf2",
+      "source_commit": "db2b888be812dcb8e1919a0ecc8b9d909a7cd2d1",
+      "subject": "[PATCH 71/82] Project contiguous gather columns across reshapes"
+    },
+    {
+      "bytes": 2231,
+      "file": "0072.patch",
+      "order": 72,
+      "sha256": "f156e34db530a0e49aaa2c97b1d271c73665c34fec9d2050b2ce02bc607bc126",
+      "source_commit": "e8360893ca52cf1e9a45d11c7cf9f4dbb628f0df",
+      "subject": "[PATCH 72/82] Reject unanchored scatter mutations"
+    },
+    {
+      "bytes": 1374,
+      "file": "0073.patch",
+      "order": 73,
+      "sha256": "768e41fbd55335d066f28db2d95253eaa114efe41f74b4435bc80a0dc22ced3a",
+      "source_commit": "2c68474e2e26729362e89362e6e89e0abb2a2649",
+      "subject": "[PATCH 73/82] Name operations missing split layout ids"
+    },
+    {
+      "bytes": 1588,
+      "file": "0074.patch",
+      "order": 74,
+      "sha256": "8e1a64203ec4ff1c03c551cce589606e182d107ee1d8b7a3b991cdaedffc35be",
+      "source_commit": "1bfde95894c0d5d9a9ca9426b55cf787f552fb02",
+      "subject": "[PATCH 74/82] Remove residual source DAG after graph splitting"
+    },
+    {
+      "bytes": 1420,
+      "file": "0075.patch",
+      "order": 75,
+      "sha256": "b2600c9edd74635e5d175cd21c0ce95749901e5bfe0d2e974543cec0616adcd4",
+      "source_commit": "bdf6c5ec3e16b74d233473b700273bcea1489a73",
+      "subject": "[PATCH 75/82] Name residual split-DAG dependencies"
+    },
+    {
+      "bytes": 2182,
+      "file": "0076.patch",
+      "order": 76,
+      "sha256": "9c40fe85ed29c1820db37f3343af8be60b357606e8c43b10f4c9619d76709058",
+      "source_commit": "c165ecb1e62b7606f9e04bb243e490ebebc4823b",
+      "subject": "[PATCH 76/82] Detach pruned concat operands from source DAG"
+    },
+    {
+      "bytes": 1400,
+      "file": "0077.patch",
+      "order": 77,
+      "sha256": "a59c65a530f08d43e7a66609bc5028c0dc7ee35961b5717241d3fd85ac27c517",
+      "source_commit": "a8898e63938563f56a76576368823b17599e6ddc",
+      "subject": "[PATCH 77/82] Diagnose recurrent scatter layout mapping"
+    },
+    {
+      "bytes": 3391,
+      "file": "0078.patch",
+      "order": 78,
+      "sha256": "4d144516b46f83009073625012bfcc4adb6609ecc6c76d3e1a1067487326ae1e",
+      "source_commit": "04da10448b8dbb95d91ae73252b34bff628407ad",
+      "subject": "[PATCH 78/82] Permute scatter tiles into physical column order"
+    },
+    {
+      "bytes": 1209,
+      "file": "0079.patch",
+      "order": 79,
+      "sha256": "49b7e3b2e05fc6f75064ec19b58ed48dc08b6ac149647f44c94d443191527062",
+      "source_commit": "6245d2baeb6f815b61464f63759c251a9a6abac0",
+      "subject": "[PATCH 79/82] Construct permuted scatter tile types explicitly"
+    },
+    {
+      "bytes": 1013,
+      "file": "0080.patch",
+      "order": 80,
+      "sha256": "bc6acd6c686a5be216b643a35f7ce795fee9d80bd2f0201e2655416f930c226b",
+      "source_commit": "8ad445b0af6422be6274544de2138335fa20c56f",
+      "subject": "[PATCH 80/82] Probe unpermuted recurrent scatter tiles"
+    },
+    {
+      "bytes": 2760,
+      "file": "0081.patch",
+      "order": 81,
+      "sha256": "ad748d751b67e957e768fd69449f9a8c82bdb34bda406851810400174b9c2ad7",
+      "source_commit": "e9be619a9c4d70a643b1d0300d7b3a7683f951a1",
+      "subject": "[PATCH 81/82] Keep aligned scatter update tile order"
+    },
+    {
+      "bytes": 2099,
+      "file": "0082.patch",
+      "order": 82,
+      "sha256": "a4e4d008b83c6e42728763fb48e64d6736347d4182799a1b9bf83238375efd36",
+      "source_commit": "b478e09a49c13d8ee330f770a19fef48b759f8b8",
+      "subject": "[PATCH 82/82] Align marked pointwise RHS tile axes"
+    }
+  ],
+  "repository": "tensor_ir",
+  "schema": 1
+}

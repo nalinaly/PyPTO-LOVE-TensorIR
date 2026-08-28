@@ -1,0 +1,21 @@
+From 353850f736de4e0793d5f716b9733ab2ea6aa77f Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 00:36:36 +0800
+Subject: [PATCH 37/82] Admit row gathers in the CUDA Tile frontend
+
+---
+ lib/Compiler/CudaTile/CudaTileFrontend.cpp | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/lib/Compiler/CudaTile/CudaTileFrontend.cpp b/lib/Compiler/CudaTile/CudaTileFrontend.cpp
+index df41e159a63dd667c1f8d4c6526ec9c6851e97e0..18d262de486a26ac50a06157c36af73b3a269b74 100644
+--- a/lib/Compiler/CudaTile/CudaTileFrontend.cpp
++++ b/lib/Compiler/CudaTile/CudaTileFrontend.cpp
+@@ -29,6 +29,7 @@ static bool isSupportedTensorIrOp(mlir::Operation *op) {
+       GraphOp, ResultsOp,
+       // Data movement.
+       TransposeOp, ConcatenateOp, SliceOp, ReshapeOp, BroadcastOp,
++      GatherRowsOp,
+       // Type conversion.
+       ConvertOp,
+       // Unary pointwise.

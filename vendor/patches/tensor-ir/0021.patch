@@ -1,0 +1,26 @@
+From 9506797cdde1f62675c6777904f9884bfbac67e0 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 04:28:38 +0800
+Subject: [PATCH 21/82] Bind tileiras toolkit environment
+
+---
+ lib/Compiler/CudaTile/TileIRAssembly.cpp | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/lib/Compiler/CudaTile/TileIRAssembly.cpp b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+index 9d2a37703c66296144711b3bce1c2dc5e0ab2f5b..d5cdd4d4d8e73bc118df258e00c1a1231783db30 100644
+--- a/lib/Compiler/CudaTile/TileIRAssembly.cpp
++++ b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+@@ -264,8 +264,12 @@ ProcessResult runProgram(llvm::StringRef program,
+   llvm::SmallVector<llvm::StringRef, 8> environment;
+   std::optional<llvm::ArrayRef<llvm::StringRef>> environmentRef;
+   if (producerBinDirectory) {
++    std::string toolkitRoot =
++        llvm::sys::path::parent_path(*producerBinDirectory).str();
+     environmentStorage.push_back("PATH=" + producerBinDirectory->str() +
+                                  ":/usr/bin:/bin");
++    environmentStorage.push_back("CUDA_HOME=" + toolkitRoot);
++    environmentStorage.push_back("CUDA_PATH=" + toolkitRoot);
+     environmentStorage.push_back("LANG=C");
+     environmentStorage.push_back("LC_ALL=C");
+     environmentStorage.push_back("TZ=UTC");

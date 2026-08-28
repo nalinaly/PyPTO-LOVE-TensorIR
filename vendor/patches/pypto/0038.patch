@@ -1,0 +1,330 @@
+From 54aa9afb9b6afb9b7b5d82805c9be332f94bcfe6 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 05:12:56 +0800
+Subject: [PATCH 038/212] Fail closed on TensorIR scratch scan errors
+
+---
+ 3rdparty/nvidia/tensor-ir                     |   2 +-
+ cmake/nvidia_backend.cmake                    |   4 +-
+ docs/en/dev/backend/01-nvidia-target-info.md  |  11 +-
+ docs/zh/dev/backend/01-nvidia-target-info.md  |  11 +-
+ include/pypto/compiler/artifact.h             |   2 +-
+ .../structured_tensorir_explicit_v1.json      |   5 +
+ tests/ut/compiler/test_artifact.py            |   2 +-
+ .../test_nvidia_backend_build_info.py         |   2 +-
+ tests/ut/cpp/CMakeLists.txt                   |   4 +
+ tests/ut/cpp/tensor_ir_artifact_seam_test.cpp | 113 +++++++++++++++++-
+ 10 files changed, 143 insertions(+), 13 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index bbe6c731379e3af6280aa07469371860dacb740b..1dcb38c20e53d07c97d3781cae538e33901bae30 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit bbe6c731379e3af6280aa07469371860dacb740b
++Subproject commit 1dcb38c20e53d07c97d3781cae538e33901bae30
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 2ca3464cae35a713cff86da8f5a5c689c21f51b6..4b7659ddd57c50689ba9f211c4691813f0f408bb 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -33,7 +33,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "bbe6c731379e3af6280aa07469371860dacb740b")
++    "1dcb38c20e53d07c97d3781cae538e33901bae30")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+@@ -49,7 +49,7 @@ set(PYPTO_NVIDIA_TILEIRAS_SHA256
+ set(PYPTO_NVIDIA_STRUCTURED_PIPELINE_SPEC
+     "${CMAKE_SOURCE_DIR}/src/compiler/nvidia/structured_tensorir_explicit_v1.json")
+ set(PYPTO_NVIDIA_STRUCTURED_PIPELINE_REVISION
+-    "32416049d303918c1afa318da211d48141e39481")
++    "c9a61d276851e93f285c430d2833d900cf0e3b81")
+ 
+ find_package(Git REQUIRED)
+ 
+diff --git a/docs/en/dev/backend/01-nvidia-target-info.md b/docs/en/dev/backend/01-nvidia-target-info.md
+index 00836788163643c1b77d1a0d16314bd42f73cb6b..9809ad896510903a15f5580a818debaec8fbce8a 100644
+--- a/docs/en/dev/backend/01-nvidia-target-info.md
++++ b/docs/en/dev/backend/01-nvidia-target-info.md
+@@ -234,7 +234,7 @@ The assembler CLI spelling and semantic target are separate identity fields:
+ `assembler_gpu_name=sm_120`, while TensorIR's exact-architecture policy is
+ `tensor_ir_target=sm_120a`. The canonical pipeline specification is
+ [`structured_tensorir_explicit_v1.json`](../../../../src/compiler/nvidia/structured_tensorir_explicit_v1.json).
+-Its Git-blob identity is `32416049d303918c1afa318da211d48141e39481`;
++Its Git-blob identity is `c9a61d276851e93f285c430d2833d900cf0e3b81`;
+ CMake verifies that identity so the pipeline revision cannot be an unexplained
+ placeholder.
+ 
+@@ -243,8 +243,13 @@ count from `NvidiaTargetInfo`, reduction tile size `128`, persistence `none`,
+ sanitized assembler environment v2 (including exact `CUDA_HOME`/`CUDA_PATH`),
+ a 300-second assembler limit, 4096 MiB child data/RSS limit, a 4096 MiB soft
+ per-file limit, a parent-enforced 4096 MiB total private-scratch quota, and a
+-64 KiB returned-diagnostic limit. The Linux strict child closes every
+-descriptor above stderr with fail-closed `close_range` before exact `execve`;
++64 KiB returned-diagnostic limit. Scratch scans fail closed for permission,
++I/O, and other persistent errors. Only `ENOENT` churn is retried, for at most
++100 consecutive 10 ms polling intervals, and every post-exit scan error is
++rejected. Linux scans use descriptor-relative `openat`/`fstatat` traversal with
++`O_NOFOLLOW`/`AT_SYMLINK_NOFOLLOW`, so directory and symlink replacement cannot
++redirect the scan outside the private scratch tree. The Linux strict child
++closes every descriptor above stderr with fail-closed `close_range` before exact `execve`;
+ its three source descriptors are first reserved above stderr so closed host
+ stdio cannot alias the remapping.
+ All TensorIR IR dump/load, print-tree, and timing debug options are empty or
+diff --git a/docs/zh/dev/backend/01-nvidia-target-info.md b/docs/zh/dev/backend/01-nvidia-target-info.md
+index 2be3c69cf632cb39b5de7a965302aaaa0a3e09f7..db7a840ede198bb482a05965896ca130aad4e811 100644
+--- a/docs/zh/dev/backend/01-nvidia-target-info.md
++++ b/docs/zh/dev/backend/01-nvidia-target-info.md
+@@ -210,7 +210,7 @@ assembler CLI spelling 与 semantic target 是两个不同 identity field：
+ `assembler_gpu_name=sm_120`，TensorIR exact-architecture policy 则是
+ `tensor_ir_target=sm_120a`。canonical pipeline specification 位于
+ [`structured_tensorir_explicit_v1.json`](../../../../src/compiler/nvidia/structured_tensorir_explicit_v1.json)，
+-其 Git-blob identity 为 `32416049d303918c1afa318da211d48141e39481`。
++其 Git-blob identity 为 `c9a61d276851e93f285c430d2833d900cf0e3b81`。
+ CMake 会验证该 identity，避免 pipeline revision 变成无法解释的 placeholder。
+ 
+ 固定 resource/producer policy 也被显式记录：occupancy 为 `1`、SM count 来自
+@@ -218,8 +218,13 @@ CMake 会验证该 identity，避免 pipeline revision 变成无法解释的 pla
+ sanitized assembler environment v2（包含精确 `CUDA_HOME`/`CUDA_PATH`）、300 秒
+ assembler 上限、4096 MiB child data/RSS 上限、每文件 4096 MiB soft limit、由 parent
+ 强制的 4096 MiB private-scratch 总量上限，以及 64 KiB returned-diagnostic 上限。
+-Linux strict child 会在 exact `execve` 前通过 fail-closed `close_range` 关闭
+-stderr 以上的所有 file descriptor；三个 source descriptor 会先被保留在 stderr 之上，
++scratch scan 对 permission、I/O 和其他持久错误 fail closed；仅 `ENOENT` churn
++允许重试，最多连续 100 个 10 ms polling interval，且 post-exit 的任何 scan error
++都直接拒绝。Linux scan 使用 descriptor-relative `openat`/`fstatat` traversal，
++并启用 `O_NOFOLLOW`/`AT_SYMLINK_NOFOLLOW`，因此目录或 symlink replacement
++不会把 scan 重定向到 private scratch tree 之外。Linux strict child 会在 exact
++`execve` 前通过 fail-closed `close_range` 关闭 stderr 以上的所有 file descriptor；
++三个 source descriptor 会先被保留在 stderr 之上，
+ 因此 host 关闭的 stdio 不会与 remapping 发生 alias。
+ 所有 TensorIR IR dump/load、print-tree 与 timing debug option 都必须为空或关闭，
+ 并在 private bridge boundary 再次核对。pinned source-entry compiler 在 strict mode
+diff --git a/include/pypto/compiler/artifact.h b/include/pypto/compiler/artifact.h
+index c2d975a1afc24f5e496c09b8a488fa3da4c50239..b4ac0f749e5b32808ab44f2b44e9a40ec0b9c77f 100644
+--- a/include/pypto/compiler/artifact.h
++++ b/include/pypto/compiler/artifact.h
+@@ -473,7 +473,7 @@ class Artifact {
+   static constexpr std::string_view kProducerOptionsContract =
+       "pypto.nvidia.tensorir_options.v1";
+   static constexpr std::string_view kStructuredTensorIrPipelineRevision =
+-      "32416049d303918c1afa318da211d48141e39481";
++      "c9a61d276851e93f285c430d2833d900cf0e3b81";
+   static constexpr uint32_t kArtifactSchemaVersion = 1;
+   static constexpr uint32_t kCompilerAbiVersion = CompileRequest::kCompilerAbiVersion;
+   static constexpr int32_t kRequiredComputeCapability = 120;
+diff --git a/src/compiler/nvidia/structured_tensorir_explicit_v1.json b/src/compiler/nvidia/structured_tensorir_explicit_v1.json
+index 32416049d303918c1afa318da211d48141e39481..c9a61d276851e93f285c430d2833d900cf0e3b81 100644
+--- a/src/compiler/nvidia/structured_tensorir_explicit_v1.json
++++ b/src/compiler/nvidia/structured_tensorir_explicit_v1.json
+@@ -7,7 +7,12 @@
+   "assembler_gpu_name": "sm_120",
+   "assembler_memory_limit_mib": 4096,
+   "assembler_scratch_directory": "private",
++  "assembler_scratch_post_exit_scan_errors": "fail-closed",
++  "assembler_scratch_scan_errors": "fail-closed-except-bounded-enoent-churn",
++  "assembler_scratch_scan_interval_ms": 10,
++  "assembler_scratch_scan_traversal": "linux-fd-relative-openat-no-follow",
+   "assembler_scratch_total_limit_bytes": 4294967296,
++  "assembler_scratch_transient_scan_limit": 100,
+   "assembler_stdio_policy": "reserved-above-stderr",
+   "assembler_timeout_seconds": 300,
+   "bytecode_version": [13, 3, 0],
+diff --git a/tests/ut/compiler/test_artifact.py b/tests/ut/compiler/test_artifact.py
+index 2072223d31ccadc5f44aba46a7a2a79f242d4753..c06e55ba1163cee8eeb1c4095364c7d383bde1df 100644
+--- a/tests/ut/compiler/test_artifact.py
++++ b/tests/ut/compiler/test_artifact.py
+@@ -45,7 +45,7 @@ from pypto.compiler import (
+     get_nvidia_backend_build_info,
+ )
+ 
+-PIPELINE_REVISION = "32416049d303918c1afa318da211d48141e39481"
++PIPELINE_REVISION = "c9a61d276851e93f285c430d2833d900cf0e3b81"
+ ARTIFACT_PAYLOAD_LIMIT = 68 * 1024 * 1024
+ CANONICAL_SOURCE = b"""module {
+   nv_tensor_ir.graph @add_op_simple(
+diff --git a/tests/ut/compiler/test_nvidia_backend_build_info.py b/tests/ut/compiler/test_nvidia_backend_build_info.py
+index 4414b649fa8cddacd64f41de916487e07cbb98a4..570e58a97578164ff6ea8cdcbcf04482d3479d2b 100644
+--- a/tests/ut/compiler/test_nvidia_backend_build_info.py
++++ b/tests/ut/compiler/test_nvidia_backend_build_info.py
+@@ -30,7 +30,7 @@ def test_nvidia_backend_build_info_is_immutable_and_self_consistent() -> None:
+     assert info.compiler_factory_available
+     assert len(info.pypto_revision) == 40
+     assert set(info.pypto_revision) <= set("0123456789abcdef")
+-    assert info.tensor_ir_revision == "bbe6c731379e3af6280aa07469371860dacb740b"
++    assert info.tensor_ir_revision == "1dcb38c20e53d07c97d3781cae538e33901bae30"
+     assert info.cuda_tile_revision == "af2417041cc939b87ef56d92cfdcf61737c5457e"
+     assert info.llvm_revision == "57109befac92811d2253109242ca6fa69c961fb2"
+     assert info.cuda_toolkit_root == "/usr/local/cuda-13.3"
+diff --git a/tests/ut/cpp/CMakeLists.txt b/tests/ut/cpp/CMakeLists.txt
+index 43c0a9041b57177fa2cc0af57a865d211e901560..5fb71d5096201d9ba8f6d6d0def41f6832bf29ba 100644
+--- a/tests/ut/cpp/CMakeLists.txt
++++ b/tests/ut/cpp/CMakeLists.txt
+@@ -171,6 +171,10 @@ if(PYPTO_ENABLE_NVIDIA_BACKEND)
+         tensor_ir_artifact_seam_test.cpp
+     )
+ 
++    target_include_directories(pypto_tensor_ir_artifact_seam_test PRIVATE
++        ${CMAKE_SOURCE_DIR}/3rdparty/nvidia/tensor-ir/lib
++    )
++
+     target_link_libraries(pypto_tensor_ir_artifact_seam_test PRIVATE
+         pypto_nvidia_backend_dependencies
+     )
+diff --git a/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp b/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp
+index 23432cc946848b6bfad7e36cf3eb88e38a3fec4b..60cfb56a4a955a4f593c5be66ae9ffa20e449e72 100644
+--- a/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp
++++ b/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp
+@@ -19,6 +19,7 @@
+ #include <limits>
+ #include <optional>
+ #include <string>
++#include <system_error>
+ #include <thread>
+ 
+ #if defined(__linux__)
+@@ -26,8 +27,12 @@
+ #include <unistd.h>
+ #endif
+ 
++#include "llvm/ADT/SmallString.h"
++#include "llvm/Support/FileSystem.h"
++#include "llvm/Support/Path.h"
+ #include "llvm/Support/raw_ostream.h"
+ 
++#include "Compiler/CudaTile/TileIRAssemblyInternal.h"
+ #include "tensor_ir/Compiler/CudaTile/CudaTileArtifact.h"
+ #include "tensor_ir/Compiler/CudaTile/CudaTileCompiler.h"
+ #include "tensor_ir/Compiler/CudaTile/CudaTileFrontend.h"
+@@ -45,6 +50,11 @@ using mlir::nv_tensor_ir::backend::cuda_tile::CudaTileCompiledArtifact;
+ using mlir::nv_tensor_ir::backend::cuda_tile::CudaTileCompiler;
+ using mlir::nv_tensor_ir::backend::cuda_tile::CudaTileGridPolicy;
+ using mlir::nv_tensor_ir::backend::cuda_tile::detectCudaTileArtifactKind;
++using mlir::nv_tensor_ir::backend::cuda_tile::detail::ScratchQuotaDecision;
++using mlir::nv_tensor_ir::backend::cuda_tile::detail::ScratchQuotaMonitor;
++using mlir::nv_tensor_ir::backend::cuda_tile::detail::ScratchScanResult;
++using mlir::nv_tensor_ir::backend::cuda_tile::detail::ScratchScanStatus;
++using mlir::nv_tensor_ir::backend::cuda_tile::detail::scanScratchDirectory;
+ using mlir::nv_tensor_ir::compiler::cuda_tile::computeStaticGridSize;
+ using mlir::nv_tensor_ir::compiler::cuda_tile::CudaTileFrontendResult;
+ using tensor_ir::rt::CudaTileRuntimeKernel;
+@@ -134,6 +144,105 @@ CudaTileCompileOptions StrictOptions(const SmTarget &target,
+   return options;
+ }
+ 
++int TestScratchQuotaMonitor() {
++  const ScratchScanResult transient{
++      ScratchScanStatus::ScanError,
++      std::make_error_code(std::errc::no_such_file_or_directory)};
++  const ScratchScanResult within{ScratchScanStatus::WithinLimit, {}};
++  const ScratchScanResult fatal{
++      ScratchScanStatus::ScanError,
++      std::make_error_code(std::errc::permission_denied)};
++  const ScratchScanResult ioError{
++      ScratchScanStatus::ScanError,
++      std::make_error_code(std::errc::io_error)};
++  const ScratchScanResult exceeded{ScratchScanStatus::Exceeded, {}};
++
++  ScratchQuotaMonitor recoveringMonitor;
++  REQUIRE(recoveringMonitor.observe(transient, /*childExited=*/false) ==
++          ScratchQuotaDecision::Continue);
++  REQUIRE(recoveringMonitor.observe(within, /*childExited=*/false) ==
++          ScratchQuotaDecision::Continue);
++  REQUIRE(recoveringMonitor.observe(transient, /*childExited=*/false) ==
++          ScratchQuotaDecision::Continue);
++
++  ScratchQuotaMonitor finalMonitor;
++  REQUIRE(finalMonitor.observe(transient, /*childExited=*/true) ==
++          ScratchQuotaDecision::RejectScanError);
++  ScratchQuotaMonitor fatalMonitor;
++  REQUIRE(fatalMonitor.observe(fatal, /*childExited=*/false) ==
++          ScratchQuotaDecision::RejectScanError);
++  ScratchQuotaMonitor ioErrorMonitor;
++  REQUIRE(ioErrorMonitor.observe(ioError, /*childExited=*/false) ==
++          ScratchQuotaDecision::RejectScanError);
++  ScratchQuotaMonitor exceededMonitor;
++  REQUIRE(exceededMonitor.observe(exceeded, /*childExited=*/false) ==
++          ScratchQuotaDecision::RejectExceeded);
++
++  ScratchQuotaMonitor boundedMonitor;
++  for (unsigned attempt = 0;
++       attempt < ScratchQuotaMonitor::kMaximumConsecutiveTransientScans;
++       ++attempt) {
++    REQUIRE(boundedMonitor.observe(transient, /*childExited=*/false) ==
++            ScratchQuotaDecision::Continue);
++  }
++  REQUIRE(boundedMonitor.observe(transient, /*childExited=*/false) ==
++          ScratchQuotaDecision::RejectScanError);
++
++  llvm::SmallString<128> directory;
++  REQUIRE(!llvm::sys::fs::createUniqueDirectory("pypto-scratch-quota",
++                                                 directory));
++  struct DirectoryRemover {
++    llvm::SmallString<128> path;
++    ~DirectoryRemover() { (void)llvm::sys::fs::remove_directories(path); }
++  } remover{directory};
++
++  llvm::SmallString<128> file(directory);
++  llvm::sys::path::append(file, "payload");
++  std::error_code writeError;
++  llvm::raw_fd_ostream output(file, writeError);
++  REQUIRE(!writeError);
++  output << "1234";
++  output.close();
++  REQUIRE(!output.has_error());
++
++  REQUIRE(scanScratchDirectory(directory, 4).status ==
++          ScratchScanStatus::WithinLimit);
++  REQUIRE(scanScratchDirectory(directory, 3).status ==
++          ScratchScanStatus::Exceeded);
++  ScratchScanResult notDirectory = scanScratchDirectory(file, 4);
++  REQUIRE(notDirectory.status == ScratchScanStatus::ScanError);
++  REQUIRE(notDirectory.error == std::errc::not_a_directory);
++
++  REQUIRE(!llvm::sys::fs::remove(file));
++  REQUIRE(!llvm::sys::fs::remove(directory));
++  ScratchScanResult removed = scanScratchDirectory(directory, 4);
++  REQUIRE(removed.status == ScratchScanStatus::ScanError);
++  REQUIRE(removed.error == std::errc::no_such_file_or_directory);
++  ScratchQuotaMonitor churnMonitor;
++  REQUIRE(churnMonitor.observe(removed, /*childExited=*/false) ==
++          ScratchQuotaDecision::Continue);
++  REQUIRE(!llvm::sys::fs::create_directory(directory));
++  ScratchScanResult recreated = scanScratchDirectory(directory, 4);
++  REQUIRE(recreated.status == ScratchScanStatus::WithinLimit);
++  REQUIRE(churnMonitor.observe(recreated, /*childExited=*/true) ==
++          ScratchQuotaDecision::Continue);
++#if defined(__linux__)
++  if (::geteuid() != 0) {
++    llvm::SmallString<128> unreadableDirectory(directory);
++    llvm::sys::path::append(unreadableDirectory, "unreadable");
++    REQUIRE(!llvm::sys::fs::create_directory(unreadableDirectory));
++    REQUIRE(!llvm::sys::fs::setPermissions(
++        unreadableDirectory, llvm::sys::fs::no_perms));
++    ScratchScanResult unreadable = scanScratchDirectory(directory, 4);
++    REQUIRE(!llvm::sys::fs::setPermissions(
++        unreadableDirectory, llvm::sys::fs::owner_all));
++    REQUIRE(unreadable.status == ScratchScanStatus::ScanError);
++    REQUIRE(unreadable.error == std::errc::permission_denied);
++  }
++#endif
++  return 0;
++}
++
+ int TestStrictOptionValidation(const SmTarget &target) {
+   CudaTileCompileOptions options =
+       StrictOptions(target, CudaTileArtifactKind::Cubin);
+@@ -478,7 +587,9 @@ int main() {
+   auto target = SmTarget::fromCc(120, ArchPortability::arch_conditional);
+   REQUIRE(mlir::succeeded(target));
+ 
+-  int result = TestStrictOptionValidation(*target);
++  int result = TestScratchQuotaMonitor();
++  if (result != 0) return result;
++  result = TestStrictOptionValidation(*target);
+   if (result != 0) return result;
+   result = TestSuppressedStrictDiagnostics(*target);
+   if (result != 0) return result;

@@ -1,0 +1,464 @@
+From 9dbc8155f6a4ba0925881e1a93d3e8699efa0f22 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 04:42:21 +0800
+Subject: [PATCH 141/212] Add valid-length masked paged decode
+
+---
+ ...ver-valid-length-masked-paged-decode.patch |  65 ++++++++
+ 3rdparty/nvidia/tensor-ir                     |   2 +-
+ cmake/nvidia_backend.cmake                    |   2 +-
+ src/codegen/nvidia/tensor_ir_codegen.cpp      | 144 ++++++++++++++----
+ tests/ut/compiler/test_structured_compile.py  |  23 ++-
+ 5 files changed, 197 insertions(+), 39 deletions(-)
+ create mode 100644 3rdparty/nvidia/0034-Cover-valid-length-masked-paged-decode.patch
+
+diff --git a/3rdparty/nvidia/0034-Cover-valid-length-masked-paged-decode.patch b/3rdparty/nvidia/0034-Cover-valid-length-masked-paged-decode.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..9b8169446a87f632013d26af7fd89dc4ec1726ae
+--- /dev/null
++++ b/3rdparty/nvidia/0034-Cover-valid-length-masked-paged-decode.patch
+@@ -0,0 +1,65 @@
++From 83dd4a59c0edfbf74794faf4b55207a9b86c3378 Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Fri, 28 Aug 2026 04:38:01 +0800
++Subject: [PATCH] Cover valid-length masked paged decode
++
++---
++ .../paged_decode_attention_layout.mlir        | 23 ++++++++++++++-----
++ 1 file changed, 17 insertions(+), 6 deletions(-)
++
++diff --git a/test/Conversion/TensorToCudaTile/paged_decode_attention_layout.mlir b/test/Conversion/TensorToCudaTile/paged_decode_attention_layout.mlir
++index 142d26d..84e0367 100644
++--- a/test/Conversion/TensorToCudaTile/paged_decode_attention_layout.mlir
+++++ b/test/Conversion/TensorToCudaTile/paged_decode_attention_layout.mlir
++@@ -6,9 +6,12 @@
++ // operand iteration space must restore it as extent one with index zero.
++ //
++ // CHECK-LABEL: entry @paged_decode_attention
++-// CHECK: make_gather_scatter_view
++-// CHECK: load_view_tko weak
++-// CHECK: mmaf
+++// CHECK-DAG: make_gather_scatter_view
+++// CHECK-DAG: load_view_tko weak
+++// CHECK-DAG: mmaf
+++// CHECK-DAG: iota
+++// CHECK-DAG: cmpi less_than
+++// CHECK-DAG: select
++ // CHECK: reduce
++ // CHECK: exp
++ // CHECK: mmaf
++@@ -19,10 +22,16 @@ module {
++       %key_cache: tensor<1024x256xbf16> {nv_tensor_ir.stride = "(256,1)"},
++       %value_cache: tensor<1024x256xbf16> {nv_tensor_ir.stride = "(256,1)"},
++       %physical_indices: tensor<16x256xsi32>
++-          {nv_tensor_ir.stride = "(1,0)"}) -> tensor<1x256xbf16>
+++          {nv_tensor_ir.stride = "(1,0)"},
+++      %valid_tokens: tensor<1x16xsi32>
+++          {nv_tensor_ir.stride = "(0,0)"}) -> tensor<1x256xbf16>
++       attributes {tile_size = array<i32: 64>} {
++     %scale = constant 0.0625 : f32
++     %scale_splat = splat %scale : tensor<1x16xf32>
+++    %valid_positions = iota dimension = 1 : tensor<1x16xsi32>
+++    %valid_mask = cmp %valid_positions lt %valid_tokens : tensor<1x16xsi32>
+++    %mask_floor = constant 0xFF7FFFFF : f32
+++    %mask_floor_splat = splat %mask_floor : tensor<1x16xf32>
++     %key = gather_rows %key_cache, %physical_indices
++         : (tensor<1024x256xbf16>, tensor<16x256xsi32>)
++        -> tensor<16x256xbf16>
++@@ -31,10 +40,12 @@ module {
++     %scores = matmul(%query, %key_t)
++         : (tensor<1x256xbf16>, tensor<256x16xbf16>) -> tensor<1x16xf32>
++     %scaled = mul %scores, %scale_splat : tensor<1x16xf32>
++-    %rowmax = reduce(%scaled) <dimensions = [1], reduction_mode = <max>>
+++    %masked_scaled = binary_select %valid_mask, %scaled, %mask_floor_splat
+++        : tensor<1x16xf32>
+++    %rowmax = reduce(%masked_scaled) <dimensions = [1], reduction_mode = <max>>
++         : tensor<1x16xf32> -> tensor<1x1xf32>
++     %max_full = broadcast %rowmax : tensor<1x1xf32> -> tensor<1x16xf32>
++-    %centered = sub %scaled, %max_full : tensor<1x16xf32>
+++    %centered = sub %masked_scaled, %max_full : tensor<1x16xf32>
++     %exponent = exp %centered : tensor<1x16xf32>
++     %rowsum = reduce(%exponent) <dimensions = [1], reduction_mode = <add>>
++         : tensor<1x16xf32> -> tensor<1x1xf32>
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 4407530b39307866e7d6cc032dcf711c5954f086..83dd4a59c0edfbf74794faf4b55207a9b86c3378 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 4407530b39307866e7d6cc032dcf711c5954f086
++Subproject commit 83dd4a59c0edfbf74794faf4b55207a9b86c3378
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index c16d1fdb86012f81d8bb32a4cb82998c6f2bcc0f..aacb187d76a8bba7ef947ec77fc725f25c47d99a 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "4407530b39307866e7d6cc032dcf711c5954f086")
++    "83dd4a59c0edfbf74794faf4b55207a9b86c3378")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index a8b6bacec17db21545db5c28063f6c49c4cf9c59..6d4db26d20810ccfe77139b1924455945eaecd8b 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -3813,6 +3813,7 @@ struct NativeTilePagedDecodeGraph {
+   StaticTensor key_cache;
+   StaticTensor value_cache;
+   StaticTensor physical_indices;
++  StaticTensor valid_tokens;
+   StaticTensor result;
+   int64_t q_heads;
+   int64_t kv_heads;
+@@ -4249,7 +4250,7 @@ NativeTileGdnReadGraph AnalyzeNativeTileGdnRead(
+ bool IsNativeTilePagedDecodeCandidate(const ir::ProgramPtr& program) {
+   if (!IsNativeTilePointwiseCandidate(program)) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+-  if (function->params_.size() != 6) return false;
++  if (function->params_.size() != 7) return false;
+   const auto top = ir::As<ir::SeqStmts>(function->body_);
+   const auto scope = top && !top->stmts_.empty()
+                          ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
+@@ -4259,7 +4260,7 @@ bool IsNativeTilePagedDecodeCandidate(const ir::ProgramPtr& program) {
+                           ? ir::As<ir::ForStmt>(body->stmts_[0])
+                           : nullptr;
+   const auto q_body = q_loop ? ir::As<ir::SeqStmts>(q_loop->body_) : nullptr;
+-  if (!q_body || q_body->stmts_.size() != 20) return false;
++  if (!q_body || q_body->stmts_.size() != 25) return false;
+   const auto slot_loop = ir::As<ir::ForStmt>(q_body->stmts_[5]);
+   const auto slot_body = slot_loop ? ir::As<ir::SeqStmts>(slot_loop->body_) : nullptr;
+   if (!slot_body || slot_body->stmts_.size() != 4) return false;
+@@ -4283,19 +4284,20 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+     Reject("native paged decode must be one canonical CHIP @pl.jit function",
+            function ? &function->span_ : &program->span_);
+   }
+-  if (function->params_.size() != 6 ||
+-      function->param_directions_.size() != 6 ||
++  if (function->params_.size() != 7 ||
++      function->param_directions_.size() != 7 ||
+       function->return_types_.size() != 1) {
+-    Reject("native paged decode requires Q, K/V cache, indices, scale and output",
++    Reject("native paged decode requires Q, K/V cache, indices, valid "
++           "length, scale and output",
+            &function->span_);
+   }
+-  for (size_t index = 0; index < 5; ++index) {
++  for (size_t index = 0; index < 6; ++index) {
+     if (function->param_directions_[index] != ir::ParamDirection::In) {
+       Reject("native paged decode inputs must have direction In",
+              &function->span_);
+     }
+   }
+-  if (function->param_directions_[5] != ir::ParamDirection::Out) {
++  if (function->param_directions_[6] != ir::ParamDirection::Out) {
+     Reject("native paged decode output must have direction Out",
+            &function->span_);
+   }
+@@ -4312,8 +4314,11 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+   StaticTensor physical_indices = ReadStaticTensor(
+       function->params_[3]->GetType(), function->params_[3]->span_,
+       "native paged decode physical indices");
++  StaticTensor valid_tokens = ReadStaticTensor(
++      function->params_[4]->GetType(), function->params_[4]->span_,
++      "native paged decode valid token count");
+   const StaticTensor result = ReadStaticTensor(
+-      function->params_[5]->GetType(), function->params_[5]->span_,
++      function->params_[6]->GetType(), function->params_[6]->span_,
+       "native paged decode output");
+   const StaticTensor declared = ReadStaticTensor(
+       function->return_types_[0], function->span_,
+@@ -4321,9 +4326,11 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+   if (query.dtype != DataType::BF16 || key_cache.dtype != DataType::BF16 ||
+       value_cache.dtype != DataType::BF16 ||
+       physical_indices.dtype != DataType::INT32 ||
++      valid_tokens.dtype != DataType::INT32 ||
+       result.dtype != DataType::BF16 || query.shape.size() != 2 ||
+       key_cache.shape.size() != 2 || !SameTensor(key_cache, value_cache) ||
+-      physical_indices.shape.size() != 2 || !SameTensor(query, result) ||
++      physical_indices.shape.size() != 2 || valid_tokens.shape.size() != 2 ||
++      !SameTensor(query, result) ||
+       !SameTensor(result, declared)) {
+     Reject("native paged decode tensor types or ranks are invalid",
+            &function->span_);
+@@ -4335,7 +4342,8 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+   if (q_heads <= 0 || head_dim <= 0 || cache_rows <= 0 || tokens <= 0 ||
+       head_dim % 128 != 0 || tokens % 16 != 0 ||
+       key_cache.shape[1] % head_dim != 0 ||
+-      physical_indices.shape[1] != head_dim) {
++      physical_indices.shape[1] != head_dim ||
++      valid_tokens.shape != std::vector<int64_t>{1, tokens}) {
+     Reject("native paged decode static geometry is invalid", &function->span_);
+   }
+   const int64_t kv_heads = key_cache.shape[1] / head_dim;
+@@ -4343,6 +4351,7 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+     Reject("native paged decode GQA head mapping is invalid", &function->span_);
+   }
+   physical_indices.dense_strides = {1, 0};
++  valid_tokens.dense_strides = {0, 0};
+ 
+   const auto top = ir::As<ir::SeqStmts>(function->body_);
+   const auto scope = top && top->stmts_.size() == 2
+@@ -4357,7 +4366,7 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+           : nullptr;
+   if (!scope || scope->split_ != ir::SplitMode::None ||
+       !scope->attrs_.empty() || !returned_var ||
+-      returned_var.get() != function->params_[5].get()) {
++      returned_var.get() != function->params_[6].get()) {
+     Reject("native paged decode scope or return is invalid", &function->span_);
+   }
+   const auto body = ir::As<ir::SeqStmts>(scope->body_);
+@@ -4369,7 +4378,7 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+   if (!q_loop || !q_stop || q_stop->value_ != q_heads ||
+       q_loop->kind_ != ir::ForKind::Sequential || !q_loop->iter_args_.empty() ||
+       !q_loop->return_vars_.empty() || !q_body ||
+-      q_body->stmts_.size() != 20) {
++      q_body->stmts_.size() != 25) {
+     Reject("native paged decode query-head loop is invalid", &scope->span_);
+   }
+   const auto slot_loop = ir::As<ir::ForStmt>(q_body->stmts_[5]);
+@@ -4390,28 +4399,83 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+              &slot_body->stmts_[index]->span_);
+     }
+   }
+-  constexpr std::array<std::string_view, 13> kExpectedOps = {
+-      "tile.load",        "tile.matmul",       "tile.muls",
+-      "tile.create",      "tile.row_max",      "tile.row_expand_sub",
+-      "tile.exp",         "tile.create",       "tile.row_sum",
+-      "tile.row_expand_div", "tile.cast",      "tile.matmul",
+-      "tile.cast"};
+-  std::array<ir::CallPtr, 13> calls;
++  constexpr std::array<std::string_view, 18> kExpectedOps = {
++      "tile.load",           "tile.matmul",         "tile.muls",
++      "tile.ci",             "tensor.read",         "tile.cmps",
++      "tile.create",         "tile.sels",           "tile.create",
++      "tile.row_max",        "tile.row_expand_sub", "tile.exp",
++      "tile.create",         "tile.row_sum",        "tile.row_expand_div",
++      "tile.cast",           "tile.matmul",         "tile.cast"};
++  std::array<ir::AssignStmtPtr, 18> assignments;
++  std::array<ir::CallPtr, 18> calls;
+   for (size_t index = 0; index < calls.size(); ++index) {
+-    const auto assignment = ir::As<ir::AssignStmt>(q_body->stmts_[6 + index]);
+-    calls[index] = assignment ? ir::As<ir::Call>(assignment->value_) : nullptr;
+-    if (!calls[index] ||
++    assignments[index] = ir::As<ir::AssignStmt>(q_body->stmts_[6 + index]);
++    calls[index] = assignments[index] && assignments[index]->var_
++                       ? ir::As<ir::Call>(assignments[index]->value_)
++                       : nullptr;
++    if (!assignments[index] || !assignments[index]->var_ || !calls[index] ||
+         !ir::IsOp(calls[index], std::string(kExpectedOps[index]))) {
+       Reject("native paged decode attention operation sequence is invalid",
+              &q_body->stmts_[6 + index]->span_);
+     }
+   }
+-  const auto store_statement = ir::As<ir::EvalStmt>(q_body->stmts_[19]);
++  const StaticTensor position_tile = ReadStaticTile(
++      assignments[3]->var_->GetType(), assignments[3]->var_->span_,
++      "native paged decode mask positions");
++  const StaticTensor masked_score = ReadStaticTile(
++      assignments[7]->var_->GetType(), assignments[7]->var_->span_,
++      "native paged decode masked score");
++  const StaticTensor mask_tile = ReadStaticTile(
++      assignments[5]->var_->GetType(), assignments[5]->var_->span_,
++      "native paged decode valid mask");
++  const StaticTensor mask_scratch = ReadStaticTile(
++      assignments[6]->var_->GetType(), assignments[6]->var_->span_,
++      "native paged decode mask scratch");
++  const auto position_start = calls[3]->args_.size() == 2
++                                  ? ir::As<ir::ConstInt>(calls[3]->args_[0])
++                                  : nullptr;
++  const auto mask_floor = calls[7]->args_.size() == 4
++                              ? ir::As<ir::ConstFloat>(calls[7]->args_[3])
++                              : nullptr;
++  const int64_t mask_columns =
++      (tokens / 256 + (tokens % 256 == 0 ? 0 : 1)) * 32;
++  if (position_tile.dtype != DataType::INT32 ||
++      position_tile.shape != std::vector<int64_t>{1, tokens} ||
++      mask_tile.dtype != DataType::UINT8 ||
++      mask_tile.shape != std::vector<int64_t>{1, mask_columns} ||
++      mask_scratch.dtype != DataType::UINT8 ||
++      mask_scratch.shape != std::vector<int64_t>{1, 32} || !position_start ||
++      position_start->dtype() != DataType::INT32 ||
++      position_start->value_ != 0 ||
++      masked_score.dtype != DataType::FP32 ||
++      masked_score.shape != std::vector<int64_t>{1, tokens} ||
++      calls[4]->args_.size() != 2 ||
++      calls[4]->args_[0].get() != function->params_[4].get() ||
++      calls[5]->args_.size() != 2 ||
++      calls[5]->args_[0].get() != assignments[3]->var_.get() ||
++      calls[5]->args_[1].get() != assignments[4]->var_.get() ||
++      !calls[5]->HasKwarg("cmp_type") ||
++      calls[5]->GetKwarg<int>("cmp_type") != 2 ||
++      calls[7]->args_.size() != 4 ||
++      calls[7]->args_[0].get() != assignments[5]->var_.get() ||
++      calls[7]->args_[1].get() != assignments[2]->var_.get() ||
++      calls[7]->args_[2].get() != assignments[6]->var_.get() || !mask_floor ||
++      mask_floor->dtype() != DataType::FP32 ||
++      mask_floor->value_ !=
++          -static_cast<double>(std::numeric_limits<float>::max()) ||
++      calls[9]->args_.empty() ||
++      calls[9]->args_[0].get() != assignments[7]->var_.get() ||
++      calls[10]->args_.empty() ||
++      calls[10]->args_[0].get() != assignments[7]->var_.get()) {
++    Reject("native paged decode valid-length mask is invalid",
++           &q_body->stmts_[9]->span_);
++  }
++  const auto store_statement = ir::As<ir::EvalStmt>(q_body->stmts_[24]);
+   const auto store =
+       store_statement ? ir::As<ir::Call>(store_statement->expr_) : nullptr;
+   if (!store || !ir::IsOp(store, "tile.store")) {
+     Reject("native paged decode must end in one output store",
+-           &q_body->stmts_[19]->span_);
++           &q_body->stmts_[24]->span_);
+   }
+   const auto scale = calls[2]->args_.size() == 2
+                          ? ir::As<ir::ConstFloat>(calls[2]->args_[1])
+@@ -4425,7 +4489,7 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+            &calls[2]->span_);
+   }
+   return NativeTilePagedDecodeGraph{
+-      query, key_cache, value_cache, physical_indices, result,
++      query, key_cache, value_cache, physical_indices, valid_tokens, result,
+       q_heads, kv_heads, tokens, head_dim, cache_rows, scale->value_};
+ }
+ 
+@@ -5565,6 +5629,7 @@ std::string EmitNativeTilePagedDecodeSource(
+   const std::string cache_type = TensorTypeText(graph.key_cache);
+   const std::string cache_head_type = TensorTypeText(cache_head);
+   const std::string indices_type = TensorTypeText(graph.physical_indices);
++  const std::string valid_tokens_type = TensorTypeText(graph.valid_tokens);
+   const std::string gathered_type = TensorTypeText(gathered);
+   const std::string gathered_transposed_type =
+       TensorTypeText(gathered_transposed);
+@@ -5588,9 +5653,18 @@ std::string EmitNativeTilePagedDecodeSource(
+   source += TensorWithStrideText(graph.value_cache);
+   source += ",\n    %arg3: ";
+   source += TensorWithStrideText(graph.physical_indices);
++  source += ",\n    %arg4: ";
++  source += TensorWithStrideText(graph.valid_tokens);
+   source += "\n  ) -> (";
+   source += TensorWithStrideText(graph.result);
+-  source += ") {\n    %scale = constant ";
++  source += ") {\n    %valid_positions = iota dimension = 1 : ";
++  source += valid_tokens_type;
++  source += "\n    %valid_mask = cmp %valid_positions lt %arg4 : ";
++  source += valid_tokens_type;
++  source += "\n    %mask_floor = constant 0xFF7FFFFF : f32";
++  source += "\n    %mask_floor_splat = splat %mask_floor : ";
++  source += score_type;
++  source += "\n    %scale = constant ";
+   AppendFloat(source, graph.scale);
+   source += " : f32\n    %scale_splat = splat %scale : ";
+   source += score_type;
+@@ -5637,8 +5711,12 @@ std::string EmitNativeTilePagedDecodeSource(
+     source += "\n    %scaled_" + suffix + " = mul %scores_" + suffix +
+               ", %scale_splat : ";
+     source += score_type;
++    source += "\n    %masked_scaled_" + suffix +
++              " = binary_select %valid_mask, %scaled_" + suffix +
++              ", %mask_floor_splat : ";
++    source += score_type;
+     source += "\n    %rowmax_" + suffix +
+-              " = reduce(%scaled_" + suffix +
++              " = reduce(%masked_scaled_" + suffix +
+               ") <dimensions = [1], reduction_mode = <max>> : ";
+     source += score_type;
+     source += " -> ";
+@@ -5648,8 +5726,8 @@ std::string EmitNativeTilePagedDecodeSource(
+     source += row_type;
+     source += " -> ";
+     source += score_type;
+-    source += "\n    %centered_" + suffix + " = sub %scaled_" + suffix +
+-              ", %max_broadcast_" + suffix + " : ";
++    source += "\n    %centered_" + suffix + " = sub %masked_scaled_" +
++              suffix + ", %max_broadcast_" + suffix + " : ";
+     source += score_type;
+     source += "\n    %exponent_" + suffix + " = exp %centered_" + suffix +
+               " : ";
+@@ -6516,10 +6594,10 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+     const NativeTilePagedDecodeGraph graph =
+         AnalyzeNativeTilePagedDecode(program);
+     std::vector<TensorIrValueMetadata> metadata;
+-    metadata.reserve(5);
+-    const std::array<StaticTensor, 4> inputs = {
++    metadata.reserve(6);
++    const std::array<StaticTensor, 5> inputs = {
+         graph.query, graph.key_cache, graph.value_cache,
+-        graph.physical_indices};
++        graph.physical_indices, graph.valid_tokens};
+     for (uint32_t index = 0; index < inputs.size(); ++index) {
+       metadata.push_back(TensorIrValueMetadata(
+           TensorIrValueRole::Input, index, inputs[index].dtype,
+@@ -6531,7 +6609,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+         graph.result.dense_strides, /*has_explicit_strides=*/true));
+     return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+                           EmitNativeTilePagedDecodeSource(graph),
+-                          std::move(metadata), /*input_count=*/4);
++                          std::move(metadata), /*input_count=*/5);
+   }
+   if (IsNativeTileAttentionCandidate(program)) {
+     const NativeTileAttentionGraph graph = AnalyzeNativeTileAttention(program);
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index 2ba6cd248f5386010a6e17adc136209979f3565c..c6588533d3236807f82b5daaf67218a1f84a185d 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -287,6 +287,7 @@ def _native_tile_paged_decode(
+     key_cache: pl.Tensor[[1024, 512], pl.BF16],
+     value_cache: pl.Tensor[[1024, 512], pl.BF16],
+     physical_indices: pl.Tensor[[16, 256], pl.INT32],
++    valid_tokens: pl.Tensor[[1, 16], pl.INT32],
+     scale: pl.FP32,
+     out: pl.Out[pl.Tensor[[8, 256], pl.BF16]],
+ ):
+@@ -327,11 +328,23 @@ def _native_tile_paged_decode(
+             )
+             score = pl.matmul(query_tile, keys, out_dtype=pl.FP32)
+             scaled = pl.mul(score, scale)
++            positions = pl.tile.ci(0, [1, 16], dtype=pl.INT32)
++            valid_token_count = pl.read(valid_tokens, [0, 0])
++            valid_mask = pl.cmps(positions, valid_token_count, cmp_type=2)
++            mask_scratch = pl.tile.create(
++                [1, 32], dtype=pl.UINT8, target_memory=pl.MemorySpace.Vec
++            )
++            masked_scaled = pl.sels(
++                valid_mask,
++                scaled,
++                mask_scratch,
++                -3.4028234663852886e38,
++            )
+             max_scratch = pl.create_tile(
+                 [1, 16], dtype=pl.FP32, target_memory=pl.MemorySpace.Vec
+             )
+-            row_max = pl.row_max(scaled, max_scratch)
+-            centered = pl.row_expand_sub(scaled, row_max)
++            row_max = pl.row_max(masked_scaled, max_scratch)
++            centered = pl.row_expand_sub(masked_scaled, row_max)
+             exponent = pl.exp(centered)
+             sum_scratch = pl.create_tile(
+                 [1, 16], dtype=pl.FP32, target_memory=pl.MemorySpace.Vec
+@@ -618,17 +631,19 @@ def _assert_native_paged_decode_compilation(request: CompileRequest) -> None:
+     assert kernel.entry_function_name == "pypto_fused_pointwise"
+     assert kernel.grid_abi.static_dimensions == [32, 1, 1]
+     assert kernel.grid_abi.tile_sizes == [1, 64]
+-    assert kernel.argument_layout.input_operand_count == 4
+-    assert kernel.argument_layout.total_kernel_argument_count == 5
++    assert kernel.argument_layout.input_operand_count == 5
++    assert kernel.argument_layout.total_kernel_argument_count == 6
+     descriptors = kernel.argument_layout.operand_descriptors
+     assert [descriptor.shape for descriptor in descriptors] == [
+         [8, 256],
+         [1024, 512],
+         [1024, 512],
+         [16, 256],
++        [1, 16],
+         [8, 256],
+     ]
+     assert descriptors[3].strides == [1, 0]
++    assert descriptors[4].strides == [0, 0]
+     assert not paged_decode.artifact.fallback_used
+ 
+ 

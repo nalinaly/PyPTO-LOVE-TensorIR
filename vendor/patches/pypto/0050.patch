@@ -1,0 +1,1509 @@
+From 642ff5bd79ee96b9e5a279a2bc945ad7a78362b7 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 20:36:42 +0800
+Subject: [PATCH 050/212] compiler: add single-transaction structured facade
+
+---
+ CMakeLists.txt                                |   1 +
+ docs/en/dev/backend/01-nvidia-target-info.md  |  43 +-
+ docs/zh/dev/backend/01-nvidia-target-info.md  |  36 +-
+ include/pypto/compiler/structured_compile.h   |  53 +++
+ python/bindings/modules/compiler.cpp          |  20 +
+ python/pypto/compiler/__init__.py             |   4 +
+ python/pypto/pypto_core/compiler.pyi          |  17 +
+ src/compiler/nvidia_artifact_compiler.cpp     | 208 ++++++----
+ .../nvidia_artifact_compiler_internal.h       |  78 ++++
+ src/compiler/structured_compile.cpp           |  64 +++
+ src/compiler/structured_compile_internal.h    |  28 ++
+ tests/ut/compiler/test_artifact_public_api.py |  33 ++
+ tests/ut/compiler/test_structured_compile.py  | 195 +++++++++
+ tests/ut/cpp/CMakeLists.txt                   |  27 ++
+ tests/ut/cpp/artifact_test.cpp                |   5 +-
+ tests/ut/cpp/structured_compile_test.cpp      | 374 ++++++++++++++++++
+ 16 files changed, 1086 insertions(+), 100 deletions(-)
+ create mode 100644 include/pypto/compiler/structured_compile.h
+ create mode 100644 src/compiler/nvidia_artifact_compiler_internal.h
+ create mode 100644 src/compiler/structured_compile.cpp
+ create mode 100644 src/compiler/structured_compile_internal.h
+ create mode 100644 tests/ut/compiler/test_structured_compile.py
+ create mode 100644 tests/ut/cpp/structured_compile_test.cpp
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 764a6788ac64e4b795108e2db3fd593e7b37b58b..a50e5bae84c3db6e340c223ea5f6507a1569b4d9 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -95,6 +95,7 @@ set(PYPTO_SOURCES
+     src/compiler/nvidia_artifact_compiler.cpp
+     src/compiler/nvidia_backend_build_info.cpp
+     src/compiler/strict_tensor_ir_options.cpp
++    src/compiler/structured_compile.cpp
+     src/compiler/structured_tensor_ir_build_spec.cpp
+     src/compiler/target_info.cpp
+ 
+diff --git a/docs/en/dev/backend/01-nvidia-target-info.md b/docs/en/dev/backend/01-nvidia-target-info.md
+index a89ac8110638d0841823c1318df4cbb6e7599237..972289cc07f8efb6b46b4f3353c53e837eedebca 100644
+--- a/docs/en/dev/backend/01-nvidia-target-info.md
++++ b/docs/en/dev/backend/01-nvidia-target-info.md
+@@ -207,12 +207,13 @@ does not link or invoke TensorIR/CUDA Tile, compile a region, create an
+ artifact/cache/executable, modify runtime/plugins, or change legacy
+ `ir.compile`.
+ 
+-### Compile-free structured TensorIR preparation
++### Structured compile facade and compile-free preparation
+ 
+-The private compiler layer has a compile-free preparation/finalization seam;
+-it is not a Python API and is not yet wired into `Artifact.compile_strict()` or
+-the private producer. `PrepareStructuredTensorIrCompilation(program, request,
+-schedule)` is the sole constructor path for
++The public `CompileStructuredStrict(program, request, schedule)` C++ API and
++`compile_structured_strict(...)` Python API return one immutable
++`StructuredCompileResult` containing the final `build_spec` and `artifact`.
++Internally, `PrepareStructuredTensorIrCompilation(program, request, schedule)`
++is the sole constructor path for
+ `PreparedStructuredTensorIrCompilation`. It calls `EmitTensorIr(program)`, then
+ owns copies of the request and schedule, the resolved strict producer options,
+ the exact canonical TensorIR source bytes, copied `Input0`, `Input1`, `Result0`
+@@ -220,6 +221,24 @@ metadata, and five canonical identity projections. `TensorIrModule` does not
+ cross this seam, and the prepared value cannot be mixed with a different
+ request or schedule during finalization.
+ 
++The facade performs one compile-first transaction: validate HIR, request,
++schedule, and compiled backend identity; claim the producer process; invoke
++the concrete private producer exactly once while holding the compiler mutex;
++validate and normalize its DTO once into the real `ArtifactKernelAbi`; finalize the
++`KernelBuildSpec` from that same ABI; then construct the Artifact from that same
++normalized result. Failure at any stage returns neither object and never
++retries the producer. The facade does not call `Artifact.compile_strict()`;
++that legacy source-bytes API retains its signature, behavior, and wire format
++while sharing the same internal producer transaction.
++
++```python
++from pypto.compiler import compile_structured_strict
++
++result = compile_structured_strict(program, request, schedule)
++assert result.build_spec.callable_abi_digest == result.artifact.kernel_abi.identity_digest
++assert result.artifact.identities.kernel_build_spec_digest == result.build_spec.identity_digest
++```
++
+ The prepared value is deliberately not a `KernelBuildSpec` and is not a cache
+ key. The callable identity does not exist until finalization receives the real
+ producer ABI, so `ArtifactCache.lookup()` is unavailable at the prepared stage.
+@@ -230,6 +249,12 @@ separately versioned, deterministic producer-analysis contract that returns the
+ complete callable ABI without generating device code; that analysis is not
+ part of this seam.
+ 
++Consequently this is a compile-first, publish-after-success boundary. Cache
++lookup is not available before the final callable ABI and BuildSpec exist. A
++caller may publish the returned Artifact under the returned BuildSpec only
++after the complete transaction succeeds; the facade performs no lookup,
++publication, provisional key, or key rewrite.
++
+ Every projection is canonical MessagePack v1 in lexical map-key order, capped
+ at 1 MiB, and contains no binary, extension, or floating-point value:
+ 
+@@ -268,9 +293,11 @@ Layout-propagation may flatten or normalize TensorIR iteration space, so this
+ compile-free seam deliberately does not recompute an exact grid from HIR shape
+ and tile sizes. It requires the producer-shaped one-dimensional layout
+ `y=1,z=1` and a positive `x` within the copied request's target limit. The exact
+-`x` remains producer-owned until a subsequent real-producer parity test freezes
+-that normalized iteration-space result. This commit invokes no producer,
+-filesystem, subprocess, CUDA API, or GPU.
++`x` remains producer-owned and is bound from the returned ABI; the backend-ON
++facade parity test freezes `[8,8]`, tile `16` as grid `{4,1,1}`. Preparation
++itself invokes no producer, filesystem, subprocess, CUDA API, or GPU. The facade
++may invoke the CPU compiler and assembler subprocess, but it never initializes
++CUDA or executes on a GPU.
+ 
+ ## NVIDIA Artifact v1
+ 
+diff --git a/docs/zh/dev/backend/01-nvidia-target-info.md b/docs/zh/dev/backend/01-nvidia-target-info.md
+index 3507504c9d78f6df876f101516358ace033f507e..314c5981f3083c8ab7b30e5e8ce91ed4e439dcb6 100644
+--- a/docs/zh/dev/backend/01-nvidia-target-info.md
++++ b/docs/zh/dev/backend/01-nvidia-target-info.md
+@@ -185,10 +185,11 @@ handle；产出 bytes；actual artifact kind。它不会查询 environment、fil
+ 不会创建 artifact/cache/executable，不会修改 runtime/plugin，也不会改变旧
+ `ir.compile`。
+ 
+-### Compile-free structured TensorIR preparation
++### Structured compile facade 与 compile-free preparation
+ 
+-private compiler layer 现在提供 compile-free preparation/finalization seam；它不是
+-Python API，也尚未接入 `Artifact.compile_strict()` 或 private producer。
++public C++ API `CompileStructuredStrict(program, request, schedule)` 与 Python API
++`compile_structured_strict(...)` 返回一个 immutable `StructuredCompileResult`，其中包含
++final `build_spec` 与 `artifact`。在内部，
+ `PrepareStructuredTensorIrCompilation(program, request, schedule)` 是
+ `PreparedStructuredTensorIrCompilation` 唯一的构造路径。它调用
+ `EmitTensorIr(program)`，随后按值拥有 request、schedule、解析后的 strict producer
+@@ -196,6 +197,22 @@ option、精确 canonical TensorIR source bytes、复制的 `Input0`、`Input1`
+ metadata，以及五个 canonical identity projection。`TensorIrModule` 不会跨过此 seam，
+ finalization 也无法混入另一份 request 或 schedule。
+ 
++facade 执行一次 compile-first transaction：验证 HIR、request、schedule 与 compiled
++backend identity；claim producer process；只在 compiler mutex 内调用一次 concrete
++private producer；把 DTO 验证并 normalize 一次为真实 `ArtifactKernelAbi`；根据同一 ABI
++finalize `KernelBuildSpec`；再从同一个 normalized result 构造 Artifact。任一阶段失败
++都不会返回其中任何对象，也不会 retry producer。facade 不调用
++`Artifact.compile_strict()`；legacy source-bytes API 保持原 signature、behavior 与 wire
++format，同时复用同一 internal producer transaction。
++
++```python
++from pypto.compiler import compile_structured_strict
++
++result = compile_structured_strict(program, request, schedule)
++assert result.build_spec.callable_abi_digest == result.artifact.kernel_abi.identity_digest
++assert result.artifact.identities.kernel_build_spec_digest == result.build_spec.identity_digest
++```
++
+ prepared value 明确不是 `KernelBuildSpec`，也不是 cache key。只有 finalization
+ 取得真实 producer ABI 后 callable identity 才存在，因此 prepared stage 不能执行
+ `ArtifactCache.lookup()`。compiler 不得伪造 provisional callable digest，不得发布后再
+@@ -204,6 +221,11 @@ rewrite provisional key，也不得先调用一次 producer 发现 ABI、cache l
+ deterministic producer-analysis contract，在不生成 device code 的前提下返回完整 callable
+ ABI；本 seam 不包含该 analysis。
+ 
++因此该路径是 compile-first、成功后再 publish 的 boundary。在 final callable ABI 与
++BuildSpec 存在之前不能 cache lookup。只有完整 transaction 成功后，caller 才能以返回的
++BuildSpec 为 key publish 返回的 Artifact；facade 不执行 lookup、publication、
++provisional key 或 key rewrite。
++
+ 每个 projection 都是按 map key 词法顺序编码的 canonical MessagePack v1，上限为
+ 1 MiB，并且不包含 binary、extension 或 floating-point value：
+ 
+@@ -238,9 +260,11 @@ static specialization 绑定 HIR shape，而不是 launch-grid dimension。layou
+ 可能 flatten 或 normalize TensorIR iteration space，因此此 compile-free seam 不会根据
+ HIR shape 与 tile size 重算精确 grid。它只要求 producer 返回的所有 static grid
+ 使用 producer-shaped one-dimensional layout `y=1,z=1`，并要求正数 `x` 不超过
+-复制 request 中的 target limit。精确 `x` 仍由 producer 拥有，直到后续 real-producer
+-parity test 冻结 normalized iteration-space result。本 commit 不调用 producer、
+-filesystem、subprocess、CUDA API 或 GPU。
++复制 request 中的 target limit。精确 `x` 仍由 producer 拥有，并从返回 ABI 绑定；
++backend-ON facade parity test 将 `[8,8]`、tile `16` 冻结为 grid `{4,1,1}`。
++preparation 本身不调用 producer、filesystem、subprocess、CUDA API 或 GPU。facade
++可以调用 CPU compiler 与 assembler subprocess，但不会初始化 CUDA，也不会在 GPU
++上执行。
+ 
+ ## NVIDIA Artifact v1
+ 
+diff --git a/include/pypto/compiler/structured_compile.h b/include/pypto/compiler/structured_compile.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..d88e032d2cce1655e50468411389182dc80d5874
+--- /dev/null
++++ b/include/pypto/compiler/structured_compile.h
+@@ -0,0 +1,53 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#ifndef PYPTO_COMPILER_STRUCTURED_COMPILE_H_
++#define PYPTO_COMPILER_STRUCTURED_COMPILE_H_
++
++#include "pypto/compiler/artifact.h"
++#include "pypto/compiler/compile_request.h"
++#include "pypto/compiler/kernel_build_spec.h"
++#include "pypto/ir/program.h"
++
++namespace pypto::compiler {
++
++namespace detail {
++class StructuredCompileResultBuilder;
++}  // namespace detail
++
++/** Final immutable BuildSpec and Artifact produced by one strict transaction. */
++class StructuredCompileResult {
++ public:
++  StructuredCompileResult() = delete;
++  StructuredCompileResult(const StructuredCompileResult&) = default;
++  StructuredCompileResult(StructuredCompileResult&&) = default;
++  StructuredCompileResult& operator=(const StructuredCompileResult&) = delete;
++  StructuredCompileResult& operator=(StructuredCompileResult&&) = delete;
++
++  [[nodiscard]] const KernelBuildSpec& GetBuildSpec() const noexcept { return build_spec_; }
++  [[nodiscard]] const Artifact& GetArtifact() const noexcept { return artifact_; }
++
++ private:
++  friend class detail::StructuredCompileResultBuilder;
++  StructuredCompileResult(KernelBuildSpec build_spec, Artifact artifact);
++
++  KernelBuildSpec build_spec_;
++  Artifact artifact_;
++};
++
++/** Emit, compile once, finalize identity, and return the joined strict result. */
++[[nodiscard]] StructuredCompileResult CompileStructuredStrict(
++    const ir::ProgramPtr& program, const CompileRequest& request,
++    const CanonicalSchedule& schedule);
++
++}  // namespace pypto::compiler
++
++#endif  // PYPTO_COMPILER_STRUCTURED_COMPILE_H_
+diff --git a/python/bindings/modules/compiler.cpp b/python/bindings/modules/compiler.cpp
+index b171d8ad3e98384576596b31ee787e642366c202..ef9ab74fe95391a37b0b2213445bf2d2263817d2 100644
+--- a/python/bindings/modules/compiler.cpp
++++ b/python/bindings/modules/compiler.cpp
+@@ -12,6 +12,7 @@
+ #include <nanobind/nanobind.h>
+ #include <nanobind/stl/array.h>
+ #include <nanobind/stl/optional.h>
++#include <nanobind/stl/shared_ptr.h>
+ #include <nanobind/stl/string.h>
+ #include <nanobind/stl/vector.h>
+ 
+@@ -24,6 +25,7 @@
+ #include "pypto/compiler/compile_request.h"
+ #include "pypto/compiler/kernel_build_spec.h"
+ #include "pypto/compiler/nvidia_backend_build_info.h"
++#include "pypto/compiler/structured_compile.h"
+ #include "pypto/compiler/target_info.h"
+ 
+ namespace nb = nanobind;
+@@ -680,6 +682,24 @@ void BindCompiler(nb::module_& m) {
+       })
+       .def_prop_ro("device_code_sha256", &compiler::Artifact::GetDeviceCodeSha256);
+ 
++  nb::class_<compiler::StructuredCompileResult>(
++      compiler_mod, "StructuredCompileResult",
++      "Final immutable BuildSpec and Artifact from one strict producer transaction")
++      .def_prop_ro("build_spec", &compiler::StructuredCompileResult::GetBuildSpec,
++                   nb::rv_policy::reference_internal)
++      .def_prop_ro("artifact", &compiler::StructuredCompileResult::GetArtifact,
++                   nb::rv_policy::reference_internal);
++
++  compiler_mod.def(
++      "compile_structured_strict",
++      [](const ir::ProgramPtr& program, const compiler::CompileRequest& request,
++         const compiler::CanonicalSchedule& schedule) {
++        nb::gil_scoped_release release;
++        return compiler::CompileStructuredStrict(program, request, schedule);
++      },
++      nb::arg("program"), nb::arg("request"), nb::arg("schedule"),
++      "Emit and compile one structured program through one strict producer transaction");
++
+   nb::enum_<compiler::ArtifactCachePublishResult>(
+       compiler_mod, "ArtifactCachePublishResult",
+       "Result of an atomic no-replace ArtifactCache publication")
+diff --git a/python/pypto/compiler/__init__.py b/python/pypto/compiler/__init__.py
+index 31d227ed3cfa09c9a1126ff05a2fcd1f98e9bb4e..921323cd4e1ef39398432b0f0f8003a43455a2fd 100644
+--- a/python/pypto/compiler/__init__.py
++++ b/python/pypto/compiler/__init__.py
+@@ -43,9 +43,11 @@ from pypto.pypto_core.compiler import (
+     ScheduleParameter,
+     ScheduleValueKind,
+     SemanticRoute,
++    StructuredCompileResult,
+     TargetTraits,
+     ToolchainIdentity,
+     VerificationPolicy,
++    compile_structured_strict,
+     get_nvidia_backend_build_info,
+     is_supported_nvidia_compute_capability,
+ )
+@@ -84,9 +86,11 @@ __all__ = [
+     "ScheduleParameter",
+     "ScheduleValueKind",
+     "SemanticRoute",
++    "StructuredCompileResult",
+     "TargetTraits",
+     "ToolchainIdentity",
+     "VerificationPolicy",
++    "compile_structured_strict",
+     "get_nvidia_backend_build_info",
+     "is_supported_nvidia_compute_capability",
+ ]
+diff --git a/python/pypto/pypto_core/compiler.pyi b/python/pypto/pypto_core/compiler.pyi
+index 4e5259b72633097efd6429eb9516f077833cf27d..43ea9d80c442af3711c22175403287805ef9b1c8 100644
+--- a/python/pypto/pypto_core/compiler.pyi
++++ b/python/pypto/pypto_core/compiler.pyi
+@@ -13,6 +13,7 @@ from enum import Enum
+ 
+ from . import DataType
+ from .backend import BackendType
++from .ir import Program
+ 
+ class RequestedArtifactPolicy(Enum):
+     """Requested compiler output policy."""
+@@ -759,6 +760,22 @@ class Artifact:
+     @property
+     def device_code_sha256(self) -> str: ...
+ 
++class StructuredCompileResult:
++    """Final immutable BuildSpec and Artifact from one strict producer transaction."""
++
++    @property
++    def build_spec(self) -> KernelBuildSpec: ...
++    @property
++    def artifact(self) -> Artifact: ...
++
++def compile_structured_strict(
++    program: Program,
++    request: CompileRequest,
++    schedule: CanonicalSchedule,
++) -> StructuredCompileResult:
++    """Emit and compile a structured program through one strict producer transaction."""
++    ...
++
+ class ArtifactCachePublishResult(Enum):
+     Published = ...
+     AlreadyPresent = ...
+diff --git a/src/compiler/nvidia_artifact_compiler.cpp b/src/compiler/nvidia_artifact_compiler.cpp
+index b4e19f51594cc7ff9f8643d9d41489d3eab39644..ba8075ebe881722eadc3b21e90080814b74ad591 100644
+--- a/src/compiler/nvidia_artifact_compiler.cpp
++++ b/src/compiler/nvidia_artifact_compiler.cpp
+@@ -26,6 +26,7 @@
+ #endif
+ 
+ #include "artifact_internal.h"
++#include "nvidia_artifact_compiler_internal.h"
+ #include "nvidia_producer_bridge.h"
+ #include "strict_tensor_ir_options.h"
+ #include "pypto/core/error.h"
+@@ -36,12 +37,14 @@ namespace {
+ using detail::NvidiaProducerArtifact;
+ using detail::NvidiaProducerOptions;
+ 
++std::mutex g_producer_compile_mutex;
++std::atomic<uint64_t> g_producer_invocation_count{0};
++
+ #if defined(PYPTO_ENABLE_NVIDIA_COMPILER_BACKEND)
+ static_assert(std::atomic<pid_t>::is_always_lock_free,
+               "fork ownership check requires a lock-free pid atomic");
+ 
+ std::atomic<pid_t> g_producer_process_id{0};
+-std::mutex g_producer_compile_mutex;
+ 
+ void ClaimProducerProcess() {
+   const pid_t current_process = ::getpid();
+@@ -245,135 +248,170 @@ void ValidateProducerArtifact(const NvidiaProducerArtifact& artifact,
+                           "Artifact v1 accepts only the reviewed zero-workspace ABI");
+ }
+ 
+-Artifact MakeArtifact(const CompileRequest& request,
+-                      const KernelBuildSpec& build_spec,
+-                      NvidiaProducerArtifact producer_artifact) {
++Artifact CompileLegacyStrict(std::vector<uint8_t> canonical_source,
++                             const CompileRequest& request,
++                             const KernelBuildSpec& build_spec) {
++  const std::string actual_source_digest = Artifact::ComputeSourceIrDigest(canonical_source);
++  if (actual_source_digest != build_spec.GetSourceIrDigest()) {
++    throw ValueError(
++        "canonical TensorIR source SHA-256 differs from KernelBuildSpec.source_ir_digest");
++  }
++  const detail::StrictTensorIrProducerOptions resolved =
++      detail::ResolveStrictTensorIrProducerOptions(request, build_spec);
++  (void)Artifact::GetProducerOptionsIdentityDigest(request, build_spec);
++  return detail::CreateArtifactFromNormalized(
++      request, build_spec,
++      detail::CompileNvidiaProducerOnce(canonical_source, request, resolved));
++}
++
++}  // namespace
++
++detail::NormalizedNvidiaProducerArtifact::NormalizedNvidiaProducerArtifact(
++    ArtifactTarget requested_target, ArtifactTarget actual_target,
++    ArtifactBytecodeVersion tile_ir_bytecode_version, ArtifactKernelAbi kernel_abi,
++    bool fallback_used, std::vector<uint8_t> device_code, std::string source_ir_digest,
++    std::string compile_request_byte_identity_digest, std::string compile_options_identity)
++    : requested_target_(std::move(requested_target)),
++      actual_target_(std::move(actual_target)),
++      tile_ir_bytecode_version_(std::move(tile_ir_bytecode_version)),
++      kernel_abi_(std::move(kernel_abi)),
++      fallback_used_(fallback_used),
++      device_code_(std::move(device_code)),
++      source_ir_digest_(std::move(source_ir_digest)),
++      compile_request_byte_identity_digest_(std::move(compile_request_byte_identity_digest)),
++      compile_options_identity_(std::move(compile_options_identity)) {}
++
++detail::NormalizedNvidiaProducerArtifact detail::CompileNvidiaProducerOnce(
++    const std::vector<uint8_t>& source, const CompileRequest& request,
++    const StrictTensorIrProducerOptions& resolved) {
++  ValidateStrictTensorIrBuildInfo(request);
++  const std::string source_ir_digest = Artifact::ComputeSourceIrDigest(source);
++  const std::string request_digest = request.GetByteCompileIdentityDigest();
++  const NvidiaProducerOptions options = MakeProducerOptions(request, resolved);
++  NvidiaProducerResult result;
++#if defined(PYPTO_ENABLE_NVIDIA_COMPILER_BACKEND)
++  ClaimProducerProcess();
++  {
++    std::lock_guard<std::mutex> lock(g_producer_compile_mutex);
++    g_producer_invocation_count.fetch_add(1, std::memory_order_relaxed);
++    result = CompilePrivateNvidiaArtifact(source, options);
++  }
++#else
++  (void)source;
++  (void)options;
++  throw InternalError("strict build-info validation returned in a backend-OFF build");
++#endif
++  if (!result.ok) {
++    RequireProducerContract(result.status_code != 0 && !result.error.empty() &&
++                                result.error.size() <= options.diagnostic_limit_bytes &&
++                                !result.artifact.has_value(),
++                            "failure result has an invalid status, diagnostic, or artifact");
++    if (result.applied_options.has_value()) {
++      RequireProducerContract(SameProducerOptions(*result.applied_options, options),
++                              "failed producer applied options differ from the exact request");
++    }
++    if (result.status_code == 1) {
++      throw ValueError("private TensorIR producer rejected compilation: " + result.error);
++    }
++    throw RuntimeError("private TensorIR producer failed with status " +
++                       std::to_string(result.status_code) + ": " + result.error);
++  }
++  RequireProducerContract(result.status_code == 0 && result.error.empty(),
++                          "successful result contains a failure status");
++  RequireProducerContract(result.applied_options.has_value() && result.artifact.has_value(),
++                          "successful result is incomplete");
++  RequireProducerContract(SameProducerOptions(*result.applied_options, options),
++                          "applied options differ from the exact requested options");
++  ValidateProducerArtifact(*result.artifact, options);
++
++  NvidiaProducerArtifact producer_artifact = std::move(*result.artifact);
++  std::string compile_options_identity = std::move(producer_artifact.compile_options_identity);
+   const ArtifactArgumentPackingPolicy packing_policy =
+       ConvertPackingPolicy(producer_artifact.argument_packing_policy);
+-  const ArtifactGridPolicy grid_policy =
+-      ConvertGridPolicy(producer_artifact.grid_policy);
++  const ArtifactGridPolicy grid_policy = ConvertGridPolicy(producer_artifact.grid_policy);
+   std::array<uint32_t, 3> static_grid{};
+   for (size_t index = 0; index < static_grid.size(); ++index) {
+     RequireProducerContract(producer_artifact.static_grid[index] > 0,
+                             "static grid dimensions must be positive");
+-    static_grid[index] =
+-        static_cast<uint32_t>(producer_artifact.static_grid[index]);
++    static_grid[index] = static_cast<uint32_t>(producer_artifact.static_grid[index]);
+   }
+-
+-  const uint32_t input_operand_count =
+-      producer_artifact.argument_layout.input_operand_count;
++  const uint32_t input_operand_count = producer_artifact.argument_layout.input_operand_count;
+   const uint32_t total_kernel_argument_count =
+       producer_artifact.argument_layout.total_kernel_argument_count;
+   const uint32_t grid_shape_operand_index =
+       producer_artifact.argument_layout.grid_shape_operand_index;
+-  const bool uniform_signature =
+-      producer_artifact.argument_layout.uniform_signature;
++  const bool uniform_signature = producer_artifact.argument_layout.uniform_signature;
+   std::vector<uint32_t> tile_sizes =
+       std::move(producer_artifact.argument_layout.tile_sizes);
+   std::vector<ArtifactArgumentDescriptor> descriptors =
+       ConvertDescriptors(std::move(producer_artifact.argument_layout));
+-
+   ArtifactKernelAbi kernel_abi(
+       std::move(producer_artifact.runtime_kernel_name),
+       std::move(producer_artifact.entry_function_name),
+       ArtifactArgumentLayout(std::move(descriptors), input_operand_count,
+-                             total_kernel_argument_count,
+-                             uniform_signature),
++                             total_kernel_argument_count, uniform_signature),
+       packing_policy,
+       ArtifactGridAbi(grid_policy, grid_shape_operand_index, static_grid,
+                       std::move(tile_sizes)),
+       ArtifactWorkspaceAbi(ArtifactWorkspaceKind::Static,
+                            producer_artifact.workspace_size_bytes,
+                            producer_artifact.workspace_alignment_bytes),
+-      // CUDA Tile host block dimensions are logical and must remain 1x1x1;
+-      // worker warps and Cubin REQNTID are compiler-owned internal metadata.
+-      ArtifactLaunchAbi({1, 1, 1},
+-                        ArtifactClusterSchedulingPolicy::Spread,
++      ArtifactLaunchAbi({1, 1, 1}, ArtifactClusterSchedulingPolicy::Spread,
+                         /*dynamic_shared_memory_bytes=*/0,
+                         /*kernel_argument_slot_bytes=*/8),
+       ArtifactLoaderAbi(Artifact::kMinimumCudaDriverApiVersion,
+                         Artifact::kMinimumCudaRuntimeApiVersion));
+-
+-  detail::ArtifactProducerResult producer_result(
++  return NormalizedNvidiaProducerArtifact(
+       ArtifactTarget(producer_artifact.requested_target.compute_capability,
+                      std::move(producer_artifact.requested_target.name),
+                      ArtifactTargetPortability::ArchConditional),
+       ArtifactTarget(producer_artifact.actual_target.compute_capability,
+                      std::move(producer_artifact.actual_target.name),
+                      ArtifactTargetPortability::ArchConditional),
+-      ArtifactKind::Cubin,
+-      ArtifactBytecodeVersion(
+-          producer_artifact.tile_ir_bytecode_version.major,
+-          producer_artifact.tile_ir_bytecode_version.minor,
+-          producer_artifact.tile_ir_bytecode_version.tag),
+-      std::move(kernel_abi),
+-      detail::ArtifactBuilder::MakeStrictProducerIdentity(request, build_spec),
+-      producer_artifact.used_artifact_fallback,
+-      std::move(producer_artifact.device_code));
+-  return detail::ArtifactBuilder::CreateStrict(request, build_spec,
+-                                               std::move(producer_result));
++      ArtifactBytecodeVersion(producer_artifact.tile_ir_bytecode_version.major,
++                              producer_artifact.tile_ir_bytecode_version.minor,
++                              producer_artifact.tile_ir_bytecode_version.tag),
++      std::move(kernel_abi), producer_artifact.used_artifact_fallback,
++      std::move(producer_artifact.device_code), source_ir_digest, request_digest,
++      std::move(compile_options_identity));
+ }
+ 
+-}  // namespace
++Artifact detail::CreateArtifactFromNormalized(
++    const CompileRequest& request, const KernelBuildSpec& build_spec,
++    NormalizedNvidiaProducerArtifact result) {
++  const std::string request_digest = request.GetByteCompileIdentityDigest();
++  const StrictTensorIrProducerOptions resolved =
++      ResolveStrictTensorIrProducerOptions(request, build_spec);
++  const std::string expected_options_identity =
++      ExpectedCompileOptionsIdentity(MakeProducerOptions(request, resolved));
++  if (result.source_ir_digest_ != build_spec.GetSourceIrDigest() ||
++      result.compile_request_byte_identity_digest_ != request_digest ||
++      result.compile_request_byte_identity_digest_ !=
++          build_spec.GetCompileRequestByteIdentityDigest() ||
++      result.compile_options_identity_ != expected_options_identity) {
++    throw InternalError("normalized NVIDIA producer result identity does not match final BuildSpec");
++  }
++  ArtifactProducerResult producer_result(
++      std::move(result.requested_target_), std::move(result.actual_target_), ArtifactKind::Cubin,
++      std::move(result.tile_ir_bytecode_version_), std::move(result.kernel_abi_),
++      ArtifactBuilder::MakeStrictProducerIdentity(request, build_spec), result.fallback_used_,
++      std::move(result.device_code_));
++  return ArtifactBuilder::CreateStrict(request, build_spec, std::move(producer_result));
++}
+ 
+ Artifact Artifact::CompileStrict(std::vector<uint8_t> canonical_source,
+                                  const CompileRequest& request,
+                                  const KernelBuildSpec& build_spec) {
+ #if defined(PYPTO_ENABLE_NVIDIA_COMPILER_BACKEND)
++  // Preserve the legacy post-fork error ordering: process ownership is checked
++  // before source or BuildSpec validation on this API only.
+   ClaimProducerProcess();
+ #endif
+-  const std::string actual_source_digest =
+-      ComputeSourceIrDigest(canonical_source);
+-  if (actual_source_digest != build_spec.GetSourceIrDigest()) {
+-    throw ValueError(
+-        "canonical TensorIR source SHA-256 differs from KernelBuildSpec.source_ir_digest");
+-  }
+-
+-  const detail::StrictTensorIrProducerOptions resolved =
+-      detail::ResolveStrictTensorIrProducerOptions(request, build_spec);
+-  (void)GetProducerOptionsIdentityDigest(request, build_spec);
+-  detail::ValidateStrictTensorIrBuildInfo(request);
+-  const NvidiaProducerOptions options = MakeProducerOptions(request, resolved);
++  return CompileLegacyStrict(std::move(canonical_source), request, build_spec);
++}
+ 
+-#if defined(PYPTO_ENABLE_NVIDIA_COMPILER_BACKEND)
+-  detail::NvidiaProducerResult result;
+-  {
+-    std::lock_guard<std::mutex> lock(g_producer_compile_mutex);
+-    result = detail::CompilePrivateNvidiaArtifact(canonical_source, options);
+-  }
+-  if (!result.ok) {
+-    RequireProducerContract(
+-        result.status_code != 0 && !result.error.empty() &&
+-            result.error.size() <= options.diagnostic_limit_bytes &&
+-            !result.artifact.has_value(),
+-        "failure result has an invalid status, diagnostic, or artifact");
+-    if (result.applied_options.has_value()) {
+-      RequireProducerContract(
+-          SameProducerOptions(*result.applied_options, options),
+-          "failed producer applied options differ from the exact request");
+-    }
+-    if (result.status_code == 1) {
+-      throw ValueError("private TensorIR producer rejected compilation: " +
+-                       result.error);
+-    }
+-    throw RuntimeError("private TensorIR producer failed with status " +
+-                       std::to_string(result.status_code) + ": " + result.error);
+-  }
+-  RequireProducerContract(result.status_code == 0 && result.error.empty(),
+-                          "successful result contains a failure status");
+-  RequireProducerContract(result.applied_options.has_value() &&
+-                              result.artifact.has_value(),
+-                          "successful result is incomplete");
+-  RequireProducerContract(SameProducerOptions(*result.applied_options, options),
+-                          "applied options differ from the exact requested options");
+-  ValidateProducerArtifact(*result.artifact, options);
+-  return MakeArtifact(request, build_spec, std::move(*result.artifact));
+-#else
+-  (void)canonical_source;
+-  (void)options;
+-  throw ValueError(
+-      "strict Artifact compilation requires the private TensorIR backend");
+-#endif
++uint64_t detail::GetStrictNvidiaProducerInvocationCountForTesting() noexcept {
++  return g_producer_invocation_count.load(std::memory_order_relaxed);
+ }
+ 
+ }  // namespace pypto::compiler
+diff --git a/src/compiler/nvidia_artifact_compiler_internal.h b/src/compiler/nvidia_artifact_compiler_internal.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..697a69b731e5b6276df9ca4ae01612a87cbc0b39
+--- /dev/null
++++ b/src/compiler/nvidia_artifact_compiler_internal.h
+@@ -0,0 +1,78 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#ifndef PYPTO_SRC_COMPILER_NVIDIA_ARTIFACT_COMPILER_INTERNAL_H_
++#define PYPTO_SRC_COMPILER_NVIDIA_ARTIFACT_COMPILER_INTERNAL_H_
++
++#include <cstdint>
++#include <string>
++#include <vector>
++
++#include "pypto/compiler/artifact.h"
++#include "strict_tensor_ir_options.h"
++
++namespace pypto::compiler::detail {
++
++/** Immutable normalized output of one concrete private producer invocation. */
++class NormalizedNvidiaProducerArtifact {
++ public:
++  NormalizedNvidiaProducerArtifact() = delete;
++  NormalizedNvidiaProducerArtifact(const NormalizedNvidiaProducerArtifact&) = delete;
++  NormalizedNvidiaProducerArtifact(NormalizedNvidiaProducerArtifact&&) = default;
++  NormalizedNvidiaProducerArtifact& operator=(const NormalizedNvidiaProducerArtifact&) = delete;
++  NormalizedNvidiaProducerArtifact& operator=(NormalizedNvidiaProducerArtifact&&) = delete;
++
++  [[nodiscard]] const ArtifactKernelAbi& GetKernelAbi() const noexcept { return kernel_abi_; }
++
++ private:
++  friend NormalizedNvidiaProducerArtifact CompileNvidiaProducerOnce(
++      const std::vector<uint8_t>& source, const CompileRequest& request,
++      const StrictTensorIrProducerOptions& resolved);
++  friend Artifact CreateArtifactFromNormalized(const CompileRequest& request,
++                                               const KernelBuildSpec& build_spec,
++                                               NormalizedNvidiaProducerArtifact result);
++
++  NormalizedNvidiaProducerArtifact(ArtifactTarget requested_target,
++                                   ArtifactTarget actual_target,
++                                   ArtifactBytecodeVersion tile_ir_bytecode_version,
++                                   ArtifactKernelAbi kernel_abi, bool fallback_used,
++                                   std::vector<uint8_t> device_code,
++                                   std::string source_ir_digest,
++                                   std::string compile_request_byte_identity_digest,
++                                   std::string compile_options_identity);
++
++  ArtifactTarget requested_target_;
++  ArtifactTarget actual_target_;
++  ArtifactBytecodeVersion tile_ir_bytecode_version_;
++  ArtifactKernelAbi kernel_abi_;
++  bool fallback_used_;
++  std::vector<uint8_t> device_code_;
++  std::string source_ir_digest_;
++  std::string compile_request_byte_identity_digest_;
++  std::string compile_options_identity_;
++};
++
++/** Validate exact build identity and invoke the concrete private producer once. */
++[[nodiscard]] NormalizedNvidiaProducerArtifact CompileNvidiaProducerOnce(
++    const std::vector<uint8_t>& source, const CompileRequest& request,
++    const StrictTensorIrProducerOptions& resolved);
++
++/** Create and fully validate an Artifact from the same normalized producer result. */
++[[nodiscard]] Artifact CreateArtifactFromNormalized(
++    const CompileRequest& request, const KernelBuildSpec& build_spec,
++    NormalizedNvidiaProducerArtifact result);
++
++/** Monotonic observation-only count of concrete private producer invocations. */
++[[nodiscard]] uint64_t GetStrictNvidiaProducerInvocationCountForTesting() noexcept;
++
++}  // namespace pypto::compiler::detail
++
++#endif  // PYPTO_SRC_COMPILER_NVIDIA_ARTIFACT_COMPILER_INTERNAL_H_
+diff --git a/src/compiler/structured_compile.cpp b/src/compiler/structured_compile.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..334696f5d83e69e2b535c09751662c76caf2052c
+--- /dev/null
++++ b/src/compiler/structured_compile.cpp
+@@ -0,0 +1,64 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#include "pypto/compiler/structured_compile.h"
++
++#include <utility>
++
++#include "nvidia_artifact_compiler_internal.h"
++#include "structured_compile_internal.h"
++#include "structured_tensor_ir_build_spec.h"
++#include "pypto/core/error.h"
++
++namespace pypto::compiler {
++
++StructuredCompileResult::StructuredCompileResult(KernelBuildSpec build_spec, Artifact artifact)
++    : build_spec_(std::move(build_spec)), artifact_(std::move(artifact)) {
++  const ArtifactIdentities& identities = artifact_.GetIdentities();
++  if (identities.GetCompileRequestByteIdentityDigest() !=
++          build_spec_.GetCompileRequestByteIdentityDigest() ||
++      identities.GetKernelBuildSpecDigest() != build_spec_.GetIdentityDigest() ||
++      identities.GetSourceIrDigest() != build_spec_.GetSourceIrDigest() ||
++      identities.GetCallableAbiDigest() != build_spec_.GetCallableAbiDigest() ||
++      artifact_.GetKernelAbi().GetIdentityDigest() != build_spec_.GetCallableAbiDigest() ||
++      identities.GetArgumentAbiDigest() != build_spec_.GetArgumentAbiDigest() ||
++      identities.GetResultAbiDigest() != build_spec_.GetResultAbiDigest() ||
++      identities.GetMutationAbiDigest() != build_spec_.GetMutationAbiDigest() ||
++      identities.GetStaticSpecializationDigest() !=
++          build_spec_.GetStaticSpecializationDigest() ||
++      identities.GetSymbolicSpecializationDigest() !=
++          build_spec_.GetSymbolicSpecializationDigest() ||
++      artifact_.GetSemanticRoute() != build_spec_.GetSemanticRoute()) {
++    throw InternalError("StructuredCompileResult BuildSpec and Artifact identities do not join");
++  }
++}
++
++StructuredCompileResult CompileStructuredStrict(const ir::ProgramPtr& program,
++                                                 const CompileRequest& request,
++                                                 const CanonicalSchedule& schedule) {
++  detail::PreparedStructuredTensorIrCompilation prepared =
++      detail::PrepareStructuredTensorIrCompilation(program, request, schedule);
++  detail::NormalizedNvidiaProducerArtifact normalized = detail::CompileNvidiaProducerOnce(
++      prepared.GetCanonicalSource(), prepared.GetCompileRequest(), prepared.GetResolvedOptions());
++  KernelBuildSpec build_spec =
++      detail::FinalizeStructuredTensorIrBuildSpec(prepared, normalized.GetKernelAbi());
++  Artifact artifact = detail::CreateArtifactFromNormalized(
++      prepared.GetCompileRequest(), build_spec, std::move(normalized));
++  return detail::StructuredCompileResultBuilder::Create(std::move(build_spec),
++                                                        std::move(artifact));
++}
++
++StructuredCompileResult detail::StructuredCompileResultBuilder::Create(
++    KernelBuildSpec build_spec, Artifact artifact) {
++  return StructuredCompileResult(std::move(build_spec), std::move(artifact));
++}
++
++}  // namespace pypto::compiler
+diff --git a/src/compiler/structured_compile_internal.h b/src/compiler/structured_compile_internal.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..5069ac682a832ec343d169aa4f060d2d9f3c9953
+--- /dev/null
++++ b/src/compiler/structured_compile_internal.h
+@@ -0,0 +1,28 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#ifndef PYPTO_SRC_COMPILER_STRUCTURED_COMPILE_INTERNAL_H_
++#define PYPTO_SRC_COMPILER_STRUCTURED_COMPILE_INTERNAL_H_
++
++#include "pypto/compiler/structured_compile.h"
++
++namespace pypto::compiler::detail {
++
++/** Private friend bridge for immutable joined-result construction. */
++class StructuredCompileResultBuilder {
++ public:
++  [[nodiscard]] static StructuredCompileResult Create(KernelBuildSpec build_spec,
++                                                      Artifact artifact);
++};
++
++}  // namespace pypto::compiler::detail
++
++#endif  // PYPTO_SRC_COMPILER_STRUCTURED_COMPILE_INTERNAL_H_
+diff --git a/tests/ut/compiler/test_artifact_public_api.py b/tests/ut/compiler/test_artifact_public_api.py
+index 7e306a66916ca84e040fd62ca342729ea5efde57..4fc24579eb89840578dd06fb40cdf18f7baeb97e 100644
+--- a/tests/ut/compiler/test_artifact_public_api.py
++++ b/tests/ut/compiler/test_artifact_public_api.py
+@@ -79,6 +79,39 @@ def test_bytes_only_artifact_method_signatures() -> None:
+         assert "producer_identity" not in cache_key_signature
+ 
+ 
++def test_structured_compile_public_surface_is_final_and_single_transaction() -> None:
++    assert compiler_api.StructuredCompileResult is compiler_core.StructuredCompileResult
++    assert compiler_api.compile_structured_strict is compiler_core.compile_structured_strict
++    assert "StructuredCompileResult" in compiler_api.__all__
++    assert "compile_structured_strict" in compiler_api.__all__
++
++    with pytest.raises(TypeError):
++        compiler_api.StructuredCompileResult()
++
++    signature = _signature_line(compiler_api.compile_structured_strict)
++    assert signature.count(",") == 2
++    assert "Program" in signature
++    assert "CompileRequest" in signature
++    assert "CanonicalSchedule" in signature
++    assert "StructuredCompileResult" in signature
++    assert "producer" not in signature
++    assert "callable" not in signature
++
++    for forbidden in (
++        "ExpectedNvidiaCompileOptionsIdentityForTesting",
++        "GetStrictNvidiaProducerInvocationCountForTesting",
++        "PreparedStructuredTensorIrCompilation",
++        "StrictBuildInfoPolicy",
++        "StrictNvidiaProducerCallback",
++        "TensorIrModule",
++        "compile_structured_strict_with_producer_for_testing",
++        "compile_structured_with_producer",
++    ):
++        assert not hasattr(compiler_api, forbidden)
++        assert forbidden not in compiler_api.__all__
++        assert not hasattr(compiler_core, forbidden)
++
++
+ def test_artifact_cache_public_surface_is_storage_only() -> None:
+     assert compiler_api.ArtifactCache is compiler_core.ArtifactCache
+     assert "ArtifactCache" in compiler_api.__all__
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..0efd5515b0c9a8c2b7701e614e276384794d2933
+--- /dev/null
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -0,0 +1,195 @@
++# Copyright (c) PyPTO Contributors.
++# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++# CANN Open Software License Agreement Version 2.0 (the "License").
++# Please refer to the License for details. You may not use this file except in compliance with the License.
++# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++# See LICENSE in the root of the software repository for the full text of the License.
++# -----------------------------------------------------------------------------------------------------------
++
++"""Functional Python coverage for the single-transaction structured compiler facade."""
++
++import pypto
++import pytest
++from pypto.compiler import (
++    Artifact,
++    ArtifactArgumentPackingPolicy,
++    ArtifactGridPolicy,
++    ArtifactOperandKind,
++    CanonicalSchedule,
++    CompileRequest,
++    NvidiaBackendBuildInfo,
++    NvidiaTargetInfo,
++    ScheduleParameter,
++    ScheduleValueKind,
++    StructuredCompileResult,
++    TargetTraits,
++    ToolchainIdentity,
++    compile_structured_strict,
++    get_nvidia_backend_build_info,
++)
++from pypto.pypto_core import ir
++
++
++def _program() -> ir.Program:
++    span = ir.Span("structured_compile_test.py", 1, 1)
++    tensor_type = ir.TensorType([8, 8], pypto.DataType.FP32)
++    lhs = ir.Var("lhs", tensor_type, span)
++    rhs = ir.Var("rhs", tensor_type, span)
++    result = ir.Var("sum", tensor_type, span)
++    call = ir.Call(ir.get_op("tensor.add"), [lhs, rhs], tensor_type, span)
++    body = ir.SeqStmts(
++        [ir.AssignStmt(result, call, span), ir.ReturnStmt([result], span)],
++        span,
++    )
++    function = ir.Function(
++        "add_main",
++        [lhs, rhs],
++        [tensor_type],
++        body,
++        span,
++    )
++    return ir.Program([function], "structured_compile", span)
++
++
++def _traits() -> TargetTraits:
++    return TargetTraits(
++        compute_capability=120,
++        multiprocessor_count=82,
++        warp_size=32,
++        max_threads_per_block=1024,
++        max_threads_per_multiprocessor=1536,
++        max_blocks_per_multiprocessor=24,
++        max_block_dim_x=1024,
++        max_block_dim_y=1024,
++        max_block_dim_z=64,
++        max_grid_dim_x=(1 << 31) - 1,
++        max_grid_dim_y=65535,
++        max_grid_dim_z=65535,
++        l1_cache_line_bytes=128,
++        default_shared_memory_per_cta_bytes=48 * 1024,
++        max_shared_memory_per_cta_bytes=101376,
++        shared_memory_per_multiprocessor_bytes=131072,
++        registers_per_cta=65536,
++        max_registers_per_thread=255,
++        registers_per_multiprocessor=65536,
++        l2_cache_size_bytes=96 * 1024 * 1024,
++        total_global_memory_bytes=24 * 1024 * 1024 * 1024,
++    )
++
++
++def _request(info: NvidiaBackendBuildInfo) -> CompileRequest:
++    if info.compiled:
++        toolchain = ToolchainIdentity(
++            info.pypto_revision,
++            info.tensor_ir_revision,
++            info.cuda_tile_revision,
++            info.llvm_revision,
++            info.cuda_toolkit_root,
++            info.cuda_toolkit_version,
++            info.tileiras_real_path,
++            info.tileiras_version,
++            info.tileiras_sha256,
++        )
++        toolkit_version = info.cuda_toolkit_version
++        tensor_ir_revision = info.tensor_ir_revision
++        cuda_tile_revision = info.cuda_tile_revision
++    else:
++        toolchain = ToolchainIdentity(
++            "0" * 40,
++            "1" * 40,
++            "2" * 40,
++            "3" * 40,
++            "/usr/local/cuda-13.3",
++            "13.3.73",
++            "/usr/local/cuda-13.3/bin/tileiras",
++            "13.3.36",
++            "4" * 64,
++        )
++        toolkit_version = "13.3.73"
++        tensor_ir_revision = "1" * 40
++        cuda_tile_revision = "2" * 40
++    target = NvidiaTargetInfo(
++        0,
++        "Structured compile test device",
++        "GPU-structured-compile",
++        "0000:01:00.0",
++        _traits(),
++        toolkit_version,
++        "610.74",
++        tensor_ir_revision,
++        cuda_tile_revision,
++        [pypto.DataType.BF16, pypto.DataType.FP32],
++    )
++    return CompileRequest(target, toolchain)
++
++
++def _schedule() -> CanonicalSchedule:
++    parameter = ScheduleParameter
++    unsigned = ScheduleValueKind.UnsignedInteger
++    return CanonicalSchedule(
++        [parameter("codegen_strategy", ScheduleValueKind.Text, "layout-propagation")],
++        [parameter("dim_000", unsigned, "16")],
++        [],
++        [],
++        [parameter("count", unsigned, "1")],
++        [parameter("count", unsigned, "4")],
++        [],
++        [
++            parameter("bytecode_major", unsigned, "13"),
++            parameter("bytecode_minor", unsigned, "3"),
++            parameter("bytecode_tag", unsigned, "0"),
++            parameter("max_candidates", unsigned, "0"),
++            parameter("uniform_signature", ScheduleValueKind.Boolean, "false"),
++        ],
++    )
++
++
++def test_compile_structured_strict_functional() -> None:
++    info = get_nvidia_backend_build_info()
++    request = _request(info)
++    program = _program()
++    schedule = _schedule()
++
++    if not info.compiled:
++        with pytest.raises(ValueError, match="requires the compiled private NVIDIA backend"):
++            compile_structured_strict(program, request, schedule)
++        return
++
++    result = compile_structured_strict(program, request, schedule)
++    assert isinstance(result, StructuredCompileResult)
++    with pytest.raises(AttributeError):
++        setattr(result, "build_spec", result.build_spec)
++    with pytest.raises(AttributeError):
++        setattr(result, "artifact", result.artifact)
++
++    build_spec = result.build_spec
++    artifact = result.artifact
++    kernel = artifact.kernel_abi
++    assert build_spec.callable_abi_digest == kernel.identity_digest
++    assert artifact.identities.kernel_build_spec_digest == build_spec.identity_digest
++    assert artifact.identities.source_ir_digest == build_spec.source_ir_digest
++    assert kernel.runtime_kernel_name == "tensor_ir_rtk"
++    assert kernel.entry_function_name == "pypto_vector_add"
++    assert kernel.argument_packing_policy == ArtifactArgumentPackingPolicy.PointerOnly
++    assert kernel.grid_abi.policy == ArtifactGridPolicy.Static
++    assert kernel.grid_abi.static_dimensions == [4, 1, 1]
++    assert kernel.grid_abi.tile_sizes == [16]
++    assert len(kernel.argument_layout.operand_descriptors) == 3
++    assert kernel.argument_layout.input_operand_count == 2
++    assert kernel.argument_layout.total_kernel_argument_count == 3
++    for descriptor in kernel.argument_layout.operand_descriptors:
++        assert descriptor.kind == ArtifactOperandKind.Tensor
++        assert descriptor.shape == [8, 8]
++        assert descriptor.strides == [8, 1]
++        assert descriptor.dynamic_size_count == 0
++        assert descriptor.dynamic_stride_count == 0
++
++    build_spec_bytes = build_spec.serialize()
++    assert type(build_spec).deserialize(build_spec_bytes).serialize() == build_spec_bytes
++    artifact_bytes = artifact.serialize()
++    assert Artifact.deserialize(artifact_bytes, request, build_spec).serialize() == artifact_bytes
++
++
++if __name__ == "__main__":
++    pytest.main([__file__, "-v"])
+diff --git a/tests/ut/cpp/CMakeLists.txt b/tests/ut/cpp/CMakeLists.txt
+index 8ecbff5ad044ebdd179beab4eec99294b8b81696..df7706672065b5e6c129cd95fa2c180247ad7b09 100644
+--- a/tests/ut/cpp/CMakeLists.txt
++++ b/tests/ut/cpp/CMakeLists.txt
+@@ -212,6 +212,33 @@ add_test(
+     COMMAND pypto_structured_tensor_ir_build_spec_test
+ )
+ 
++add_executable(pypto_structured_compile_test
++    structured_compile_test.cpp
++)
++
++target_include_directories(pypto_structured_compile_test PRIVATE
++    ${CMAKE_SOURCE_DIR}/include
++    ${CMAKE_SOURCE_DIR}/src
++    ${LIBBACKTRACE_INSTALL_DIR}/include
++)
++
++target_link_libraries(pypto_structured_compile_test PRIVATE
++    ${COMPILER_OBJECT_LIBRARY_NAME}
++    libbacktrace
++    msgpackc-cxx
++)
++if(PYPTO_ENABLE_NVIDIA_BACKEND)
++    target_link_libraries(pypto_structured_compile_test PRIVATE
++        pypto_nvidia_bridge_objects
++        pypto_nvidia_backend_dependencies
++    )
++endif()
++
++add_test(
++    NAME pypto_structured_compile_test
++    COMMAND pypto_structured_compile_test
++)
++
+ if(NOT PYPTO_ENABLE_NVIDIA_BACKEND)
+     add_executable(pypto_nvidia_driver_stub_test
+         nvidia_driver_stub_test.cpp
+diff --git a/tests/ut/cpp/artifact_test.cpp b/tests/ut/cpp/artifact_test.cpp
+index 55cd7e77a505e90dd332c0ba1208a262ec6ccf89..2b5d3128b45387ef0ab37c85b660d86ebf5cf2c9 100644
+--- a/tests/ut/cpp/artifact_test.cpp
++++ b/tests/ut/cpp/artifact_test.cpp
+@@ -626,12 +626,15 @@ int TestForkAfterProducerUseIsRejected(
+     const std::vector<uint8_t>& source, const CompileRequest& request,
+     const KernelBuildSpec& build_spec) {
+ #if defined(__linux__)
++  (void)source;
+   const pid_t child = ::fork();
+   REQUIRE(child >= 0);
+   if (child == 0) {
+     bool rejected = false;
+     try {
+-      (void)Artifact::CompileStrict(source, request, build_spec);
++      // Legacy compatibility: process ownership must win even when the source
++      // is invalid, because CompileStrict historically claimed before preflight.
++      (void)Artifact::CompileStrict({}, request, build_spec);
+     } catch (const RuntimeError& error) {
+       rejected = std::string(error.what()).find("after fork") !=
+                  std::string::npos;
+diff --git a/tests/ut/cpp/structured_compile_test.cpp b/tests/ut/cpp/structured_compile_test.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..5b598a5f68599ed2a4c1267bacecc9e78a4467ef
+--- /dev/null
++++ b/tests/ut/cpp/structured_compile_test.cpp
+@@ -0,0 +1,374 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#include <any>
++#include <array>
++#include <cstdint>
++#include <functional>
++#include <memory>
++#include <optional>
++#include <string>
++#include <string_view>
++#include <type_traits>
++#include <utility>
++#include <vector>
++
++#include "pypto/compiler/artifact.h"
++#include "pypto/compiler/compile_request.h"
++#include "pypto/compiler/nvidia_backend_build_info.h"
++#include "pypto/compiler/structured_compile.h"
++#include "pypto/compiler/target_info.h"
++#include "pypto/core/dtype.h"
++#include "pypto/core/error.h"
++#include "pypto/ir/expr.h"
++#include "pypto/ir/function.h"
++#include "pypto/ir/op_registry.h"
++#include "pypto/ir/program.h"
++#include "pypto/ir/span.h"
++#include "pypto/ir/stmt.h"
++#include "pypto/ir/type.h"
++#include "src/compiler/nvidia_artifact_compiler_internal.h"
++#include "src/compiler/structured_compile_internal.h"
++#include "src/compiler/structured_tensor_ir_build_spec.h"
++
++using pypto::DataType;
++using pypto::InternalError;
++using pypto::RuntimeError;
++using pypto::ValueError;
++using pypto::compiler::Artifact;
++using pypto::compiler::CanonicalSchedule;
++using pypto::compiler::CompileRequest;
++using pypto::compiler::CompileStructuredStrict;
++using pypto::compiler::KernelBuildSpec;
++using pypto::compiler::NvidiaBackendBuildInfo;
++using pypto::compiler::NvidiaTargetInfo;
++using pypto::compiler::ScheduleParameter;
++using pypto::compiler::ScheduleValueKind;
++using pypto::compiler::SemanticRoute;
++using pypto::compiler::StructuredCompileResult;
++using pypto::compiler::TargetTraits;
++using pypto::compiler::ToolchainIdentity;
++using pypto::compiler::GetNvidiaBackendBuildInfo;
++using pypto::compiler::detail::CompileNvidiaProducerOnce;
++using pypto::compiler::detail::CreateArtifactFromNormalized;
++using pypto::compiler::detail::FinalizeStructuredTensorIrBuildSpec;
++using pypto::compiler::detail::GetStrictNvidiaProducerInvocationCountForTesting;
++using pypto::compiler::detail::PrepareStructuredTensorIrCompilation;
++using pypto::compiler::detail::StructuredCompileResultBuilder;
++
++namespace ir = pypto::ir;
++
++#define REQUIRE(condition) \
++  do {                     \
++    if (!(condition)) {    \
++      return __LINE__;     \
++    }                      \
++  } while (false)
++
++namespace {
++
++constexpr std::string_view kDummyPyptoRevision = "042878dd6825bb65ed03f22db7b067fb96277623";
++constexpr std::string_view kDummyTensorIrRevision = "3b5a8bebc00510b46a1e8b97229d06dd0d006215";
++constexpr std::string_view kDummyCudaTileRevision = "af2417041cc939b87ef56d92cfdcf61737c5457e";
++constexpr std::string_view kDummyLlvmRevision = "1111111111111111111111111111111111111111";
++constexpr std::string_view kDummyTileirasSha256 =
++    "2222222222222222222222222222222222222222222222222222222222222222";
++
++const ir::Span& TestSpan() {
++  static const ir::Span span("structured_compile_test.cpp", 7, 3);
++  return span;
++}
++
++ir::ProgramPtr MakeProgram() {
++  auto type = std::make_shared<ir::TensorType>(
++      std::vector<int64_t>{8, 8}, DataType::FP32, std::optional<ir::MemRefPtr>{});
++  auto lhs = std::make_shared<ir::Var>("lhs", type, TestSpan());
++  auto rhs = std::make_shared<ir::Var>("rhs", type, TestSpan());
++  auto result = std::make_shared<ir::Var>("sum", type, TestSpan());
++  auto call = std::make_shared<ir::Call>(
++      ir::OpRegistry::GetInstance().GetOp("tensor.add"), std::vector<ir::ExprPtr>{lhs, rhs},
++      std::vector<std::pair<std::string, std::any>>{},
++      std::vector<std::pair<std::string, std::any>>{}, type, TestSpan());
++  auto assignment = std::make_shared<ir::AssignStmt>(result, call, TestSpan());
++  auto returned =
++      std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{result}, TestSpan());
++  auto body = std::make_shared<ir::SeqStmts>(
++      std::vector<ir::StmtPtr>{assignment, returned}, TestSpan());
++  auto function = std::make_shared<ir::Function>(
++      "add_main", std::vector<ir::VarPtr>{lhs, rhs},
++      std::vector<ir::ParamDirection>{ir::ParamDirection::In, ir::ParamDirection::In},
++      std::vector<ir::TypePtr>{type}, body, TestSpan());
++  return std::make_shared<ir::Program>(std::vector<ir::FunctionPtr>{function}, "test", TestSpan());
++}
++
++TargetTraits MakeTraits(int multiprocessor_count = 82) {
++  return TargetTraits(120, multiprocessor_count, 32, 1024, 1536, 24, 1024, 1024, 64,
++                      2147483647, 65535,
++                      65535, 128, 48 * 1024, 101376, 131072, 65536, 255, 65536,
++                      96ULL * 1024 * 1024, 24ULL * 1024 * 1024 * 1024);
++}
++
++CompileRequest MakeRequest(int multiprocessor_count = 82) {
++#if defined(PYPTO_ENABLE_NVIDIA_COMPILER_BACKEND)
++  const NvidiaBackendBuildInfo build_info = GetNvidiaBackendBuildInfo();
++  NvidiaTargetInfo target(0, "Synthetic SM120", "GPU-synthetic", "0000:01:00.0",
++                          MakeTraits(multiprocessor_count),
++                          build_info.GetCudaToolkitVersion(), "610.74",
++                          build_info.GetTensorIrRevision(), build_info.GetCudaTileRevision(),
++                          {DataType::BF16, DataType::FP32});
++  ToolchainIdentity toolchain(
++      build_info.GetPyptoRevision(), build_info.GetTensorIrRevision(),
++      build_info.GetCudaTileRevision(), build_info.GetLlvmRevision(),
++      build_info.GetCudaToolkitRoot(), build_info.GetCudaToolkitVersion(),
++      build_info.GetTileirasRealPath(), build_info.GetTileirasVersion(),
++      build_info.GetTileirasSha256());
++#else
++  NvidiaTargetInfo target(0, "Synthetic SM120", "GPU-synthetic", "0000:01:00.0",
++                          MakeTraits(multiprocessor_count),
++                          "13.3", "610.74", std::string(kDummyTensorIrRevision),
++                          std::string(kDummyCudaTileRevision), {DataType::BF16, DataType::FP32});
++  ToolchainIdentity toolchain(
++      std::string(kDummyPyptoRevision), std::string(kDummyTensorIrRevision),
++      std::string(kDummyCudaTileRevision), std::string(kDummyLlvmRevision), "/opt/cuda-13.3",
++      "13.3", "/opt/cuda-13.3/bin/tileiras", "13.3.73",
++      std::string(kDummyTileirasSha256));
++#endif
++  return CompileRequest(std::move(target), std::move(toolchain));
++}
++
++CanonicalSchedule MakeSchedule(std::string tile_size = "16") {
++  return CanonicalSchedule(
++      {ScheduleParameter("codegen_strategy", ScheduleValueKind::Text, "layout-propagation")},
++      {ScheduleParameter("dim_000", ScheduleValueKind::UnsignedInteger,
++                         std::move(tile_size))},
++      {}, {},
++      {ScheduleParameter("count", ScheduleValueKind::UnsignedInteger, "1")},
++      {ScheduleParameter("count", ScheduleValueKind::UnsignedInteger, "4")}, {},
++      {ScheduleParameter("bytecode_major", ScheduleValueKind::UnsignedInteger, "13"),
++       ScheduleParameter("bytecode_minor", ScheduleValueKind::UnsignedInteger, "3"),
++       ScheduleParameter("bytecode_tag", ScheduleValueKind::UnsignedInteger, "0"),
++       ScheduleParameter("max_candidates", ScheduleValueKind::UnsignedInteger, "0"),
++       ScheduleParameter("uniform_signature", ScheduleValueKind::Boolean, "false")});
++}
++
++bool RejectsValue(const std::function<void()>& action, std::string_view expected) {
++  try {
++    action();
++  } catch (const ValueError& error) {
++    return std::string_view(error.what()).find(expected) != std::string_view::npos;
++  }
++  return false;
++}
++
++bool RejectsInternal(const std::function<void()>& action, std::string_view expected) {
++  try {
++    action();
++  } catch (const InternalError& error) {
++    return std::string_view(error.what()).find(expected) != std::string_view::npos;
++  }
++  return false;
++}
++
++bool RejectsRuntime(const std::function<void()>& action, std::string_view expected) {
++  try {
++    action();
++  } catch (const RuntimeError& error) {
++    return std::string_view(error.what()).find(expected) != std::string_view::npos;
++  }
++  return false;
++}
++
++int TestPrevalidationMakesZeroProducerCalls() {
++  const CompileRequest request = MakeRequest();
++  const uint64_t before = GetStrictNvidiaProducerInvocationCountForTesting();
++
++  REQUIRE(RejectsValue(
++      [&] { (void)CompileStructuredStrict(ir::ProgramPtr{}, request, MakeSchedule()); },
++      "program must not be null"));
++  REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before);
++
++  REQUIRE(RejectsValue(
++      [&] {
++        (void)CompileStructuredStrict(
++            MakeProgram(), request, CanonicalSchedule({}, {}, {}, {}, {}, {}, {}, {}));
++      },
++      "CanonicalSchedule resolved schedule"));
++  REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before);
++
++#if !defined(PYPTO_ENABLE_NVIDIA_COMPILER_BACKEND)
++  REQUIRE(RejectsValue(
++      [&] { (void)CompileStructuredStrict(MakeProgram(), request, MakeSchedule()); },
++      "requires the compiled private NVIDIA backend"));
++  REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before);
++#endif
++  return 0;
++}
++
++int TestLegacyBackendOffRegression() {
++#if !defined(PYPTO_ENABLE_NVIDIA_COMPILER_BACKEND)
++  const CompileRequest request = MakeRequest();
++  const auto prepared = PrepareStructuredTensorIrCompilation(MakeProgram(), request, MakeSchedule());
++  const KernelBuildSpec build_spec(
++      prepared.GetSourceIrDigest(), std::string(64, '1'), SemanticRoute::StructuredTensorIr,
++      std::string(Artifact::kStructuredTensorIrPipelineRevision), prepared.GetSchedule(),
++      prepared.GetStaticSpecialization().GetIdentityDigest(),
++      prepared.GetSymbolicSpecialization().GetIdentityDigest(),
++      prepared.GetArgumentAbi().GetIdentityDigest(), prepared.GetResultAbi().GetIdentityDigest(),
++      prepared.GetMutationAbi().GetIdentityDigest(), request.GetByteCompileIdentityDigest());
++  REQUIRE(RejectsValue(
++      [&] { (void)Artifact::CompileStrict(prepared.GetCanonicalSource(), request, build_spec); },
++      "requires the compiled private NVIDIA backend"));
++#endif
++  return 0;
++}
++
++int TestRealProducerSuccess() {
++#if defined(PYPTO_ENABLE_NVIDIA_COMPILER_BACKEND)
++  const CompileRequest request = MakeRequest();
++  const uint64_t before = GetStrictNvidiaProducerInvocationCountForTesting();
++  const StructuredCompileResult result =
++      CompileStructuredStrict(MakeProgram(), request, MakeSchedule());
++  REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before + 1);
++  const KernelBuildSpec& build_spec = result.GetBuildSpec();
++  const Artifact& artifact = result.GetArtifact();
++  const auto& kernel = artifact.GetKernelAbi();
++  REQUIRE(kernel.GetRuntimeKernelName() == "tensor_ir_rtk");
++  REQUIRE(kernel.GetEntryFunctionName() == "pypto_vector_add");
++  REQUIRE(kernel.GetArgumentPackingPolicy() ==
++          pypto::compiler::ArtifactArgumentPackingPolicy::PointerOnly);
++  REQUIRE(kernel.GetArgumentLayout().GetOperandDescriptors().size() == 3);
++  REQUIRE(kernel.GetArgumentLayout().GetInputOperandCount() == 2);
++  REQUIRE(kernel.GetArgumentLayout().GetTotalKernelArgumentCount() == 3);
++  REQUIRE(!kernel.GetArgumentLayout().HasUniformSignature());
++  for (const auto& descriptor : kernel.GetArgumentLayout().GetOperandDescriptors()) {
++    REQUIRE(descriptor.GetKind() == pypto::compiler::ArtifactOperandKind::Tensor);
++    REQUIRE(descriptor.GetShape() ==
++            std::vector<std::optional<int64_t>>({std::optional<int64_t>{8},
++                                                 std::optional<int64_t>{8}}));
++    REQUIRE(descriptor.GetStrides() ==
++            std::vector<std::optional<int64_t>>({std::optional<int64_t>{8},
++                                                 std::optional<int64_t>{1}}));
++    REQUIRE(descriptor.GetDynamicSizeCount() == 0);
++    REQUIRE(descriptor.GetDynamicStrideCount() == 0);
++    REQUIRE(descriptor.GetScalarSizeBytes() == 0);
++  }
++  REQUIRE(kernel.GetGridAbi().GetPolicy() == pypto::compiler::ArtifactGridPolicy::Static);
++  REQUIRE(kernel.GetGridAbi().GetShapeOperandIndex() == 0);
++  REQUIRE((kernel.GetGridAbi().GetStaticDimensions() == std::array<uint32_t, 3>{4, 1, 1}));
++  REQUIRE(kernel.GetGridAbi().GetTileSizes() == std::vector<uint32_t>({16}));
++  REQUIRE(build_spec.GetCallableAbiDigest() == artifact.GetKernelAbi().GetIdentityDigest());
++  REQUIRE(artifact.GetIdentities().GetKernelBuildSpecDigest() == build_spec.GetIdentityDigest());
++  REQUIRE(artifact.GetIdentities().GetSourceIrDigest() == build_spec.GetSourceIrDigest());
++  REQUIRE(artifact.GetIdentities().GetArgumentAbiDigest() == build_spec.GetArgumentAbiDigest());
++  REQUIRE(artifact.GetIdentities().GetResultAbiDigest() == build_spec.GetResultAbiDigest());
++  REQUIRE(artifact.GetIdentities().GetMutationAbiDigest() == build_spec.GetMutationAbiDigest());
++  REQUIRE(artifact.GetIdentities().GetStaticSpecializationDigest() ==
++          build_spec.GetStaticSpecializationDigest());
++  REQUIRE(artifact.GetIdentities().GetSymbolicSpecializationDigest() ==
++          build_spec.GetSymbolicSpecializationDigest());
++
++  const std::vector<uint8_t> build_spec_bytes = build_spec.SerializeCanonical();
++  REQUIRE(KernelBuildSpec::DeserializeCanonical(build_spec_bytes).SerializeCanonical() ==
++          build_spec_bytes);
++  const std::vector<uint8_t> artifact_bytes = artifact.SerializeCanonical();
++  REQUIRE(Artifact::DeserializeCanonical(artifact_bytes, request, build_spec).SerializeCanonical() ==
++          artifact_bytes);
++
++  const KernelBuildSpec mismatched_build_spec(
++      std::string(64, 'f'), build_spec.GetCallableAbiDigest(), build_spec.GetSemanticRoute(),
++      build_spec.GetPipelineRevision(), build_spec.GetResolvedSchedule(),
++      build_spec.GetStaticSpecializationDigest(), build_spec.GetSymbolicSpecializationDigest(),
++      build_spec.GetArgumentAbiDigest(), build_spec.GetResultAbiDigest(),
++      build_spec.GetMutationAbiDigest(), build_spec.GetCompileRequestByteIdentityDigest());
++  REQUIRE(RejectsInternal(
++      [&] {
++        (void)StructuredCompileResultBuilder::Create(mismatched_build_spec, artifact);
++      },
++      "identities do not join"));
++
++  const KernelBuildSpec mismatched_request(
++      build_spec.GetSourceIrDigest(), build_spec.GetCallableAbiDigest(),
++      build_spec.GetSemanticRoute(), build_spec.GetPipelineRevision(),
++      build_spec.GetResolvedSchedule(), build_spec.GetStaticSpecializationDigest(),
++      build_spec.GetSymbolicSpecializationDigest(), build_spec.GetArgumentAbiDigest(),
++      build_spec.GetResultAbiDigest(), build_spec.GetMutationAbiDigest(), std::string(64, 'e'));
++  REQUIRE(RejectsInternal(
++      [&] {
++        (void)StructuredCompileResultBuilder::Create(mismatched_request, artifact);
++      },
++      "identities do not join"));
++
++  const auto prepared_source =
++      PrepareStructuredTensorIrCompilation(MakeProgram(), request, MakeSchedule());
++  const uint64_t before_source_seal = GetStrictNvidiaProducerInvocationCountForTesting();
++  auto source_sealed = CompileNvidiaProducerOnce(
++      prepared_source.GetCanonicalSource(), prepared_source.GetCompileRequest(),
++      prepared_source.GetResolvedOptions());
++  REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before_source_seal + 1);
++  const KernelBuildSpec source_spec =
++      FinalizeStructuredTensorIrBuildSpec(prepared_source, source_sealed.GetKernelAbi());
++  const KernelBuildSpec rebound_source(
++      std::string(64, 'd'), source_spec.GetCallableAbiDigest(), source_spec.GetSemanticRoute(),
++      source_spec.GetPipelineRevision(), source_spec.GetResolvedSchedule(),
++      source_spec.GetStaticSpecializationDigest(), source_spec.GetSymbolicSpecializationDigest(),
++      source_spec.GetArgumentAbiDigest(), source_spec.GetResultAbiDigest(),
++      source_spec.GetMutationAbiDigest(), source_spec.GetCompileRequestByteIdentityDigest());
++  REQUIRE(RejectsInternal(
++      [&] {
++        (void)CreateArtifactFromNormalized(request, rebound_source, std::move(source_sealed));
++      },
++      "normalized NVIDIA producer result identity"));
++  REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before_source_seal + 1);
++
++  const auto prepared_request_a =
++      PrepareStructuredTensorIrCompilation(MakeProgram(), request, MakeSchedule());
++  const uint64_t before_request_seal = GetStrictNvidiaProducerInvocationCountForTesting();
++  auto request_sealed = CompileNvidiaProducerOnce(
++      prepared_request_a.GetCanonicalSource(), prepared_request_a.GetCompileRequest(),
++      prepared_request_a.GetResolvedOptions());
++  REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before_request_seal + 1);
++  const CompileRequest request_b = MakeRequest(96);
++  const auto prepared_request_b =
++      PrepareStructuredTensorIrCompilation(MakeProgram(), request_b, MakeSchedule());
++  const KernelBuildSpec request_b_spec =
++      FinalizeStructuredTensorIrBuildSpec(prepared_request_b, request_sealed.GetKernelAbi());
++  REQUIRE(RejectsInternal(
++      [&] {
++        (void)CreateArtifactFromNormalized(request_b, request_b_spec, std::move(request_sealed));
++      },
++      "normalized NVIDIA producer result identity"));
++  REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before_request_seal + 1);
++
++  const uint64_t before_rejection = GetStrictNvidiaProducerInvocationCountForTesting();
++  REQUIRE(RejectsRuntime(
++      [&] { (void)CompileStructuredStrict(MakeProgram(), request, MakeSchedule("128")); },
++      "private TensorIR producer failed with status 3"));
++  REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before_rejection + 1);
++#endif
++  return 0;
++}
++
++}  // namespace
++
++int main() {
++  static_assert(!std::is_copy_constructible_v<
++                pypto::compiler::detail::NormalizedNvidiaProducerArtifact>);
++  static_assert(std::is_move_constructible_v<
++                pypto::compiler::detail::NormalizedNvidiaProducerArtifact>);
++  static_assert(!std::is_default_constructible_v<StructuredCompileResult>);
++  static_assert(!std::is_copy_assignable_v<StructuredCompileResult>);
++  static_assert(!std::is_move_assignable_v<StructuredCompileResult>);
++
++  if (const int result = TestPrevalidationMakesZeroProducerCalls()) return result;
++  if (const int result = TestLegacyBackendOffRegression()) return result;
++  if (const int result = TestRealProducerSuccess()) return result;
++  return 0;
++}

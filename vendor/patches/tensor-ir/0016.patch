@@ -1,0 +1,30 @@
+From 96201e1a1fd36bafab23cd9dc9501c8ffd43a6e7 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 04:15:52 +0800
+Subject: [PATCH 16/82] Preserve bounded tileiras memory semantics
+
+---
+ lib/Compiler/CudaTile/TileIRAssembly.cpp | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/lib/Compiler/CudaTile/TileIRAssembly.cpp b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+index d65ab05c7da39d2fc019d6015888c79db266184e..b3d31c1c26fe7763aea4874dc7603819875c60c0 100644
+--- a/lib/Compiler/CudaTile/TileIRAssembly.cpp
++++ b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+@@ -142,10 +142,15 @@ ProcessResult runProgramWithFileLimit(
+     const struct rlimit memoryLimit = {memoryBytes, memoryBytes};
+     const rlim_t fileBytes = static_cast<rlim_t>(kMaximumCubinBytes);
+     const struct rlimit fileLimit = {fileBytes, fileBytes};
+-    if (::setrlimit(RLIMIT_AS, &memoryLimit) != 0 ||
++    if (::setrlimit(RLIMIT_DATA, &memoryLimit) != 0 ||
+         ::setrlimit(RLIMIT_FSIZE, &fileLimit) != 0) {
+       _exit(126);
+     }
++#if defined(RLIMIT_RSS)
++    if (::setrlimit(RLIMIT_RSS, &memoryLimit) != 0) {
++      _exit(126);
++    }
++#endif
+     ::execve(programPath.c_str(), argumentPointers.data(),
+              environmentPointers.data());
+     _exit(127);

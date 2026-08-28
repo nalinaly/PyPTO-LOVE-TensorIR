@@ -82,6 +82,34 @@ class IsolationEnvironmentTest(unittest.TestCase):
             str(ROOT / "envs" / "sglang-baseline-py312"),
         )
 
+    def test_release_profiles_use_formal_installed_environments(self) -> None:
+        self.assertEqual(
+            run_isolated.PROFILE_ENVIRONMENTS["pypto"], "pypto-release"
+        )
+        self.assertEqual(
+            run_isolated.PROFILE_ENVIRONMENTS["baseline"], "sglang-baseline"
+        )
+        candidate = self.make_environment("pypto", "pypto-release")
+        baseline = self.make_environment("baseline", "sglang-baseline")
+        expected_source = str(ROOT / ".sources" / "sglang" / "python")
+        self.assertEqual(candidate["PYTHONPATH"], expected_source)
+        self.assertEqual(baseline["PYTHONPATH"], expected_source)
+        self.assertEqual(
+            candidate["PYPTO_SGLANG_SOURCE_ROOT"],
+            str(ROOT / ".sources" / "sglang"),
+        )
+        self.assertEqual(
+            candidate["PYPTO_ENV_PREFIX"],
+            str(ROOT / "envs" / "pypto-release"),
+        )
+        self.assertEqual(
+            baseline["PYPTO_ENV_PREFIX"],
+            str(ROOT / "envs" / "sglang-baseline"),
+        )
+        self.assertNotIn("py312", baseline["PYPTO_ENV_PREFIX"])
+        self.assertNotIn("projects", candidate["PYTHONPATH"])
+        self.assertNotIn("upstream", candidate["PYTHONPATH"])
+
     def test_amd_and_simulator_environment_is_removed(self) -> None:
         protected = {
             "ROCM_PATH": "/bad",

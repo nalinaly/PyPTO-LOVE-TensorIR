@@ -1,0 +1,26 @@
+From a5ddd2ebb3ea98915a4cfcb22b0a822ca1e445e6 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 23 Aug 2026 21:43:03 +0800
+Subject: [PATCH 002/212] tests: distinguish CPython debug source frames
+
+---
+ tests/ut/core/test_error.py | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/tests/ut/core/test_error.py b/tests/ut/core/test_error.py
+index 74e3829d2a3e96b192ec5845d4fdda1e6076092a..e4eb1b9ee5956c25fb8ef2738ed84cf03ab9722a 100644
+--- a/tests/ut/core/test_error.py
++++ b/tests/ut/core/test_error.py
+@@ -40,7 +40,11 @@ _FRAME_RE = re.compile(r'^ File "([^"]+)", line (\d+)$', re.MULTILINE)
+ 
+ # PyPTO's own C++ implementation — everything except the python/bindings/ entry points. CPython's
+ # sources (Python/, Objects/, Modules/, Include/) do not match: its include dir is capitalised.
+-_PYPTO_IMPL_RE = re.compile(r"(?:^|/)(?:src|include/pypto)/")
++# CMake maps this checkout's debug prefix to ``.`` for reproducible traces, so
++# implementation frames are relative (``./src/...`` or ``./include/pypto/...``).
++# Do not match an arbitrary absolute ``/src/`` component: debug-enabled Conda
++# CPython legitimately reports callers under ``/usr/local/src/conda/...``.
++_PYPTO_IMPL_RE = re.compile(r"^(?:\./)?(?:src|include/pypto)/")
+ 
+ 
+ def _assert_has_trace(message: str) -> list[str]:

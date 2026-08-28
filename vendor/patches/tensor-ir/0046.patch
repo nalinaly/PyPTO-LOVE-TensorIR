@@ -1,0 +1,110 @@
+From 19d71d94d4fdfc0804def90b90c3b2bf7995547c Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 01:51:56 +0800
+Subject: [PATCH 46/82] Materialize every direct input consumption
+
+---
+ .../LayoutPropagationImpl.cpp                 | 51 +++++--------------
+ 1 file changed, 14 insertions(+), 37 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index 0ae39d83a6edc8e0fb8bca5872c2f4c519a2bb85..ea0414158fccb2aa945cbdd98330a754cefd5211 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -10,8 +10,6 @@
+ 
+ #include "cuda_tile/Dialect/CudaTile/IR/Ops.h"
+ 
+-#include <cstdint>
+-
+ namespace tcg = mlir::nv_tensor_ir::tcutegen;
+ 
+ //===----------------------------------------------------------------------===//
+@@ -142,17 +140,6 @@ private:
+   /// materialized lazily from getTile so each new load immediately gains a
+   /// real SSA consumer instead of living only in this side table.
+   ConversionPatternRewriter *activeRewriter = nullptr;
+-  uint64_t rewriteEpoch = 0;
+-  DenseMap<IterationSpace *, uint64_t> loadedTileCacheEpoch;
+-
+-  /// A cached load is only safe while one conversion pattern is being
+-  /// rewritten. Graph splitting may erase that pattern's replacement later,
+-  /// so never carry side-table Values into the next pattern.
+-  static void resetLoadedTileCache(IterationSpace &space) {
+-    for (auto &entry : space.loadedTiles) {
+-      entry.second = nullptr;
+-    }
+-  }
+ 
+   /// Layouts for the current operation's operands.
+   using OperandLayouts = SmallVector<LayoutSourceAttrInterface>;
+@@ -749,7 +736,6 @@ public:
+     state.blockStructure = &state.blockStructures[resultsOp.getOperation()];
+     state.iterationSpace = &state.blockStructure->iterationSpaces[0];
+     state.activeRewriter = &rewriter;
+-    ++state.rewriteEpoch;
+     state.layouts.clear();
+     for (Value operand : resultsOp.getOperands()) {
+       auto layout = dyn_cast_or_null<LayoutSourceAttrInterface>(
+@@ -933,8 +919,6 @@ LogicalResult ConversionStateImpl::start(GraphOp graphOp) {
+   blockStructure = nullptr;
+   iterationSpace = nullptr;
+   activeRewriter = nullptr;
+-  rewriteEpoch = 0;
+-  loadedTileCacheEpoch.clear();
+   layouts.clear();
+   operandIndex = 0;
+ 
+@@ -948,7 +932,6 @@ LogicalResult ConversionStateImpl::update(ConversionPatternRewriter &rewriter,
+                                           Operation *op) {
+   LLVM_DEBUG(llvm::dbgs() << "Converting: " << op->getName() << "\n");
+   activeRewriter = &rewriter;
+-  ++rewriteEpoch;
+ 
+   // Verify the attribute-level legality (layout / iteration-space-id presence
+   // and validity). This is shared with the pre-flight feasibility check. Here,
+@@ -1043,30 +1026,24 @@ Value ConversionStateImpl::getTile(Value operand) {
+       iterationSpace = &blockStructure->iterationSpaces[idx];
+     }
+ 
+-    if (loadedTileCacheEpoch.lookup(iterationSpace) != rewriteEpoch) {
+-      resetLoadedTileCache(*iterationSpace);
+-      loadedTileCacheEpoch[iterationSpace] = rewriteEpoch;
+-    }
+     auto it = iterationSpace->loadedTiles.find(tensorSource);
+     assert(it != iterationSpace->loadedTiles.end() &&
+            "layout has no associated value");
+-    if (!it->second) {
+-      assert(activeRewriter && "missing active conversion rewriter");
+-      RewriterBase::InsertionGuard guard(*activeRewriter);
+-      Block *block = iterationSpace->insertionBlock;
+-      if (Operation *terminator = block->getTerminator()) {
+-        activeRewriter->setInsertionPoint(terminator);
+-      } else {
+-        activeRewriter->setInsertionPointToEnd(block);
+-      }
+-      const size_t tensorId = tensorSource.getTensorId();
+-      assert(tensorId < inputDescriptors.size() &&
+-             "tensor source ID is out of bounds");
+-      auto layoutDesc = applyLayout(*activeRewriter,
+-                                    inputDescriptors[tensorId], tensorSource);
+-      it->second = GraphOpConversion::emitLoadMaybeBroadcast(
+-          *activeRewriter, layoutDesc, *iterationSpace, zeroIndex);
++    assert(activeRewriter && "missing active conversion rewriter");
++    RewriterBase::InsertionGuard guard(*activeRewriter);
++    Block *block = iterationSpace->insertionBlock;
++    if (Operation *terminator = block->getTerminator()) {
++      activeRewriter->setInsertionPoint(terminator);
++    } else {
++      activeRewriter->setInsertionPointToEnd(block);
+     }
++    const size_t tensorId = tensorSource.getTensorId();
++    assert(tensorId < inputDescriptors.size() &&
++           "tensor source ID is out of bounds");
++    auto layoutDesc =
++        applyLayout(*activeRewriter, inputDescriptors[tensorId], tensorSource);
++    it->second = GraphOpConversion::emitLoadMaybeBroadcast(
++        *activeRewriter, layoutDesc, *iterationSpace, zeroIndex);
+     return it->second;
+   }
+ 

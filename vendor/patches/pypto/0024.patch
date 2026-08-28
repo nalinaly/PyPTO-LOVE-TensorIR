@@ -1,0 +1,145 @@
+From 4a82f2e40ce518d16fcbeec647061649564c42af Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 02:37:18 +0800
+Subject: [PATCH 024/212] Require loadable Cubin section mapping
+
+---
+ 3rdparty/nvidia/tensor-ir                       |  2 +-
+ cmake/nvidia_backend.cmake                      |  2 +-
+ tests/ut/compiler/test_artifact.py              | 17 ++++++++++++-----
+ .../compiler/test_nvidia_backend_build_info.py  |  2 +-
+ tests/ut/cpp/artifact_test.cpp                  |  4 ++++
+ 5 files changed, 19 insertions(+), 8 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 1c701ec6f7e7c547f6af02862603981f64e01091..b25081afbeb53c9a882c68b440d06baa9e0f6b31 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 1c701ec6f7e7c547f6af02862603981f64e01091
++Subproject commit b25081afbeb53c9a882c68b440d06baa9e0f6b31
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 97e67758f76941ec3fff038db25d6e68b6d6fbf0..f947b6323c37d40ef326fe9eab94f5f18621fd4e 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -33,7 +33,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "1c701ec6f7e7c547f6af02862603981f64e01091")
++    "b25081afbeb53c9a882c68b440d06baa9e0f6b31")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+diff --git a/tests/ut/compiler/test_artifact.py b/tests/ut/compiler/test_artifact.py
+index 4cbce8b496b6b91ba600fe8c46b947354aca2301..27ee4e20bba85953def1f2987c8809a7f8dc4f6a 100644
+--- a/tests/ut/compiler/test_artifact.py
++++ b/tests/ut/compiler/test_artifact.py
+@@ -284,6 +284,14 @@ def _write_elf_section(
+     struct.pack_into("<Q", image, header_offset + 56, entry_size)
+ 
+ 
++def _write_load_program_header(image: bytearray, header_offset: int) -> None:
++    struct.pack_into("<I", image, header_offset, 1)  # PT_LOAD
++    struct.pack_into("<I", image, header_offset + 4, 5)  # PF_R | PF_X
++    struct.pack_into("<Q", image, header_offset + 32, len(image))
++    struct.pack_into("<Q", image, header_offset + 40, len(image))
++    struct.pack_into("<Q", image, header_offset + 48, 8)
++
++
+ def _sm120_cubin(
+     entry_function_name: str,
+     kernel_argument_sizes: list[int],
+@@ -364,6 +372,7 @@ def _sm120_cubin(
+         alignment=16,
+     )
+     struct.pack_into("<Q", image, text_section + 8, 6)  # ALLOC | EXECINSTR
++    struct.pack_into("<Q", image, text_section + 16, text_offset)
+ 
+     symbol_section = text_section + section_header_size
+     _write_elf_section(
+@@ -401,7 +410,6 @@ def _sm120_cubin(
+         info=1,
+         alignment=4,
+     )
+-
+     constant_section = metadata_section + section_header_size
+     _write_elf_section(
+         image,
+@@ -413,6 +421,7 @@ def _sm120_cubin(
+         info=1,
+         alignment=4,
+     )
++    struct.pack_into("<Q", image, constant_section + 16, constant_offset)
+ 
+     section_string_section = constant_section + section_header_size
+     _write_elf_section(
+@@ -434,6 +443,7 @@ def _sm120_cubin(
+     image[entry_symbol + 4] = 0x12  # STB_GLOBAL | STT_FUNC
+     image[entry_symbol + 5] = 0x10  # STO_CUDA_ENTRY
+     struct.pack_into("<H", image, entry_symbol + 6, 1)  # .text
++    struct.pack_into("<Q", image, entry_symbol + 8, text_offset)
+     struct.pack_into("<Q", image, entry_symbol + 16, text_size)
+ 
+     for ordinal, (argument_size, parameter_offset) in enumerate(
+@@ -457,10 +467,7 @@ def _sm120_cubin(
+     image[constant_bank_record + 1] = 0x19
+     struct.pack_into("<H", image, constant_bank_record + 2, parameter_bytes)
+     image[text_offset : text_offset + 4] = b"\xde\xad\xbe\xef"
+-    struct.pack_into("<I", image, program_header_offset, 1)  # PT_LOAD
+-    struct.pack_into("<Q", image, program_header_offset + 32, len(image))
+-    struct.pack_into("<Q", image, program_header_offset + 40, len(image))
+-    struct.pack_into("<Q", image, program_header_offset + 48, 8)
++    _write_load_program_header(image, program_header_offset)
+     return bytes(image)
+ 
+ 
+diff --git a/tests/ut/compiler/test_nvidia_backend_build_info.py b/tests/ut/compiler/test_nvidia_backend_build_info.py
+index d356d13f7bd786fe97ac3434565cf9c487c69c92..ab43e10e0e0c061373414a46a4fd9599ab894895 100644
+--- a/tests/ut/compiler/test_nvidia_backend_build_info.py
++++ b/tests/ut/compiler/test_nvidia_backend_build_info.py
+@@ -30,7 +30,7 @@ def test_nvidia_backend_build_info_is_immutable_and_self_consistent() -> None:
+     assert info.compiler_factory_available
+     assert len(info.pypto_revision) == 40
+     assert set(info.pypto_revision) <= set("0123456789abcdef")
+-    assert info.tensor_ir_revision == "1c701ec6f7e7c547f6af02862603981f64e01091"
++    assert info.tensor_ir_revision == "b25081afbeb53c9a882c68b440d06baa9e0f6b31"
+     assert info.cuda_tile_revision == "af2417041cc939b87ef56d92cfdcf61737c5457e"
+     assert info.llvm_revision == "57109befac92811d2253109242ca6fa69c961fb2"
+     assert info.cuda_toolkit_root == "/usr/local/cuda-13.3"
+diff --git a/tests/ut/cpp/artifact_test.cpp b/tests/ut/cpp/artifact_test.cpp
+index 255e99e236993abc898ff683b02d609430f7e916..afe2bb5935a0776a2664c78e803793b3f815330b 100644
+--- a/tests/ut/cpp/artifact_test.cpp
++++ b/tests/ut/cpp/artifact_test.cpp
+@@ -181,6 +181,7 @@ std::vector<uint8_t> MakeCudaCubin(
+   WriteU32Le(bytes, text_section, text_name_offset);
+   WriteU32Le(bytes, text_section + 4, 1);  // SHT_PROGBITS
+   WriteU64Le(bytes, text_section + 8, 6);  // SHF_ALLOC | SHF_EXECINSTR
++  WriteU64Le(bytes, text_section + 16, text_offset);
+   WriteU64Le(bytes, text_section + 24, text_offset);
+   WriteU64Le(bytes, text_section + 32, kTextSize);
+   WriteU32Le(bytes, text_section + 40, 2);
+@@ -217,6 +218,7 @@ std::vector<uint8_t> MakeCudaCubin(
+   const size_t constant_section = metadata_section + kSectionHeaderSize;
+   WriteU32Le(bytes, constant_section, constant_name_offset);
+   WriteU32Le(bytes, constant_section + 4, 1);
++  WriteU64Le(bytes, constant_section + 16, constant_offset);
+   WriteU64Le(bytes, constant_section + 24, constant_offset);
+   WriteU64Le(bytes, constant_section + 32, constant_size);
+   WriteU32Le(bytes, constant_section + 44, 1);
+@@ -242,6 +244,7 @@ std::vector<uint8_t> MakeCudaCubin(
+   bytes[entry_symbol + 4] = 0x12;           // STB_GLOBAL | STT_FUNC.
+   bytes[entry_symbol + 5] = 0x10;           // STO_CUDA_ENTRY.
+   WriteU16Le(bytes, entry_symbol + 6, 1);   // Defined by .text.
++  WriteU64Le(bytes, entry_symbol + 8, text_offset);
+   WriteU64Le(bytes, entry_symbol + 16, kTextSize);
+   for (size_t index = 0; index < kernel_argument_sizes.size(); ++index) {
+     const size_t record = metadata_offset + index * 16;
+@@ -271,6 +274,7 @@ std::vector<uint8_t> MakeCudaCubin(
+   bytes[text_offset + 2] = 0xbe;
+   bytes[text_offset + 3] = 0xef;
+   WriteU32Le(bytes, program_header_offset, 1);  // PT_LOAD
++  WriteU32Le(bytes, program_header_offset + 4, 5);  // PF_R | PF_X
+   WriteU64Le(bytes, program_header_offset + 32, bytes.size());
+   WriteU64Le(bytes, program_header_offset + 40, bytes.size());
+   WriteU64Le(bytes, program_header_offset + 48, 8);

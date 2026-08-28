@@ -1,0 +1,2543 @@
+From 9b3cf71b6ff2a535aabdd053684a60b47450fac0 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Mon, 24 Aug 2026 19:19:03 +0800
+Subject: [PATCH 011/212] compiler: add canonical KernelBuildSpec v1 contract
+
+---
+ CMakeLists.txt                                |   2 +
+ docs/en/dev/backend/01-nvidia-target-info.md  | 102 +++-
+ docs/en/dev/backend/index.md                  |   2 +-
+ docs/zh/dev/backend/01-nvidia-target-info.md  |  96 ++-
+ docs/zh/dev/backend/index.md                  |   2 +-
+ include/pypto/compiler/kernel_build_spec.h    | 188 ++++++
+ python/bindings/modules/compiler.cpp          |  94 ++-
+ python/pypto/compiler/__init__.py             |  14 +-
+ python/pypto/pypto_core/compiler.pyi          | 134 +++-
+ src/compiler/compile_request.cpp              |  95 +--
+ src/compiler/digest.cpp                       | 112 ++++
+ src/compiler/digest.h                         |  26 +
+ src/compiler/kernel_build_spec.cpp            | 577 ++++++++++++++++++
+ tests/ut/compiler/test_kernel_build_spec.py   | 376 ++++++++++++
+ tests/ut/cpp/CMakeLists.txt                   |  25 +
+ .../ut/cpp/nvidia_kernel_build_spec_test.cpp  | 438 +++++++++++++
+ 16 files changed, 2185 insertions(+), 98 deletions(-)
+ create mode 100644 include/pypto/compiler/kernel_build_spec.h
+ create mode 100644 src/compiler/digest.cpp
+ create mode 100644 src/compiler/digest.h
+ create mode 100644 src/compiler/kernel_build_spec.cpp
+ create mode 100644 tests/ut/compiler/test_kernel_build_spec.py
+ create mode 100644 tests/ut/cpp/nvidia_kernel_build_spec_test.cpp
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index eefa749a1c1bf2336d410bc2c99b03a5ae20b70c..001a027e73b15b464b945999622207c6fa36f860 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -82,6 +82,8 @@ include(${CMAKE_SOURCE_DIR}/cmake/msgpack.cmake)
+ set(PYPTO_SOURCES
+     # Compiler target contracts
+     src/compiler/compile_request.cpp
++    src/compiler/digest.cpp
++    src/compiler/kernel_build_spec.cpp
+     src/compiler/target_info.cpp
+ 
+     # Core
+diff --git a/docs/en/dev/backend/01-nvidia-target-info.md b/docs/en/dev/backend/01-nvidia-target-info.md
+index 1497523e9fe18f9f57c91b861ccb4265eb04c07f..2fa5889d3b811de7894ef0d2329de120321a9ce4 100644
+--- a/docs/en/dev/backend/01-nvidia-target-info.md
++++ b/docs/en/dev/backend/01-nvidia-target-info.md
+@@ -1,4 +1,4 @@
+-# NVIDIA target and compile request contracts (Phase 1)
++# NVIDIA target and compiler data contracts (Phase 1)
+ 
+ `BackendType::Nvidia` identifies the NVIDIA compiler target but deliberately
+ does not create an Ascend-style `Backend`, `BackendHandler`, or synthetic SoC.
+@@ -78,3 +78,103 @@ model/operator identity, compiled bytes, CUDA module/context/stream/handle,
+ tensor/workspace pointer, cache, runtime, or plugin state. This data contract
+ does not change legacy `ir.compile`, link TensorIR/CUDA Tile, register a
+ backend, compile an artifact, or initialize CUDA.
++
++## KernelBuildSpec v1
++
++`KernelBuildSpec` is the immutable, pointer-free identity input for one
++compiled region. `CompileRequest` supplies program/target policy; the build
++spec adds every region-level input that can change produced bytes:
++
++- SHA-256 digests of the canonical source/IR and callable ABI;
++- one `SemanticRoute`: `GenericDirect`, `StructuredTensorIr`, or
++  `ServingDirect` (serialized as `generic-direct`, `structured-tensorir`, or
++  `serving-direct`);
++- a full 40-character lowercase pipeline revision;
++- the complete resolved schedule;
++- SHA-256 digests of static specialization, symbolic specialization, argument
++  ABI, result ABI, and mutation ABI;
++- the parent `CompileRequest.byte_compile_identity_digest`;
++- optionally, one `CatalogProvenance` containing operator, problem, and
++  schedule SHA-256 digests together. The three catalog fields are all-or-none.
++
++The producer is responsible for canonicalizing and hashing source/IR,
++specializations, and ABI descriptions before construction. V1 validates every
++digest as 64 lowercase hexadecimal characters; it never reads or normalizes a
++framework object.
++
++### Generic resolved schedule
++
++`CanonicalSchedule` always carries eight explicit categories: `schedule`,
++`tile`, `layout`, `persistence`, `cta`, `warp`, `stage`, and `options`. Each is
++a strictly name-ordered list of at most 128 `ScheduleParameter` values. An
++empty category means explicitly inapplicable; it does not authorize an ambient
++default.
++
++A parameter name is a lowercase dotted identifier such as `cluster.x`.
++Parameters are typed scalars:
++
++| `ScheduleValueKind` | Canonical input spelling | MessagePack value |
++| ------------------- | ------------------------ | ----------------- |
++| `Boolean` | `false` or `true` | Boolean |
++| `SignedInteger` | minimal int64 decimal | Integer |
++| `UnsignedInteger` | minimal uint64 decimal | Integer |
++| `Text` | trimmed printable ASCII, 1 to 4096 bytes | String |
++
++Compound options are flattened into uniquely named scalar parameters. This
++keeps schedule identity generic and prevents a producer from hiding tile,
++layout, persistence, CTA, warp, stage, or other byte-affecting choices behind
++a process-local options object.
++
++```python
++from pypto.compiler import (
++    CanonicalSchedule,
++    KernelBuildSpec,
++    ScheduleParameter,
++    ScheduleValueKind,
++    SemanticRoute,
++)
++
++def u64(name: str, value: int) -> ScheduleParameter:
++    return ScheduleParameter(name, ScheduleValueKind.UnsignedInteger, str(value))
++
++
++resolved = CanonicalSchedule(
++    schedule=[ScheduleParameter("algorithm", ScheduleValueKind.Text, "blocked")],
++    tile=[u64("k", 64), u64("m", 128), u64("n", 128)],
++    layout=[ScheduleParameter("output", ScheduleValueKind.Text, "row-major")],
++    persistence=[ScheduleParameter("enabled", ScheduleValueKind.Boolean, "false")],
++    cta=[u64("threads", 256)],
++    warp=[u64("count", 8)],
++    stage=[u64("count", 3)],
++    options=[ScheduleParameter("fast_math", ScheduleValueKind.Boolean, "false")],
++)
++spec = KernelBuildSpec(
++    source_ir_digest="1" * 64,
++    callable_abi_digest="2" * 64,
++    semantic_route=SemanticRoute.GenericDirect,
++    pipeline_revision="3" * 40,
++    resolved_schedule=resolved,
++    static_specialization_digest="4" * 64,
++    symbolic_specialization_digest="5" * 64,
++    argument_abi_digest="6" * 64,
++    result_abi_digest="7" * 64,
++    mutation_abi_digest="8" * 64,
++    compile_request_byte_identity_digest="9" * 64,
++)
++wire_bytes = spec.serialize()
++assert KernelBuildSpec.deserialize(wire_bytes).serialize() == wire_bytes
++```
++
++`serialize()` emits canonical MessagePack and `identity_digest` is the
++lowercase SHA-256 of those complete bytes. `deserialize()` rejects malformed
++input, trailing bytes, missing/duplicate/unknown fields, unsupported versions
++or enums, noncanonical map/parameter order and noncanonical scalar encodings.
++The payload is capped at 1 MiB, with array, map, string, and nesting limits
++applied during MessagePack unpacking.
++
++The schema has no framework, model, or layer name; pointer, tensor, workspace,
++stream, or handle; produced bytes; or actual artifact kind. It performs no
++environment, filesystem, device, or backend query. This data-only contract
++does not link or invoke TensorIR/CUDA Tile, compile a region, create an
++artifact/cache/executable, modify runtime/plugins, or change legacy
++`ir.compile`.
+diff --git a/docs/en/dev/backend/index.md b/docs/en/dev/backend/index.md
+index 1fe407836d94c2e2acae7557d34b236a1fc6bb4d..c0f3f3f6b7c6c3607a6de0075eef76ad7480ab2d 100644
+--- a/docs/en/dev/backend/index.md
++++ b/docs/en/dev/backend/index.md
+@@ -10,7 +10,7 @@ A target-only compiler pipeline such as NVIDIA has an explicit immutable
+ | Page | What it covers |
+ | ---- | -------------- |
+ | [BackendHandler: principled backend dispatch](00-backend_handler.md) | The virtual interface, how passes query it, and what adding a new backend requires |
+-| [NVIDIA target and compile request contracts](01-nvidia-target-info.md) | Immutable SM120 target and canonical pointer-free request identities without a fake legacy backend |
++| [NVIDIA target and compiler data contracts](01-nvidia-target-info.md) | Immutable SM120 target plus canonical pointer-free program and per-region compiler identities without a fake legacy backend |
+ 
+ ## See Also
+ 
+diff --git a/docs/zh/dev/backend/01-nvidia-target-info.md b/docs/zh/dev/backend/01-nvidia-target-info.md
+index 44b8796da0035c42475ccef06ea1711a2997dcfc..a836bfb9ce2f368c3b12351d56d3f9eaf425f734 100644
+--- a/docs/zh/dev/backend/01-nvidia-target-info.md
++++ b/docs/zh/dev/backend/01-nvidia-target-info.md
+@@ -1,4 +1,4 @@
+-# NVIDIA 目标与编译请求契约（第一阶段）
++# NVIDIA 目标与编译数据契约（第一阶段）
+ 
+ `BackendType::Nvidia` 表示 NVIDIA 编译目标，但不会伪造 Ascend 风格的
+ `Backend`、`BackendHandler` 或 SoC。旧路径在请求 singleton 前必须调用
+@@ -65,3 +65,97 @@ key 之外：
+ identity、compiled bytes、CUDA module/context/stream/handle、tensor/workspace pointer、
+ cache、runtime 或 plugin state。此数据契约不会修改旧 `ir.compile`，不会链接
+ TensorIR/CUDA Tile、注册 backend、编译 artifact 或初始化 CUDA。
++
++## KernelBuildSpec v1
++
++`KernelBuildSpec` 是单个编译 region 的不可变、无指针 identity input。
++`CompileRequest` 提供 program/target policy；build spec 补充所有会改变产出 bytes
++的 region-level input：
++
++- canonical source/IR 与 callable ABI 的 SHA-256 digest；
++- 一个 `SemanticRoute`：`GenericDirect`、`StructuredTensorIr` 或
++  `ServingDirect`（序列化值分别为 `generic-direct`、`structured-tensorir`、
++  `serving-direct`）；
++- 完整的 40 字符小写 pipeline revision；
++- 完整 resolved schedule；
++- static specialization、symbolic specialization、argument ABI、result ABI、
++  mutation ABI 的 SHA-256 digest；
++- parent 的 `CompileRequest.byte_compile_identity_digest`；
++- 可选的 `CatalogProvenance`，其中 operator、problem、schedule 三个 SHA-256
++  digest 必须同时存在或同时缺省。
++
++producer 负责在构造前 canonicalize 并 hash source/IR、specialization 与 ABI 描述。
++v1 要求每个 digest 都是 64 个小写十六进制字符；它不会读取或规范化 framework
++object。
++
++### 通用 resolved schedule
++
++`CanonicalSchedule` 始终显式携带八个 category：`schedule`、`tile`、`layout`、
++`persistence`、`cta`、`warp`、`stage`、`options`。每个 category 是最多包含
++128 个 `ScheduleParameter` 的列表，必须按 name 严格排序。空 category 表示明确
++不适用，不允许 producer 改为读取 ambient default。
++
++parameter name 是 `cluster.x` 这类小写 dotted identifier。parameter 是 typed scalar：
++
++| `ScheduleValueKind` | Canonical 输入拼写 | MessagePack value |
++| ------------------- | ------------------ | ----------------- |
++| `Boolean` | `false` 或 `true` | Boolean |
++| `SignedInteger` | 最短 int64 十进制 | Integer |
++| `UnsignedInteger` | 最短 uint64 十进制 | Integer |
++| `Text` | trim 后的可打印 ASCII，1 到 4096 bytes | String |
++
++复合 option 会展开为具有唯一 name 的 scalar parameter。这使 schedule identity
++保持通用，也避免 producer 将 tile、layout、persistence、CTA、warp、stage 或其它
++影响 bytes 的选择隐藏在 process-local options object 中。
++
++```python
++from pypto.compiler import (
++    CanonicalSchedule,
++    KernelBuildSpec,
++    ScheduleParameter,
++    ScheduleValueKind,
++    SemanticRoute,
++)
++
++def u64(name: str, value: int) -> ScheduleParameter:
++    return ScheduleParameter(name, ScheduleValueKind.UnsignedInteger, str(value))
++
++
++resolved = CanonicalSchedule(
++    schedule=[ScheduleParameter("algorithm", ScheduleValueKind.Text, "blocked")],
++    tile=[u64("k", 64), u64("m", 128), u64("n", 128)],
++    layout=[ScheduleParameter("output", ScheduleValueKind.Text, "row-major")],
++    persistence=[ScheduleParameter("enabled", ScheduleValueKind.Boolean, "false")],
++    cta=[u64("threads", 256)],
++    warp=[u64("count", 8)],
++    stage=[u64("count", 3)],
++    options=[ScheduleParameter("fast_math", ScheduleValueKind.Boolean, "false")],
++)
++spec = KernelBuildSpec(
++    source_ir_digest="1" * 64,
++    callable_abi_digest="2" * 64,
++    semantic_route=SemanticRoute.GenericDirect,
++    pipeline_revision="3" * 40,
++    resolved_schedule=resolved,
++    static_specialization_digest="4" * 64,
++    symbolic_specialization_digest="5" * 64,
++    argument_abi_digest="6" * 64,
++    result_abi_digest="7" * 64,
++    mutation_abi_digest="8" * 64,
++    compile_request_byte_identity_digest="9" * 64,
++)
++wire_bytes = spec.serialize()
++assert KernelBuildSpec.deserialize(wire_bytes).serialize() == wire_bytes
++```
++
++`serialize()` 生成 canonical MessagePack，`identity_digest` 是完整 bytes 的小写
++SHA-256。`deserialize()` 拒绝 malformed input、trailing bytes、缺失/重复/未知字段、
++不支持的 version 或 enum、非 canonical map/parameter 顺序，以及非 canonical scalar
++encoding。payload 上限为 1 MiB；MessagePack unpack 阶段同时限制 array、map、string
++与 nesting depth。
++
++schema 不包含 framework、model 或 layer name；pointer、tensor、workspace、stream 或
++handle；产出 bytes；actual artifact kind。它不会查询 environment、filesystem、device
++或 backend。此 data-only contract 不会链接或调用 TensorIR/CUDA Tile，不会编译 region，
++不会创建 artifact/cache/executable，不会修改 runtime/plugin，也不会改变旧
++`ir.compile`。
+diff --git a/docs/zh/dev/backend/index.md b/docs/zh/dev/backend/index.md
+index 23cdd86f488a897d473d80b298445546e06e1c06..943750734e630cd3073f692084a82a53874f9298 100644
+--- a/docs/zh/dev/backend/index.md
++++ b/docs/zh/dev/backend/index.md
+@@ -9,7 +9,7 @@
+ | 页面 | 内容 |
+ | ---- | ---- |
+ | [BackendHandler：有原则的后端分派](00-backend_handler.md) | 该虚接口、pass 如何查询它，以及新增后端需要做什么 |
+-| [NVIDIA 目标与编译请求契约](01-nvidia-target-info.md) | 不伪造旧 backend 的 SM120 target 与 canonical 无指针 request identity |
++| [NVIDIA 目标与编译数据契约](01-nvidia-target-info.md) | 不伪造旧 backend 的 SM120 target，以及 canonical 无指针 program/per-region compiler identity |
+ 
+ ## 另请参阅
+ 
+diff --git a/include/pypto/compiler/kernel_build_spec.h b/include/pypto/compiler/kernel_build_spec.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..4dcf8268330852568cbe1aa6ab0717d38bc1d1c9
+--- /dev/null
++++ b/include/pypto/compiler/kernel_build_spec.h
+@@ -0,0 +1,188 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#ifndef PYPTO_COMPILER_KERNEL_BUILD_SPEC_H_
++#define PYPTO_COMPILER_KERNEL_BUILD_SPEC_H_
++
++#include <cstdint>
++#include <optional>
++#include <string>
++#include <vector>
++
++namespace pypto::compiler {
++
++/** Semantic lowering route selected independently for each compiled region. */
++enum class SemanticRoute : uint8_t {
++  GenericDirect = 0,
++  StructuredTensorIr = 1,
++  ServingDirect = 2,
++};
++
++/** Scalar type used by a canonical resolved-schedule parameter. */
++enum class ScheduleValueKind : uint8_t {
++  Boolean = 0,
++  SignedInteger = 1,
++  UnsignedInteger = 2,
++  Text = 3,
++};
++
++/**
++ * One immutable scalar in a resolved schedule category.
++ *
++ * Names are canonical lowercase dotted identifiers. Values use a type-specific
++ * canonical spelling so the same semantic value has exactly one representation.
++ */
++class ScheduleParameter {
++ public:
++  ScheduleParameter() = delete;
++  ScheduleParameter(std::string name, ScheduleValueKind value_kind, std::string canonical_value);
++  ScheduleParameter(const ScheduleParameter&) = default;
++  ScheduleParameter(ScheduleParameter&&) = default;
++  ScheduleParameter& operator=(const ScheduleParameter&) = delete;
++  ScheduleParameter& operator=(ScheduleParameter&&) = delete;
++
++  [[nodiscard]] const std::string& GetName() const noexcept { return name_; }
++  [[nodiscard]] ScheduleValueKind GetValueKind() const noexcept { return value_kind_; }
++  [[nodiscard]] const std::string& GetCanonicalValue() const noexcept { return canonical_value_; }
++
++ private:
++  std::string name_;
++  ScheduleValueKind value_kind_;
++  std::string canonical_value_;
++};
++
++/**
++ * Complete generic resolved schedule representation.
++ *
++ * Every category is explicit. Each vector must be strictly ordered by parameter
++ * name; an empty vector means that category is explicitly inapplicable, never
++ * that a producer may consult an ambient default.
++ */
++class CanonicalSchedule {
++ public:
++  CanonicalSchedule() = delete;
++  CanonicalSchedule(std::vector<ScheduleParameter> schedule, std::vector<ScheduleParameter> tile,
++                    std::vector<ScheduleParameter> layout, std::vector<ScheduleParameter> persistence,
++                    std::vector<ScheduleParameter> cta, std::vector<ScheduleParameter> warp,
++                    std::vector<ScheduleParameter> stage, std::vector<ScheduleParameter> options);
++  CanonicalSchedule(const CanonicalSchedule&) = default;
++  CanonicalSchedule(CanonicalSchedule&&) = default;
++  CanonicalSchedule& operator=(const CanonicalSchedule&) = delete;
++  CanonicalSchedule& operator=(CanonicalSchedule&&) = delete;
++
++  [[nodiscard]] const std::vector<ScheduleParameter>& GetSchedule() const noexcept { return schedule_; }
++  [[nodiscard]] const std::vector<ScheduleParameter>& GetTile() const noexcept { return tile_; }
++  [[nodiscard]] const std::vector<ScheduleParameter>& GetLayout() const noexcept { return layout_; }
++  [[nodiscard]] const std::vector<ScheduleParameter>& GetPersistence() const noexcept { return persistence_; }
++  [[nodiscard]] const std::vector<ScheduleParameter>& GetCta() const noexcept { return cta_; }
++  [[nodiscard]] const std::vector<ScheduleParameter>& GetWarp() const noexcept { return warp_; }
++  [[nodiscard]] const std::vector<ScheduleParameter>& GetStage() const noexcept { return stage_; }
++  [[nodiscard]] const std::vector<ScheduleParameter>& GetOptions() const noexcept { return options_; }
++
++ private:
++  std::vector<ScheduleParameter> schedule_;
++  std::vector<ScheduleParameter> tile_;
++  std::vector<ScheduleParameter> layout_;
++  std::vector<ScheduleParameter> persistence_;
++  std::vector<ScheduleParameter> cta_;
++  std::vector<ScheduleParameter> warp_;
++  std::vector<ScheduleParameter> stage_;
++  std::vector<ScheduleParameter> options_;
++};
++
++/** Optional all-or-none identity of an operator-catalog selection. */
++class CatalogProvenance {
++ public:
++  CatalogProvenance() = delete;
++  CatalogProvenance(std::string operator_digest, std::string problem_digest, std::string schedule_digest);
++  CatalogProvenance(const CatalogProvenance&) = default;
++  CatalogProvenance(CatalogProvenance&&) = default;
++  CatalogProvenance& operator=(const CatalogProvenance&) = delete;
++  CatalogProvenance& operator=(CatalogProvenance&&) = delete;
++
++  [[nodiscard]] const std::string& GetOperatorDigest() const noexcept { return operator_digest_; }
++  [[nodiscard]] const std::string& GetProblemDigest() const noexcept { return problem_digest_; }
++  [[nodiscard]] const std::string& GetScheduleDigest() const noexcept { return schedule_digest_; }
++
++ private:
++  std::string operator_digest_;
++  std::string problem_digest_;
++  std::string schedule_digest_;
++};
++
++/** Immutable, pointer-free per-region KernelBuildSpec v1. */
++class KernelBuildSpec {
++ public:
++  static constexpr uint32_t kBuildSpecSchemaVersion = 1;
++
++  KernelBuildSpec() = delete;
++  KernelBuildSpec(std::string source_ir_digest, std::string callable_abi_digest, SemanticRoute semantic_route,
++                  std::string pipeline_revision, CanonicalSchedule resolved_schedule,
++                  std::string static_specialization_digest, std::string symbolic_specialization_digest,
++                  std::string argument_abi_digest, std::string result_abi_digest,
++                  std::string mutation_abi_digest, std::string compile_request_byte_identity_digest,
++                  std::optional<CatalogProvenance> catalog_provenance = std::nullopt);
++  KernelBuildSpec(const KernelBuildSpec&) = default;
++  KernelBuildSpec(KernelBuildSpec&&) = default;
++  KernelBuildSpec& operator=(const KernelBuildSpec&) = delete;
++  KernelBuildSpec& operator=(KernelBuildSpec&&) = delete;
++
++  [[nodiscard]] constexpr uint32_t GetBuildSpecSchemaVersion() const noexcept {
++    return kBuildSpecSchemaVersion;
++  }
++  [[nodiscard]] const std::string& GetSourceIrDigest() const noexcept { return source_ir_digest_; }
++  [[nodiscard]] const std::string& GetCallableAbiDigest() const noexcept { return callable_abi_digest_; }
++  [[nodiscard]] SemanticRoute GetSemanticRoute() const noexcept { return semantic_route_; }
++  [[nodiscard]] const std::string& GetPipelineRevision() const noexcept { return pipeline_revision_; }
++  [[nodiscard]] const CanonicalSchedule& GetResolvedSchedule() const noexcept { return resolved_schedule_; }
++  [[nodiscard]] const std::string& GetStaticSpecializationDigest() const noexcept {
++    return static_specialization_digest_;
++  }
++  [[nodiscard]] const std::string& GetSymbolicSpecializationDigest() const noexcept {
++    return symbolic_specialization_digest_;
++  }
++  [[nodiscard]] const std::string& GetArgumentAbiDigest() const noexcept { return argument_abi_digest_; }
++  [[nodiscard]] const std::string& GetResultAbiDigest() const noexcept { return result_abi_digest_; }
++  [[nodiscard]] const std::string& GetMutationAbiDigest() const noexcept { return mutation_abi_digest_; }
++  [[nodiscard]] const std::string& GetCompileRequestByteIdentityDigest() const noexcept {
++    return compile_request_byte_identity_digest_;
++  }
++  [[nodiscard]] const std::optional<CatalogProvenance>& GetCatalogProvenance() const noexcept {
++    return catalog_provenance_;
++  }
++
++  /** Serialize the complete build specification as canonical MessagePack. */
++  [[nodiscard]] std::vector<uint8_t> SerializeCanonical() const;
++
++  /** Deserialize canonical MessagePack, rejecting malformed, noncanonical, and unknown data. */
++  [[nodiscard]] static KernelBuildSpec DeserializeCanonical(const std::vector<uint8_t>& data);
++
++  /** Lowercase SHA-256 of the complete canonical KernelBuildSpec v1 payload. */
++  [[nodiscard]] std::string GetIdentityDigest() const;
++
++ private:
++  std::string source_ir_digest_;
++  std::string callable_abi_digest_;
++  SemanticRoute semantic_route_;
++  std::string pipeline_revision_;
++  CanonicalSchedule resolved_schedule_;
++  std::string static_specialization_digest_;
++  std::string symbolic_specialization_digest_;
++  std::string argument_abi_digest_;
++  std::string result_abi_digest_;
++  std::string mutation_abi_digest_;
++  std::string compile_request_byte_identity_digest_;
++  std::optional<CatalogProvenance> catalog_provenance_;
++};
++
++}  // namespace pypto::compiler
++
++#endif  // PYPTO_COMPILER_KERNEL_BUILD_SPEC_H_
+diff --git a/python/bindings/modules/compiler.cpp b/python/bindings/modules/compiler.cpp
+index 997995d48d5e82df28a81562b800b08c6d019f92..74690d969bb4f2d49d3f0701b2a246343ebf5e4f 100644
+--- a/python/bindings/modules/compiler.cpp
++++ b/python/bindings/modules/compiler.cpp
+@@ -10,11 +10,13 @@
+  */
+ 
+ #include <nanobind/nanobind.h>
++#include <nanobind/stl/optional.h>
+ #include <nanobind/stl/string.h>
+ #include <nanobind/stl/vector.h>
+ 
+ #include "../module.h"
+ #include "pypto/compiler/compile_request.h"
++#include "pypto/compiler/kernel_build_spec.h"
+ #include "pypto/compiler/target_info.h"
+ 
+ namespace nb = nanobind;
+@@ -34,7 +36,7 @@ std::vector<uint8_t> FromPythonBytes(const nb::bytes& data) {
+ }  // namespace
+ 
+ void BindCompiler(nb::module_& m) {
+-  nb::module_ compiler_mod = m.def_submodule("compiler", "PyPTO compiler target contracts");
++  nb::module_ compiler_mod = m.def_submodule("compiler", "PyPTO immutable compiler data contracts");
+ 
+   nb::enum_<compiler::RequestedArtifactPolicy>(compiler_mod, "RequestedArtifactPolicy",
+                                                "Requested compiler output policy")
+@@ -50,6 +52,96 @@ void BindCompiler(nb::module_& m) {
+       .value("Strict", compiler::VerificationPolicy::Strict,
+              "Require strict request, producer, and artifact verification");
+ 
++  nb::enum_<compiler::SemanticRoute>(compiler_mod, "SemanticRoute",
++                                     "Semantic lowering route selected for one compiled region")
++      .value("GenericDirect", compiler::SemanticRoute::GenericDirect, "Lower a generic region directly")
++      .value("StructuredTensorIr", compiler::SemanticRoute::StructuredTensorIr,
++             "Lower a structured tensor region through the structured route")
++      .value("ServingDirect", compiler::SemanticRoute::ServingDirect,
++             "Lower a generic serving semantic directly");
++
++  nb::enum_<compiler::ScheduleValueKind>(compiler_mod, "ScheduleValueKind",
++                                         "Scalar type of a canonical schedule parameter")
++      .value("Boolean", compiler::ScheduleValueKind::Boolean)
++      .value("SignedInteger", compiler::ScheduleValueKind::SignedInteger)
++      .value("UnsignedInteger", compiler::ScheduleValueKind::UnsignedInteger)
++      .value("Text", compiler::ScheduleValueKind::Text);
++
++  nb::class_<compiler::ScheduleParameter>(compiler_mod, "ScheduleParameter",
++                                          "One immutable typed scalar in a resolved schedule category")
++      .def(nb::init<std::string, compiler::ScheduleValueKind, std::string>(), nb::arg("name"),
++           nb::arg("value_kind"), nb::arg("canonical_value"))
++      .def_prop_ro("name", &compiler::ScheduleParameter::GetName)
++      .def_prop_ro("value_kind", &compiler::ScheduleParameter::GetValueKind)
++      .def_prop_ro("canonical_value", &compiler::ScheduleParameter::GetCanonicalValue);
++
++  nb::class_<compiler::CanonicalSchedule>(
++      compiler_mod, "CanonicalSchedule",
++      "Complete resolved byte-affecting schedule grouped by generic category")
++      .def(nb::init<std::vector<compiler::ScheduleParameter>, std::vector<compiler::ScheduleParameter>,
++                    std::vector<compiler::ScheduleParameter>, std::vector<compiler::ScheduleParameter>,
++                    std::vector<compiler::ScheduleParameter>, std::vector<compiler::ScheduleParameter>,
++                    std::vector<compiler::ScheduleParameter>, std::vector<compiler::ScheduleParameter>>(),
++           nb::arg("schedule"), nb::arg("tile"), nb::arg("layout"), nb::arg("persistence"), nb::arg("cta"),
++           nb::arg("warp"), nb::arg("stage"), nb::arg("options"))
++      .def_prop_ro("schedule", &compiler::CanonicalSchedule::GetSchedule)
++      .def_prop_ro("tile", &compiler::CanonicalSchedule::GetTile)
++      .def_prop_ro("layout", &compiler::CanonicalSchedule::GetLayout)
++      .def_prop_ro("persistence", &compiler::CanonicalSchedule::GetPersistence)
++      .def_prop_ro("cta", &compiler::CanonicalSchedule::GetCta)
++      .def_prop_ro("warp", &compiler::CanonicalSchedule::GetWarp)
++      .def_prop_ro("stage", &compiler::CanonicalSchedule::GetStage)
++      .def_prop_ro("options", &compiler::CanonicalSchedule::GetOptions);
++
++  nb::class_<compiler::CatalogProvenance>(compiler_mod, "CatalogProvenance",
++                                          "Optional all-or-none operator catalog digest provenance")
++      .def(nb::init<std::string, std::string, std::string>(), nb::arg("operator_digest"),
++           nb::arg("problem_digest"), nb::arg("schedule_digest"))
++      .def_prop_ro("operator_digest", &compiler::CatalogProvenance::GetOperatorDigest)
++      .def_prop_ro("problem_digest", &compiler::CatalogProvenance::GetProblemDigest)
++      .def_prop_ro("schedule_digest", &compiler::CatalogProvenance::GetScheduleDigest);
++
++  nb::class_<compiler::KernelBuildSpec>(compiler_mod, "KernelBuildSpec",
++                                        "Immutable pointer-free v1 per-region compiler build contract")
++      .def(nb::init<std::string, std::string, compiler::SemanticRoute, std::string,
++                    compiler::CanonicalSchedule, std::string, std::string, std::string, std::string,
++                    std::string, std::string, std::optional<compiler::CatalogProvenance>>(),
++           nb::arg("source_ir_digest"), nb::arg("callable_abi_digest"), nb::arg("semantic_route"),
++           nb::arg("pipeline_revision"), nb::arg("resolved_schedule"),
++           nb::arg("static_specialization_digest"), nb::arg("symbolic_specialization_digest"),
++           nb::arg("argument_abi_digest"), nb::arg("result_abi_digest"), nb::arg("mutation_abi_digest"),
++           nb::arg("compile_request_byte_identity_digest"), nb::arg("catalog_provenance") = nb::none())
++      .def_prop_ro("build_spec_schema_version", &compiler::KernelBuildSpec::GetBuildSpecSchemaVersion)
++      .def_prop_ro("source_ir_digest", &compiler::KernelBuildSpec::GetSourceIrDigest)
++      .def_prop_ro("callable_abi_digest", &compiler::KernelBuildSpec::GetCallableAbiDigest)
++      .def_prop_ro("semantic_route", &compiler::KernelBuildSpec::GetSemanticRoute)
++      .def_prop_ro("pipeline_revision", &compiler::KernelBuildSpec::GetPipelineRevision)
++      .def_prop_ro("resolved_schedule", &compiler::KernelBuildSpec::GetResolvedSchedule,
++                   nb::rv_policy::reference_internal)
++      .def_prop_ro("static_specialization_digest", &compiler::KernelBuildSpec::GetStaticSpecializationDigest)
++      .def_prop_ro("symbolic_specialization_digest",
++                   &compiler::KernelBuildSpec::GetSymbolicSpecializationDigest)
++      .def_prop_ro("argument_abi_digest", &compiler::KernelBuildSpec::GetArgumentAbiDigest)
++      .def_prop_ro("result_abi_digest", &compiler::KernelBuildSpec::GetResultAbiDigest)
++      .def_prop_ro("mutation_abi_digest", &compiler::KernelBuildSpec::GetMutationAbiDigest)
++      .def_prop_ro("compile_request_byte_identity_digest",
++                   &compiler::KernelBuildSpec::GetCompileRequestByteIdentityDigest)
++      .def_prop_ro("catalog_provenance", &compiler::KernelBuildSpec::GetCatalogProvenance,
++                   nb::rv_policy::reference_internal)
++      .def(
++          "serialize",
++          [](const compiler::KernelBuildSpec& build_spec) {
++            return ToPythonBytes(build_spec.SerializeCanonical());
++          },
++          "Serialize the complete build specification as canonical MessagePack bytes")
++      .def_static(
++          "deserialize",
++          [](const nb::bytes& data) {
++            return compiler::KernelBuildSpec::DeserializeCanonical(FromPythonBytes(data));
++          },
++          nb::arg("data"), "Deserialize canonical MessagePack and reject malformed or unknown data")
++      .def_prop_ro("identity_digest", &compiler::KernelBuildSpec::GetIdentityDigest);
++
+   nb::class_<compiler::TargetTraits>(compiler_mod, "TargetTraits")
+       .def(nb::init<int, int, int, int, int, int, int, int, int, int, int, int, uint64_t,
+                     uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
+diff --git a/python/pypto/compiler/__init__.py b/python/pypto/compiler/__init__.py
+index e5bf21645c431d850066e99e5d3f03bb7e31896d..46ddc461a1808e59c041c47260fb6cdeae8ddf14 100644
+--- a/python/pypto/compiler/__init__.py
++++ b/python/pypto/compiler/__init__.py
+@@ -7,13 +7,19 @@
+ # See LICENSE in the root of the software repository for the full text of the License.
+ # -----------------------------------------------------------------------------------------------------------
+ 
+-"""Immutable compiler target identities and resource traits."""
++"""Immutable compiler target, request, and per-region build identities."""
+ 
+ from pypto.pypto_core.compiler import (
++    CanonicalSchedule,
++    CatalogProvenance,
+     CompileRequest,
+     CompilerPolicy,
++    KernelBuildSpec,
+     NvidiaTargetInfo,
+     RequestedArtifactPolicy,
++    ScheduleParameter,
++    ScheduleValueKind,
++    SemanticRoute,
+     TargetTraits,
+     ToolchainIdentity,
+     VerificationPolicy,
+@@ -21,10 +27,16 @@ from pypto.pypto_core.compiler import (
+ )
+ 
+ __all__ = [
++    "CanonicalSchedule",
++    "CatalogProvenance",
+     "CompileRequest",
+     "CompilerPolicy",
++    "KernelBuildSpec",
+     "NvidiaTargetInfo",
+     "RequestedArtifactPolicy",
++    "ScheduleParameter",
++    "ScheduleValueKind",
++    "SemanticRoute",
+     "TargetTraits",
+     "ToolchainIdentity",
+     "VerificationPolicy",
+diff --git a/python/pypto/pypto_core/compiler.pyi b/python/pypto/pypto_core/compiler.pyi
+index 1a4460955ae5f71f98a8aa19b9d192b2683c74d6..7fc75546050ebc3692137a68a1f8f323182b79c7 100644
+--- a/python/pypto/pypto_core/compiler.pyi
++++ b/python/pypto/pypto_core/compiler.pyi
+@@ -7,7 +7,7 @@
+ # See LICENSE in the root of the software repository for the full text of the License.
+ # -----------------------------------------------------------------------------------------------------------
+ 
+-"""Type stubs for compiler target contracts."""
++"""Type stubs for immutable compiler target and build contracts."""
+ 
+ from enum import Enum
+ 
+@@ -29,6 +29,138 @@ class VerificationPolicy(Enum):
+ 
+     Strict = ...
+ 
++class SemanticRoute(Enum):
++    """Semantic lowering route selected for one compiled region."""
++
++    GenericDirect = ...
++    StructuredTensorIr = ...
++    ServingDirect = ...
++
++class ScheduleValueKind(Enum):
++    """Scalar type of a canonical schedule parameter."""
++
++    Boolean = ...
++    SignedInteger = ...
++    UnsignedInteger = ...
++    Text = ...
++
++class ScheduleParameter:
++    """One immutable typed scalar in a resolved schedule category."""
++
++    def __init__(
++        self,
++        name: str,
++        value_kind: ScheduleValueKind,
++        canonical_value: str,
++    ) -> None: ...
++    @property
++    def name(self) -> str: ...
++    @property
++    def value_kind(self) -> ScheduleValueKind: ...
++    @property
++    def canonical_value(self) -> str: ...
++
++class CanonicalSchedule:
++    """Complete resolved byte-affecting schedule grouped by generic category."""
++
++    def __init__(
++        self,
++        schedule: list[ScheduleParameter],
++        tile: list[ScheduleParameter],
++        layout: list[ScheduleParameter],
++        persistence: list[ScheduleParameter],
++        cta: list[ScheduleParameter],
++        warp: list[ScheduleParameter],
++        stage: list[ScheduleParameter],
++        options: list[ScheduleParameter],
++    ) -> None: ...
++    @property
++    def schedule(self) -> list[ScheduleParameter]: ...
++    @property
++    def tile(self) -> list[ScheduleParameter]: ...
++    @property
++    def layout(self) -> list[ScheduleParameter]: ...
++    @property
++    def persistence(self) -> list[ScheduleParameter]: ...
++    @property
++    def cta(self) -> list[ScheduleParameter]: ...
++    @property
++    def warp(self) -> list[ScheduleParameter]: ...
++    @property
++    def stage(self) -> list[ScheduleParameter]: ...
++    @property
++    def options(self) -> list[ScheduleParameter]: ...
++
++class CatalogProvenance:
++    """Optional all-or-none operator catalog digest provenance."""
++
++    def __init__(
++        self,
++        operator_digest: str,
++        problem_digest: str,
++        schedule_digest: str,
++    ) -> None: ...
++    @property
++    def operator_digest(self) -> str: ...
++    @property
++    def problem_digest(self) -> str: ...
++    @property
++    def schedule_digest(self) -> str: ...
++
++class KernelBuildSpec:
++    """Immutable pointer-free v1 per-region compiler build contract."""
++
++    def __init__(
++        self,
++        source_ir_digest: str,
++        callable_abi_digest: str,
++        semantic_route: SemanticRoute,
++        pipeline_revision: str,
++        resolved_schedule: CanonicalSchedule,
++        static_specialization_digest: str,
++        symbolic_specialization_digest: str,
++        argument_abi_digest: str,
++        result_abi_digest: str,
++        mutation_abi_digest: str,
++        compile_request_byte_identity_digest: str,
++        catalog_provenance: CatalogProvenance | None = None,
++    ) -> None: ...
++    @property
++    def build_spec_schema_version(self) -> int: ...
++    @property
++    def source_ir_digest(self) -> str: ...
++    @property
++    def callable_abi_digest(self) -> str: ...
++    @property
++    def semantic_route(self) -> SemanticRoute: ...
++    @property
++    def pipeline_revision(self) -> str: ...
++    @property
++    def resolved_schedule(self) -> CanonicalSchedule: ...
++    @property
++    def static_specialization_digest(self) -> str: ...
++    @property
++    def symbolic_specialization_digest(self) -> str: ...
++    @property
++    def argument_abi_digest(self) -> str: ...
++    @property
++    def result_abi_digest(self) -> str: ...
++    @property
++    def mutation_abi_digest(self) -> str: ...
++    @property
++    def compile_request_byte_identity_digest(self) -> str: ...
++    @property
++    def catalog_provenance(self) -> CatalogProvenance | None: ...
++    def serialize(self) -> bytes:
++        """Serialize the complete build specification as canonical MessagePack bytes."""
++        ...
++    @staticmethod
++    def deserialize(data: bytes) -> KernelBuildSpec:
++        """Deserialize canonical MessagePack and reject malformed or unknown data."""
++        ...
++    @property
++    def identity_digest(self) -> str: ...
++
+ class TargetTraits:
+     def __init__(
+         self,
+diff --git a/src/compiler/compile_request.cpp b/src/compiler/compile_request.cpp
+index dd9f746726893f78330bf08b00b7ade0a704298c..5faf5741bc1cbb3f94ad9db4d7d9882ad091d71b 100644
+--- a/src/compiler/compile_request.cpp
++++ b/src/compiler/compile_request.cpp
+@@ -12,7 +12,6 @@
+ #include "pypto/compiler/compile_request.h"
+ 
+ #include <algorithm>
+-#include <array>
+ #include <cstdint>
+ #include <initializer_list>
+ #include <limits>
+@@ -23,6 +22,7 @@
+ #include <utility>
+ #include <vector>
+ 
++#include "digest.h"
+ #include "pypto/core/dtype.h"
+ #include "pypto/core/error.h"
+ 
+@@ -43,93 +43,6 @@ constexpr size_t kMaximumMapItems = 32;
+ constexpr size_t kMaximumStringBytes = 64 * 1024;
+ constexpr size_t kMaximumNestingDepth = 8;
+ 
+-constexpr std::array<uint32_t, 64> kSha256RoundConstants = {
+-    0x428a2f98U, 0x71374491U, 0xb5c0fbcfU, 0xe9b5dba5U, 0x3956c25bU, 0x59f111f1U, 0x923f82a4U, 0xab1c5ed5U,
+-    0xd807aa98U, 0x12835b01U, 0x243185beU, 0x550c7dc3U, 0x72be5d74U, 0x80deb1feU, 0x9bdc06a7U, 0xc19bf174U,
+-    0xe49b69c1U, 0xefbe4786U, 0x0fc19dc6U, 0x240ca1ccU, 0x2de92c6fU, 0x4a7484aaU, 0x5cb0a9dcU, 0x76f988daU,
+-    0x983e5152U, 0xa831c66dU, 0xb00327c8U, 0xbf597fc7U, 0xc6e00bf3U, 0xd5a79147U, 0x06ca6351U, 0x14292967U,
+-    0x27b70a85U, 0x2e1b2138U, 0x4d2c6dfcU, 0x53380d13U, 0x650a7354U, 0x766a0abbU, 0x81c2c92eU, 0x92722c85U,
+-    0xa2bfe8a1U, 0xa81a664bU, 0xc24b8b70U, 0xc76c51a3U, 0xd192e819U, 0xd6990624U, 0xf40e3585U, 0x106aa070U,
+-    0x19a4c116U, 0x1e376c08U, 0x2748774cU, 0x34b0bcb5U, 0x391c0cb3U, 0x4ed8aa4aU, 0x5b9cca4fU, 0x682e6ff3U,
+-    0x748f82eeU, 0x78a5636fU, 0x84c87814U, 0x8cc70208U, 0x90befffaU, 0xa4506cebU, 0xbef9a3f7U, 0xc67178f2U,
+-};
+-
+-uint32_t RotateRight(uint32_t value, uint32_t count) { return (value >> count) | (value << (32U - count)); }
+-
+-std::string Sha256Hex(const std::vector<uint8_t>& data) {
+-  std::vector<uint8_t> padded(data);
+-  const uint64_t bit_length = static_cast<uint64_t>(padded.size()) * 8U;
+-  padded.push_back(0x80U);
+-  while (padded.size() % 64U != 56U) padded.push_back(0U);
+-  for (int shift = 56; shift >= 0; shift -= 8) {
+-    padded.push_back(static_cast<uint8_t>(bit_length >> shift));
+-  }
+-
+-  std::array<uint32_t, 8> state = {
+-      0x6a09e667U, 0xbb67ae85U, 0x3c6ef372U, 0xa54ff53aU, 0x510e527fU, 0x9b05688cU, 0x1f83d9abU, 0x5be0cd19U,
+-  };
+-  for (size_t offset = 0; offset < padded.size(); offset += 64U) {
+-    std::array<uint32_t, 64> words{};
+-    for (size_t i = 0; i < 16; ++i) {
+-      const size_t word_offset = offset + i * 4U;
+-      words[i] = (static_cast<uint32_t>(padded[word_offset]) << 24U) |
+-                 (static_cast<uint32_t>(padded[word_offset + 1U]) << 16U) |
+-                 (static_cast<uint32_t>(padded[word_offset + 2U]) << 8U) |
+-                 static_cast<uint32_t>(padded[word_offset + 3U]);
+-    }
+-    for (size_t i = 16; i < words.size(); ++i) {
+-      const uint32_t sigma0 =
+-          RotateRight(words[i - 15U], 7U) ^ RotateRight(words[i - 15U], 18U) ^ (words[i - 15U] >> 3U);
+-      const uint32_t sigma1 =
+-          RotateRight(words[i - 2U], 17U) ^ RotateRight(words[i - 2U], 19U) ^ (words[i - 2U] >> 10U);
+-      words[i] = words[i - 16U] + sigma0 + words[i - 7U] + sigma1;
+-    }
+-
+-    uint32_t a = state[0];
+-    uint32_t b = state[1];
+-    uint32_t c = state[2];
+-    uint32_t d = state[3];
+-    uint32_t e = state[4];
+-    uint32_t f = state[5];
+-    uint32_t g = state[6];
+-    uint32_t h = state[7];
+-    for (size_t i = 0; i < words.size(); ++i) {
+-      const uint32_t sum1 = RotateRight(e, 6U) ^ RotateRight(e, 11U) ^ RotateRight(e, 25U);
+-      const uint32_t choose = (e & f) ^ ((~e) & g);
+-      const uint32_t temporary1 = h + sum1 + choose + kSha256RoundConstants[i] + words[i];
+-      const uint32_t sum0 = RotateRight(a, 2U) ^ RotateRight(a, 13U) ^ RotateRight(a, 22U);
+-      const uint32_t majority = (a & b) ^ (a & c) ^ (b & c);
+-      const uint32_t temporary2 = sum0 + majority;
+-      h = g;
+-      g = f;
+-      f = e;
+-      e = d + temporary1;
+-      d = c;
+-      c = b;
+-      b = a;
+-      a = temporary1 + temporary2;
+-    }
+-    state[0] += a;
+-    state[1] += b;
+-    state[2] += c;
+-    state[3] += d;
+-    state[4] += e;
+-    state[5] += f;
+-    state[6] += g;
+-    state[7] += h;
+-  }
+-
+-  constexpr char kHexDigits[] = "0123456789abcdef";
+-  std::string result;
+-  result.reserve(64);
+-  for (uint32_t word : state) {
+-    for (int shift = 28; shift >= 0; shift -= 4) {
+-      result.push_back(kHexDigits[(word >> shift) & 0x0fU]);
+-    }
+-  }
+-  return result;
+-}
+-
+ void RequireText(const std::string& value, const std::string& field_name) {
+   const auto is_ascii_whitespace = [](unsigned char character) {
+     return character == ' ' || character == '\t' || character == '\n' || character == '\r' ||
+@@ -720,7 +633,7 @@ std::vector<uint8_t> CompileRequest::SerializeByteCompileIdentity() const {
+ }
+ 
+ std::string CompileRequest::GetByteCompileIdentityDigest() const {
+-  return Sha256Hex(SerializeByteCompileIdentity());
++  return detail::Sha256Hex(SerializeByteCompileIdentity());
+ }
+ 
+ std::vector<uint8_t> CompileRequest::SerializeLoaderCompatibilityInput() const {
+@@ -743,7 +656,7 @@ std::vector<uint8_t> CompileRequest::SerializeLoaderCompatibilityInput() const {
+ }
+ 
+ std::string CompileRequest::GetLoaderCompatibilityInputDigest() const {
+-  return Sha256Hex(SerializeLoaderCompatibilityInput());
++  return detail::Sha256Hex(SerializeLoaderCompatibilityInput());
+ }
+ 
+ std::vector<uint8_t> CompileRequest::SerializeDeviceAutotuneIdentity() const {
+@@ -762,7 +675,7 @@ std::vector<uint8_t> CompileRequest::SerializeDeviceAutotuneIdentity() const {
+ }
+ 
+ std::string CompileRequest::GetDeviceAutotuneIdentityDigest() const {
+-  return Sha256Hex(SerializeDeviceAutotuneIdentity());
++  return detail::Sha256Hex(SerializeDeviceAutotuneIdentity());
+ }
+ 
+ }  // namespace pypto::compiler
+diff --git a/src/compiler/digest.cpp b/src/compiler/digest.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..86e415c8061734aa56e44cd8c3d93ab668fa6fa1
+--- /dev/null
++++ b/src/compiler/digest.cpp
+@@ -0,0 +1,112 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#include "digest.h"
++
++#include <array>
++#include <cstddef>
++#include <cstdint>
++#include <string>
++#include <vector>
++
++namespace pypto::compiler::detail {
++namespace {
++
++constexpr std::array<uint32_t, 64> kSha256RoundConstants = {
++    0x428a2f98U, 0x71374491U, 0xb5c0fbcfU, 0xe9b5dba5U, 0x3956c25bU, 0x59f111f1U, 0x923f82a4U, 0xab1c5ed5U,
++    0xd807aa98U, 0x12835b01U, 0x243185beU, 0x550c7dc3U, 0x72be5d74U, 0x80deb1feU, 0x9bdc06a7U, 0xc19bf174U,
++    0xe49b69c1U, 0xefbe4786U, 0x0fc19dc6U, 0x240ca1ccU, 0x2de92c6fU, 0x4a7484aaU, 0x5cb0a9dcU, 0x76f988daU,
++    0x983e5152U, 0xa831c66dU, 0xb00327c8U, 0xbf597fc7U, 0xc6e00bf3U, 0xd5a79147U, 0x06ca6351U, 0x14292967U,
++    0x27b70a85U, 0x2e1b2138U, 0x4d2c6dfcU, 0x53380d13U, 0x650a7354U, 0x766a0abbU, 0x81c2c92eU, 0x92722c85U,
++    0xa2bfe8a1U, 0xa81a664bU, 0xc24b8b70U, 0xc76c51a3U, 0xd192e819U, 0xd6990624U, 0xf40e3585U, 0x106aa070U,
++    0x19a4c116U, 0x1e376c08U, 0x2748774cU, 0x34b0bcb5U, 0x391c0cb3U, 0x4ed8aa4aU, 0x5b9cca4fU, 0x682e6ff3U,
++    0x748f82eeU, 0x78a5636fU, 0x84c87814U, 0x8cc70208U, 0x90befffaU, 0xa4506cebU, 0xbef9a3f7U, 0xc67178f2U,
++};
++
++uint32_t RotateRight(uint32_t value, uint32_t count) { return (value >> count) | (value << (32U - count)); }
++
++}  // namespace
++
++std::string Sha256Hex(const std::vector<uint8_t>& data) {
++  std::vector<uint8_t> padded(data);
++  const uint64_t bit_length = static_cast<uint64_t>(padded.size()) * 8U;
++  padded.push_back(0x80U);
++  while (padded.size() % 64U != 56U) padded.push_back(0U);
++  for (int shift = 56; shift >= 0; shift -= 8) {
++    padded.push_back(static_cast<uint8_t>(bit_length >> shift));
++  }
++
++  std::array<uint32_t, 8> state = {
++      0x6a09e667U, 0xbb67ae85U, 0x3c6ef372U, 0xa54ff53aU, 0x510e527fU, 0x9b05688cU, 0x1f83d9abU, 0x5be0cd19U,
++  };
++  for (size_t offset = 0; offset < padded.size(); offset += 64U) {
++    std::array<uint32_t, 64> words{};
++    for (size_t i = 0; i < 16; ++i) {
++      const size_t word_offset = offset + i * 4U;
++      words[i] = (static_cast<uint32_t>(padded[word_offset]) << 24U) |
++                 (static_cast<uint32_t>(padded[word_offset + 1U]) << 16U) |
++                 (static_cast<uint32_t>(padded[word_offset + 2U]) << 8U) |
++                 static_cast<uint32_t>(padded[word_offset + 3U]);
++    }
++    for (size_t i = 16; i < words.size(); ++i) {
++      const uint32_t sigma0 =
++          RotateRight(words[i - 15U], 7U) ^ RotateRight(words[i - 15U], 18U) ^ (words[i - 15U] >> 3U);
++      const uint32_t sigma1 =
++          RotateRight(words[i - 2U], 17U) ^ RotateRight(words[i - 2U], 19U) ^ (words[i - 2U] >> 10U);
++      words[i] = words[i - 16U] + sigma0 + words[i - 7U] + sigma1;
++    }
++
++    uint32_t a = state[0];
++    uint32_t b = state[1];
++    uint32_t c = state[2];
++    uint32_t d = state[3];
++    uint32_t e = state[4];
++    uint32_t f = state[5];
++    uint32_t g = state[6];
++    uint32_t h = state[7];
++    for (size_t i = 0; i < words.size(); ++i) {
++      const uint32_t sum1 = RotateRight(e, 6U) ^ RotateRight(e, 11U) ^ RotateRight(e, 25U);
++      const uint32_t choose = (e & f) ^ ((~e) & g);
++      const uint32_t temporary1 = h + sum1 + choose + kSha256RoundConstants[i] + words[i];
++      const uint32_t sum0 = RotateRight(a, 2U) ^ RotateRight(a, 13U) ^ RotateRight(a, 22U);
++      const uint32_t majority = (a & b) ^ (a & c) ^ (b & c);
++      const uint32_t temporary2 = sum0 + majority;
++      h = g;
++      g = f;
++      f = e;
++      e = d + temporary1;
++      d = c;
++      c = b;
++      b = a;
++      a = temporary1 + temporary2;
++    }
++    state[0] += a;
++    state[1] += b;
++    state[2] += c;
++    state[3] += d;
++    state[4] += e;
++    state[5] += f;
++    state[6] += g;
++    state[7] += h;
++  }
++
++  constexpr char kHexDigits[] = "0123456789abcdef";
++  std::string result;
++  result.reserve(64);
++  for (uint32_t word : state) {
++    for (int shift = 28; shift >= 0; shift -= 4) {
++      result.push_back(kHexDigits[(word >> shift) & 0x0fU]);
++    }
++  }
++  return result;
++}
++
++}  // namespace pypto::compiler::detail
+diff --git a/src/compiler/digest.h b/src/compiler/digest.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..b60ee798c5123c002539b898c11e87005a81be46
+--- /dev/null
++++ b/src/compiler/digest.h
+@@ -0,0 +1,26 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#ifndef PYPTO_SRC_COMPILER_DIGEST_H_
++#define PYPTO_SRC_COMPILER_DIGEST_H_
++
++#include <cstdint>
++#include <string>
++#include <vector>
++
++namespace pypto::compiler::detail {
++
++/** Return the lowercase SHA-256 digest of the supplied bytes. */
++[[nodiscard]] std::string Sha256Hex(const std::vector<uint8_t>& data);
++
++}  // namespace pypto::compiler::detail
++
++#endif  // PYPTO_SRC_COMPILER_DIGEST_H_
+diff --git a/src/compiler/kernel_build_spec.cpp b/src/compiler/kernel_build_spec.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..d447ebf3ff87c531c4b6f5b1cad6bfab20d8a167
+--- /dev/null
++++ b/src/compiler/kernel_build_spec.cpp
+@@ -0,0 +1,577 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#include "pypto/compiler/kernel_build_spec.h"
++
++#include <algorithm>
++#include <charconv>
++#include <cstdint>
++#include <initializer_list>
++#include <limits>
++#include <map>
++#include <msgpack.hpp>
++#include <optional>
++#include <string>
++#include <string_view>
++#include <system_error>
++#include <utility>
++#include <vector>
++
++#include "digest.h"
++#include "pypto/core/error.h"
++
++namespace pypto::compiler {
++namespace {
++
++using CanonicalPacker = msgpack::packer<msgpack::sbuffer>;
++
++constexpr std::string_view kKernelBuildSpecContract = "pypto.kernel_build_spec.v1";
++constexpr size_t kMaximumSerializedBuildSpecBytes = 1024 * 1024;
++constexpr size_t kMaximumScheduleParametersPerCategory = 128;
++constexpr size_t kMaximumMapItems = 32;
++constexpr size_t kMaximumStringBytes = 64 * 1024;
++constexpr size_t kMaximumNestingDepth = 8;
++constexpr size_t kMaximumParameterNameBytes = 128;
++constexpr size_t kMaximumParameterTextBytes = 4096;
++
++void RequireSha256(const std::string& value, const std::string& field_name) {
++  if (value.size() != 64 || !std::all_of(value.begin(), value.end(), [](unsigned char character) {
++        return (character >= '0' && character <= '9') || (character >= 'a' && character <= 'f');
++      })) {
++    throw ValueError(field_name + " must be a 64-character lowercase hexadecimal SHA-256");
++  }
++}
++
++void RequireFullRevision(const std::string& value, const std::string& field_name) {
++  if (value.size() != 40 || !std::all_of(value.begin(), value.end(), [](unsigned char character) {
++        return (character >= '0' && character <= '9') || (character >= 'a' && character <= 'f');
++      })) {
++    throw ValueError(field_name + " must be a full 40-character lowercase hexadecimal revision");
++  }
++}
++
++void RequireParameterName(const std::string& value) {
++  if (value.empty() || value.size() > kMaximumParameterNameBytes) {
++    throw ValueError("schedule parameter name must contain 1 to 128 bytes");
++  }
++  bool at_segment_start = true;
++  for (unsigned char character : value) {
++    if (character == '.') {
++      if (at_segment_start) {
++        throw ValueError("schedule parameter name must be a canonical lowercase dotted identifier");
++      }
++      at_segment_start = true;
++      continue;
++    }
++    if (at_segment_start) {
++      if (character < 'a' || character > 'z') {
++        throw ValueError("schedule parameter name segments must begin with a lowercase ASCII letter");
++      }
++      at_segment_start = false;
++      continue;
++    }
++    const bool is_lowercase = character >= 'a' && character <= 'z';
++    const bool is_digit = character >= '0' && character <= '9';
++    if (!is_lowercase && !is_digit && character != '_') {
++      throw ValueError(
++          "schedule parameter name must contain only lowercase ASCII letters, digits, underscores, and dots");
++    }
++  }
++  if (at_segment_start) {
++    throw ValueError("schedule parameter name must not end with a dot");
++  }
++}
++
++void RequireCanonicalTextValue(const std::string& value) {
++  if (value.empty() || value.size() > kMaximumParameterTextBytes) {
++    throw ValueError("text schedule parameter value must contain 1 to 4096 bytes");
++  }
++  if (value.front() == ' ' || value.back() == ' ') {
++    throw ValueError("text schedule parameter value must be trimmed");
++  }
++  if (!std::all_of(value.begin(), value.end(),
++                   [](unsigned char character) { return character >= 0x20U && character <= 0x7eU; })) {
++    throw ValueError("text schedule parameter value must contain printable ASCII without control bytes");
++  }
++}
++
++int64_t ParseCanonicalSignedInteger(const std::string& value) {
++  int64_t parsed = 0;
++  const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
++  if (result.ec != std::errc{} || result.ptr != value.data() + value.size() ||
++      std::to_string(parsed) != value) {
++    throw ValueError("signed-integer schedule value must be a canonical int64 decimal");
++  }
++  return parsed;
++}
++
++uint64_t ParseCanonicalUnsignedInteger(const std::string& value) {
++  uint64_t parsed = 0;
++  const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
++  if (result.ec != std::errc{} || result.ptr != value.data() + value.size() ||
++      std::to_string(parsed) != value) {
++    throw ValueError("unsigned-integer schedule value must be a canonical uint64 decimal");
++  }
++  return parsed;
++}
++
++std::string_view SemanticRouteName(SemanticRoute route) {
++  switch (route) {
++    case SemanticRoute::GenericDirect:
++      return "generic-direct";
++    case SemanticRoute::StructuredTensorIr:
++      return "structured-tensorir";
++    case SemanticRoute::ServingDirect:
++      return "serving-direct";
++  }
++  throw ValueError("unsupported semantic_route value " + std::to_string(static_cast<unsigned int>(route)));
++}
++
++std::string_view ScheduleValueKindName(ScheduleValueKind value_kind) {
++  switch (value_kind) {
++    case ScheduleValueKind::Boolean:
++      return "boolean";
++    case ScheduleValueKind::SignedInteger:
++      return "signed-integer";
++    case ScheduleValueKind::UnsignedInteger:
++      return "unsigned-integer";
++    case ScheduleValueKind::Text:
++      return "text";
++  }
++  throw ValueError("unsupported schedule value_kind " +
++                   std::to_string(static_cast<unsigned int>(value_kind)));
++}
++
++void ValidateCanonicalValue(ScheduleValueKind value_kind, const std::string& canonical_value) {
++  switch (value_kind) {
++    case ScheduleValueKind::Boolean:
++      if (canonical_value != "false" && canonical_value != "true") {
++        throw ValueError("boolean schedule value must be exactly 'false' or 'true'");
++      }
++      return;
++    case ScheduleValueKind::SignedInteger:
++      (void)ParseCanonicalSignedInteger(canonical_value);
++      return;
++    case ScheduleValueKind::UnsignedInteger:
++      (void)ParseCanonicalUnsignedInteger(canonical_value);
++      return;
++    case ScheduleValueKind::Text:
++      RequireCanonicalTextValue(canonical_value);
++      return;
++  }
++  (void)ScheduleValueKindName(value_kind);
++}
++
++void ValidateParameterCategory(const std::vector<ScheduleParameter>& parameters,
++                               const std::string& category_name) {
++  if (parameters.size() > kMaximumScheduleParametersPerCategory) {
++    throw ValueError(category_name + " contains more than 128 schedule parameters");
++  }
++  for (size_t i = 1; i < parameters.size(); ++i) {
++    if (parameters[i - 1].GetName() >= parameters[i].GetName()) {
++      throw ValueError(category_name +
++                       " schedule parameters must be strictly ordered by unique canonical name");
++    }
++  }
++}
++
++void PackText(CanonicalPacker& packer, std::string_view value) {
++  packer.pack_str(static_cast<uint32_t>(value.size()));
++  packer.pack_str_body(value.data(), static_cast<uint32_t>(value.size()));
++}
++
++void PackKey(CanonicalPacker& packer, std::string_view key) { PackText(packer, key); }
++
++void PackScheduleParameter(CanonicalPacker& packer, const ScheduleParameter& parameter) {
++  packer.pack_map(3);
++  PackKey(packer, "kind");
++  PackText(packer, ScheduleValueKindName(parameter.GetValueKind()));
++  PackKey(packer, "name");
++  PackText(packer, parameter.GetName());
++  PackKey(packer, "value");
++  switch (parameter.GetValueKind()) {
++    case ScheduleValueKind::Boolean:
++      packer.pack(parameter.GetCanonicalValue() == "true");
++      return;
++    case ScheduleValueKind::SignedInteger:
++      packer.pack(ParseCanonicalSignedInteger(parameter.GetCanonicalValue()));
++      return;
++    case ScheduleValueKind::UnsignedInteger:
++      packer.pack(ParseCanonicalUnsignedInteger(parameter.GetCanonicalValue()));
++      return;
++    case ScheduleValueKind::Text:
++      PackText(packer, parameter.GetCanonicalValue());
++      return;
++  }
++  (void)ScheduleValueKindName(parameter.GetValueKind());
++}
++
++void PackParameterCategory(CanonicalPacker& packer, const std::vector<ScheduleParameter>& parameters) {
++  packer.pack_array(static_cast<uint32_t>(parameters.size()));
++  for (const auto& parameter : parameters) PackScheduleParameter(packer, parameter);
++}
++
++void PackResolvedSchedule(CanonicalPacker& packer, const CanonicalSchedule& schedule) {
++  packer.pack_map(8);
++  PackKey(packer, "cta");
++  PackParameterCategory(packer, schedule.GetCta());
++  PackKey(packer, "layout");
++  PackParameterCategory(packer, schedule.GetLayout());
++  PackKey(packer, "options");
++  PackParameterCategory(packer, schedule.GetOptions());
++  PackKey(packer, "persistence");
++  PackParameterCategory(packer, schedule.GetPersistence());
++  PackKey(packer, "schedule");
++  PackParameterCategory(packer, schedule.GetSchedule());
++  PackKey(packer, "stage");
++  PackParameterCategory(packer, schedule.GetStage());
++  PackKey(packer, "tile");
++  PackParameterCategory(packer, schedule.GetTile());
++  PackKey(packer, "warp");
++  PackParameterCategory(packer, schedule.GetWarp());
++}
++
++void PackCatalogProvenance(CanonicalPacker& packer,
++                           const std::optional<CatalogProvenance>& catalog_provenance) {
++  if (!catalog_provenance.has_value()) {
++    packer.pack_nil();
++    return;
++  }
++  packer.pack_map(3);
++  PackKey(packer, "operator_digest");
++  PackText(packer, catalog_provenance->GetOperatorDigest());
++  PackKey(packer, "problem_digest");
++  PackText(packer, catalog_provenance->GetProblemDigest());
++  PackKey(packer, "schedule_digest");
++  PackText(packer, catalog_provenance->GetScheduleDigest());
++}
++
++std::vector<uint8_t> FinishBuffer(const msgpack::sbuffer& buffer) {
++  const auto* begin = reinterpret_cast<const uint8_t*>(buffer.data());
++  return std::vector<uint8_t>(begin, begin + buffer.size());
++}
++
++class StrictMap {
++ public:
++  StrictMap(const msgpack::object& object, std::string context,
++            std::initializer_list<std::string_view> allowed_fields)
++      : context_(std::move(context)) {
++    if (object.type != msgpack::type::MAP) throw ValueError(context_ + " must be a map");
++    std::map<std::string, bool> allowed;
++    for (std::string_view field : allowed_fields) allowed.emplace(field, true);
++    for (uint32_t i = 0; i < object.via.map.size; ++i) {
++      const auto& entry = object.via.map.ptr[i];
++      if (entry.key.type != msgpack::type::STR) {
++        throw ValueError(context_ + " field names must be strings");
++      }
++      std::string key(entry.key.via.str.ptr, entry.key.via.str.size);
++      if (allowed.find(key) == allowed.end()) {
++        throw ValueError(context_ + " contains unknown field '" + key + "'");
++      }
++      if (!fields_.emplace(std::move(key), &entry.val).second) {
++        throw ValueError(context_ + " contains a duplicate field");
++      }
++    }
++  }
++
++  [[nodiscard]] const msgpack::object& Get(const std::string& field) const {
++    const auto iterator = fields_.find(field);
++    if (iterator == fields_.end()) throw ValueError(context_ + " is missing required field '" + field + "'");
++    return *iterator->second;
++  }
++
++ private:
++  std::string context_;
++  std::map<std::string, const msgpack::object*> fields_;
++};
++
++std::string ReadText(const msgpack::object& object, const std::string& context) {
++  if (object.type != msgpack::type::STR) throw ValueError(context + " must be a string");
++  return std::string(object.via.str.ptr, object.via.str.size);
++}
++
++uint64_t ReadUint64(const msgpack::object& object, const std::string& context) {
++  if (object.type != msgpack::type::POSITIVE_INTEGER) {
++    throw ValueError(context + " must be an unsigned integer");
++  }
++  return object.via.u64;
++}
++
++uint32_t ReadUint32(const msgpack::object& object, const std::string& context) {
++  const uint64_t value = ReadUint64(object, context);
++  if (value > std::numeric_limits<uint32_t>::max()) throw ValueError(context + " exceeds uint32 range");
++  return static_cast<uint32_t>(value);
++}
++
++ScheduleValueKind ParseScheduleValueKind(const msgpack::object& object) {
++  const std::string value = ReadText(object, "resolved_schedule parameter kind");
++  if (value == "boolean") return ScheduleValueKind::Boolean;
++  if (value == "signed-integer") return ScheduleValueKind::SignedInteger;
++  if (value == "unsigned-integer") return ScheduleValueKind::UnsignedInteger;
++  if (value == "text") return ScheduleValueKind::Text;
++  throw ValueError("unsupported resolved_schedule parameter kind '" + value + "'");
++}
++
++std::string ParseCanonicalValue(const msgpack::object& object, ScheduleValueKind value_kind) {
++  switch (value_kind) {
++    case ScheduleValueKind::Boolean:
++      if (object.type != msgpack::type::BOOLEAN) {
++        throw ValueError("boolean schedule parameter value must be a MessagePack boolean");
++      }
++      return object.via.boolean ? "true" : "false";
++    case ScheduleValueKind::SignedInteger:
++      if (object.type == msgpack::type::NEGATIVE_INTEGER) return std::to_string(object.via.i64);
++      if (object.type == msgpack::type::POSITIVE_INTEGER &&
++          object.via.u64 <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
++        return std::to_string(object.via.u64);
++      }
++      throw ValueError("signed-integer schedule parameter value must fit int64");
++    case ScheduleValueKind::UnsignedInteger:
++      if (object.type != msgpack::type::POSITIVE_INTEGER) {
++        throw ValueError("unsigned-integer schedule parameter value must be nonnegative");
++      }
++      return std::to_string(object.via.u64);
++    case ScheduleValueKind::Text:
++      return ReadText(object, "text schedule parameter value");
++  }
++  (void)ScheduleValueKindName(value_kind);
++  return {};
++}
++
++ScheduleParameter ParseScheduleParameter(const msgpack::object& object) {
++  StrictMap fields(object, "KernelBuildSpec.resolved_schedule parameter", {"kind", "name", "value"});
++  const ScheduleValueKind value_kind = ParseScheduleValueKind(fields.Get("kind"));
++  return ScheduleParameter(ReadText(fields.Get("name"), "resolved_schedule parameter name"), value_kind,
++                           ParseCanonicalValue(fields.Get("value"), value_kind));
++}
++
++std::vector<ScheduleParameter> ParseParameterCategory(const msgpack::object& object,
++                                                      const std::string& category_name) {
++  if (object.type != msgpack::type::ARRAY) {
++    throw ValueError("KernelBuildSpec.resolved_schedule." + category_name + " must be an array");
++  }
++  if (object.via.array.size > kMaximumScheduleParametersPerCategory) {
++    throw ValueError("KernelBuildSpec.resolved_schedule." + category_name +
++                     " contains more than 128 parameters");
++  }
++  std::vector<ScheduleParameter> parameters;
++  parameters.reserve(object.via.array.size);
++  for (uint32_t i = 0; i < object.via.array.size; ++i) {
++    parameters.push_back(ParseScheduleParameter(object.via.array.ptr[i]));
++  }
++  return parameters;
++}
++
++CanonicalSchedule ParseResolvedSchedule(const msgpack::object& object) {
++  StrictMap fields(object, "KernelBuildSpec.resolved_schedule",
++                   {"cta", "layout", "options", "persistence", "schedule", "stage", "tile", "warp"});
++  return CanonicalSchedule(ParseParameterCategory(fields.Get("schedule"), "schedule"),
++                           ParseParameterCategory(fields.Get("tile"), "tile"),
++                           ParseParameterCategory(fields.Get("layout"), "layout"),
++                           ParseParameterCategory(fields.Get("persistence"), "persistence"),
++                           ParseParameterCategory(fields.Get("cta"), "cta"),
++                           ParseParameterCategory(fields.Get("warp"), "warp"),
++                           ParseParameterCategory(fields.Get("stage"), "stage"),
++                           ParseParameterCategory(fields.Get("options"), "options"));
++}
++
++std::optional<CatalogProvenance> ParseCatalogProvenance(const msgpack::object& object) {
++  if (object.type == msgpack::type::NIL) return std::nullopt;
++  StrictMap fields(object, "KernelBuildSpec.catalog_provenance",
++                   {"operator_digest", "problem_digest", "schedule_digest"});
++  return CatalogProvenance(ReadText(fields.Get("operator_digest"), "catalog_provenance.operator_digest"),
++                           ReadText(fields.Get("problem_digest"), "catalog_provenance.problem_digest"),
++                           ReadText(fields.Get("schedule_digest"), "catalog_provenance.schedule_digest"));
++}
++
++SemanticRoute ParseSemanticRoute(const msgpack::object& object) {
++  const std::string value = ReadText(object, "semantic_route");
++  if (value == "generic-direct") return SemanticRoute::GenericDirect;
++  if (value == "structured-tensorir") return SemanticRoute::StructuredTensorIr;
++  if (value == "serving-direct") return SemanticRoute::ServingDirect;
++  throw ValueError("unsupported semantic_route '" + value + "'");
++}
++
++msgpack::object_handle UnpackOne(const std::vector<uint8_t>& data) {
++  if (data.empty()) throw ValueError("KernelBuildSpec payload must not be empty");
++  if (data.size() > kMaximumSerializedBuildSpecBytes) {
++    throw ValueError("KernelBuildSpec payload exceeds the 1 MiB v1 limit");
++  }
++  size_t offset = 0;
++  const msgpack::unpack_limit limits(kMaximumScheduleParametersPerCategory, kMaximumMapItems,
++                                     kMaximumStringBytes, 0, 0, kMaximumNestingDepth);
++  msgpack::object_handle handle = [&]() {
++    try {
++      return msgpack::unpack(reinterpret_cast<const char*>(data.data()), data.size(), offset, nullptr,
++                             nullptr, limits);
++    } catch (const msgpack::unpack_error& error) {
++      throw ValueError("malformed KernelBuildSpec MessagePack: " + std::string(error.what()));
++    }
++  }();
++  if (offset != data.size()) throw ValueError("KernelBuildSpec payload contains trailing bytes");
++  return handle;
++}
++
++}  // namespace
++
++ScheduleParameter::ScheduleParameter(std::string name, ScheduleValueKind value_kind,
++                                     std::string canonical_value)
++    : name_(std::move(name)), value_kind_(value_kind), canonical_value_(std::move(canonical_value)) {
++  RequireParameterName(name_);
++  ValidateCanonicalValue(value_kind_, canonical_value_);
++}
++
++CanonicalSchedule::CanonicalSchedule(std::vector<ScheduleParameter> schedule,
++                                     std::vector<ScheduleParameter> tile,
++                                     std::vector<ScheduleParameter> layout,
++                                     std::vector<ScheduleParameter> persistence,
++                                     std::vector<ScheduleParameter> cta, std::vector<ScheduleParameter> warp,
++                                     std::vector<ScheduleParameter> stage,
++                                     std::vector<ScheduleParameter> options)
++    : schedule_(std::move(schedule)),
++      tile_(std::move(tile)),
++      layout_(std::move(layout)),
++      persistence_(std::move(persistence)),
++      cta_(std::move(cta)),
++      warp_(std::move(warp)),
++      stage_(std::move(stage)),
++      options_(std::move(options)) {
++  ValidateParameterCategory(schedule_, "schedule");
++  ValidateParameterCategory(tile_, "tile");
++  ValidateParameterCategory(layout_, "layout");
++  ValidateParameterCategory(persistence_, "persistence");
++  ValidateParameterCategory(cta_, "cta");
++  ValidateParameterCategory(warp_, "warp");
++  ValidateParameterCategory(stage_, "stage");
++  ValidateParameterCategory(options_, "options");
++}
++
++CatalogProvenance::CatalogProvenance(std::string operator_digest, std::string problem_digest,
++                                     std::string schedule_digest)
++    : operator_digest_(std::move(operator_digest)),
++      problem_digest_(std::move(problem_digest)),
++      schedule_digest_(std::move(schedule_digest)) {
++  RequireSha256(operator_digest_, "catalog_provenance.operator_digest");
++  RequireSha256(problem_digest_, "catalog_provenance.problem_digest");
++  RequireSha256(schedule_digest_, "catalog_provenance.schedule_digest");
++}
++
++KernelBuildSpec::KernelBuildSpec(std::string source_ir_digest, std::string callable_abi_digest,
++                                 SemanticRoute semantic_route, std::string pipeline_revision,
++                                 CanonicalSchedule resolved_schedule,
++                                 std::string static_specialization_digest,
++                                 std::string symbolic_specialization_digest, std::string argument_abi_digest,
++                                 std::string result_abi_digest, std::string mutation_abi_digest,
++                                 std::string compile_request_byte_identity_digest,
++                                 std::optional<CatalogProvenance> catalog_provenance)
++    : source_ir_digest_(std::move(source_ir_digest)),
++      callable_abi_digest_(std::move(callable_abi_digest)),
++      semantic_route_(semantic_route),
++      pipeline_revision_(std::move(pipeline_revision)),
++      resolved_schedule_(std::move(resolved_schedule)),
++      static_specialization_digest_(std::move(static_specialization_digest)),
++      symbolic_specialization_digest_(std::move(symbolic_specialization_digest)),
++      argument_abi_digest_(std::move(argument_abi_digest)),
++      result_abi_digest_(std::move(result_abi_digest)),
++      mutation_abi_digest_(std::move(mutation_abi_digest)),
++      compile_request_byte_identity_digest_(std::move(compile_request_byte_identity_digest)),
++      catalog_provenance_(std::move(catalog_provenance)) {
++  RequireSha256(source_ir_digest_, "source_ir_digest");
++  RequireSha256(callable_abi_digest_, "callable_abi_digest");
++  (void)SemanticRouteName(semantic_route_);
++  RequireFullRevision(pipeline_revision_, "pipeline_revision");
++  RequireSha256(static_specialization_digest_, "static_specialization_digest");
++  RequireSha256(symbolic_specialization_digest_, "symbolic_specialization_digest");
++  RequireSha256(argument_abi_digest_, "argument_abi_digest");
++  RequireSha256(result_abi_digest_, "result_abi_digest");
++  RequireSha256(mutation_abi_digest_, "mutation_abi_digest");
++  RequireSha256(compile_request_byte_identity_digest_, "compile_request_byte_identity_digest");
++  if (SerializeCanonical().size() > kMaximumSerializedBuildSpecBytes) {
++    throw ValueError("KernelBuildSpec canonical payload exceeds the 1 MiB v1 limit");
++  }
++}
++
++std::vector<uint8_t> KernelBuildSpec::SerializeCanonical() const {
++  msgpack::sbuffer buffer;
++  CanonicalPacker packer(buffer);
++  packer.pack_map(14);
++  PackKey(packer, "argument_abi_digest");
++  PackText(packer, argument_abi_digest_);
++  PackKey(packer, "callable_abi_digest");
++  PackText(packer, callable_abi_digest_);
++  PackKey(packer, "catalog_provenance");
++  PackCatalogProvenance(packer, catalog_provenance_);
++  PackKey(packer, "compile_request_byte_identity_digest");
++  PackText(packer, compile_request_byte_identity_digest_);
++  PackKey(packer, "contract");
++  PackText(packer, kKernelBuildSpecContract);
++  PackKey(packer, "kernel_build_spec_schema_version");
++  packer.pack(kBuildSpecSchemaVersion);
++  PackKey(packer, "mutation_abi_digest");
++  PackText(packer, mutation_abi_digest_);
++  PackKey(packer, "pipeline_revision");
++  PackText(packer, pipeline_revision_);
++  PackKey(packer, "resolved_schedule");
++  PackResolvedSchedule(packer, resolved_schedule_);
++  PackKey(packer, "result_abi_digest");
++  PackText(packer, result_abi_digest_);
++  PackKey(packer, "semantic_route");
++  PackText(packer, SemanticRouteName(semantic_route_));
++  PackKey(packer, "source_ir_digest");
++  PackText(packer, source_ir_digest_);
++  PackKey(packer, "static_specialization_digest");
++  PackText(packer, static_specialization_digest_);
++  PackKey(packer, "symbolic_specialization_digest");
++  PackText(packer, symbolic_specialization_digest_);
++  return FinishBuffer(buffer);
++}
++
++KernelBuildSpec KernelBuildSpec::DeserializeCanonical(const std::vector<uint8_t>& data) {
++  auto handle = UnpackOne(data);
++  StrictMap fields(
++      handle.get(), "KernelBuildSpec",
++      {"argument_abi_digest", "callable_abi_digest", "catalog_provenance",
++       "compile_request_byte_identity_digest", "contract", "kernel_build_spec_schema_version",
++       "mutation_abi_digest", "pipeline_revision", "resolved_schedule", "result_abi_digest", "semantic_route",
++       "source_ir_digest", "static_specialization_digest", "symbolic_specialization_digest"});
++  const std::string contract = ReadText(fields.Get("contract"), "contract");
++  if (contract != kKernelBuildSpecContract) {
++    throw ValueError("unsupported KernelBuildSpec contract '" + contract + "'");
++  }
++  const uint32_t schema_version =
++      ReadUint32(fields.Get("kernel_build_spec_schema_version"), "kernel_build_spec_schema_version");
++  if (schema_version != kBuildSpecSchemaVersion) {
++    throw ValueError("unsupported KernelBuildSpec kernel_build_spec_schema_version " +
++                     std::to_string(schema_version));
++  }
++
++  KernelBuildSpec build_spec(
++      ReadText(fields.Get("source_ir_digest"), "source_ir_digest"),
++      ReadText(fields.Get("callable_abi_digest"), "callable_abi_digest"),
++      ParseSemanticRoute(fields.Get("semantic_route")),
++      ReadText(fields.Get("pipeline_revision"), "pipeline_revision"),
++      ParseResolvedSchedule(fields.Get("resolved_schedule")),
++      ReadText(fields.Get("static_specialization_digest"), "static_specialization_digest"),
++      ReadText(fields.Get("symbolic_specialization_digest"), "symbolic_specialization_digest"),
++      ReadText(fields.Get("argument_abi_digest"), "argument_abi_digest"),
++      ReadText(fields.Get("result_abi_digest"), "result_abi_digest"),
++      ReadText(fields.Get("mutation_abi_digest"), "mutation_abi_digest"),
++      ReadText(fields.Get("compile_request_byte_identity_digest"), "compile_request_byte_identity_digest"),
++      ParseCatalogProvenance(fields.Get("catalog_provenance")));
++  if (build_spec.SerializeCanonical() != data) {
++    throw ValueError("KernelBuildSpec payload is valid MessagePack but is not in canonical form");
++  }
++  return build_spec;
++}
++
++std::string KernelBuildSpec::GetIdentityDigest() const { return detail::Sha256Hex(SerializeCanonical()); }
++
++}  // namespace pypto::compiler
+diff --git a/tests/ut/compiler/test_kernel_build_spec.py b/tests/ut/compiler/test_kernel_build_spec.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..4a01f22b7b5589d3b6bdbe5b1f00850502896d11
+--- /dev/null
++++ b/tests/ut/compiler/test_kernel_build_spec.py
+@@ -0,0 +1,376 @@
++"""Canonical, pointer-free per-region KernelBuildSpec v1 contract."""
++
++import hashlib
++from typing import cast
++
++import pytest
++from pypto.compiler import (
++    CanonicalSchedule,
++    CatalogProvenance,
++    KernelBuildSpec,
++    ScheduleParameter,
++    ScheduleValueKind,
++    SemanticRoute,
++)
++
++PIPELINE_REVISION = "c" * 40
++SOURCE_IR_DIGEST = "1" * 64
++CALLABLE_ABI_DIGEST = "2" * 64
++STATIC_SPECIALIZATION_DIGEST = "3" * 64
++SYMBOLIC_SPECIALIZATION_DIGEST = "4" * 64
++ARGUMENT_ABI_DIGEST = "5" * 64
++RESULT_ABI_DIGEST = "6" * 64
++MUTATION_ABI_DIGEST = "7" * 64
++COMPILE_REQUEST_BYTE_IDENTITY_DIGEST = "8" * 64
++
++
++def parameter(
++    name: str,
++    value_kind: ScheduleValueKind,
++    canonical_value: str,
++) -> ScheduleParameter:
++    return ScheduleParameter(name, value_kind, canonical_value)
++
++
++def schedule(**overrides: object) -> CanonicalSchedule:
++    values: dict[str, object] = dict(
++        schedule=[parameter("algorithm", ScheduleValueKind.Text, "blocked")],
++        tile=[
++            parameter("k", ScheduleValueKind.UnsignedInteger, "64"),
++            parameter("m", ScheduleValueKind.UnsignedInteger, "128"),
++            parameter("n", ScheduleValueKind.UnsignedInteger, "128"),
++        ],
++        layout=[
++            parameter("input", ScheduleValueKind.Text, "row-major"),
++            parameter("output", ScheduleValueKind.Text, "row-major"),
++        ],
++        persistence=[parameter("enabled", ScheduleValueKind.Boolean, "false")],
++        cta=[
++            parameter("cluster_x", ScheduleValueKind.UnsignedInteger, "1"),
++            parameter("threads", ScheduleValueKind.UnsignedInteger, "256"),
++        ],
++        warp=[parameter("count", ScheduleValueKind.UnsignedInteger, "8")],
++        stage=[parameter("count", ScheduleValueKind.UnsignedInteger, "3")],
++        options=[
++            parameter("fast_math", ScheduleValueKind.Boolean, "false"),
++            parameter("max_candidates", ScheduleValueKind.UnsignedInteger, "0"),
++        ],
++    )
++    values.update(overrides)
++    return CanonicalSchedule(
++        schedule=cast(list[ScheduleParameter], values["schedule"]),
++        tile=cast(list[ScheduleParameter], values["tile"]),
++        layout=cast(list[ScheduleParameter], values["layout"]),
++        persistence=cast(list[ScheduleParameter], values["persistence"]),
++        cta=cast(list[ScheduleParameter], values["cta"]),
++        warp=cast(list[ScheduleParameter], values["warp"]),
++        stage=cast(list[ScheduleParameter], values["stage"]),
++        options=cast(list[ScheduleParameter], values["options"]),
++    )
++
++
++def catalog() -> CatalogProvenance:
++    return CatalogProvenance("9" * 64, "a" * 64, "b" * 64)
++
++
++def build_spec(**overrides: object) -> KernelBuildSpec:
++    values: dict[str, object] = dict(
++        source_ir_digest=SOURCE_IR_DIGEST,
++        callable_abi_digest=CALLABLE_ABI_DIGEST,
++        semantic_route=SemanticRoute.GenericDirect,
++        pipeline_revision=PIPELINE_REVISION,
++        resolved_schedule=schedule(),
++        static_specialization_digest=STATIC_SPECIALIZATION_DIGEST,
++        symbolic_specialization_digest=SYMBOLIC_SPECIALIZATION_DIGEST,
++        argument_abi_digest=ARGUMENT_ABI_DIGEST,
++        result_abi_digest=RESULT_ABI_DIGEST,
++        mutation_abi_digest=MUTATION_ABI_DIGEST,
++        compile_request_byte_identity_digest=COMPILE_REQUEST_BYTE_IDENTITY_DIGEST,
++        catalog_provenance=catalog(),
++    )
++    values.update(overrides)
++    return KernelBuildSpec(
++        source_ir_digest=cast(str, values["source_ir_digest"]),
++        callable_abi_digest=cast(str, values["callable_abi_digest"]),
++        semantic_route=cast(SemanticRoute, values["semantic_route"]),
++        pipeline_revision=cast(str, values["pipeline_revision"]),
++        resolved_schedule=cast(CanonicalSchedule, values["resolved_schedule"]),
++        static_specialization_digest=cast(str, values["static_specialization_digest"]),
++        symbolic_specialization_digest=cast(str, values["symbolic_specialization_digest"]),
++        argument_abi_digest=cast(str, values["argument_abi_digest"]),
++        result_abi_digest=cast(str, values["result_abi_digest"]),
++        mutation_abi_digest=cast(str, values["mutation_abi_digest"]),
++        compile_request_byte_identity_digest=cast(str, values["compile_request_byte_identity_digest"]),
++        catalog_provenance=cast(CatalogProvenance | None, values["catalog_provenance"]),
++    )
++
++
++def test_kernel_build_spec_round_trip_is_canonical_and_value_owned() -> None:
++    value = build_spec()
++    canonical = value.serialize()
++    restored = KernelBuildSpec.deserialize(canonical)
++
++    assert restored.serialize() == canonical
++    assert restored.build_spec_schema_version == 1
++    assert restored.source_ir_digest == SOURCE_IR_DIGEST
++    assert restored.callable_abi_digest == CALLABLE_ABI_DIGEST
++    assert restored.semantic_route == SemanticRoute.GenericDirect
++    assert restored.pipeline_revision == PIPELINE_REVISION
++    assert restored.resolved_schedule.tile[1].name == "m"
++    assert restored.resolved_schedule.cta[1].canonical_value == "256"
++    assert restored.static_specialization_digest == STATIC_SPECIALIZATION_DIGEST
++    assert restored.symbolic_specialization_digest == SYMBOLIC_SPECIALIZATION_DIGEST
++    assert restored.argument_abi_digest == ARGUMENT_ABI_DIGEST
++    assert restored.result_abi_digest == RESULT_ABI_DIGEST
++    assert restored.mutation_abi_digest == MUTATION_ABI_DIGEST
++    assert restored.compile_request_byte_identity_digest == COMPILE_REQUEST_BYTE_IDENTITY_DIGEST
++    assert restored.catalog_provenance is not None
++    assert restored.catalog_provenance.operator_digest == "9" * 64
++    assert restored.resolved_schedule is not value.resolved_schedule
++    with pytest.raises(AttributeError):
++        setattr(restored, "source_ir_digest", "f" * 64)
++    with pytest.raises(AttributeError):
++        setattr(restored.resolved_schedule, "tile", [])
++    with pytest.raises(AttributeError):
++        setattr(restored.resolved_schedule.tile[0], "name", "changed")
++    copied_tile = restored.resolved_schedule.tile
++    copied_tile.clear()
++    assert len(restored.resolved_schedule.tile) == 3
++
++
++def test_identity_digest_is_sha256_of_the_complete_canonical_payload() -> None:
++    value = build_spec()
++    canonical = value.serialize()
++
++    assert value.identity_digest == hashlib.sha256(canonical).hexdigest()
++    assert value.identity_digest == ("93cab0033e5eb53ca87468c52348ffbfe5e17cd5d611080b2b8087af67fa93f6")
++
++
++@pytest.mark.parametrize(
++    "route",
++    [
++        SemanticRoute.GenericDirect,
++        SemanticRoute.StructuredTensorIr,
++        SemanticRoute.ServingDirect,
++    ],
++)
++def test_all_semantic_routes_round_trip(route: SemanticRoute) -> None:
++    value = build_spec(semantic_route=route)
++    assert KernelBuildSpec.deserialize(value.serialize()).semantic_route == route
++
++
++def test_catalog_provenance_is_optional_but_all_or_none_when_present() -> None:
++    absent = build_spec(catalog_provenance=None)
++    restored = KernelBuildSpec.deserialize(absent.serialize())
++    assert restored.catalog_provenance is None
++    assert absent.identity_digest != build_spec().identity_digest
++
++    with pytest.raises(TypeError):
++        CatalogProvenance(operator_digest="9" * 64, problem_digest="a" * 64)
++    with pytest.raises(ValueError, match="64-character"):
++        CatalogProvenance("9" * 64, "a" * 63, "b" * 64)
++
++
++@pytest.mark.parametrize(
++    "field",
++    [
++        "source_ir_digest",
++        "callable_abi_digest",
++        "static_specialization_digest",
++        "symbolic_specialization_digest",
++        "argument_abi_digest",
++        "result_abi_digest",
++        "mutation_abi_digest",
++        "compile_request_byte_identity_digest",
++    ],
++)
++def test_all_hash_fields_require_lowercase_sha256(field: str) -> None:
++    with pytest.raises(ValueError, match="64-character"):
++        build_spec(**{field: "f" * 63})
++    with pytest.raises(ValueError, match="lowercase"):
++        build_spec(**{field: "F" * 64})
++
++
++@pytest.mark.parametrize("revision", ["a" * 39, "A" * 40, "not-a-revision"])
++def test_pipeline_revision_must_be_full_lowercase_revision(revision: str) -> None:
++    with pytest.raises(ValueError, match="40-character"):
++        build_spec(pipeline_revision=revision)
++
++
++@pytest.mark.parametrize(
++    "name",
++    ["", "Tile.m", "tile..m", "tile.", "tile-m", "1tile", "a" * 129],
++)
++def test_schedule_parameter_names_require_canonical_dotted_identifiers(name: str) -> None:
++    with pytest.raises(ValueError, match="schedule parameter name"):
++        parameter(name, ScheduleValueKind.UnsignedInteger, "1")
++
++
++@pytest.mark.parametrize(
++    ("value_kind", "canonical_value"),
++    [
++        (ScheduleValueKind.Boolean, "False"),
++        (ScheduleValueKind.Boolean, "0"),
++        (ScheduleValueKind.SignedInteger, "+1"),
++        (ScheduleValueKind.SignedInteger, "01"),
++        (ScheduleValueKind.SignedInteger, "-0"),
++        (ScheduleValueKind.SignedInteger, str(1 << 63)),
++        (ScheduleValueKind.UnsignedInteger, "-1"),
++        (ScheduleValueKind.UnsignedInteger, "01"),
++        (ScheduleValueKind.UnsignedInteger, str(1 << 64)),
++        (ScheduleValueKind.Text, ""),
++        (ScheduleValueKind.Text, " leading"),
++        (ScheduleValueKind.Text, "trailing "),
++        (ScheduleValueKind.Text, "line\nbreak"),
++        (ScheduleValueKind.Text, "x" * 4097),
++    ],
++    ids=[
++        "boolean-case",
++        "boolean-numeric",
++        "signed-plus",
++        "signed-leading-zero",
++        "signed-negative-zero",
++        "signed-overflow",
++        "unsigned-negative",
++        "unsigned-leading-zero",
++        "unsigned-overflow",
++        "text-empty",
++        "text-leading-space",
++        "text-trailing-space",
++        "text-control",
++        "text-oversized",
++    ],
++)
++def test_schedule_parameter_values_require_canonical_typed_spelling(
++    value_kind: ScheduleValueKind,
++    canonical_value: str,
++) -> None:
++    with pytest.raises(ValueError):
++        parameter("value", value_kind, canonical_value)
++
++
++def test_schedule_integer_boundaries_round_trip_without_type_ambiguity() -> None:
++    boundary_options = [
++        parameter("signed_max", ScheduleValueKind.SignedInteger, str((1 << 63) - 1)),
++        parameter("signed_min", ScheduleValueKind.SignedInteger, str(-(1 << 63))),
++        parameter("unsigned_max", ScheduleValueKind.UnsignedInteger, str((1 << 64) - 1)),
++    ]
++    restored = KernelBuildSpec.deserialize(
++        build_spec(resolved_schedule=schedule(options=boundary_options)).serialize()
++    )
++    assert [entry.value_kind for entry in restored.resolved_schedule.options] == [
++        ScheduleValueKind.SignedInteger,
++        ScheduleValueKind.SignedInteger,
++        ScheduleValueKind.UnsignedInteger,
++    ]
++    assert [entry.canonical_value for entry in restored.resolved_schedule.options] == [
++        str((1 << 63) - 1),
++        str(-(1 << 63)),
++        str((1 << 64) - 1),
++    ]
++
++
++def test_schedule_categories_require_strict_unique_name_order() -> None:
++    first = parameter("first", ScheduleValueKind.Boolean, "false")
++    second = parameter("second", ScheduleValueKind.Boolean, "true")
++    with pytest.raises(ValueError, match="strictly ordered"):
++        schedule(tile=[second, first])
++    with pytest.raises(ValueError, match="strictly ordered"):
++        schedule(tile=[first, first])
++
++
++def test_empty_categories_are_explicit_inapplicable_values() -> None:
++    empty = CanonicalSchedule([], [], [], [], [], [], [], [])
++    restored = KernelBuildSpec.deserialize(build_spec(resolved_schedule=empty).serialize())
++    assert restored.resolved_schedule.schedule == []
++    assert restored.resolved_schedule.tile == []
++    assert restored.resolved_schedule.layout == []
++    assert restored.resolved_schedule.persistence == []
++    assert restored.resolved_schedule.cta == []
++    assert restored.resolved_schedule.warp == []
++    assert restored.resolved_schedule.stage == []
++    assert restored.resolved_schedule.options == []
++
++
++@pytest.mark.parametrize(
++    ("category", "changed_parameters"),
++    [
++        ("schedule", [parameter("algorithm", ScheduleValueKind.Text, "linear")]),
++        ("tile", [parameter("m", ScheduleValueKind.UnsignedInteger, "64")]),
++        ("layout", [parameter("input", ScheduleValueKind.Text, "column-major")]),
++        ("persistence", [parameter("enabled", ScheduleValueKind.Boolean, "true")]),
++        ("cta", [parameter("threads", ScheduleValueKind.UnsignedInteger, "128")]),
++        ("warp", [parameter("count", ScheduleValueKind.UnsignedInteger, "4")]),
++        ("stage", [parameter("count", ScheduleValueKind.UnsignedInteger, "2")]),
++        ("options", [parameter("fast_math", ScheduleValueKind.Boolean, "true")]),
++    ],
++)
++def test_every_resolved_schedule_category_changes_identity(
++    category: str,
++    changed_parameters: list[ScheduleParameter],
++) -> None:
++    baseline = build_spec()
++    changed = build_spec(resolved_schedule=schedule(**{category: changed_parameters}))
++    assert changed.identity_digest != baseline.identity_digest
++
++
++def test_all_region_identity_inputs_change_identity() -> None:
++    baseline = build_spec()
++    changed_values = [
++        build_spec(source_ir_digest="d" * 64),
++        build_spec(callable_abi_digest="d" * 64),
++        build_spec(semantic_route=SemanticRoute.ServingDirect),
++        build_spec(pipeline_revision="d" * 40),
++        build_spec(static_specialization_digest="d" * 64),
++        build_spec(symbolic_specialization_digest="d" * 64),
++        build_spec(argument_abi_digest="d" * 64),
++        build_spec(result_abi_digest="d" * 64),
++        build_spec(mutation_abi_digest="d" * 64),
++        build_spec(compile_request_byte_identity_digest="d" * 64),
++        build_spec(catalog_provenance=None),
++    ]
++    assert all(value.identity_digest != baseline.identity_digest for value in changed_values)
++
++
++def test_ambient_environment_does_not_change_build_spec(monkeypatch: pytest.MonkeyPatch) -> None:
++    baseline = build_spec().serialize()
++    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "17")
++    monkeypatch.setenv("NVIDIA_VISIBLE_DEVICES", "all")
++    monkeypatch.setenv("TENSOR_IR_STRATEGY", "ambient-must-not-be-read")
++    monkeypatch.setenv("TENSOR_IR_MAX_CANDIDATES", "999")
++    monkeypatch.setenv("PYPTO_BACKEND", "ambient-must-not-be-read")
++    assert build_spec().serialize() == baseline
++
++
++@pytest.mark.parametrize(
++    "payload",
++    [
++        b"",
++        b"\xc1",
++        b"\xdd\xff\xff\xff\xff",
++        b"\xdf\xff\xff\xff\xff",
++        b"\xdb\x00\x10\x00\x01",
++        b"\x91" * 16 + b"\xc0",
++        b"\x81\xadunknown_field\x01",
++    ],
++)
++def test_malformed_unknown_and_allocation_bomb_payloads_are_rejected(payload: bytes) -> None:
++    with pytest.raises(ValueError):
++        KernelBuildSpec.deserialize(payload)
++
++
++def test_payload_size_cap_rejects_before_unpacking() -> None:
++    with pytest.raises(ValueError, match="1 MiB"):
++        KernelBuildSpec.deserialize(b"\x00" * (1024 * 1024 + 1))
++
++
++def test_trailing_and_truncated_payloads_are_rejected() -> None:
++    canonical = build_spec().serialize()
++    with pytest.raises(ValueError, match="trailing"):
++        KernelBuildSpec.deserialize(canonical + b"\x00")
++    with pytest.raises(ValueError, match="malformed"):
++        KernelBuildSpec.deserialize(canonical[:-1])
++
++
++if __name__ == "__main__":
++    pytest.main([__file__, "-v"])
+diff --git a/tests/ut/cpp/CMakeLists.txt b/tests/ut/cpp/CMakeLists.txt
+index 6a8d8ce0056a0b8bcce58fb0b06e55feefdc39d8..534ab699c532654ab93698fb7ea06e11ec5fb222 100644
+--- a/tests/ut/cpp/CMakeLists.txt
++++ b/tests/ut/cpp/CMakeLists.txt
+@@ -43,6 +43,7 @@ add_test(
+ add_executable(pypto_nvidia_compile_request_test
+     nvidia_compile_request_test.cpp
+     ${CMAKE_SOURCE_DIR}/src/compiler/compile_request.cpp
++    ${CMAKE_SOURCE_DIR}/src/compiler/digest.cpp
+     ${CMAKE_SOURCE_DIR}/src/compiler/target_info.cpp
+     ${CMAKE_SOURCE_DIR}/src/core/backtrace.cpp
+     ${CMAKE_SOURCE_DIR}/src/core/error.cpp
+@@ -62,3 +63,27 @@ add_test(
+     NAME pypto_nvidia_compile_request_test
+     COMMAND pypto_nvidia_compile_request_test
+ )
++
++add_executable(pypto_nvidia_kernel_build_spec_test
++    nvidia_kernel_build_spec_test.cpp
++    ${CMAKE_SOURCE_DIR}/src/compiler/digest.cpp
++    ${CMAKE_SOURCE_DIR}/src/compiler/kernel_build_spec.cpp
++    ${CMAKE_SOURCE_DIR}/src/core/backtrace.cpp
++    ${CMAKE_SOURCE_DIR}/src/core/error.cpp
++)
++
++target_include_directories(pypto_nvidia_kernel_build_spec_test PRIVATE
++    ${CMAKE_SOURCE_DIR}/include
++    ${CMAKE_SOURCE_DIR}/src/compiler
++    ${LIBBACKTRACE_INSTALL_DIR}/include
++)
++
++target_link_libraries(pypto_nvidia_kernel_build_spec_test PRIVATE
++    libbacktrace
++    msgpackc-cxx
++)
++
++add_test(
++    NAME pypto_nvidia_kernel_build_spec_test
++    COMMAND pypto_nvidia_kernel_build_spec_test
++)
+diff --git a/tests/ut/cpp/nvidia_kernel_build_spec_test.cpp b/tests/ut/cpp/nvidia_kernel_build_spec_test.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..13b3a3b25031487e2a5864079c4f29ff67678055
+--- /dev/null
++++ b/tests/ut/cpp/nvidia_kernel_build_spec_test.cpp
+@@ -0,0 +1,438 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#include <cstdint>
++#include <msgpack.hpp>
++#include <optional>
++#include <string>
++#include <string_view>
++#include <type_traits>
++#include <utility>
++#include <vector>
++
++#include "pypto/compiler/kernel_build_spec.h"
++#include "pypto/core/error.h"
++
++using pypto::ValueError;
++using pypto::compiler::CanonicalSchedule;
++using pypto::compiler::CatalogProvenance;
++using pypto::compiler::KernelBuildSpec;
++using pypto::compiler::ScheduleParameter;
++using pypto::compiler::ScheduleValueKind;
++using pypto::compiler::SemanticRoute;
++
++#define REQUIRE(condition) \
++  do {                     \
++    if (!(condition)) {    \
++      return __LINE__;     \
++    }                      \
++  } while (false)
++
++namespace {
++
++constexpr std::string_view kPipelineRevision = "cccccccccccccccccccccccccccccccccccccccc";
++
++ScheduleParameter Parameter(std::string name, ScheduleValueKind kind, std::string value) {
++  return ScheduleParameter(std::move(name), kind, std::move(value));
++}
++
++CanonicalSchedule ValidSchedule() {
++  return CanonicalSchedule({Parameter("algorithm", ScheduleValueKind::Text, "blocked")},
++                           {Parameter("k", ScheduleValueKind::UnsignedInteger, "64"),
++                            Parameter("m", ScheduleValueKind::UnsignedInteger, "128"),
++                            Parameter("n", ScheduleValueKind::UnsignedInteger, "128")},
++                           {Parameter("input", ScheduleValueKind::Text, "row-major"),
++                            Parameter("output", ScheduleValueKind::Text, "row-major")},
++                           {Parameter("enabled", ScheduleValueKind::Boolean, "false")},
++                           {Parameter("cluster_x", ScheduleValueKind::UnsignedInteger, "1"),
++                            Parameter("threads", ScheduleValueKind::UnsignedInteger, "256")},
++                           {Parameter("count", ScheduleValueKind::UnsignedInteger, "8")},
++                           {Parameter("count", ScheduleValueKind::UnsignedInteger, "3")},
++                           {Parameter("fast_math", ScheduleValueKind::Boolean, "false"),
++                            Parameter("max_candidates", ScheduleValueKind::UnsignedInteger, "0")});
++}
++
++CatalogProvenance ValidCatalog() {
++  return CatalogProvenance(std::string(64, '9'), std::string(64, 'a'), std::string(64, 'b'));
++}
++
++KernelBuildSpec ValidSpec(SemanticRoute route = SemanticRoute::GenericDirect,
++                          std::optional<CatalogProvenance> catalog = ValidCatalog()) {
++  return KernelBuildSpec(std::string(64, '1'), std::string(64, '2'), route, std::string(kPipelineRevision),
++                         ValidSchedule(), std::string(64, '3'), std::string(64, '4'), std::string(64, '5'),
++                         std::string(64, '6'), std::string(64, '7'), std::string(64, '8'),
++                         std::move(catalog));
++}
++
++void PackText(msgpack::packer<msgpack::sbuffer>& packer, std::string_view text) {
++  packer.pack_str(static_cast<uint32_t>(text.size()));
++  packer.pack_str_body(text.data(), static_cast<uint32_t>(text.size()));
++}
++
++std::string ObjectKey(const msgpack::object& object) {
++  return std::string(object.via.str.ptr, object.via.str.size);
++}
++
++std::vector<uint8_t> BufferBytes(const msgpack::sbuffer& buffer) {
++  const auto* begin = reinterpret_cast<const uint8_t*>(buffer.data());
++  return std::vector<uint8_t>(begin, begin + buffer.size());
++}
++
++std::vector<uint8_t> AddUnknownRootField(const std::vector<uint8_t>& canonical) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size + 1);
++  for (uint32_t i = 0; i < root.get().via.map.size; ++i) {
++    packer.pack(root.get().via.map.ptr[i].key);
++    packer.pack(root.get().via.map.ptr[i].val);
++  }
++  PackText(packer, "unknown_field");
++  packer.pack(1);
++  return BufferBytes(buffer);
++}
++
++std::vector<uint8_t> AddDuplicateRootField(const std::vector<uint8_t>& canonical) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size + 1);
++  for (uint32_t i = 0; i < root.get().via.map.size; ++i) {
++    packer.pack(root.get().via.map.ptr[i].key);
++    packer.pack(root.get().via.map.ptr[i].val);
++  }
++  PackText(packer, "source_ir_digest");
++  PackText(packer, std::string(64, '1'));
++  return BufferBytes(buffer);
++}
++
++std::vector<uint8_t> DropRootField(const std::vector<uint8_t>& canonical, std::string_view field_name) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size - 1);
++  for (uint32_t i = 0; i < root.get().via.map.size; ++i) {
++    const auto& entry = root.get().via.map.ptr[i];
++    if (ObjectKey(entry.key) == field_name) continue;
++    packer.pack(entry.key);
++    packer.pack(entry.val);
++  }
++  return BufferBytes(buffer);
++}
++
++std::vector<uint8_t> ReverseRootOrder(const std::vector<uint8_t>& canonical) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size);
++  for (uint32_t i = root.get().via.map.size; i > 0; --i) {
++    packer.pack(root.get().via.map.ptr[i - 1].key);
++    packer.pack(root.get().via.map.ptr[i - 1].val);
++  }
++  return BufferBytes(buffer);
++}
++
++std::vector<uint8_t> ReplaceRootText(const std::vector<uint8_t>& canonical, std::string_view field_name,
++                                     std::string_view replacement) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size);
++  for (uint32_t i = 0; i < root.get().via.map.size; ++i) {
++    const auto& entry = root.get().via.map.ptr[i];
++    packer.pack(entry.key);
++    if (ObjectKey(entry.key) == field_name) {
++      PackText(packer, replacement);
++    } else {
++      packer.pack(entry.val);
++    }
++  }
++  return BufferBytes(buffer);
++}
++
++std::vector<uint8_t> EncodeVersionNoncanonically(const std::vector<uint8_t>& canonical) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size);
++  for (uint32_t i = 0; i < root.get().via.map.size; ++i) {
++    const auto& entry = root.get().via.map.ptr[i];
++    packer.pack(entry.key);
++    if (ObjectKey(entry.key) == "kernel_build_spec_schema_version") {
++      const char noncanonical_uint32_one[] = {static_cast<char>(0xce), 0x00, 0x00, 0x00, 0x01};
++      buffer.write(noncanonical_uint32_one, sizeof(noncanonical_uint32_one));
++    } else {
++      packer.pack(entry.val);
++    }
++  }
++  return BufferBytes(buffer);
++}
++
++std::vector<uint8_t> AddUnknownScheduleField(const std::vector<uint8_t>& canonical) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size);
++  for (uint32_t i = 0; i < root.get().via.map.size; ++i) {
++    const auto& entry = root.get().via.map.ptr[i];
++    packer.pack(entry.key);
++    if (ObjectKey(entry.key) != "resolved_schedule") {
++      packer.pack(entry.val);
++      continue;
++    }
++    packer.pack_map(entry.val.via.map.size + 1);
++    for (uint32_t j = 0; j < entry.val.via.map.size; ++j) {
++      packer.pack(entry.val.via.map.ptr[j].key);
++      packer.pack(entry.val.via.map.ptr[j].val);
++    }
++    PackText(packer, "unknown_schedule_field");
++    packer.pack_array(0);
++  }
++  return BufferBytes(buffer);
++}
++
++std::vector<uint8_t> ReverseTileParameters(const std::vector<uint8_t>& canonical) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size);
++  for (uint32_t i = 0; i < root.get().via.map.size; ++i) {
++    const auto& entry = root.get().via.map.ptr[i];
++    packer.pack(entry.key);
++    if (ObjectKey(entry.key) != "resolved_schedule") {
++      packer.pack(entry.val);
++      continue;
++    }
++    packer.pack_map(entry.val.via.map.size);
++    for (uint32_t j = 0; j < entry.val.via.map.size; ++j) {
++      const auto& schedule_entry = entry.val.via.map.ptr[j];
++      packer.pack(schedule_entry.key);
++      if (ObjectKey(schedule_entry.key) != "tile") {
++        packer.pack(schedule_entry.val);
++        continue;
++      }
++      packer.pack_array(schedule_entry.val.via.array.size);
++      for (uint32_t k = schedule_entry.val.via.array.size; k > 0; --k) {
++        packer.pack(schedule_entry.val.via.array.ptr[k - 1]);
++      }
++    }
++  }
++  return BufferBytes(buffer);
++}
++
++std::vector<uint8_t> ReplaceFirstTileParameterKind(const std::vector<uint8_t>& canonical) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size);
++  for (uint32_t i = 0; i < root.get().via.map.size; ++i) {
++    const auto& entry = root.get().via.map.ptr[i];
++    packer.pack(entry.key);
++    if (ObjectKey(entry.key) != "resolved_schedule") {
++      packer.pack(entry.val);
++      continue;
++    }
++    packer.pack_map(entry.val.via.map.size);
++    for (uint32_t j = 0; j < entry.val.via.map.size; ++j) {
++      const auto& schedule_entry = entry.val.via.map.ptr[j];
++      packer.pack(schedule_entry.key);
++      if (ObjectKey(schedule_entry.key) != "tile") {
++        packer.pack(schedule_entry.val);
++        continue;
++      }
++      packer.pack_array(schedule_entry.val.via.array.size);
++      for (uint32_t k = 0; k < schedule_entry.val.via.array.size; ++k) {
++        const auto& parameter = schedule_entry.val.via.array.ptr[k];
++        if (k != 0) {
++          packer.pack(parameter);
++          continue;
++        }
++        packer.pack_map(parameter.via.map.size);
++        for (uint32_t field_index = 0; field_index < parameter.via.map.size; ++field_index) {
++          const auto& parameter_entry = parameter.via.map.ptr[field_index];
++          packer.pack(parameter_entry.key);
++          if (ObjectKey(parameter_entry.key) == "kind") {
++            PackText(packer, "unknown-kind");
++          } else {
++            packer.pack(parameter_entry.val);
++          }
++        }
++      }
++    }
++  }
++  return BufferBytes(buffer);
++}
++
++std::vector<uint8_t> DropCatalogScheduleDigest(const std::vector<uint8_t>& canonical) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size);
++  for (uint32_t i = 0; i < root.get().via.map.size; ++i) {
++    const auto& entry = root.get().via.map.ptr[i];
++    packer.pack(entry.key);
++    if (ObjectKey(entry.key) != "catalog_provenance") {
++      packer.pack(entry.val);
++      continue;
++    }
++    packer.pack_map(entry.val.via.map.size - 1);
++    for (uint32_t j = 0; j < entry.val.via.map.size; ++j) {
++      const auto& catalog_entry = entry.val.via.map.ptr[j];
++      if (ObjectKey(catalog_entry.key) == "schedule_digest") continue;
++      packer.pack(catalog_entry.key);
++      packer.pack(catalog_entry.val);
++    }
++  }
++  return BufferBytes(buffer);
++}
++
++bool Rejects(const std::vector<uint8_t>& data) {
++  try {
++    (void)KernelBuildSpec::DeserializeCanonical(data);
++  } catch (const ValueError&) {
++    return true;
++  }
++  return false;
++}
++
++template <typename Function>
++bool RejectsConstruction(Function&& function) {
++  try {
++    std::forward<Function>(function)();
++  } catch (const ValueError&) {
++    return true;
++  }
++  return false;
++}
++
++}  // namespace
++
++int main() {
++  static_assert(!std::is_default_constructible_v<ScheduleParameter>);
++  static_assert(!std::is_copy_assignable_v<ScheduleParameter>);
++  static_assert(!std::is_move_assignable_v<ScheduleParameter>);
++  static_assert(!std::is_default_constructible_v<CanonicalSchedule>);
++  static_assert(!std::is_copy_assignable_v<CanonicalSchedule>);
++  static_assert(!std::is_move_assignable_v<CanonicalSchedule>);
++  static_assert(!std::is_default_constructible_v<CatalogProvenance>);
++  static_assert(!std::is_copy_assignable_v<CatalogProvenance>);
++  static_assert(!std::is_move_assignable_v<CatalogProvenance>);
++  static_assert(!std::is_default_constructible_v<KernelBuildSpec>);
++  static_assert(!std::is_copy_assignable_v<KernelBuildSpec>);
++  static_assert(!std::is_move_assignable_v<KernelBuildSpec>);
++
++  const auto input_schedule = ValidSchedule();
++  const KernelBuildSpec owned_spec(std::string(64, '1'), std::string(64, '2'), SemanticRoute::GenericDirect,
++                                   std::string(kPipelineRevision), input_schedule, std::string(64, '3'),
++                                   std::string(64, '4'), std::string(64, '5'), std::string(64, '6'),
++                                   std::string(64, '7'), std::string(64, '8'), ValidCatalog());
++  REQUIRE(&owned_spec.GetResolvedSchedule() != &input_schedule);
++  REQUIRE(owned_spec.GetBuildSpecSchemaVersion() == 1);
++  REQUIRE(owned_spec.GetSemanticRoute() == SemanticRoute::GenericDirect);
++  REQUIRE(owned_spec.GetResolvedSchedule().GetTile().size() == 3);
++  REQUIRE(owned_spec.GetCatalogProvenance().has_value());
++
++  const std::vector<uint8_t> canonical = owned_spec.SerializeCanonical();
++  const KernelBuildSpec round_trip = KernelBuildSpec::DeserializeCanonical(canonical);
++  REQUIRE(round_trip.SerializeCanonical() == canonical);
++  REQUIRE(round_trip.GetIdentityDigest() ==
++          "93cab0033e5eb53ca87468c52348ffbfe5e17cd5d611080b2b8087af67fa93f6");
++  REQUIRE(round_trip.GetSourceIrDigest() == std::string(64, '1'));
++  REQUIRE(round_trip.GetCallableAbiDigest() == std::string(64, '2'));
++  REQUIRE(round_trip.GetStaticSpecializationDigest() == std::string(64, '3'));
++  REQUIRE(round_trip.GetSymbolicSpecializationDigest() == std::string(64, '4'));
++  REQUIRE(round_trip.GetArgumentAbiDigest() == std::string(64, '5'));
++  REQUIRE(round_trip.GetResultAbiDigest() == std::string(64, '6'));
++  REQUIRE(round_trip.GetMutationAbiDigest() == std::string(64, '7'));
++  REQUIRE(round_trip.GetCompileRequestByteIdentityDigest() == std::string(64, '8'));
++
++  REQUIRE(
++      KernelBuildSpec::DeserializeCanonical(ValidSpec(SemanticRoute::StructuredTensorIr).SerializeCanonical())
++          .GetSemanticRoute() == SemanticRoute::StructuredTensorIr);
++  REQUIRE(KernelBuildSpec::DeserializeCanonical(ValidSpec(SemanticRoute::ServingDirect).SerializeCanonical())
++              .GetSemanticRoute() == SemanticRoute::ServingDirect);
++  const KernelBuildSpec no_catalog = ValidSpec(SemanticRoute::GenericDirect, std::nullopt);
++  REQUIRE(!KernelBuildSpec::DeserializeCanonical(no_catalog.SerializeCanonical())
++               .GetCatalogProvenance()
++               .has_value());
++  REQUIRE(no_catalog.GetIdentityDigest() != owned_spec.GetIdentityDigest());
++
++  REQUIRE(RejectsConstruction(
++      [] { (void)ScheduleParameter("tile.m", ScheduleValueKind::UnsignedInteger, "01"); }));
++  REQUIRE(RejectsConstruction(
++      [] { (void)ScheduleParameter("Tile.m", ScheduleValueKind::UnsignedInteger, "1"); }));
++  REQUIRE(
++      RejectsConstruction([] { (void)ScheduleParameter("enabled", ScheduleValueKind::Boolean, "False"); }));
++  REQUIRE(
++      RejectsConstruction([] { (void)ScheduleParameter("value", static_cast<ScheduleValueKind>(99), "1"); }));
++  REQUIRE(RejectsConstruction([] {
++    (void)CanonicalSchedule({},
++                            {Parameter("second", ScheduleValueKind::Boolean, "true"),
++                             Parameter("first", ScheduleValueKind::Boolean, "false")},
++                            {}, {}, {}, {}, {}, {});
++  }));
++  REQUIRE(RejectsConstruction([] {
++    std::vector<ScheduleParameter> parameters;
++    parameters.reserve(129);
++    for (int i = 0; i < 129; ++i) {
++      parameters.emplace_back("value_" + std::to_string(i), ScheduleValueKind::UnsignedInteger, "1");
++    }
++    (void)CanonicalSchedule({}, std::move(parameters), {}, {}, {}, {}, {}, {});
++  }));
++  REQUIRE(RejectsConstruction(
++      [] { (void)CatalogProvenance(std::string(64, '9'), std::string(63, 'a'), std::string(64, 'b')); }));
++  REQUIRE(RejectsConstruction([] {
++    (void)KernelBuildSpec(std::string(63, '1'), std::string(64, '2'), SemanticRoute::GenericDirect,
++                          std::string(kPipelineRevision), ValidSchedule(), std::string(64, '3'),
++                          std::string(64, '4'), std::string(64, '5'), std::string(64, '6'),
++                          std::string(64, '7'), std::string(64, '8'));
++  }));
++  REQUIRE(RejectsConstruction([] {
++    (void)KernelBuildSpec(std::string(64, '1'), std::string(64, '2'), static_cast<SemanticRoute>(99),
++                          std::string(kPipelineRevision), ValidSchedule(), std::string(64, '3'),
++                          std::string(64, '4'), std::string(64, '5'), std::string(64, '6'),
++                          std::string(64, '7'), std::string(64, '8'));
++  }));
++  REQUIRE(RejectsConstruction([] {
++    (void)KernelBuildSpec(std::string(64, '1'), std::string(64, '2'), SemanticRoute::GenericDirect,
++                          std::string(40, 'C'), ValidSchedule(), std::string(64, '3'), std::string(64, '4'),
++                          std::string(64, '5'), std::string(64, '6'), std::string(64, '7'),
++                          std::string(64, '8'));
++  }));
++
++  REQUIRE(Rejects({}));
++  REQUIRE(Rejects(std::vector<uint8_t>{0xc1}));
++  REQUIRE(Rejects(std::vector<uint8_t>{0xdd, 0xff, 0xff, 0xff, 0xff}));
++  REQUIRE(Rejects(std::vector<uint8_t>{0xdf, 0xff, 0xff, 0xff, 0xff}));
++  REQUIRE(Rejects(std::vector<uint8_t>{0xdb, 0x00, 0x10, 0x00, 0x01}));
++  REQUIRE(Rejects(std::vector<uint8_t>(1024 * 1024 + 1, 0)));
++  std::vector<uint8_t> depth_bomb(17, 0x91);
++  depth_bomb.back() = 0xc0;
++  REQUIRE(Rejects(depth_bomb));
++  REQUIRE(Rejects(AddUnknownRootField(canonical)));
++  REQUIRE(Rejects(AddDuplicateRootField(canonical)));
++  REQUIRE(Rejects(DropRootField(canonical, "result_abi_digest")));
++  REQUIRE(Rejects(ReverseRootOrder(canonical)));
++  REQUIRE(Rejects(ReplaceRootText(canonical, "semantic_route", "unknown-route")));
++  REQUIRE(Rejects(AddUnknownScheduleField(canonical)));
++  REQUIRE(Rejects(ReverseTileParameters(canonical)));
++  REQUIRE(Rejects(ReplaceFirstTileParameterKind(canonical)));
++  REQUIRE(Rejects(DropCatalogScheduleDigest(canonical)));
++  REQUIRE(Rejects(EncodeVersionNoncanonically(canonical)));
++  auto trailing = canonical;
++  trailing.push_back(0);
++  REQUIRE(Rejects(trailing));
++  auto truncated = canonical;
++  truncated.pop_back();
++  REQUIRE(Rejects(truncated));
++
++  return 0;
++}

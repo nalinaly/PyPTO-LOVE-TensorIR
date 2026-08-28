@@ -1,0 +1,25 @@
+From 2c68474e2e26729362e89362e6e89e0abb2a2649 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 12:05:06 +0800
+Subject: [PATCH 73/82] Name operations missing split layout ids
+
+---
+ lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index 356a877a8cec386ac2b137ea9d0258bd61968c0a..a6ba1ff517d407ce64725627cb0b0cde0b117d2c 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -1604,8 +1604,9 @@ verifyOpStateAttrs(Operation *op,
+   auto iterSpaceId =
+       op->getAttrOfType<IntegerAttr>(TensorIRDialect::getIterSpaceIdAttrName());
+   if (!iterSpaceId) {
+-    return op->emitError("Missing iteration space id attribute. Make sure the "
+-                         "\"graph-splitting\" pass has been run.");
++    return op->emitError()
++           << "Missing iteration space id attribute on " << op->getName()
++           << ". Make sure the \"graph-splitting\" pass has been run.";
+   }
+   // The id-membership check only applies during the real conversion, where the
+   // driver has populated the true set of iteration spaces. The driver-free

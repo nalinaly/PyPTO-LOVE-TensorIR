@@ -1,0 +1,227 @@
+From 8ff2231c69d6ba04398a259fbada5b03153d909d Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 23:09:59 +0800
+Subject: [PATCH 104/212] Segment causal convolution TensorIR lowering
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 200 ++++++++++++++++++++++-
+ 1 file changed, 199 insertions(+), 1 deletion(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 189ce704920654ffe824cb9fc71f15bbc35e7c1d..7cef4f93b8215b327c07dd4372d67d423bca9bd3 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -1214,6 +1214,204 @@ std::string EmitNativeTileCausalConvSource(
+   return source;
+ }
+ 
++std::string EmitNativeTileCausalConvSegmentedSource(
++    const NativeTileCausalConvGraph& graph) {
++  StaticTensor compute = graph.input;
++  compute.dtype = DataType::FP32;
++  StaticTensor weightCompute = graph.weight;
++  weightCompute.dtype = DataType::FP32;
++  StaticTensor weightColumn{DataType::FP32, {graph.input.shape[0], 1}, {1, 1}};
++  const std::string inputType = TensorTypeText(graph.input);
++  const std::string computeType = TensorTypeText(compute);
++  const std::string weightType = TensorTypeText(graph.weight);
++  const std::string weightComputeType = TensorTypeText(weightCompute);
++  const std::string weightColumnType = TensorTypeText(weightColumn);
++
++  std::string source;
++  source.reserve(8192);
++  source += "module {\n  nv_tensor_ir.graph @";
++  source += kFusedPointwiseEntryName;
++  source += "(\n    %arg0: ";
++  source += TensorWithStrideText(graph.input);
++  source += ",\n    %arg1: ";
++  source += TensorWithStrideText(graph.weight);
++  source += "\n  ) -> (";
++  source += TensorWithStrideText(graph.result);
++  source += ") {\n    %x_wide = convert %arg0 : ";
++  source += inputType;
++  source += " -> ";
++  source += computeType;
++  source += "\n    %weight_wide = convert %arg1 : ";
++  source += weightType;
++  source += " -> ";
++  source += weightComputeType;
++  source += "\n    %one = constant 1.0 : f32\n";
++
++  const auto emitSegment = [&](size_t segmentIndex, int64_t segmentLength,
++                               const std::vector<std::pair<int64_t, int64_t>>& taps) {
++    StaticTensor segment{DataType::FP32,
++                         {graph.input.shape[0], segmentLength},
++                         {segmentLength, 1}};
++    const std::string segmentType = TensorTypeText(segment);
++    std::string accumulated;
++    for (size_t termIndex = 0; termIndex < taps.size(); ++termIndex) {
++      const auto [inputStart, weightTap] = taps[termIndex];
++      source += "    %x_s";
++      AppendIndex(source, segmentIndex);
++      source += "_t";
++      AppendIndex(source, termIndex);
++      source += " = slice %x_wide starts = [0, ";
++      AppendInteger(source, inputStart);
++      source += "] limits = [";
++      AppendInteger(source, graph.input.shape[0]);
++      source += ", ";
++      AppendInteger(source, inputStart + segmentLength);
++      source += "] strides = [1, 1] : ";
++      source += computeType;
++      source += " -> ";
++      source += segmentType;
++      source += "\n    %w_s";
++      AppendIndex(source, segmentIndex);
++      source += "_t";
++      AppendIndex(source, termIndex);
++      source += " = slice %weight_wide starts = [0, ";
++      AppendInteger(source, weightTap);
++      source += "] limits = [";
++      AppendInteger(source, graph.input.shape[0]);
++      source += ", ";
++      AppendInteger(source, weightTap + 1);
++      source += "] strides = [1, 1] : ";
++      source += weightComputeType;
++      source += " -> ";
++      source += weightColumnType;
++      std::string weightValue = "%w_s" + std::to_string(segmentIndex) +
++                                "_t" + std::to_string(termIndex);
++      if (segmentLength != 1) {
++        source += "\n    %wb_s";
++        AppendIndex(source, segmentIndex);
++        source += "_t";
++        AppendIndex(source, termIndex);
++        source += " = broadcast ";
++        source += weightValue;
++        source += " : ";
++        source += weightColumnType;
++        source += " -> ";
++        source += segmentType;
++        weightValue = "%wb_s" + std::to_string(segmentIndex) + "_t" +
++                      std::to_string(termIndex);
++      }
++      source += "\n    %term_s";
++      AppendIndex(source, segmentIndex);
++      source += "_t";
++      AppendIndex(source, termIndex);
++      source += " = mul %x_s";
++      AppendIndex(source, segmentIndex);
++      source += "_t";
++      AppendIndex(source, termIndex);
++      source += ", ";
++      source += weightValue;
++      source += " : ";
++      source += segmentType;
++      source += "\n";
++      const std::string term = "%term_s" + std::to_string(segmentIndex) +
++                               "_t" + std::to_string(termIndex);
++      if (accumulated.empty()) {
++        accumulated = term;
++      } else {
++        source += "    %sum_s";
++        AppendIndex(source, segmentIndex);
++        source += "_t";
++        AppendIndex(source, termIndex);
++        source += " = add ";
++        source += accumulated;
++        source += ", ";
++        source += term;
++        source += " : ";
++        source += segmentType;
++        source += "\n";
++        accumulated = "%sum_s" + std::to_string(segmentIndex) + "_t" +
++                      std::to_string(termIndex);
++      }
++    }
++    source += "    %neg_s";
++    AppendIndex(source, segmentIndex);
++    source += " = neg ";
++    source += accumulated;
++    source += " : ";
++    source += segmentType;
++    source += "\n    %exp_s";
++    AppendIndex(source, segmentIndex);
++    source += " = exp %neg_s";
++    AppendIndex(source, segmentIndex);
++    source += " : ";
++    source += segmentType;
++    source += "\n    %one_s";
++    AppendIndex(source, segmentIndex);
++    source += " = splat %one : ";
++    source += segmentType;
++    source += "\n    %denom_s";
++    AppendIndex(source, segmentIndex);
++    source += " = add %exp_s";
++    AppendIndex(source, segmentIndex);
++    source += ", %one_s";
++    AppendIndex(source, segmentIndex);
++    source += " : ";
++    source += segmentType;
++    source += "\n    %sigmoid_s";
++    AppendIndex(source, segmentIndex);
++    source += " = reciprocal %denom_s";
++    AppendIndex(source, segmentIndex);
++    source += " : ";
++    source += segmentType;
++    source += "\n    %activated_s";
++    AppendIndex(source, segmentIndex);
++    source += " = mul ";
++    source += accumulated;
++    source += ", %sigmoid_s";
++    AppendIndex(source, segmentIndex);
++    source += " : ";
++    source += segmentType;
++    StaticTensor segmentBf16 = segment;
++    segmentBf16.dtype = DataType::BF16;
++    source += "\n    %segment";
++    AppendIndex(source, segmentIndex);
++    source += " = convert %activated_s";
++    AppendIndex(source, segmentIndex);
++    source += " : ";
++    source += segmentType;
++    source += " -> ";
++    source += TensorTypeText(segmentBf16);
++    source += "\n";
++  };
++
++  emitSegment(0, 1, {{0, 3}});
++  emitSegment(1, 1, {{0, 2}, {1, 3}});
++  emitSegment(2, 1, {{0, 1}, {1, 2}, {2, 3}});
++  const int64_t bodyLength = graph.input.shape[1] - 3;
++  emitSegment(3, bodyLength, {{0, 0}, {1, 1}, {2, 2}, {3, 3}});
++
++  StaticTensor boundary{DataType::BF16, {graph.input.shape[0], 1}, {1, 1}};
++  StaticTensor body{DataType::BF16, {graph.input.shape[0], bodyLength},
++                    {bodyLength, 1}};
++  source += "    %result0 = concatenate %segment0, %segment1, %segment2, %segment3 dimension = 1 : (";
++  source += TensorTypeText(boundary);
++  source += ", ";
++  source += TensorTypeText(boundary);
++  source += ", ";
++  source += TensorTypeText(boundary);
++  source += ", ";
++  source += TensorTypeText(body);
++  source += ") -> ";
++  source += inputType;
++  source += "\n    results %result0 : ";
++  source += inputType;
++  source += "\n  }\n}\n";
++  if (source.size() > kMaximumCanonicalSourceBytes) {
++    Reject("canonical TensorIR source exceeds 16 MiB");
++  }
++  return source;
++}
++
+ std::string EmitRowReductionSource(const RowReductionGraph& graph) {
+   const std::string input_type = TensorTypeText(graph.input);
+   const std::string input_with_stride = TensorWithStrideText(graph.input);
+@@ -5005,7 +5203,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+         TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
+         graph.result.dense_strides, /*has_explicit_strides=*/true));
+     return TensorIrModule(TensorIrModuleKind::FusedPointwiseV2,
+-                          EmitNativeTileCausalConvSource(graph),
++                          EmitNativeTileCausalConvSegmentedSource(graph),
+                           std::move(metadata), /*input_count=*/2);
+   }
+   if (IsNativeTileMatmulCandidate(program)) {

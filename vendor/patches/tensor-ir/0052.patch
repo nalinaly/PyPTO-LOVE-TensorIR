@@ -1,0 +1,62 @@
+From 1cf0150daaeaed956c13d1c66598fcbd088c8615 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 02:22:02 +0800
+Subject: [PATCH 52/82] Preserve result layouts for one-shot conversion
+
+---
+ .../LayoutPropagationImpl.cpp                 | 28 +++++++++++++------
+ 1 file changed, 20 insertions(+), 8 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index 305f0a24a9ba608331f48258752f4a8053e2244f..c315c3aab842b09cfc7ccf857a4a9ebc644f7599 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -143,6 +143,9 @@ private:
+ 
+   /// Layouts for the current operation's operands.
+   using OperandLayouts = SmallVector<LayoutSourceAttrInterface>;
++  /// Result operand layouts captured before one-shot conversion replaces their
++  /// defining TensorIR values.
++  OperandLayouts resultLayouts;
+   OperandLayouts layouts;
+   /// Index of the next operand to process, calling `getTile` updates this.
+   size_t operandIndex = 0;
+@@ -736,14 +739,9 @@ public:
+     state.blockStructure = &state.blockStructures[resultsOp.getOperation()];
+     state.iterationSpace = &state.blockStructure->iterationSpaces[0];
+     state.activeRewriter = &rewriter;
+-    state.layouts.clear();
+-    for (Value operand : resultsOp.getOperands()) {
+-      auto layout = dyn_cast_or_null<LayoutSourceAttrInterface>(
+-          getLayoutSourceAttr(operand));
+-      if (!layout) {
+-        return resultsOp.emitError("Result operand is missing layout data");
+-      }
+-      state.layouts.push_back(layout);
++    state.layouts = state.resultLayouts;
++    if (state.layouts.size() != resultsOp.getNumOperands()) {
++      return resultsOp.emitError("Result operand layout count mismatch");
+     }
+     state.operandIndex = 0;
+ 
+@@ -891,6 +889,20 @@ LogicalResult ConversionStateImpl::start(GraphOp graphOp) {
+   normalizedLayout = resultsOp->getAttrOfType<LayoutSourceAttrInterface>(
+       TensorIRDialect::getIterationSpaceAttrName());
+ 
++  // Capture result layouts while every result operand still refers to its
++  // original TensorIR definition. In one-shot conversion, successful operand
++  // replacements are immediate, so ResultsOpConversion cannot recover this
++  // metadata from its live operands later.
++  resultLayouts.clear();
++  for (Value operand : resultsOp->getOperands()) {
++    auto layout = dyn_cast_or_null<LayoutSourceAttrInterface>(
++        getLayoutSourceAttr(operand));
++    if (!layout) {
++      return resultsOp->emitError("Result operand is missing layout data");
++    }
++    resultLayouts.push_back(layout);
++  }
++
+   auto tileSizeAttr = graphOp->getAttrOfType<mlir::DenseI32ArrayAttr>(
+       nv_tensor_ir::TensorIRDialect::getTileSizeAttrName());
+   SmallVector<int64_t> tileShape(tileSizeAttr.asArrayRef().begin(),

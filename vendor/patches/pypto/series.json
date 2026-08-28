@@ -1,0 +1,1713 @@
+{
+  "base_commit": "e2d0f78ae6d709c0d6ee345a48db2c3d621a4b09",
+  "base_tree": "a46f244a62dfab663fbeb899eb62ee8a042a0b41",
+  "commit_count": 212,
+  "format_patch_options": [
+    "--binary",
+    "--full-index",
+    "--no-signature",
+    "--numbered-files"
+  ],
+  "head_commit": "9e13b4301faeee482bb63e16e7991d0b597a5a51",
+  "head_tree": "9503b46390681393e1536668969d5ede5b547482",
+  "patches": [
+    {
+      "bytes": 1579,
+      "file": "0001.patch",
+      "order": 1,
+      "sha256": "36d9f1ffe3c702764bc541bca77eff44476b21677dc9d3e43e4067dd4f33ffcc",
+      "source_commit": "9123b81bc40da5c803492d880ebeaf4552398631",
+      "subject": "[PATCH 001/212] deps: pin TensorIR and CUDA Tile sources"
+    },
+    {
+      "bytes": 1350,
+      "file": "0002.patch",
+      "order": 2,
+      "sha256": "6b9b157eee84413d52d2f9803f01fc9b536ee9c169ae59f2901cabfd4b59d761",
+      "source_commit": "a5ddd2ebb3ea98915a4cfcb22b0a822ca1e445e6",
+      "subject": "[PATCH 002/212] tests: distinguish CPython debug source frames"
+    },
+    {
+      "bytes": 3775,
+      "file": "0003.patch",
+      "order": 3,
+      "sha256": "a33ac0e51960f535361f0f31fb63743ea82395caafc0d6ec478093705d0a8fcd",
+      "source_commit": "2a04185272278e5ea796b8237df9f21ca9c796c5",
+      "subject": "[PATCH 003/212] parser: disambiguate class source fallback by definition line"
+    },
+    {
+      "bytes": 1449,
+      "file": "0004.patch",
+      "order": 4,
+      "sha256": "3b224f550da0250095e364b0b21593d1ed900c17f373635e2a42cfed8414020c",
+      "source_commit": "dfbc4eeec14fd2b52e8dd7f3e714e269fa714452",
+      "subject": "[PATCH 004/212] tests: accept compact printed function signatures"
+    },
+    {
+      "bytes": 1460,
+      "file": "0005.patch",
+      "order": 5,
+      "sha256": "f7b0299c2c401c2ccf0da46a64c444cf17373e541c440166c948b9bb8e1b2295",
+      "source_commit": "5b702d4ee102dbb1a50e174bb1f7242018a7fa69",
+      "subject": "[PATCH 005/212] tests: accept deferred annotation typo diagnostics"
+    },
+    {
+      "bytes": 1351,
+      "file": "0006.patch",
+      "order": 6,
+      "sha256": "1db8a0c01b41d76cd95352ad216f10a4e7d4b2635394da79600d26f3e92cb581",
+      "source_commit": "a62d90337119660234f3ef9821c6ae6c00d195a1",
+      "subject": "[PATCH 006/212] tests: gate symlink probe under redirecting editable installs"
+    },
+    {
+      "bytes": 2524,
+      "file": "0007.patch",
+      "order": 7,
+      "sha256": "40a28fa4b0567103c58ee27a23c774020df84643183411fa3167444ad37e460d",
+      "source_commit": "f550d4c33e8fef03e7dabcbf60c3db38b0f0a215",
+      "subject": "[PATCH 007/212] docs: generalize model-specific compiler comments"
+    },
+    {
+      "bytes": 3920,
+      "file": "0008.patch",
+      "order": 8,
+      "sha256": "24e018bd46fd570843f3fe2451932f1114d477af1f832511cf30342c9d1d00b5",
+      "source_commit": "e463bce7849b2239d0457dcae78ccf41c65ffa55",
+      "subject": "[PATCH 008/212] build: compile native sources through object target"
+    },
+    {
+      "bytes": 78977,
+      "file": "0009.patch",
+      "order": 9,
+      "sha256": "bede09b98e07a9236d97f81089eb5da2ee28bc72627d766688ceff87008133dc",
+      "source_commit": "042878dd6825bb65ed03f22db7b067fb96277623",
+      "subject": "[PATCH 009/212] compiler: add NVIDIA target identity and SM120 traits"
+    },
+    {
+      "bytes": 95861,
+      "file": "0010.patch",
+      "order": 10,
+      "sha256": "2d29dac2e5eac512740f5b37c4e55f6a7db5a5b7b086751762d32a2c9982ccd4",
+      "source_commit": "09e014ceac2d2cac2f667d182bd7de8f0d0bd259",
+      "subject": "[PATCH 010/212] compiler: add canonical CompileRequest v1 contract"
+    },
+    {
+      "bytes": 115323,
+      "file": "0011.patch",
+      "order": 11,
+      "sha256": "f979711d87c32f9ecc484fbcb614f76105a8ad83a8ea940db56c1101d797bdeb",
+      "source_commit": "9b3cf71b6ff2a535aabdd053684a60b47450fac0",
+      "subject": "[PATCH 011/212] compiler: add canonical KernelBuildSpec v1 contract"
+    },
+    {
+      "bytes": 1147,
+      "file": "0012.patch",
+      "order": 12,
+      "sha256": "e7b83972ad1c8005c75f8a4293154044b3b391750e9fc09b4661a8b3b4694b42",
+      "source_commit": "63247ea8402f3aa5b58aaf04ef7b2a008e3859dc",
+      "subject": "[PATCH 012/212] build: pin TensorIR LLVM source"
+    },
+    {
+      "bytes": 663,
+      "file": "0013.patch",
+      "order": 13,
+      "sha256": "bcbdca25380ed58630065764dce3c88c39724a32d1b7872541ffb3e87e5f67a9",
+      "source_commit": "94cdad75e68db80de67876a4c9350139b771cae3",
+      "subject": "[PATCH 013/212] build: pin private TensorIR mode"
+    },
+    {
+      "bytes": 22489,
+      "file": "0014.patch",
+      "order": 14,
+      "sha256": "d6c61022e55cf8857f44aab261bf4e186bcdf1102ee0831a5c1185df8035f481",
+      "source_commit": "9307646232a3362b482f6dbb3763a6fc1ec2eacc",
+      "subject": "[PATCH 014/212] build: compose private NVIDIA compiler backend"
+    },
+    {
+      "bytes": 2266,
+      "file": "0015.patch",
+      "order": 15,
+      "sha256": "43d2ad4c8524535bea1f6aabe1d73ea55d0bfc1586d9639ef00a2d800f180030",
+      "source_commit": "5f755687674bd23a513e913cd6f2f20e8b6397ef",
+      "subject": "[PATCH 015/212] build: finalize embedded TensorIR consumer boundary"
+    },
+    {
+      "bytes": 13358,
+      "file": "0016.patch",
+      "order": 16,
+      "sha256": "2b5989abf29cc77e40146de65e7405704f59caa03264c71c2c1fb33106dbd957",
+      "source_commit": "9c5dbae3cf834b7ebb588e4e22935ffca59b450e",
+      "subject": "[PATCH 016/212] test: gate deterministic TensorIR artifact seam"
+    },
+    {
+      "bytes": 21306,
+      "file": "0017.patch",
+      "order": 17,
+      "sha256": "84618ecedf22f116e642683db7d05c8022cf319086f17d0f7dfb896dfc472729",
+      "source_commit": "81cfceec9751782d556aea431c015ff54006fb6b",
+      "subject": "[PATCH 017/212] build: harden private TensorIR artifact boundary"
+    },
+    {
+      "bytes": 5945,
+      "file": "0018.patch",
+      "order": 18,
+      "sha256": "24a3f37ea6b45b071f8bd4aa94a4429f7d765e8554546b75ec02a70005db6bd9",
+      "source_commit": "186f84ad564c88438a5b29f8d7cab5d25dad1066",
+      "subject": "[PATCH 018/212] test: close artifact primitive review findings"
+    },
+    {
+      "bytes": 3059,
+      "file": "0019.patch",
+      "order": 19,
+      "sha256": "3c9bfb2bd89d6ad2b588d3f9ed3822f432651a1a67305de6d5d82d69edef778a",
+      "source_commit": "4789ae0f7c5647e792b32070e6d575f6403bd24f",
+      "subject": "[PATCH 019/212] test: bind cubin ABI target decoding"
+    },
+    {
+      "bytes": 46175,
+      "file": "0020.patch",
+      "order": 20,
+      "sha256": "7b66c72c899cfc1a272f2734ee4c60fab11f6db76bc14244fb233e0ddc6d07c2",
+      "source_commit": "6ce17761cb26b6593ce8a6f0f8a82cb0cf251cc9",
+      "subject": "[PATCH 020/212] compiler: share bounded canonical MessagePack codec"
+    },
+    {
+      "bytes": 13276,
+      "file": "0021.patch",
+      "order": 21,
+      "sha256": "65a002ddbffbb307fda7524732422a12571053cf59dbe9d622d39dca16a33299",
+      "source_commit": "a52d80bf1d2f96645e25c8db807c7c5dfa738291",
+      "subject": "[PATCH 021/212] compiler: hash artifact bytes without copying"
+    },
+    {
+      "bytes": 6004,
+      "file": "0022.patch",
+      "order": 22,
+      "sha256": "c9753e38ecc45477051c205c355d9520086d922eb660bff2b0796a711573f6df",
+      "source_commit": "5f5a3c59d12d2cca37f146142da1b93cbb86ba07",
+      "subject": "[PATCH 022/212] Add headers to NVIDIA compiler tests"
+    },
+    {
+      "bytes": 271181,
+      "file": "0023.patch",
+      "order": 23,
+      "sha256": "5294f3c57e2b42b30351c41d3d3224a6121a10c03211c0f0edc68960176e0699",
+      "source_commit": "9894f5babdca17d27de7b89540e28fc5c3b3e199",
+      "subject": "[PATCH 023/212] Add strict NVIDIA Artifact v1 contract"
+    },
+    {
+      "bytes": 7180,
+      "file": "0024.patch",
+      "order": 24,
+      "sha256": "f354098b716af26298c5ad837a9b4e6f04e766a1a0738ed7f03ac553bc5246c5",
+      "source_commit": "4a82f2e40ce518d16fcbeec647061649564c42af",
+      "subject": "[PATCH 024/212] Require loadable Cubin section mapping"
+    },
+    {
+      "bytes": 243355,
+      "file": "0025.patch",
+      "order": 25,
+      "sha256": "52d3e5e63837cb099b202c019f044c5f96c8cac5eb72855cea324ff8bf1289a1",
+      "source_commit": "0ba43303944d78f4fa8c7ccde8355749c7c1d0a0",
+      "subject": "[PATCH 025/212] Compile strict TensorIR artifacts through PyPTO"
+    },
+    {
+      "bytes": 2356,
+      "file": "0026.patch",
+      "order": 26,
+      "sha256": "0b7fbf5eab261090b64b04ea3371303c542c2ae778f54fca29ee66f6b0549efb",
+      "source_commit": "8f312cea96610cb3dc847e9aa6d3c5f527bb387d",
+      "subject": "[PATCH 026/212] Fix strict producer test fixtures"
+    },
+    {
+      "bytes": 4400,
+      "file": "0027.patch",
+      "order": 27,
+      "sha256": "54cb42b3bdc7287a92e7bbc43b6726b554d7cde03160b4fad71f6a23884082b7",
+      "source_commit": "532d4a9991c87a84e56d737cb801b0bffa498ef3",
+      "subject": "[PATCH 027/212] Preserve bounded tileiras memory semantics"
+    },
+    {
+      "bytes": 8954,
+      "file": "0028.patch",
+      "order": 28,
+      "sha256": "7128fa49011175debc798eca27d8601622d84e8c381d18bd7f5e26c9231ea970",
+      "source_commit": "9e9156979d9fcc6e1dbf56283e8fbdf53fc4f5d6",
+      "subject": "[PATCH 028/212] Allow bounded tileiras scratch files"
+    },
+    {
+      "bytes": 8962,
+      "file": "0029.patch",
+      "order": 29,
+      "sha256": "6d9d707cd50cda385eb0f7dcf1a570f3092d492542c732a5ae475a3d465c54ee",
+      "source_commit": "994666e4aac6c88235c225cdf5222d5d95864413",
+      "subject": "[PATCH 029/212] Raise bounded tileiras scratch quota"
+    },
+    {
+      "bytes": 2319,
+      "file": "0030.patch",
+      "order": 30,
+      "sha256": "180e6b418eaba968814a0eeee7490effd69e95d9d6edd68d5d569f42a9881b50",
+      "source_commit": "7f5f03c5f1f5a89669859eeafd923d0acf7d5d59",
+      "subject": "[PATCH 030/212] Match tileiras soft memory limits"
+    },
+    {
+      "bytes": 2316,
+      "file": "0031.patch",
+      "order": 31,
+      "sha256": "2e315a77342342fe9c1b82ed047978fa690ac228bda765ecc998bcdf0134dfca",
+      "source_commit": "df8b868a8b8ac3e10408bcfc3d78931a502134b4",
+      "subject": "[PATCH 031/212] Match tileiras soft file limit"
+    },
+    {
+      "bytes": 9487,
+      "file": "0032.patch",
+      "order": 32,
+      "sha256": "3a5b649d1efb3b56cc515b82f854880e9316d11d8308d8600f773ec5162227f2",
+      "source_commit": "63bb626308ef3de4c0c3087c68d9ce9dee8fed54",
+      "subject": "[PATCH 032/212] Bind tileiras toolkit environment"
+    },
+    {
+      "bytes": 10819,
+      "file": "0033.patch",
+      "order": 33,
+      "sha256": "08b999648c9d9b8475228fd1b4792abd11cf0534b7d03577985624d4d1054a9a",
+      "source_commit": "1cad6fe720bef2020eb9f969854371d2667326b3",
+      "subject": "[PATCH 033/212] Bound tileiras private scratch space"
+    },
+    {
+      "bytes": 4261,
+      "file": "0034.patch",
+      "order": 34,
+      "sha256": "5d63acbb2b52fd8a3408e195c6a8c13b2a9e11a3ba0765c3d90ef3b3deed6c81",
+      "source_commit": "c33f23f73e289d6dc0d7a1e61d1609f8eac99c76",
+      "subject": "[PATCH 034/212] Test strict producer backend-off failure"
+    },
+    {
+      "bytes": 12395,
+      "file": "0035.patch",
+      "order": 35,
+      "sha256": "3c37c12b9df0594d383c1f5b53484705ee3bd721708854d463f09f09f68df24f",
+      "source_commit": "682141f3def18fbf24fb3b059ea53d841d95209e",
+      "subject": "[PATCH 035/212] Harden tileiras closed-stdio launch"
+    },
+    {
+      "bytes": 2326,
+      "file": "0036.patch",
+      "order": 36,
+      "sha256": "9377e14197b703dc1d7cb8fa03e540a567055a25edfe4cb6dd7caca345e78867",
+      "source_commit": "0db96caa21ca89662b7683b99ab70dbef5663cdb",
+      "subject": "[PATCH 036/212] Tolerate transient tileiras scratch churn"
+    },
+    {
+      "bytes": 848,
+      "file": "0037.patch",
+      "order": 37,
+      "sha256": "36330664117cc04eb68006a85d678ca3af898fddc31c2e9155c78ca7f76936fc",
+      "source_commit": "e13a46f77db1d9a2b2c5efb17544671e8f6bd6ba",
+      "subject": "[PATCH 037/212] Fix TensorIR revision lock syntax"
+    },
+    {
+      "bytes": 17477,
+      "file": "0038.patch",
+      "order": 38,
+      "sha256": "4a2f93703d108574c5b5d9adfbde16df93ff430483a8cc001795d55fe5e1188e",
+      "source_commit": "54aa9afb9b6afb9b7b5d82805c9be332f94bcfe6",
+      "subject": "[PATCH 038/212] Fail closed on TensorIR scratch scan errors"
+    },
+    {
+      "bytes": 10818,
+      "file": "0039.patch",
+      "order": 39,
+      "sha256": "21c801dcbd33e61afaf810b696d370d90375ab89420d0000b76b701d760e8464",
+      "source_commit": "f3bcaaccdfb169080628d56e461653b0ba3e0ad5",
+      "subject": "[PATCH 039/212] Bind every strict compiler input gitlink"
+    },
+    {
+      "bytes": 63682,
+      "file": "0040.patch",
+      "order": 40,
+      "sha256": "493eb93980ca07872c5c44c470a6c745532fb26546452c3200f0819001cf93bf",
+      "source_commit": "02cac3e7ed9af300ed3ba1d96765ebf92c8fbdfc",
+      "subject": "[PATCH 040/212] Add compiler-owned ArtifactCache v1"
+    },
+    {
+      "bytes": 1130,
+      "file": "0041.patch",
+      "order": 41,
+      "sha256": "cca09a5f67ab9b88c55a14f2e8dbe963de4c9e92e8e50e7e60089a94ed90a305",
+      "source_commit": "c087170444270cbe00f83e1fbf127ddcf3e33926",
+      "subject": "[PATCH 041/212] Fix ArtifactCache corruption assertion"
+    },
+    {
+      "bytes": 212165,
+      "file": "0042.patch",
+      "order": 42,
+      "sha256": "fab96284e3a1b15e9709f384f79120621e11425dfb4cf2215b14ce0085564a7b",
+      "source_commit": "6819c4fc0b6956f7cbfb3115a4b2dab81be3c797",
+      "subject": "[PATCH 042/212] Add process-bound NVIDIA executable runtime"
+    },
+    {
+      "bytes": 1847,
+      "file": "0043.patch",
+      "order": 43,
+      "sha256": "c24be8dcbe5b3cdcbb338c0680ce0f58e8b4d08507b7cbff2bed1328b168e7d0",
+      "source_commit": "2842a1c5433cb3cfe9e4fbc7664ebe0ad8a4b129",
+      "subject": "[PATCH 043/212] Fix executable test descriptor construction"
+    },
+    {
+      "bytes": 49034,
+      "file": "0044.patch",
+      "order": 44,
+      "sha256": "999b76b1594c41b2f426f5434dadee11ce08531bf8b3f848a472198fa9b8a480",
+      "source_commit": "6361f110660a77f9a8dc542265575d8f7260b343",
+      "subject": "[PATCH 044/212] Add parent NVIDIA runtime observation"
+    },
+    {
+      "bytes": 26033,
+      "file": "0045.patch",
+      "order": 45,
+      "sha256": "0085573593324a362e7698b1d40557482aebfd47ff5d95b43b2f0cc4c57145d6",
+      "source_commit": "3431a944691f8295d3a55a4e222dadcfe34253f5",
+      "subject": "[PATCH 045/212] Fix CUDA Tile executable parameter ABI"
+    },
+    {
+      "bytes": 9151,
+      "file": "0046.patch",
+      "order": 46,
+      "sha256": "1aa5aa2e0939cc10164b5dde5ba365e2cae22b6fdc5df97311ee575969319017",
+      "source_commit": "206447cf8c68b9cff1b86e01f0b40bfd689cd7a7",
+      "subject": "[PATCH 046/212] Validate CUDA parameter widths independent of enumeration"
+    },
+    {
+      "bytes": 63860,
+      "file": "0047.patch",
+      "order": 47,
+      "sha256": "239f5ae7ad57c6764cab6a505f8fe8f9e52bb61e4343f4319477de8be5c3e027",
+      "source_commit": "07ab9ea1feb5f5cc5557c7b7c67e7ad33d15974e",
+      "subject": "[PATCH 047/212] codegen: emit canonical TensorIR from static add HIR"
+    },
+    {
+      "bytes": 70440,
+      "file": "0048.patch",
+      "order": 48,
+      "sha256": "3c5c41b30654a236f57b54bd4d249609b75ff4b837cdb0eaff73d71aee97549b",
+      "source_commit": "fa85e5a2c917af78ef94576073eb91c0891c4384",
+      "subject": "[PATCH 048/212] compiler: version canonical schedule identity"
+    },
+    {
+      "bytes": 91721,
+      "file": "0049.patch",
+      "order": 49,
+      "sha256": "7194d870105bd55d8dbaf60e932e3ff54baa41e114c16cbf220af514c9c1f579",
+      "source_commit": "c4cf755b7ef2998cdfb7499a76b80b280bafdf2d",
+      "subject": "[PATCH 049/212] compiler: derive structured frontend build identity"
+    },
+    {
+      "bytes": 73799,
+      "file": "0050.patch",
+      "order": 50,
+      "sha256": "fda1050784acfdcfcabd0ccdabc77dc888ae60315955997e87e2f35e54f24ad7",
+      "source_commit": "642ff5bd79ee96b9e5a279a2bc945ad7a78362b7",
+      "subject": "[PATCH 050/212] compiler: add single-transaction structured facade"
+    },
+    {
+      "bytes": 139202,
+      "file": "0051.patch",
+      "order": 51,
+      "sha256": "7b54eda1f0cb06c3e1ed8df458303ad55f2cb1160881ed5f3c5eca61c37e0a91",
+      "source_commit": "b83fcd3ddc497d585bcc45883eede179aff7d4d2",
+      "subject": "[PATCH 051/212] codegen: emit bounded fused pointwise TensorIR chains"
+    },
+    {
+      "bytes": 93903,
+      "file": "0052.patch",
+      "order": 52,
+      "sha256": "ccdff0bf62b43d03326b10581cf8854970d0e9d0ffc76b999ae883379af09652",
+      "source_commit": "1daa7e57893eeb821752ca0fcf07daec4d46080e",
+      "subject": "[PATCH 052/212] codegen: add bounded row reduction TensorIR frontend"
+    },
+    {
+      "bytes": 32464,
+      "file": "0053.patch",
+      "order": 53,
+      "sha256": "164a8ca36aea59f8fe5635f6bc559d25309a6c05bbb2ee676207af07d9b442a3",
+      "source_commit": "17b2b3c655d97076ac6d968ff2e45969da5161a2",
+      "subject": "[PATCH 053/212] compiler: bound row reduction contraction tiling"
+    },
+    {
+      "bytes": 1828,
+      "file": "0054.patch",
+      "order": 54,
+      "sha256": "2a79c508a21b97bbff9d12c63c1860074b7cd3f1158350a8b5b764b54b468765",
+      "source_commit": "62eb88251df5bdad95277a9d619d20da9bf121eb",
+      "subject": "[PATCH 054/212] test: construct immutable row reduction descriptors"
+    },
+    {
+      "bytes": 8511,
+      "file": "0055.patch",
+      "order": 55,
+      "sha256": "5dd6c85c16ac748ccd7ff0221932cdc8ba48ab1b3d155005de79c3525ac57c7e",
+      "source_commit": "b5e5cae16bdf2344120b780340a6bc6d0a6da79f",
+      "subject": "[PATCH 055/212] codegen: pin row-sum accumulator identity with an explicit +0 epilogue"
+    },
+    {
+      "bytes": 3921,
+      "file": "0056.patch",
+      "order": 56,
+      "sha256": "aa7ab0857317e54883b6a48502e9f384eed3fcbbb739a25ffbf539eb7c321bfb",
+      "source_commit": "faefd0a1df29b4bdb3434f5f6e5f73757387ae3e",
+      "subject": "[PATCH 056/212] test: rebind row-sum goldens to the +0-normalized sources"
+    },
+    {
+      "bytes": 2083,
+      "file": "0057.patch",
+      "order": 57,
+      "sha256": "811c016d333855f81d1be1792350d0ea5173982718a4c836c10de3a835fb80a3",
+      "source_commit": "a589f79cc6bd22ddefab9d72091890d594e81b9b",
+      "subject": "[PATCH 057/212] codegen: extend FusedPointwiseV2 with div/abs/sqrt/log/sin/cos/max/min"
+    },
+    {
+      "bytes": 542,
+      "file": "0058.patch",
+      "order": 58,
+      "sha256": "07791d6017481f3b615668cef3862c5d55b3c8b9cc60a2e6237b7df27936e952",
+      "source_commit": "67b484189ad1245095d529513b8767c534160962",
+      "subject": "[PATCH 058/212] chore: ignore agent worktrees in the clean-source guard"
+    },
+    {
+      "bytes": 2191,
+      "file": "0059.patch",
+      "order": 59,
+      "sha256": "a4a0c8c5a2bff7405d4235c9faa54a172ee18568049639f447016e05b63e18d6",
+      "source_commit": "397c946c48ebe4adef3babfe622dbcf174feb1f1",
+      "subject": "[PATCH 059/212] codegen: refresh pointwise op-table rejection list, retarget fmod fixture"
+    },
+    {
+      "bytes": 1546,
+      "file": "0060.patch",
+      "order": 60,
+      "sha256": "1853e7d90fd38b370a4e40c727c51ce71f63b5ab2cb2ba5d6aa70c1ce0b19aa4",
+      "source_commit": "c4565dbe0cdf33f291440b04ec49ee7c0531b67e",
+      "subject": "[PATCH 060/212] test: print failing REQUIRE site in codegen test"
+    },
+    {
+      "bytes": 1104,
+      "file": "0061.patch",
+      "order": 61,
+      "sha256": "185b39e8a4d3472e0de38b1776e277493ca5834b2bde7812c183410097a87678",
+      "source_commit": "ac9cbaca40f37cc0941e3c483b4f7e79a5d68ea6",
+      "subject": "[PATCH 061/212] test: retarget second pointwise rejection fixture to fmod"
+    },
+    {
+      "bytes": 17669,
+      "file": "0062.patch",
+      "order": 62,
+      "sha256": "24cf9fcfaf37ba29c849a4e7e90c530f0b489cbc0a1a56c647031d15d03db11f",
+      "source_commit": "d8adf4f706462cc57eab6f6b7d2c2c13f25ee55d",
+      "subject": "[PATCH 062/212] codegen: row-broadcast fused pointwise inputs"
+    },
+    {
+      "bytes": 1084,
+      "file": "0063.patch",
+      "order": 63,
+      "sha256": "19a2c2254a27f1f2c3d5faef6fa6f3c9504a7c95ab8e4f4396fe74d22f9cf4fc",
+      "source_commit": "c8f271ce1eb08fb1ae8e0f7cdc7e933d3c504d3e",
+      "subject": "[PATCH 063/212] test: expect shape-mismatch rejection for broadcast misuse"
+    },
+    {
+      "bytes": 9107,
+      "file": "0064.patch",
+      "order": 64,
+      "sha256": "eb76b4f46fe070e203fa5ea984e66b0d80cff7f1600119446040a47c128dfe32",
+      "source_commit": "68ae16eaa3a29133c1e7e18241e152a55380460b",
+      "subject": "[PATCH 064/212] codegen: DAG operand chains and broadcast materialization"
+    },
+    {
+      "bytes": 1004,
+      "file": "0065.patch",
+      "order": 65,
+      "sha256": "a026b4c3f8dd67ad29ce8abf789b86c06790d4a8a77c416287aac3b320f97e5d",
+      "source_commit": "3b8fb0bd54d45a532b1989beb0a4540fa04a4a66",
+      "subject": "[PATCH 065/212] test: dump DAG fixture source on mismatch"
+    },
+    {
+      "bytes": 1101,
+      "file": "0066.patch",
+      "order": 66,
+      "sha256": "848c6d43fc9eafa36519e84ab1111d6136571af6b28ad55d40389ae06a2cb904",
+      "source_commit": "3fb2ac8a8a6db8046cadd064efadbbca6bbd7862",
+      "subject": "[PATCH 066/212] test: fix DAG fixture expected type text"
+    },
+    {
+      "bytes": 2548,
+      "file": "0067.patch",
+      "order": 67,
+      "sha256": "0acb041c6220cd5c77d10701c7fe5b3e4a999fb36a099b42a02705f7c75a6b2c",
+      "source_commit": "371b90c515c032822e140bc5ade1fb2a53d92eb1",
+      "subject": "[PATCH 067/212] codegen: materialize row broadcasts from the raw argument"
+    },
+    {
+      "bytes": 3665,
+      "file": "0068.patch",
+      "order": 68,
+      "sha256": "d72ad4a68ecc681874a5d1d45344d4c138328d9625cb8c95bb5266d99ed2154e",
+      "source_commit": "9aff69fe9b7053cfa4f024e6bfb1233dc3ce9347",
+      "subject": "[PATCH 068/212] codegen: declare broadcast inputs through the stride-0 convention"
+    },
+    {
+      "bytes": 8276,
+      "file": "0069.patch",
+      "order": 69,
+      "sha256": "f63196a82e1f613c2bddb63014183501512022d0b9238aa6d1e75a24c01da417",
+      "source_commit": "519185d009a1f0e39c2c8c684c0368bf6afa6362",
+      "subject": "[PATCH 069/212] codegen: lower broadcast inputs as full-extent stride-0 loads"
+    },
+    {
+      "bytes": 1033,
+      "file": "0070.patch",
+      "order": 70,
+      "sha256": "be6d8ad070b99c39da80470a4315aab02b944bc9adda32a367358823a60f1ca6",
+      "source_commit": "adba10c47f804142d374a7ea9a93e04c8dfee093",
+      "subject": "[PATCH 070/212] test: dump row-broadcast source"
+    },
+    {
+      "bytes": 10071,
+      "file": "0071.patch",
+      "order": 71,
+      "sha256": "0b43ef268fbd325757e066cdfcc9a83de59b3b8a8b8a43cdcfe4483c32935ef3",
+      "source_commit": "8d6e882c5f77ad9f7bc4bf226826c3fce58f1c36",
+      "subject": "[PATCH 071/212] codegen: row-reduction epilogue graphs with post-reduce broadcast"
+    },
+    {
+      "bytes": 121725,
+      "file": "0072.patch",
+      "order": 72,
+      "sha256": "1134f4ec6937b17c61b3c8aa1b9aa4b7eab68f66ec077f741cc898244d418946",
+      "source_commit": "add6c0b4991154df199727938343b08481f63f45",
+      "subject": "[PATCH 072/212] codegen: add bounded structured matmul TensorIR frontend"
+    },
+    {
+      "bytes": 20272,
+      "file": "0073.patch",
+      "order": 73,
+      "sha256": "2bfaf27327aef0504af46b2685f52ebdb0386a53f628702ae6df910be7708e21",
+      "source_commit": "2d0ccd44640ba27e5d910af4ec8ee354c5b4f826",
+      "subject": "[PATCH 073/212] codegen: harden structured matmul bounds and goldens"
+    },
+    {
+      "bytes": 4109,
+      "file": "0074.patch",
+      "order": 74,
+      "sha256": "52c0f30c2dcc19d6b71aae46d9cc6d1ca59f354d947de5526186b2bae71da0cb",
+      "source_commit": "6b77d6634f0039e1730a3c3766ea2fb6f960af30",
+      "subject": "[PATCH 074/212] test: repair matmul negative fixtures for the replayed base"
+    },
+    {
+      "bytes": 36122,
+      "file": "0075.patch",
+      "order": 75,
+      "sha256": "9d88be03bde8cbffbe2b94ccd91236c7eda1dcd7abc6dfab963c293bb20ca9b8",
+      "source_commit": "5ddf1e7f231d946af6b5e38eccb8955f71d71b3f",
+      "subject": "[PATCH 075/212] nvidia: enable broadcast views in pointwise producer"
+    },
+    {
+      "bytes": 16794,
+      "file": "0076.patch",
+      "order": 76,
+      "sha256": "6137bf8fa650c09593292d8f28f1bb4750ced439daf7e2fe220419ca3ac487c1",
+      "source_commit": "1b47d71415c100791e57bb48d350c538b27f69fe",
+      "subject": "[PATCH 076/212] nvidia: fuse BF16 RMSNorm reduction epilogue"
+    },
+    {
+      "bytes": 12197,
+      "file": "0077.patch",
+      "order": 77,
+      "sha256": "002cb8b23a7ad5f11012857600981316b50133b279bb49240ae163f3904e20d9",
+      "source_commit": "fb888ae8c30d8e228aa2085ea8ae12a6f4826d10",
+      "subject": "[PATCH 077/212] nvidia: generalize broadcast reduction epilogues"
+    },
+    {
+      "bytes": 32669,
+      "file": "0078.patch",
+      "order": 78,
+      "sha256": "06ebd101a585cc1ac2f1d13600b1904134b1a94394b2b46395ff4f9c7339625d",
+      "source_commit": "2351bd533e2232c6cc2a7035c8dbb784e19469cb",
+      "subject": "[PATCH 078/212] nvidia: accept native jit pointwise tiles"
+    },
+    {
+      "bytes": 4247,
+      "file": "0079.patch",
+      "order": 79,
+      "sha256": "80c96d7389ee3bc3195f78c7f8f10d9b9cc662cee39010d0fea11450c5950525",
+      "source_commit": "24dc0878bba514d5d67a84a4dfa8279936e27247",
+      "subject": "[PATCH 079/212] test: use producer-supported native tile shapes"
+    },
+    {
+      "bytes": 1511,
+      "file": "0080.patch",
+      "order": 80,
+      "sha256": "2576fbc4568ee9e8961908bf7389205d061b98a6a4640b8c09e87e35b84542a4",
+      "source_commit": "d762737b3e387cc8eb5ca14ec0f9f1b79d72330f",
+      "subject": "[PATCH 080/212] test: exercise native NVIDIA tiles in BF16"
+    },
+    {
+      "bytes": 1491,
+      "file": "0081.patch",
+      "order": 81,
+      "sha256": "93792b7630e89c57be8d92e06d812b2bcc45a13317e1f3ae64db931f755c9647",
+      "source_commit": "ff7e239cee8f1d0395379af3f6b9b4e97cecacf6",
+      "subject": "[PATCH 081/212] nvidia: accept FP32 literals in BF16 tile kernels"
+    },
+    {
+      "bytes": 3912,
+      "file": "0082.patch",
+      "order": 82,
+      "sha256": "95dead87cb58d509ff0a01466c56e26cee0ea40d6a2c5a1cc15b1048c1e0f29b",
+      "source_commit": "5c91d1e17e47502931c6be7a036f8b1902457e56",
+      "subject": "[PATCH 082/212] nvidia: lift direct static tile loop nests"
+    },
+    {
+      "bytes": 3717,
+      "file": "0083.patch",
+      "order": 83,
+      "sha256": "7931535931c3de90c93f12ec1d6563605f12616a8118d488d12e30066dd0ee65",
+      "source_commit": "41dc7ab63880d184908587b1e72afdb957e8a18f",
+      "subject": "[PATCH 083/212] test: match native row tiles to flat pointwise schedule"
+    },
+    {
+      "bytes": 16286,
+      "file": "0084.patch",
+      "order": 84,
+      "sha256": "1f4ea4947231afe8b798572247a20ea5ae6ef897cba37166e7ad6b31478ed417",
+      "source_commit": "c45a51765c8378a8455efeff8d6314969315f015",
+      "subject": "[PATCH 084/212] nvidia: lower native tile RMSNorm graphs"
+    },
+    {
+      "bytes": 16924,
+      "file": "0085.patch",
+      "order": 85,
+      "sha256": "b3b6f12e0c525649126c6b605a83151cfb52c8b5e41bb2206735be17d1a16d72",
+      "source_commit": "e05be80a1a265ae0692269140afedf424956ec01",
+      "subject": "[PATCH 085/212] nvidia: lower native tile RoPE graphs"
+    },
+    {
+      "bytes": 5853,
+      "file": "0086.patch",
+      "order": 86,
+      "sha256": "cb1c5e6147bb0cb63279f6d682e97f737fd74bacc709df1c2ac923172926ab97",
+      "source_commit": "a99fc6c3792d027008ece40570dedacca44c2a97",
+      "subject": "[PATCH 086/212] nvidia: bind RoPE to full-width frequency ABI"
+    },
+    {
+      "bytes": 5594,
+      "file": "0087.patch",
+      "order": 87,
+      "sha256": "7ef5b28e187073976c70f4f109d54452e76ad4f8b125670ece439aed52fbfc5a",
+      "source_commit": "500598765009743cf56c3c2235804483100654b3",
+      "subject": "[PATCH 087/212] nvidia: retain strict producer diagnostics"
+    },
+    {
+      "bytes": 1907,
+      "file": "0088.patch",
+      "order": 88,
+      "sha256": "eca70f74420740add924c42c2e26f90281430fb23162e8dc9c96c343c19bfc8b",
+      "source_commit": "45c107073ebbb335b53624084a15538e69a82a58",
+      "subject": "[PATCH 088/212] build: lock diagnostic TensorIR revision"
+    },
+    {
+      "bytes": 8112,
+      "file": "0089.patch",
+      "order": 89,
+      "sha256": "cbc3035f06ed28d67b2e35e5ec5dbd8cbb9b0dacb30a9161555c7aa45266985c",
+      "source_commit": "5f9aa0810e04ddf28ab5afc55f6284d5ba023a5f",
+      "subject": "[PATCH 089/212] nvidia: accept factored pointwise iteration tiles"
+    },
+    {
+      "bytes": 20499,
+      "file": "0090.patch",
+      "order": 90,
+      "sha256": "29ef1061449d1b93db32c8623bf29a2c5d1d788bee8b819bfd40ad48c0007ec6",
+      "source_commit": "5e3611bc1336fb89e8a517e5a11b139ae3b39509",
+      "subject": "[PATCH 090/212] nvidia: lower native tile attention graphs"
+    },
+    {
+      "bytes": 13665,
+      "file": "0091.patch",
+      "order": 91,
+      "sha256": "ca2f9689e1693664415db1416942f409a9d2ff5c8a3f817afe0abf456136fcde",
+      "source_commit": "835c1e6a9a03c89fe89dd54d8b809d10f275329d",
+      "subject": "[PATCH 091/212] nvidia: lower native tile GDN read graphs"
+    },
+    {
+      "bytes": 10042,
+      "file": "0092.patch",
+      "order": 92,
+      "sha256": "c6524cce493fb772b1c6f22d130af5b1b747e846b759492f16bcb80b32323dce",
+      "source_commit": "6054392ad011a036e7d2ce8d9437fc66ade9524e",
+      "subject": "[PATCH 092/212] nvidia: lower native tile GDN state updates"
+    },
+    {
+      "bytes": 14465,
+      "file": "0093.patch",
+      "order": 93,
+      "sha256": "c52f103a4f0f4417abd2628ed0be798ddc959a262f39095f16309227f9995e13",
+      "source_commit": "5863644501e402f7a99db807ef123ac968712b32",
+      "subject": "[PATCH 093/212] Lower native tile linear projections"
+    },
+    {
+      "bytes": 18465,
+      "file": "0094.patch",
+      "order": 94,
+      "sha256": "c980bd8b533da7fa1ed71b3563707c5cf06dc7a3c8b4d1bd947dbb6828c6cdb3",
+      "source_commit": "cc44891e87aa1750295217205ac58ece65667520",
+      "subject": "[PATCH 094/212] Lower native weighted RMSNorm"
+    },
+    {
+      "bytes": 28154,
+      "file": "0095.patch",
+      "order": 95,
+      "sha256": "9d969800c7df58b381b9b620a89cbe2edb8e37b405909126c03b14f9d4e6cc02",
+      "source_commit": "e44e66f4b6d654e395fd7faaf513df3877388a6f",
+      "subject": "[PATCH 095/212] Support native fused add RMSNorm outputs"
+    },
+    {
+      "bytes": 7476,
+      "file": "0096.patch",
+      "order": 96,
+      "sha256": "b282657b4798e12d265ed76528f1a2445c74d8a8bc4fbbbb212bc43c0b974693",
+      "source_commit": "ea5a25c9f3c4ac45f3de9dc834ad1c13f57f2f48",
+      "subject": "[PATCH 096/212] Vendor TensorIR multi-output fusion support"
+    },
+    {
+      "bytes": 1902,
+      "file": "0097.patch",
+      "order": 97,
+      "sha256": "ac817c198428fd35282cabb652f0e70216ae3c42fac7cf74534e5302bd9cdec8",
+      "source_commit": "ca706bae6bbe94e2c0a7157ef1bac35fd1006cec",
+      "subject": "[PATCH 097/212] Lock TensorIR multi-output revision"
+    },
+    {
+      "bytes": 8725,
+      "file": "0098.patch",
+      "order": 98,
+      "sha256": "e08f6a15be64e6830c3c6da082059ff576c76a97baa62760f6fa46fdcc4ad23d",
+      "source_commit": "ab63a3c43c8b44883bd69a52fdd9e7eeb03517b5",
+      "subject": "[PATCH 098/212] Complete TensorIR multi-output graph support"
+    },
+    {
+      "bytes": 5779,
+      "file": "0099.patch",
+      "order": 99,
+      "sha256": "dd0a4b3b410d8f67507ba3d227cf779d06da0d38f278cdd4ebb054bb11f7d40c",
+      "source_commit": "fa6aa909b78f3acda7e29eed173e1be84d02f95c",
+      "subject": "[PATCH 099/212] Vendor TensorIR multi-output lowering"
+    },
+    {
+      "bytes": 6050,
+      "file": "0100.patch",
+      "order": 100,
+      "sha256": "2838b50bb7d7642be9df1af832e1702557d110a5c7b79385619a99fb05119e89",
+      "source_commit": "39ac068670263e2d944ff7c60465c047e06b5315",
+      "subject": "[PATCH 100/212] Vendor TensorIR multi-output stores"
+    },
+    {
+      "bytes": 3878,
+      "file": "0101.patch",
+      "order": 101,
+      "sha256": "9807c46ba41b670b784a8b9e4d3d14cd1ea8d291094b6abe32e8c2f5401c349b",
+      "source_commit": "225cb32f7df59a98b0f33460eece88c4e6ab89f4",
+      "subject": "[PATCH 101/212] Vendor corrected multi-output golden"
+    },
+    {
+      "bytes": 20124,
+      "file": "0102.patch",
+      "order": 102,
+      "sha256": "b4f89d1e8b83099a35c9bcee4f0db3482336cf3f4b4114186a8c0018f09c7027",
+      "source_commit": "e364baefc4a76c8b87b9c870a7b490a8aab40dd9",
+      "subject": "[PATCH 102/212] Lower native gated RMSNorm"
+    },
+    {
+      "bytes": 19425,
+      "file": "0103.patch",
+      "order": 103,
+      "sha256": "8e1307a1dfa20fffe36354c7134a27aa4bc2877d1751e91bafdc3152291e540f",
+      "source_commit": "4eb0cbd9bbcd3379a215d11f60f5e3fd643ea0e0",
+      "subject": "[PATCH 103/212] Lower native causal depthwise convolution"
+    },
+    {
+      "bytes": 8802,
+      "file": "0104.patch",
+      "order": 104,
+      "sha256": "50e356091d6208cb3bd24c96b29c0fec30204d895c394903229848da47965508",
+      "source_commit": "8ff2231c69d6ba04398a259fbada5b03153d909d",
+      "subject": "[PATCH 104/212] Segment causal convolution TensorIR lowering"
+    },
+    {
+      "bytes": 1554,
+      "file": "0105.patch",
+      "order": 105,
+      "sha256": "fb5baaffdcf4ed183b6eff1c7dfbf84c2aa787e664ab6eee5881d96e13eccccd",
+      "source_commit": "8d4c66d6cafdf0fae8e5cbcf17b5180bc9ea3119",
+      "subject": "[PATCH 105/212] Schedule causal concat by token"
+    },
+    {
+      "bytes": 10220,
+      "file": "0106.patch",
+      "order": 106,
+      "sha256": "9085b23690d2bd45b74c2f3432778888f7a8795daa988146f122cefe8bf74390",
+      "source_commit": "f7dae4ff9093ebf847496b8485bcaf616b667a46",
+      "subject": "[PATCH 106/212] Lower native tile row reductions"
+    },
+    {
+      "bytes": 88730,
+      "file": "0107.patch",
+      "order": 107,
+      "sha256": "eb6c3fef94e8a3c250f5e08d1de5dcb535342b1966e4f9bedbf399bceaeaf96e",
+      "source_commit": "9e40c5f24bddce612d2f978b6fd70b4c0d9b5cba",
+      "subject": "[PATCH 107/212] Canonicalize native TensorIR producer names"
+    },
+    {
+      "bytes": 12233,
+      "file": "0108.patch",
+      "order": 108,
+      "sha256": "90869eeaa2f786a51bb38445f839516e6a1235e5d7c64c4a699cd573ffbb6327",
+      "source_commit": "5cbd9d641277b12724e9eef26bd582833892cba0",
+      "subject": "[PATCH 108/212] Refresh canonical producer source goldens"
+    },
+    {
+      "bytes": 16413,
+      "file": "0109.patch",
+      "order": 109,
+      "sha256": "4fbddd62eae55eeb5a531e523fd9ca6862c281fb5d8dbbbfd35411bef8402fe3",
+      "source_commit": "6c79f96bd40d08abd7f2dfaba4f32b7373530fae",
+      "subject": "[PATCH 109/212] Vendor TensorIR row gather lowering"
+    },
+    {
+      "bytes": 1904,
+      "file": "0110.patch",
+      "order": 110,
+      "sha256": "7eca2ab4f82fc91a738431d1b69f262195bb673711fc60c5fb34fdbfafadf303",
+      "source_commit": "4d2bc8a49613988f8e80cd32c9e9000825a3b7b0",
+      "subject": "[PATCH 110/212] Lock the TensorIR row gather revision"
+    },
+    {
+      "bytes": 4434,
+      "file": "0111.patch",
+      "order": 111,
+      "sha256": "24b10e40c73c9f49391132f115757756ca3ea33f89b9ea9f7bbbdebe0785adde",
+      "source_commit": "3fd3c3ac493e94e229690965aa6150509393a5d0",
+      "subject": "[PATCH 111/212] Advance the TensorIR gather lowering"
+    },
+    {
+      "bytes": 4081,
+      "file": "0112.patch",
+      "order": 112,
+      "sha256": "e4ff203dd92f92ae65d50ac95cfb1b4a8d154020bccbe3e6f8c511676633d127",
+      "source_commit": "ee380f7c4caf0e583d1496811b7e92078121cd09",
+      "subject": "[PATCH 112/212] Finalize the TensorIR gather golden"
+    },
+    {
+      "bytes": 14861,
+      "file": "0113.patch",
+      "order": 113,
+      "sha256": "bb2b27ce90e192f17bda84fa6c6b4ffa3575caddde5e9cd44cccf304a2e6a315",
+      "source_commit": "618958d71a07e0de7caf7360c83e7523011b325a",
+      "subject": "[PATCH 113/212] Lower native tile row gathers"
+    },
+    {
+      "bytes": 2558,
+      "file": "0114.patch",
+      "order": 114,
+      "sha256": "36732e6f1870fe5f141acccce0eb045ecc87c86c050cfb23b58ca1d66cfe594c",
+      "source_commit": "e86e3ef4543b8f6b660350d78a42b5b689f35ceb",
+      "subject": "[PATCH 114/212] Allow integer zero-stride TensorIR inputs"
+    },
+    {
+      "bytes": 3707,
+      "file": "0115.patch",
+      "order": 115,
+      "sha256": "7a2c658e3f332af32d3f8b92f8a1e24d631627068a8eb66962916518ef2f94b7",
+      "source_commit": "5a4cf3dc0368bb22518fd37c24526403c1394e53",
+      "subject": "[PATCH 115/212] Advance the TensorIR gather frontend"
+    },
+    {
+      "bytes": 6483,
+      "file": "0116.patch",
+      "order": 116,
+      "sha256": "7637aea27a81f51367977c254012686182a7d5ccf557ee61acc1cf3d758738d0",
+      "source_commit": "97fe8b66bb862c6c908e55cac08ab42bf01928a1",
+      "subject": "[PATCH 116/212] Fix TensorIR gather column coordinates"
+    },
+    {
+      "bytes": 4253,
+      "file": "0117.patch",
+      "order": 117,
+      "sha256": "02b3635f9c0c34e6c25af29d317e301127fe263531980b47ac2b3cfd5bba3140",
+      "source_commit": "d8eaca6f6bc56b1217ad942a866e48fb4112381c",
+      "subject": "[PATCH 117/212] Finalize the TensorIR gather revision"
+    },
+    {
+      "bytes": 24509,
+      "file": "0118.patch",
+      "order": 118,
+      "sha256": "b6fdefa8c912f44a0839a306ae809cba6419571fd5b611b5d8248f6d819f81a4",
+      "source_commit": "891db5d1ead056921d0d3eabfeba4703d71b0999",
+      "subject": "[PATCH 118/212] Lower fused QK RMSNorm and partial RoPE"
+    },
+    {
+      "bytes": 3634,
+      "file": "0119.patch",
+      "order": 119,
+      "sha256": "f4e4fffbc6db72a0c6bd2c4665b54c1952c9712bc7e85d7c365ecc70f6512c35",
+      "source_commit": "90dae9d16e446acdf45ff9ade6d12fe4e684b91b",
+      "subject": "[PATCH 119/212] Advance TensorIR layout diagnostics"
+    },
+    {
+      "bytes": 5908,
+      "file": "0120.patch",
+      "order": 120,
+      "sha256": "60ac1d29fb1b635a5d8e74f062212975e88f9d355a2127ebc20d1e401ca15d63",
+      "source_commit": "a00ce66873ec6404839a3bb2140720ffcfc9d255",
+      "subject": "[PATCH 120/212] Advance TensorIR reduction slice lowering"
+    },
+    {
+      "bytes": 5650,
+      "file": "0121.patch",
+      "order": 121,
+      "sha256": "840b752204a56a87d6c1a7330e0b2164b6e2f2ced624c81f6d38f228fab4cde9",
+      "source_commit": "c8f643822fa7a064b03450809cbbc11f2249d281",
+      "subject": "[PATCH 121/212] Keep fused QK outputs in packed head layout"
+    },
+    {
+      "bytes": 16733,
+      "file": "0122.patch",
+      "order": 122,
+      "sha256": "cdd0536294b20655aa37e046622fab5da9adc023b2f3282e486f64ff83f63a9a",
+      "source_commit": "c79587a6402f784c760ce3cc81f69432bba9ddfc",
+      "subject": "[PATCH 122/212] Advance TensorIR lazy input loading"
+    },
+    {
+      "bytes": 4152,
+      "file": "0123.patch",
+      "order": 123,
+      "sha256": "3e9263fbe76291e400c61cc0a1a0a1582a2170444306eef0e206788eead8a026",
+      "source_commit": "e4c764bd2cd901f29692a90f3152eb240a3192a1",
+      "subject": "[PATCH 123/212] Advance TensorIR rewrite-scoped loads"
+    },
+    {
+      "bytes": 5293,
+      "file": "0124.patch",
+      "order": 124,
+      "sha256": "bba339d3887dcc26baeae52e93b7c121ee46b14e41eaafb7e5ebd65d21361c2f",
+      "source_commit": "c754a4a01edd201f92fe388266650ddf2df471fa",
+      "subject": "[PATCH 124/212] Advance TensorIR rewrite-owned loads"
+    },
+    {
+      "bytes": 5206,
+      "file": "0125.patch",
+      "order": 125,
+      "sha256": "3bcec0123284a95e38d964adae1b355802613de55f4206f9ba37b024025085de",
+      "source_commit": "1124d5c2562a7aaec4830d4dfde9ff5e686a6998",
+      "subject": "[PATCH 125/212] Advance TensorIR rewrite epoch loads"
+    },
+    {
+      "bytes": 6847,
+      "file": "0126.patch",
+      "order": 126,
+      "sha256": "161ed0061673991d97d5b11cd0820c49d07b76782f8f9a42b8bfbea8b5f69567",
+      "source_commit": "0af8391d954fd9b627086ec79c98f23379456419",
+      "subject": "[PATCH 126/212] Advance TensorIR direct input loading"
+    },
+    {
+      "bytes": 9272,
+      "file": "0127.patch",
+      "order": 127,
+      "sha256": "8f736aba3ae2037679fbee74723e0504eea123853913628562b4c2b2e6386151",
+      "source_commit": "d2f1429b1f874445593e8e4631d89b3f3bf52890",
+      "subject": "[PATCH 127/212] Advance TensorIR delayed input broadcasts"
+    },
+    {
+      "bytes": 3060,
+      "file": "0128.patch",
+      "order": 128,
+      "sha256": "87c5e9ab65d28a15c77dbdd14cd4e180c1194ed2e03f5a6f7eb05733109a5460",
+      "source_commit": "192b80eec6b365ddcdb5de39bb04078dfa2f5d92",
+      "subject": "[PATCH 128/212] Advance TensorIR broadcast shape comparison"
+    },
+    {
+      "bytes": 7713,
+      "file": "0129.patch",
+      "order": 129,
+      "sha256": "7987e3c4d6c710f11b8d475d6503bacf344076106118153c7868270f726468ea",
+      "source_commit": "786e906dfad07674a1fd164d79713f9e26e6277b",
+      "subject": "[PATCH 129/212] Advance TensorIR transactional input loads"
+    },
+    {
+      "bytes": 6576,
+      "file": "0130.patch",
+      "order": 130,
+      "sha256": "405f7884d5d0be9f5f208413e783aa18645d1b951c2950155f3c5ffec2cab326",
+      "source_commit": "ae4d59fc8dbe9b95558b6ddf1a2e482f6648f7e8",
+      "subject": "[PATCH 130/212] Advance TensorIR anchored input loads"
+    },
+    {
+      "bytes": 4135,
+      "file": "0131.patch",
+      "order": 131,
+      "sha256": "d092cfac86788a412bbd677356ca5dbd087ced97609dbc7dc0aa6a0119601c5f",
+      "source_commit": "a45dd90006244eac3855a01fbbd9e9b0d9e65109",
+      "subject": "[PATCH 131/212] Advance TensorIR one-shot layout conversion"
+    },
+    {
+      "bytes": 4797,
+      "file": "0132.patch",
+      "order": 132,
+      "sha256": "52d728707db4f16d21bb96a10fc3faf04c07c4488a5afb37bd3f9e7f736b6bb2",
+      "source_commit": "d1b71fe3eae716549ced617adbdd17c2dd2de1ac",
+      "subject": "[PATCH 132/212] Advance TensorIR one-shot result layouts"
+    },
+    {
+      "bytes": 3449,
+      "file": "0133.patch",
+      "order": 133,
+      "sha256": "f44d1e1b13f9e2ecf861fe99e7ee090e7acce14e18ea7dec46c5ef07353ae96a",
+      "source_commit": "2b76febf595e4cd59323543927bcea4e4939cc2d",
+      "subject": "[PATCH 133/212] Advance TensorIR nested gather validation"
+    },
+    {
+      "bytes": 7311,
+      "file": "0134.patch",
+      "order": 134,
+      "sha256": "ce3bbb39cbdaa07016dcec63e8c173b41947e0e7785bd65984944c5a953f60b4",
+      "source_commit": "8bd2c88be7914537ddefa3f5be14f4ae27835a51",
+      "subject": "[PATCH 134/212] Advance TensorIR one-shot input materialization"
+    },
+    {
+      "bytes": 5517,
+      "file": "0135.patch",
+      "order": 135,
+      "sha256": "4916f63c42ecbb82928752fd5333f733310f40ea50eeb243ee16033e6630a83f",
+      "source_commit": "43d69aa015c751d6543a58523ac11da33177661b",
+      "subject": "[PATCH 135/212] Advance TensorIR isolated load building"
+    },
+    {
+      "bytes": 3114,
+      "file": "0136.patch",
+      "order": 136,
+      "sha256": "76ab8b6188ddcc48e5cfcf948e46e0c04a385570122858fb8eb44683dfb708a0",
+      "source_commit": "a389e8bb3c4f0fd1934ef47d211ce5cebcd1d00f",
+      "subject": "[PATCH 136/212] Advance TensorIR ordered lazy loads"
+    },
+    {
+      "bytes": 13906,
+      "file": "0137.patch",
+      "order": 137,
+      "sha256": "d587a11891ec215b954cc273c87b07bc13751d0ccaea83c1d2db963ecfcba144",
+      "source_commit": "011d0f77536061f463b71d2b942efa92e15bf922",
+      "subject": "[PATCH 137/212] Advance TensorIR fused gather reductions"
+    },
+    {
+      "bytes": 3704,
+      "file": "0138.patch",
+      "order": 138,
+      "sha256": "ed7384cf6b943c8ed6dd93d65a3fe5d53192ea6dbf7bf1aceaa419aaa769b2ba",
+      "source_commit": "d1b90b767d6be8e3907a01d41655eedbc621df2f",
+      "subject": "[PATCH 138/212] Advance TensorIR fused gather indices"
+    },
+    {
+      "bytes": 25833,
+      "file": "0139.patch",
+      "order": 139,
+      "sha256": "1f09c3abf9150471388c45780d6ab2de6355e5421599ed89b387113c9f4cc927",
+      "source_commit": "dad8bcf9e3973310097a86f7a55beb1466315383",
+      "subject": "[PATCH 139/212] Add native paged decode TensorIR candidate"
+    },
+    {
+      "bytes": 12328,
+      "file": "0140.patch",
+      "order": 140,
+      "sha256": "f2b56ac5c92c6ecccea984b80a444a118174470634e84d0ba5561a1ba112d7ba",
+      "source_commit": "91b3feec1b6164ccd3170ec3c29f9354474a5860",
+      "subject": "[PATCH 140/212] Advance TensorIR fused unit dimensions"
+    },
+    {
+      "bytes": 23491,
+      "file": "0141.patch",
+      "order": 141,
+      "sha256": "5c474b548d17cfed0b1ea4fbd30f56441e4874729a49e5387c35afeb01348951",
+      "source_commit": "9dbc8155f6a4ba0925881e1a93d3e8699efa0f22",
+      "subject": "[PATCH 141/212] Add valid-length masked paged decode"
+    },
+    {
+      "bytes": 31472,
+      "file": "0142.patch",
+      "order": 142,
+      "sha256": "004a90a49e236856d392daa02eab286c358b27cb97e85f10cc04d2dd3faef2a3",
+      "source_commit": "797e79b6a3a069d7deb6b3f92b04c8365b54a3d6",
+      "subject": "[PATCH 142/212] Read paged slots from request table"
+    },
+    {
+      "bytes": 7527,
+      "file": "0143.patch",
+      "order": 143,
+      "sha256": "2561ca78a2396fd052e035d05d73d746db343acde01f45e3b73b9df27eb486f0",
+      "source_commit": "5f5f06c91066e37df41114458dd206a5650fc02e",
+      "subject": "[PATCH 143/212] Advance TensorIR scalar-row gathers"
+    },
+    {
+      "bytes": 13711,
+      "file": "0144.patch",
+      "order": 144,
+      "sha256": "82cbc22d3a964c708d9c22975bbe05ef413026e961716ce7d475aa1916eeae6b",
+      "source_commit": "84e101ab2aa2a4ad7808c834f910f28c85a4e348",
+      "subject": "[PATCH 144/212] Preserve TensorIR argument mutation effects"
+    },
+    {
+      "bytes": 22140,
+      "file": "0145.patch",
+      "order": 145,
+      "sha256": "4bbc5d9d37184624061c521870bbe0afb8894ef98b695a1a76b20c5a07967fb0",
+      "source_commit": "9144e2f92303d86fd307a915e8a1a760533101d0",
+      "subject": "[PATCH 145/212] Advance TensorIR row scatter"
+    },
+    {
+      "bytes": 17969,
+      "file": "0146.patch",
+      "order": 146,
+      "sha256": "ebe92bfd966db5b81b55c9eb26ddecfb94be74039617e891a97d2d8496fbdbc6",
+      "source_commit": "013ad3c89fc5975f49f805061cbb41a2ab09573e",
+      "subject": "[PATCH 146/212] Add paged cache-write TensorIR emitter"
+    },
+    {
+      "bytes": 3877,
+      "file": "0147.patch",
+      "order": 147,
+      "sha256": "a5f963ad495e73d43343904412bf9713c0ee33e9a860b7eac148bd2aa6fc4226",
+      "source_commit": "a78bc3fd84c54bacd6d565fc1526e4dd27397301",
+      "subject": "[PATCH 147/212] Generalize cache-write loop matching"
+    },
+    {
+      "bytes": 38557,
+      "file": "0148.patch",
+      "order": 148,
+      "sha256": "d210a6abd7ddc5f3c036192e5ab951d1d058df8893853291048e21b0f5aa58db",
+      "source_commit": "40f5f3e0ff82e185e00b7e53bc66c1ab601161c5",
+      "subject": "[PATCH 148/212] Add causal paged prefill TensorIR emitter"
+    },
+    {
+      "bytes": 47403,
+      "file": "0149.patch",
+      "order": 149,
+      "sha256": "69674e46f3b1bbbc445392688710300cd8cd6556caf3a0996a2ff6d352e04103",
+      "source_commit": "55412d3368e682dee0b4b2d5b8a3b6861f602bdb",
+      "subject": "[PATCH 149/212] Generalize paged decode compiler to static batches"
+    },
+    {
+      "bytes": 3100,
+      "file": "0150.patch",
+      "order": 150,
+      "sha256": "5b4e751ec549f7a24db0ecc3d63cd93c643e541f3db1a33f8ba63cc96d63e516",
+      "source_commit": "d777b422db6f858fc1fda4096fed22cee50a187d",
+      "subject": "[PATCH 150/212] Read paged metadata as integer tensors"
+    },
+    {
+      "bytes": 27545,
+      "file": "0151.patch",
+      "order": 151,
+      "sha256": "54e7095b2e463b1ee04f42fe49b27ed005ba0d3cc34ae821c9b5dceb6bb3a63a",
+      "source_commit": "12a6e7cf67ba01de8dee9255806b0700337f8fef",
+      "subject": "[PATCH 151/212] Preserve non-dense JIT tensor strides"
+    },
+    {
+      "bytes": 12375,
+      "file": "0152.patch",
+      "order": 152,
+      "sha256": "2ae25d688f86f30e8d258f31b734118e68b7c5ad20ec2079b0d78acb59597cfc",
+      "source_commit": "c13409bc0cd350714a4485baeab14036ea3b72bd",
+      "subject": "[PATCH 152/212] Accept strided paged cache tensors"
+    },
+    {
+      "bytes": 46190,
+      "file": "0153.patch",
+      "order": 153,
+      "sha256": "328ede86ace8fe1676523cb185a1721efb9507b390fc0dedbb541933aaf04448",
+      "source_commit": "17dae4943507ed0436ffff9c1eea67e21d0c7018",
+      "subject": "[PATCH 153/212] Fuse paged virtual-to-physical lookups"
+    },
+    {
+      "bytes": 44657,
+      "file": "0154.patch",
+      "order": 154,
+      "sha256": "36c813a52b9a8739a00144710c55785e6805cffedab5517b079977e455bb178d",
+      "source_commit": "564099691f35b944bd35542ba56bad0f70edd611",
+      "subject": "[PATCH 154/212] Add single-graph GDN recurrent emitter"
+    },
+    {
+      "bytes": 29146,
+      "file": "0155.patch",
+      "order": 155,
+      "sha256": "ae6b95215b1a1ce88126f31f542d954e815bf54534d5cbed2e27fbbc88f0b46f",
+      "source_commit": "e85c1ed30a1eec501732584f852cea88d0249eca",
+      "subject": "[PATCH 155/212] Add stateful causal convolution emitter"
+    },
+    {
+      "bytes": 13147,
+      "file": "0156.patch",
+      "order": 156,
+      "sha256": "caf34e6e0f293245df347061804153b841d824feb0abc7e7b7264fd421091efe",
+      "source_commit": "f34c3f57890785e7e02bc78491bd7ca3de519d88",
+      "subject": "[PATCH 156/212] Add GDN projection split emitter"
+    },
+    {
+      "bytes": 1880,
+      "file": "0157.patch",
+      "order": 157,
+      "sha256": "7b0f5483fac3346fcd9270907040a0229a93a29b637105c11e3d6688808396c7",
+      "source_commit": "2fecdac20724624b5f445ef7c5253c1eba9c83f3",
+      "subject": "[PATCH 157/212] Fix mutation-effect test namespaces"
+    },
+    {
+      "bytes": 5276,
+      "file": "0158.patch",
+      "order": 158,
+      "sha256": "685c5b372fc1e5a5955e12d3f32d6af23ed58e7d29d171b7d2c374d7d11f0c7b",
+      "source_commit": "32d1f16bf187da3dbac380f700e59a36582d4764",
+      "subject": "[PATCH 158/212] Fix paged attention integer and unit-column lowering"
+    },
+    {
+      "bytes": 2127,
+      "file": "0159.patch",
+      "order": 159,
+      "sha256": "535fc135ba939abfe9c6fd5953b3f346302cc2122f8d9b74b2a13f08f53e6a4e",
+      "source_commit": "a94c4f70536a7075dcedfd4f01a04b36f6b458e9",
+      "subject": "[PATCH 159/212] Fix scalar paged attention projections"
+    },
+    {
+      "bytes": 2406,
+      "file": "0160.patch",
+      "order": 160,
+      "sha256": "15464cf98f77139bb5aa0cafa5c8953d72d4102c3d2bdc6804f14e57afbbe2d8",
+      "source_commit": "cec97941dac592933186a94fc59370fa80c694ac",
+      "subject": "[PATCH 160/212] Align paged attention projected layouts"
+    },
+    {
+      "bytes": 3391,
+      "file": "0161.patch",
+      "order": 161,
+      "sha256": "dfea919a377df8512daf983d382a71555589ec111e8652d5d8c53f9671b1bde7",
+      "source_commit": "441dae13b56dd9e5a81c7f3c58051149d7a992f9",
+      "subject": "[PATCH 161/212] Unroll batched paged request gathers"
+    },
+    {
+      "bytes": 1247,
+      "file": "0162.patch",
+      "order": 162,
+      "sha256": "ec4125338f459d30f16f5b82e2a63b0f7506f7639f03f192cefff6831a051a51",
+      "source_commit": "50608d5db4867dccdcd7e8e12f37521153b547fb",
+      "subject": "[PATCH 162/212] Pin indirect gather row projection"
+    },
+    {
+      "bytes": 17216,
+      "file": "0163.patch",
+      "order": 163,
+      "sha256": "c09dc6b9747add6f6db365b0b1b353dcf5ba5d531837fa192bba0e1b768a4df1",
+      "source_commit": "876e0502f2e5d62514b6a2987294c7216c66f12b",
+      "subject": "[PATCH 163/212] Vectorize causal paged prefill rows"
+    },
+    {
+      "bytes": 15121,
+      "file": "0164.patch",
+      "order": 164,
+      "sha256": "7ed0e745c16986285ee4aaec505f1806f32b05c6f7bb9a58b279535698117ca0",
+      "source_commit": "c6f8beffb99c08fd1a07f43af7fbc2a65a6c4b75",
+      "subject": "[PATCH 164/212] Batch paged prefill query heads"
+    },
+    {
+      "bytes": 1716,
+      "file": "0165.patch",
+      "order": 165,
+      "sha256": "bb9aa81309c437834253a926608768942df91a6908cb9c7cb32e5c7975792f7f",
+      "source_commit": "d8c8498e027b5620a7f68f6390eb862a01b8a515",
+      "subject": "[PATCH 165/212] Fix batched prefill type bindings"
+    },
+    {
+      "bytes": 6157,
+      "file": "0166.patch",
+      "order": 166,
+      "sha256": "0c148555d4e2aada3c3b8cfc017df4186a80ce1e821700ca68dcaf43b381b6c3",
+      "source_commit": "23c1bc849ef87bc65bc61efd4cc01bffad2f3773",
+      "subject": "[PATCH 166/212] Rank-lift paged prefill batches"
+    },
+    {
+      "bytes": 1400,
+      "file": "0167.patch",
+      "order": 167,
+      "sha256": "ab01e3f288019211531848e1eded632717e3b3cb8fc4f65369f612ed9860d7e4",
+      "source_commit": "921cbd8a46bfb7c65d233124419e00d95010c716",
+      "subject": "[PATCH 167/212] Align batched prefill schedule rank"
+    },
+    {
+      "bytes": 2919,
+      "file": "0168.patch",
+      "order": 168,
+      "sha256": "071a185f7c29c6a39b9ff3596ee79f96c49b7b6fc77bf0d110650f97ebb52110",
+      "source_commit": "88d1d0bfad22cf9b539297a3e4d5b255ae8bb4d4",
+      "subject": "[PATCH 168/212] Preserve strided paged integer metadata"
+    },
+    {
+      "bytes": 5356,
+      "file": "0169.patch",
+      "order": 169,
+      "sha256": "b86ceb87da6bea6d1bb03a9be2790ec56d5c4a19b8de3ddaa7a8b828fff46a20",
+      "source_commit": "fd3926a07983a0a0d7d8c91db8600dd418839ad2",
+      "subject": "[PATCH 169/212] Represent row-pitched TensorIR ABI metadata"
+    },
+    {
+      "bytes": 1248,
+      "file": "0170.patch",
+      "order": 170,
+      "sha256": "11ff5e9befb86f944cc24a8cc7022e880b10951e5013e7c12cf5cd74ae89323d",
+      "source_commit": "2faefb64d3b81484a100f6a2d839f57abfe5ca35",
+      "subject": "[PATCH 170/212] Pin indirect scatter row projection"
+    },
+    {
+      "bytes": 8689,
+      "file": "0171.patch",
+      "order": 171,
+      "sha256": "3f52da6cb02385a7b79894fc0aaf03c7598c23a8919752fee49e103b1a00aefb",
+      "source_commit": "35f3ca835a8ad470f7e2d943b2b94b64ef784be5",
+      "subject": "[PATCH 171/212] Fix stateful GDN and convolution TensorIR lowering"
+    },
+    {
+      "bytes": 4163,
+      "file": "0172.patch",
+      "order": 172,
+      "sha256": "31f35febe5c0e23801a182a3ec17a8e6d481cb57021a631ce98e75ce70d08262",
+      "source_commit": "2cc286016d2dfe113d25432e3ba8f1e5ef1afe4d",
+      "subject": "[PATCH 172/212] Preserve state row axes through index broadcasts"
+    },
+    {
+      "bytes": 15152,
+      "file": "0173.patch",
+      "order": 173,
+      "sha256": "03d3de41ba0e7bd8c52397c6a7aafac72ba058e4f6717662702b888836f957dc",
+      "source_commit": "bf01a0b9bcdbcde3c436f1ef72e3f33a59a09d6f",
+      "subject": "[PATCH 173/212] Lower state mutations as single-row transactions"
+    },
+    {
+      "bytes": 857,
+      "file": "0174.patch",
+      "order": 174,
+      "sha256": "b4c77fc4c5baca41da773d1c7df7fe743c141f139f243e62219dbc110f932062",
+      "source_commit": "dbdea6d21371bc14568ffceb31f3535923e2b9e6",
+      "subject": "[PATCH 174/212] Lock contiguous state projection TensorIR"
+    },
+    {
+      "bytes": 5554,
+      "file": "0175.patch",
+      "order": 175,
+      "sha256": "4193419f74d2ba5681c24adf83514bf7938e89bacd0335407ce99c3d4f72619f",
+      "source_commit": "8a9ab856dc3358749628e324d5d774ef4ef2c11c",
+      "subject": "[PATCH 175/212] Slice rank-two state index columns directly"
+    },
+    {
+      "bytes": 18657,
+      "file": "0176.patch",
+      "order": 176,
+      "sha256": "9beab256996e797994f10d00696f12cabfe83d819ad56fe20b8c988561f2528a",
+      "source_commit": "e08b6aaf5be7ba2d54122d44cb29b2e894876249",
+      "subject": "[PATCH 176/212] Pack GDN projection into one physical result"
+    },
+    {
+      "bytes": 13915,
+      "file": "0177.patch",
+      "order": 177,
+      "sha256": "6a295d4488b4120a89cd4b489ab4987ac73314735ae8ab31dad9e5f5ed2e3194",
+      "source_commit": "3ed5fa702e7327676ef3d8a5d57fd251e699a81a",
+      "subject": "[PATCH 177/212] Use plane-major causal convolution state"
+    },
+    {
+      "bytes": 24289,
+      "file": "0178.patch",
+      "order": 178,
+      "sha256": "4ee7fae1c5f464420a5ad26b02c13b97e6cf9b866a460cc12fe1f723ecad7c9b",
+      "source_commit": "7a9956d4f01f9dba618d3342684e82fcd569e66b",
+      "subject": "[PATCH 178/212] Batch GDN recurrent heads in TensorIR"
+    },
+    {
+      "bytes": 12628,
+      "file": "0179.patch",
+      "order": 179,
+      "sha256": "579292f16f9d744f33da2a09574be18f495485daf612c03686439ddcb18544dd",
+      "source_commit": "8955cc108b8a1c229a8cb53ea6025f006b6e59fe",
+      "subject": "[PATCH 179/212] Anchor state mutations in recurrent results"
+    },
+    {
+      "bytes": 3476,
+      "file": "0180.patch",
+      "order": 180,
+      "sha256": "fef7c872a2fe5fc5022a8e53a579d365106f88f404e69cd34db94afab9951263",
+      "source_commit": "f72cfca88cb65525aabf6a12c2768f9101daf7a5",
+      "subject": "[PATCH 180/212] Avoid unit-token anchor broadcasts"
+    },
+    {
+      "bytes": 1242,
+      "file": "0181.patch",
+      "order": 181,
+      "sha256": "cead85be57027f92b843dffeb5fde81209bdab6b0d6dd030027db822ee797112",
+      "source_commit": "b09373353b7c622648534a9a44ccca44a159a479",
+      "subject": "[PATCH 181/212] Lock split-layout diagnostics"
+    },
+    {
+      "bytes": 1244,
+      "file": "0182.patch",
+      "order": 182,
+      "sha256": "8efa5e3fbe4674e8b027c1e65621fccb47baa9e183e655eee0ef09364bcf553f",
+      "source_commit": "6f2f34468982bc9d32fe4bb3e22c79c6ebd1eeaf",
+      "subject": "[PATCH 182/212] Lock residual split-DAG cleanup"
+    },
+    {
+      "bytes": 1249,
+      "file": "0183.patch",
+      "order": 183,
+      "sha256": "f1e6eded8d1d1036dab80062c12b70a499739ca72acd9aa996b03ce0320a9927",
+      "source_commit": "2d949093c510d3b0ea5e897731d97625ce651734",
+      "subject": "[PATCH 183/212] Lock residual dependency diagnostics"
+    },
+    {
+      "bytes": 1242,
+      "file": "0184.patch",
+      "order": 184,
+      "sha256": "a8f86a7db82b4864c9a66eeebc39800bfedbad905dc34fc39104c69c0c14d302",
+      "source_commit": "2745b8aa082daf18af537462905fb7366dbd2f8c",
+      "subject": "[PATCH 184/212] Lock pruned concat detachment"
+    },
+    {
+      "bytes": 3916,
+      "file": "0185.patch",
+      "order": 185,
+      "sha256": "9e249e1c530cbdb1a04d61f5077b9db5edabb67c9aef6bc81b2643115fd51b28",
+      "source_commit": "31379171a962f09bad274662f998fe4f2aa9c5b0",
+      "subject": "[PATCH 185/212] Flatten GDN mutation anchors"
+    },
+    {
+      "bytes": 10229,
+      "file": "0186.patch",
+      "order": 186,
+      "sha256": "f5472d83358486003ce71cf0c2a891db2da003aa9d001d87d18101fc58aca75e",
+      "source_commit": "50e16afb8d2dc9437fdd05db1e66df70ccd0e016",
+      "subject": "[PATCH 186/212] Order final GDN output after state scatter"
+    },
+    {
+      "bytes": 2529,
+      "file": "0187.patch",
+      "order": 187,
+      "sha256": "c16a12142c09daddcf4f54eece0938461031e15a3ef43a3b97c26fbb45043df3",
+      "source_commit": "8ae55a1e02698d43453d05fd6e74b10d1c5f1aa1",
+      "subject": "[PATCH 187/212] Retain all causal convolution state planes"
+    },
+    {
+      "bytes": 1247,
+      "file": "0188.patch",
+      "order": 188,
+      "sha256": "7fb3ba3cf84e21c797a45a9b55a84835f871c5597f93f796a1b540de8b689728",
+      "source_commit": "868a9b70c990bcb33c0a492e0fab18de91f0df2d",
+      "subject": "[PATCH 188/212] Lock recurrent scatter diagnostics"
+    },
+    {
+      "bytes": 1245,
+      "file": "0189.patch",
+      "order": 189,
+      "sha256": "392f3d03c65fd9de278fbb765bfeed00a595b297b87e54db00fff5636665e8e2",
+      "source_commit": "49fc2628ebd61cfb97428bdc017e3e205dd6a9c4",
+      "subject": "[PATCH 189/212] Lock physical scatter tile order"
+    },
+    {
+      "bytes": 1248,
+      "file": "0190.patch",
+      "order": 190,
+      "sha256": "19aacb71e92792c1b3d0ca2f3202d12f86c51d4859fdba65071739a88173a980",
+      "source_commit": "6fe2b43ae3b469b3c49dd8846eb0cd4fdc8c568b",
+      "subject": "[PATCH 190/212] Lock explicit scatter permute types"
+    },
+    {
+      "bytes": 1242,
+      "file": "0191.patch",
+      "order": 191,
+      "sha256": "1b0528c56eaff4fa30dbdc4172b70431d35f3e0f86d1850019b6d430e3ba99f9",
+      "source_commit": "c340893c5319286d24c3532e17f7218ffb5acd88",
+      "subject": "[PATCH 191/212] Lock unpermuted scatter probe"
+    },
+    {
+      "bytes": 1711,
+      "file": "0192.patch",
+      "order": 192,
+      "sha256": "96091912cc7ef92546deb3393167af9d469501ff46744e975ef85650c9d2f1b2",
+      "source_commit": "ab6a4aee8a6bae422d1f76e2ea2e5cba092bce24",
+      "subject": "[PATCH 192/212] Align GDN outer products with state layout"
+    },
+    {
+      "bytes": 1244,
+      "file": "0193.patch",
+      "order": 193,
+      "sha256": "c5ae1d7ad3b333776dd273efa92118f9cd444802e01397e02c9cea1c275d71fc",
+      "source_commit": "7e5555ccec2cffd6e119e47a4dbebf1ab69cc95f",
+      "subject": "[PATCH 193/212] Lock aligned scatter tile order"
+    },
+    {
+      "bytes": 1875,
+      "file": "0194.patch",
+      "order": 194,
+      "sha256": "10ccaca9e02065ef38fc9cc7bb616d276dc713803ccb8c4d9ad2e4643dc56bac",
+      "source_commit": "5f514d0ff7f7182ac1aedbcec215341236394773",
+      "subject": "[PATCH 194/212] Canonicalize GDN state updates through flat rows"
+    },
+    {
+      "bytes": 1190,
+      "file": "0195.patch",
+      "order": 195,
+      "sha256": "320513b5af4a7a4b91fd0835af1220cabb65038e1af00be8e6a2514a24b8069f",
+      "source_commit": "e3ad04acacf33a6e1cfd44b0017c9eec93f94bad",
+      "subject": "[PATCH 195/212] Mark GDN outer tile alignment"
+    },
+    {
+      "bytes": 1249,
+      "file": "0196.patch",
+      "order": 196,
+      "sha256": "3a58ca694e19e9f2cf08395984bfa3a069d538697834e13cc274a2f4151de145",
+      "source_commit": "15fd2264da8819334643afaf089238e07caeeeef",
+      "subject": "[PATCH 196/212] Lock marked pointwise tile alignment"
+    },
+    {
+      "bytes": 6806,
+      "file": "0197.patch",
+      "order": 197,
+      "sha256": "3e9f7b08a5005555a0ab7e11cc19b12f6444a255a6c343725658b13824a50bcf",
+      "source_commit": "a8a5072e3337e541f9a42a6788cb1d8390a6292f",
+      "subject": "[PATCH 197/212] Lower native BF16 GDN dt bias"
+    },
+    {
+      "bytes": 143070,
+      "file": "0198.patch",
+      "order": 198,
+      "sha256": "57f70c97142a3a90889848ebc43b75120b62e883a44c49f12d0ccd6e505c73e3",
+      "source_commit": "79f9f16485e18f46a6d52269045a0d2577ec7e80",
+      "subject": "[PATCH 198/212] Build native GDN with typed TensorIR ops"
+    },
+    {
+      "bytes": 1211,
+      "file": "0199.patch",
+      "order": 199,
+      "sha256": "a5e312ac57bbc7472b2e002cab7a7e8d866e137826d0372d235696580c6693b0",
+      "source_commit": "d2733a86be0bf3a501611af6333520da62d6ef09",
+      "subject": "[PATCH 199/212] Accept row-pitched QK preparation inputs"
+    },
+    {
+      "bytes": 2510,
+      "file": "0200.patch",
+      "order": 200,
+      "sha256": "883d28de94041177a6495f33cb6e222958c1f81a94d51e2931c4e4aeb07573a0",
+      "source_commit": "a1a4abac0c5df475bf0791cf3354795cf0dbad3e",
+      "subject": "[PATCH 200/212] Accept FP32 QK rotary caches"
+    },
+    {
+      "bytes": 5521,
+      "file": "0201.patch",
+      "order": 201,
+      "sha256": "85f9bf99058ad179a776c9f2802084b175cb9f8e588dd3043e920c09e15e40a2",
+      "source_commit": "d47162ed69d49ba506857109d23b1acb859126dd",
+      "subject": "[PATCH 201/212] Accept row-pitched paged attention inputs"
+    },
+    {
+      "bytes": 1781,
+      "file": "0202.patch",
+      "order": 202,
+      "sha256": "1c1932b657e87992cca69a4920b0c03a0e69803474114d630c0ff4cfa7a8f988",
+      "source_commit": "5c7e4e704dba36d065d52e3342a535248ca1a159",
+      "subject": "[PATCH 202/212] Accept row-pitched native pointwise inputs"
+    },
+    {
+      "bytes": 1151,
+      "file": "0203.patch",
+      "order": 203,
+      "sha256": "d6eed6b054de717cbdcceb02a68935172c565fc8427274c03ae47a36d715900c",
+      "source_commit": "8d57bf96f65a9a19a6f247c162c315de9b0350e9",
+      "subject": "[PATCH 203/212] Preserve pointwise input strides in TensorIR"
+    },
+    {
+      "bytes": 7947,
+      "file": "0204.patch",
+      "order": 204,
+      "sha256": "f0b51d846a83d42d5f2aa9ff28fb1f64d1f79865fd1426defc4c5584748555d0",
+      "source_commit": "49cb676a80b7a3c3d7fe112722f35a699a7b5067",
+      "subject": "[PATCH 204/212] Accept static shape branches and pitched GDN projections"
+    },
+    {
+      "bytes": 26746,
+      "file": "0205.patch",
+      "order": 205,
+      "sha256": "1b6ce24936887b2ed94f98afcd6e61ac62291c401a98e99c081e60b671451d94",
+      "source_commit": "792c9a0953293fa448aaa9a4856f24ab4bbbb671",
+      "subject": "[PATCH 205/212] Build native matmul with typed TensorIR"
+    },
+    {
+      "bytes": 4442,
+      "file": "0206.patch",
+      "order": 206,
+      "sha256": "4b8499782a1ca1bffd28d7625ec3161f8a5a0187a7b5c643504993d744f64de1",
+      "source_commit": "08a9c755156a88bdb293087ce1bc9f7ce7dd018c",
+      "subject": "[PATCH 206/212] Support integer native gather rows"
+    },
+    {
+      "bytes": 1724,
+      "file": "0207.patch",
+      "order": 207,
+      "sha256": "c9661a040f0fc76ed94b41febf08c71c3aced64b07a0fdd7b7452dfab313dd3a",
+      "source_commit": "44f03f09555d9cca7a2fc1e9017b923b1ac7726f",
+      "subject": "[PATCH 207/212] Accept integer tiles in native gather rows"
+    },
+    {
+      "bytes": 19791,
+      "file": "0208.patch",
+      "order": 208,
+      "sha256": "822ddefc055a94575cf3e0a52af923696962ad6bdaebcc46797e4b7f4af620f0",
+      "source_commit": "f60ebd3a2324030e8b0b83b85f9cf06e41762eb9",
+      "subject": "[PATCH 208/212] Build native SwiGLU with FP32 typed TensorIR"
+    },
+    {
+      "bytes": 4546,
+      "file": "0209.patch",
+      "order": 209,
+      "sha256": "3b7de935a38040be648af77a24441cb14e9e0f8ab32b7686429efa54ce6feff5",
+      "source_commit": "987abb9ad276dac1de4e6190ae04435404543a99",
+      "subject": "[PATCH 209/212] Support row-pitched native matmul results"
+    },
+    {
+      "bytes": 14431,
+      "file": "0210.patch",
+      "order": 210,
+      "sha256": "04a93aca33a520cb9be6c9d0769d8916921114bb3e4034e2f98a5ae158c50598",
+      "source_commit": "933662368c04ff71c75afdf200b47e59c9570b02",
+      "subject": "[PATCH 210/212] Build GDN projection with typed TensorIR"
+    },
+    {
+      "bytes": 2694,
+      "file": "0211.patch",
+      "order": 211,
+      "sha256": "cce68c07dfdbed3e07086df29f944f37c5b36ea914e750efd4c08649c0f2c9b5",
+      "source_commit": "d9e4de74dbd972d27558b9ef53796b09a19c7834",
+      "subject": "[PATCH 211/212] Accept row-pitched paged prefill outputs"
+    },
+    {
+      "bytes": 22418,
+      "file": "0212.patch",
+      "order": 212,
+      "sha256": "63f42d2061dced5659b793aeeccdb576a7a96ce3841b644ab864caf6ddf64237",
+      "source_commit": "9e13b4301faeee482bb63e16e7991d0b597a5a51",
+      "subject": "[PATCH 212/212] Build FP32 sigmoid multiply with typed TensorIR"
+    }
+  ],
+  "repository": "pypto",
+  "schema": 1
+}

@@ -1,0 +1,22 @@
+From dbdea6d21371bc14568ffceb31f3535923e2b9e6 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 11:00:26 +0800
+Subject: [PATCH 174/212] Lock contiguous state projection TensorIR
+
+---
+ cmake/nvidia_backend.cmake | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 162e8e84535314741bde79fca91146fb44d56dd9..daa7afdccfc795adbf5070e6f62ae4246b255c75 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "1cae26fa225b377501ec9e544fa972590bd1b8fe")
++    "db2b888be812dcb8e1919a0ecc8b9d909a7cd2d1")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

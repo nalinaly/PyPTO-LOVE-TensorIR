@@ -1,0 +1,65 @@
+From a55333d4ef52169cdcf6a899ddfd288908f43de9 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 22:33:34 +0800
+Subject: [PATCH 31/82] Lower compatible multi-output layout graphs
+
+---
+ .../LayoutPropagationImpl.cpp                 |  9 +++++---
+ .../TensorToCudaTile/load_store_layouts.mlir  | 23 +++++++++++++++++++
+ 2 files changed, 29 insertions(+), 3 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index 0ab85dd3486f2de9128da1ebf2bfd77195ff847b..ed7ba6b3ab8bd20162690a42f275989e6508cd50 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -1188,10 +1188,13 @@ LogicalResult verifyLayoutPropLowerable(GraphOp graphOp) {
+ }
+ 
+ LogicalResult verifyGraphLevelLayoutPropLowerable(GraphOp graphOp) {
+-  // Check that the graph has exactly one result.
++  // Every graph needs at least one result. Compatible multi-output graphs have
++  // already been assigned Result0's common iteration space by normalization
++  // and graph splitting; signature conversion and result stores are natively
++  // variadic below.
+   Operation *resultsOp = graphOp.getBody()->getTerminator();
+-  if (resultsOp->getNumOperands() != 1) {
+-    return graphOp.emitError("Only single output graphs are supported");
++  if (resultsOp->getNumOperands() == 0) {
++    return graphOp.emitError("At least one output is required");
+   }
+ 
+   // Get the normalized layout from the graph attribute.
+diff --git a/test/Conversion/TensorToCudaTile/load_store_layouts.mlir b/test/Conversion/TensorToCudaTile/load_store_layouts.mlir
+index 96b0704e8941f91fcd2ecd302b991cc035125998..871cbbf1fbfcf4b5c63aab4c159864bf7807991d 100644
+--- a/test/Conversion/TensorToCudaTile/load_store_layouts.mlir
++++ b/test/Conversion/TensorToCudaTile/load_store_layouts.mlir
+@@ -5,6 +5,29 @@
+ // is read with different layouts.
+ // ============================================================================
+ 
++// CHECK-LABEL: @multi_output_primary_and_residual
++// CHECK: load_view_tko
++// CHECK: load_view_tko
++// CHECK: load_view_tko
++// CHECK: addf
++// CHECK: mulf
++// CHECK: store_view_tko
++// CHECK: store_view_tko
++module {
++  nv_tensor_ir.graph @multi_output_primary_and_residual(
++      %x: tensor<32x32xf32>,
++      %residual: tensor<32x32xf32>,
++      %weight: tensor<32x32xf32>) ->
++      (tensor<32x32xf32>, tensor<32x32xf32>)
++      attributes {tile_size = array<i32: 16, 16>} {
++    %sum = add %x, %residual : tensor<32x32xf32>
++    %primary = mul %sum, %weight : tensor<32x32xf32>
++    results %primary, %sum : tensor<32x32xf32>, tensor<32x32xf32>
++  }
++}
++
++// -----
++
+ // CHECK-LABEL: @loads_unary_elementwise
+ // CHECK: %[[TILE1:.+]], %{{.+}} = load_view_tko {{.+}} tensor_view<32x32xf32, strides=[32,1]>
+ // CHECK: %[[TILE2:.+]], %{{.+}} = load_view_tko {{.+}} tensor_view<32x32xf32, strides=[1,32]>

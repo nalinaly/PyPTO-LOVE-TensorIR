@@ -1,0 +1,36 @@
+From bdf6c5ec3e16b74d233473b700273bcea1489a73 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 12:08:01 +0800
+Subject: [PATCH 75/82] Name residual split-DAG dependencies
+
+---
+ lib/Transform/GraphSplitting.cpp | 16 +++++++++++++++-
+ 1 file changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/lib/Transform/GraphSplitting.cpp b/lib/Transform/GraphSplitting.cpp
+index 9d5d6f4a8a656f6eaa088cc6c9746661e2ac30c0..d6605819d0da7b5f956e49a6f293208b2020e885 100644
+--- a/lib/Transform/GraphSplitting.cpp
++++ b/lib/Transform/GraphSplitting.cpp
+@@ -417,7 +417,21 @@ struct GraphSplittingPass
+       }
+       if (llvm::any_of(op.getResults(),
+                        [](Value result) { return !result.use_empty(); })) {
+-        op.emitError("unsplit source operation still feeds materialized graph");
++        Operation *user = nullptr;
++        for (Value result : op.getResults()) {
++          if (!result.use_empty()) {
++            user = *result.getUsers().begin();
++            break;
++          }
++        }
++        InFlightDiagnostic diagnostic =
++            op.emitError() << "unsplit source operation " << op.getName()
++                           << " still feeds ";
++        if (user) {
++          diagnostic << user->getName();
++        } else {
++          diagnostic << "an unknown user";
++        }
+         return signalPassFailure();
+       }
+       op.erase();

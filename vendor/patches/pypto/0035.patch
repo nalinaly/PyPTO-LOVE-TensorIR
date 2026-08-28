@@ -1,0 +1,255 @@
+From 682141f3def18fbf24fb3b059ea53d841d95209e Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 04:50:38 +0800
+Subject: [PATCH 035/212] Harden tileiras closed-stdio launch
+
+---
+ 3rdparty/nvidia/tensor-ir                     |  2 +-
+ cmake/nvidia_backend.cmake                    |  4 +-
+ docs/en/dev/backend/01-nvidia-target-info.md  |  6 +-
+ docs/zh/dev/backend/01-nvidia-target-info.md  |  5 +-
+ include/pypto/compiler/artifact.h             |  2 +-
+ src/compiler/artifact.cpp                     |  4 +-
+ .../structured_tensorir_explicit_v1.json      |  1 +
+ tests/ut/compiler/test_artifact.py            |  2 +-
+ .../test_nvidia_backend_build_info.py         |  2 +-
+ tests/ut/cpp/tensor_ir_artifact_seam_test.cpp | 56 ++++++++++++++++++-
+ 10 files changed, 72 insertions(+), 12 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 0216fbf81f59b6bd7cae60eeb96143c6dfac0eef..1eaf1e0615abce26b32f55af8b639ed156c11b97 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 0216fbf81f59b6bd7cae60eeb96143c6dfac0eef
++Subproject commit 1eaf1e0615abce26b32f55af8b639ed156c11b97
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index c2b2f94c49032e9dbc239de22acf665515c9e3c3..5ae5e3899929701c48b4dc2f89b9b249a022c089 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -33,7 +33,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "0216fbf81f59b6bd7cae60eeb96143c6dfac0eef")
++    "1eaf1e0615abce26b32f55af8b639ed156c11b97")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+@@ -49,7 +49,7 @@ set(PYPTO_NVIDIA_TILEIRAS_SHA256
+ set(PYPTO_NVIDIA_STRUCTURED_PIPELINE_SPEC
+     "${CMAKE_SOURCE_DIR}/src/compiler/nvidia/structured_tensorir_explicit_v1.json")
+ set(PYPTO_NVIDIA_STRUCTURED_PIPELINE_REVISION
+-    "f7a88cd64fc1e51d2bab5a97b1f088d396a6fc23")
++    "32416049d303918c1afa318da211d48141e39481")
+ 
+ find_package(Git REQUIRED)
+ 
+diff --git a/docs/en/dev/backend/01-nvidia-target-info.md b/docs/en/dev/backend/01-nvidia-target-info.md
+index 0738c9a91a807ada35bceb046aa6f839ca1a7f5c..00836788163643c1b77d1a0d16314bd42f73cb6b 100644
+--- a/docs/en/dev/backend/01-nvidia-target-info.md
++++ b/docs/en/dev/backend/01-nvidia-target-info.md
+@@ -234,7 +234,7 @@ The assembler CLI spelling and semantic target are separate identity fields:
+ `assembler_gpu_name=sm_120`, while TensorIR's exact-architecture policy is
+ `tensor_ir_target=sm_120a`. The canonical pipeline specification is
+ [`structured_tensorir_explicit_v1.json`](../../../../src/compiler/nvidia/structured_tensorir_explicit_v1.json).
+-Its Git-blob identity is `f7a88cd64fc1e51d2bab5a97b1f088d396a6fc23`;
++Its Git-blob identity is `32416049d303918c1afa318da211d48141e39481`;
+ CMake verifies that identity so the pipeline revision cannot be an unexplained
+ placeholder.
+ 
+@@ -244,7 +244,9 @@ sanitized assembler environment v2 (including exact `CUDA_HOME`/`CUDA_PATH`),
+ a 300-second assembler limit, 4096 MiB child data/RSS limit, a 4096 MiB soft
+ per-file limit, a parent-enforced 4096 MiB total private-scratch quota, and a
+ 64 KiB returned-diagnostic limit. The Linux strict child closes every
+-descriptor above stderr with fail-closed `close_range` before exact `execve`.
++descriptor above stderr with fail-closed `close_range` before exact `execve`;
++its three source descriptors are first reserved above stderr so closed host
++stdio cannot alias the remapping.
+ All TensorIR IR dump/load, print-tree, and timing debug options are empty or
+ disabled and are checked again at the private bridge boundary. The pinned
+ source-entry compiler also consumes in-process MLIR diagnostics in strict mode;
+diff --git a/docs/zh/dev/backend/01-nvidia-target-info.md b/docs/zh/dev/backend/01-nvidia-target-info.md
+index efa34d179550f9c3a5ebb0ffe66699b2d7aa6616..2be3c69cf632cb39b5de7a965302aaaa0a3e09f7 100644
+--- a/docs/zh/dev/backend/01-nvidia-target-info.md
++++ b/docs/zh/dev/backend/01-nvidia-target-info.md
+@@ -210,7 +210,7 @@ assembler CLI spelling 与 semantic target 是两个不同 identity field：
+ `assembler_gpu_name=sm_120`，TensorIR exact-architecture policy 则是
+ `tensor_ir_target=sm_120a`。canonical pipeline specification 位于
+ [`structured_tensorir_explicit_v1.json`](../../../../src/compiler/nvidia/structured_tensorir_explicit_v1.json)，
+-其 Git-blob identity 为 `f7a88cd64fc1e51d2bab5a97b1f088d396a6fc23`。
++其 Git-blob identity 为 `32416049d303918c1afa318da211d48141e39481`。
+ CMake 会验证该 identity，避免 pipeline revision 变成无法解释的 placeholder。
+ 
+ 固定 resource/producer policy 也被显式记录：occupancy 为 `1`、SM count 来自
+@@ -219,7 +219,8 @@ sanitized assembler environment v2（包含精确 `CUDA_HOME`/`CUDA_PATH`）、3
+ assembler 上限、4096 MiB child data/RSS 上限、每文件 4096 MiB soft limit、由 parent
+ 强制的 4096 MiB private-scratch 总量上限，以及 64 KiB returned-diagnostic 上限。
+ Linux strict child 会在 exact `execve` 前通过 fail-closed `close_range` 关闭
+-stderr 以上的所有 file descriptor。
++stderr 以上的所有 file descriptor；三个 source descriptor 会先被保留在 stderr 之上，
++因此 host 关闭的 stdio 不会与 remapping 发生 alias。
+ 所有 TensorIR IR dump/load、print-tree 与 timing debug option 都必须为空或关闭，
+ 并在 private bridge boundary 再次核对。pinned source-entry compiler 在 strict mode
+ 还会消费进程内 MLIR diagnostic；跨 bridge 的只有 bounded、sanitized status。
+diff --git a/include/pypto/compiler/artifact.h b/include/pypto/compiler/artifact.h
+index 2f96b4991a92b8850eff89a55310395a936e0f12..c2d975a1afc24f5e496c09b8a488fa3da4c50239 100644
+--- a/include/pypto/compiler/artifact.h
++++ b/include/pypto/compiler/artifact.h
+@@ -473,7 +473,7 @@ class Artifact {
+   static constexpr std::string_view kProducerOptionsContract =
+       "pypto.nvidia.tensorir_options.v1";
+   static constexpr std::string_view kStructuredTensorIrPipelineRevision =
+-      "f7a88cd64fc1e51d2bab5a97b1f088d396a6fc23";
++      "32416049d303918c1afa318da211d48141e39481";
+   static constexpr uint32_t kArtifactSchemaVersion = 1;
+   static constexpr uint32_t kCompilerAbiVersion = CompileRequest::kCompilerAbiVersion;
+   static constexpr int32_t kRequiredComputeCapability = 120;
+diff --git a/src/compiler/artifact.cpp b/src/compiler/artifact.cpp
+index 9df0d038c4402ccdc6ad57c7b25d08a4444d0a06..dca1fdc974a29e60b0a09ac17cf4cdabe5a3a0c9 100644
+--- a/src/compiler/artifact.cpp
++++ b/src/compiler/artifact.cpp
+@@ -525,7 +525,7 @@ void PackProducerOptionsIdentity(ArtifactPacker<Sink>& packer,
+   const auto& target = request.GetTargetInfo();
+   const auto& traits = target.GetTraits();
+   const auto& toolchain = request.GetToolchainIdentity();
+-  packer.pack_map(37);
++  packer.pack_map(38);
+   PackKey(packer, "artifact_fallback_allowed");
+   packer.pack(false);
+   PackKey(packer, "artifact_kind");
+@@ -546,6 +546,8 @@ void PackProducerOptionsIdentity(ArtifactPacker<Sink>& packer,
+   PackText(packer, "private");
+   PackKey(packer, "assembler_scratch_total_limit_bytes");
+   packer.pack(options.assembler_scratch_total_limit_bytes);
++  PackKey(packer, "assembler_stdio_policy");
++  PackText(packer, "reserved-above-stderr");
+   PackKey(packer, "assembler_timeout_seconds");
+   packer.pack(options.assembler_timeout_seconds);
+   PackKey(packer, "bytecode_major");
+diff --git a/src/compiler/nvidia/structured_tensorir_explicit_v1.json b/src/compiler/nvidia/structured_tensorir_explicit_v1.json
+index f7a88cd64fc1e51d2bab5a97b1f088d396a6fc23..32416049d303918c1afa318da211d48141e39481 100644
+--- a/src/compiler/nvidia/structured_tensorir_explicit_v1.json
++++ b/src/compiler/nvidia/structured_tensorir_explicit_v1.json
+@@ -8,6 +8,7 @@
+   "assembler_memory_limit_mib": 4096,
+   "assembler_scratch_directory": "private",
+   "assembler_scratch_total_limit_bytes": 4294967296,
++  "assembler_stdio_policy": "reserved-above-stderr",
+   "assembler_timeout_seconds": 300,
+   "bytecode_version": [13, 3, 0],
+   "codegen_strategy": "layout-propagation",
+diff --git a/tests/ut/compiler/test_artifact.py b/tests/ut/compiler/test_artifact.py
+index eec2a0024a77fc12e7ca414dfa65699b2c6a075c..2072223d31ccadc5f44aba46a7a2a79f242d4753 100644
+--- a/tests/ut/compiler/test_artifact.py
++++ b/tests/ut/compiler/test_artifact.py
+@@ -45,7 +45,7 @@ from pypto.compiler import (
+     get_nvidia_backend_build_info,
+ )
+ 
+-PIPELINE_REVISION = "f7a88cd64fc1e51d2bab5a97b1f088d396a6fc23"
++PIPELINE_REVISION = "32416049d303918c1afa318da211d48141e39481"
+ ARTIFACT_PAYLOAD_LIMIT = 68 * 1024 * 1024
+ CANONICAL_SOURCE = b"""module {
+   nv_tensor_ir.graph @add_op_simple(
+diff --git a/tests/ut/compiler/test_nvidia_backend_build_info.py b/tests/ut/compiler/test_nvidia_backend_build_info.py
+index a59294b9174e566a2a380dc04e83f6a515b2cd51..2a2482b66f196b4e153c5f18960806896236e864 100644
+--- a/tests/ut/compiler/test_nvidia_backend_build_info.py
++++ b/tests/ut/compiler/test_nvidia_backend_build_info.py
+@@ -30,7 +30,7 @@ def test_nvidia_backend_build_info_is_immutable_and_self_consistent() -> None:
+     assert info.compiler_factory_available
+     assert len(info.pypto_revision) == 40
+     assert set(info.pypto_revision) <= set("0123456789abcdef")
+-    assert info.tensor_ir_revision == "0216fbf81f59b6bd7cae60eeb96143c6dfac0eef"
++    assert info.tensor_ir_revision == "1eaf1e0615abce26b32f55af8b639ed156c11b97"
+     assert info.cuda_tile_revision == "af2417041cc939b87ef56d92cfdcf61737c5457e"
+     assert info.llvm_revision == "57109befac92811d2253109242ca6fa69c961fb2"
+     assert info.cuda_toolkit_root == "/usr/local/cuda-13.3"
+diff --git a/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp b/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp
+index 0979d15c6d1b6d01ca187602c379c0e849696ac5..23432cc946848b6bfad7e36cf3eb88e38a3fec4b 100644
+--- a/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp
++++ b/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp
+@@ -9,15 +9,20 @@
+  * -----------------------------------------------------------------------------------------------------------
+  */
+ 
++#include <cerrno>
++#include <chrono>
+ #include <cstdio>
++#include <csignal>
+ #include <cstdlib>
+ #include <cstdint>
+ #include <iostream>
+ #include <limits>
+ #include <optional>
+ #include <string>
++#include <thread>
+ 
+ #if defined(__linux__)
++#include <sys/wait.h>
+ #include <unistd.h>
+ #endif
+ 
+@@ -420,6 +425,53 @@ int TestScalarArtifactMetadata(const SmTarget &target) {
+   return 0;
+ }
+ 
++int TestClosedStdioStrictProducer(const SmTarget &target) {
++#if defined(__linux__)
++  const pid_t child = ::fork();
++  REQUIRE(child >= 0);
++  if (child == 0) {
++    (void)::close(STDIN_FILENO);
++    (void)::close(STDOUT_FILENO);
++    (void)::close(STDERR_FILENO);
++    CudaTileCompiler compiler;
++    CudaTileCompileOptions options =
++        StrictOptions(target, CudaTileArtifactKind::Cubin);
++    auto artifact = compiler.compileToArtifact(kAddSource, options);
++    _exit(artifact.ok() && artifact->validate().ok() ? 0 : 1);
++  }
++
++  int status = 0;
++  bool finished = false;
++  bool childUnavailable = false;
++  const auto deadline =
++      std::chrono::steady_clock::now() + std::chrono::seconds(30);
++  while (std::chrono::steady_clock::now() < deadline) {
++    const pid_t waited = ::waitpid(child, &status, WNOHANG);
++    if (waited == child) {
++      finished = true;
++      break;
++    }
++    if (waited == -1) {
++      if (errno == EINTR) continue;
++      childUnavailable = errno == ECHILD;
++      break;
++    }
++    std::this_thread::sleep_for(std::chrono::milliseconds(10));
++  }
++  if (!finished && !childUnavailable) {
++    (void)::kill(child, SIGKILL);
++    while (::waitpid(child, &status, 0) == -1 && errno == EINTR) {
++    }
++  }
++  REQUIRE(finished);
++  REQUIRE(WIFEXITED(status));
++  REQUIRE(WEXITSTATUS(status) == 0);
++#else
++  (void)target;
++#endif
++  return 0;
++}
++
+ }  // namespace
+ 
+ int main() {
+@@ -438,5 +490,7 @@ int main() {
+   if (result != 0) return result;
+   result = TestScalarArtifactMetadata(*target);
+   if (result != 0) return result;
+-  return TestDeterministicCubinArtifact(*target);
++  result = TestDeterministicCubinArtifact(*target);
++  if (result != 0) return result;
++  return TestClosedStdioStrictProducer(*target);
+ }

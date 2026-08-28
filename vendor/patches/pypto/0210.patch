@@ -1,0 +1,311 @@
+From 933662368c04ff71c75afdf200b47e59c9570b02 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 19:19:48 +0800
+Subject: [PATCH 210/212] Build GDN projection with typed TensorIR
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp      |  22 +++-
+ .../nvidia/typed_tensor_ir_module_spec.h      |  13 +++
+ .../nvidia_typed_tensor_ir_builder.cpp        | 100 ++++++++++++++++++
+ tests/ut/cpp/structured_compile_test.cpp      |  53 ++++++++++
+ 4 files changed, 186 insertions(+), 2 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index d77137ff5fbefe1391e273b3c0d8665ac1dc0b88..4c86e5c1dd4243b66d439dbf2c173c5fbd1e4af6 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -4746,6 +4746,23 @@ TypedTensorIrModuleSpec MakeNativeGdnRecurrentTensorIrSpec(
+   return module_spec;
+ }
+ 
++TypedTensorIrModuleSpec MakeNativeGdnProjectionTensorIrSpec(
++    const NativeTileGdnProjectionGraph& graph) {
++  TypedTensorIrModuleSpec module_spec;
++  module_spec.kind = TypedTensorIrModuleKind::NativeGdnProjection;
++  auto& spec = module_spec.native_gdn_projection;
++  spec.inputs[0] = MakeTypedTensorIrTensorSpec(
++      graph.projected_qkvz, /*has_explicit_strides=*/true);
++  spec.inputs[1] = MakeTypedTensorIrTensorSpec(
++      graph.projected_ba, /*has_explicit_strides=*/true);
++  spec.result = MakeTypedTensorIrTensorSpec(
++      graph.packed, /*has_explicit_strides=*/true);
++  spec.mixed_width = graph.mixed_width;
++  spec.z_width = graph.z_width;
++  spec.gate_width = graph.gate_width;
++  return module_spec;
++}
++
+ TypedTensorIrModuleSpec MakeStructuredMatmulTensorIrSpec(
+     const StructuredMatmulGraph& graph) {
+   TypedTensorIrModuleSpec module_spec;
+@@ -9176,7 +9193,8 @@ void TensorIrModule::Validate() const {
+   if (typed_module_spec_.has_value() &&
+       typed_module_spec_->kind != TypedTensorIrModuleKind::NativeGdnRecurrent &&
+       typed_module_spec_->kind != TypedTensorIrModuleKind::StructuredMatmul &&
+-      typed_module_spec_->kind != TypedTensorIrModuleKind::NativeSiluAndMul) {
++      typed_module_spec_->kind != TypedTensorIrModuleKind::NativeSiluAndMul &&
++      typed_module_spec_->kind != TypedTensorIrModuleKind::NativeGdnProjection) {
+     InternalReject("typed TensorIR module kind is invalid");
+   }
+   if (typed_module_spec_.has_value() &&
+@@ -9588,7 +9606,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+         TensorIrValueRole::Result, 0, graph.packed.dtype, graph.packed.shape,
+         graph.packed.dense_strides, /*has_explicit_strides=*/true));
+     return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+-                          EmitNativeTileGdnProjectionSource(graph),
++                          MakeNativeGdnProjectionTensorIrSpec(graph),
+                           std::move(metadata), /*input_count=*/2);
+   }
+   if (IsNativeTileGdnRecurrentCandidate(program)) {
+diff --git a/src/codegen/nvidia/typed_tensor_ir_module_spec.h b/src/codegen/nvidia/typed_tensor_ir_module_spec.h
+index cdc2f2befd670f8261973bdc67cddb5a5e1a8b47..975d93ee17a5d7b5c4c3c4beb8d963923264ef34 100644
+--- a/src/codegen/nvidia/typed_tensor_ir_module_spec.h
++++ b/src/codegen/nvidia/typed_tensor_ir_module_spec.h
+@@ -70,11 +70,23 @@ struct NativeSiluAndMulTensorIrSpec {
+   TypedTensorIrTensorSpec result;
+ };
+ 
++/** Typed packing of the two GDN projection results into recurrent input. */
++struct NativeGdnProjectionTensorIrSpec {
++  static constexpr std::size_t kInputCount = 2;
++
++  std::array<TypedTensorIrTensorSpec, kInputCount> inputs;
++  TypedTensorIrTensorSpec result;
++  int64_t mixed_width = 0;
++  int64_t z_width = 0;
++  int64_t gate_width = 0;
++};
++
+ /** Typed TensorIR builders available through the private NVIDIA bridge. */
+ enum class TypedTensorIrModuleKind : uint8_t {
+   NativeGdnRecurrent = 0,
+   StructuredMatmul = 1,
+   NativeSiluAndMul = 2,
++  NativeGdnProjection = 3,
+ };
+ 
+ /** One compiler-neutral request for typed MLIR/TensorIR construction. */
+@@ -83,6 +95,7 @@ struct TypedTensorIrModuleSpec {
+   NativeGdnRecurrentTensorIrSpec native_gdn_recurrent;
+   StructuredMatmulTensorIrSpec structured_matmul;
+   NativeSiluAndMulTensorIrSpec native_silu_and_mul;
++  NativeGdnProjectionTensorIrSpec native_gdn_projection;
+ };
+ 
+ }  // namespace pypto::codegen::nvidia
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index 39a7a8f6d006adcf9a017e50edf16d0382e74a16..e9f868b5aecd2abfc18a60b819a0a24e4627229c 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -41,6 +41,7 @@ namespace {
+ namespace tir = mlir::nv_tensor_ir;
+ namespace tcg = mlir::nv_tensor_ir::tcutegen;
+ using codegen::nvidia::NativeGdnRecurrentTensorIrSpec;
++using codegen::nvidia::NativeGdnProjectionTensorIrSpec;
+ using codegen::nvidia::NativeSiluAndMulTensorIrSpec;
+ using codegen::nvidia::StructuredMatmulTensorIrSpec;
+ using codegen::nvidia::TypedTensorIrElementType;
+@@ -268,6 +269,52 @@ bool ValidateNativeSiluAndMulSpec(const NativeSiluAndMulTensorIrSpec& spec,
+   return true;
+ }
+ 
++bool ValidateNativeGdnProjectionSpec(
++    const NativeGdnProjectionTensorIrSpec& spec, std::string& diagnostic) {
++  const auto reject = [&](std::string message) {
++    diagnostic = "typed TensorIR GDN projection specification rejected: " +
++                 std::move(message);
++    return false;
++  };
++  for (const auto& input : spec.inputs) {
++    if (!HasValidStaticMetadata(input) || input.shape.size() != 2 ||
++        input.element_type != TypedTensorIrElementType::BF16 ||
++        input.strides[1] != 1 || input.strides[0] < input.shape[1]) {
++      return reject("inputs must be row-pitched rank-2 BF16 tensors");
++    }
++  }
++  if (!HasValidStaticMetadata(spec.result) || !IsDense(spec.result) ||
++      spec.result.element_type != TypedTensorIrElementType::BF16 ||
++      spec.result.shape.size() != 2 || spec.result.shape[0] != 1 ||
++      spec.mixed_width <= 0 || spec.z_width <= 0 || spec.gate_width <= 0) {
++    return reject("result dtype, shape, or static widths are invalid");
++  }
++  const int64_t rows = spec.inputs[0].shape[0];
++  int64_t qkvz_width = 0;
++  int64_t ba_width = 0;
++  int64_t packed_row_width = 0;
++  int64_t packed_width = 0;
++  if (rows <= 0 || rows > kMaximumBatchTokenProduct ||
++      spec.inputs[1].shape[0] != rows ||
++      !CheckedMultiply(spec.gate_width, 2, ba_width) ||
++      spec.mixed_width >
++          std::numeric_limits<int64_t>::max() - spec.z_width) {
++    return reject("row count or static widths overflow the bounded builder");
++  }
++  qkvz_width = spec.mixed_width + spec.z_width;
++  if (qkvz_width > std::numeric_limits<int64_t>::max() - ba_width) {
++    return reject("packed row width overflows signed 64-bit metadata");
++  }
++  packed_row_width = qkvz_width + ba_width;
++  if (!CheckedMultiply(rows, packed_row_width, packed_width) ||
++      spec.inputs[0].shape[1] != qkvz_width ||
++      spec.inputs[1].shape[1] != ba_width ||
++      spec.result.shape != std::vector<int64_t>({1, packed_width})) {
++    return reject("input and packed-result geometry is inconsistent");
++  }
++  return true;
++}
++
+ mlir::Type ElementType(mlir::OpBuilder& builder,
+                        TypedTensorIrElementType element_type) {
+   if (element_type == TypedTensorIrElementType::BF16) {
+@@ -379,6 +426,46 @@ mlir::Value BuildNativeSiluAndMul(
+       .getOutput();
+ }
+ 
++mlir::Value BuildNativeGdnProjection(
++    mlir::OpBuilder& builder, mlir::Location location,
++    const NativeGdnProjectionTensorIrSpec& spec, mlir::Block& entry) {
++  llvm::SmallVector<mlir::Value> arguments(entry.getArguments().begin(),
++                                           entry.getArguments().end());
++  const int64_t rows = spec.inputs[0].shape[0];
++  const auto mixed_row_type = TensorType(
++      builder, TypedTensorIrElementType::BF16, {1, spec.mixed_width});
++  const auto z_row_type = TensorType(
++      builder, TypedTensorIrElementType::BF16, {1, spec.z_width});
++  const auto gate_row_type = TensorType(
++      builder, TypedTensorIrElementType::BF16, {1, spec.gate_width});
++  const auto result_type = TensorType(
++      builder, TypedTensorIrElementType::BF16, spec.result.shape);
++
++  llvm::SmallVector<mlir::Value> pieces;
++  pieces.reserve(static_cast<size_t>(rows) * 4);
++  const auto append_rows = [&](mlir::Value input,
++                               mlir::RankedTensorType row_type,
++                               int64_t start, int64_t width) {
++    for (int64_t row = 0; row < rows; ++row) {
++      pieces.push_back(
++          tir::SliceOp::create(builder, location, row_type, input,
++                               llvm::ArrayRef<int64_t>{row, start},
++                               llvm::ArrayRef<int64_t>{row + 1, start + width},
++                               llvm::ArrayRef<int64_t>{1, 1})
++              .getOutput());
++    }
++  };
++  append_rows(arguments[0], mixed_row_type, /*start=*/0, spec.mixed_width);
++  append_rows(arguments[0], z_row_type, /*start=*/spec.mixed_width,
++              spec.z_width);
++  append_rows(arguments[1], gate_row_type, /*start=*/0, spec.gate_width);
++  append_rows(arguments[1], gate_row_type, /*start=*/spec.gate_width,
++              spec.gate_width);
++  return tir::ConcatenateOp::create(builder, location, result_type, pieces,
++                                    /*dimension=*/1)
++      .getOutput();
++}
++
+ class NativeGdnRecurrentBuilder {
+  public:
+   NativeGdnRecurrentBuilder(mlir::OpBuilder& builder, mlir::Location location,
+@@ -768,6 +855,11 @@ std::optional<BuiltTypedTensorIrModule> BuildTypedTensorIrModule(
+     if (!ValidateNativeSiluAndMulSpec(spec.native_silu_and_mul, diagnostic)) {
+       return std::nullopt;
+     }
++  } else if (spec.kind == TypedTensorIrModuleKind::NativeGdnProjection) {
++    if (!ValidateNativeGdnProjectionSpec(spec.native_gdn_projection,
++                                         diagnostic)) {
++      return std::nullopt;
++    }
+   } else {
+     diagnostic = "typed TensorIR module kind is unsupported";
+     return std::nullopt;
+@@ -800,6 +892,11 @@ std::optional<BuiltTypedTensorIrModule> BuildTypedTensorIrModule(
+                   spec.structured_matmul.inputs.end());
+     result = spec.structured_matmul.result;
+     entry_name = kStructuredMatmulEntryName;
++  } else if (spec.kind == TypedTensorIrModuleKind::NativeGdnProjection) {
++    inputs.assign(spec.native_gdn_projection.inputs.begin(),
++                  spec.native_gdn_projection.inputs.end());
++    result = spec.native_gdn_projection.result;
++    entry_name = kEntryName;
+   } else {
+     inputs.assign(spec.native_silu_and_mul.inputs.begin(),
+                   spec.native_silu_and_mul.inputs.end());
+@@ -834,6 +931,9 @@ std::optional<BuiltTypedTensorIrModule> BuildTypedTensorIrModule(
+   } else if (spec.kind == TypedTensorIrModuleKind::StructuredMatmul) {
+     built_result = BuildStructuredMatmul(
+         builder, location, spec.structured_matmul, *entry);
++  } else if (spec.kind == TypedTensorIrModuleKind::NativeGdnProjection) {
++    built_result = BuildNativeGdnProjection(
++        builder, location, spec.native_gdn_projection, *entry);
+   } else {
+     built_result = BuildNativeSiluAndMul(
+         builder, location, spec.native_silu_and_mul, *entry);
+diff --git a/tests/ut/cpp/structured_compile_test.cpp b/tests/ut/cpp/structured_compile_test.cpp
+index f91c6b4f681ef5292afcae40683cd42e5b1663c4..bc67f9ed44a5a2d29ab62090eab5ff2b193ffd75 100644
+--- a/tests/ut/cpp/structured_compile_test.cpp
++++ b/tests/ut/cpp/structured_compile_test.cpp
+@@ -1024,6 +1024,58 @@ int TestTypedGdnModuleBuilder() {
+   return 0;
+ }
+ 
++int TestTypedGdnProjectionModuleBuilder() {
++#if defined(PYPTO_ENABLE_NVIDIA_COMPILER_BACKEND)
++  using pypto::codegen::nvidia::NativeGdnProjectionTensorIrSpec;
++  using pypto::codegen::nvidia::TypedTensorIrElementType;
++  using pypto::codegen::nvidia::TypedTensorIrModuleKind;
++  using pypto::codegen::nvidia::TypedTensorIrModuleSpec;
++  using pypto::codegen::nvidia::TypedTensorIrTensorSpec;
++  using pypto::compiler::detail::BuildTypedTensorIrModule;
++
++  const auto tensor = [](std::vector<int64_t> shape,
++                         std::vector<int64_t> strides) {
++    return TypedTensorIrTensorSpec{TypedTensorIrElementType::BF16,
++                                   std::move(shape), std::move(strides), true};
++  };
++  TypedTensorIrModuleSpec module_spec;
++  module_spec.kind = TypedTensorIrModuleKind::NativeGdnProjection;
++  NativeGdnProjectionTensorIrSpec& spec =
++      module_spec.native_gdn_projection;
++  spec.inputs = {tensor({2, 512}, {640, 1}),
++                 tensor({2, 256}, {384, 1})};
++  spec.result = tensor({1, 1536}, {1536, 1});
++  spec.mixed_width = 384;
++  spec.z_width = 128;
++  spec.gate_width = 128;
++
++  std::string first_diagnostic;
++  auto first = BuildTypedTensorIrModule(module_spec, first_diagnostic);
++  REQUIRE(first.has_value());
++  REQUIRE(first_diagnostic.empty());
++  const std::string first_source(first->canonical_source.begin(),
++                                 first->canonical_source.end());
++  REQUIRE(first_source.find("nv_tensor_ir.graph @pypto_fused_pointwise") !=
++          std::string::npos);
++  REQUIRE(first_source.find("slice") != std::string::npos);
++  REQUIRE(first_source.find("concatenate") != std::string::npos);
++
++  std::string second_diagnostic;
++  auto second = BuildTypedTensorIrModule(module_spec, second_diagnostic);
++  REQUIRE(second.has_value());
++  REQUIRE(second_diagnostic.empty());
++  REQUIRE(first->canonical_source == second->canonical_source);
++
++  module_spec.native_gdn_projection.result.shape[1] = 1535;
++  module_spec.native_gdn_projection.result.strides[0] = 1535;
++  std::string invalid_diagnostic;
++  REQUIRE(!BuildTypedTensorIrModule(module_spec, invalid_diagnostic).has_value());
++  REQUIRE(invalid_diagnostic.find("geometry is inconsistent") !=
++          std::string::npos);
++#endif
++  return 0;
++}
++
+ }  // namespace
+ 
+ int main() {
+@@ -1042,5 +1094,6 @@ int main() {
+   if (const int result = TestRealRowReductionProducerSuccess()) return result;
+   if (const int result = TestRealStructuredMatmulProducerSuccess()) return result;
+   if (const int result = TestTypedGdnModuleBuilder()) return result;
++  if (const int result = TestTypedGdnProjectionModuleBuilder()) return result;
+   return 0;
+ }

@@ -1,0 +1,377 @@
+From d8adf4f706462cc57eab6f6b7d2c2c13f25ee55d Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 12:22:16 +0800
+Subject: [PATCH 062/212] codegen: row-broadcast fused pointwise inputs
+
+FusedPointwiseV2 now accepts row-expand operands: a [M,1,...] input
+parameter materializes through a TensorIR broadcast before the base
+arithmetic op. Broadcast inputs may feed only row-expand operands, and
+row-expand operands must reference broadcast-shaped inputs; everything
+else fails closed as before. This unlocks norm/softmax-style
+reduction-broadcast chains.
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 147 ++++++++++++++++++++---
+ tests/ut/cpp/tensor_ir_codegen_test.cpp  |  80 ++++++++++++
+ 2 files changed, 210 insertions(+), 17 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index c25b652f9414d6e7ac66d07e7306ee65a9ba7b53..a4196dd08d70f32698a62b25a288959b4ab217a2 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -58,6 +58,7 @@ struct StaticTensor {
+ enum class FusedTensorOperandKind : uint8_t {
+   Input = 0,
+   PreviousResult = 1,
++  BroadcastInput = 2,
+ };
+ 
+ struct FusedTensorOperand {
+@@ -75,6 +76,8 @@ struct FusedPointwiseGraph {
+   StaticTensor tensor;
+   std::vector<FusedPointwiseInstruction> instructions;
+   size_t input_count;
++  std::vector<StaticTensor> input_tensors;
++  std::vector<bool> broadcast_inputs;
+ };
+ 
+ enum class RowReductionMode : uint8_t {
+@@ -585,6 +588,7 @@ struct FusedOperationSpec {
+   std::string_view tensor_ir_op;
+   size_t tensor_operand_count;
+   bool has_scalar;
++  bool row_broadcast_operand = false;
+ };
+ 
+ std::optional<FusedOperationSpec> GetFusedOperationSpec(const ir::CallPtr& call) {
+@@ -609,9 +613,42 @@ std::optional<FusedOperationSpec> GetFusedOperationSpec(const ir::CallPtr& call)
+   if (ir::IsOp(call, "tensor.cos")) return FusedOperationSpec{"cos", 1, false};
+   if (ir::IsOp(call, "tensor.maximum")) return FusedOperationSpec{"max", 2, false};
+   if (ir::IsOp(call, "tensor.minimum")) return FusedOperationSpec{"min", 2, false};
++  // Row-expand fused ops take [M,1,...] second operands broadcast over the
++  // trailing result extents; the arithmetic itself lowers to the base op.
++  if (ir::IsOp(call, "tensor.row_expand_mul")) {
++    return FusedOperationSpec{"mul", 2, false, true};
++  }
++  if (ir::IsOp(call, "tensor.row_expand_div")) {
++    return FusedOperationSpec{"div", 2, false, true};
++  }
++  if (ir::IsOp(call, "tensor.row_expand_add")) {
++    return FusedOperationSpec{"add", 2, false, true};
++  }
++  if (ir::IsOp(call, "tensor.row_expand_sub")) {
++    return FusedOperationSpec{"sub", 2, false, true};
++  }
++  if (ir::IsOp(call, "tensor.row_expand_max")) {
++    return FusedOperationSpec{"max", 2, false, true};
++  }
++  if (ir::IsOp(call, "tensor.row_expand_min")) {
++    return FusedOperationSpec{"min", 2, false, true};
++  }
+   return std::nullopt;
+ }
+ 
++bool IsRowBroadcastOf(const StaticTensor& row, const StaticTensor& full) {
++  if (row.dtype != full.dtype || row.shape.size() != full.shape.size() ||
++      row.shape.empty()) {
++    return false;
++  }
++  for (size_t index = 0; index < row.shape.size(); ++index) {
++    if (row.shape[index] != (index == 0 ? full.shape[index] : 1)) {
++      return false;
++    }
++  }
++  return row.dense_strides == MakeDenseStridesForMetadata(row.shape);
++}
++
+ FusedPointwiseGraph AnalyzeFusedPointwiseV2(const ir::ProgramPtr& program) {
+   if (!program) Reject("program must not be null");
+   if (program->functions_.size() != 1) {
+@@ -668,10 +705,6 @@ FusedPointwiseGraph AnalyzeFusedPointwiseV2(const ir::ProgramPtr& program) {
+     }
+     inputs.push_back(ReadStaticTensor(parameter->GetType(), parameter->span_,
+                                       "function parameter"));
+-    if (index != 0 && !SameTensor(inputs[0], inputs[index])) {
+-      Reject("fused pointwise input types and shapes must be identical",
+-             &parameter->span_);
+-    }
+   }
+ 
+   const StaticTensor declared_result =
+@@ -681,6 +714,20 @@ FusedPointwiseGraph AnalyzeFusedPointwiseV2(const ir::ProgramPtr& program) {
+            &function->span_);
+   }
+ 
++  // A later parameter may instead be a row-broadcast input: same dtype and
++  // rank with all trailing extents 1. Whether that is legal is only decided
++  // by its use in row-expand instructions below, so tolerate it here.
++  std::vector<bool> broadcast_inputs(function->params_.size(), false);
++  for (size_t index = 1; index < inputs.size(); ++index) {
++    if (!SameTensor(inputs[0], inputs[index])) {
++      if (!IsRowBroadcastOf(inputs[index], declared_result)) {
++        Reject("fused pointwise input types and shapes must be identical",
++               &function->params_[index]->span_);
++      }
++      broadcast_inputs[index] = true;
++    }
++  }
++
+   if (!function->body_) Reject("function body must not be null", &function->span_);
+   const auto sequence = ir::As<ir::SeqStmts>(function->body_);
+   if (!sequence) {
+@@ -779,17 +826,38 @@ FusedPointwiseGraph AnalyzeFusedPointwiseV2(const ir::ProgramPtr& program) {
+       }
+       const StaticTensor operand =
+           ReadStaticTensor(variable->GetType(), variable->span_, "fused pointwise operand");
+-      if (!SameTensor(inputs[0], operand)) {
++      const bool operand_is_row_expanded =
++          spec->row_broadcast_operand && operand_index == 1;
++      if (!operand_is_row_expanded && !SameTensor(inputs[0], operand)) {
+         Reject("fused pointwise operand types and shapes must match all inputs",
+                &variable->span_);
+       }
+       const auto parameter = parameter_indices.find(variable.get());
+       if (parameter != parameter_indices.end()) {
++        if (operand_is_row_expanded) {
++          if (!broadcast_inputs[parameter->second]) {
++            Reject("row-expand operands must reference a row-broadcast input",
++                   &variable->span_);
++          }
++          used_parameters[parameter->second] = true;
++          instruction.tensor_operands.push_back(
++              FusedTensorOperand{FusedTensorOperandKind::BroadcastInput,
++                                 parameter->second});
++          continue;
++        }
++        if (broadcast_inputs[parameter->second]) {
++          Reject("row-broadcast inputs may feed only row-expand operands",
++                 &variable->span_);
++        }
+         used_parameters[parameter->second] = true;
+         instruction.tensor_operands.push_back(
+             FusedTensorOperand{FusedTensorOperandKind::Input, parameter->second});
+         continue;
+       }
++      if (operand_is_row_expanded) {
++        Reject("row-expand operands must reference a function parameter",
++               &variable->span_);
++      }
+       const auto assigned = assignment_indices.find(variable.get());
+       if (assigned == assignment_indices.end()) {
+         Reject("fused pointwise tensor operand is not a function parameter or SSA result",
+@@ -846,7 +914,8 @@ FusedPointwiseGraph AnalyzeFusedPointwiseV2(const ir::ProgramPtr& program) {
+       })) {
+     Reject("every fused pointwise function parameter must be used", &function->span_);
+   }
+-  return FusedPointwiseGraph{inputs[0], std::move(instructions), inputs.size()};
++  return FusedPointwiseGraph{inputs[0], std::move(instructions), inputs.size(),
++                             std::move(inputs), std::move(broadcast_inputs)};
+ }
+ 
+ void AppendFusedOperand(std::string& source, const FusedTensorOperand& operand,
+@@ -856,6 +925,11 @@ void AppendFusedOperand(std::string& source, const FusedTensorOperand& operand,
+     AppendIndex(source, operand.input_index);
+     return;
+   }
++  if (operand.kind == FusedTensorOperandKind::BroadcastInput) {
++    source += "%bcarg";
++    AppendIndex(source, operand.input_index);
++    return;
++  }
+   if (operand.kind == FusedTensorOperandKind::PreviousResult && instruction_index != 0) {
+     source += "%value";
+     AppendIndex(source, instruction_index - 1);
+@@ -877,7 +951,11 @@ std::string EmitFusedPointwiseSource(const FusedPointwiseGraph& graph) {
+     source += "    %arg";
+     AppendIndex(source, input_index);
+     source += ": ";
+-    source += type_with_stride;
++    if (graph.broadcast_inputs[input_index]) {
++      source += TensorWithStrideText(graph.input_tensors[input_index]);
++    } else {
++      source += type_with_stride;
++    }
+     source += input_index + 1 == graph.input_count ? "\n" : ",\n";
+   }
+   source += "  ) -> ";
+@@ -889,6 +967,18 @@ std::string EmitFusedPointwiseSource(const FusedPointwiseGraph& graph) {
+     source += ")";
+   }
+   source += " {\n";
++  for (size_t input_index = 0; input_index < graph.input_count; ++input_index) {
++    if (!graph.broadcast_inputs[input_index]) continue;
++    source += "    %bcarg";
++    AppendIndex(source, input_index);
++    source += " = broadcast %arg";
++    AppendIndex(source, input_index);
++    source += " : ";
++    source += TensorTypeText(graph.input_tensors[input_index]);
++    source += " -> ";
++    source += type;
++    source += "\n";
++  }
+ 
+   size_t scalar_index = 0;
+   for (size_t instruction_index = 0; instruction_index < graph.instructions.size();
+@@ -1058,14 +1148,7 @@ TensorIrModule::TensorIrModule(TensorIrModuleKind kind, std::string canonical_so
+            left.GetLogicalDenseStrides() == right.GetLogicalDenseStrides() &&
+            left.HasExplicitStrides() == right.HasExplicitStrides();
+   };
+-  if (kind_ != TensorIrModuleKind::RowReductionV3) {
+-    if (!std::all_of(value_metadata_.begin() + 1, value_metadata_.end(),
+-                     [&](const TensorIrValueMetadata& value) {
+-                       return same_value_type(value_metadata_[0], value);
+-                     })) {
+-      InternalReject("TensorIR module value metadata must have identical types and layouts");
+-    }
+-  } else {
++  if (kind_ == TensorIrModuleKind::RowReductionV3) {
+     const TensorIrValueMetadata& input = value_metadata_[0];
+     const TensorIrValueMetadata& result = value_metadata_[1];
+     std::vector<int64_t> expected_result_shape = input.GetShape();
+@@ -1077,6 +1160,35 @@ TensorIrModule::TensorIrModule(TensorIrModuleKind kind, std::string canonical_so
+         result.GetShape() != expected_result_shape) {
+       InternalReject("row reduction module result metadata must preserve dtype and rank and reduce the last extent");
+     }
++  } else {
++    const auto row_broadcast_compatible = [](const TensorIrValueMetadata& row,
++                                             const TensorIrValueMetadata& full) {
++      if (row.GetDtypeCode() != full.GetDtypeCode() ||
++          row.GetDtypeName() != full.GetDtypeName() ||
++          row.GetShape().size() != full.GetShape().size() ||
++          row.GetLogicalDenseStrides().size() != full.GetLogicalDenseStrides().size()) {
++        return false;
++      }
++      for (size_t index = 0; index < row.GetShape().size(); ++index) {
++        const int64_t expected = index == 0 ? full.GetShape()[index] : 1;
++        if (row.GetShape()[index] != expected) return false;
++      }
++      for (size_t index = 0; index < row.GetShape().size(); ++index) {
++        const int64_t stride = index == row.GetShape().size() - 1
++                                   ? 1
++                                   : row.GetShape()[index + 1];
++        if (row.GetLogicalDenseStrides()[index] != stride) return false;
++      }
++      return true;
++    };
++    if (!std::all_of(value_metadata_.begin() + 1, value_metadata_.end(),
++                     [&](const TensorIrValueMetadata& value) {
++                       return same_value_type(value_metadata_[0], value) ||
++                              (kind_ == TensorIrModuleKind::FusedPointwiseV2 &&
++                               row_broadcast_compatible(value, value_metadata_[0]));
++                     })) {
++      InternalReject("TensorIR module value metadata must have identical types and layouts");
++    }
+   }
+ }
+ 
+@@ -1259,9 +1371,10 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+   std::vector<TensorIrValueMetadata> metadata;
+   metadata.reserve(graph.input_count + 1);
+   for (size_t index = 0; index < graph.input_count; ++index) {
++    const StaticTensor& input = graph.input_tensors[index];
+     metadata.push_back(TensorIrValueMetadata(
+-        TensorIrValueRole::Input, static_cast<uint32_t>(index), graph.tensor.dtype,
+-        graph.tensor.shape, graph.tensor.dense_strides, graph.tensor.shape.size() >= 2));
++        TensorIrValueRole::Input, static_cast<uint32_t>(index), input.dtype,
++        input.shape, input.dense_strides, input.shape.size() >= 2));
+   }
+   metadata.push_back(TensorIrValueMetadata(
+       TensorIrValueRole::Result, 0, graph.tensor.dtype, graph.tensor.shape,
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index 1164dc31371b83d7c14dc6e7aac975c1aa1274e6..ca18d0a0ac55a0a59e6dbdb5d0f3c9f08bff2e8a 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -1642,6 +1642,85 @@ int TestCosmeticNamesAndDiagnosticBounds() {
+   return 0;
+ }
+ 
++int TestFusedPointwiseV2RowBroadcast() {
++  auto type = PlainTensor({4, 6}, DataType::FP32);
++  auto row_type = PlainTensor({4, 1}, DataType::FP32);
++  auto x = std::make_shared<ir::Var>("x", type, TestSpan());
++  auto scale = std::make_shared<ir::Var>("scale", row_type, TestSpan());
++  auto value = std::make_shared<ir::Var>("ignored", type, TestSpan());
++  auto broadcast_call = OpCall("tensor.row_expand_mul", {x, scale}, type);
++  auto assignment = std::make_shared<ir::AssignStmt>(value, broadcast_call,
++                                                     TestSpan());
++  auto returned = std::make_shared<ir::ReturnStmt>(
++      std::vector<ir::ExprPtr>{value}, TestSpan());
++  const TensorIrModule module = EmitTensorIr(MakeProgram(
++      "ignored_fused_name", {x, scale},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {type},
++      {assignment, returned}));
++
++  REQUIRE(module.GetKind() == TensorIrModuleKind::FusedPointwiseV2);
++  const std::string source = module.GetCanonicalSource();
++  REQUIRE(source.find("%arg1: tensor<4x1xf32> {nv_tensor_ir.stride = \"(1,1)\"}") !=
++          std::string::npos);
++  REQUIRE(source.find("%bcarg1 = broadcast %arg1 : tensor<4x1xf32> -> tensor<4x6xf32>") !=
++          std::string::npos);
++  REQUIRE(source.find("%value0 = mul %arg0, %bcarg1 : tensor<4x6xf32>") !=
++          std::string::npos);
++  const auto& metadata = module.GetValueMetadata();
++  REQUIRE(metadata.size() == 3);
++  REQUIRE(metadata[1].GetShape() == std::vector<int64_t>({4, 1}));
++
++  // A broadcast input feeding a plain op is rejected fail-closed.
++  auto plain = std::make_shared<ir::Var>("plain", type, TestSpan());
++  auto misuse = std::make_shared<ir::Var>("misuse", type, TestSpan());
++  auto misuse_assignment = std::make_shared<ir::AssignStmt>(
++      misuse, OpCall("tensor.mul", {plain, scale}, type), TestSpan());
++  auto misuse_return = std::make_shared<ir::ReturnStmt>(
++      std::vector<ir::ExprPtr>{misuse}, TestSpan());
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(MakeProgram(
++            "ignored_fused_name", {plain, scale},
++            {ir::ParamDirection::In, ir::ParamDirection::In}, {type},
++            {misuse_assignment, misuse_return}));
++      },
++      "row-broadcast inputs may feed only row-expand operands"));
++
++  // A row-expand operand that is not a broadcast-shaped input is rejected.
++  auto two_wide = PlainTensor({4, 2}, DataType::FP32);
++  auto wide = std::make_shared<ir::Var>("wide", two_wide, TestSpan());
++  auto wide_result = std::make_shared<ir::Var>("wide_result", type, TestSpan());
++  auto wide_assignment = std::make_shared<ir::AssignStmt>(
++      wide_result, OpCall("tensor.row_expand_mul", {x, wide}, type), TestSpan());
++  auto wide_return = std::make_shared<ir::ReturnStmt>(
++      std::vector<ir::ExprPtr>{wide_result}, TestSpan());
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(MakeProgram(
++            "ignored_fused_name", {x, wide},
++            {ir::ParamDirection::In, ir::ParamDirection::In}, {type},
++            {wide_assignment, wide_return}));
++      },
++      "input types and shapes must be identical"));
++
++  // A row-expand operand referencing a full-shape input is rejected.
++  auto y = std::make_shared<ir::Var>("y", type, TestSpan());
++  auto swapped = std::make_shared<ir::Var>("swapped", type, TestSpan());
++  auto swapped_assignment = std::make_shared<ir::AssignStmt>(
++      swapped, OpCall("tensor.row_expand_mul", {x, y}, type), TestSpan());
++  auto swapped_return = std::make_shared<ir::ReturnStmt>(
++      std::vector<ir::ExprPtr>{swapped}, TestSpan());
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(MakeProgram(
++            "ignored_fused_name", {x, y},
++            {ir::ParamDirection::In, ir::ParamDirection::In}, {type},
++            {swapped_assignment, swapped_return}));
++      },
++      "row-expand operands must reference a row-broadcast input"));
++  return 0;
++}
++
+ }  // namespace
+ 
+ int main() {
+@@ -1659,6 +1738,7 @@ int main() {
+ 
+   if (const int result = TestFp32CanonicalSourceAndMetadata()) return result;
+   if (const int result = TestFusedPointwiseV2CanonicalSourceAndMetadata()) return result;
++  if (const int result = TestFusedPointwiseV2RowBroadcast()) return result;
+   if (const int result = TestRowReductionV3CanonicalSourcesAndMetadata()) return result;
+   if (const int result = TestRankOneExactCanonicalSources()) return result;
+   if (const int result = TestDeterministicGeneratedNamesAndOperandIdentity()) return result;

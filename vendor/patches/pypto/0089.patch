@@ -1,0 +1,149 @@
+From 5f9aa0810e04ddf28ab5afc55f6284d5ba023a5f Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 21:14:27 +0800
+Subject: [PATCH 089/212] nvidia: accept factored pointwise iteration tiles
+
+---
+ .../structured_tensor_ir_build_spec.cpp       | 55 ++++++++++++++++---
+ tests/ut/compiler/test_structured_compile.py  |  4 +-
+ .../structured_tensor_ir_build_spec_test.cpp  | 14 +++--
+ 3 files changed, 57 insertions(+), 16 deletions(-)
+
+diff --git a/src/compiler/structured_tensor_ir_build_spec.cpp b/src/compiler/structured_tensor_ir_build_spec.cpp
+index 812f9d890db35e1cda84be2c4cb9ec9c237fef86..8140351745f83489345f824eda56b3619f79ef44 100644
+--- a/src/compiler/structured_tensor_ir_build_spec.cpp
++++ b/src/compiler/structured_tensor_ir_build_spec.cpp
+@@ -268,9 +268,8 @@ uint64_t FusedPointwiseGridX(const std::vector<int64_t>& shape,
+                              const std::vector<uint32_t>& tile_sizes) {
+   INTERNAL_CHECK(!shape.empty())
+       << "fused pointwise v2 shape must have rank between 1 and 32";
+-  INTERNAL_CHECK(tile_sizes.size() == 1 || tile_sizes.size() == shape.size())
+-      << "fused pointwise v2 schedule must contain one flattened tile or one "
+-         "tile per static tensor dimension";
++  INTERNAL_CHECK(!tile_sizes.empty())
++      << "fused pointwise v2 schedule must contain at least one tile";
+   if (tile_sizes.size() == 1) {
+     uint64_t element_count = 1;
+     for (int64_t dimension : shape) {
+@@ -287,6 +286,29 @@ uint64_t FusedPointwiseGridX(const std::vector<int64_t>& shape,
+            (element_count % tile_size == 0 ? 0 : 1);
+   }
+ 
++  if (tile_sizes.size() != shape.size()) {
++    uint64_t element_count = 1;
++    for (int64_t dimension : shape) {
++      INTERNAL_CHECK(dimension > 0 &&
++                     static_cast<uint64_t>(dimension) <=
++                         std::numeric_limits<uint64_t>::max() / element_count)
++          << "fused pointwise v2 factored iteration element count overflows uint64";
++      element_count *= static_cast<uint64_t>(dimension);
++    }
++    uint64_t tile_element_count = 1;
++    for (uint32_t tile_size : tile_sizes) {
++      INTERNAL_CHECK(tile_size > 0 &&
++                     static_cast<uint64_t>(tile_size) <=
++                         std::numeric_limits<uint64_t>::max() / tile_element_count)
++          << "fused pointwise v2 factored tile element count overflows uint64";
++      tile_element_count *= static_cast<uint64_t>(tile_size);
++    }
++    INTERNAL_CHECK(tile_element_count <= element_count)
++        << "fused pointwise v2 factored tile exceeds the static element count";
++    return element_count / tile_element_count +
++           (element_count % tile_element_count == 0 ? 0 : 1);
++  }
++
+   uint64_t grid_x = 1;
+   for (size_t index = 0; index < shape.size(); ++index) {
+     INTERNAL_CHECK(shape[index] > 0 && tile_sizes[index] > 0)
+@@ -345,10 +367,8 @@ void ValidateFusedPointwiseSchedule(
+       << "fused pointwise v2 module has no value metadata";
+   const std::vector<int64_t>& shape = module.GetValueMetadata()[0].GetShape();
+   const std::vector<uint32_t>& tile_sizes = resolved_options.tile_sizes;
+-  CHECK(tile_sizes.size() == 1 || tile_sizes.size() == shape.size())
+-      << "fused pointwise v2 requires one flattened tile or one tile per "
+-         "static tensor dimension, got "
+-      << tile_sizes.size() << " tiles for rank " << shape.size();
++  CHECK(!tile_sizes.empty())
++      << "fused pointwise v2 requires at least one tile dimension";
+   for (size_t index = 0; index < tile_sizes.size(); ++index) {
+     const uint32_t tile_size = tile_sizes[index];
+     CHECK(tile_size != 0 && (tile_size & (tile_size - 1)) == 0)
+@@ -369,7 +389,7 @@ void ValidateFusedPointwiseSchedule(
+         << "fused pointwise v2 tile dim_000 must not exceed the flattened "
+            "static element count "
+         << element_count << ", got " << tile_sizes[0];
+-  } else {
++  } else if (tile_sizes.size() == shape.size()) {
+     for (size_t index = 0; index < shape.size(); ++index) {
+       CHECK(static_cast<uint64_t>(tile_sizes[index]) <=
+             static_cast<uint64_t>(shape[index]))
+@@ -377,6 +397,25 @@ void ValidateFusedPointwiseSchedule(
+           << " must not exceed static extent " << shape[index] << ", got "
+           << tile_sizes[index];
+     }
++  } else {
++    uint64_t element_count = 1;
++    for (int64_t dimension : shape) {
++      INTERNAL_CHECK(dimension > 0 &&
++                     static_cast<uint64_t>(dimension) <=
++                         std::numeric_limits<uint64_t>::max() / element_count)
++          << "fused pointwise v2 factored iteration element count overflows uint64";
++      element_count *= static_cast<uint64_t>(dimension);
++    }
++    uint64_t tile_element_count = 1;
++    for (uint32_t tile_size : tile_sizes) {
++      CHECK(static_cast<uint64_t>(tile_size) <=
++            std::numeric_limits<uint64_t>::max() / tile_element_count)
++          << "fused pointwise v2 factored tile element count overflows uint64";
++      tile_element_count *= static_cast<uint64_t>(tile_size);
++    }
++    CHECK(tile_element_count <= element_count)
++        << "fused pointwise v2 factored tile has " << tile_element_count
++        << " elements, exceeding static tensor element count " << element_count;
+   }
+   const uint64_t expected_grid_x = FusedPointwiseGridX(shape, tile_sizes);
+   const int64_t max_grid_x = request.GetTargetInfo().GetTraits().GetMaxGridDimX();
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index 390464db8c091472ec7e04725cefa2b1c1927f53..cd1fd2681a124c96905885c7a64495fc8485bba0 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -373,12 +373,12 @@ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+     assert not rmsnorm.artifact.fallback_used
+ 
+     rope = compile_structured_strict(
+-        _native_tile_rope.specialize(), request, _schedule([1, 64])
++        _native_tile_rope.specialize(), request, _schedule([1, 1, 64])
+     )
+     rope_kernel = rope.artifact.kernel_abi
+     assert rope_kernel.entry_function_name == "pypto_fused_pointwise_v2"
+     assert rope_kernel.grid_abi.static_dimensions == [4, 1, 1]
+-    assert rope_kernel.grid_abi.tile_sizes == [1, 64]
++    assert rope_kernel.grid_abi.tile_sizes == [1, 1, 64]
+     assert rope_kernel.argument_layout.input_operand_count == 3
+     assert rope_kernel.argument_layout.total_kernel_argument_count == 4
+     assert [d.shape for d in rope_kernel.argument_layout.operand_descriptors] == [
+diff --git a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+index 5b3b4a896e1cc936608c7cdf0a33d45b0edb341b..def1d39ff70c9c19dd0d7e1bdc36961571f9a791 100644
+--- a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
++++ b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+@@ -890,12 +890,14 @@ int TestFusedPointwiseV2ScheduleRejections() {
+       MakeKernelAbi(FusedKernelOptions({8, 8}, 3, {8, 8}, 1));
+   (void)FinalizeStructuredTensorIrBuildSpec(multidimensional,
+                                            multidimensional_kernel);
+-  REQUIRE(RejectsPreparation(
+-      [&] {
+-        (void)PrepareStructuredTensorIrCompilation(MakeFusedProgram(), request,
+-                                                   ValidSchedule({4, 4, 4}));
+-      },
+-      "one flattened tile or one tile per static tensor dimension"));
++  const PreparedStructuredTensorIrCompilation factored =
++      PrepareStructuredTensorIrCompilation(MakeFusedProgram(), request,
++                                           ValidSchedule({4, 4, 4}));
++  REQUIRE(factored.GetResolvedOptions().tile_sizes ==
++          std::vector<uint32_t>({4, 4, 4}));
++  const ArtifactKernelAbi factored_kernel =
++      MakeKernelAbi(FusedKernelOptions({8, 8}, 3, {4, 4, 4}, 1));
++  (void)FinalizeStructuredTensorIrBuildSpec(factored, factored_kernel);
+   REQUIRE(RejectsPreparation(
+       [&] {
+         (void)PrepareStructuredTensorIrCompilation(MakeFusedProgram(), request,

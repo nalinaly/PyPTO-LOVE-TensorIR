@@ -1,0 +1,47 @@
+From 8f312cea96610cb3dc847e9aa6d3c5f527bb387d Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 04:14:12 +0800
+Subject: [PATCH 026/212] Fix strict producer test fixtures
+
+---
+ tests/ut/cpp/artifact_test.cpp                | 2 +-
+ tests/ut/cpp/tensor_ir_artifact_seam_test.cpp | 6 ++++++
+ 2 files changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/tests/ut/cpp/artifact_test.cpp b/tests/ut/cpp/artifact_test.cpp
+index 00233a9362255781fc8a9a43307919491c4dea92..10a5f16a65553a76f07d2ac6edc33cadeafeeea8 100644
+--- a/tests/ut/cpp/artifact_test.cpp
++++ b/tests/ut/cpp/artifact_test.cpp
+@@ -214,7 +214,7 @@ CompileRequest MakeRequest(std::string tensor_ir_revision = {},
+       0, "Synthetic SM120", "GPU-synthetic", "0000:01:00.0",
+       MakeTargetTraits(), build_info.GetCudaToolkitVersion(), "610.74",
+       tensor_ir_revision, build_info.GetCudaTileRevision(),
+-      {pypto::DataType::FP16, pypto::DataType::BF16, pypto::DataType::FP32});
++      {pypto::DataType::BF16, pypto::DataType::FP32});
+   return CompileRequest(
+       std::move(target),
+       MakeToolchain(tensor_ir_revision, std::move(cuda_toolkit_root)));
+diff --git a/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp b/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp
+index 964441f7f8c8a72c89c74e62d9afe06f026c605c..0979d15c6d1b6d01ca187602c379c0e849696ac5 100644
+--- a/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp
++++ b/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp
+@@ -370,6 +370,9 @@ int TestDynamicArtifactMetadata(const SmTarget &target) {
+       StrictOptions(target, CudaTileArtifactKind::Cubin);
+   options.tileSize = {8, 8};
+   auto artifact = compiler.compileToArtifact(kDynamicAddSource, options);
++  if (!artifact.ok()) {
++    std::cerr << artifact.status().message() << '\n';
++  }
+   REQUIRE(artifact.ok());
+   REQUIRE(artifact->validate().ok());
+   REQUIRE(artifact->argumentPackingPolicy ==
+@@ -399,6 +402,9 @@ int TestScalarArtifactMetadata(const SmTarget &target) {
+       StrictOptions(target, CudaTileArtifactKind::Cubin);
+   options.tileSize = {16};
+   auto artifact = compiler.compileToArtifact(kTensorScalarSource, options);
++  if (!artifact.ok()) {
++    std::cerr << artifact.status().message() << '\n';
++  }
+   REQUIRE(artifact.ok());
+   REQUIRE(artifact->validate().ok());
+   REQUIRE(artifact->argumentPackingPolicy ==

@@ -1,0 +1,254 @@
+From a6a00b66fb59815a4c1652429750896a924cb87b Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 01:39:06 +0800
+Subject: [PATCH 42/82] Materialize layout input loads lazily
+
+---
+ .../LayoutPropagationImpl.cpp                 |  57 +++++++---
+ .../TensorToCudaTile/lazy_input_load.mlir     | 105 ++++++++++++++++++
+ 2 files changed, 146 insertions(+), 16 deletions(-)
+ create mode 100644 test/Conversion/TensorToCudaTile/lazy_input_load.mlir
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index c1a3216a2acdea2f0b86b7d491570676697adf42..4e009144f5853c17dd4d977584356417e7c5a233 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -132,9 +132,14 @@ private:
+   DenseMap<int, IterationSpace *> iterationSpaces;
+ 
+   /// Block structure pointer is set for ops that modify the iteration space.
+-  const BlockStructure *blockStructure = nullptr;
++  BlockStructure *blockStructure = nullptr;
+   /// Iteration space pointer is set for every operation.
+-  const IterationSpace *iterationSpace = nullptr;
++  IterationSpace *iterationSpace = nullptr;
++
++  /// Rewriter active for the current conversion pattern. Input loads are
++  /// materialized lazily from getTile so each new load immediately gains a
++  /// real SSA consumer instead of living only in this side table.
++  ConversionPatternRewriter *activeRewriter = nullptr;
+ 
+   /// Layouts for the current operation's operands.
+   using OperandLayouts = SmallVector<LayoutSourceAttrInterface>;
+@@ -193,10 +198,11 @@ public:
+       return op.emitError("requires a rank-2 iteration-space tile");
+     }
+ 
+-    // Consume both propagated layouts. The ordinary data tile is intentionally
+-    // unused: the gather below addresses the original source descriptor with
+-    // the dynamic row-index tile.
+-    (void)state.getTile(adaptor.getData());
++    // Consume the data layout without materializing its ordinary dense load:
++    // the gather below addresses the original source descriptor directly.
++    assert(state.operandIndex < state.layouts.size() &&
++           "gather data layout is missing");
++    ++state.operandIndex;
+     Value indicesTile = state.getTile(adaptor.getIndices());
+ 
+     auto dataSource = dyn_cast<TensorSourceAttr>(state.layouts[0]);
+@@ -510,9 +516,12 @@ public:
+           llvm::dbgs() << ")\n";
+         });
+ 
+-        // Create loads for the tensor sources in the iteration space.
+-        rewriter.setInsertionPointToEnd(iterationSpace.insertionBlock);
+-        for (auto &[source, loadedTile] : iterationSpace.loadedTiles) {
++        // Validate tensor sources now, but materialize their loads lazily from
++        // getTile. Eager loads have no SSA users while GraphOp is being
++        // rewritten and can be erased before a later nested branch consumes
++        // them, leaving a dangling Value in loadedTiles.
++        for (auto &entry : iterationSpace.loadedTiles) {
++          TensorSourceAttr source = entry.first;
+           LLVM_DEBUG({
+             llvm::dbgs() << "Loading tensor #" << source.getTensorId()
+                          << " layout=" << source.getLayout()
+@@ -525,12 +534,6 @@ public:
+               state.inputDescriptors[tensorId].sizes.empty()) {
+             return graphOp.emitError("Invalid tensor ID: ") << tensorId;
+           }
+-
+-          // Emit load and store the loaded tile.
+-          auto layoutDesc =
+-              applyLayout(rewriter, state.inputDescriptors[tensorId], source);
+-          loadedTile = emitLoadMaybeBroadcast(rewriter, layoutDesc,
+-                                              iterationSpace, state.zeroIndex);
+         }
+       }
+ 
+@@ -576,6 +579,8 @@ public:
+   }
+ 
+ private:
++  friend class ConversionStateImpl;
++
+   /// Load tile and optionally broadcast to the tile shape.
+   static Value emitLoadMaybeBroadcast(ConversionPatternRewriter &rewriter,
+                                       const TensorDescriptor &desc,
+@@ -730,6 +735,7 @@ public:
+     // updated here instead of calling the `update` method.
+     state.blockStructure = &state.blockStructures[resultsOp.getOperation()];
+     state.iterationSpace = &state.blockStructure->iterationSpaces[0];
++    state.activeRewriter = &rewriter;
+     state.layouts.clear();
+     for (Value operand : resultsOp.getOperands()) {
+       auto layout = dyn_cast_or_null<LayoutSourceAttrInterface>(
+@@ -912,6 +918,7 @@ LogicalResult ConversionStateImpl::start(GraphOp graphOp) {
+   iterationSpaces.clear();
+   blockStructure = nullptr;
+   iterationSpace = nullptr;
++  activeRewriter = nullptr;
+   layouts.clear();
+   operandIndex = 0;
+ 
+@@ -924,6 +931,7 @@ LogicalResult ConversionStateImpl::start(GraphOp graphOp) {
+ LogicalResult ConversionStateImpl::update(ConversionPatternRewriter &rewriter,
+                                           Operation *op) {
+   LLVM_DEBUG(llvm::dbgs() << "Converting: " << op->getName() << "\n");
++  activeRewriter = &rewriter;
+ 
+   // Verify the attribute-level legality (layout / iteration-space-id presence
+   // and validity). This is shared with the pre-flight feasibility check. Here,
+@@ -1011,7 +1019,7 @@ Value ConversionStateImpl::getTile(Value operand) {
+     // to the operand. (`iterationSpaceIndexForOperand` is keyed by operand
+     // position, which for a pruned concatenate differs from this per-source
+     // counter, so it is not indexed directly here.)
+-    const IterationSpace *iterationSpace = this->iterationSpace;
++    IterationSpace *iterationSpace = this->iterationSpace;
+     if (blockStructure) {
+       size_t idx =
+           blockStructure->iterationSpaces.size() > 1 ? operandIndex - 1 : 0;
+@@ -1021,6 +1029,23 @@ Value ConversionStateImpl::getTile(Value operand) {
+     auto it = iterationSpace->loadedTiles.find(tensorSource);
+     assert(it != iterationSpace->loadedTiles.end() &&
+            "layout has no associated value");
++    if (!it->second) {
++      assert(activeRewriter && "missing active conversion rewriter");
++      RewriterBase::InsertionGuard guard(*activeRewriter);
++      Block *block = iterationSpace->insertionBlock;
++      if (Operation *terminator = block->getTerminator()) {
++        activeRewriter->setInsertionPoint(terminator);
++      } else {
++        activeRewriter->setInsertionPointToEnd(block);
++      }
++      const size_t tensorId = tensorSource.getTensorId();
++      assert(tensorId < inputDescriptors.size() &&
++             "tensor source ID is out of bounds");
++      auto layoutDesc = applyLayout(*activeRewriter,
++                                    inputDescriptors[tensorId], tensorSource);
++      it->second = GraphOpConversion::emitLoadMaybeBroadcast(
++          *activeRewriter, layoutDesc, *iterationSpace, zeroIndex);
++    }
+     return it->second;
+   }
+ 
+diff --git a/test/Conversion/TensorToCudaTile/lazy_input_load.mlir b/test/Conversion/TensorToCudaTile/lazy_input_load.mlir
+new file mode 100644
+index 0000000000000000000000000000000000000000..c5e1df78d254d87c205230c16d432c20af6a586e
+--- /dev/null
++++ b/test/Conversion/TensorToCudaTile/lazy_input_load.mlir
+@@ -0,0 +1,105 @@
++// RUN: tensor_ir-opt --layout-propagation-pipeline %s | FileCheck %s
++
++// A late-consumed broadcast weight sits behind a reduction and nested
++// concatenations. Input loads must be materialized when their first real SSA
++// consumer is rewritten; an eager side-table-only load can be erased first.
++// CHECK-LABEL: entry @lazy_input_load
++// CHECK: load_view_tko weak
++// CHECK: reduce
++// CHECK: ftof
++// CHECK: store_view_tko weak
++module {
++  nv_tensor_ir.graph @lazy_input_load(
++    %arg0: tensor<2x4096xbf16> {nv_tensor_ir.stride = "(4096,1)"},
++    %arg1: tensor<2x512xbf16> {nv_tensor_ir.stride = "(512,1)"},
++    %arg2: tensor<1x256xbf16> {nv_tensor_ir.stride = "(256,1)"},
++    %arg3: tensor<1x256xbf16> {nv_tensor_ir.stride = "(256,1)"},
++    %arg4: tensor<1024x64xbf16> {nv_tensor_ir.stride = "(64,1)"},
++    %arg5: tensor<2x64xsi64> {nv_tensor_ir.stride = "(1,0)"}
++  ) -> (tensor<2x18x256xbf16> {nv_tensor_ir.stride = "(4608,256,1)"})
++      attributes {tile_size = array<i32: 1, 1, 1, 1, 1, 1>} {
++    %q_gate3 = reshape %arg0 : tensor<2x4096xbf16> -> tensor<2x16x256xbf16>
++    %q3 = slice %q_gate3 starts = [0, 0, 0] limits = [2, 16, 256] strides = [1, 2, 1] : tensor<2x16x256xbf16> -> tensor<2x8x256xbf16>
++    %gate3 = slice %q_gate3 starts = [0, 1, 0] limits = [2, 16, 256] strides = [1, 2, 1] : tensor<2x16x256xbf16> -> tensor<2x8x256xbf16>
++    %k3 = reshape %arg1 : tensor<2x512xbf16> -> tensor<2x2x256xbf16>
++    %q_wide = convert %q3 : tensor<2x8x256xbf16> -> tensor<2x8x256xf32>
++    %q_square = mul %q_wide, %q_wide : tensor<2x8x256xf32>
++    %q_sum = reduce(%q_square) <dimensions = [2], reduction_mode = <add>> : tensor<2x8x256xf32> -> tensor<2x8x1xf32>
++    %q_mean_c = constant 0.00390625 : f32
++    %q_mean_s = splat %q_mean_c : tensor<2x8x1xf32>
++    %q_mean = mul %q_sum, %q_mean_s : tensor<2x8x1xf32>
++    %q_eps_c = constant 9.9999999999999995e-07 : f32
++    %q_eps_s = splat %q_eps_c : tensor<2x8x1xf32>
++    %q_shift = add %q_mean, %q_eps_s : tensor<2x8x1xf32>
++    %q_inv = rsqrt %q_shift : tensor<2x8x1xf32>
++    %q_inv_full = broadcast %q_inv : tensor<2x8x1xf32> -> tensor<2x8x256xf32>
++    %q_norm = mul %q_wide, %q_inv_full : tensor<2x8x256xf32>
++    %q_weight2 = convert %arg2 : tensor<1x256xbf16> -> tensor<1x256xf32>
++    %q_weight3 = reshape %q_weight2 : tensor<1x256xf32> -> tensor<1x1x256xf32>
++    %q_weight_full = broadcast %q_weight3 : tensor<1x1x256xf32> -> tensor<2x8x256xf32>
++    %q_one = constant 1.0 : f32
++    %q_ones = splat %q_one : tensor<2x8x256xf32>
++    %q_scale = add %q_weight_full, %q_ones : tensor<2x8x256xf32>
++    %q_weighted = mul %q_norm, %q_scale : tensor<2x8x256xf32>
++    %q_rounded = convert %q_weighted : tensor<2x8x256xf32> -> tensor<2x8x256xbf16>
++    %q_ready = convert %q_rounded : tensor<2x8x256xbf16> -> tensor<2x8x256xf32>
++    %k_wide = convert %k3 : tensor<2x2x256xbf16> -> tensor<2x2x256xf32>
++    %k_square = mul %k_wide, %k_wide : tensor<2x2x256xf32>
++    %k_sum = reduce(%k_square) <dimensions = [2], reduction_mode = <add>> : tensor<2x2x256xf32> -> tensor<2x2x1xf32>
++    %k_mean_c = constant 0.00390625 : f32
++    %k_mean_s = splat %k_mean_c : tensor<2x2x1xf32>
++    %k_mean = mul %k_sum, %k_mean_s : tensor<2x2x1xf32>
++    %k_eps_c = constant 9.9999999999999995e-07 : f32
++    %k_eps_s = splat %k_eps_c : tensor<2x2x1xf32>
++    %k_shift = add %k_mean, %k_eps_s : tensor<2x2x1xf32>
++    %k_inv = rsqrt %k_shift : tensor<2x2x1xf32>
++    %k_inv_full = broadcast %k_inv : tensor<2x2x1xf32> -> tensor<2x2x256xf32>
++    %k_norm = mul %k_wide, %k_inv_full : tensor<2x2x256xf32>
++    %k_weight2 = convert %arg3 : tensor<1x256xbf16> -> tensor<1x256xf32>
++    %k_weight3 = reshape %k_weight2 : tensor<1x256xf32> -> tensor<1x1x256xf32>
++    %k_weight_full = broadcast %k_weight3 : tensor<1x1x256xf32> -> tensor<2x2x256xf32>
++    %k_one = constant 1.0 : f32
++    %k_ones = splat %k_one : tensor<2x2x256xf32>
++    %k_scale = add %k_weight_full, %k_ones : tensor<2x2x256xf32>
++    %k_weighted = mul %k_norm, %k_scale : tensor<2x2x256xf32>
++    %k_rounded = convert %k_weighted : tensor<2x2x256xf32> -> tensor<2x2x256xbf16>
++    %k_ready = convert %k_rounded : tensor<2x2x256xbf16> -> tensor<2x2x256xf32>
++    %positions32 = convert %arg5 : tensor<2x64xsi64> -> tensor<2x64xsi32>
++    %cache_rows = gather_rows %arg4, %positions32 : (tensor<1024x64xbf16>, tensor<2x64xsi32>) -> tensor<2x64xbf16>
++    %cache_wide = convert %cache_rows : tensor<2x64xbf16> -> tensor<2x64xf32>
++    %cos2 = slice %cache_wide starts = [0, 0] limits = [2, 32] strides = [1, 1] : tensor<2x64xf32> -> tensor<2x32xf32>
++    %sin2 = slice %cache_wide starts = [0, 32] limits = [2, 64] strides = [1, 1] : tensor<2x64xf32> -> tensor<2x32xf32>
++    %cos3 = reshape %cos2 : tensor<2x32xf32> -> tensor<2x1x32xf32>
++    %sin3 = reshape %sin2 : tensor<2x32xf32> -> tensor<2x1x32xf32>
++    %q_cos = broadcast %cos3 : tensor<2x1x32xf32> -> tensor<2x8x32xf32>
++    %q_sin = broadcast %sin3 : tensor<2x1x32xf32> -> tensor<2x8x32xf32>
++    %k_cos = broadcast %cos3 : tensor<2x1x32xf32> -> tensor<2x2x32xf32>
++    %k_sin = broadcast %sin3 : tensor<2x1x32xf32> -> tensor<2x2x32xf32>
++    %q_low = slice %q_ready starts = [0, 0, 0] limits = [2, 8, 32] strides = [1, 1, 1] : tensor<2x8x256xf32> -> tensor<2x8x32xf32>
++    %q_high = slice %q_ready starts = [0, 0, 32] limits = [2, 8, 64] strides = [1, 1, 1] : tensor<2x8x256xf32> -> tensor<2x8x32xf32>
++    %q_tail = slice %q_ready starts = [0, 0, 64] limits = [2, 8, 256] strides = [1, 1, 1] : tensor<2x8x256xf32> -> tensor<2x8x192xf32>
++    %q_low_cos = mul %q_low, %q_cos : tensor<2x8x32xf32>
++    %q_high_sin = mul %q_high, %q_sin : tensor<2x8x32xf32>
++    %q_rot_low = sub %q_low_cos, %q_high_sin : tensor<2x8x32xf32>
++    %q_high_cos = mul %q_high, %q_cos : tensor<2x8x32xf32>
++    %q_low_sin = mul %q_low, %q_sin : tensor<2x8x32xf32>
++    %q_rot_high = add %q_high_cos, %q_low_sin : tensor<2x8x32xf32>
++    %q_rotary = concatenate %q_rot_low, %q_rot_high dimension = 2 : (tensor<2x8x32xf32>, tensor<2x8x32xf32>) -> tensor<2x8x64xf32>
++    %q_complete = concatenate %q_rotary, %q_tail dimension = 2 : (tensor<2x8x64xf32>, tensor<2x8x192xf32>) -> tensor<2x8x256xf32>
++    %q_result = convert %q_complete : tensor<2x8x256xf32> -> tensor<2x8x256xbf16>
++    %k_low = slice %k_ready starts = [0, 0, 0] limits = [2, 2, 32] strides = [1, 1, 1] : tensor<2x2x256xf32> -> tensor<2x2x32xf32>
++    %k_high = slice %k_ready starts = [0, 0, 32] limits = [2, 2, 64] strides = [1, 1, 1] : tensor<2x2x256xf32> -> tensor<2x2x32xf32>
++    %k_tail = slice %k_ready starts = [0, 0, 64] limits = [2, 2, 256] strides = [1, 1, 1] : tensor<2x2x256xf32> -> tensor<2x2x192xf32>
++    %k_low_cos = mul %k_low, %k_cos : tensor<2x2x32xf32>
++    %k_high_sin = mul %k_high, %k_sin : tensor<2x2x32xf32>
++    %k_rot_low = sub %k_low_cos, %k_high_sin : tensor<2x2x32xf32>
++    %k_high_cos = mul %k_high, %k_cos : tensor<2x2x32xf32>
++    %k_low_sin = mul %k_low, %k_sin : tensor<2x2x32xf32>
++    %k_rot_high = add %k_high_cos, %k_low_sin : tensor<2x2x32xf32>
++    %k_rotary = concatenate %k_rot_low, %k_rot_high dimension = 2 : (tensor<2x2x32xf32>, tensor<2x2x32xf32>) -> tensor<2x2x64xf32>
++    %k_complete = concatenate %k_rotary, %k_tail dimension = 2 : (tensor<2x2x64xf32>, tensor<2x2x192xf32>) -> tensor<2x2x256xf32>
++    %k_result = convert %k_complete : tensor<2x2x256xf32> -> tensor<2x2x256xbf16>
++    %result0 = concatenate %q_result, %k_result, %gate3 dimension = 1 : (tensor<2x8x256xbf16>, tensor<2x2x256xbf16>, tensor<2x8x256xbf16>) -> tensor<2x18x256xbf16>
++    results %result0 : tensor<2x18x256xbf16>
++  }
++}

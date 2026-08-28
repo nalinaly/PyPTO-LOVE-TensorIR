@@ -1,0 +1,110 @@
+From fd3926a07983a0a0d7d8c91db8600dd418839ad2 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 10:17:17 +0800
+Subject: [PATCH 169/212] Represent row-pitched TensorIR ABI metadata
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp      | 23 +++++++++++++++++--
+ src/codegen/nvidia/tensor_ir_codegen.h        |  2 +-
+ .../structured_tensor_ir_build_spec.cpp       | 15 +++++++++++-
+ .../structured_tensor_ir_build_spec.h         |  2 +-
+ 4 files changed, 37 insertions(+), 5 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 66ff248f92451caad5a9d6f58587abd4f3956f60..967ed60f89ebc8565f529e65d4f5e64746eb1b4d 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -9301,13 +9301,32 @@ TensorIrValueMetadata::TensorIrValueMetadata(TensorIrValueRole role, uint32_t or
+       std::all_of(logical_dense_strides_.begin(),
+                   logical_dense_strides_.end(),
+                   [](int64_t stride) { return stride >= 0; });
++  const bool rowPitchedInput =
++      role_ == TensorIrValueRole::Input && shape_.size() == 2 &&
++      logical_dense_strides_.size() == 2 &&
++      logical_dense_strides_[1] == 1 &&
++      logical_dense_strides_[0] >= shape_[1];
+   if (logical_dense_strides_ != MakeDenseStridesForMetadata(shape_) &&
+-      !zeroStrideInput) {
++      !zeroStrideInput && !rowPitchedInput) {
+     InternalReject(
+-        "value metadata strides must be dense or a zero-stride input view");
++        "value metadata strides must be dense, row-pitched, or a zero-stride "
++        "input view");
+   }
+ }
+ 
++bool TensorIrValueMetadata::IsContiguous() const noexcept {
++  int64_t running = 1;
++  for (size_t reverseIndex = shape_.size(); reverseIndex > 0; --reverseIndex) {
++    const size_t index = reverseIndex - 1;
++    if (logical_dense_strides_[index] != running ||
++        shape_[index] > std::numeric_limits<int64_t>::max() / running) {
++      return false;
++    }
++    running *= shape_[index];
++  }
++  return true;
++}
++
+ TensorIrModule::TensorIrModule(TensorIrModuleKind kind, std::string canonical_source,
+                                std::vector<TensorIrValueMetadata> value_metadata,
+                                uint32_t input_count, uint64_t contraction_extent)
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.h b/src/codegen/nvidia/tensor_ir_codegen.h
+index 2c84d60b9b6398a0797d6159bff738d4f225312d..db97a430c858ca94533baea3251280619997d076 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.h
++++ b/src/codegen/nvidia/tensor_ir_codegen.h
+@@ -69,7 +69,7 @@ class TensorIrValueMetadata {
+   [[nodiscard]] const std::vector<int64_t>& GetLogicalDenseStrides() const noexcept {
+     return logical_dense_strides_;
+   }
+-  [[nodiscard]] constexpr bool IsContiguous() const noexcept { return true; }
++  [[nodiscard]] bool IsContiguous() const noexcept;
+   [[nodiscard]] bool HasExplicitStrides() const noexcept { return has_explicit_strides_; }
+   [[nodiscard]] TensorIrArgumentEffect GetArgumentEffect() const noexcept {
+     return argument_effect_;
+diff --git a/src/compiler/structured_tensor_ir_build_spec.cpp b/src/compiler/structured_tensor_ir_build_spec.cpp
+index b0375ee800afaaf356ef7419634b769352ae3b43..efb825d2e55e6b0e028af85943d89c8e874e9f3e 100644
+--- a/src/compiler/structured_tensor_ir_build_spec.cpp
++++ b/src/compiler/structured_tensor_ir_build_spec.cpp
+@@ -156,7 +156,7 @@ void PackAbiDescriptor(CanonicalPacker& packer,
+                        bool include_direction) {
+   packer.pack_map(include_direction ? 9 : 8);
+   PackKey(packer, "contiguous");
+-  packer.pack(true);
++  packer.pack(metadata.IsContiguous());
+   if (include_direction) {
+     PackKey(packer, "direction");
+     PackText(packer, ArgumentDirectionName(metadata.GetArgumentEffect()));
+@@ -823,6 +823,19 @@ PreparedStructuredTensorIrValueMetadata::PreparedStructuredTensorIrValueMetadata
+       has_explicit_strides_(has_explicit_strides),
+       argument_effect_(argument_effect) {}
+ 
++bool PreparedStructuredTensorIrValueMetadata::IsContiguous() const noexcept {
++  int64_t running = 1;
++  for (size_t reverseIndex = shape_.size(); reverseIndex > 0; --reverseIndex) {
++    const size_t index = reverseIndex - 1;
++    if (logical_dense_strides_[index] != running ||
++        shape_[index] > std::numeric_limits<int64_t>::max() / running) {
++      return false;
++    }
++    running *= shape_[index];
++  }
++  return true;
++}
++
+ StructuredTensorIrIdentityProjection::StructuredTensorIrIdentityProjection(
+     std::vector<uint8_t> canonical_bytes)
+     : canonical_bytes_(std::move(canonical_bytes)),
+diff --git a/src/compiler/structured_tensor_ir_build_spec.h b/src/compiler/structured_tensor_ir_build_spec.h
+index f1bdc235d6b91b094d13fdb3c0d0223dc7fc2104..5b681ac4edceeece8f2ee4da6af2c0948b2f3d2c 100644
+--- a/src/compiler/structured_tensor_ir_build_spec.h
++++ b/src/compiler/structured_tensor_ir_build_spec.h
+@@ -75,7 +75,7 @@ class PreparedStructuredTensorIrValueMetadata {
+       const noexcept {
+     return argument_effect_;
+   }
+-  [[nodiscard]] constexpr bool IsContiguous() const noexcept { return true; }
++  [[nodiscard]] bool IsContiguous() const noexcept;
+ 
+  private:
+   PreparedStructuredTensorIrValueMetadata(PreparedStructuredTensorIrValueRole role, uint32_t ordinal,

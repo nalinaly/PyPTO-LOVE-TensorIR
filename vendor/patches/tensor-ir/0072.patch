@@ -1,0 +1,50 @@
+From e8360893ca52cf1e9a45d11c7cf9f4dbb628f0df Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 11:51:15 +0800
+Subject: [PATCH 72/82] Reject unanchored scatter mutations
+
+---
+ lib/Transform/GraphSplitting.cpp               |  7 +++++++
+ test/Transform/invalid-unanchored-scatter.mlir | 15 +++++++++++++++
+ 2 files changed, 22 insertions(+)
+ create mode 100644 test/Transform/invalid-unanchored-scatter.mlir
+
+diff --git a/lib/Transform/GraphSplitting.cpp b/lib/Transform/GraphSplitting.cpp
+index 4d9744815c5136f710fd15a1ed5253509b0034a6..74c90a23c49876308fea0bf4e7e4b5271775f9ab 100644
+--- a/lib/Transform/GraphSplitting.cpp
++++ b/lib/Transform/GraphSplitting.cpp
+@@ -72,6 +72,13 @@ struct GraphSplittingPass
+   void runOnOperation() override {
+     GraphOp graphOp = getOperation();
+     auto resultsOp = cast<ResultsOp>(graphOp.getBody()->getTerminator());
++    for (ScatterRowsOp scatter : graphOp.getOps<ScatterRowsOp>()) {
++      if (scatter.getOutput().use_empty()) {
++        scatter.emitError(
++            "mutation result must feed the graph result dependency chain");
++        return signalPassFailure();
++      }
++    }
+     OpBuilder builder(resultsOp);
+ 
+     // For each (op, layout), store the resulting values.
+diff --git a/test/Transform/invalid-unanchored-scatter.mlir b/test/Transform/invalid-unanchored-scatter.mlir
+new file mode 100644
+index 0000000000000000000000000000000000000000..8f07f79834bb18981f17fc87563c75d2ed568a53
+--- /dev/null
++++ b/test/Transform/invalid-unanchored-scatter.mlir
+@@ -0,0 +1,15 @@
++// RUN: not tensor_ir-opt --layout-propagation-pipeline %s 2>&1 | FileCheck %s
++
++// CHECK: mutation result must feed the graph result dependency chain
++module {
++  nv_tensor_ir.graph @unanchored_scatter(
++      %data: tensor<65x16xbf16> {nv_tensor_ir.stride = "(16,1)"},
++      %indices: tensor<1x16xsi32> {nv_tensor_ir.stride = "(0,0)"},
++      %updates: tensor<1x16xbf16>) -> tensor<1x16xbf16>
++      attributes {tile_size = array<i32: 1, 16>} {
++    %unused = scatter_rows %data, %indices, %updates
++        : (tensor<65x16xbf16>, tensor<1x16xsi32>, tensor<1x16xbf16>)
++       -> tensor<1x16xbf16>
++    results %updates : tensor<1x16xbf16>
++  }
++}

@@ -1,0 +1,114 @@
+From 43d69aa015c751d6543a58523ac11da33177661b Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 02:29:45 +0800
+Subject: [PATCH 135/212] Advance TensorIR isolated load building
+
+---
+ ...ot-loads-outside-rewrite-bookkeeping.patch | 76 +++++++++++++++++++
+ 3rdparty/nvidia/tensor-ir                     |  2 +-
+ cmake/nvidia_backend.cmake                    |  2 +-
+ 3 files changed, 78 insertions(+), 2 deletions(-)
+ create mode 100644 3rdparty/nvidia/0028-Build-one-shot-loads-outside-rewrite-bookkeeping.patch
+
+diff --git a/3rdparty/nvidia/0028-Build-one-shot-loads-outside-rewrite-bookkeeping.patch b/3rdparty/nvidia/0028-Build-one-shot-loads-outside-rewrite-bookkeeping.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..ddcf425ce124da8e81692b1a914c197155a67134
+--- /dev/null
++++ b/3rdparty/nvidia/0028-Build-one-shot-loads-outside-rewrite-bookkeeping.patch
+@@ -0,0 +1,76 @@
++From 4b69fac19aa415b1dc91e2252bedab30e4dfa187 Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Fri, 28 Aug 2026 02:29:30 +0800
++Subject: [PATCH 28/28] Build one-shot loads outside rewrite bookkeeping
++
++---
++ .../LayoutPropagationImpl.cpp                 | 23 +++++++++++--------
++ 1 file changed, 13 insertions(+), 10 deletions(-)
++
++diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++index f26f991..adc1a77 100644
++--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++@@ -585,7 +585,7 @@ private:
++   friend class ConversionStateImpl;
++ 
++   /// Load tile and optionally broadcast to the tile shape.
++-  static Value emitLoadMaybeBroadcast(ConversionPatternRewriter &rewriter,
+++  static Value emitLoadMaybeBroadcast(OpBuilder &builder,
++                                       const TensorDescriptor &desc,
++                                       const IterationSpace &iterationSpace,
++                                       Value zeroIndex) {
++@@ -605,7 +605,7 @@ private:
++ 
++     // If there are no broadcasted dimensions, use simple load.
++     if (broadcastDims.empty()) {
++-      return emitLoad(rewriter, desc, tileType, iterationSpace.indexValues);
+++      return emitLoad(builder, desc, tileType, iterationSpace.indexValues);
++     }
++ 
++     // Update tile shape and index values for broadcasted dimensions.
++@@ -618,9 +618,9 @@ private:
++ 
++     // Emit load and broadcast together in the current one-shot pattern.
++     auto loadType = cast<ShapedType>(tileType).clone(tileShape);
++-    Value result = emitLoad(rewriter, desc, loadType, indexValues);
+++    Value result = emitLoad(builder, desc, loadType, indexValues);
++     if (loadType != tileType) {
++-      result = cuda_tile::BroadcastOp::create(rewriter, result.getLoc(),
+++      result = cuda_tile::BroadcastOp::create(builder, result.getLoc(),
++                                               tileType, result);
++     }
++     return result;
++@@ -1052,20 +1052,23 @@ Value ConversionStateImpl::getTile(Value operand) {
++            "layout has no associated value");
++     (void)it;
++     assert(activeRewriter && "missing active conversion rewriter");
++-    RewriterBase::InsertionGuard guard(*activeRewriter);
+++    // These already-legal CUDA Tile ops are inserted into a prebuilt skeleton
+++    // block. The surrounding conversion is one-shot, so a plain builder keeps
+++    // them out of dialect-conversion's cross-block transaction bookkeeping.
+++    OpBuilder builder(activeRewriter->getContext());
++     Block *block = iterationSpace->insertionBlock;
++     if (Operation *terminator = block->getTerminator()) {
++-      activeRewriter->setInsertionPoint(terminator);
+++      builder.setInsertionPoint(terminator);
++     } else {
++-      activeRewriter->setInsertionPointToEnd(block);
+++      builder.setInsertionPointToEnd(block);
++     }
++     const size_t tensorId = tensorSource.getTensorId();
++     assert(tensorId < inputDescriptors.size() &&
++            "tensor source ID is out of bounds");
++-    auto layoutDesc =
++-        applyLayout(*activeRewriter, inputDescriptors[tensorId], tensorSource);
+++    auto layoutDesc = applyLayout(builder, inputDescriptors[tensorId],
+++                                  tensorSource);
++     return GraphOpConversion::emitLoadMaybeBroadcast(
++-        *activeRewriter, layoutDesc, *iterationSpace, zeroIndex);
+++        builder, layoutDesc, *iterationSpace, zeroIndex);
++   }
++ 
++   // The operand must have a tile type at this point.
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 6944dcecdb7887f1ee9e4febb2a845ae5bbbbea5..4b69fac19aa415b1dc91e2252bedab30e4dfa187 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 6944dcecdb7887f1ee9e4febb2a845ae5bbbbea5
++Subproject commit 4b69fac19aa415b1dc91e2252bedab30e4dfa187
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index d1540975036c1c34fe1fcf9cf6a078e10212bd4c..c8b4f2fc02513c680d1808795fdd09788a54654d 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "6944dcecdb7887f1ee9e4febb2a845ae5bbbbea5")
++    "4b69fac19aa415b1dc91e2252bedab30e4dfa187")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

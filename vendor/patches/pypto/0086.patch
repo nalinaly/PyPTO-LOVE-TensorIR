@@ -1,0 +1,126 @@
+From a99fc6c3792d027008ece40570dedacca44c2a97 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 21:05:24 +0800
+Subject: [PATCH 086/212] nvidia: bind RoPE to full-width frequency ABI
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp     | 45 ++++++++++++++------
+ tests/ut/compiler/test_structured_compile.py |  8 ++--
+ 2 files changed, 35 insertions(+), 18 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 95b96f81f7d13cb014a405ba3d171a6dc53da0c3..6247220338f262d76004aebba5357e3a49b2e1d8 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -1682,11 +1682,9 @@ NativeTileRopeGraph AnalyzeNativeTileRope(const ir::ProgramPtr& program) {
+       function->return_types_[0], function->span_, "native RoPE return");
+   if (input.dtype != DataType::BF16 || input.shape.size() != 2 ||
+       input.shape[1] % 2 != 0 || !SameTensor(input, output) ||
+-      !SameTensor(input, declared) || !SameTensor(cosine, sine) ||
+-      cosine.dtype != DataType::BF16 || cosine.shape.size() != 2 ||
+-      cosine.shape[0] != input.shape[0] ||
+-      cosine.shape[1] * 2 != input.shape[1]) {
+-    Reject("native RoPE requires x/out [rows,2*half] and cos/sin [rows,half] BF16",
++      !SameTensor(input, declared) || !SameTensor(input, cosine) ||
++      !SameTensor(input, sine)) {
++    Reject("native RoPE requires identically shaped rank-2 BF16 x/cos/sin/out",
+            &function->span_);
+   }
+ 
+@@ -1777,8 +1775,9 @@ NativeTileRopeGraph AnalyzeNativeTileRope(const ir::ProgramPtr& program) {
+   require_var(stores[0], 2, function->params_[3], "RoPE low output is invalid");
+   require_var(stores[1], 2, function->params_[3], "RoPE high output is invalid");
+ 
+-  const StaticTensor expected_tile{DataType::BF16, {1, cosine.shape[1]},
+-                                   {cosine.shape[1], 1}};
++  const int64_t half_extent = input.shape[1] / 2;
++  const StaticTensor expected_tile{DataType::BF16, {1, half_extent},
++                                   {half_extent, 1}};
+   for (const ir::AssignStmtPtr& assignment : assignments) {
+     const StaticTensor tile = ReadStaticTile(
+         assignment->var_->GetType(), assignment->span_, "native RoPE tile");
+@@ -2503,7 +2502,9 @@ std::string EmitFusedPointwiseSource(const FusedPointwiseGraph& graph) {
+ 
+ std::string EmitNativeTileRopeSource(const NativeTileRopeGraph& graph) {
+   const StaticTensor& input = graph.input;
+-  const StaticTensor& half = graph.frequency;
++  StaticTensor half = input;
++  half.shape[1] /= 2;
++  half.dense_strides = MakeDenseStridesForMetadata(half.shape);
+   const std::string input_type = TensorTypeText(input);
+   const std::string half_type = TensorTypeText(half);
+   std::string source;
+@@ -2513,9 +2514,9 @@ std::string EmitNativeTileRopeSource(const NativeTileRopeGraph& graph) {
+   source += "(\n    %arg0: ";
+   source += TensorWithStrideText(input);
+   source += ",\n    %arg1: ";
+-  source += TensorWithStrideText(half);
++  source += TensorWithStrideText(graph.frequency);
+   source += ",\n    %arg2: ";
+-  source += TensorWithStrideText(half);
++  source += TensorWithStrideText(graph.frequency);
+   source += "\n  ) -> (";
+   source += TensorWithStrideText(input);
+   source += ") {\n    %xlow = slice %arg0 starts = [0, 0] limits = [";
+@@ -2536,15 +2537,31 @@ std::string EmitNativeTileRopeSource(const NativeTileRopeGraph& graph) {
+   source += input_type;
+   source += " -> ";
+   source += half_type;
+-  source += "\n    %lowcos = mul %xlow, %arg1 : ";
++  source += "\n    %cos = slice %arg1 starts = [0, 0] limits = [";
++  AppendInteger(source, input.shape[0]);
++  source += ", ";
++  AppendInteger(source, half.shape[1]);
++  source += "] strides = [1, 1] : ";
++  source += input_type;
++  source += " -> ";
++  source += half_type;
++  source += "\n    %sin = slice %arg2 starts = [0, 0] limits = [";
++  AppendInteger(source, input.shape[0]);
++  source += ", ";
++  AppendInteger(source, half.shape[1]);
++  source += "] strides = [1, 1] : ";
++  source += input_type;
++  source += " -> ";
++  source += half_type;
++  source += "\n    %lowcos = mul %xlow, %cos : ";
+   source += half_type;
+-  source += "\n    %highsin = mul %xhigh, %arg2 : ";
++  source += "\n    %highsin = mul %xhigh, %sin : ";
+   source += half_type;
+   source += "\n    %low = sub %lowcos, %highsin : ";
+   source += half_type;
+-  source += "\n    %highcos = mul %xhigh, %arg1 : ";
++  source += "\n    %highcos = mul %xhigh, %cos : ";
+   source += half_type;
+-  source += "\n    %lowsin = mul %xlow, %arg2 : ";
++  source += "\n    %lowsin = mul %xlow, %sin : ";
+   source += half_type;
+   source += "\n    %high = add %highcos, %lowsin : ";
+   source += half_type;
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index 00bf3b31eb423fd13d3f36bc6e80be8761ffffda..cb16c4375f36586fbcffdfb6b70289668c2766e4 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -88,8 +88,8 @@ def _native_tile_rmsnorm(
+ @pl.jit
+ def _native_tile_rope(
+     x: pl.Tensor[[2, 128], pl.BF16],
+-    cos: pl.Tensor[[2, 64], pl.BF16],
+-    sin: pl.Tensor[[2, 64], pl.BF16],
++    cos: pl.Tensor[[2, 128], pl.BF16],
++    sin: pl.Tensor[[2, 128], pl.BF16],
+     out: pl.Out[pl.Tensor[[2, 128], pl.BF16]],
+ ):
+     with pl.at(level=pl.Level.CORE_GROUP):
+@@ -383,8 +383,8 @@ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+     assert rope_kernel.argument_layout.total_kernel_argument_count == 4
+     assert [d.shape for d in rope_kernel.argument_layout.operand_descriptors] == [
+         [2, 128],
+-        [2, 64],
+-        [2, 64],
++        [2, 128],
++        [2, 128],
+         [2, 128],
+     ]
+     assert not rope.artifact.fallback_used

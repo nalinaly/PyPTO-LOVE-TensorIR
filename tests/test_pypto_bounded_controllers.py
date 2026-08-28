@@ -101,6 +101,37 @@ class BoundedCpuCommandTest(unittest.TestCase):
             with self.subTest(command=command), self.assertRaises(cpu.BoundedCpuError):
                 cpu.validate_command(command)
 
+    def test_formal_cpu_environment_accepts_workspace_script_and_pytest_24(
+        self,
+    ) -> None:
+        environment = cpu.validate_environment_profile("pypto-release", "pypto")
+        python = str((environment / "bin/python").resolve(strict=True))
+        script = str((ROOT / "tools/run_operator_regression.py").resolve(strict=True))
+        self.assertEqual(
+            cpu.validate_command(["--", python, "-B", script], environment),
+            [python, "-B", script],
+        )
+        self.assertEqual(
+            cpu.validate_command(
+                ["--", python, "-B", "-m", "pytest", "-n24", "tests"],
+                environment,
+            ),
+            [python, "-B", "-m", "pytest", "-n24", "tests"],
+        )
+        with self.assertRaises(cpu.BoundedCpuError):
+            cpu.validate_command(
+                ["--", python, "-B", "-m", "pytest", "-n2", "tests"],
+                environment,
+            )
+
+    def test_cpu_environment_profile_pairs_are_allowlisted(self) -> None:
+        self.assertEqual(
+            cpu.validate_environment_profile("sglang-baseline", "baseline"),
+            (ROOT / "envs/sglang-baseline").resolve(),
+        )
+        with self.assertRaises(cpu.BoundedCpuError):
+            cpu.validate_environment_profile("sglang-baseline", "pypto")
+
 
 class BoundedGpuPolicyTest(unittest.TestCase):
     @classmethod
@@ -149,6 +180,21 @@ class BoundedGpuPolicyTest(unittest.TestCase):
             outside.write_text("raise SystemExit(0)\n")
             with self.assertRaises(gpu.BoundedGpuError):
                 gpu.validate_child(["--", self.python, "-B", str(outside)])
+
+    def test_release_gpu_environment_profile_pairs_are_allowlisted(self) -> None:
+        for environment_name, profile in (
+            ("pypto-release", "pypto"),
+            ("sglang-baseline", "baseline"),
+        ):
+            with self.subTest(environment=environment_name):
+                environment = gpu.validate_environment_profile(
+                    environment_name, profile
+                )
+                python = str((environment / "bin/python").resolve(strict=True))
+                command = ["--", python, "-B", self.script]
+                self.assertEqual(gpu.validate_child(command, environment), command[1:])
+        with self.assertRaises(gpu.BoundedGpuError):
+            gpu.validate_environment_profile("sglang-baseline", "pypto")
 
     @staticmethod
     def base_audit() -> dict[str, object]:

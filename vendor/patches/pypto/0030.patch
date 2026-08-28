@@ -1,0 +1,44 @@
+From 7f5f03c5f1f5a89669859eeafd923d0acf7d5d59 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 04:22:58 +0800
+Subject: [PATCH 030/212] Match tileiras soft memory limits
+
+---
+ 3rdparty/nvidia/tensor-ir                           | 2 +-
+ cmake/nvidia_backend.cmake                          | 2 +-
+ tests/ut/compiler/test_nvidia_backend_build_info.py | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 4f57099880f85684ebe245bff9216463cc1483fb..ee94ad1bf23f22ded1427b72158f343afa0c8c93 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 4f57099880f85684ebe245bff9216463cc1483fb
++Subproject commit ee94ad1bf23f22ded1427b72158f343afa0c8c93
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index eb01f86f4558d8d5284cf9dae23b88785fcadae7..d867b06bebdaaa2baea8782b88321697cf671a91 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -33,7 +33,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "4f57099880f85684ebe245bff9216463cc1483fb")
++    "ee94ad1bf23f22ded1427b72158f343afa0c8c93")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+diff --git a/tests/ut/compiler/test_nvidia_backend_build_info.py b/tests/ut/compiler/test_nvidia_backend_build_info.py
+index c480ac92ff50e489b41ea27436152313969775a0..d69a4288289e1ec6e1e3022511215a6b9ad2debf 100644
+--- a/tests/ut/compiler/test_nvidia_backend_build_info.py
++++ b/tests/ut/compiler/test_nvidia_backend_build_info.py
+@@ -30,7 +30,7 @@ def test_nvidia_backend_build_info_is_immutable_and_self_consistent() -> None:
+     assert info.compiler_factory_available
+     assert len(info.pypto_revision) == 40
+     assert set(info.pypto_revision) <= set("0123456789abcdef")
+-    assert info.tensor_ir_revision == "4f57099880f85684ebe245bff9216463cc1483fb"
++    assert info.tensor_ir_revision == "ee94ad1bf23f22ded1427b72158f343afa0c8c93"
+     assert info.cuda_tile_revision == "af2417041cc939b87ef56d92cfdcf61737c5457e"
+     assert info.llvm_revision == "57109befac92811d2253109242ca6fa69c961fb2"
+     assert info.cuda_toolkit_root == "/usr/local/cuda-13.3"

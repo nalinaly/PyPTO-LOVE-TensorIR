@@ -1,0 +1,64 @@
+From 88d1d0bfad22cf9b539297a3e4d5b255ae8bb4d4 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 10:13:13 +0800
+Subject: [PATCH 168/212] Preserve strided paged integer metadata
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 30 ++++++++++++++++++++----
+ 1 file changed, 26 insertions(+), 4 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 7e95ea83fce8ca73a27be94310118c20fce006d2..66ff248f92451caad5a9d6f58587abd4f3956f60 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -329,8 +329,7 @@ StaticTensor ReadStaticIntegerTensor(const ir::TypePtr& type,
+                                      const ir::Span& span,
+                                      std::string_view location) {
+   const auto tensorType = ir::As<ir::TensorType>(type);
+-  if (!tensorType || tensorType->memref_.has_value() ||
+-      tensorType->tensor_view_.has_value()) {
++  if (!tensorType || tensorType->memref_.has_value()) {
+     Reject(std::string(location) + " must have plain TensorType", &span);
+   }
+   if (tensorType->dtype_ != DataType::INT64 &&
+@@ -344,6 +343,7 @@ StaticTensor ReadStaticIntegerTensor(const ir::TypePtr& type,
+     Reject(std::string(location) + " rank must be between 1 and 32", &span);
+   }
+   std::vector<int64_t> shape;
++  std::vector<int64_t> strides;
+   shape.reserve(tensorType->shape_.size());
+   for (const ir::ExprPtr& dimension : tensorType->shape_) {
+     const auto constant = ir::As<ir::ConstInt>(dimension);
+@@ -355,8 +355,30 @@ StaticTensor ReadStaticIntegerTensor(const ir::TypePtr& type,
+     }
+     shape.push_back(constant->value_);
+   }
+-  return StaticTensor{tensorType->dtype_, shape,
+-                      MakeDenseStrides(shape, span)};
++  if (!tensorType->tensor_view_.has_value()) {
++    return StaticTensor{tensorType->dtype_, shape,
++                        MakeDenseStrides(shape, span)};
++  }
++  const ir::TensorView& view = *tensorType->tensor_view_;
++  if (view.layout != ir::TensorLayout::ND || !view.valid_shape.empty() ||
++      view.pad != ir::PadValue::null ||
++      view.stride.size() != tensorType->shape_.size()) {
++    Reject(std::string(location) +
++               " supports only a complete unpadded ND TensorView stride",
++           &span);
++  }
++  strides.reserve(view.stride.size());
++  for (const ir::ExprPtr& stride : view.stride) {
++    const auto constant = ir::As<ir::ConstInt>(stride);
++    if (!constant || constant->dtype() != DataType::INDEX ||
++        constant->value_ < 0) {
++      Reject(std::string(location) +
++                 " strides must be non-negative static INDEX values",
++             &span);
++    }
++    strides.push_back(constant->value_);
++  }
++  return StaticTensor{tensorType->dtype_, shape, strides};
+ }
+ 
+ StaticTensor ReadStaticTileWithAnyDtype(const ir::TypePtr& type,

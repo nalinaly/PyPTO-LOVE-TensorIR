@@ -1,0 +1,1127 @@
+From 6ce17761cb26b6593ce8a6f0f8a82cb0cf251cc9 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 00:31:55 +0800
+Subject: [PATCH 020/212] compiler: share bounded canonical MessagePack codec
+
+---
+ CMakeLists.txt                          |   1 +
+ src/compiler/canonical_msgpack.cpp      | 325 +++++++++++++++++++++++
+ src/compiler/canonical_msgpack.h        |  74 ++++++
+ src/compiler/compile_request.cpp        | 119 ++-------
+ src/compiler/kernel_build_spec.cpp      |  97 ++-----
+ tests/ut/cpp/CMakeLists.txt             |  25 ++
+ tests/ut/cpp/canonical_msgpack_test.cpp | 327 ++++++++++++++++++++++++
+ 7 files changed, 786 insertions(+), 182 deletions(-)
+ create mode 100644 src/compiler/canonical_msgpack.cpp
+ create mode 100644 src/compiler/canonical_msgpack.h
+ create mode 100644 tests/ut/cpp/canonical_msgpack_test.cpp
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 5251366339f6d67497bdcacc403d3362098cb79f..fcee8c8fd5c2dc205719f2508a8fc01ecc95284c 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -86,6 +86,7 @@ endif()
+ # PyPTO core sources
+ set(PYPTO_SOURCES
+     # Compiler target contracts
++    src/compiler/canonical_msgpack.cpp
+     src/compiler/compile_request.cpp
+     src/compiler/digest.cpp
+     src/compiler/kernel_build_spec.cpp
+diff --git a/src/compiler/canonical_msgpack.cpp b/src/compiler/canonical_msgpack.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..8ba2e6cbafbbb7de155eea86c407bd9ff0583dc2
+--- /dev/null
++++ b/src/compiler/canonical_msgpack.cpp
+@@ -0,0 +1,325 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#include "canonical_msgpack.h"
++
++#include <limits>
++#include <msgpack/parse.hpp>
++#include <utility>
++
++#include "pypto/core/error.h"
++
++namespace pypto::compiler::detail {
++namespace {
++
++class BoundedPreflightVisitor final : public msgpack::v2::null_visitor {
++ public:
++  explicit BoundedPreflightVisitor(const UnpackLimits& limits) : limits_(limits) {}
++
++  bool visit_nil() { return CountObject(); }
++  bool visit_boolean(bool) { return CountObject(); }
++  bool visit_positive_integer(uint64_t) { return CountObject(); }
++  bool visit_negative_integer(int64_t) { return CountObject(); }
++
++  bool visit_float32(float) { return Reject("floating-point values are not permitted"); }
++  bool visit_float64(double) { return Reject("floating-point values are not permitted"); }
++
++  bool visit_str(const char*, uint32_t size) {
++    if (size > limits_.maximum_string_bytes) {
++      return Reject("string exceeds its size limit");
++    }
++    return CountObject();
++  }
++
++  bool visit_bin(const char*, uint32_t size) {
++    if (size > limits_.maximum_binary_bytes) {
++      return Reject("binary data exceeds its size limit");
++    }
++    if (binary_fields_ == limits_.maximum_binary_fields) {
++      return Reject("binary field count exceeds its limit");
++    }
++    ++binary_fields_;
++    if (size > std::numeric_limits<size_t>::max() - binary_payload_bytes_) {
++      return Reject("binary payload byte count overflows size_t");
++    }
++    binary_payload_bytes_ += size;
++    return CountObject();
++  }
++
++  bool visit_ext(const char*, uint32_t) { return Reject("extension values are not permitted"); }
++
++  bool start_array(uint32_t item_count) {
++    if (item_count > limits_.maximum_array_items) {
++      return Reject("array item count exceeds its limit");
++    }
++    return CountObject() && CountContainerItems(item_count) && EnterContainer();
++  }
++
++  bool end_array() {
++    return LeaveContainer();
++  }
++
++  bool start_map(uint32_t pair_count) {
++    if (pair_count > limits_.maximum_map_items) {
++      return Reject("map item count exceeds its limit");
++    }
++    if (pair_count > std::numeric_limits<size_t>::max() / 2) {
++      return Reject("map item count overflows size_t");
++    }
++    return CountObject() && CountContainerItems(static_cast<size_t>(pair_count) * 2) &&
++           EnterContainer();
++  }
++
++  bool end_map() {
++    return LeaveContainer();
++  }
++
++  void parse_error(size_t, size_t) { SetParserError("contains malformed MessagePack"); }
++  void insufficient_bytes(size_t, size_t) {
++    SetParserError("contains malformed MessagePack (truncated input)");
++  }
++
++  [[nodiscard]] const std::string& GetError() const noexcept { return error_; }
++  [[nodiscard]] size_t GetBinaryPayloadBytes() const noexcept { return binary_payload_bytes_; }
++  [[nodiscard]] size_t GetNestingDepth() const noexcept { return nesting_depth_; }
++
++ private:
++  bool CountObject() {
++    if (total_objects_ == limits_.maximum_total_objects) {
++      return Reject("decoded object count exceeds its limit");
++    }
++    ++total_objects_;
++    return true;
++  }
++
++  bool CountContainerItems(size_t item_count) {
++    if (aggregate_container_items_ > limits_.maximum_aggregate_container_items) {
++      return Reject("aggregate container item count exceeds its limit");
++    }
++    if (item_count > limits_.maximum_aggregate_container_items - aggregate_container_items_) {
++      return Reject("aggregate container item count exceeds its limit");
++    }
++    aggregate_container_items_ += item_count;
++    return true;
++  }
++
++  bool EnterContainer() {
++    if (nesting_depth_ == limits_.maximum_nesting_depth) {
++      return Reject("nesting depth exceeds its limit");
++    }
++    ++nesting_depth_;
++    return true;
++  }
++
++  bool LeaveContainer() {
++    if (nesting_depth_ == 0) return Reject("container nesting depth underflow");
++    --nesting_depth_;
++    return true;
++  }
++
++  bool Reject(std::string message) {
++    if (error_.empty()) error_ = std::move(message);
++    return false;
++  }
++
++  void SetParserError(std::string message) {
++    if (error_.empty()) error_ = std::move(message);
++  }
++
++  const UnpackLimits& limits_;
++  size_t total_objects_ = 0;
++  size_t aggregate_container_items_ = 0;
++  size_t binary_payload_bytes_ = 0;
++  size_t binary_fields_ = 0;
++  size_t nesting_depth_ = 0;
++  std::string error_;
++};
++
++void PreflightMessagePack(const std::vector<uint8_t>& data, const std::string& contract_name,
++                          const UnpackLimits& limits) {
++  BoundedPreflightVisitor visitor(limits);
++  size_t offset = 0;
++  const bool parsed = [&]() {
++    try {
++      return msgpack::v2::parse(reinterpret_cast<const char*>(data.data()), data.size(), offset,
++                                visitor);
++    } catch (const msgpack::unpack_error& error) {
++      throw ValueError("malformed " + contract_name + " MessagePack: " +
++                       std::string(error.what()));
++    }
++  }();
++  if (!visitor.GetError().empty()) {
++    throw ValueError(contract_name + " " + visitor.GetError());
++  }
++  if (!parsed) throw ValueError("malformed " + contract_name + " MessagePack");
++  if (offset != data.size()) throw ValueError(contract_name + " payload contains trailing bytes");
++  if (visitor.GetNestingDepth() != 0) {
++    throw ValueError(contract_name + " contains malformed MessagePack container nesting");
++  }
++  if (visitor.GetBinaryPayloadBytes() > data.size()) {
++    throw ValueError(contract_name + " binary payload bytes exceed the encoded payload size");
++  }
++  const size_t nonbinary_bytes = data.size() - visitor.GetBinaryPayloadBytes();
++  if (nonbinary_bytes > limits.maximum_nonbinary_bytes) {
++    throw ValueError(contract_name + " non-binary encoding exceeds its size limit");
++  }
++}
++
++}  // namespace
++
++void PackText(CanonicalPacker& packer, std::string_view value) {
++  if (value.size() > std::numeric_limits<uint32_t>::max()) {
++    throw ValueError("canonical MessagePack string exceeds uint32 range");
++  }
++  const auto size = static_cast<uint32_t>(value.size());
++  packer.pack_str(size);
++  if (size != 0) packer.pack_str_body(value.data(), size);
++}
++
++void PackKey(CanonicalPacker& packer, std::string_view key) { PackText(packer, key); }
++
++void PackBinary(CanonicalPacker& packer, const std::vector<uint8_t>& value) {
++  if (value.size() > std::numeric_limits<uint32_t>::max()) {
++    throw ValueError("canonical MessagePack binary data exceeds uint32 range");
++  }
++  const auto size = static_cast<uint32_t>(value.size());
++  packer.pack_bin(size);
++  if (size != 0) {
++    packer.pack_bin_body(reinterpret_cast<const char*>(value.data()), size);
++  }
++}
++
++std::vector<uint8_t> FinishBuffer(const msgpack::sbuffer& buffer) {
++  if (buffer.size() == 0) return {};
++  const auto* begin = reinterpret_cast<const uint8_t*>(buffer.data());
++  return std::vector<uint8_t>(begin, begin + buffer.size());
++}
++
++StrictMap::StrictMap(const msgpack::object& object, std::string context,
++                     std::initializer_list<std::string_view> allowed_fields)
++    : context_(std::move(context)) {
++  if (object.type != msgpack::type::MAP) throw ValueError(context_ + " must be a map");
++  std::map<std::string, bool> allowed;
++  for (std::string_view field : allowed_fields) allowed.emplace(field, true);
++  for (uint32_t index = 0; index < object.via.map.size; ++index) {
++    const auto& entry = object.via.map.ptr[index];
++    if (entry.key.type != msgpack::type::STR) {
++      throw ValueError(context_ + " field names must be strings");
++    }
++    std::string key(entry.key.via.str.ptr, entry.key.via.str.size);
++    if (allowed.find(key) == allowed.end()) {
++      throw ValueError(context_ + " contains unknown field '" + key + "'");
++    }
++    if (!fields_.emplace(std::move(key), &entry.val).second) {
++      throw ValueError(context_ + " contains a duplicate field");
++    }
++  }
++}
++
++const msgpack::object& StrictMap::Get(const std::string& field) const {
++  const auto iterator = fields_.find(field);
++  if (iterator == fields_.end()) {
++    throw ValueError(context_ + " is missing required field '" + field + "'");
++  }
++  return *iterator->second;
++}
++
++std::string ReadText(const msgpack::object& object, const std::string& context) {
++  if (object.type != msgpack::type::STR) throw ValueError(context + " must be a string");
++  return std::string(object.via.str.ptr, object.via.str.size);
++}
++
++std::vector<uint8_t> ReadBinary(const msgpack::object& object, const std::string& context) {
++  if (object.type != msgpack::type::BIN) throw ValueError(context + " must be binary data");
++  if (object.via.bin.size == 0) return {};
++  const auto* begin = reinterpret_cast<const uint8_t*>(object.via.bin.ptr);
++  return std::vector<uint8_t>(begin, begin + object.via.bin.size);
++}
++
++bool ReadBool(const msgpack::object& object, const std::string& context) {
++  if (object.type != msgpack::type::BOOLEAN) throw ValueError(context + " must be a boolean");
++  return object.via.boolean;
++}
++
++uint64_t ReadUint64(const msgpack::object& object, const std::string& context) {
++  if (object.type != msgpack::type::POSITIVE_INTEGER) {
++    throw ValueError(context + " must be an unsigned integer");
++  }
++  return object.via.u64;
++}
++
++uint32_t ReadUint32(const msgpack::object& object, const std::string& context) {
++  const uint64_t value = ReadUint64(object, context);
++  if (value > std::numeric_limits<uint32_t>::max()) {
++    throw ValueError(context + " exceeds uint32 range");
++  }
++  return static_cast<uint32_t>(value);
++}
++
++int64_t ReadInt64(const msgpack::object& object, const std::string& context) {
++  if (object.type == msgpack::type::POSITIVE_INTEGER) {
++    if (object.via.u64 > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
++      throw ValueError(context + " exceeds int64 range");
++    }
++    return static_cast<int64_t>(object.via.u64);
++  }
++  if (object.type == msgpack::type::NEGATIVE_INTEGER) return object.via.i64;
++  throw ValueError(context + " must be an integer");
++}
++
++int ReadInt(const msgpack::object& object, const std::string& context) {
++  if (object.type == msgpack::type::POSITIVE_INTEGER) {
++    if (object.via.u64 > static_cast<uint64_t>(std::numeric_limits<int>::max())) {
++      throw ValueError(context + " exceeds int range");
++    }
++    return static_cast<int>(object.via.u64);
++  }
++  if (object.type == msgpack::type::NEGATIVE_INTEGER) {
++    if (object.via.i64 < std::numeric_limits<int>::min()) {
++      throw ValueError(context + " exceeds int range");
++    }
++    return static_cast<int>(object.via.i64);
++  }
++  throw ValueError(context + " must be an integer");
++}
++
++msgpack::object_handle UnpackOne(const std::vector<uint8_t>& data, std::string_view contract_name,
++                                 size_t maximum_payload_bytes, const UnpackLimits& limits) {
++  const std::string name(contract_name);
++  if (data.empty()) throw ValueError(name + " payload must not be empty");
++  if (data.size() > maximum_payload_bytes) {
++    throw ValueError(name + " payload exceeds its serialized-size limit");
++  }
++  if (limits.maximum_nesting_depth == std::numeric_limits<size_t>::max() ||
++      limits.maximum_total_objects == std::numeric_limits<size_t>::max() ||
++      limits.maximum_aggregate_container_items == std::numeric_limits<size_t>::max() ||
++      limits.maximum_nonbinary_bytes == std::numeric_limits<size_t>::max() ||
++      limits.maximum_binary_fields == std::numeric_limits<size_t>::max()) {
++    throw ValueError(name + " structural preflight limits must be finite");
++  }
++  PreflightMessagePack(data, name, limits);
++  size_t offset = 0;
++  const msgpack::unpack_limit unpack_limits(
++      limits.maximum_array_items, limits.maximum_map_items, limits.maximum_string_bytes,
++      limits.maximum_binary_bytes, 0, limits.maximum_nesting_depth);
++  msgpack::object_handle handle = [&]() {
++    try {
++      return msgpack::unpack(reinterpret_cast<const char*>(data.data()), data.size(), offset, nullptr,
++                             nullptr, unpack_limits);
++    } catch (const msgpack::unpack_error& error) {
++      throw ValueError("malformed " + name + " MessagePack: " + std::string(error.what()));
++    }
++  }();
++  if (offset != data.size()) throw ValueError(name + " payload contains trailing bytes");
++  return handle;
++}
++
++}  // namespace pypto::compiler::detail
+diff --git a/src/compiler/canonical_msgpack.h b/src/compiler/canonical_msgpack.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..1860979039490830f26c9258aa566ba13f9eee1b
+--- /dev/null
++++ b/src/compiler/canonical_msgpack.h
+@@ -0,0 +1,74 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#ifndef PYPTO_SRC_COMPILER_CANONICAL_MSGPACK_H_
++#define PYPTO_SRC_COMPILER_CANONICAL_MSGPACK_H_
++
++#include <cstddef>
++#include <cstdint>
++#include <initializer_list>
++#include <map>
++#include <msgpack.hpp>
++#include <string>
++#include <string_view>
++#include <vector>
++
++namespace pypto::compiler::detail {
++
++using CanonicalPacker = msgpack::packer<msgpack::sbuffer>;
++
++/** Allocation and structural budgets checked before MessagePack builds an object tree. */
++struct UnpackLimits {
++  size_t maximum_array_items;
++  size_t maximum_map_items;
++  size_t maximum_string_bytes;
++  size_t maximum_binary_bytes;
++  size_t maximum_nesting_depth;
++  size_t maximum_total_objects;
++  size_t maximum_aggregate_container_items;
++  size_t maximum_nonbinary_bytes;
++  size_t maximum_binary_fields;
++};
++
++void PackText(CanonicalPacker& packer, std::string_view value);
++void PackKey(CanonicalPacker& packer, std::string_view key);
++void PackBinary(CanonicalPacker& packer, const std::vector<uint8_t>& value);
++[[nodiscard]] std::vector<uint8_t> FinishBuffer(const msgpack::sbuffer& buffer);
++
++class StrictMap {
++ public:
++  StrictMap(const msgpack::object& object, std::string context,
++            std::initializer_list<std::string_view> allowed_fields);
++
++  [[nodiscard]] const msgpack::object& Get(const std::string& field) const;
++
++ private:
++  std::string context_;
++  std::map<std::string, const msgpack::object*> fields_;
++};
++
++[[nodiscard]] std::string ReadText(const msgpack::object& object, const std::string& context);
++[[nodiscard]] std::vector<uint8_t> ReadBinary(const msgpack::object& object,
++                                              const std::string& context);
++[[nodiscard]] bool ReadBool(const msgpack::object& object, const std::string& context);
++[[nodiscard]] uint64_t ReadUint64(const msgpack::object& object, const std::string& context);
++[[nodiscard]] uint32_t ReadUint32(const msgpack::object& object, const std::string& context);
++[[nodiscard]] int64_t ReadInt64(const msgpack::object& object, const std::string& context);
++[[nodiscard]] int ReadInt(const msgpack::object& object, const std::string& context);
++
++[[nodiscard]] msgpack::object_handle UnpackOne(const std::vector<uint8_t>& data,
++                                               std::string_view contract_name,
++                                               size_t maximum_payload_bytes,
++                                               const UnpackLimits& limits);
++
++}  // namespace pypto::compiler::detail
++
++#endif  // PYPTO_SRC_COMPILER_CANONICAL_MSGPACK_H_
+diff --git a/src/compiler/compile_request.cpp b/src/compiler/compile_request.cpp
+index 5faf5741bc1cbb3f94ad9db4d7d9882ad091d71b..823b434f9c43389eb44eafadea3765eb492edcae 100644
+--- a/src/compiler/compile_request.cpp
++++ b/src/compiler/compile_request.cpp
+@@ -13,15 +13,14 @@
+ 
+ #include <algorithm>
+ #include <cstdint>
+-#include <initializer_list>
+ #include <limits>
+-#include <map>
+ #include <msgpack.hpp>
+ #include <string>
+ #include <string_view>
+ #include <utility>
+ #include <vector>
+ 
++#include "canonical_msgpack.h"
+ #include "digest.h"
+ #include "pypto/core/dtype.h"
+ #include "pypto/core/error.h"
+@@ -29,7 +28,15 @@
+ namespace pypto::compiler {
+ namespace {
+ 
+-using CanonicalPacker = msgpack::packer<msgpack::sbuffer>;
++using detail::CanonicalPacker;
++using detail::FinishBuffer;
++using detail::PackKey;
++using detail::PackText;
++using detail::ReadInt;
++using detail::ReadText;
++using detail::ReadUint32;
++using detail::ReadUint64;
++using detail::StrictMap;
+ 
+ constexpr std::string_view kCompileRequestContract = "pypto.compile_request.v1";
+ constexpr std::string_view kByteCompileIdentityContract = "pypto.compile_request.byte_compile_identity.v1";
+@@ -124,13 +131,6 @@ std::string_view VerificationPolicyName(VerificationPolicy policy) {
+                    std::to_string(static_cast<unsigned int>(policy)));
+ }
+ 
+-void PackText(CanonicalPacker& packer, std::string_view value) {
+-  packer.pack_str(static_cast<uint32_t>(value.size()));
+-  packer.pack_str_body(value.data(), static_cast<uint32_t>(value.size()));
+-}
+-
+-void PackKey(CanonicalPacker& packer, std::string_view key) { PackText(packer, key); }
+-
+ void PackTargetTraits(CanonicalPacker& packer, const TargetTraits& traits, bool include_device_capacity) {
+   packer.pack_map(include_device_capacity ? 21 : 20);
+   PackKey(packer, "compute_capability");
+@@ -272,83 +272,6 @@ void PackToolchain(CanonicalPacker& packer, const ToolchainIdentity& toolchain)
+   PackText(packer, toolchain.GetTileirasVersion());
+ }
+ 
+-std::vector<uint8_t> FinishBuffer(const msgpack::sbuffer& buffer) {
+-  const auto* begin = reinterpret_cast<const uint8_t*>(buffer.data());
+-  return std::vector<uint8_t>(begin, begin + buffer.size());
+-}
+-
+-class StrictMap {
+- public:
+-  StrictMap(const msgpack::object& object, std::string context,
+-            std::initializer_list<std::string_view> allowed_fields)
+-      : context_(std::move(context)) {
+-    if (object.type != msgpack::type::MAP) {
+-      throw ValueError(context_ + " must be a map");
+-    }
+-    std::map<std::string, bool> allowed;
+-    for (std::string_view field : allowed_fields) allowed.emplace(field, true);
+-    for (uint32_t i = 0; i < object.via.map.size; ++i) {
+-      const auto& entry = object.via.map.ptr[i];
+-      if (entry.key.type != msgpack::type::STR) {
+-        throw ValueError(context_ + " field names must be strings");
+-      }
+-      std::string key(entry.key.via.str.ptr, entry.key.via.str.size);
+-      if (allowed.find(key) == allowed.end()) {
+-        throw ValueError(context_ + " contains unknown field '" + key + "'");
+-      }
+-      if (!fields_.emplace(std::move(key), &entry.val).second) {
+-        throw ValueError(context_ + " contains a duplicate field");
+-      }
+-    }
+-  }
+-
+-  [[nodiscard]] const msgpack::object& Get(const std::string& field) const {
+-    const auto iterator = fields_.find(field);
+-    if (iterator == fields_.end()) throw ValueError(context_ + " is missing required field '" + field + "'");
+-    return *iterator->second;
+-  }
+-
+- private:
+-  std::string context_;
+-  std::map<std::string, const msgpack::object*> fields_;
+-};
+-
+-std::string ReadText(const msgpack::object& object, const std::string& context) {
+-  if (object.type != msgpack::type::STR) throw ValueError(context + " must be a string");
+-  return std::string(object.via.str.ptr, object.via.str.size);
+-}
+-
+-uint64_t ReadUint64(const msgpack::object& object, const std::string& context) {
+-  if (object.type != msgpack::type::POSITIVE_INTEGER) {
+-    throw ValueError(context + " must be an unsigned integer");
+-  }
+-  return object.via.u64;
+-}
+-
+-uint32_t ReadUint32(const msgpack::object& object, const std::string& context) {
+-  const uint64_t value = ReadUint64(object, context);
+-  if (value > std::numeric_limits<uint32_t>::max()) {
+-    throw ValueError(context + " exceeds uint32 range");
+-  }
+-  return static_cast<uint32_t>(value);
+-}
+-
+-int ReadInt(const msgpack::object& object, const std::string& context) {
+-  if (object.type == msgpack::type::POSITIVE_INTEGER) {
+-    if (object.via.u64 > static_cast<uint64_t>(std::numeric_limits<int>::max())) {
+-      throw ValueError(context + " exceeds int range");
+-    }
+-    return static_cast<int>(object.via.u64);
+-  }
+-  if (object.type == msgpack::type::NEGATIVE_INTEGER) {
+-    if (object.via.i64 < std::numeric_limits<int>::min()) {
+-      throw ValueError(context + " exceeds int range");
+-    }
+-    return static_cast<int>(object.via.i64);
+-  }
+-  throw ValueError(context + " must be an integer");
+-}
+-
+ TargetTraits ParseTargetTraits(const msgpack::object& object) {
+   StrictMap fields(object, "CompileRequest.target.traits",
+                    {"compute_capability",
+@@ -477,21 +400,13 @@ msgpack::object_handle UnpackOne(const std::vector<uint8_t>& data) {
+   if (data.size() > kMaximumSerializedRequestBytes) {
+     throw ValueError("CompileRequest payload exceeds the 1 MiB v1 limit");
+   }
+-  size_t offset = 0;
+-  const msgpack::unpack_limit limits(kMaximumArrayItems, kMaximumMapItems, kMaximumStringBytes, 0, 0,
+-                                     kMaximumNestingDepth);
+-  msgpack::object_handle handle = [&]() {
+-    try {
+-      return msgpack::unpack(reinterpret_cast<const char*>(data.data()), data.size(), offset, nullptr,
+-                             nullptr, limits);
+-    } catch (const msgpack::unpack_error& error) {
+-      throw ValueError("malformed CompileRequest MessagePack: " + std::string(error.what()));
+-    }
+-  }();
+-  if (offset != data.size()) {
+-    throw ValueError("CompileRequest payload contains trailing bytes");
+-  }
+-  return handle;
++  return detail::UnpackOne(data, "CompileRequest", kMaximumSerializedRequestBytes,
++                           {kMaximumArrayItems, kMaximumMapItems, kMaximumStringBytes,
++                            /*maximum_binary_bytes=*/0, kMaximumNestingDepth,
++                            /*maximum_total_objects=*/131072,
++                            /*maximum_aggregate_container_items=*/131072,
++                            /*maximum_nonbinary_bytes=*/kMaximumSerializedRequestBytes,
++                            /*maximum_binary_fields=*/0});
+ }
+ 
+ }  // namespace
+diff --git a/src/compiler/kernel_build_spec.cpp b/src/compiler/kernel_build_spec.cpp
+index d447ebf3ff87c531c4b6f5b1cad6bfab20d8a167..333e6156600edb106afa8d4683cdbe87c82cf4ff 100644
+--- a/src/compiler/kernel_build_spec.cpp
++++ b/src/compiler/kernel_build_spec.cpp
+@@ -14,9 +14,7 @@
+ #include <algorithm>
+ #include <charconv>
+ #include <cstdint>
+-#include <initializer_list>
+ #include <limits>
+-#include <map>
+ #include <msgpack.hpp>
+ #include <optional>
+ #include <string>
+@@ -25,13 +23,21 @@
+ #include <utility>
+ #include <vector>
+ 
++#include "canonical_msgpack.h"
+ #include "digest.h"
+ #include "pypto/core/error.h"
+ 
+ namespace pypto::compiler {
+ namespace {
+ 
+-using CanonicalPacker = msgpack::packer<msgpack::sbuffer>;
++using detail::CanonicalPacker;
++using detail::FinishBuffer;
++using detail::PackKey;
++using detail::PackText;
++using detail::ReadText;
++using detail::ReadUint32;
++using detail::ReadUint64;
++using detail::StrictMap;
+ 
+ constexpr std::string_view kKernelBuildSpecContract = "pypto.kernel_build_spec.v1";
+ constexpr size_t kMaximumSerializedBuildSpecBytes = 1024 * 1024;
+@@ -183,13 +189,6 @@ void ValidateParameterCategory(const std::vector<ScheduleParameter>& parameters,
+   }
+ }
+ 
+-void PackText(CanonicalPacker& packer, std::string_view value) {
+-  packer.pack_str(static_cast<uint32_t>(value.size()));
+-  packer.pack_str_body(value.data(), static_cast<uint32_t>(value.size()));
+-}
+-
+-void PackKey(CanonicalPacker& packer, std::string_view key) { PackText(packer, key); }
+-
+ void PackScheduleParameter(CanonicalPacker& packer, const ScheduleParameter& parameter) {
+   packer.pack_map(3);
+   PackKey(packer, "kind");
+@@ -254,63 +253,6 @@ void PackCatalogProvenance(CanonicalPacker& packer,
+   PackText(packer, catalog_provenance->GetScheduleDigest());
+ }
+ 
+-std::vector<uint8_t> FinishBuffer(const msgpack::sbuffer& buffer) {
+-  const auto* begin = reinterpret_cast<const uint8_t*>(buffer.data());
+-  return std::vector<uint8_t>(begin, begin + buffer.size());
+-}
+-
+-class StrictMap {
+- public:
+-  StrictMap(const msgpack::object& object, std::string context,
+-            std::initializer_list<std::string_view> allowed_fields)
+-      : context_(std::move(context)) {
+-    if (object.type != msgpack::type::MAP) throw ValueError(context_ + " must be a map");
+-    std::map<std::string, bool> allowed;
+-    for (std::string_view field : allowed_fields) allowed.emplace(field, true);
+-    for (uint32_t i = 0; i < object.via.map.size; ++i) {
+-      const auto& entry = object.via.map.ptr[i];
+-      if (entry.key.type != msgpack::type::STR) {
+-        throw ValueError(context_ + " field names must be strings");
+-      }
+-      std::string key(entry.key.via.str.ptr, entry.key.via.str.size);
+-      if (allowed.find(key) == allowed.end()) {
+-        throw ValueError(context_ + " contains unknown field '" + key + "'");
+-      }
+-      if (!fields_.emplace(std::move(key), &entry.val).second) {
+-        throw ValueError(context_ + " contains a duplicate field");
+-      }
+-    }
+-  }
+-
+-  [[nodiscard]] const msgpack::object& Get(const std::string& field) const {
+-    const auto iterator = fields_.find(field);
+-    if (iterator == fields_.end()) throw ValueError(context_ + " is missing required field '" + field + "'");
+-    return *iterator->second;
+-  }
+-
+- private:
+-  std::string context_;
+-  std::map<std::string, const msgpack::object*> fields_;
+-};
+-
+-std::string ReadText(const msgpack::object& object, const std::string& context) {
+-  if (object.type != msgpack::type::STR) throw ValueError(context + " must be a string");
+-  return std::string(object.via.str.ptr, object.via.str.size);
+-}
+-
+-uint64_t ReadUint64(const msgpack::object& object, const std::string& context) {
+-  if (object.type != msgpack::type::POSITIVE_INTEGER) {
+-    throw ValueError(context + " must be an unsigned integer");
+-  }
+-  return object.via.u64;
+-}
+-
+-uint32_t ReadUint32(const msgpack::object& object, const std::string& context) {
+-  const uint64_t value = ReadUint64(object, context);
+-  if (value > std::numeric_limits<uint32_t>::max()) throw ValueError(context + " exceeds uint32 range");
+-  return static_cast<uint32_t>(value);
+-}
+-
+ ScheduleValueKind ParseScheduleValueKind(const msgpack::object& object) {
+   const std::string value = ReadText(object, "resolved_schedule parameter kind");
+   if (value == "boolean") return ScheduleValueKind::Boolean;
+@@ -405,19 +347,14 @@ msgpack::object_handle UnpackOne(const std::vector<uint8_t>& data) {
+   if (data.size() > kMaximumSerializedBuildSpecBytes) {
+     throw ValueError("KernelBuildSpec payload exceeds the 1 MiB v1 limit");
+   }
+-  size_t offset = 0;
+-  const msgpack::unpack_limit limits(kMaximumScheduleParametersPerCategory, kMaximumMapItems,
+-                                     kMaximumStringBytes, 0, 0, kMaximumNestingDepth);
+-  msgpack::object_handle handle = [&]() {
+-    try {
+-      return msgpack::unpack(reinterpret_cast<const char*>(data.data()), data.size(), offset, nullptr,
+-                             nullptr, limits);
+-    } catch (const msgpack::unpack_error& error) {
+-      throw ValueError("malformed KernelBuildSpec MessagePack: " + std::string(error.what()));
+-    }
+-  }();
+-  if (offset != data.size()) throw ValueError("KernelBuildSpec payload contains trailing bytes");
+-  return handle;
++  return detail::UnpackOne(
++      data, "KernelBuildSpec", kMaximumSerializedBuildSpecBytes,
++      {kMaximumScheduleParametersPerCategory, kMaximumMapItems, kMaximumStringBytes,
++       /*maximum_binary_bytes=*/0, kMaximumNestingDepth,
++       /*maximum_total_objects=*/131072,
++       /*maximum_aggregate_container_items=*/131072,
++       /*maximum_nonbinary_bytes=*/kMaximumSerializedBuildSpecBytes,
++       /*maximum_binary_fields=*/0});
+ }
+ 
+ }  // namespace
+diff --git a/tests/ut/cpp/CMakeLists.txt b/tests/ut/cpp/CMakeLists.txt
+index f82528d8b255afcbcd7e1228bcde04e77fb9b27a..453b48d4a0ba030b0e6eaa0d5c26100cb0f23334 100644
+--- a/tests/ut/cpp/CMakeLists.txt
++++ b/tests/ut/cpp/CMakeLists.txt
+@@ -40,8 +40,32 @@ add_test(
+     COMMAND pypto_nvidia_target_info_test
+ )
+ 
++add_executable(pypto_canonical_msgpack_test
++    canonical_msgpack_test.cpp
++    ${CMAKE_SOURCE_DIR}/src/compiler/canonical_msgpack.cpp
++    ${CMAKE_SOURCE_DIR}/src/core/backtrace.cpp
++    ${CMAKE_SOURCE_DIR}/src/core/error.cpp
++)
++
++target_include_directories(pypto_canonical_msgpack_test PRIVATE
++    ${CMAKE_SOURCE_DIR}/include
++    ${CMAKE_SOURCE_DIR}/src/compiler
++    ${LIBBACKTRACE_INSTALL_DIR}/include
++)
++
++target_link_libraries(pypto_canonical_msgpack_test PRIVATE
++    libbacktrace
++    msgpackc-cxx
++)
++
++add_test(
++    NAME pypto_canonical_msgpack_test
++    COMMAND pypto_canonical_msgpack_test
++)
++
+ add_executable(pypto_nvidia_compile_request_test
+     nvidia_compile_request_test.cpp
++    ${CMAKE_SOURCE_DIR}/src/compiler/canonical_msgpack.cpp
+     ${CMAKE_SOURCE_DIR}/src/compiler/compile_request.cpp
+     ${CMAKE_SOURCE_DIR}/src/compiler/digest.cpp
+     ${CMAKE_SOURCE_DIR}/src/compiler/target_info.cpp
+@@ -66,6 +90,7 @@ add_test(
+ 
+ add_executable(pypto_nvidia_kernel_build_spec_test
+     nvidia_kernel_build_spec_test.cpp
++    ${CMAKE_SOURCE_DIR}/src/compiler/canonical_msgpack.cpp
+     ${CMAKE_SOURCE_DIR}/src/compiler/digest.cpp
+     ${CMAKE_SOURCE_DIR}/src/compiler/kernel_build_spec.cpp
+     ${CMAKE_SOURCE_DIR}/src/core/backtrace.cpp
+diff --git a/tests/ut/cpp/canonical_msgpack_test.cpp b/tests/ut/cpp/canonical_msgpack_test.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..e313ba9a90534ca30fa9a902b6eeb61adf6a31f5
+--- /dev/null
++++ b/tests/ut/cpp/canonical_msgpack_test.cpp
+@@ -0,0 +1,327 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#include <cstddef>
++#include <cstdint>
++#include <limits>
++#include <msgpack.hpp>
++#include <string>
++#include <string_view>
++#include <utility>
++#include <vector>
++
++#include "canonical_msgpack.h"
++#include "pypto/core/error.h"
++
++using pypto::ValueError;
++using pypto::compiler::detail::CanonicalPacker;
++using pypto::compiler::detail::FinishBuffer;
++using pypto::compiler::detail::PackBinary;
++using pypto::compiler::detail::PackText;
++using pypto::compiler::detail::ReadBinary;
++using pypto::compiler::detail::ReadBool;
++using pypto::compiler::detail::ReadInt;
++using pypto::compiler::detail::ReadInt64;
++using pypto::compiler::detail::ReadText;
++using pypto::compiler::detail::ReadUint32;
++using pypto::compiler::detail::ReadUint64;
++using pypto::compiler::detail::StrictMap;
++using pypto::compiler::detail::UnpackLimits;
++using pypto::compiler::detail::UnpackOne;
++
++#define REQUIRE(condition) \
++  do {                     \
++    if (!(condition)) {    \
++      return __LINE__;     \
++    }                      \
++  } while (false)
++
++namespace {
++
++constexpr size_t kPayloadLimit = 1024;
++constexpr UnpackLimits kLimits{/*maximum_array_items=*/2,
++                               /*maximum_map_items=*/2,
++                               /*maximum_string_bytes=*/2,
++                               /*maximum_binary_bytes=*/2,
++                               /*maximum_nesting_depth=*/2,
++                               /*maximum_total_objects=*/16,
++                               /*maximum_aggregate_container_items=*/8,
++                               /*maximum_nonbinary_bytes=*/kPayloadLimit,
++                               /*maximum_binary_fields=*/1};
++
++template <typename Function>
++bool Rejects(Function&& function) {
++  try {
++    std::forward<Function>(function)();
++  } catch (const ValueError&) {
++    return true;
++  }
++  return false;
++}
++
++template <typename PackFunction>
++std::vector<uint8_t> Pack(PackFunction&& function) {
++  msgpack::sbuffer buffer;
++  CanonicalPacker packer(buffer);
++  std::forward<PackFunction>(function)(packer);
++  return FinishBuffer(buffer);
++}
++
++bool UnpackRejects(const std::vector<uint8_t>& data, size_t payload_limit = kPayloadLimit,
++                   UnpackLimits limits = kLimits) {
++  return Rejects([&]() { (void)UnpackOne(data, "test contract", payload_limit, limits); });
++}
++
++int TestPackingAndTypedReaders() {
++  msgpack::sbuffer empty_buffer;
++  REQUIRE(FinishBuffer(empty_buffer).empty());
++
++  const auto text =
++      Pack([](CanonicalPacker& packer) { PackText(packer, std::string_view("a\0", 2)); });
++  auto text_object = UnpackOne(text, "test contract", kPayloadLimit, kLimits);
++  REQUIRE(ReadText(text_object.get(), "text") == std::string("a\0", 2));
++  REQUIRE(Rejects([&]() { (void)ReadBinary(text_object.get(), "text"); }));
++
++  const std::vector<uint8_t> binary = {0x00, 0xff};
++  const auto binary_bytes = Pack([&](CanonicalPacker& packer) { PackBinary(packer, binary); });
++  auto binary_object = UnpackOne(binary_bytes, "test contract", kPayloadLimit, kLimits);
++  REQUIRE(ReadBinary(binary_object.get(), "binary") == binary);
++  REQUIRE(Rejects([&]() { (void)ReadText(binary_object.get(), "binary"); }));
++
++  const auto empty_binary = Pack([](CanonicalPacker& packer) { PackBinary(packer, {}); });
++  auto empty_binary_object = UnpackOne(empty_binary, "test contract", kPayloadLimit, kLimits);
++  REQUIRE(ReadBinary(empty_binary_object.get(), "binary").empty());
++
++  const auto boolean = Pack([](CanonicalPacker& packer) { packer.pack(true); });
++  auto boolean_object = UnpackOne(boolean, "test contract", kPayloadLimit, kLimits);
++  REQUIRE(ReadBool(boolean_object.get(), "boolean"));
++  REQUIRE(Rejects([&]() { (void)ReadUint64(boolean_object.get(), "boolean"); }));
++  return 0;
++}
++
++int TestIntegerReaders() {
++  const auto maximum_unsigned =
++      Pack([](CanonicalPacker& packer) { packer.pack(std::numeric_limits<uint64_t>::max()); });
++  auto maximum_unsigned_object =
++      UnpackOne(maximum_unsigned, "test contract", kPayloadLimit, kLimits);
++  REQUIRE(ReadUint64(maximum_unsigned_object.get(), "uint64") ==
++          std::numeric_limits<uint64_t>::max());
++  REQUIRE(Rejects([&]() { (void)ReadUint32(maximum_unsigned_object.get(), "uint32"); }));
++  REQUIRE(Rejects([&]() { (void)ReadInt64(maximum_unsigned_object.get(), "int64"); }));
++
++  const auto maximum_signed =
++      Pack([](CanonicalPacker& packer) { packer.pack(std::numeric_limits<int64_t>::max()); });
++  auto maximum_signed_object = UnpackOne(maximum_signed, "test contract", kPayloadLimit, kLimits);
++  REQUIRE(ReadInt64(maximum_signed_object.get(), "int64") == std::numeric_limits<int64_t>::max());
++  REQUIRE(Rejects([&]() { (void)ReadInt(maximum_signed_object.get(), "int"); }));
++
++  const auto minimum_signed =
++      Pack([](CanonicalPacker& packer) { packer.pack(std::numeric_limits<int64_t>::min()); });
++  auto minimum_signed_object = UnpackOne(minimum_signed, "test contract", kPayloadLimit, kLimits);
++  REQUIRE(ReadInt64(minimum_signed_object.get(), "int64") == std::numeric_limits<int64_t>::min());
++  REQUIRE(Rejects([&]() { (void)ReadUint64(minimum_signed_object.get(), "uint64"); }));
++  REQUIRE(Rejects([&]() { (void)ReadInt(minimum_signed_object.get(), "int"); }));
++  return 0;
++}
++
++int TestStrictMap() {
++  const auto valid = Pack([](CanonicalPacker& packer) {
++    packer.pack_map(2);
++    PackText(packer, "a");
++    packer.pack(1);
++    PackText(packer, "b");
++    packer.pack(2);
++  });
++  auto valid_object = UnpackOne(valid, "test contract", kPayloadLimit, kLimits);
++  StrictMap fields(valid_object.get(), "root", {"a", "b"});
++  REQUIRE(ReadUint64(fields.Get("a"), "root.a") == 1);
++  REQUIRE(Rejects([&]() { (void)fields.Get("missing"); }));
++
++  const auto duplicate = Pack([](CanonicalPacker& packer) {
++    packer.pack_map(2);
++    PackText(packer, "a");
++    packer.pack(1);
++    PackText(packer, "a");
++    packer.pack(2);
++  });
++  auto duplicate_object = UnpackOne(duplicate, "test contract", kPayloadLimit, kLimits);
++  REQUIRE(Rejects([&]() { (void)StrictMap(duplicate_object.get(), "root", {"a"}); }));
++
++  const auto unknown = Pack([](CanonicalPacker& packer) {
++    packer.pack_map(1);
++    PackText(packer, "x");
++    packer.pack(1);
++  });
++  auto unknown_object = UnpackOne(unknown, "test contract", kPayloadLimit, kLimits);
++  REQUIRE(Rejects([&]() { (void)StrictMap(unknown_object.get(), "root", {"a"}); }));
++  return 0;
++}
++
++int TestUnpackBounds() {
++  const auto nil = Pack([](CanonicalPacker& packer) { packer.pack_nil(); });
++  REQUIRE(!UnpackRejects(nil, nil.size()));
++  REQUIRE(UnpackRejects(nil, nil.size() - 1));
++  REQUIRE(UnpackRejects({}));
++
++  for (uint32_t count = 1; count <= 3; ++count) {
++    const auto array = Pack([&](CanonicalPacker& packer) {
++      packer.pack_array(count);
++      for (uint32_t index = 0; index < count; ++index) packer.pack(index);
++    });
++    REQUIRE(UnpackRejects(array) == (count > kLimits.maximum_array_items));
++
++    const auto map = Pack([&](CanonicalPacker& packer) {
++      packer.pack_map(count);
++      for (uint32_t index = 0; index < count; ++index) {
++        PackText(packer, std::to_string(index));
++        packer.pack(index);
++      }
++    });
++    REQUIRE(UnpackRejects(map) == (count > kLimits.maximum_map_items));
++
++    const auto string = Pack([&](CanonicalPacker& packer) { PackText(packer, std::string(count, 'x')); });
++    REQUIRE(UnpackRejects(string) == (count > kLimits.maximum_string_bytes));
++
++    const auto binary = Pack([&](CanonicalPacker& packer) {
++      PackBinary(packer, std::vector<uint8_t>(count, 0xab));
++    });
++    REQUIRE(UnpackRejects(binary) == (count > kLimits.maximum_binary_bytes));
++  }
++
++  const auto depth_two = Pack([](CanonicalPacker& packer) {
++    packer.pack_array(1);
++    packer.pack_array(1);
++    packer.pack(0);
++  });
++  REQUIRE(!UnpackRejects(depth_two));
++  const auto depth_three = Pack([](CanonicalPacker& packer) {
++    packer.pack_array(1);
++    packer.pack_array(1);
++    packer.pack_array(1);
++    packer.pack(0);
++  });
++  REQUIRE(UnpackRejects(depth_three));
++
++  auto trailing = nil;
++  trailing.push_back(0);
++  REQUIRE(UnpackRejects(trailing));
++  auto truncated = Pack([](CanonicalPacker& packer) { PackText(packer, "xy"); });
++  truncated.pop_back();
++  REQUIRE(UnpackRejects(truncated));
++
++  const std::vector<uint8_t> oversized_string_header = {0xdb, 0x7f, 0xff, 0xff, 0xff};
++  REQUIRE(UnpackRejects(oversized_string_header));
++  const std::vector<uint8_t> oversized_binary_header = {0xc6, 0x7f, 0xff, 0xff, 0xff};
++  REQUIRE(UnpackRejects(oversized_binary_header));
++
++  const auto extension = Pack([](CanonicalPacker& packer) {
++    const char value = 'x';
++    packer.pack_ext(1, 1);
++    packer.pack_ext_body(&value, 1);
++  });
++  REQUIRE(UnpackRejects(extension));
++  const std::vector<uint8_t> oversized_extension_header = {0xc9, 0xff, 0xff, 0xff, 0xff};
++  REQUIRE(UnpackRejects(oversized_extension_header));
++
++  const auto float32 = Pack([](CanonicalPacker& packer) { packer.pack(1.0F); });
++  REQUIRE(UnpackRejects(float32));
++  const auto float64 = Pack([](CanonicalPacker& packer) { packer.pack(1.0); });
++  REQUIRE(UnpackRejects(float64));
++
++  auto object_limited = kLimits;
++  object_limited.maximum_total_objects = 2;
++  const auto three_objects = Pack([](CanonicalPacker& packer) {
++    packer.pack_array(2);
++    packer.pack(0);
++    packer.pack(1);
++  });
++  REQUIRE(UnpackRejects(three_objects, kPayloadLimit, object_limited));
++  object_limited.maximum_total_objects = 3;
++  REQUIRE(!UnpackRejects(three_objects, kPayloadLimit, object_limited));
++
++  auto aggregate_limited = kLimits;
++  aggregate_limited.maximum_aggregate_container_items = 1;
++  REQUIRE(UnpackRejects(three_objects, kPayloadLimit, aggregate_limited));
++  aggregate_limited.maximum_aggregate_container_items = 2;
++  REQUIRE(!UnpackRejects(three_objects, kPayloadLimit, aggregate_limited));
++
++  const auto one_pair_map = Pack([](CanonicalPacker& packer) {
++    packer.pack_map(1);
++    PackText(packer, "a");
++    packer.pack(1);
++  });
++  aggregate_limited.maximum_aggregate_container_items = 1;
++  REQUIRE(UnpackRejects(one_pair_map, kPayloadLimit, aggregate_limited));
++  aggregate_limited.maximum_aggregate_container_items = 2;
++  REQUIRE(!UnpackRejects(one_pair_map, kPayloadLimit, aggregate_limited));
++
++  auto nonbinary_limited = kLimits;
++  nonbinary_limited.maximum_nonbinary_bytes = nil.size() - 1;
++  REQUIRE(UnpackRejects(nil, kPayloadLimit, nonbinary_limited));
++  nonbinary_limited.maximum_nonbinary_bytes = nil.size();
++  REQUIRE(!UnpackRejects(nil, kPayloadLimit, nonbinary_limited));
++
++  const auto one_byte_binary = Pack([](CanonicalPacker& packer) { PackBinary(packer, {0xab}); });
++  nonbinary_limited.maximum_nonbinary_bytes = one_byte_binary.size() - 1;
++  REQUIRE(!UnpackRejects(one_byte_binary, kPayloadLimit, nonbinary_limited));
++  --nonbinary_limited.maximum_nonbinary_bytes;
++  REQUIRE(UnpackRejects(one_byte_binary, kPayloadLimit, nonbinary_limited));
++
++  auto binary_with_trailing = one_byte_binary;
++  binary_with_trailing.push_back(0xc0);
++  REQUIRE(UnpackRejects(binary_with_trailing));
++
++  const auto two_binary_fields = Pack([](CanonicalPacker& packer) {
++    packer.pack_array(2);
++    PackBinary(packer, {});
++    PackBinary(packer, {});
++  });
++  REQUIRE(UnpackRejects(two_binary_fields));
++
++  auto zero_limited = kLimits;
++  zero_limited.maximum_total_objects = 0;
++  REQUIRE(UnpackRejects(nil, kPayloadLimit, zero_limited));
++  zero_limited = kLimits;
++  zero_limited.maximum_nesting_depth = 0;
++  REQUIRE(UnpackRejects(three_objects, kPayloadLimit, zero_limited));
++  zero_limited = kLimits;
++  zero_limited.maximum_binary_fields = 0;
++  REQUIRE(UnpackRejects(one_byte_binary, kPayloadLimit, zero_limited));
++
++  auto unbounded = kLimits;
++  unbounded.maximum_total_objects = std::numeric_limits<size_t>::max();
++  REQUIRE(UnpackRejects(nil, kPayloadLimit, unbounded));
++  unbounded = kLimits;
++  unbounded.maximum_aggregate_container_items = std::numeric_limits<size_t>::max();
++  REQUIRE(UnpackRejects(nil, kPayloadLimit, unbounded));
++  unbounded = kLimits;
++  unbounded.maximum_nonbinary_bytes = std::numeric_limits<size_t>::max();
++  REQUIRE(UnpackRejects(nil, kPayloadLimit, unbounded));
++  unbounded = kLimits;
++  unbounded.maximum_nesting_depth = std::numeric_limits<size_t>::max();
++  REQUIRE(UnpackRejects(nil, kPayloadLimit, unbounded));
++  unbounded = kLimits;
++  unbounded.maximum_binary_fields = std::numeric_limits<size_t>::max();
++  REQUIRE(UnpackRejects(nil, kPayloadLimit, unbounded));
++  return 0;
++}
++
++}  // namespace
++
++int main() {
++  int result = TestPackingAndTypedReaders();
++  if (result != 0) return result;
++  result = TestIntegerReaders();
++  if (result != 0) return result;
++  result = TestStrictMap();
++  if (result != 0) return result;
++  return TestUnpackBounds();
++}

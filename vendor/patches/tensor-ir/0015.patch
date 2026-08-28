@@ -1,0 +1,241 @@
+From 0a1f76362e1f673d34fa5a63c254279c0b88b5fd Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 03:54:29 +0800
+Subject: [PATCH 15/82] Bound strict CUDA Tile compiler subprocesses
+
+---
+ lib/Compiler/CudaTile/CudaTileCompiler.cpp |   7 +
+ lib/Compiler/CudaTile/TileIRAssembly.cpp   | 170 +++++++++++++++++++++
+ 2 files changed, 177 insertions(+)
+
+diff --git a/lib/Compiler/CudaTile/CudaTileCompiler.cpp b/lib/Compiler/CudaTile/CudaTileCompiler.cpp
+index 1c81f5f15e6a7ef5930979fc0bf0660aa782e67d..da85bc1323b1ebe0e9a74a527c0f6f54df88b9a8 100644
+--- a/lib/Compiler/CudaTile/CudaTileCompiler.cpp
++++ b/lib/Compiler/CudaTile/CudaTileCompiler.cpp
+@@ -23,6 +23,7 @@
+ #include "llvm/Support/raw_ostream.h"
+ 
+ #include "cuda_tile/Bytecode/Writer/BytecodeWriter.h"
++#include "mlir/IR/Diagnostics.h"
+ #include "mlir/Parser/Parser.h"
+ #include <cstdlib>
+ #include <memory>
+@@ -287,6 +288,12 @@ StatusOr<CudaTileCompiledArtifact> CudaTileCompiler::compileToArtifact(
+   mlir::MLIRContext context(registry);
+   context.loadAllAvailableDialects();
+ 
++  std::unique_ptr<mlir::ScopedDiagnosticHandler> diagnosticHandler;
++  if (!options.allowEnvironmentOverrides) {
++    diagnosticHandler = std::make_unique<mlir::ScopedDiagnosticHandler>(
++        &context, [](mlir::Diagnostic &) {});
++  }
++
+   mlir::ParserConfig parserConfig(&context);
+   auto module = mlir::parseSourceString<mlir::ModuleOp>(source, parserConfig);
+   if (!module) {
+diff --git a/lib/Compiler/CudaTile/TileIRAssembly.cpp b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+index 64fac025020018827ae8141458ea65f2d6b854db..d65ab05c7da39d2fc019d6015888c79db266184e 100644
+--- a/lib/Compiler/CudaTile/TileIRAssembly.cpp
++++ b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+@@ -14,10 +14,25 @@
+ #include "llvm/Support/raw_ostream.h"
+ 
+ #include <algorithm>
++#if defined(__linux__)
++#include <cerrno>
++#include <chrono>
++#include <csignal>
++#include <cstring>
++#include <fcntl.h>
++#endif
+ #include <memory>
+ #include <optional>
+ #include <string>
++#if defined(__linux__)
++#include <sys/resource.h>
++#include <sys/syscall.h>
++#include <sys/wait.h>
++#include <thread>
++#include <unistd.h>
++#endif
+ #include <utility>
++#include <vector>
+ 
+ namespace mlir::nv_tensor_ir::backend::cuda_tile {
+ namespace {
+@@ -42,6 +57,153 @@ constexpr unsigned kMetadataCommandTimeoutSeconds = 30;
+ constexpr unsigned kCompileCommandTimeoutSeconds = 300;
+ constexpr unsigned kAssemblerMemoryLimitMiB = 4096;
+ 
++ProcessResult runProgramWithFileLimit(
++    llvm::StringRef program, llvm::ArrayRef<llvm::StringRef> args,
++    llvm::StringRef stdoutPath, llvm::StringRef stderrPath,
++    llvm::ArrayRef<llvm::StringRef> environment, unsigned timeoutSeconds) {
++#if defined(__linux__)
++  std::vector<std::string> argumentStorage;
++  argumentStorage.reserve(args.size());
++  for (llvm::StringRef argument : args) {
++    argumentStorage.push_back(argument.str());
++  }
++  std::vector<char *> argumentPointers;
++  argumentPointers.reserve(argumentStorage.size() + 1);
++  for (std::string &argument : argumentStorage) {
++    argumentPointers.push_back(argument.data());
++  }
++  argumentPointers.push_back(nullptr);
++
++  std::vector<std::string> environmentStorage;
++  environmentStorage.reserve(environment.size());
++  for (llvm::StringRef entry : environment) {
++    environmentStorage.push_back(entry.str());
++  }
++  std::vector<char *> environmentPointers;
++  environmentPointers.reserve(environmentStorage.size() + 1);
++  for (std::string &entry : environmentStorage) {
++    environmentPointers.push_back(entry.data());
++  }
++  environmentPointers.push_back(nullptr);
++
++  const std::string programPath = program.str();
++  const std::string stdoutFile = stdoutPath.str();
++  const std::string stderrFile = stderrPath.str();
++  int stdoutFd = ::open(stdoutFile.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
++  if (stdoutFd < 0) {
++    return {-1, "failed to open bounded child stdout: " +
++                    std::string(std::strerror(errno))};
++  }
++  int stderrFd = ::open(stderrFile.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
++  if (stderrFd < 0) {
++    int savedErrno = errno;
++    (void)::close(stdoutFd);
++    return {-1, "failed to open bounded child stderr: " +
++                    std::string(std::strerror(savedErrno))};
++  }
++  int stdinFd = ::open("/dev/null", O_RDONLY);
++  if (stdinFd < 0) {
++    int savedErrno = errno;
++    (void)::close(stdoutFd);
++    (void)::close(stderrFd);
++    return {-1, "failed to open child stdin: " +
++                    std::string(std::strerror(savedErrno))};
++  }
++  pid_t child = ::fork();
++  if (child == -1) {
++    int savedErrno = errno;
++    (void)::close(stdinFd);
++    (void)::close(stdoutFd);
++    (void)::close(stderrFd);
++    return {-1, "failed to fork bounded tileiras child: " +
++                    std::string(std::strerror(savedErrno))};
++  }
++  if (child == 0) {
++    (void)::setpgid(0, 0);
++    if (::dup2(stdinFd, STDIN_FILENO) == -1 ||
++        ::dup2(stdoutFd, STDOUT_FILENO) == -1 ||
++        ::dup2(stderrFd, STDERR_FILENO) == -1) {
++      _exit(126);
++    }
++    (void)::close(stdinFd);
++    (void)::close(stdoutFd);
++    (void)::close(stderrFd);
++
++#if defined(SYS_close_range)
++    if (::syscall(SYS_close_range, 3U, ~0U, 0U) != 0) {
++      _exit(125);
++    }
++#else
++    _exit(125);
++#endif
++
++    const rlim_t memoryBytes =
++        static_cast<rlim_t>(kAssemblerMemoryLimitMiB) * 1024U * 1024U;
++    const struct rlimit memoryLimit = {memoryBytes, memoryBytes};
++    const rlim_t fileBytes = static_cast<rlim_t>(kMaximumCubinBytes);
++    const struct rlimit fileLimit = {fileBytes, fileBytes};
++    if (::setrlimit(RLIMIT_AS, &memoryLimit) != 0 ||
++        ::setrlimit(RLIMIT_FSIZE, &fileLimit) != 0) {
++      _exit(126);
++    }
++    ::execve(programPath.c_str(), argumentPointers.data(),
++             environmentPointers.data());
++    _exit(127);
++  }
++
++  (void)::close(stdinFd);
++  (void)::close(stdoutFd);
++  (void)::close(stderrFd);
++  (void)::setpgid(child, child);
++
++  const auto deadline = std::chrono::steady_clock::now() +
++                        std::chrono::seconds(timeoutSeconds);
++  int status = 0;
++  while (true) {
++    pid_t waited = ::waitpid(child, &status, WNOHANG);
++    if (waited == child) break;
++    if (waited == -1) {
++      if (errno == EINTR) continue;
++      int savedErrno = errno;
++      if (savedErrno == ECHILD) {
++        return {-1, "bounded tileiras child was reaped by another handler"};
++      }
++      (void)::kill(-child, SIGKILL);
++      (void)::kill(child, SIGKILL);
++      while (::waitpid(child, &status, 0) == -1 && errno == EINTR) {
++      }
++      return {-1, "failed to wait for bounded tileiras child: " +
++                      std::string(std::strerror(savedErrno))};
++    }
++    if (std::chrono::steady_clock::now() >= deadline) {
++      (void)::kill(-child, SIGKILL);
++      (void)::kill(child, SIGKILL);
++      while (::waitpid(child, &status, 0) == -1 && errno == EINTR) {
++      }
++      return {-2, "tileiras child exceeded the bounded timeout"};
++    }
++    std::this_thread::sleep_for(std::chrono::milliseconds(10));
++  }
++  if (WIFEXITED(status)) {
++    return {WEXITSTATUS(status), {}};
++  }
++  if (WIFSIGNALED(status)) {
++    return {128 + WTERMSIG(status),
++            "tileiras child terminated by signal " +
++                std::to_string(WTERMSIG(status))};
++  }
++  return {-1, "tileiras child ended with an unknown process status"};
++#else
++  (void)program;
++  (void)args;
++  (void)stdoutPath;
++  (void)stderrPath;
++  (void)environment;
++  (void)timeoutSeconds;
++  return {-1, "strict bounded tileiras execution requires Linux"};
++#endif
++}
++
+ StatusOr<TemporaryFile> createTemporaryFile(llvm::StringRef suffix) {
+   llvm::SmallString<128> path;
+   if (std::error_code error =
+@@ -97,6 +259,10 @@ ProcessResult runProgram(llvm::StringRef program,
+     }
+     environmentRef = llvm::ArrayRef<llvm::StringRef>(environment);
+   }
++  if (environmentRef) {
++    return runProgramWithFileLimit(program, args, stdoutPath, stderrPath,
++                                   *environmentRef, timeoutSeconds);
++  }
+   ProcessResult result{};
+   result.exitCode = llvm::sys::ExecuteAndWait(
+       program, args, environmentRef, redirects, timeoutSeconds,
+@@ -212,6 +378,10 @@ assembleWithExecutable(llvm::ArrayRef<char> bytecode, SmTarget target,
+                        llvm::StringRef assemblerPath,
+                        llvm::StringRef assemblerVersion,
+                        llvm::StringRef assemblerSha256) {
++  if (bytecode.empty() || bytecode.size() > kMaximumCubinBytes) {
++    return Status::CompilationError(
++        "TileIR assembler input must contain at most 64 MiB");
++  }
+   std::string programStorage;
+   if (assemblerPath.empty()) {
+     auto program = llvm::sys::findProgramByName("tileiras");

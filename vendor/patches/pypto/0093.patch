@@ -1,0 +1,294 @@
+From 5863644501e402f7a99db807ef123ac968712b32 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 22:03:27 +0800
+Subject: [PATCH 093/212] Lower native tile linear projections
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp     | 197 +++++++++++++++++++
+ tests/ut/compiler/test_structured_compile.py |  44 +++++
+ 2 files changed, 241 insertions(+)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 7eb606d2e9612fe1d54b7bef47391d743ae3f371..59c7687c9549f0fbbbc6e0173de3f372133001db 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -1643,6 +1643,185 @@ struct NativeTileGdnUpdateGraph {
+   StaticTensor result;
+ };
+ 
++bool IsNativeTileMatmulCandidate(const ir::ProgramPtr& program) {
++  if (!IsNativeTilePointwiseCandidate(program)) return false;
++  const ir::FunctionPtr& function = program->functions_.begin()->second;
++  if (function->params_.size() != 3) return false;
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = ir::As<ir::InCoreScopeStmt>(top->stmts_[0]);
++  const TileLoopNest loop_nest = UnwrapStaticTileLoops(scope->body_);
++  if (!loop_nest.leaf || loop_nest.leaf->stmts_.size() != 6) return false;
++  const auto assignment = ir::As<ir::AssignStmt>(loop_nest.leaf->stmts_[3]);
++  const auto call = assignment ? ir::As<ir::Call>(assignment->value_) : nullptr;
++  return call && call->op_ && ir::IsOp(call, "tile.matmul");
++}
++
++StructuredMatmulGraph AnalyzeNativeTileMatmul(
++    const ir::ProgramPtr& program) {
++  const auto& [global, function] = *program->functions_.begin();
++  if (!global || !function || global->name_ != function->name_ ||
++      function->requires_runtime_binding_ ||
++      function->func_type_ != ir::FunctionType::Orchestration ||
++      !function->level_.has_value() || *function->level_ != ir::Level::CHIP ||
++      !function->role_.has_value() || *function->role_ != ir::Role::Orchestrator ||
++      !function->attrs_.empty()) {
++    Reject("native matmul must be one canonical CHIP @pl.jit function",
++           function ? &function->span_ : &program->span_);
++  }
++  if (function->params_.size() != 3 ||
++      function->param_directions_.size() != 3 ||
++      function->param_directions_[0] != ir::ParamDirection::In ||
++      function->param_directions_[1] != ir::ParamDirection::In ||
++      function->param_directions_[2] != ir::ParamDirection::Out ||
++      function->return_types_.size() != 1) {
++    Reject("native matmul requires two inputs and one output",
++           &function->span_);
++  }
++
++  const StaticTensor lhs = ReadStaticTensor(
++      function->params_[0]->GetType(), function->params_[0]->span_,
++      "native matmul activation");
++  const StaticTensor rhs = ReadStaticTensor(
++      function->params_[1]->GetType(), function->params_[1]->span_,
++      "native matmul weight");
++  const StaticTensor result = ReadStaticTensor(
++      function->params_[2]->GetType(), function->params_[2]->span_,
++      "native matmul output");
++  const StaticTensor declared = ReadStaticTensor(
++      function->return_types_[0], function->span_, "native matmul return");
++  if (lhs.dtype != DataType::BF16 || rhs.dtype != DataType::BF16 ||
++      result.dtype != DataType::BF16 || lhs.shape.size() != 2 ||
++      rhs.shape.size() != 2 || result.shape.size() != 2 ||
++      lhs.shape[1] != rhs.shape[1] || result.shape[0] != lhs.shape[0] ||
++      result.shape[1] != rhs.shape[0] || !SameTensor(result, declared) ||
++      lhs.shape[1] % 128 != 0 || rhs.shape[0] % 128 != 0) {
++    Reject("native matmul activation/weight/output shapes are incompatible",
++           &function->span_);
++  }
++  ValidateStructuredMatmulConceptualWork(
++      /*batch=*/1, lhs.shape[0], rhs.shape[0], lhs.shape[1], function->span_);
++
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  if (!top || top->stmts_.size() != 2 || !top->stmts_[0] ||
++      !top->stmts_[1]) {
++    Reject("native matmul body must contain one pl.at scope and one return",
++           &function->span_);
++  }
++  const auto scope = ir::As<ir::InCoreScopeStmt>(top->stmts_[0]);
++  const auto returned = ir::As<ir::ReturnStmt>(top->stmts_[1]);
++  const auto returned_var =
++      returned && returned->value_.size() == 1
++          ? ir::As<ir::Var>(returned->value_[0])
++          : nullptr;
++  if (!scope || scope->split_ != ir::SplitMode::None ||
++      !scope->attrs_.empty() || !returned_var ||
++      returned_var.get() != function->params_[2].get()) {
++    Reject("native matmul scope or return is invalid", &function->span_);
++  }
++
++  const TileLoopNest loop_nest = UnwrapStaticTileLoops(scope->body_);
++  const uint64_t expected_tiles =
++      static_cast<uint64_t>(lhs.shape[0]) *
++      static_cast<uint64_t>(rhs.shape[0] / 128);
++  if (loop_nest.repetitions != expected_tiles || !loop_nest.leaf ||
++      loop_nest.leaf->stmts_.size() != 6) {
++    Reject("native matmul loop nest must cover every [1,128] output tile once",
++           &scope->span_);
++  }
++  constexpr std::array<std::string_view, 5> kOps = {
++      "tile.load", "tile.load", "tile.transpose_view", "tile.matmul",
++      "tile.cast"};
++  std::array<ir::AssignStmtPtr, 5> assignments;
++  std::array<ir::CallPtr, 5> calls;
++  for (size_t index = 0; index < assignments.size(); ++index) {
++    assignments[index] =
++        ir::As<ir::AssignStmt>(loop_nest.leaf->stmts_[index]);
++    calls[index] = assignments[index]
++                       ? ir::As<ir::Call>(assignments[index]->value_)
++                       : nullptr;
++    if (!assignments[index] || !assignments[index]->var_ || !calls[index] ||
++        !calls[index]->op_ ||
++        !ir::IsOp(calls[index], std::string(kOps[index]))) {
++      Reject("native matmul tile operation sequence is invalid",
++             &loop_nest.leaf->stmts_[index]->span_);
++    }
++  }
++  const auto x_source = calls[0]->args_.empty()
++                            ? nullptr
++                            : ir::As<ir::Var>(calls[0]->args_[0]);
++  const auto weight_source = calls[1]->args_.empty()
++                                 ? nullptr
++                                 : ir::As<ir::Var>(calls[1]->args_[0]);
++  const auto transpose_source = calls[2]->args_.empty()
++                                    ? nullptr
++                                    : ir::As<ir::Var>(calls[2]->args_[0]);
++  const auto matmul_lhs = calls[3]->args_.size() == 2
++                              ? ir::As<ir::Var>(calls[3]->args_[0])
++                              : nullptr;
++  const auto matmul_rhs = calls[3]->args_.size() == 2
++                              ? ir::As<ir::Var>(calls[3]->args_[1])
++                              : nullptr;
++  const auto cast_source = calls[4]->args_.empty()
++                               ? nullptr
++                               : ir::As<ir::Var>(calls[4]->args_[0]);
++  if (!x_source || x_source.get() != function->params_[0].get() ||
++      !weight_source || weight_source.get() != function->params_[1].get() ||
++      !transpose_source ||
++      transpose_source.get() != assignments[1]->var_.get() || !matmul_lhs ||
++      matmul_lhs.get() != assignments[0]->var_.get() || !matmul_rhs ||
++      matmul_rhs.get() != assignments[2]->var_.get() || !cast_source ||
++      cast_source.get() != assignments[3]->var_.get()) {
++    Reject("native matmul tile SSA dataflow is invalid", &scope->span_);
++  }
++
++  const StaticTensor x_tile = ReadStaticTile(
++      assignments[0]->var_->GetType(), assignments[0]->span_,
++      "native matmul activation tile");
++  const StaticTensor weight_tile = ReadStaticTile(
++      assignments[1]->var_->GetType(), assignments[1]->span_,
++      "native matmul weight tile");
++  const StaticTensor weight_transposed = ReadStaticTile(
++      assignments[2]->var_->GetType(), assignments[2]->span_,
++      "native matmul transposed weight tile");
++  const StaticTensor accumulation = ReadStaticTile(
++      assignments[3]->var_->GetType(), assignments[3]->span_,
++      "native matmul accumulation tile");
++  const StaticTensor output_tile = ReadStaticTile(
++      assignments[4]->var_->GetType(), assignments[4]->span_,
++      "native matmul output tile");
++  if (x_tile.dtype != DataType::BF16 ||
++      x_tile.shape != std::vector<int64_t>({1, lhs.shape[1]}) ||
++      weight_tile.dtype != DataType::BF16 ||
++      weight_tile.shape != std::vector<int64_t>({128, lhs.shape[1]}) ||
++      weight_transposed.dtype != DataType::BF16 ||
++      weight_transposed.shape != std::vector<int64_t>({lhs.shape[1], 128}) ||
++      accumulation.dtype != DataType::FP32 ||
++      accumulation.shape != std::vector<int64_t>({1, 128}) ||
++      output_tile.dtype != DataType::BF16 ||
++      output_tile.shape != std::vector<int64_t>({1, 128})) {
++    Reject("native matmul tile shapes or dtypes are invalid", &scope->span_);
++  }
++
++  const auto store = ir::As<ir::EvalStmt>(loop_nest.leaf->stmts_.back());
++  const auto store_call = store ? ir::As<ir::Call>(store->expr_) : nullptr;
++  const auto stored_tile =
++      store_call && store_call->args_.size() == 3
++          ? ir::As<ir::Var>(store_call->args_[0])
++          : nullptr;
++  const auto store_target =
++      store_call && store_call->args_.size() == 3
++          ? ir::As<ir::Var>(store_call->args_[2])
++          : nullptr;
++  if (!store_call || !ir::IsOp(store_call, "tile.store") || !stored_tile ||
++      stored_tile.get() != assignments[4]->var_.get() || !store_target ||
++      store_target.get() != function->params_[2].get()) {
++    Reject("native matmul must end in tile.store to the output",
++           &loop_nest.leaf->stmts_.back()->span_);
++  }
++  return StructuredMatmulGraph{lhs, rhs, result, /*a_trans=*/false,
++                               /*b_trans=*/true, lhs.shape[1]};
++}
++
+ bool IsNativeTileGdnUpdateCandidate(const ir::ProgramPtr& program) {
+   if (!IsNativeTilePointwiseCandidate(program)) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+@@ -3613,6 +3792,24 @@ TensorIrModule EmitLegacyStaticAddV1(const ir::ProgramPtr& program) {
+ }  // namespace detail
+ 
+ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
++  if (IsNativeTileMatmulCandidate(program)) {
++    const StructuredMatmulGraph graph = AnalyzeNativeTileMatmul(program);
++    std::vector<TensorIrValueMetadata> metadata;
++    metadata.reserve(3);
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Input, 0, graph.lhs.dtype, graph.lhs.shape,
++        graph.lhs.dense_strides, /*has_explicit_strides=*/true));
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Input, 1, graph.rhs.dtype, graph.rhs.shape,
++        graph.rhs.dense_strides, /*has_explicit_strides=*/true));
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
++        graph.result.dense_strides, /*has_explicit_strides=*/true));
++    return TensorIrModule(TensorIrModuleKind::StructuredMatmulV4,
++                          EmitStructuredMatmulSource(graph), std::move(metadata),
++                          /*input_count=*/2,
++                          /*contraction_extent=*/static_cast<uint64_t>(graph.k));
++  }
+   if (IsNativeTileGdnUpdateCandidate(program)) {
+     const NativeTileGdnUpdateGraph graph = AnalyzeNativeTileGdnUpdate(program);
+     std::vector<TensorIrValueMetadata> metadata;
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index 79cdb743b4de41b47ac0c3a17993d4a8122890aa..5ee2744d90563299b4d16fa5ab42ec54b883b6c8 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -149,6 +149,33 @@ def _native_tile_attention(
+     return out
+ 
+ 
++@pl.jit
++def _native_tile_linear(
++    x: pl.Tensor[[2, 128], pl.BF16],
++    weight: pl.Tensor[[256, 128], pl.BF16],
++    out: pl.Out[pl.Tensor[[2, 256], pl.BF16]],
++):
++    with pl.at(level=pl.Level.CORE_GROUP):
++        for row in pl.range(2):
++            for column_block in pl.range(2):
++                x_tile = pl.load(
++                    x, [row, 0], [1, 128], target_memory=pl.MemorySpace.Mat
++                )
++                weight_tile = pl.load(
++                    weight,
++                    [column_block * 128, 0],
++                    [128, 128],
++                    target_memory=pl.MemorySpace.Mat,
++                )
++                weight_transposed = pl.tile.transpose_view(weight_tile)
++                accumulation = pl.matmul(
++                    x_tile, weight_transposed, out_dtype=pl.FP32
++                )
++                result = pl.cast(accumulation, target_type=pl.BF16)
++                pl.store(result, [row, column_block * 128], out)
++    return out
++
++
+ def _program() -> ir.Program:
+     span = ir.Span("structured_compile_test.py", 1, 1)
+     tensor_type = ir.TensorType([8, 8], pypto.DataType.FP32)
+@@ -445,6 +472,22 @@ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+     ] == [[2, 128], [128, 128], [128, 128], [2, 128]]
+     assert not attention.artifact.fallback_used
+ 
++    linear = compile_structured_strict(
++        _native_tile_linear.specialize(), request, _schedule([1, 128])
++    )
++    linear_kernel = linear.artifact.kernel_abi
++    assert linear_kernel.entry_function_name == "pypto_structured_matmul_v4"
++    assert linear_kernel.grid_abi.static_dimensions == [4, 1, 1]
++    assert linear_kernel.grid_abi.tile_sizes == [1, 128]
++    assert linear_kernel.argument_layout.input_operand_count == 2
++    assert linear_kernel.argument_layout.total_kernel_argument_count == 3
++    assert [d.shape for d in linear_kernel.argument_layout.operand_descriptors] == [
++        [2, 128],
++        [256, 128],
++        [2, 256],
++    ]
++    assert not linear.artifact.fallback_used
++
+ 
+ def test_compile_structured_strict_functional() -> None:
+     info = get_nvidia_backend_build_info()
+@@ -461,6 +504,7 @@ def test_compile_structured_strict_functional() -> None:
+             _native_tile_rmsnorm.specialize(),
+             _native_tile_rope.specialize(),
+             _native_tile_attention.specialize(scale=0.08838834764831843),
++            _native_tile_linear.specialize(),
+             _row_reduction_program([32, 17], pypto.DataType.FP32, "tensor.row_sum"),
+         ):
+             with pytest.raises(ValueError, match="requires the compiled private NVIDIA backend"):

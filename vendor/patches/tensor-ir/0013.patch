@@ -1,0 +1,102 @@
+From 9e36b82173ae48a2501bc1848feae392dcce633b Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 02:57:27 +0800
+Subject: [PATCH 13/82] Expose CUDA Tile pipeline resource options
+
+---
+ .../Compiler/CudaTile/CudaTileCompiler.h      | 12 +++++++
+ lib/Compiler/CudaTile/CudaTileCompiler.cpp    | 36 +++++++++++++++++++
+ 2 files changed, 48 insertions(+)
+
+diff --git a/include/tensor_ir/Compiler/CudaTile/CudaTileCompiler.h b/include/tensor_ir/Compiler/CudaTile/CudaTileCompiler.h
+index 51a67cd44c647781e75dfce16263adc6fa117f9b..2e4773e1d1c14ca2dcadcff7fdfde2197c618df8 100644
+--- a/include/tensor_ir/Compiler/CudaTile/CudaTileCompiler.h
++++ b/include/tensor_ir/Compiler/CudaTile/CudaTileCompiler.h
+@@ -116,6 +116,18 @@ public:
+   int32_t ctaCount = 1;
+   int32_t warpCount = 4;
+ 
++  /// Occupancy hint in CTAs per SM for persistent scheduling.
++  int32_t occupancy = 1;
++
++  /// Explicit target SM count. Zero is valid only for non-persistent kernels.
++  int32_t smCount = 0;
++
++  /// Tile size for contracting/reduction dimensions.
++  int64_t reductionTileSize = kDefaultReductionTileSize;
++
++  /// Persistent scheduling policy.
++  PersistenceMode persistence = PersistenceMode::None;
++
+   /// Tile sizes per dimension (e.g. {128, 128} for a 2D tiling).
+   /// Required for dynamic shape support: these sizes are used to compute
+   /// grid dimensions at runtime and to build the kernel argument layout.
+diff --git a/lib/Compiler/CudaTile/CudaTileCompiler.cpp b/lib/Compiler/CudaTile/CudaTileCompiler.cpp
+index 43f5b1b06c4249ecbd86e6e2497397e07e2d0e6b..1cb80aaec29e18e8ab09da6b3f30dfacf06f1d79 100644
+--- a/lib/Compiler/CudaTile/CudaTileCompiler.cpp
++++ b/lib/Compiler/CudaTile/CudaTileCompiler.cpp
+@@ -116,7 +116,11 @@ static mlir::nv_tensor_ir::TensorToCudaTilePipelineOptions makePipelineOptions(
+   pipelineOptions.computeCapability =
+       cudaTileOptions.computeCapability.getComputeCapabilityVersion();
+   pipelineOptions.numCTAs = cudaTileOptions.ctaCount;
++  pipelineOptions.occupancy = cudaTileOptions.occupancy;
+   pipelineOptions.numWarps = cudaTileOptions.warpCount;
++  pipelineOptions.smCount = cudaTileOptions.smCount;
++  pipelineOptions.reductionTileSize = cudaTileOptions.reductionTileSize;
++  pipelineOptions.persistence = cudaTileOptions.persistence;
+   pipelineOptions.tileSize.assign(cudaTileOptions.tileSize.begin(),
+                                   cudaTileOptions.tileSize.end());
+   pipelineOptions.uniformSignature = cudaTileOptions.uniformSignature;
+@@ -401,6 +405,28 @@ Status CudaTileCompileOptions::validateDerived() const {
+   if (warpCount <= 0) {
+     return Status::InvalidArgument("Warp count must be greater than 0");
+   }
++  if (occupancy <= 0) {
++    return Status::InvalidArgument("Occupancy must be greater than 0");
++  }
++  if (smCount < 0) {
++    return Status::InvalidArgument("SM count must not be negative");
++  }
++  if (reductionTileSize <= 0) {
++    return Status::InvalidArgument(
++        "Reduction tile size must be greater than 0");
++  }
++  switch (persistence) {
++  case PersistenceMode::None:
++    break;
++  case PersistenceMode::Static:
++    if (smCount == 0) {
++      return Status::InvalidArgument(
++          "Static persistence requires an explicit SM count");
++    }
++    break;
++  default:
++    return Status::InvalidArgument("Unrecognized persistence mode");
++  }
+   if (maxTileCandidates < 0) {
+     return Status::InvalidArgument(
+         "Maximum tile candidate count must not be negative");
+@@ -463,6 +489,11 @@ std::string CudaTileCompileOptions::toStringDerived() const {
+   std::string s;
+   s += "\nCTA count: " + std::to_string(ctaCount);
+   s += "\nWarp count: " + std::to_string(warpCount);
++  s += "\nOccupancy: " + std::to_string(occupancy);
++  s += "\nSM count: " + std::to_string(smCount);
++  s += "\nReduction tile size: " + std::to_string(reductionTileSize);
++  s += "\nPersistence: " +
++       std::to_string(static_cast<int32_t>(persistence));
+   s += "\nUniform signature: " + std::to_string(uniformSignature);
+   s += "\nCodegen strategy: " + stringifyCodegenStrategy(codegenStrategy).str();
+   s += "\nMaximum tile candidates: " +
+@@ -497,6 +528,11 @@ std::string CudaTileCompileOptions::toStringDerived() const {
+ std::string CudaTileCompileOptions::toUniqueStringDerived() const {
+   std::string s = llvm::join_items("_", std::to_string(ctaCount),
+                                    std::to_string(warpCount));
++  s += "_occupancy_" + std::to_string(occupancy);
++  s += "_sms_" + std::to_string(smCount);
++  s += "_reduction_" + std::to_string(reductionTileSize);
++  s += "_persistence_" +
++       std::to_string(static_cast<int32_t>(persistence));
+   if (!tileSize.empty()) {
+     s += "_tile";
+     for (size_t i = 0; i < tileSize.size(); ++i) {

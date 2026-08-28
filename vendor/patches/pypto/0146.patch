@@ -1,0 +1,395 @@
+From 013ad3c89fc5975f49f805061cbb41a2ab09573e Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 05:35:07 +0800
+Subject: [PATCH 146/212] Add paged cache-write TensorIR emitter
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp     | 262 +++++++++++++++++++
+ tests/ut/compiler/test_structured_compile.py |  52 ++++
+ 2 files changed, 314 insertions(+)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 412ae9392f877b8bdd5734303c2639800e671423..106d9c0c579f785fced488e3c13861b7d830c630 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -25,6 +25,7 @@
+ #include <sstream>
+ #include <string>
+ #include <string_view>
++#include <tuple>
+ #include <unordered_map>
+ #include <unordered_set>
+ #include <utility>
+@@ -3824,6 +3825,15 @@ struct NativeTilePagedDecodeGraph {
+   double scale;
+ };
+ 
++struct NativeTilePagedCacheWriteGraph {
++  StaticTensor key_cache;
++  StaticTensor value_cache;
++  StaticTensor physical_row;
++  StaticTensor key;
++  StaticTensor value;
++  StaticTensor result;
++};
++
+ struct NativeTileGdnReadGraph {
+   StaticTensor query;
+   StaticTensor value;
+@@ -4273,6 +4283,171 @@ bool IsNativeTilePagedDecodeCandidate(const ir::ProgramPtr& program) {
+   return true;
+ }
+ 
++bool IsNativeTilePagedCacheWriteCandidate(const ir::ProgramPtr& program) {
++  if (!IsNativeTilePointwiseCandidate(program)) return false;
++  const ir::FunctionPtr& function = program->functions_.begin()->second;
++  if (function->params_.size() != 6) return false;
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = top && !top->stmts_.empty()
++                         ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
++                         : nullptr;
++  const auto body = scope ? ir::As<ir::SeqStmts>(scope->body_) : nullptr;
++  if (!body || body->stmts_.size() != 8) return false;
++  for (size_t index : {size_t{4}, size_t{5}, size_t{7}}) {
++    const auto eval = ir::As<ir::EvalStmt>(body->stmts_[index]);
++    const auto call = eval ? ir::As<ir::Call>(eval->expr_) : nullptr;
++    if (!call || !ir::IsOp(call, "tile.store")) return false;
++  }
++  return true;
++}
++
++NativeTilePagedCacheWriteGraph AnalyzeNativeTilePagedCacheWrite(
++    const ir::ProgramPtr& program) {
++  const auto& [global, function] = *program->functions_.begin();
++  if (!global || !function || global->name_ != function->name_ ||
++      function->requires_runtime_binding_ ||
++      function->func_type_ != ir::FunctionType::Orchestration ||
++      !function->level_.has_value() || *function->level_ != ir::Level::CHIP ||
++      !function->role_.has_value() ||
++      *function->role_ != ir::Role::Orchestrator || !function->attrs_.empty()) {
++    Reject("native paged cache write must be one canonical CHIP @pl.jit "
++           "function",
++           function ? &function->span_ : &program->span_);
++  }
++  if (function->params_.size() != 6 ||
++      function->param_directions_.size() != 6 ||
++      function->return_types_.size() != 1 ||
++      function->param_directions_[0] != ir::ParamDirection::InOut ||
++      function->param_directions_[1] != ir::ParamDirection::InOut ||
++      function->param_directions_[2] != ir::ParamDirection::In ||
++      function->param_directions_[3] != ir::ParamDirection::In ||
++      function->param_directions_[4] != ir::ParamDirection::In ||
++      function->param_directions_[5] != ir::ParamDirection::Out) {
++    Reject("native paged cache write parameter directions are invalid",
++           &function->span_);
++  }
++
++  const StaticTensor key_cache = ReadStaticTensor(
++      function->params_[0]->GetType(), function->params_[0]->span_,
++      "native paged cache write key cache");
++  const StaticTensor value_cache = ReadStaticTensor(
++      function->params_[1]->GetType(), function->params_[1]->span_,
++      "native paged cache write value cache");
++  StaticTensor physical_row = ReadStaticTensor(
++      function->params_[2]->GetType(), function->params_[2]->span_,
++      "native paged cache write physical row");
++  const StaticTensor key = ReadStaticTensor(
++      function->params_[3]->GetType(), function->params_[3]->span_,
++      "native paged cache write key update");
++  const StaticTensor value = ReadStaticTensor(
++      function->params_[4]->GetType(), function->params_[4]->span_,
++      "native paged cache write value update");
++  const StaticTensor result = ReadStaticTensor(
++      function->params_[5]->GetType(), function->params_[5]->span_,
++      "native paged cache write output");
++  const StaticTensor declared = ReadStaticTensor(
++      function->return_types_[0], function->span_,
++      "native paged cache write declared output");
++  if (key_cache.dtype != DataType::BF16 ||
++      !SameTensor(key_cache, value_cache) || key_cache.shape.size() != 2 ||
++      physical_row.dtype != DataType::INT64 ||
++      physical_row.shape.size() != 2 || key.dtype != DataType::BF16 ||
++      !SameTensor(key, value) || !SameTensor(key, result) ||
++      !SameTensor(result, declared) || key.shape.size() != 2 ||
++      key.shape[0] != 1 || key_cache.shape[0] <= 0 ||
++      key_cache.shape[1] != key.shape[1] || key.shape[1] % 128 != 0 ||
++      physical_row.shape != key.shape) {
++    Reject("native paged cache write tensor geometry is invalid",
++           &function->span_);
++  }
++  physical_row.dense_strides = {0, 0};
++
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = top && top->stmts_.size() == 2
++                         ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
++                         : nullptr;
++  const auto returned = top && top->stmts_.size() == 2
++                            ? ir::As<ir::ReturnStmt>(top->stmts_[1])
++                            : nullptr;
++  const auto returned_var =
++      returned && returned->value_.size() == 1
++          ? ir::As<ir::Var>(returned->value_[0])
++          : nullptr;
++  const auto body = scope ? ir::As<ir::SeqStmts>(scope->body_) : nullptr;
++  if (!scope || scope->split_ != ir::SplitMode::None ||
++      !scope->attrs_.empty() || !returned_var ||
++      returned_var.get() != function->params_[5].get() || !body ||
++      body->stmts_.size() != 8) {
++    Reject("native paged cache write scope or return is invalid",
++           &function->span_);
++  }
++
++  const auto physical_assignment =
++      ir::As<ir::AssignStmt>(body->stmts_[0]);
++  const auto cast_assignment = ir::As<ir::AssignStmt>(body->stmts_[1]);
++  const auto key_assignment = ir::As<ir::AssignStmt>(body->stmts_[2]);
++  const auto value_assignment = ir::As<ir::AssignStmt>(body->stmts_[3]);
++  const auto anchor_assignment = ir::As<ir::AssignStmt>(body->stmts_[6]);
++  const auto physical_call = physical_assignment
++                                 ? ir::As<ir::Call>(physical_assignment->value_)
++                                 : nullptr;
++  const auto physical_cast = cast_assignment
++                                 ? ir::As<ir::Cast>(cast_assignment->value_)
++                                 : nullptr;
++  const auto cast_type = physical_cast
++                             ? ir::As<ir::ScalarType>(physical_cast->GetType())
++                             : nullptr;
++  const auto key_call = key_assignment
++                            ? ir::As<ir::Call>(key_assignment->value_)
++                            : nullptr;
++  const auto value_call = value_assignment
++                              ? ir::As<ir::Call>(value_assignment->value_)
++                              : nullptr;
++  const auto anchor_call = anchor_assignment
++                               ? ir::As<ir::Call>(anchor_assignment->value_)
++                               : nullptr;
++  if (!physical_assignment || !physical_assignment->var_ || !physical_call ||
++      !ir::IsOp(physical_call, "tensor.read") ||
++      physical_call->args_.size() != 2 ||
++      physical_call->args_[0].get() != function->params_[2].get() ||
++      !cast_assignment || !cast_assignment->var_ || !physical_cast ||
++      physical_cast->operand_.get() != physical_assignment->var_.get() ||
++      !cast_type || cast_type->dtype_ != DataType::INT32 || !key_assignment ||
++      !key_assignment->var_ || !key_call || !ir::IsOp(key_call, "tile.load") ||
++      key_call->args_.empty() ||
++      key_call->args_[0].get() != function->params_[3].get() ||
++      !value_assignment || !value_assignment->var_ || !value_call ||
++      !ir::IsOp(value_call, "tile.load") || value_call->args_.empty() ||
++      value_call->args_[0].get() != function->params_[4].get() ||
++      !anchor_assignment || !anchor_assignment->var_ || !anchor_call ||
++      !ir::IsOp(anchor_call, "tile.add") || anchor_call->args_.size() != 2 ||
++      anchor_call->args_[0].get() != key_assignment->var_.get() ||
++      anchor_call->args_[1].get() != value_assignment->var_.get()) {
++    Reject("native paged cache write operation sequence is invalid",
++           &body->span_);
++  }
++
++  for (auto [index, expected_tile, expected_target] :
++       {std::tuple<size_t, ir::VarPtr, ir::VarPtr>{
++            4, key_assignment->var_, function->params_[0]},
++        std::tuple<size_t, ir::VarPtr, ir::VarPtr>{
++            5, value_assignment->var_, function->params_[1]},
++        std::tuple<size_t, ir::VarPtr, ir::VarPtr>{
++            7, anchor_assignment->var_, function->params_[5]}}) {
++    const auto eval = ir::As<ir::EvalStmt>(body->stmts_[index]);
++    const auto call = eval ? ir::As<ir::Call>(eval->expr_) : nullptr;
++    if (!call || !ir::IsOp(call, "tile.store") || call->args_.size() != 3 ||
++        call->args_[0].get() != expected_tile.get() ||
++        call->args_[2].get() != expected_target.get()) {
++      Reject("native paged cache write store targets are invalid",
++             &body->stmts_[index]->span_);
++    }
++  }
++
++  return NativeTilePagedCacheWriteGraph{
++      key_cache, value_cache, physical_row, key, value, result};
++}
++
+ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+     const ir::ProgramPtr& program) {
+   const auto& [global, function] = *program->functions_.begin();
+@@ -5906,6 +6081,63 @@ std::string EmitNativeTilePagedDecodeSource(
+   return source;
+ }
+ 
++std::string EmitNativeTilePagedCacheWriteSource(
++    const NativeTilePagedCacheWriteGraph& graph) {
++  StaticTensor physical_i32 = graph.physical_row;
++  physical_i32.dtype = DataType::INT32;
++  const std::string cache_type = TensorTypeText(graph.key_cache);
++  const std::string physical_type = TensorTypeText(graph.physical_row);
++  const std::string physical_i32_type = TensorTypeText(physical_i32);
++  const std::string update_type = TensorTypeText(graph.key);
++  const std::string result_type = TensorTypeText(graph.result);
++
++  std::string source;
++  source.reserve(2048);
++  source += "module {\n  nv_tensor_ir.graph @";
++  source += kFusedPointwiseEntryName;
++  source += "(\n    %arg0: ";
++  source += TensorWithStrideText(graph.key_cache);
++  source += ",\n    %arg1: ";
++  source += TensorWithStrideText(graph.value_cache);
++  source += ",\n    %arg2: ";
++  source += TensorWithStrideText(graph.physical_row);
++  source += ",\n    %arg3: ";
++  source += TensorWithStrideText(graph.key);
++  source += ",\n    %arg4: ";
++  source += TensorWithStrideText(graph.value);
++  source += "\n  ) -> (";
++  source += TensorWithStrideText(graph.result);
++  source += ") {\n    %physical32 = convert %arg2 : ";
++  source += physical_type;
++  source += " -> ";
++  source += physical_i32_type;
++  source += "\n    %stored_key = scatter_rows %arg0, %physical32, %arg3 : (";
++  source += cache_type;
++  source += ", ";
++  source += physical_i32_type;
++  source += ", ";
++  source += update_type;
++  source += ") -> ";
++  source += update_type;
++  source += "\n    %stored_value = scatter_rows %arg1, %physical32, %arg4 : (";
++  source += cache_type;
++  source += ", ";
++  source += physical_i32_type;
++  source += ", ";
++  source += update_type;
++  source += ") -> ";
++  source += update_type;
++  source += "\n    %result0 = add %stored_key, %stored_value : ";
++  source += result_type;
++  source += "\n    results %result0 : ";
++  source += result_type;
++  source += "\n  }\n}\n";
++  if (source.size() > kMaximumCanonicalSourceBytes) {
++    Reject("canonical TensorIR source exceeds 16 MiB");
++  }
++  return source;
++}
++
+ std::string EmitNativeTileAttentionSource(
+     const NativeTileAttentionGraph& graph) {
+   StaticTensor key_transposed = graph.key;
+@@ -6700,6 +6932,36 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+                           EmitNativeTileGdnReadSource(graph),
+                           std::move(metadata), /*input_count=*/6);
+   }
++  if (IsNativeTilePagedCacheWriteCandidate(program)) {
++    const NativeTilePagedCacheWriteGraph graph =
++        AnalyzeNativeTilePagedCacheWrite(program);
++    std::vector<TensorIrValueMetadata> metadata;
++    metadata.reserve(6);
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Input, 0, graph.key_cache.dtype,
++        graph.key_cache.shape, graph.key_cache.dense_strides,
++        /*has_explicit_strides=*/true,
++        TensorIrArgumentEffect::ReadWrite));
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Input, 1, graph.value_cache.dtype,
++        graph.value_cache.shape, graph.value_cache.dense_strides,
++        /*has_explicit_strides=*/true,
++        TensorIrArgumentEffect::ReadWrite));
++    const std::array<StaticTensor, 3> read_only_inputs = {
++        graph.physical_row, graph.key, graph.value};
++    for (uint32_t index = 0; index < read_only_inputs.size(); ++index) {
++      const StaticTensor& input = read_only_inputs[index];
++      metadata.push_back(TensorIrValueMetadata(
++          TensorIrValueRole::Input, index + 2, input.dtype, input.shape,
++          input.dense_strides, /*has_explicit_strides=*/true));
++    }
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
++        graph.result.dense_strides, /*has_explicit_strides=*/true));
++    return TensorIrModule(TensorIrModuleKind::FusedPointwise,
++                          EmitNativeTilePagedCacheWriteSource(graph),
++                          std::move(metadata), /*input_count=*/5);
++  }
+   if (IsNativeTilePagedDecodeCandidate(program)) {
+     const NativeTilePagedDecodeGraph graph =
+         AnalyzeNativeTilePagedDecode(program);
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index db39dd02e531efa936b61c552a1af7fa8b149c49..ceb7c31f219215a61614776fd9eab0d5dd384bdc 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -361,6 +361,31 @@ def _native_tile_paged_decode(
+     return out
+ 
+ 
++@pl.jit
++def _native_tile_paged_cache_write(
++    key_cache: pl.InOut[pl.Tensor[[1024, 512], pl.BF16]],
++    value_cache: pl.InOut[pl.Tensor[[1024, 512], pl.BF16]],
++    physical_row: pl.Tensor[[1, 512], pl.INT64],
++    key: pl.Tensor[[1, 512], pl.BF16],
++    value: pl.Tensor[[1, 512], pl.BF16],
++    out: pl.Out[pl.Tensor[[1, 512], pl.BF16]],
++):
++    with pl.at(level=pl.Level.CORE_GROUP):
++        physical_row_i64 = pl.read(physical_row, [0, 0])
++        physical_row_i32 = pl.cast(physical_row_i64, pl.INT32)
++        key_tile = pl.load(
++            key, [0, 0], [1, 512], target_memory=pl.MemorySpace.Vec
++        )
++        value_tile = pl.load(
++            value, [0, 0], [1, 512], target_memory=pl.MemorySpace.Vec
++        )
++        pl.store(key_tile, [physical_row_i32, 0], key_cache)
++        pl.store(value_tile, [physical_row_i32, 0], value_cache)
++        anchor = pl.add(key_tile, value_tile)
++        pl.store(anchor, [0, 0], out)
++    return out
++
++
+ @pl.jit
+ def _native_tile_linear(
+     x: pl.Tensor[[2, 128], pl.BF16],
+@@ -651,6 +676,31 @@ def _assert_native_paged_decode_compilation(request: CompileRequest) -> None:
+     assert not paged_decode.artifact.fallback_used
+ 
+ 
++def _assert_native_paged_cache_write_compilation(request: CompileRequest) -> None:
++    cache_write = compile_structured_strict(
++        _native_tile_paged_cache_write.specialize(),
++        request,
++        _schedule(128),
++    )
++    kernel = cache_write.artifact.kernel_abi
++    assert kernel.entry_function_name == "pypto_fused_pointwise"
++    assert kernel.grid_abi.static_dimensions == [4, 1, 1]
++    assert kernel.grid_abi.tile_sizes == [128]
++    assert kernel.argument_layout.input_operand_count == 5
++    assert kernel.argument_layout.total_kernel_argument_count == 6
++    descriptors = kernel.argument_layout.operand_descriptors
++    assert [descriptor.shape for descriptor in descriptors] == [
++        [1024, 512],
++        [1024, 512],
++        [1, 512],
++        [1, 512],
++        [1, 512],
++        [1, 512],
++    ]
++    assert descriptors[2].strides == [0, 0]
++    assert not cache_write.artifact.fallback_used
++
++
+ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+     native_tile = compile_structured_strict(
+         _native_tile_add.specialize(), request, _schedule(128)
+@@ -856,6 +906,7 @@ def test_compile_structured_strict_functional() -> None:
+             _native_tile_rope.specialize(),
+             _native_tile_attention.specialize(scale=0.08838834764831843),
+             _native_tile_paged_decode.specialize(scale=0.0625),
++            _native_tile_paged_cache_write.specialize(),
+             _native_tile_linear.specialize(),
+             _row_reduction_program([32, 17], pypto.DataType.FP32, "tensor.row_sum"),
+         ):
+@@ -917,6 +968,7 @@ def test_compile_structured_strict_functional() -> None:
+     assert fused.artifact.identities.kernel_build_spec_digest == fused.build_spec.identity_digest
+ 
+     _assert_native_tile_compilation(request)
++    _assert_native_paged_cache_write_compilation(request)
+ 
+     row_cases = (
+         ([32, 17], pypto.DataType.FP32, "tensor.row_sum", [32, 1], [17, 1], [1, 1]),

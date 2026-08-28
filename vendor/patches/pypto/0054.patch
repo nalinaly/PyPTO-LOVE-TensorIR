@@ -1,0 +1,31 @@
+From 62eb88251df5bdad95277a9d619d20da9bf121eb Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Wed, 26 Aug 2026 16:17:48 +0800
+Subject: [PATCH 054/212] test: construct immutable row reduction descriptors
+
+---
+ tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+index 6b9baee1e30540d06fe0cf6246301ea92205944d..cef6bc4f4c25cef9c7b3c81fcf1561b80bb63796 100644
+--- a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
++++ b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+@@ -1011,11 +1011,15 @@ int TestRowReductionV3ProjectionAndFinalization() {
+   REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(missing_result)),
+                               "descriptor count"));
+   KernelOptions wrong_result_shape = RowReductionKernelOptions({2, 3}, {2}, 1);
+-  wrong_result_shape.descriptors[1] = TensorDescriptor({2, 2}, {2, 1});
++  wrong_result_shape.descriptors =
++      DescriptorVector(TensorDescriptor({2, 3}, {3, 1}),
++                       TensorDescriptor({2, 2}, {2, 1}));
+   REQUIRE(RejectsFinalization(
+       prepared, MakeKernelAbi(std::move(wrong_result_shape)), "static shape"));
+   KernelOptions wrong_result_stride = RowReductionKernelOptions({2, 3}, {2}, 1);
+-  wrong_result_stride.descriptors[1] = TensorDescriptor({2, 1}, {2, 1});
++  wrong_result_stride.descriptors =
++      DescriptorVector(TensorDescriptor({2, 3}, {3, 1}),
++                       TensorDescriptor({2, 1}, {2, 1}));
+   REQUIRE(RejectsFinalization(
+       prepared, MakeKernelAbi(std::move(wrong_result_stride)), "static stride"));
+   KernelOptions wrong_grid = RowReductionKernelOptions({2, 3}, {2}, 1);

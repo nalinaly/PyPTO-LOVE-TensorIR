@@ -1,0 +1,913 @@
+From 156b8f7e86c27ec6875bee539a321bda95b1c576 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Mon, 24 Aug 2026 22:51:34 +0800
+Subject: [PATCH 05/82] compiler: expose deterministic CUDA Tile artifacts
+
+---
+ .../Compiler/CudaTile/CudaTileArtifact.h      |  96 ++++++
+ .../Compiler/CudaTile/CudaTileCompiler.h      |  31 +-
+ .../Compiler/CudaTile/TileIRAssembly.h        |   4 +-
+ lib/Compiler/CMakeLists.txt                   |   4 +
+ lib/Compiler/CudaTile/CudaTileArtifact.cpp    | 187 +++++++++++
+ lib/Compiler/CudaTile/CudaTileCompiler.cpp    | 293 +++++++++++++-----
+ lib/Compiler/CudaTile/TileIRAssembly.cpp      |  39 ++-
+ 7 files changed, 561 insertions(+), 93 deletions(-)
+ create mode 100644 include/tensor_ir/Compiler/CudaTile/CudaTileArtifact.h
+ create mode 100644 lib/Compiler/CudaTile/CudaTileArtifact.cpp
+
+diff --git a/include/tensor_ir/Compiler/CudaTile/CudaTileArtifact.h b/include/tensor_ir/Compiler/CudaTile/CudaTileArtifact.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..481c772f3e2190d0952e49a117d064a3b5929239
+--- /dev/null
++++ b/include/tensor_ir/Compiler/CudaTile/CudaTileArtifact.h
+@@ -0,0 +1,96 @@
++// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++
++#ifndef TENSOR_IR_COMPILER_CUDATILE_CUDATILEARTIFACT_H
++#define TENSOR_IR_COMPILER_CUDATILE_CUDATILEARTIFACT_H
++
++#include "tensor_ir/Runtime/CudaTile/KernelArgLayout.h"
++#include "tensor_ir/Support/Status.h"
++#include "tensor_ir/Utils/ComputeCapability.h"
++
++#include "llvm/ADT/ArrayRef.h"
++#include "llvm/ADT/SmallVector.h"
++#include "llvm/ADT/StringRef.h"
++
++#include "cuda_tile/Bytecode/Common/Version.h"
++
++#include <array>
++#include <cstdint>
++#include <string>
++
++namespace mlir::nv_tensor_ir::backend::cuda_tile {
++
++/// Device-code representation selected by the CUDA Tile producer.
++enum class CudaTileArtifactKind : uint32_t {
++  TileIR = 0,
++  Cubin = 1,
++};
++
++/// Runtime argument reconstruction selected by the compiler.
++enum class CudaTileArgumentPackingPolicy : uint32_t {
++  PointerOnly = 0,
++  Flat = 1,
++};
++
++/// Runtime grid reconstruction selected by the compiler.
++enum class CudaTileGridPolicy : uint32_t {
++  Static = 0,
++  TileBasedRuntime = 1,
++};
++
++llvm::StringRef stringifyCudaTileArtifactKind(CudaTileArtifactKind kind);
++
++/// Determine the actual representation from device-code magic.
++StatusOr<CudaTileArtifactKind>
++detectCudaTileArtifactKind(llvm::ArrayRef<char> deviceCode);
++
++/// Process- and device-independent output of TensorIR CUDA Tile compilation.
++///
++/// This value deliberately contains no CUDA module, kernel, context, stream,
++/// workspace pointer, runtime operand accessor, or type-erased launch object.
++/// An embedding compiler can serialize it and reconstruct those process-bound
++/// objects only after cache validation.
++struct CudaTileCompiledArtifact {
++  static constexpr uint32_t kSchemaVersion = 1;
++
++  CudaTileCompiledArtifact(
++      SmTarget requestedTarget, SmTarget actualTarget,
++      mlir::cuda_tile::BytecodeVersion tileIRBytecodeVersion)
++      : requestedTarget(requestedTarget), actualTarget(actualTarget),
++        tileIRBytecodeVersion(tileIRBytecodeVersion) {}
++
++  uint32_t schemaVersion = kSchemaVersion;
++  llvm::SmallVector<char, 0> deviceCode;
++  CudaTileArtifactKind requestedArtifactKind = CudaTileArtifactKind::TileIR;
++  CudaTileArtifactKind actualArtifactKind = CudaTileArtifactKind::TileIR;
++  SmTarget requestedTarget;
++  SmTarget actualTarget;
++  mlir::cuda_tile::BytecodeVersion tileIRBytecodeVersion;
++
++  std::string runtimeKernelName;
++  std::string entryFunctionName;
++  ::tensor_ir::rt::KernelArgLayout argLayout;
++  CudaTileArgumentPackingPolicy argumentPackingPolicy =
++      CudaTileArgumentPackingPolicy::PointerOnly;
++  CudaTileGridPolicy gridPolicy = CudaTileGridPolicy::Static;
++  std::array<int32_t, 3> staticGrid = {1, 1, 1};
++
++  uint64_t workspaceSizeBytes = 0;
++  uint64_t workspaceAlignmentBytes = 1;
++
++  bool environmentOverridesEnabled = true;
++  bool artifactFallbackAllowed = true;
++  std::string tileIRAssemblerPath;
++  std::string compileOptionsIdentity;
++
++  [[nodiscard]] bool usedArtifactFallback() const {
++    return requestedArtifactKind != actualArtifactKind;
++  }
++
++  /// Validate the complete value without loading device code.
++  [[nodiscard]] Status validate() const;
++};
++
++} // namespace mlir::nv_tensor_ir::backend::cuda_tile
++
++#endif // TENSOR_IR_COMPILER_CUDATILE_CUDATILEARTIFACT_H
+diff --git a/include/tensor_ir/Compiler/CudaTile/CudaTileCompiler.h b/include/tensor_ir/Compiler/CudaTile/CudaTileCompiler.h
+index fd7ea639bd142da1fc826601c2612458deb51e92..9dd1811a4486254e674b0689a805c9bc906216c6 100644
+--- a/include/tensor_ir/Compiler/CudaTile/CudaTileCompiler.h
++++ b/include/tensor_ir/Compiler/CudaTile/CudaTileCompiler.h
+@@ -7,6 +7,7 @@
+ #define TENSOR_IR_COMPILER_CUDATILECOMPILER_H
+ 
+ #include "tensor_ir/Compiler/Compiler.h"
++#include "tensor_ir/Compiler/CudaTile/CudaTileArtifact.h"
+ #include "tensor_ir/Conversion/TensorToCudaTile/Options.h"
+ #include "tensor_ir/Runtime/IRuntimeKernel.h"
+ #include "tensor_ir/Support/Status.h"
+@@ -23,12 +24,6 @@
+ 
+ namespace mlir::nv_tensor_ir::backend::cuda_tile {
+ 
+-/// Selects the requested CUDA Tile device artifact.
+-enum class CudaTileArtifactKind : uint32_t {
+-  TileIR = 0,
+-  Cubin = 1,
+-};
+-
+ /// Default TensorIR bytecode target: CUDA Tile's compatibility version, raised
+ /// to at least 13.3.
+ ///
+@@ -88,6 +83,8 @@ struct IRDebugOptions {
+ // CudaTileCompiler - Compiles TensorIR MLIR to CudaTile runtime kernels
+ //===----------------------------------------------------------------------===//
+ 
++class CudaTileCompileOptions;
++
+ class CudaTileCompiler : public ICompiler {
+ public:
+   CudaTileCompiler() = default;
+@@ -95,6 +92,16 @@ public:
+   StatusOr<::tensor_ir::rt::IRuntimeKernelPtr>
+   compile(mlir::ModuleOp module, const CompileOptions &options) override;
+ 
++  /// Compile to a process-independent value before runtime reconstruction.
++  StatusOr<CudaTileCompiledArtifact>
++  compileToArtifact(mlir::ModuleOp module,
++                    const CudaTileCompileOptions &options);
++
++  /// Parse TensorIR source and compile to a process-independent value.
++  StatusOr<CudaTileCompiledArtifact>
++  compileToArtifact(llvm::StringRef source,
++                    const CudaTileCompileOptions &options);
++
+   // XLA integration contract: keep this lightweight and coordinate before
+   // changing the signature or semantics.
+   bool canCompile(mlir::ModuleOp module,
+@@ -131,6 +138,18 @@ public:
+   /// analysis. The value is ignored by the affine-map path.
+   int32_t maxTileCandidates = 1;
+ 
++  /// Permit the legacy TENSOR_IR_* environment variables to alter compiler
++  /// behavior. Embedding compilers should disable this and pass every option
++  /// explicitly.
++  bool allowEnvironmentOverrides = true;
++
++  /// Permit a Cubin request to return TileIR when the assembler is unavailable.
++  /// Strict persistent-artifact producers should disable this.
++  bool allowArtifactFallback = true;
++
++  /// Explicit tileiras executable. Empty preserves legacy PATH lookup.
++  std::string tileIRAssemblerPath;
++
+   /// TileIR bytecode target version. Defaults to
+   /// max(kCurrentCompatibilityVersion, 13.3) so generated bytecode stays within
+   /// driver-compatible range while supporting TensorIR features that require
+diff --git a/include/tensor_ir/Compiler/CudaTile/TileIRAssembly.h b/include/tensor_ir/Compiler/CudaTile/TileIRAssembly.h
+index b507c82686007f3a0f0bd4832c7cb806e1832a48..afb1669cd7883f74fa5d7b1bdf518333cc507073 100644
+--- a/include/tensor_ir/Compiler/CudaTile/TileIRAssembly.h
++++ b/include/tensor_ir/Compiler/CudaTile/TileIRAssembly.h
+@@ -9,6 +9,7 @@
+ 
+ #include "llvm/ADT/ArrayRef.h"
+ #include "llvm/ADT/SmallVector.h"
++#include "llvm/ADT/StringRef.h"
+ 
+ #include "cuda_tile/Bytecode/Common/Version.h"
+ #include <optional>
+@@ -21,7 +22,8 @@ namespace mlir::nv_tensor_ir::backend::cuda_tile {
+ /// assembler failures are returned.
+ StatusOr<std::optional<llvm::SmallVector<char, 0>>>
+ assembleTileIRToCubin(llvm::ArrayRef<char> bytecode, SmTarget target,
+-                      mlir::cuda_tile::BytecodeVersion bytecodeVersion);
++                      mlir::cuda_tile::BytecodeVersion bytecodeVersion,
++                      llvm::StringRef assemblerPath = {});
+ 
+ } // namespace mlir::nv_tensor_ir::backend::cuda_tile
+ 
+diff --git a/lib/Compiler/CMakeLists.txt b/lib/Compiler/CMakeLists.txt
+index 7f3f25aae022318f284d973dc838f0a5ff3f5ef9..d416f7337ea9f00d8a30bae31ec445487239f551 100644
+--- a/lib/Compiler/CMakeLists.txt
++++ b/lib/Compiler/CMakeLists.txt
+@@ -16,6 +16,7 @@ add_tensor_ir_library(NVTensorIRCudaTilePipelines
+ 
+ add_tensor_ir_library(NVTensorIRCompiler STATIC
+   Compiler.cpp
++  CudaTile/CudaTileArtifact.cpp
+   CudaTile/CudaTileCompiler.cpp
+   CudaTile/CudaTileFrontend.cpp
+   CudaTile/TileIRAssembly.cpp
+@@ -42,3 +43,6 @@ foreach(_tensor_ir_compiler_include_dir IN LISTS
+   target_include_directories(NVTensorIRCompiler SYSTEM INTERFACE
+     "$<BUILD_INTERFACE:${_tensor_ir_compiler_include_dir}>")
+ endforeach()
++target_include_directories(NVTensorIRCompiler SYSTEM INTERFACE
++  "$<BUILD_INTERFACE:${CUDA_TILE_SOURCE_DIR}/include>"
++  "$<BUILD_INTERFACE:${CUDA_TILE_BINARY_DIR}/include>")
+diff --git a/lib/Compiler/CudaTile/CudaTileArtifact.cpp b/lib/Compiler/CudaTile/CudaTileArtifact.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..26d15884ab16239b08633e9ff3dfd03b048b8d42
+--- /dev/null
++++ b/lib/Compiler/CudaTile/CudaTileArtifact.cpp
+@@ -0,0 +1,187 @@
++// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++
++#include "tensor_ir/Compiler/CudaTile/CudaTileArtifact.h"
++
++#include "llvm/ADT/StringRef.h"
++
++#include <cstddef>
++#include <limits>
++#include <string>
++
++namespace mlir::nv_tensor_ir::backend::cuda_tile {
++namespace {
++
++bool containsNul(llvm::StringRef value) {
++  return value.find('\0') != llvm::StringRef::npos;
++}
++
++bool isPowerOfTwo(uint64_t value) {
++  return value != 0 && (value & (value - 1)) == 0;
++}
++
++Status validateArgLayout(const ::tensor_ir::rt::KernelArgLayout &layout) {
++  if (layout.numInputs < 0 ||
++      layout.numInputs > static_cast<int32_t>(layout.tensorDescs.size())) {
++    return Status::InvalidArgument("invalid number of input operands");
++  }
++  if (layout.totalKernelArgs < 0) {
++    return Status::InvalidArgument("negative total kernel argument count");
++  }
++
++  int64_t expectedKernelArgs = 0;
++  for (const auto &desc : layout.tensorDescs) {
++    if (desc.rank < 0 || desc.numDynSizes < 0 || desc.numDynStrides < 0) {
++      return Status::InvalidArgument("negative kernel argument layout field");
++    }
++    if (desc.isScalar) {
++      if (desc.rank != 0 || desc.scalarSizeInBytes <= 0 ||
++          !desc.staticShape.empty() || !desc.staticStrides.empty() ||
++          desc.numDynSizes != 0 || desc.numDynStrides != 0 ||
++          desc.hasExplicitStrides) {
++        return Status::InvalidArgument("invalid scalar argument descriptor");
++      }
++    } else {
++      if (desc.scalarSizeInBytes != 0 ||
++          desc.staticShape.size() != static_cast<size_t>(desc.rank) ||
++          (!desc.staticStrides.empty() &&
++           desc.staticStrides.size() != static_cast<size_t>(desc.rank))) {
++        return Status::InvalidArgument("invalid tensor argument descriptor");
++      }
++      if (desc.hasExplicitStrides != !desc.staticStrides.empty()) {
++        return Status::InvalidArgument(
++            "tensor stride flag does not match stride metadata");
++      }
++    }
++    expectedKernelArgs += desc.totalArgs();
++    if (expectedKernelArgs > std::numeric_limits<int32_t>::max()) {
++      return Status::InvalidArgument("kernel argument count overflows int32");
++    }
++  }
++  if (expectedKernelArgs != layout.totalKernelArgs) {
++    return Status::InvalidArgument("kernel argument count does not match ABI");
++  }
++  for (int32_t tileSize : layout.tileSizes) {
++    if (tileSize <= 0) {
++      return Status::InvalidArgument("tile sizes must be positive");
++    }
++  }
++  return Status::Ok();
++}
++
++} // namespace
++
++llvm::StringRef stringifyCudaTileArtifactKind(CudaTileArtifactKind kind) {
++  switch (kind) {
++  case CudaTileArtifactKind::TileIR:
++    return "tileir";
++  case CudaTileArtifactKind::Cubin:
++    return "cubin";
++  }
++  return "";
++}
++
++StatusOr<CudaTileArtifactKind>
++detectCudaTileArtifactKind(llvm::ArrayRef<char> deviceCode) {
++  static constexpr char kTileIRMagic[] = "\x7fTileIR\x00";
++  static constexpr char kElfMagic[] = "\x7f"
++                                      "ELF";
++  llvm::StringRef bytes(deviceCode.data(), deviceCode.size());
++  if (bytes.starts_with(
++          llvm::StringRef(kTileIRMagic, sizeof(kTileIRMagic) - 1))) {
++    return CudaTileArtifactKind::TileIR;
++  }
++  if (bytes.starts_with(llvm::StringRef(kElfMagic, sizeof(kElfMagic) - 1))) {
++    return CudaTileArtifactKind::Cubin;
++  }
++  return Status::InvalidArgument(
++      "device code is neither TileIR bytecode nor an ELF cubin");
++}
++
++Status CudaTileCompiledArtifact::validate() const {
++  if (schemaVersion != kSchemaVersion) {
++    return Status::InvalidArgument("unsupported CUDA Tile artifact schema");
++  }
++  if (runtimeKernelName.empty() || entryFunctionName.empty() ||
++      containsNul(runtimeKernelName) || containsNul(entryFunctionName)) {
++    return Status::InvalidArgument("invalid CUDA Tile kernel name");
++  }
++  if (compileOptionsIdentity.empty() || containsNul(compileOptionsIdentity)) {
++    return Status::InvalidArgument("invalid compile options identity");
++  }
++
++  switch (requestedArtifactKind) {
++  case CudaTileArtifactKind::TileIR:
++  case CudaTileArtifactKind::Cubin:
++    break;
++  default:
++    return Status::InvalidArgument("unknown requested artifact kind");
++  }
++
++  TIR_ASSIGN_OR_RETURN(auto detectedKind,
++                       detectCudaTileArtifactKind(deviceCode));
++  if (detectedKind != actualArtifactKind) {
++    return Status::InvalidArgument(
++        "declared CUDA Tile artifact kind differs from byte magic");
++  }
++  if (requestedArtifactKind == CudaTileArtifactKind::TileIR &&
++      actualArtifactKind != CudaTileArtifactKind::TileIR) {
++    return Status::InvalidArgument(
++        "TileIR request unexpectedly produced another artifact kind");
++  }
++  if (usedArtifactFallback() && !artifactFallbackAllowed) {
++    return Status::InvalidArgument("artifact fallback is not allowed");
++  }
++  if (!requestedTarget.validateCodegenTargetCompatibility(
++          actualTarget.getComputeCapabilityVersion())) {
++    return Status::InvalidArgument(
++        "actual target is incompatible with requested target");
++  }
++  if (actualArtifactKind == CudaTileArtifactKind::Cubin &&
++      actualTarget.getPortability() != ArchPortability::arch_conditional) {
++    return Status::InvalidArgument(
++        "cubin artifact requires an architecture-conditional target");
++  }
++
++  TIR_RETURN_IF_ERROR(validateArgLayout(argLayout));
++  bool requiresFlatPacking =
++      argLayout.uniformSignature || argLayout.hasDynamicShapes();
++  if (argumentPackingPolicy != CudaTileArgumentPackingPolicy::PointerOnly &&
++      argumentPackingPolicy != CudaTileArgumentPackingPolicy::Flat) {
++    return Status::InvalidArgument("unknown argument packing policy");
++  }
++  if ((argumentPackingPolicy == CudaTileArgumentPackingPolicy::Flat) !=
++      requiresFlatPacking) {
++    return Status::InvalidArgument(
++        "argument packing policy differs from kernel ABI metadata");
++  }
++
++  for (int32_t dim : staticGrid) {
++    if (dim <= 0) {
++      return Status::InvalidArgument("static grid dimensions must be positive");
++    }
++  }
++  if (gridPolicy == CudaTileGridPolicy::TileBasedRuntime) {
++    if (argLayout.tileSizes.empty() || argLayout.gridShapeTensorIdx < 0 ||
++        argLayout.gridShapeTensorIdx >=
++            static_cast<int32_t>(argLayout.tensorDescs.size())) {
++      return Status::InvalidArgument("runtime grid metadata is incomplete");
++    }
++  } else if (gridPolicy != CudaTileGridPolicy::Static) {
++    return Status::InvalidArgument("unknown CUDA Tile grid policy");
++  }
++
++  if (!isPowerOfTwo(workspaceAlignmentBytes) ||
++      (workspaceSizeBytes % workspaceAlignmentBytes) != 0) {
++    return Status::InvalidArgument("invalid workspace ABI metadata");
++  }
++  if (!environmentOverridesEnabled &&
++      actualArtifactKind == CudaTileArtifactKind::Cubin &&
++      tileIRAssemblerPath.empty()) {
++    return Status::InvalidArgument(
++        "deterministic cubin artifact lacks an explicit assembler path");
++  }
++  return Status::Ok();
++}
++
++} // namespace mlir::nv_tensor_ir::backend::cuda_tile
+diff --git a/lib/Compiler/CudaTile/CudaTileCompiler.cpp b/lib/Compiler/CudaTile/CudaTileCompiler.cpp
+index e43e4e8f8b6dcb898564a4c1da341301ca8330ff..a61749b32a292dd9721eb6447ea6f08bea25369b 100644
+--- a/lib/Compiler/CudaTile/CudaTileCompiler.cpp
++++ b/lib/Compiler/CudaTile/CudaTileCompiler.cpp
+@@ -3,8 +3,10 @@
+ 
+ #include "tensor_ir/Compiler/CudaTile/CudaTileCompiler.h"
+ 
++#include "tensor_ir/Compiler/CudaTile/CudaTileArtifact.h"
+ #include "tensor_ir/Compiler/CudaTile/CudaTileFrontend.h"
+ #include "tensor_ir/Compiler/CudaTile/TileIRAssembly.h"
++#include "tensor_ir/Registration/Registration.h"
+ #include "tensor_ir/Runtime/CudaTile/CudaTileRuntimeKernel.h"
+ #include "tensor_ir/Runtime/CudaTile/KernelLaunchHelpers.h"
+ #include "tensor_ir/Runtime/CudaTile/RuntimeOperandAccessor.h"
+@@ -16,9 +18,11 @@
+ #include "llvm/Support/Casting.h"
+ #include "llvm/Support/FileSystem.h"
+ #include "llvm/Support/MemoryBuffer.h"
++#include "llvm/Support/Path.h"
+ #include "llvm/Support/raw_ostream.h"
+ 
+ #include "cuda_tile/Bytecode/Writer/BytecodeWriter.h"
++#include "mlir/Parser/Parser.h"
+ #include <cstdlib>
+ #include <memory>
+ #include <optional>
+@@ -115,10 +119,15 @@ static mlir::nv_tensor_ir::TensorToCudaTilePipelineOptions makePipelineOptions(
+   pipelineOptions.tileSize.assign(cudaTileOptions.tileSize.begin(),
+                                   cudaTileOptions.tileSize.end());
+   pipelineOptions.uniformSignature = cudaTileOptions.uniformSignature;
+-  pipelineOptions.codegenStrategy =
+-      getCodegenStrategy(cudaTileOptions.codegenStrategy);
++  pipelineOptions.codegenStrategy = cudaTileOptions.allowEnvironmentOverrides
++                                        ? getCodegenStrategy(
++                                              cudaTileOptions.codegenStrategy)
++                                        : cudaTileOptions.codegenStrategy;
+   pipelineOptions.maxCandidates =
+-      getMaxTileCandidatesFromEnvOrDefault(cudaTileOptions.maxTileCandidates);
++      cudaTileOptions.allowEnvironmentOverrides
++          ? getMaxTileCandidatesFromEnvOrDefault(
++                cudaTileOptions.maxTileCandidates)
++          : cudaTileOptions.maxTileCandidates;
+   return pipelineOptions;
+ }
+ 
+@@ -133,10 +142,23 @@ makeFrontendOptions(
+   options.debug.printIRAfterAll = debug.printIRAfterAll;
+   options.debug.printIRTreeDir = debug.printIRTreeDir;
+   options.debug.enableTiming = debug.enableTiming;
+-  applyBoolEnvVar("TENSOR_IR_PRINT_IR", options.debug.printCudaTileIR);
++  if (cudaTileOptions.allowEnvironmentOverrides) {
++    applyBoolEnvVar("TENSOR_IR_PRINT_IR", options.debug.printCudaTileIR);
++  }
+   return options;
+ }
+ 
++static llvm::StringRef stringifyCodegenStrategy(
++    mlir::nv_tensor_ir::CudaTileCodegenStrategy strategy) {
++  switch (strategy) {
++  case mlir::nv_tensor_ir::CudaTileCodegenStrategy::AffineMap:
++    return "affine-map";
++  case mlir::nv_tensor_ir::CudaTileCodegenStrategy::LayoutPropagation:
++    return "layout-propagation";
++  }
++  return "";
++}
++
+ } // namespace
+ 
+ namespace mlir::nv_tensor_ir::backend::cuda_tile {
+@@ -164,82 +186,34 @@ CudaTileCompiler::compile(mlir::ModuleOp module,
+     return Status::InvalidArgument("Invalid CudaTile compilation options");
+   }
+ 
+-  IRDebugOptions debug = cudaTileOptions->irDebug;
+-  applyPathEnvVar("TENSOR_IR_DUMP_IR", debug.dumpCudaTileIRPath);
+-  applyPathEnvVar("TENSOR_IR_DUMP_TILEIR_BC", debug.dumpTileIRBCPath);
+-  applyPathEnvVar("TENSOR_IR_LOAD_TILEIR_BC", debug.loadTileIRBCPath);
+-  applyBoolEnvVar("TENSOR_IR_PRINT_IR_AFTER_ALL", debug.printIRAfterAll);
+-  applyPathEnvVar("TENSOR_IR_PRINT_IR_TREE_DIR", debug.printIRTreeDir);
+-  applyBoolEnvVar("TENSOR_IR_TIMING", debug.enableTiming);
+-
+-  auto frontendOptions = makeFrontendOptions(*cudaTileOptions, debug);
+-  auto frontendOr =
+-      compiler::cuda_tile::lowerTensorIRToCudaTile(module, frontendOptions);
+-  if (failed(frontendOr)) {
+-    return Status::CompilationError(
+-        "Failed to lower TensorIR to CudaTile dialect");
+-  }
+-  compiler::cuda_tile::CudaTileFrontendResult frontend = std::move(*frontendOr);
+-
+-  llvm::SmallVector<char, 0> tileirBytecode;
+-  std::optional<mlir::cuda_tile::BytecodeVersion> runtimeBytecodeVersion =
+-      cudaTileOptions->bytecodeVersion;
+-  llvm::raw_svector_ostream os(tileirBytecode);
+-  if (failed(mlir::cuda_tile::writeBytecode(
+-          os, frontend.cudaTileModule, cudaTileOptions->bytecodeVersion))) {
+-    return Status::CompilationError("Failed to write tile-ir bytecode");
+-  }
+-
+-  if (!debug.dumpTileIRBCPath.empty()) {
+-    std::error_code ec;
+-    llvm::raw_fd_ostream bcOs(debug.dumpTileIRBCPath, ec,
+-                              llvm::sys::fs::OF_None);
+-    if (ec) {
+-      llvm::errs() << "Warning: cannot dump Tile IR bytecode to '"
+-                   << debug.dumpTileIRBCPath << "': " << ec.message() << "\n";
+-    } else {
+-      bcOs.write(tileirBytecode.data(), tileirBytecode.size());
+-    }
+-  }
+-
+-  if (!debug.loadTileIRBCPath.empty()) {
+-    auto bufOrErr = llvm::MemoryBuffer::getFile(debug.loadTileIRBCPath,
+-                                                /*IsText=*/false);
+-    if (!bufOrErr) {
+-      return Status::CompilationError("Cannot load Tile IR bytecode from '" +
+-                                      debug.loadTileIRBCPath +
+-                                      "': " + bufOrErr.getError().message());
+-    }
+-    llvm::StringRef bc = (*bufOrErr)->getBuffer();
+-    tileirBytecode.assign(bc.begin(), bc.end());
+-    runtimeBytecodeVersion = std::nullopt;
+-  }
++  TIR_ASSIGN_OR_RETURN(auto artifact,
++                       compileToArtifact(module, *cudaTileOptions));
++  TIR_RETURN_IF_ERROR(artifact.validate());
+ 
+-  if (runtimeBytecodeVersion &&
+-      cudaTileOptions->artifactKind == CudaTileArtifactKind::Cubin) {
+-    TIR_ASSIGN_OR_RETURN(
+-        auto cubin, assembleTileIRToCubin(tileirBytecode,
+-                                          cudaTileOptions->computeCapability,
+-                                          *runtimeBytecodeVersion));
+-    if (cubin) {
+-      tileirBytecode = std::move(*cubin);
+-      runtimeBytecodeVersion = std::nullopt;
+-    }
++  std::string runtimeKernelName = artifact.runtimeKernelName;
++  std::string entryFunctionName = artifact.entryFunctionName;
++  llvm::SmallVector<char, 0> deviceCode = std::move(artifact.deviceCode);
++  std::optional<mlir::cuda_tile::BytecodeVersion> runtimeBytecodeVersion;
++  if (artifact.actualArtifactKind == CudaTileArtifactKind::TileIR) {
++    runtimeBytecodeVersion = artifact.tileIRBytecodeVersion;
+   }
+ 
+   ::tensor_ir::rt::IRuntimeKernelPtr rtk =
+       std::make_unique<::tensor_ir::rt::CudaTileRuntimeKernel>(
+-          frontend.runtimeKernelName, frontend.entryFunctionName,
+-          std::move(tileirBytecode), runtimeBytecodeVersion);
++          std::move(runtimeKernelName), std::move(entryFunctionName),
++          std::move(deviceCode), runtimeBytecodeVersion);
+ 
+   using RuntimeAcc = ::tensor_ir::rt::RuntimeOperandAccessor;
+   auto *tileRtk =
+       static_cast<::tensor_ir::rt::CudaTileRuntimeKernel *>(rtk.get());
+   if (runtimeBytecodeVersion) {
+-    SmTarget compiledTarget = cudaTileOptions->computeCapability;
+-    mlir::cuda_tile::BytecodeVersion bytecodeVersion = *runtimeBytecodeVersion;
++    SmTarget compiledTarget = artifact.actualTarget;
++    mlir::cuda_tile::BytecodeVersion bytecodeVersion =
++        *runtimeBytecodeVersion;
++    std::string assemblerPath = artifact.tileIRAssemblerPath;
+     tileRtk->setTileIRFallbackAssembler(
+-        [compiledTarget, bytecodeVersion](
++        [compiledTarget, bytecodeVersion, assemblerPath =
++                                              std::move(assemblerPath)](
+             llvm::ArrayRef<char> bytecode,
+             int deviceCc) -> StatusOr<llvm::SmallVector<char, 0>> {
+           if (!compiledTarget.validateCodegenTargetCompatibility(deviceCc)) {
+@@ -254,36 +228,152 @@ CudaTileCompiler::compile(mlir::ModuleOp module,
+           }
+           TIR_ASSIGN_OR_RETURN(
+               auto cubin,
+-              assembleTileIRToCubin(bytecode, *deviceTarget, bytecodeVersion));
++              assembleTileIRToCubin(bytecode, *deviceTarget, bytecodeVersion,
++                                    assemblerPath));
+           if (!cubin) {
+             return Status::NotSupported("no compatible TileIR assembler");
+           }
+           return std::move(*cubin);
+         });
+   }
+-  const auto &argLayout = frontend.argLayout;
+-  if (argLayout.uniformSignature || argLayout.hasDynamicShapes()) {
++
++  if (artifact.argumentPackingPolicy ==
++      CudaTileArgumentPackingPolicy::Flat) {
+     tileRtk->setArgPacker(
+         std::make_unique<::tensor_ir::rt::FlatArgPacker<RuntimeAcc>>(
+-            argLayout));
++            artifact.argLayout));
+   } else {
+     tileRtk->setArgPacker(
+         std::make_unique<::tensor_ir::rt::PointerOnlyArgPacker<RuntimeAcc>>());
+   }
+ 
+-  if (frontend.useRuntimeGrid) {
++  if (artifact.gridPolicy == CudaTileGridPolicy::TileBasedRuntime) {
+     tileRtk->setGridComputer(
+         std::make_unique<::tensor_ir::rt::TileBasedGridComputer<RuntimeAcc>>(
+-            argLayout));
++            artifact.argLayout));
+   } else {
+     tileRtk->setGridComputer(
+         std::make_unique<::tensor_ir::rt::StaticGridComputer<RuntimeAcc>>(
+-            compiler::cuda_tile::computeStaticGridSize(frontend)));
++            artifact.staticGrid));
+   }
+ 
+   return rtk;
+ }
+ 
++StatusOr<CudaTileCompiledArtifact> CudaTileCompiler::compileToArtifact(
++    llvm::StringRef source, const CudaTileCompileOptions &options) {
++  mlir::DialectRegistry registry;
++  mlir::nv_tensor_ir::registerDialects(registry);
++  mlir::MLIRContext context(registry);
++  context.loadAllAvailableDialects();
++
++  mlir::ParserConfig parserConfig(&context);
++  auto module = mlir::parseSourceString<mlir::ModuleOp>(source, parserConfig);
++  if (!module) {
++    return Status::CompilationError("Failed to parse MLIR source string");
++  }
++  return compileToArtifact(*module, options);
++}
++
++StatusOr<CudaTileCompiledArtifact> CudaTileCompiler::compileToArtifact(
++    mlir::ModuleOp module, const CudaTileCompileOptions &cudaTileOptions) {
++  TIR_RETURN_IF_ERROR(cudaTileOptions.validate());
++
++  IRDebugOptions debug = cudaTileOptions.irDebug;
++  if (cudaTileOptions.allowEnvironmentOverrides) {
++    applyPathEnvVar("TENSOR_IR_DUMP_IR", debug.dumpCudaTileIRPath);
++    applyPathEnvVar("TENSOR_IR_DUMP_TILEIR_BC", debug.dumpTileIRBCPath);
++    applyPathEnvVar("TENSOR_IR_LOAD_TILEIR_BC", debug.loadTileIRBCPath);
++    applyBoolEnvVar("TENSOR_IR_PRINT_IR_AFTER_ALL", debug.printIRAfterAll);
++    applyPathEnvVar("TENSOR_IR_PRINT_IR_TREE_DIR", debug.printIRTreeDir);
++    applyBoolEnvVar("TENSOR_IR_TIMING", debug.enableTiming);
++  }
++
++  auto frontendOptions = makeFrontendOptions(cudaTileOptions, debug);
++  auto frontendOr =
++      compiler::cuda_tile::lowerTensorIRToCudaTile(module, frontendOptions);
++  if (failed(frontendOr)) {
++    return Status::CompilationError(
++        "Failed to lower TensorIR to CudaTile dialect");
++  }
++  compiler::cuda_tile::CudaTileFrontendResult frontend = std::move(*frontendOr);
++
++  llvm::SmallVector<char, 0> tileirBytecode;
++  llvm::raw_svector_ostream os(tileirBytecode);
++  if (failed(mlir::cuda_tile::writeBytecode(
++          os, frontend.cudaTileModule, cudaTileOptions.bytecodeVersion))) {
++    return Status::CompilationError("Failed to write tile-ir bytecode");
++  }
++
++  if (!debug.dumpTileIRBCPath.empty()) {
++    std::error_code ec;
++    llvm::raw_fd_ostream bcOs(debug.dumpTileIRBCPath, ec,
++                              llvm::sys::fs::OF_None);
++    if (ec) {
++      llvm::errs() << "Warning: cannot dump Tile IR bytecode to '"
++                   << debug.dumpTileIRBCPath << "': " << ec.message() << "\n";
++    } else {
++      bcOs.write(tileirBytecode.data(), tileirBytecode.size());
++    }
++  }
++
++  if (!debug.loadTileIRBCPath.empty()) {
++    auto bufOrErr = llvm::MemoryBuffer::getFile(debug.loadTileIRBCPath,
++                                                /*IsText=*/false);
++    if (!bufOrErr) {
++      return Status::CompilationError("Cannot load Tile IR bytecode from '" +
++                                      debug.loadTileIRBCPath +
++                                      "': " + bufOrErr.getError().message());
++    }
++    llvm::StringRef bc = (*bufOrErr)->getBuffer();
++    tileirBytecode.assign(bc.begin(), bc.end());
++  }
++
++  if (cudaTileOptions.artifactKind == CudaTileArtifactKind::Cubin) {
++    TIR_ASSIGN_OR_RETURN(
++        auto cubin,
++        assembleTileIRToCubin(tileirBytecode,
++                              cudaTileOptions.computeCapability,
++                              cudaTileOptions.bytecodeVersion,
++                              cudaTileOptions.tileIRAssemblerPath));
++    if (cubin) {
++      tileirBytecode = std::move(*cubin);
++    } else if (!cudaTileOptions.allowArtifactFallback) {
++      return Status::CompilationError(
++          "Cubin was requested but no compatible TileIR assembler is "
++          "available");
++    }
++  }
++
++  TIR_ASSIGN_OR_RETURN(auto actualArtifactKind,
++                       detectCudaTileArtifactKind(tileirBytecode));
++  CudaTileCompiledArtifact artifact(
++      cudaTileOptions.computeCapability, cudaTileOptions.computeCapability,
++      cudaTileOptions.bytecodeVersion);
++  artifact.deviceCode = std::move(tileirBytecode);
++  artifact.requestedArtifactKind = cudaTileOptions.artifactKind;
++  artifact.actualArtifactKind = actualArtifactKind;
++  artifact.runtimeKernelName = std::move(frontend.runtimeKernelName);
++  artifact.entryFunctionName = std::move(frontend.entryFunctionName);
++  artifact.argLayout = std::move(frontend.argLayout);
++  artifact.argumentPackingPolicy =
++      artifact.argLayout.uniformSignature ||
++              artifact.argLayout.hasDynamicShapes()
++          ? CudaTileArgumentPackingPolicy::Flat
++          : CudaTileArgumentPackingPolicy::PointerOnly;
++  artifact.gridPolicy = frontend.useRuntimeGrid
++                            ? CudaTileGridPolicy::TileBasedRuntime
++                            : CudaTileGridPolicy::Static;
++  artifact.staticGrid = compiler::cuda_tile::computeStaticGridSize(frontend);
++  artifact.environmentOverridesEnabled =
++      cudaTileOptions.allowEnvironmentOverrides;
++  artifact.artifactFallbackAllowed = cudaTileOptions.allowArtifactFallback;
++  artifact.tileIRAssemblerPath = cudaTileOptions.tileIRAssemblerPath;
++  artifact.compileOptionsIdentity = cudaTileOptions.toUniqueString();
++  TIR_RETURN_IF_ERROR(artifact.validate());
++  return artifact;
++}
++
+ Status CudaTileCompileOptions::validateDerived() const {
+   if (ctaCount <= 0) {
+     return Status::InvalidArgument("CTA count must be greater than 0");
+@@ -291,6 +381,26 @@ Status CudaTileCompileOptions::validateDerived() const {
+   if (warpCount <= 0) {
+     return Status::InvalidArgument("Warp count must be greater than 0");
+   }
++  if (maxTileCandidates < 0) {
++    return Status::InvalidArgument(
++        "Maximum tile candidate count must not be negative");
++  }
++  if (maxTileCandidates == 0 && tileSize.empty()) {
++    return Status::InvalidArgument(
++        "Disabling tile analysis requires an explicit tile size");
++  }
++  for (int32_t value : tileSize) {
++    if (value <= 0) {
++      return Status::InvalidArgument("Tile sizes must be greater than 0");
++    }
++  }
++  if (stringifyCodegenStrategy(codegenStrategy).empty()) {
++    return Status::InvalidArgument("Unrecognized CUDA Tile codegen strategy");
++  }
++  if (!allowEnvironmentOverrides && !irDebug.loadTileIRBCPath.empty()) {
++    return Status::InvalidArgument(
++        "Deterministic compilation forbids loading TileIR from a file");
++  }
+   switch (artifactKind) {
+   case CudaTileArtifactKind::TileIR:
+     break;
+@@ -304,6 +414,18 @@ Status CudaTileCompileOptions::validateDerived() const {
+   default:
+     return Status::InvalidArgument("Unrecognized CUDA Tile artifact kind");
+   }
++  if (!allowEnvironmentOverrides &&
++      artifactKind == CudaTileArtifactKind::Cubin) {
++    if (tileIRAssemblerPath.empty()) {
++      return Status::InvalidArgument(
++          "Deterministic cubin compilation requires an explicit tileiras "
++          "path");
++    }
++    if (!llvm::sys::path::is_absolute(tileIRAssemblerPath)) {
++      return Status::InvalidArgument(
++          "Explicit tileiras executable must be an absolute path");
++    }
++  }
+   return Status::Ok();
+ }
+ 
+@@ -311,6 +433,16 @@ std::string CudaTileCompileOptions::toStringDerived() const {
+   std::string s;
+   s += "\nCTA count: " + std::to_string(ctaCount);
+   s += "\nWarp count: " + std::to_string(warpCount);
++  s += "\nUniform signature: " + std::to_string(uniformSignature);
++  s += "\nCodegen strategy: " + stringifyCodegenStrategy(codegenStrategy).str();
++  s += "\nMaximum tile candidates: " +
++       std::to_string(maxTileCandidates);
++  s += "\nEnvironment overrides: " +
++       std::to_string(allowEnvironmentOverrides);
++  s += "\nArtifact fallback: " + std::to_string(allowArtifactFallback);
++  if (!tileIRAssemblerPath.empty()) {
++    s += "\nTileIR assembler: " + tileIRAssemblerPath;
++  }
+   if (!tileSize.empty()) {
+     s += "\nTile size: ";
+     for (size_t i = 0; i < tileSize.size(); ++i) {
+@@ -335,6 +467,15 @@ std::string CudaTileCompileOptions::toUniqueStringDerived() const {
+       s += "_" + std::to_string(tileSize[i]);
+     }
+   }
++  s += "_uniform_" + std::to_string(uniformSignature);
++  s += "_strategy_" + stringifyCodegenStrategy(codegenStrategy).str();
++  s += "_candidates_" + std::to_string(maxTileCandidates);
++  s += "_env_" + std::to_string(allowEnvironmentOverrides);
++  s += "_fallback_" + std::to_string(allowArtifactFallback);
++  s += "_assembler_" + std::to_string(tileIRAssemblerPath.size()) + ":" +
++       tileIRAssemblerPath;
++  s += "_loadbc_" + std::to_string(irDebug.loadTileIRBCPath.size()) + ":" +
++       irDebug.loadTileIRBCPath;
+   s += "_bc";
+   s += llvm::join_items(
+       "_", std::to_string(static_cast<unsigned>(bytecodeVersion.getMajor())),
+diff --git a/lib/Compiler/CudaTile/TileIRAssembly.cpp b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+index ea1e03d585d895bef340952b7c7f76085aca9956..ce3d0c88582be78da64a606a1c9ae02fdee3540d 100644
+--- a/lib/Compiler/CudaTile/TileIRAssembly.cpp
++++ b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+@@ -8,6 +8,7 @@
+ #include "llvm/Support/FileSystem.h"
+ #include "llvm/Support/FileUtilities.h"
+ #include "llvm/Support/MemoryBuffer.h"
++#include "llvm/Support/Path.h"
+ #include "llvm/Support/Program.h"
+ #include "llvm/Support/raw_ostream.h"
+ 
+@@ -77,18 +78,34 @@ Status processError(llvm::StringRef action, const ProcessResult &result,
+ 
+ [[maybe_unused]] StatusOr<llvm::SmallVector<char, 0>>
+ assembleWithExecutable(llvm::ArrayRef<char> bytecode, SmTarget target,
+-                       mlir::cuda_tile::BytecodeVersion bytecodeVersion) {
+-  auto program = llvm::sys::findProgramByName("tileiras");
+-  if (!program) {
+-    return Status::NotFound("tileiras was not found on PATH");
++                       mlir::cuda_tile::BytecodeVersion bytecodeVersion,
++                       llvm::StringRef assemblerPath) {
++  std::string programStorage;
++  if (assemblerPath.empty()) {
++    auto program = llvm::sys::findProgramByName("tileiras");
++    if (!program) {
++      return Status::NotFound("tileiras was not found on PATH");
++    }
++    programStorage = *program;
++  } else {
++    if (!llvm::sys::path::is_absolute(assemblerPath)) {
++      return Status::InvalidArgument(
++          "explicit tileiras executable must be an absolute path");
++    }
++    if (!llvm::sys::fs::can_execute(assemblerPath)) {
++      return Status::NotFound("explicit tileiras executable is not executable: " +
++                              assemblerPath.str());
++    }
++    programStorage = assemblerPath.str();
+   }
++  llvm::StringRef program(programStorage);
+ 
+   TIR_ASSIGN_OR_RETURN(auto stdoutFile, createTemporaryFile("stdout"));
+   TIR_ASSIGN_OR_RETURN(auto stderrFile, createTemporaryFile("stderr"));
+-  llvm::SmallVector<llvm::StringRef, 2> versionArgs{*program,
++  llvm::SmallVector<llvm::StringRef, 2> versionArgs{program,
+                                                     "--list-versions"};
+   ProcessResult query =
+-      runProgram(*program, versionArgs, stdoutFile.path, stderrFile.path);
++      runProgram(program, versionArgs, stdoutFile.path, stderrFile.path);
+   if (query.exitCode != 0) {
+     return processError("tileiras --list-versions", query, stderrFile.path);
+   }
+@@ -121,10 +138,10 @@ assembleWithExecutable(llvm::ArrayRef<char> bytecode, SmTarget target,
+   std::string gpuArg =
+       "--gpu-name=sm_" + std::to_string(target.getComputeCapabilityVersion());
+   std::string outputArg = "--output-file=" + outputFile.path;
+-  llvm::SmallVector<llvm::StringRef, 4> args{*program, gpuArg, outputArg,
++  llvm::SmallVector<llvm::StringRef, 4> args{program, gpuArg, outputArg,
+                                              inputFile.path};
+   ProcessResult compile =
+-      runProgram(*program, args, stdoutFile.path, stderrFile.path);
++      runProgram(program, args, stdoutFile.path, stderrFile.path);
+   if (compile.exitCode != 0) {
+     return processError("tileiras compilation", compile, stderrFile.path);
+   }
+@@ -146,9 +163,11 @@ bool isUnavailable(const Status &status) {
+ 
+ StatusOr<std::optional<llvm::SmallVector<char, 0>>>
+ assembleTileIRToCubin(llvm::ArrayRef<char> bytecode, SmTarget target,
+-                      mlir::cuda_tile::BytecodeVersion bytecodeVersion) {
++                      mlir::cuda_tile::BytecodeVersion bytecodeVersion,
++                      llvm::StringRef assemblerPath) {
+ 
+-  auto executable = assembleWithExecutable(bytecode, target, bytecodeVersion);
++  auto executable = assembleWithExecutable(bytecode, target, bytecodeVersion,
++                                           assemblerPath);
+   if (executable.ok()) {
+     return std::optional<llvm::SmallVector<char, 0>>(std::move(*executable));
+   }

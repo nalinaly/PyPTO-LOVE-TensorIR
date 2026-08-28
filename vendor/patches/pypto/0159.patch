@@ -1,0 +1,44 @@
+From a94c4f70536a7075dcedfd4f01a04b36f6b458e9 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 08:50:54 +0800
+Subject: [PATCH 159/212] Fix scalar paged attention projections
+
+---
+ 3rdparty/nvidia/tensor-ir                | 2 +-
+ cmake/nvidia_backend.cmake               | 2 +-
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index d93401f6cbe825421b4b8d74256bac9f234a4df6..7f6c6cd62975560423127a252371b87b1a86893c 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit d93401f6cbe825421b4b8d74256bac9f234a4df6
++Subproject commit 7f6c6cd62975560423127a252371b87b1a86893c
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index acfa1418327dc7a62612b39dae4e83071835c385..564a3ee4599e449a16d441480928de13103b94bb 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "d93401f6cbe825421b4b8d74256bac9f234a4df6")
++    "7f6c6cd62975560423127a252371b87b1a86893c")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 8bd9949e78aa9634c5b76042deaa9b99584ad7d9..fa54009ae3338f6fe4a1cfc9dc4794ea049f3e81 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -6217,7 +6217,7 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+       store_offsets->elements_[0].get() != batch_loop->loop_var_.get() ||
+       store_offsets->elements_[1].get() != q_loop->loop_var_.get() ||
+       !store_column || store_column->value_ != 0 ||
+-      store->args_[2].get() != function->params_[7].get()) {
++      store->args_[2].get() != function->params_[8].get()) {
+     Reject("native paged decode must end in one output store",
+            &q_body->stmts_[28]->span_);
+   }

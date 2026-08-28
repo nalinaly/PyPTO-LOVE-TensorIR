@@ -1,0 +1,2919 @@
+From 79f9f16485e18f46a6d52269045a0d2577ec7e80 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 15:08:47 +0800
+Subject: [PATCH 198/212] Build native GDN with typed TensorIR ops
+
+---
+ cmake/nvidia_backend.cmake                    |    3 +-
+ docs/en/dev/backend/01-nvidia-target-info.md  |   56 +-
+ docs/zh/dev/backend/01-nvidia-target-info.md  |   51 +-
+ src/codegen/nvidia/tensor_ir_codegen.cpp      | 1235 +----------------
+ src/codegen/nvidia/tensor_ir_codegen.h        |   26 +-
+ .../nvidia/typed_tensor_ir_module_spec.h      |   67 +
+ src/compiler/nvidia_artifact_compiler.cpp     |   27 +-
+ .../nvidia_artifact_compiler_internal.h       |   14 +-
+ src/compiler/nvidia_producer_bridge.cpp       |   51 +-
+ src/compiler/nvidia_producer_bridge.h         |    9 +-
+ .../nvidia_tensor_ir_compilation_input.h      |   31 +
+ .../nvidia_typed_tensor_ir_builder.cpp        |  645 +++++++++
+ src/compiler/nvidia_typed_tensor_ir_builder.h |   43 +
+ src/compiler/structured_compile.cpp           |    6 +-
+ .../structured_tensor_ir_build_spec.cpp       |   44 +-
+ .../structured_tensor_ir_build_spec.h         |   23 +-
+ tests/ut/cpp/structured_compile_test.cpp      |   91 ++
+ 17 files changed, 1196 insertions(+), 1226 deletions(-)
+ create mode 100644 src/codegen/nvidia/typed_tensor_ir_module_spec.h
+ create mode 100644 src/compiler/nvidia_tensor_ir_compilation_input.h
+ create mode 100644 src/compiler/nvidia_typed_tensor_ir_builder.cpp
+ create mode 100644 src/compiler/nvidia_typed_tensor_ir_builder.h
+
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 5a8673d4e45eb79446e8f9a6f2baf2703aa28e3b..994ccb6cb894c0b94ecf35232c54eaefd79936ec 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -365,7 +365,8 @@ endfunction()
+ # propagating it through PyPTO's exception-enabled compiler object library.
+ add_library(pypto_nvidia_bridge_objects OBJECT
+     "${CMAKE_SOURCE_DIR}/src/compiler/nvidia_backend_bridge.cpp"
+-    "${CMAKE_SOURCE_DIR}/src/compiler/nvidia_producer_bridge.cpp")
++    "${CMAKE_SOURCE_DIR}/src/compiler/nvidia_producer_bridge.cpp"
++    "${CMAKE_SOURCE_DIR}/src/compiler/nvidia_typed_tensor_ir_builder.cpp")
+ add_dependencies(pypto_nvidia_bridge_objects pypto_nvidia_provenance_guard)
+ target_include_directories(pypto_nvidia_bridge_objects PRIVATE
+     "${CMAKE_SOURCE_DIR}/src/compiler")
+diff --git a/docs/en/dev/backend/01-nvidia-target-info.md b/docs/en/dev/backend/01-nvidia-target-info.md
+index 41c2c87d97ee8f2ea4f51b8b8b7243d1bd1b6c68..617676a37e7fad9a16fec9a683764c3c163c88e7 100644
+--- a/docs/en/dev/backend/01-nvidia-target-info.md
++++ b/docs/en/dev/backend/01-nvidia-target-info.md
+@@ -216,12 +216,26 @@ Internally, `PrepareStructuredTensorIrCompilation(program, request, schedule)`
+ is the sole constructor path for
+ `PreparedStructuredTensorIrCompilation`. It calls `EmitTensorIr(program)`, then
+ owns copies of the request and schedule, the resolved strict producer options,
+-the exact canonical TensorIR source bytes, the explicit frontend module kind
+-and metadata schema, copied ordered input/result metadata, and five canonical
+-identity projections. `TensorIrModule` does not cross this seam, and the
++the explicit frontend module kind and metadata schema, copied ordered
++input/result metadata, and five canonical identity projections. Text-based
++frontends retain their exact canonical TensorIR source bytes. The native GDN
++frontend instead retains one bounded compiler-neutral typed-module
++specification; it carries tensor metadata and semantic geometry, not MLIR
++objects or generated text. `TensorIrModule` does not cross this seam, and the
+ prepared value cannot be mixed with a different request or schedule during
+ finalization.
+ 
++The private no-RTTI/no-exception NVIDIA bridge is the sole owner of MLIR and
++TensorIR objects. For a typed input it registers NVIDIA's TensorIR dialects,
++uses `mlir::OpBuilder` and generated TensorIR ODS operation builders to create
++the `ModuleOp` and `GraphOp`, verifies that module, prints it once as canonical
++identity/debug text, and passes that same `ModuleOp` to
++`CudaTileCompiler::compileToArtifact(ModuleOp, options)`. The canonical print
++returns with the producer DTO; the exception-enabled compiler hashes it before
++BuildSpec finalization. No parser or handwritten MLIR source emitter is on the
++native GDN compile path. The legacy public source-bytes API remains an explicit
++text boundary and continues to use TensorIR's source overload.
++
+ The facade performs one compile-first transaction: validate HIR, request,
+ schedule, and compiled backend identity; claim the producer process; invoke
+ the concrete private producer exactly once while holding the compiler mutex;
+@@ -266,18 +280,21 @@ contracts, and structured matmul uses domain-separated v4 contracts:
+ | --------------------- | --------------- | -------------- | ---------------------- | --------------- | -------- |
+ | static specialization | `pypto.frontend.static_specialization.v1` | `pypto.frontend.static_specialization.v2` | `pypto.frontend.static_specialization.v3` | `pypto.frontend.static_specialization.v4` | ordered argument/result roles, ordinals, and positive static HIR shapes |
+ | symbolic specialization | `pypto.frontend.symbolic_specialization.v1` | `pypto.frontend.symbolic_specialization.v2` | `pypto.frontend.symbolic_specialization.v3` | `pypto.frontend.symbolic_specialization.v4` | explicit empty `constraints` and `symbols` arrays |
+-| argument ABI | `pypto.frontend.argument_abi.v1` | `pypto.frontend.argument_abi.v2` | `pypto.frontend.argument_abi.v3` | `pypto.frontend.argument_abi.v4` | all ordered inputs with `direction=in`, dtype code/name, rank, static shape, logical dense strides, contiguous and explicit-stride state |
++| argument ABI | `pypto.frontend.argument_abi.v1` | `pypto.frontend.argument_abi.v2` | `pypto.frontend.argument_abi.v3` | `pypto.frontend.argument_abi.v4` | all ordered inputs with direction/effect, dtype code/name, rank, static shape, logical strides, contiguous and explicit-stride state |
+ | result ABI | `pypto.frontend.result_abi.v1` | `pypto.frontend.result_abi.v2` | `pypto.frontend.result_abi.v3` | `pypto.frontend.result_abi.v4` | the one ordered result with dtype/layout metadata, without an input direction |
+-| mutation ABI | `pypto.frontend.mutation_abi.v1` | `pypto.frontend.mutation_abi.v2` | `pypto.frontend.mutation_abi.v3` | `pypto.frontend.mutation_abi.v4` | one read-only effect per input and one `nil` result alias |
++| mutation ABI | `pypto.frontend.mutation_abi.v1` | `pypto.frontend.mutation_abi.v2` | `pypto.frontend.mutation_abi.v3` | `pypto.frontend.mutation_abi.v4` | one declared read-only or read-write effect per input and one `nil` result alias |
+ 
+ The sixth identity domain remains the SHA-256 of the raw canonical TensorIR
+-source bytes, without a MessagePack envelope. A `nil` result alias means that
++print bytes, without a MessagePack envelope. Text frontends hash their retained
++source; typed frontends hash only the verified `ModuleOp` print returned by the
++producer. A `nil` result alias means that
+ the HIR/SSA result has no input-alias lineage; it does not claim runtime pointer
+ non-overlap, C/C++ `restrict`, or a loader-side alias check.
+ 
+-`FinalizeStructuredTensorIrBuildSpec(prepared, real_kernel_abi)` accepts no
+-caller-provided callable digest. It validates the returned kernel ABI against
+-the prepared metadata and schedule, then uses only
++`FinalizeStructuredTensorIrBuildSpec` accepts no caller-provided callable or
++source digest. It validates the returned kernel ABI against the prepared
++metadata and schedule, accepts the source identity only from the normalized
++producer transaction, then uses only
+ `ArtifactKernelAbi.identity_digest` as `KernelBuildSpec.callable_abi_digest`.
+ All four module kinds require the fixed runtime name; the prepared entry name;
+ exactly ordered tensor descriptors for every input followed by `Result0`;
+@@ -443,6 +460,27 @@ correctness, CUDA launch, or performance until separate CPU/compiler and
+ real-SM120 gates run. V1/V2/V3 canonical source, projection bytes, callable ABI,
+ and producer behavior remain unchanged.
+ 
++### Native stateful GDN typed TensorIR builder
++
++The native recurrent GDN frontend is the first model operator on the typed
++builder path. HIR analysis freezes seven inputs in order: packed BF16 QKV,
++BF16 `a`, BF16 `b`, FP32 `A_log`, BF16 `dt_bias`, read-write FP32 state, and
++INT32/INT64 state indices. Gates and parameter vectors may use explicit
++zero-stride broadcast views; packed input, indices, and result remain dense,
++while state may have a row pitch no smaller than its payload.
++
++The bridge builds the stable-softplus recurrence with typed `SliceOp`,
++`ReshapeOp`, `ConvertOp`, pointwise ops, `ReduceOp`, `BroadcastOp`, `MatmulOp`,
++`GatherRowsOp`, `ScatterRowsOp`, `TransposeOp`, and `ConcatenateOp`. BF16
++`dt_bias` is explicitly converted to FP32 before `a + dt_bias`. The state update
++keeps the reviewed BF16 beta round-trip and the trailing-transpose alignment
++attribute. Identity broadcasts are elided because TensorIR forbids no-op
++`BroadcastOp`; the schedule producer correspondingly supplies tiles only for
++non-unit iteration-space dimensions. TensorIR verification runs before
++canonical printing or lowering; the compiler then consumes that exact
++in-memory module. The former per-head and batched handwritten GDN MLIR emitters
++are not retained as a fallback.
++
+ ## NVIDIA Artifact v1
+ 
+ `Artifact` is the immutable, pointer-free output envelope for the first strict
+diff --git a/docs/zh/dev/backend/01-nvidia-target-info.md b/docs/zh/dev/backend/01-nvidia-target-info.md
+index 5c1aa8192aecf29deacf0782a9949e565690eb16..e188bb81fd6e3ab80975dda6929a6a448aeb60cb 100644
+--- a/docs/zh/dev/backend/01-nvidia-target-info.md
++++ b/docs/zh/dev/backend/01-nvidia-target-info.md
+@@ -193,9 +193,21 @@ final `build_spec` 与 `artifact`。在内部，
+ `PrepareStructuredTensorIrCompilation(program, request, schedule)` 是
+ `PreparedStructuredTensorIrCompilation` 唯一的构造路径。它调用
+ `EmitTensorIr(program)`，随后按值拥有 request、schedule、解析后的 strict producer
+-option、精确 canonical TensorIR source bytes、显式 frontend module kind 与 metadata
+-schema、复制出的有序 input/result metadata，以及五个 canonical identity projection。
+-`TensorIrModule` 不会跨过此 seam，finalization 也无法混入另一份 request 或 schedule。
++option、显式 frontend module kind 与 metadata schema、复制出的有序 input/result
++metadata，以及五个 canonical identity projection。text-based frontend 继续保留精确的
++canonical TensorIR source bytes；native GDN frontend 则保留一个有界、compiler-neutral
++的 typed-module specification，其中只有 tensor metadata 与 semantic geometry，不包含
++MLIR object 或生成文本。`TensorIrModule` 不会跨过此 seam，finalization 也无法混入
++另一份 request 或 schedule。
++
++private no-RTTI/no-exception NVIDIA bridge 是 MLIR/TensorIR object 的唯一 owner。对于
++typed input，它注册 NVIDIA TensorIR dialect，使用 `mlir::OpBuilder` 与生成的 TensorIR
++ODS op builder 直接创建 `ModuleOp` 和 `GraphOp`，验证 module，只打印一次 canonical
++identity/debug 文本，并把同一个 `ModuleOp` 传给
++`CudaTileCompiler::compileToArtifact(ModuleOp, options)`。canonical print 随 producer
++DTO 返回，exception-enabled compiler 会在 BuildSpec finalization 前计算其 hash。native
++GDN compile path 不经过 parser，也没有手写 MLIR source emitter。legacy public
++source-bytes API 仍是显式 text boundary，并继续使用 TensorIR source overload。
+ 
+ facade 执行一次 compile-first transaction：验证 HIR、request、schedule 与 compiled
+ backend identity；claim producer process；只在 compiler mutex 内调用一次 concrete
+@@ -236,17 +248,18 @@ domain-separated v4 contract：
+ | --------------------- | --------------- | -------------- | ---------------------- | --------------- | -------- |
+ | static specialization | `pypto.frontend.static_specialization.v1` | `pypto.frontend.static_specialization.v2` | `pypto.frontend.static_specialization.v3` | `pypto.frontend.static_specialization.v4` | 有序 argument/result role、ordinal 与正数 static HIR shape |
+ | symbolic specialization | `pypto.frontend.symbolic_specialization.v1` | `pypto.frontend.symbolic_specialization.v2` | `pypto.frontend.symbolic_specialization.v3` | `pypto.frontend.symbolic_specialization.v4` | 显式为空的 `constraints` 与 `symbols` array |
+-| argument ABI | `pypto.frontend.argument_abi.v1` | `pypto.frontend.argument_abi.v2` | `pypto.frontend.argument_abi.v3` | `pypto.frontend.argument_abi.v4` | 全部有序 input，包括 `direction=in`、dtype code/name、rank、static shape、logical dense stride、contiguous 与 explicit-stride state |
++| argument ABI | `pypto.frontend.argument_abi.v1` | `pypto.frontend.argument_abi.v2` | `pypto.frontend.argument_abi.v3` | `pypto.frontend.argument_abi.v4` | 全部有序 input，包括 direction/effect、dtype code/name、rank、static shape、logical stride、contiguous 与 explicit-stride state |
+ | result ABI | `pypto.frontend.result_abi.v1` | `pypto.frontend.result_abi.v2` | `pypto.frontend.result_abi.v3` | `pypto.frontend.result_abi.v4` | 唯一有序 result，包含 dtype/layout metadata，但不含 input direction |
+-| mutation ABI | `pypto.frontend.mutation_abi.v1` | `pypto.frontend.mutation_abi.v2` | `pypto.frontend.mutation_abi.v3` | `pypto.frontend.mutation_abi.v4` | 每个 input 一个 read-only effect，以及一个 `nil` result alias |
++| mutation ABI | `pypto.frontend.mutation_abi.v1` | `pypto.frontend.mutation_abi.v2` | `pypto.frontend.mutation_abi.v3` | `pypto.frontend.mutation_abi.v4` | 每个 input 一个声明的 read-only 或 read-write effect，以及一个 `nil` result alias |
+ 
+-第六个 identity domain 仍然是 raw canonical TensorIR source bytes 的 SHA-256，不添加
+-MessagePack envelope。`nil` result alias 表示 HIR/SSA result 没有 input-alias lineage；
++第六个 identity domain 仍然是 raw canonical TensorIR print bytes 的 SHA-256，不添加
++MessagePack envelope。text frontend hash 它保留的 source；typed frontend 只 hash
++producer 返回的、已验证 `ModuleOp` print。`nil` result alias 表示 HIR/SSA result 没有 input-alias lineage；
+ 它不声明 runtime pointer 不重叠、C/C++ `restrict`，也不代表 loader 已执行 alias check。
+ 
+-`FinalizeStructuredTensorIrBuildSpec(prepared, real_kernel_abi)` 不接受 caller 提供的
+-callable digest。它先根据 prepared metadata 与 schedule 验证返回的 kernel ABI，之后
+-只使用 `ArtifactKernelAbi.identity_digest` 作为
++`FinalizeStructuredTensorIrBuildSpec` 不接受 caller 提供的 callable 或 source digest。
++它先根据 prepared metadata 与 schedule 验证返回的 kernel ABI，只从 normalized
++producer transaction 接受 source identity，之后只使用 `ArtifactKernelAbi.identity_digest` 作为
+ `KernelBuildSpec.callable_abi_digest`。四种 module kind 都要求固定 runtime name、
+ prepared entry name、严格按全部 input 后接 `Result0` 排列的 tensor descriptor、完全
+ static 且匹配的 shape/stride、无 dynamic metadata、`N` 个 input 与 `N+1` 个 kernel
+@@ -388,6 +401,24 @@ identity 与 producer ABI check。在单独的 CPU/compiler 与 real-SM120 gate
+ correctness、CUDA launch 或 performance。V1/V2/V3 canonical source、projection bytes、
+ callable ABI 与 producer behavior 保持不变。
+ 
++### Native stateful GDN typed TensorIR builder
++
++native recurrent GDN frontend 是第一条迁移到 typed builder 的 model operator。HIR
++analysis 固定七个有序 input：packed BF16 QKV、BF16 `a`、BF16 `b`、FP32 `A_log`、
++BF16 `dt_bias`、read-write FP32 state，以及 INT32/INT64 state indices。gate 与 parameter
++vector 可以使用显式 zero-stride broadcast view；packed input、indices 与 result 保持
++dense，state 允许 row pitch 大于或等于 payload。
++
++bridge 使用 typed `SliceOp`、`ReshapeOp`、`ConvertOp`、pointwise op、`ReduceOp`、
++`BroadcastOp`、`MatmulOp`、`GatherRowsOp`、`ScatterRowsOp`、`TransposeOp` 与
++`ConcatenateOp` 构造 stable-softplus recurrence。BF16 `dt_bias` 会在 `a + dt_bias` 前
++显式转换为 FP32。state update 保留已 review 的 BF16 beta round-trip 与
++trailing-transpose alignment attribute。TensorIR 禁止 no-op `BroadcastOp`，因此 identity
++broadcast 会被省略，schedule producer 也只为 non-unit iteration-space dimension 提供
++tile。canonical print 与 lowering 前先执行 TensorIR verification，compiler 随后消费
++同一个 in-memory module。原 per-head 与 batched 手写 GDN MLIR emitter 不会作为
++fallback 保留。
++
+ ## NVIDIA Artifact v1
+ 
+ `Artifact` 是第一条 strict structured TensorIR 路径的不可变、无指针输出封装。
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 420cacc7911c24fdf97c585833b66b4e9fe9a783..4ed740a89108233bd82476efb27fba6a1b59496e 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -4664,6 +4664,46 @@ struct NativeTileGdnProjectionGraph {
+   int64_t gate_width;
+ };
+ 
++TypedTensorIrElementType ToTypedTensorIrElementType(DataType dtype) {
++  if (dtype == DataType::BF16) return TypedTensorIrElementType::BF16;
++  if (dtype == DataType::FP32) return TypedTensorIrElementType::FP32;
++  if (dtype == DataType::INT32) return TypedTensorIrElementType::INT32;
++  if (dtype == DataType::INT64) return TypedTensorIrElementType::INT64;
++  InternalReject("unsupported dtype reached typed TensorIR module construction");
++}
++
++TypedTensorIrTensorSpec MakeTypedTensorIrTensorSpec(
++    const StaticTensor& tensor, bool has_explicit_strides) {
++  return TypedTensorIrTensorSpec{ToTypedTensorIrElementType(tensor.dtype),
++                                 tensor.shape, tensor.dense_strides,
++                                 has_explicit_strides};
++}
++
++TypedTensorIrModuleSpec MakeNativeGdnRecurrentTensorIrSpec(
++    const NativeTileGdnRecurrentGraph& graph) {
++  TypedTensorIrModuleSpec module_spec;
++  module_spec.kind = TypedTensorIrModuleKind::NativeGdnRecurrent;
++  NativeGdnRecurrentTensorIrSpec& spec = module_spec.native_gdn_recurrent;
++  const std::array<StaticTensor, NativeGdnRecurrentTensorIrSpec::kInputCount>
++      inputs = {graph.mixed_qkv, graph.a,     graph.b,       graph.a_log,
++                graph.dt_bias,   graph.state, graph.state_indices};
++  for (size_t index = 0; index < inputs.size(); ++index) {
++    spec.inputs[index] = MakeTypedTensorIrTensorSpec(
++        inputs[index], /*has_explicit_strides=*/true);
++  }
++  spec.result = MakeTypedTensorIrTensorSpec(
++      graph.result, /*has_explicit_strides=*/true);
++  spec.batch_size = graph.batch_size;
++  spec.tokens_per_request = graph.tokens_per_request;
++  spec.query_heads = graph.q_heads;
++  spec.value_heads = graph.value_heads;
++  spec.key_dim = graph.key_dim;
++  spec.value_dim = graph.value_dim;
++  spec.state_slots = graph.state_slots;
++  spec.scale = graph.scale;
++  return module_spec;
++}
++
+ bool IsNativeTileMatmulCandidate(const ir::ProgramPtr& program) {
+   if (!IsNativeTilePointwiseCandidate(program)) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+@@ -8536,1171 +8576,6 @@ std::string EmitNativeTileGdnProjectionSource(
+   return source;
+ }
+ 
+-std::string EmitNativeTileGdnRecurrentSource(
+-    const NativeTileGdnRecurrentGraph& graph) {
+-  const int64_t state_width = graph.value_heads * graph.value_dim * graph.key_dim;
+-  StaticTensor indices_i32 = graph.state_indices;
+-  indices_i32.dtype = DataType::INT32;
+-  StaticTensor indices_column{DataType::INT32, {1, 1}, {}};
+-  indices_column.dense_strides =
+-      MakeDenseStridesForMetadata(indices_column.shape);
+-  StaticTensor indices_full{DataType::INT32, {1, state_width}, {}};
+-  indices_full.dense_strides =
+-      MakeDenseStridesForMetadata(indices_full.shape);
+-  StaticTensor state_rows{DataType::FP32, {1, state_width}, {}};
+-  state_rows.dense_strides = MakeDenseStridesForMetadata(state_rows.shape);
+-  StaticTensor state_head_flat{DataType::FP32,
+-                               {1, graph.value_dim * graph.key_dim}, {}};
+-  state_head_flat.dense_strides =
+-      MakeDenseStridesForMetadata(state_head_flat.shape);
+-  StaticTensor state_matrix{DataType::FP32,
+-                            {graph.value_dim, graph.key_dim}, {}};
+-  state_matrix.dense_strides =
+-      MakeDenseStridesForMetadata(state_matrix.shape);
+-  StaticTensor query_box{DataType::BF16, {1, 1, graph.key_dim}, {}};
+-  query_box.dense_strides = MakeDenseStridesForMetadata(query_box.shape);
+-  StaticTensor query{DataType::BF16, {1, graph.key_dim}, {}};
+-  query.dense_strides = MakeDenseStridesForMetadata(query.shape);
+-  StaticTensor wide_query = query;
+-  wide_query.dtype = DataType::FP32;
+-  StaticTensor key_column{DataType::FP32, {graph.key_dim, 1}, {}};
+-  key_column.dense_strides = MakeDenseStridesForMetadata(key_column.shape);
+-  StaticTensor state_transposed{DataType::FP32,
+-                                {graph.key_dim, graph.value_dim}, {}};
+-  state_transposed.dense_strides =
+-      MakeDenseStridesForMetadata(state_transposed.shape);
+-  StaticTensor value_box{DataType::BF16, {1, 1, graph.value_dim}, {}};
+-  value_box.dense_strides = MakeDenseStridesForMetadata(value_box.shape);
+-  StaticTensor value_column{DataType::BF16, {graph.value_dim, 1}, {}};
+-  value_column.dense_strides =
+-      MakeDenseStridesForMetadata(value_column.shape);
+-  StaticTensor wide_value_column = value_column;
+-  wide_value_column.dtype = DataType::FP32;
+-  StaticTensor gate_box{DataType::BF16,
+-                        {1, 1, 1, graph.value_dim}, {}};
+-  gate_box.dense_strides = MakeDenseStridesForMetadata(gate_box.shape);
+-  StaticTensor gate_column{DataType::BF16, {graph.value_dim, 1}, {}};
+-  gate_column.dense_strides = MakeDenseStridesForMetadata(gate_column.shape);
+-  StaticTensor wide_gate_column = gate_column;
+-  wide_gate_column.dtype = DataType::FP32;
+-  StaticTensor parameter_row{DataType::FP32, {1, graph.value_dim}, {}};
+-  parameter_row.dense_strides =
+-      MakeDenseStridesForMetadata(parameter_row.shape);
+-  StaticTensor parameter_column{DataType::FP32, {graph.value_dim, 1}, {}};
+-  parameter_column.dense_strides =
+-      MakeDenseStridesForMetadata(parameter_column.shape);
+-  StaticTensor dt_parameter_row = parameter_row;
+-  dt_parameter_row.dtype = DataType::BF16;
+-  StaticTensor dt_parameter_column = parameter_column;
+-  dt_parameter_column.dtype = DataType::BF16;
+-  StaticTensor norm{DataType::FP32, {1, 1}, {1, 1}};
+-  StaticTensor output_wide{DataType::FP32, {1, graph.value_dim}, {}};
+-  output_wide.dense_strides =
+-      MakeDenseStridesForMetadata(output_wide.shape);
+-  StaticTensor output = output_wide;
+-  output.dtype = DataType::BF16;
+-  StaticTensor output_box{DataType::BF16,
+-                          {1, 1, 1, graph.value_dim}, {}};
+-  output_box.dense_strides = MakeDenseStridesForMetadata(output_box.shape);
+-  StaticTensor head_sequence{DataType::BF16,
+-                             {1, graph.tokens_per_request, 1,
+-                              graph.value_dim}, {}};
+-  head_sequence.dense_strides =
+-      MakeDenseStridesForMetadata(head_sequence.shape);
+-  StaticTensor batch_result{DataType::BF16,
+-                            {1, graph.tokens_per_request, graph.value_heads,
+-                             graph.value_dim}, {}};
+-  batch_result.dense_strides =
+-      MakeDenseStridesForMetadata(batch_result.shape);
+-  StaticTensor batch_state{DataType::FP32, {1, state_width}, {}};
+-  batch_state.dense_strides = MakeDenseStridesForMetadata(batch_state.shape);
+-
+-  const std::string mixed_type = TensorTypeText(graph.mixed_qkv);
+-  const std::string a_type = TensorTypeText(graph.a);
+-  const std::string parameter_type = TensorTypeText(graph.a_log);
+-  const std::string dt_type = TensorTypeText(graph.dt_bias);
+-  const std::string state_type = TensorTypeText(graph.state);
+-  const std::string indices_type = TensorTypeText(graph.state_indices);
+-  const std::string indices_i32_type = TensorTypeText(indices_i32);
+-  const std::string indices_column_type = TensorTypeText(indices_column);
+-  const std::string indices_full_type = TensorTypeText(indices_full);
+-  const std::string state_rows_type = TensorTypeText(state_rows);
+-  const std::string state_head_flat_type = TensorTypeText(state_head_flat);
+-  const std::string state_matrix_type = TensorTypeText(state_matrix);
+-  const std::string query_box_type = TensorTypeText(query_box);
+-  const std::string query_type = TensorTypeText(query);
+-  const std::string wide_query_type = TensorTypeText(wide_query);
+-  const std::string key_column_type = TensorTypeText(key_column);
+-  const std::string state_transposed_type =
+-      TensorTypeText(state_transposed);
+-  const std::string value_box_type = TensorTypeText(value_box);
+-  const std::string value_column_type = TensorTypeText(value_column);
+-  const std::string wide_value_column_type =
+-      TensorTypeText(wide_value_column);
+-  const std::string gate_box_type = TensorTypeText(gate_box);
+-  const std::string gate_column_type = TensorTypeText(gate_column);
+-  const std::string wide_gate_column_type =
+-      TensorTypeText(wide_gate_column);
+-  const std::string parameter_row_type = TensorTypeText(parameter_row);
+-  const std::string parameter_column_type = TensorTypeText(parameter_column);
+-  const std::string dt_parameter_row_type = TensorTypeText(dt_parameter_row);
+-  const std::string dt_parameter_column_type =
+-      TensorTypeText(dt_parameter_column);
+-  const std::string norm_type = TensorTypeText(norm);
+-  const std::string output_wide_type = TensorTypeText(output_wide);
+-  const std::string output_type = TensorTypeText(output);
+-  const std::string output_box_type = TensorTypeText(output_box);
+-  const std::string head_sequence_type = TensorTypeText(head_sequence);
+-  const std::string batch_result_type = TensorTypeText(batch_result);
+-  const std::string batch_state_type = TensorTypeText(batch_state);
+-  const std::string result_type = TensorTypeText(graph.result);
+-
+-  std::string source;
+-  source.reserve(8192);
+-  source += "module {\n  nv_tensor_ir.graph @";
+-  source += kFusedPointwiseEntryName;
+-  source += "(\n    %arg0: ";
+-  source += TensorWithStrideText(graph.mixed_qkv);
+-  source += ",\n    %arg1: ";
+-  source += TensorWithStrideText(graph.a);
+-  source += ",\n    %arg2: ";
+-  source += TensorWithStrideText(graph.b);
+-  source += ",\n    %arg3: ";
+-  source += TensorWithStrideText(graph.a_log);
+-  source += ",\n    %arg4: ";
+-  source += TensorWithStrideText(graph.dt_bias);
+-  source += ",\n    %arg5: ";
+-  source += TensorWithStrideText(graph.state);
+-  source += ",\n    %arg6: ";
+-  source += TensorWithStrideText(graph.state_indices);
+-  source += "\n  ) -> (";
+-  source += TensorWithStrideText(graph.result);
+-  source += ") {\n";
+-  std::string indices_value = "%arg6";
+-  if (graph.state_indices.dtype == DataType::INT64) {
+-    source += "    %state_indices32 = convert %arg6 : ";
+-    source += indices_type;
+-    source += " -> ";
+-    source += indices_i32_type;
+-    source += "\n";
+-    indices_value = "%state_indices32";
+-  }
+-  source += "    %epsilon = constant 9.999999974752427e-07 : f32";
+-  source += "\n    %epsilon_splat = splat %epsilon : ";
+-  source += norm_type;
+-  source += "\n    %one = constant 1.0 : f32";
+-  source += "\n    %one_gate = splat %one : ";
+-  source += parameter_column_type;
+-  source += "\n    %zero = constant 0.0 : f32";
+-  source += "\n    %zero_gate = splat %zero : ";
+-  source += parameter_column_type;
+-  source += "\n    %scale = constant ";
+-  AppendFloat(source, graph.scale);
+-  source += " : f32\n    %scale_splat = splat %scale : ";
+-  source += wide_query_type;
+-
+-  std::vector<std::string> batch_outputs;
+-  batch_outputs.reserve(static_cast<size_t>(graph.batch_size));
+-  const int64_t value_heads_per_q = graph.value_heads / graph.q_heads;
+-  for (int64_t batch = 0; batch < graph.batch_size; ++batch) {
+-    const std::string batch_suffix = "b" + std::to_string(batch);
+-    const std::string index_name = "%state_index_" + batch_suffix;
+-    const std::string indices_full_name =
+-        "%state_indices_full_" + batch_suffix;
+-    const std::string state_rows_name = "%state_rows_" + batch_suffix;
+-    source += "\n    " + index_name + " = slice " + indices_value +
+-              " starts = [" + std::to_string(batch) + ", 0] limits = [" +
+-              std::to_string(batch + 1) + ", 1] strides = [1, 1] : ";
+-    source += indices_i32_type;
+-    source += " -> ";
+-    source += indices_column_type;
+-    source += "\n    " + indices_full_name + " = broadcast " + index_name +
+-              " : ";
+-    source += indices_column_type;
+-    source += " -> ";
+-    source += indices_full_type;
+-    source += "\n    " + state_rows_name + " = gather_rows %arg5, " +
+-              indices_full_name + " : (";
+-    source += state_type;
+-    source += ", ";
+-    source += indices_full_type;
+-    source += ") -> ";
+-    source += state_rows_type;
+-    std::vector<std::string> head_outputs;
+-    std::vector<std::string> head_states;
+-    head_outputs.reserve(static_cast<size_t>(graph.value_heads));
+-    head_states.reserve(static_cast<size_t>(graph.value_heads));
+-    for (int64_t head = 0; head < graph.value_heads; ++head) {
+-      const int64_t query_head = head / value_heads_per_q;
+-      const int64_t state_offset = head * graph.value_dim * graph.key_dim;
+-      const std::string head_suffix =
+-          "b" + std::to_string(batch) + "_h" + std::to_string(head);
+-      source += "\n    %state_flat_" + head_suffix + " = slice " +
+-                state_rows_name + " starts = [0, " +
+-                std::to_string(state_offset) + "] limits = [1, " +
+-                std::to_string(state_offset + graph.value_dim * graph.key_dim) +
+-                "] strides = [1, 1] : ";
+-      source += state_rows_type;
+-      source += " -> ";
+-      source += state_head_flat_type;
+-      source += "\n    %state_" + head_suffix + " = reshape %state_flat_" +
+-                head_suffix + " : ";
+-      source += state_head_flat_type;
+-      source += " -> ";
+-      source += state_matrix_type;
+-      source += "\n    %A_row_" + head_suffix +
+-                " = slice %arg3 starts = [" + std::to_string(head) +
+-                ", 0] limits = [" + std::to_string(head + 1) + ", " +
+-                std::to_string(graph.value_dim) + "] strides = [1, 1] : ";
+-      source += parameter_type;
+-      source += " -> ";
+-      source += parameter_row_type;
+-      source += "\n    %A_" + head_suffix + " = reshape %A_row_" +
+-                head_suffix + " : ";
+-      source += parameter_row_type;
+-      source += " -> ";
+-      source += parameter_column_type;
+-      source += "\n    %expA_" + head_suffix + " = exp %A_" + head_suffix +
+-                " : ";
+-      source += parameter_column_type;
+-      source += "\n    %dt_row_" + head_suffix +
+-                " = slice %arg4 starts = [" + std::to_string(head) +
+-                ", 0] limits = [" + std::to_string(head + 1) + ", " +
+-                std::to_string(graph.value_dim) + "] strides = [1, 1] : ";
+-      source += dt_type;
+-      source += " -> ";
+-      source += dt_parameter_row_type;
+-      source += "\n    %dt_bf16_" + head_suffix + " = reshape %dt_row_" +
+-                head_suffix + " : ";
+-      source += dt_parameter_row_type;
+-      source += " -> ";
+-      source += dt_parameter_column_type;
+-      source += "\n    %dt_" + head_suffix + " = convert %dt_bf16_" +
+-                head_suffix + " : ";
+-      source += dt_parameter_column_type;
+-      source += " -> ";
+-      source += parameter_column_type;
+-
+-      std::string current_state = "%state_" + head_suffix;
+-      std::vector<std::string> token_outputs;
+-      token_outputs.reserve(static_cast<size_t>(graph.tokens_per_request));
+-      for (int64_t token = 0; token < graph.tokens_per_request; ++token) {
+-        const int64_t query_offset = query_head * graph.key_dim;
+-        const int64_t key_offset = graph.q_heads * graph.key_dim + query_offset;
+-        const int64_t value_offset =
+-            2 * graph.q_heads * graph.key_dim + head * graph.value_dim;
+-        const std::string suffix =
+-            head_suffix + "_t" + std::to_string(token);
+-        auto append_mixed_slice = [&](std::string_view name, int64_t offset,
+-                                      const std::string &box_type,
+-                                      const std::string &flat_type,
+-                                      int64_t width) {
+-          source += "\n    %" + std::string(name) + "_box_" + suffix +
+-                    " = slice %arg0 starts = [" + std::to_string(batch) +
+-                    ", " + std::to_string(token) + ", " +
+-                    std::to_string(offset) + "] limits = [" +
+-                    std::to_string(batch + 1) + ", " +
+-                    std::to_string(token + 1) + ", " +
+-                    std::to_string(offset + width) + "] strides = [1, 1, 1] : ";
+-          source += mixed_type;
+-          source += " -> ";
+-          source += box_type;
+-          source += "\n    %" + std::string(name) + "_" + suffix +
+-                    " = reshape %" + std::string(name) + "_box_" + suffix +
+-                    " : ";
+-          source += box_type;
+-          source += " -> ";
+-          source += flat_type;
+-        };
+-        append_mixed_slice("q", query_offset, query_box_type, query_type,
+-                           graph.key_dim);
+-        append_mixed_slice("k", key_offset, query_box_type, query_type,
+-                           graph.key_dim);
+-        append_mixed_slice("v", value_offset, value_box_type,
+-                           value_column_type, graph.value_dim);
+-        source += "\n    %qwide_" + suffix + " = convert %q_" + suffix + " : ";
+-        source += query_type;
+-        source += " -> ";
+-        source += wide_query_type;
+-        source += "\n    %qsquare_" + suffix + " = mul %qwide_" + suffix +
+-                  ", %qwide_" + suffix + " : ";
+-        source += wide_query_type;
+-        source += "\n    %qsum_" + suffix + " = reduce(%qsquare_" + suffix +
+-                  ") <dimensions = [1], reduction_mode = <add>> : ";
+-        source += wide_query_type;
+-        source += " -> ";
+-        source += norm_type;
+-        source += "\n    %qnorm2_" + suffix + " = add %qsum_" + suffix +
+-                  ", %epsilon_splat : ";
+-        source += norm_type;
+-        source += "\n    %qinv_" + suffix + " = rsqrt %qnorm2_" + suffix + " : ";
+-        source += norm_type;
+-        source += "\n    %qinv_full_" + suffix + " = broadcast %qinv_" +
+-                  suffix + " : ";
+-        source += norm_type;
+-        source += " -> ";
+-        source += wide_query_type;
+-        source += "\n    %qnorm_" + suffix + " = mul %qwide_" + suffix +
+-                  ", %qinv_full_" + suffix + " : ";
+-        source += wide_query_type;
+-        source += "\n    %qscaled_" + suffix + " = mul %qnorm_" + suffix +
+-                  ", %scale_splat : ";
+-        source += wide_query_type;
+-        source += "\n    %kwide_" + suffix + " = convert %k_" + suffix + " : ";
+-        source += query_type;
+-        source += " -> ";
+-        source += wide_query_type;
+-        source += "\n    %ksquare_" + suffix + " = mul %kwide_" + suffix +
+-                  ", %kwide_" + suffix + " : ";
+-        source += wide_query_type;
+-        source += "\n    %ksum_" + suffix + " = reduce(%ksquare_" + suffix +
+-                  ") <dimensions = [1], reduction_mode = <add>> : ";
+-        source += wide_query_type;
+-        source += " -> ";
+-        source += norm_type;
+-        source += "\n    %knorm2_" + suffix + " = add %ksum_" + suffix +
+-                  ", %epsilon_splat : ";
+-        source += norm_type;
+-        source += "\n    %kinv_" + suffix + " = rsqrt %knorm2_" + suffix + " : ";
+-        source += norm_type;
+-        source += "\n    %kinv_full_" + suffix + " = broadcast %kinv_" +
+-                  suffix + " : ";
+-        source += norm_type;
+-        source += " -> ";
+-        source += wide_query_type;
+-        source += "\n    %knorm_" + suffix + " = mul %kwide_" + suffix +
+-                  ", %kinv_full_" + suffix + " : ";
+-        source += wide_query_type;
+-
+-        auto append_gate_slice = [&](std::string_view name, int argument) {
+-          source += "\n    %" + std::string(name) + "_box_" + suffix +
+-                    " = slice %arg" + std::to_string(argument) + " starts = [" +
+-                    std::to_string(batch) + ", " + std::to_string(token) +
+-                    ", " + std::to_string(head) + ", 0] limits = [" +
+-                    std::to_string(batch + 1) + ", " +
+-                    std::to_string(token + 1) + ", " +
+-                    std::to_string(head + 1) + ", " +
+-                    std::to_string(graph.value_dim) +
+-                    "] strides = [1, 1, 1, 1] : ";
+-          source += a_type;
+-          source += " -> ";
+-          source += gate_box_type;
+-          source += "\n    %" + std::string(name) + "_bf16_" + suffix +
+-                    " = reshape %" + std::string(name) + "_box_" + suffix +
+-                    " : ";
+-          source += gate_box_type;
+-          source += " -> ";
+-          source += gate_column_type;
+-          source += "\n    %" + std::string(name) + "_" + suffix +
+-                    " = convert %" + std::string(name) + "_bf16_" + suffix +
+-                    " : ";
+-          source += gate_column_type;
+-          source += " -> ";
+-          source += wide_gate_column_type;
+-        };
+-        append_gate_slice("a", 1);
+-        append_gate_slice("b", 2);
+-        source += "\n    %gate_x_" + suffix + " = add %a_" + suffix +
+-                  ", %dt_" + head_suffix + " : ";
+-        source += parameter_column_type;
+-        source += "\n    %gate_abs_" + suffix + " = abs %gate_x_" + suffix +
+-                  " : ";
+-        source += parameter_column_type;
+-        source += "\n    %gate_neg_abs_" + suffix + " = neg %gate_abs_" +
+-                  suffix + " : ";
+-        source += parameter_column_type;
+-        source += "\n    %gate_tail_exp_" + suffix + " = exp %gate_neg_abs_" +
+-                  suffix + " : ";
+-        source += parameter_column_type;
+-        source += "\n    %gate_tail_shift_" + suffix +
+-                  " = add %gate_tail_exp_" + suffix + ", %one_gate : ";
+-        source += parameter_column_type;
+-        source += "\n    %gate_tail_" + suffix + " = log %gate_tail_shift_" +
+-                  suffix + " : ";
+-        source += parameter_column_type;
+-        source += "\n    %gate_positive_" + suffix + " = max %gate_x_" +
+-                  suffix + ", %zero_gate : ";
+-        source += parameter_column_type;
+-        source += "\n    %softplus_" + suffix + " = add %gate_positive_" +
+-                  suffix + ", %gate_tail_" + suffix + " : ";
+-        source += parameter_column_type;
+-        source += "\n    %gpositive_" + suffix + " = mul %expA_" +
+-                  head_suffix + ", %softplus_" + suffix + " : ";
+-        source += parameter_column_type;
+-        source += "\n    %g_" + suffix + " = neg %gpositive_" + suffix + " : ";
+-        source += parameter_column_type;
+-        source += "\n    %decay_" + suffix + " = exp %g_" + suffix + " : ";
+-        source += parameter_column_type;
+-        source += "\n    %decay_full_" + suffix + " = broadcast %decay_" +
+-                  suffix + " : ";
+-        source += parameter_column_type;
+-        source += " -> ";
+-        source += state_matrix_type;
+-        source += "\n    %decayed_" + suffix + " = mul " + current_state +
+-                  ", %decay_full_" + suffix + " : ";
+-        source += state_matrix_type;
+-        source += "\n    %beta_x_" + suffix + " = neg %b_" + suffix + " : ";
+-        source += parameter_column_type;
+-        source += "\n    %beta_abs_" + suffix + " = abs %beta_x_" + suffix +
+-                  " : ";
+-        source += parameter_column_type;
+-        source += "\n    %beta_neg_abs_" + suffix + " = neg %beta_abs_" +
+-                  suffix + " : ";
+-        source += parameter_column_type;
+-        source += "\n    %beta_tail_exp_" + suffix + " = exp %beta_neg_abs_" +
+-                  suffix + " : ";
+-        source += parameter_column_type;
+-        source += "\n    %beta_tail_shift_" + suffix +
+-                  " = add %beta_tail_exp_" + suffix + ", %one_gate : ";
+-        source += parameter_column_type;
+-        source += "\n    %beta_tail_" + suffix + " = log %beta_tail_shift_" +
+-                  suffix + " : ";
+-        source += parameter_column_type;
+-        source += "\n    %beta_positive_" + suffix + " = max %beta_x_" +
+-                  suffix + ", %zero_gate : ";
+-        source += parameter_column_type;
+-        source += "\n    %beta_softplus_" + suffix +
+-                  " = add %beta_positive_" + suffix + ", %beta_tail_" +
+-                  suffix + " : ";
+-        source += parameter_column_type;
+-        source += "\n    %beta_neg_softplus_" + suffix +
+-                  " = neg %beta_softplus_" + suffix + " : ";
+-        source += parameter_column_type;
+-        source += "\n    %beta_" + suffix + " = exp %beta_neg_softplus_" +
+-                  suffix + " : ";
+-        source += parameter_column_type;
+-        source += "\n    %beta_bf16_" + suffix + " = convert %beta_" + suffix +
+-                  " : ";
+-        source += parameter_column_type;
+-        source += " -> ";
+-        source += gate_column_type;
+-        source += "\n    %beta_rounded_" + suffix +
+-                  " = convert %beta_bf16_" + suffix + " : ";
+-        source += gate_column_type;
+-        source += " -> ";
+-        source += parameter_column_type;
+-        source += "\n    %kcol_" + suffix + " = transpose %knorm_" + suffix +
+-                  " permutation = [1, 0] : ";
+-        source += wide_query_type;
+-        source += " -> ";
+-        source += key_column_type;
+-        source += "\n    %state_key_" + suffix + " = matmul(%decayed_" +
+-                  suffix + ", %kcol_" + suffix + ") : (";
+-        source += state_matrix_type;
+-        source += ", ";
+-        source += key_column_type;
+-        source += ") -> ";
+-        source += parameter_column_type;
+-        source += "\n    %vwide_" + suffix + " = convert %v_" + suffix + " : ";
+-        source += value_column_type;
+-        source += " -> ";
+-        source += wide_value_column_type;
+-        source += "\n    %residual_" + suffix + " = sub %vwide_" + suffix +
+-                  ", %state_key_" + suffix + " : ";
+-        source += parameter_column_type;
+-        source += "\n    %delta_" + suffix + " = mul %residual_" + suffix +
+-                  ", %beta_rounded_" + suffix + " : ";
+-        source += parameter_column_type;
+-        source += "\n    %delta_full_" + suffix + " = broadcast %delta_" +
+-                  suffix + " : ";
+-        source += parameter_column_type;
+-        source += " -> ";
+-        source += state_matrix_type;
+-        source += "\n    %kfull_" + suffix + " = broadcast %knorm_" + suffix +
+-                  " : ";
+-        source += wide_query_type;
+-        source += " -> ";
+-        source += state_matrix_type;
+-        source += "\n    %outer_" + suffix + " = mul %delta_full_" + suffix +
+-                  ", %kfull_" + suffix + " : ";
+-        source += state_matrix_type;
+-        source += "\n    %updated_" + suffix + " = add %decayed_" + suffix +
+-                  ", %outer_" + suffix + " : ";
+-        source += state_matrix_type;
+-        current_state = "%updated_" + suffix;
+-        source += "\n    %state_t_" + suffix + " = transpose " + current_state +
+-                  " permutation = [1, 0] : ";
+-        source += state_matrix_type;
+-        source += " -> ";
+-        source += state_transposed_type;
+-        source += "\n    %output_wide_" + suffix + " = matmul(%qscaled_" +
+-                  suffix + ", %state_t_" + suffix + ") : (";
+-        source += wide_query_type;
+-        source += ", ";
+-        source += state_transposed_type;
+-        source += ") -> ";
+-        source += output_wide_type;
+-        source += "\n    %output_" + suffix + " = convert %output_wide_" +
+-                  suffix + " : ";
+-        source += output_wide_type;
+-        source += " -> ";
+-        source += output_type;
+-        source += "\n    %output_box_" + suffix + " = reshape %output_" +
+-                  suffix + " : ";
+-        source += output_type;
+-        source += " -> ";
+-        source += output_box_type;
+-        token_outputs.push_back("%output_box_" + suffix);
+-      }
+-      std::string head_output;
+-      if (graph.tokens_per_request == 1) {
+-        head_output = token_outputs[0];
+-      } else {
+-        head_output = "%head_output_" + head_suffix;
+-        source += "\n    " + head_output + " = concatenate ";
+-        for (size_t index = 0; index < token_outputs.size(); ++index) {
+-          if (index != 0) source += ", ";
+-          source += token_outputs[index];
+-        }
+-        source += " dimension = 1 : (";
+-        for (size_t index = 0; index < token_outputs.size(); ++index) {
+-          if (index != 0) source += ", ";
+-          source += output_box_type;
+-        }
+-        source += ") -> ";
+-        source += head_sequence_type;
+-      }
+-      head_outputs.push_back(head_output);
+-      const std::string state_flat = "%state_result_" + head_suffix;
+-      source += "\n    " + state_flat + " = reshape " + current_state + " : ";
+-      source += state_matrix_type;
+-      source += " -> ";
+-      source += state_head_flat_type;
+-      head_states.push_back(state_flat);
+-    }
+-
+-    std::string batch_output;
+-    if (graph.value_heads == 1) {
+-      batch_output = head_outputs[0];
+-    } else {
+-      batch_output = "%batch_output_" + std::to_string(batch);
+-      source += "\n    " + batch_output + " = concatenate ";
+-      for (size_t index = 0; index < head_outputs.size(); ++index) {
+-        if (index != 0) source += ", ";
+-        source += head_outputs[index];
+-      }
+-      source += " dimension = 2 : (";
+-      for (size_t index = 0; index < head_outputs.size(); ++index) {
+-        if (index != 0) source += ", ";
+-        source += head_sequence_type;
+-      }
+-      source += ") -> ";
+-      source += batch_result_type;
+-    }
+-    batch_outputs.push_back(batch_output);
+-    std::string batch_state_name;
+-    if (graph.value_heads == 1) {
+-      batch_state_name = head_states[0];
+-    } else {
+-      batch_state_name = "%batch_state_" + std::to_string(batch);
+-      source += "\n    " + batch_state_name + " = concatenate ";
+-      for (size_t index = 0; index < head_states.size(); ++index) {
+-        if (index != 0) source += ", ";
+-        source += head_states[index];
+-      }
+-      source += " dimension = 1 : (";
+-      for (size_t index = 0; index < head_states.size(); ++index) {
+-        if (index != 0) source += ", ";
+-        source += state_head_flat_type;
+-      }
+-      source += ") -> ";
+-      source += batch_state_type;
+-    }
+-    source += "\n    %stored_state_" + batch_suffix +
+-              " = scatter_rows %arg5, " + indices_full_name + ", " +
+-              batch_state_name + " : (";
+-    source += state_type;
+-    source += ", ";
+-    source += indices_full_type;
+-    source += ", ";
+-    source += state_rows_type;
+-    source += ") -> ";
+-    source += state_rows_type;
+-  }
+-
+-  std::string result_value;
+-  if (graph.batch_size == 1) {
+-    result_value = batch_outputs[0];
+-  } else {
+-    result_value = "%result0";
+-    source += "\n    %result0 = concatenate ";
+-    for (size_t index = 0; index < batch_outputs.size(); ++index) {
+-      if (index != 0) source += ", ";
+-      source += batch_outputs[index];
+-    }
+-    source += " dimension = 0 : (";
+-    for (size_t index = 0; index < batch_outputs.size(); ++index) {
+-      if (index != 0) source += ", ";
+-      source += batch_result_type;
+-    }
+-    source += ") -> ";
+-    source += result_type;
+-  }
+-  source += "\n    results ";
+-  source += result_value;
+-  source += " : ";
+-  source += result_type;
+-  source += "\n  }\n}\n";
+-  if (source.size() > kMaximumCanonicalSourceBytes) {
+-    Reject("canonical TensorIR source exceeds 16 MiB");
+-  }
+-  return source;
+-}
+-
+-std::string EmitNativeTileGdnRecurrentBatchedSource(
+-    const NativeTileGdnRecurrentGraph& graph) {
+-  const int64_t heads_per_query = graph.value_heads / graph.q_heads;
+-  const int64_t qk_width = graph.q_heads * graph.key_dim;
+-  const int64_t value_width = graph.value_heads * graph.value_dim;
+-  const int64_t state_width = value_width * graph.key_dim;
+-
+-  StaticTensor indices_i32 = graph.state_indices;
+-  indices_i32.dtype = DataType::INT32;
+-  StaticTensor indices_column{DataType::INT32, {1, 1}, {1, 1}};
+-  StaticTensor indices_full{DataType::INT32, {1, state_width}, {}};
+-  indices_full.dense_strides = MakeDenseStridesForMetadata(indices_full.shape);
+-  StaticTensor state_row{DataType::FP32, {1, state_width}, {}};
+-  state_row.dense_strides = MakeDenseStridesForMetadata(state_row.shape);
+-  StaticTensor state_group{DataType::FP32,
+-                           {graph.q_heads, heads_per_query, graph.value_dim,
+-                            graph.key_dim}, {}};
+-  state_group.dense_strides = MakeDenseStridesForMetadata(state_group.shape);
+-  StaticTensor state_transposed{
+-      DataType::FP32,
+-      {graph.q_heads, heads_per_query, graph.key_dim, graph.value_dim}, {}};
+-  state_transposed.dense_strides =
+-      MakeDenseStridesForMetadata(state_transposed.shape);
+-
+-  StaticTensor qk_box{DataType::BF16, {1, 1, qk_width}, {}};
+-  qk_box.dense_strides = MakeDenseStridesForMetadata(qk_box.shape);
+-  StaticTensor query_seed{DataType::BF16,
+-                          {graph.q_heads, 1, 1, graph.key_dim}, {}};
+-  query_seed.dense_strides = MakeDenseStridesForMetadata(query_seed.shape);
+-  StaticTensor query_group{DataType::BF16,
+-                           {graph.q_heads, heads_per_query, 1,
+-                            graph.key_dim}, {}};
+-  query_group.dense_strides = MakeDenseStridesForMetadata(query_group.shape);
+-  StaticTensor wide_query_group = query_group;
+-  wide_query_group.dtype = DataType::FP32;
+-  StaticTensor key_column{DataType::FP32,
+-                          {graph.q_heads, heads_per_query, graph.key_dim, 1}, {}};
+-  key_column.dense_strides = MakeDenseStridesForMetadata(key_column.shape);
+-  StaticTensor norm{DataType::FP32,
+-                    {graph.q_heads, heads_per_query, 1, 1}, {}};
+-  norm.dense_strides = MakeDenseStridesForMetadata(norm.shape);
+-
+-  StaticTensor value_box{DataType::BF16, {1, 1, value_width}, {}};
+-  value_box.dense_strides = MakeDenseStridesForMetadata(value_box.shape);
+-  StaticTensor value_group{DataType::BF16,
+-                           {graph.q_heads, heads_per_query, graph.value_dim, 1},
+-                           {}};
+-  value_group.dense_strides = MakeDenseStridesForMetadata(value_group.shape);
+-  StaticTensor wide_value_group = value_group;
+-  wide_value_group.dtype = DataType::FP32;
+-  StaticTensor gate_box{DataType::BF16,
+-                        {1, 1, graph.value_heads, graph.value_dim}, {}};
+-  gate_box.dense_strides = MakeDenseStridesForMetadata(gate_box.shape);
+-  StaticTensor parameter_group = wide_value_group;
+-  StaticTensor dt_parameter_group = parameter_group;
+-  dt_parameter_group.dtype = DataType::BF16;
+-  StaticTensor output_group{DataType::FP32,
+-                            {graph.q_heads, heads_per_query, 1,
+-                             graph.value_dim}, {}};
+-  output_group.dense_strides = MakeDenseStridesForMetadata(output_group.shape);
+-  StaticTensor output_group_bf16 = output_group;
+-  output_group_bf16.dtype = DataType::BF16;
+-  StaticTensor output_box{DataType::BF16,
+-                          {1, 1, graph.value_heads, graph.value_dim}, {}};
+-  output_box.dense_strides = MakeDenseStridesForMetadata(output_box.shape);
+-  StaticTensor batch_result{DataType::BF16,
+-                            {1, graph.tokens_per_request, graph.value_heads,
+-                             graph.value_dim}, {}};
+-  batch_result.dense_strides = MakeDenseStridesForMetadata(batch_result.shape);
+-
+-  const std::string mixed_type = TensorTypeText(graph.mixed_qkv);
+-  const std::string gate_type = TensorTypeText(graph.a);
+-  const std::string parameter_type = TensorTypeText(graph.a_log);
+-  const std::string dt_type = TensorTypeText(graph.dt_bias);
+-  const std::string state_type = TensorTypeText(graph.state);
+-  const std::string indices_type = TensorTypeText(graph.state_indices);
+-  const std::string indices_i32_type = TensorTypeText(indices_i32);
+-  const std::string indices_column_type = TensorTypeText(indices_column);
+-  const std::string indices_full_type = TensorTypeText(indices_full);
+-  const std::string state_row_type = TensorTypeText(state_row);
+-  const std::string state_group_type = TensorTypeText(state_group);
+-  const std::string state_transposed_type = TensorTypeText(state_transposed);
+-  const std::string qk_box_type = TensorTypeText(qk_box);
+-  const std::string query_seed_type = TensorTypeText(query_seed);
+-  const std::string query_group_type = TensorTypeText(query_group);
+-  const std::string wide_query_group_type = TensorTypeText(wide_query_group);
+-  const std::string key_column_type = TensorTypeText(key_column);
+-  const std::string norm_type = TensorTypeText(norm);
+-  const std::string value_box_type = TensorTypeText(value_box);
+-  const std::string value_group_type = TensorTypeText(value_group);
+-  const std::string wide_value_group_type = TensorTypeText(wide_value_group);
+-  const std::string gate_box_type = TensorTypeText(gate_box);
+-  const std::string parameter_group_type = TensorTypeText(parameter_group);
+-  const std::string dt_parameter_group_type =
+-      TensorTypeText(dt_parameter_group);
+-  const std::string output_group_type = TensorTypeText(output_group);
+-  const std::string output_group_bf16_type = TensorTypeText(output_group_bf16);
+-  const std::string output_box_type = TensorTypeText(output_box);
+-  const std::string batch_result_type = TensorTypeText(batch_result);
+-  const std::string result_type = TensorTypeText(graph.result);
+-
+-  std::string source;
+-  source.reserve(16384);
+-  source += "module {\n  nv_tensor_ir.graph @";
+-  source += kFusedPointwiseEntryName;
+-  source += "(\n    %arg0: ";
+-  source += TensorWithStrideText(graph.mixed_qkv);
+-  source += ",\n    %arg1: ";
+-  source += TensorWithStrideText(graph.a);
+-  source += ",\n    %arg2: ";
+-  source += TensorWithStrideText(graph.b);
+-  source += ",\n    %arg3: ";
+-  source += TensorWithStrideText(graph.a_log);
+-  source += ",\n    %arg4: ";
+-  source += TensorWithStrideText(graph.dt_bias);
+-  source += ",\n    %arg5: ";
+-  source += TensorWithStrideText(graph.state);
+-  source += ",\n    %arg6: ";
+-  source += TensorWithStrideText(graph.state_indices);
+-  source += "\n  ) -> (";
+-  source += TensorWithStrideText(graph.result);
+-  source += ") {\n";
+-
+-  std::string indices_value = "%arg6";
+-  if (graph.state_indices.dtype == DataType::INT64) {
+-    source += "    %state_indices32 = convert %arg6 : ";
+-    source += indices_type;
+-    source += " -> ";
+-    source += indices_i32_type;
+-    source += "\n";
+-    indices_value = "%state_indices32";
+-  }
+-  source += "    %A_group = reshape %arg3 : ";
+-  source += parameter_type;
+-  source += " -> ";
+-  source += parameter_group_type;
+-  source += "\n    %expA_group = exp %A_group : ";
+-  source += parameter_group_type;
+-  source += "\n    %dt_group_bf16 = reshape %arg4 : ";
+-  source += dt_type;
+-  source += " -> ";
+-  source += dt_parameter_group_type;
+-  source += "\n    %dt_group = convert %dt_group_bf16 : ";
+-  source += dt_parameter_group_type;
+-  source += " -> ";
+-  source += parameter_group_type;
+-  source += "\n    %epsilon = constant 9.999999974752427e-07 : f32";
+-  source += "\n    %epsilon_splat = splat %epsilon : ";
+-  source += norm_type;
+-  source += "\n    %one = constant 1.0 : f32";
+-  source += "\n    %one_gate = splat %one : ";
+-  source += parameter_group_type;
+-  source += "\n    %zero = constant 0.0 : f32";
+-  source += "\n    %zero_gate = splat %zero : ";
+-  source += parameter_group_type;
+-  source += "\n    %scale = constant ";
+-  AppendFloat(source, graph.scale);
+-  source += " : f32\n    %scale_splat = splat %scale : ";
+-  source += wide_query_group_type;
+-
+-  std::vector<std::string> batch_outputs;
+-  batch_outputs.reserve(static_cast<size_t>(graph.batch_size));
+-  for (int64_t batch = 0; batch < graph.batch_size; ++batch) {
+-    const std::string batch_suffix = "b" + std::to_string(batch);
+-    const std::string index_name = "%state_index_" + batch_suffix;
+-    const std::string indices_full_name = "%state_indices_full_" + batch_suffix;
+-    const std::string state_row_name = "%state_row_" + batch_suffix;
+-    const std::string initial_state_name = "%state_initial_" + batch_suffix;
+-    source += "\n    " + index_name + " = slice " + indices_value +
+-              " starts = [" + std::to_string(batch) + ", 0] limits = [" +
+-              std::to_string(batch + 1) + ", 1] strides = [1, 1] : ";
+-    source += indices_i32_type;
+-    source += " -> ";
+-    source += indices_column_type;
+-    source += "\n    " + indices_full_name + " = broadcast " + index_name +
+-              " : ";
+-    source += indices_column_type;
+-    source += " -> ";
+-    source += indices_full_type;
+-    source += "\n    " + state_row_name + " = gather_rows %arg5, " +
+-              indices_full_name + " : (";
+-    source += state_type;
+-    source += ", ";
+-    source += indices_full_type;
+-    source += ") -> ";
+-    source += state_row_type;
+-    source += "\n    " + initial_state_name + " = reshape " + state_row_name +
+-              " : ";
+-    source += state_row_type;
+-    source += " -> ";
+-    source += state_group_type;
+-
+-    std::string current_state = initial_state_name;
+-    std::vector<std::string> token_outputs;
+-    token_outputs.reserve(static_cast<size_t>(graph.tokens_per_request));
+-    for (int64_t token = 0; token < graph.tokens_per_request; ++token) {
+-      const std::string suffix =
+-          batch_suffix + "_t" + std::to_string(token);
+-      auto append_qk = [&](std::string_view name, int64_t offset) {
+-        const std::string prefix = "%" + std::string(name) + "_" + suffix;
+-        source += "\n    " + prefix + "_box = slice %arg0 starts = [" +
+-                  std::to_string(batch) + ", " + std::to_string(token) +
+-                  ", " + std::to_string(offset) + "] limits = [" +
+-                  std::to_string(batch + 1) + ", " +
+-                  std::to_string(token + 1) + ", " +
+-                  std::to_string(offset + qk_width) +
+-                  "] strides = [1, 1, 1] : ";
+-        source += mixed_type;
+-        source += " -> ";
+-        source += qk_box_type;
+-        source += "\n    " + prefix + "_seed = reshape " + prefix +
+-                  "_box : ";
+-        source += qk_box_type;
+-        source += " -> ";
+-        source += query_seed_type;
+-        source += "\n    " + prefix + " = broadcast " + prefix + "_seed : ";
+-        source += query_seed_type;
+-        source += " -> ";
+-        source += query_group_type;
+-        source += "\n    " + prefix + "_wide = convert " + prefix + " : ";
+-        source += query_group_type;
+-        source += " -> ";
+-        source += wide_query_group_type;
+-        source += "\n    " + prefix + "_square = mul " + prefix + "_wide, " +
+-                  prefix + "_wide : ";
+-        source += wide_query_group_type;
+-        source += "\n    " + prefix + "_sum = reduce(" + prefix +
+-                  "_square) <dimensions = [3], reduction_mode = <add>> : ";
+-        source += wide_query_group_type;
+-        source += " -> ";
+-        source += norm_type;
+-        source += "\n    " + prefix + "_norm2 = add " + prefix +
+-                  "_sum, %epsilon_splat : ";
+-        source += norm_type;
+-        source += "\n    " + prefix + "_inv = rsqrt " + prefix +
+-                  "_norm2 : ";
+-        source += norm_type;
+-        source += "\n    " + prefix + "_inv_full = broadcast " + prefix +
+-                  "_inv : ";
+-        source += norm_type;
+-        source += " -> ";
+-        source += wide_query_group_type;
+-        source += "\n    " + prefix + "_norm = mul " + prefix + "_wide, " +
+-                  prefix + "_inv_full : ";
+-        source += wide_query_group_type;
+-      };
+-      append_qk("q", 0);
+-      append_qk("k", qk_width);
+-      const std::string q = "%q_" + suffix;
+-      const std::string k = "%k_" + suffix;
+-      source += "\n    %q_scaled_" + suffix + " = mul " + q +
+-                "_norm, %scale_splat : ";
+-      source += wide_query_group_type;
+-
+-      source += "\n    %v_box_" + suffix + " = slice %arg0 starts = [" +
+-                std::to_string(batch) + ", " + std::to_string(token) + ", " +
+-                std::to_string(2 * qk_width) + "] limits = [" +
+-                std::to_string(batch + 1) + ", " +
+-                std::to_string(token + 1) + ", " +
+-                std::to_string(2 * qk_width + value_width) +
+-                "] strides = [1, 1, 1] : ";
+-      source += mixed_type;
+-      source += " -> ";
+-      source += value_box_type;
+-      source += "\n    %v_" + suffix + " = reshape %v_box_" + suffix + " : ";
+-      source += value_box_type;
+-      source += " -> ";
+-      source += value_group_type;
+-      source += "\n    %v_wide_" + suffix + " = convert %v_" + suffix + " : ";
+-      source += value_group_type;
+-      source += " -> ";
+-      source += wide_value_group_type;
+-
+-      auto append_gate = [&](std::string_view name, int argument) {
+-        const std::string prefix = "%" + std::string(name) + "_" + suffix;
+-        source += "\n    " + prefix + "_box = slice %arg" +
+-                  std::to_string(argument) + " starts = [" +
+-                  std::to_string(batch) + ", " + std::to_string(token) +
+-                  ", 0, 0] limits = [" + std::to_string(batch + 1) + ", " +
+-                  std::to_string(token + 1) + ", " +
+-                  std::to_string(graph.value_heads) + ", " +
+-                  std::to_string(graph.value_dim) +
+-                  "] strides = [1, 1, 1, 1] : ";
+-        source += gate_type;
+-        source += " -> ";
+-        source += gate_box_type;
+-        source += "\n    " + prefix + "_bf16 = reshape " + prefix +
+-                  "_box : ";
+-        source += gate_box_type;
+-        source += " -> ";
+-        source += value_group_type;
+-        source += "\n    " + prefix + " = convert " + prefix + "_bf16 : ";
+-        source += value_group_type;
+-        source += " -> ";
+-        source += parameter_group_type;
+-      };
+-      append_gate("a", 1);
+-      append_gate("b", 2);
+-
+-      source += "\n    %gate_x_" + suffix + " = add %a_" + suffix +
+-                ", %dt_group : ";
+-      source += parameter_group_type;
+-      source += "\n    %gate_abs_" + suffix + " = abs %gate_x_" + suffix +
+-                " : ";
+-      source += parameter_group_type;
+-      source += "\n    %gate_neg_abs_" + suffix + " = neg %gate_abs_" + suffix +
+-                " : ";
+-      source += parameter_group_type;
+-      source += "\n    %gate_tail_exp_" + suffix + " = exp %gate_neg_abs_" +
+-                suffix + " : ";
+-      source += parameter_group_type;
+-      source += "\n    %gate_tail_shift_" + suffix +
+-                " = add %gate_tail_exp_" + suffix + ", %one_gate : ";
+-      source += parameter_group_type;
+-      source += "\n    %gate_tail_" + suffix + " = log %gate_tail_shift_" +
+-                suffix + " : ";
+-      source += parameter_group_type;
+-      source += "\n    %gate_positive_" + suffix + " = max %gate_x_" + suffix +
+-                ", %zero_gate : ";
+-      source += parameter_group_type;
+-      source += "\n    %softplus_" + suffix + " = add %gate_positive_" +
+-                suffix + ", %gate_tail_" + suffix + " : ";
+-      source += parameter_group_type;
+-      source += "\n    %g_positive_" + suffix + " = mul %expA_group, %softplus_" +
+-                suffix + " : ";
+-      source += parameter_group_type;
+-      source += "\n    %g_" + suffix + " = neg %g_positive_" + suffix + " : ";
+-      source += parameter_group_type;
+-      source += "\n    %decay_" + suffix + " = exp %g_" + suffix + " : ";
+-      source += parameter_group_type;
+-      source += "\n    %decay_full_" + suffix + " = broadcast %decay_" + suffix +
+-                " : ";
+-      source += parameter_group_type;
+-      source += " -> ";
+-      source += state_group_type;
+-      source += "\n    %decayed_" + suffix + " = mul " + current_state +
+-                ", %decay_full_" + suffix + " : ";
+-      source += state_group_type;
+-
+-      source += "\n    %beta_x_" + suffix + " = neg %b_" + suffix + " : ";
+-      source += parameter_group_type;
+-      source += "\n    %beta_abs_" + suffix + " = abs %beta_x_" + suffix + " : ";
+-      source += parameter_group_type;
+-      source += "\n    %beta_neg_abs_" + suffix + " = neg %beta_abs_" + suffix +
+-                " : ";
+-      source += parameter_group_type;
+-      source += "\n    %beta_tail_exp_" + suffix + " = exp %beta_neg_abs_" +
+-                suffix + " : ";
+-      source += parameter_group_type;
+-      source += "\n    %beta_tail_shift_" + suffix +
+-                " = add %beta_tail_exp_" + suffix + ", %one_gate : ";
+-      source += parameter_group_type;
+-      source += "\n    %beta_tail_" + suffix + " = log %beta_tail_shift_" +
+-                suffix + " : ";
+-      source += parameter_group_type;
+-      source += "\n    %beta_positive_" + suffix + " = max %beta_x_" + suffix +
+-                ", %zero_gate : ";
+-      source += parameter_group_type;
+-      source += "\n    %beta_softplus_" + suffix +
+-                " = add %beta_positive_" + suffix + ", %beta_tail_" +
+-                suffix + " : ";
+-      source += parameter_group_type;
+-      source += "\n    %beta_neg_softplus_" + suffix +
+-                " = neg %beta_softplus_" + suffix + " : ";
+-      source += parameter_group_type;
+-      source += "\n    %beta_" + suffix + " = exp %beta_neg_softplus_" + suffix +
+-                " : ";
+-      source += parameter_group_type;
+-      source += "\n    %beta_bf16_" + suffix + " = convert %beta_" + suffix +
+-                " : ";
+-      source += parameter_group_type;
+-      source += " -> ";
+-      source += value_group_type;
+-      source += "\n    %beta_rounded_" + suffix +
+-                " = convert %beta_bf16_" + suffix + " : ";
+-      source += value_group_type;
+-      source += " -> ";
+-      source += parameter_group_type;
+-
+-      source += "\n    %k_column_" + suffix + " = transpose " + k +
+-                "_norm permutation = [0, 1, 3, 2] : ";
+-      source += wide_query_group_type;
+-      source += " -> ";
+-      source += key_column_type;
+-      source += "\n    %state_key_" + suffix + " = matmul(%decayed_" + suffix +
+-                ", %k_column_" + suffix + ") : (";
+-      source += state_group_type;
+-      source += ", ";
+-      source += key_column_type;
+-      source += ") -> ";
+-      source += parameter_group_type;
+-      source += "\n    %residual_" + suffix + " = sub %v_wide_" + suffix +
+-                ", %state_key_" + suffix + " : ";
+-      source += parameter_group_type;
+-      source += "\n    %delta_" + suffix + " = mul %residual_" + suffix +
+-                ", %beta_rounded_" + suffix + " : ";
+-      source += parameter_group_type;
+-      source += "\n    %outer_" + suffix + " = matmul(%delta_" + suffix +
+-                ", " + k + "_norm) : (";
+-      source += parameter_group_type;
+-      source += ", ";
+-      source += wide_query_group_type;
+-      source += ") -> ";
+-      source += state_group_type;
+-      source += "\n    %decayed_flat_" + suffix + " = reshape %decayed_" +
+-                suffix + " : ";
+-      source += state_group_type;
+-      source += " -> ";
+-      source += state_row_type;
+-      source += "\n    %outer_flat_" + suffix + " = reshape %outer_" + suffix +
+-                " : ";
+-      source += state_group_type;
+-      source += " -> ";
+-      source += state_row_type;
+-      const std::string updated_flat = "%updated_flat_" + suffix;
+-      source += "\n    " + updated_flat + " = add %decayed_flat_" + suffix +
+-                ", %outer_flat_" + suffix +
+-                " {_pypto_align_rhs_trailing_transpose = true} : ";
+-      source += state_row_type;
+-      const std::string updated = "%updated_" + suffix;
+-      source += "\n    " + updated + " = reshape " + updated_flat + " : ";
+-      source += state_row_type;
+-      source += " -> ";
+-      source += state_group_type;
+-      current_state = updated;
+-      if (token + 1 == graph.tokens_per_request) {
+-        continue;
+-      }
+-
+-      source += "\n    %state_t_" + suffix + " = transpose " + current_state +
+-                " permutation = [0, 1, 3, 2] : ";
+-      source += state_group_type;
+-      source += " -> ";
+-      source += state_transposed_type;
+-      source += "\n    %output_wide_" + suffix + " = matmul(%q_scaled_" +
+-                suffix + ", %state_t_" + suffix + ") : (";
+-      source += wide_query_group_type;
+-      source += ", ";
+-      source += state_transposed_type;
+-      source += ") -> ";
+-      source += output_group_type;
+-      source += "\n    %output_" + suffix + " = convert %output_wide_" + suffix +
+-                " : ";
+-      source += output_group_type;
+-      source += " -> ";
+-      source += output_group_bf16_type;
+-      const std::string output_box_name = "%output_box_" + suffix;
+-      source += "\n    " + output_box_name + " = reshape %output_" + suffix +
+-                " : ";
+-      source += output_group_bf16_type;
+-      source += " -> ";
+-      source += output_box_type;
+-      token_outputs.push_back(output_box_name);
+-    }
+-
+-    const std::string final_state = "%state_final_" + batch_suffix;
+-    source += "\n    " + final_state + " = reshape " + current_state + " : ";
+-    source += state_group_type;
+-    source += " -> ";
+-    source += state_row_type;
+-    const std::string stored_state = "%stored_state_" + batch_suffix;
+-    source += "\n    " + stored_state + " = scatter_rows %arg5, " +
+-              indices_full_name + ", " + final_state + " : (";
+-    source += state_type;
+-    source += ", ";
+-    source += indices_full_type;
+-    source += ", ";
+-    source += state_row_type;
+-    source += ") -> ";
+-    source += state_row_type;
+-    const std::string stored_group = "%stored_group_" + batch_suffix;
+-    source += "\n    " + stored_group + " = reshape " + stored_state + " : ";
+-    source += state_row_type;
+-    source += " -> ";
+-    source += state_group_type;
+-    const std::string final_suffix =
+-        batch_suffix + "_t" +
+-        std::to_string(graph.tokens_per_request - 1);
+-    source += "\n    %state_t_" + final_suffix + " = transpose " +
+-              stored_group + " permutation = [0, 1, 3, 2] : ";
+-    source += state_group_type;
+-    source += " -> ";
+-    source += state_transposed_type;
+-    source += "\n    %output_wide_" + final_suffix +
+-              " = matmul(%q_scaled_" + final_suffix + ", %state_t_" +
+-              final_suffix + ") : (";
+-    source += wide_query_group_type;
+-    source += ", ";
+-    source += state_transposed_type;
+-    source += ") -> ";
+-    source += output_group_type;
+-    source += "\n    %output_" + final_suffix + " = convert %output_wide_" +
+-              final_suffix + " : ";
+-    source += output_group_type;
+-    source += " -> ";
+-    source += output_group_bf16_type;
+-    const std::string final_output_box = "%output_box_" + final_suffix;
+-    source += "\n    " + final_output_box + " = reshape %output_" +
+-              final_suffix + " : ";
+-    source += output_group_bf16_type;
+-    source += " -> ";
+-    source += output_box_type;
+-    token_outputs.push_back(final_output_box);
+-
+-    std::string batch_output;
+-    if (graph.tokens_per_request == 1) {
+-      batch_output = token_outputs[0];
+-    } else {
+-      batch_output = "%batch_output_" + batch_suffix;
+-      source += "\n    " + batch_output + " = concatenate ";
+-      for (size_t token = 0; token < token_outputs.size(); ++token) {
+-        if (token != 0) source += ", ";
+-        source += token_outputs[token];
+-      }
+-      source += " dimension = 1 : (";
+-      for (size_t token = 0; token < token_outputs.size(); ++token) {
+-        if (token != 0) source += ", ";
+-        source += output_box_type;
+-      }
+-      source += ") -> ";
+-      source += batch_result_type;
+-    }
+-    batch_outputs.push_back(batch_output);
+-  }
+-
+-  std::string result_value;
+-  if (graph.batch_size == 1) {
+-    result_value = batch_outputs[0];
+-  } else {
+-    result_value = "%result0";
+-    source += "\n    %result0 = concatenate ";
+-    for (size_t batch = 0; batch < batch_outputs.size(); ++batch) {
+-      if (batch != 0) source += ", ";
+-      source += batch_outputs[batch];
+-    }
+-    source += " dimension = 0 : (";
+-    for (size_t batch = 0; batch < batch_outputs.size(); ++batch) {
+-      if (batch != 0) source += ", ";
+-      source += batch_result_type;
+-    }
+-    source += ") -> ";
+-    source += result_type;
+-  }
+-  source += "\n    results ";
+-  source += result_value;
+-  source += " : ";
+-  source += result_type;
+-  source += "\n  }\n}\n";
+-  if (source.size() > kMaximumCanonicalSourceBytes) {
+-    Reject("canonical TensorIR source exceeds 16 MiB");
+-  }
+-  return source;
+-}
+-
+ std::string EmitNativeTileGdnReadSource(
+     const NativeTileGdnReadGraph& graph) {
+   StaticTensor query_batched = graph.query;
+@@ -10006,8 +8881,32 @@ TensorIrModule::TensorIrModule(TensorIrModuleKind kind, std::string canonical_so
+       value_metadata_(std::move(value_metadata)),
+       input_count_(input_count),
+       contraction_extent_(contraction_extent) {
+-  if (canonical_source_.empty() || canonical_source_.size() > kMaximumCanonicalSourceBytes) {
+-    InternalReject("canonical source metadata is empty or exceeds 16 MiB");
++  Validate();
++}
++
++TensorIrModule::TensorIrModule(
++    TensorIrModuleKind kind, TypedTensorIrModuleSpec typed_module_spec,
++    std::vector<TensorIrValueMetadata> value_metadata, uint32_t input_count)
++    : kind_(kind),
++      typed_module_spec_(std::move(typed_module_spec)),
++      entry_name_(EntryNameForKind(kind)),
++      value_metadata_(std::move(value_metadata)),
++      input_count_(input_count),
++      contraction_extent_(0) {
++  Validate();
++}
++
++void TensorIrModule::Validate() const {
++  if (canonical_source_.empty() == !typed_module_spec_.has_value()) {
++    InternalReject(
++        "TensorIR module must carry exactly one of canonical source or a typed module spec");
++  }
++  if (canonical_source_.size() > kMaximumCanonicalSourceBytes) {
++    InternalReject("canonical source metadata exceeds 16 MiB");
++  }
++  if (typed_module_spec_.has_value() &&
++      typed_module_spec_->kind != TypedTensorIrModuleKind::NativeGdnRecurrent) {
++    InternalReject("typed TensorIR module kind is invalid");
+   }
+   if (kind_ != TensorIrModuleKind::StructuredMatmul && contraction_extent_ != 0) {
+     InternalReject("non-matmul TensorIR module unexpectedly carries a contraction extent");
+@@ -10434,7 +9333,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+         graph.result.shape, graph.result.dense_strides,
+         /*has_explicit_strides=*/true));
+     return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+-                          EmitNativeTileGdnRecurrentBatchedSource(graph),
++                          MakeNativeGdnRecurrentTensorIrSpec(graph),
+                           std::move(metadata), /*input_count=*/7);
+   }
+   if (IsNativeTileGdnUpdateCandidate(program)) {
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.h b/src/codegen/nvidia/tensor_ir_codegen.h
+index db97a430c858ca94533baea3251280619997d076..6f1967c7e7a518eb018562f5951d3b9d56ec72d7 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.h
++++ b/src/codegen/nvidia/tensor_ir_codegen.h
+@@ -13,11 +13,13 @@
+ #define PYPTO_SRC_CODEGEN_NVIDIA_TENSOR_IR_CODEGEN_H_
+ 
+ #include <cstdint>
++#include <optional>
+ #include <string>
+ #include <vector>
+ 
+ #include "pypto/core/dtype.h"
+ #include "pypto/ir/program.h"
++#include "typed_tensor_ir_module_spec.h"
+ 
+ namespace pypto::codegen::nvidia {
+ 
+@@ -95,7 +97,7 @@ class TensorIrValueMetadata {
+   TensorIrArgumentEffect argument_effect_;
+ };
+ 
+-/** Exact TensorIR source bytes and the metadata used to construct them. */
++/** TensorIR module input and the metadata used to construct it. */
+ class TensorIrModule {
+  public:
+   static constexpr uint32_t kLegacyStaticAddMetadataSchemaVersion = 1;
+@@ -125,6 +127,13 @@ class TensorIrModule {
+   [[nodiscard]] const std::string& GetCanonicalSource() const noexcept {
+     return canonical_source_;
+   }
++  [[nodiscard]] bool HasTypedModuleSpec() const noexcept {
++    return typed_module_spec_.has_value();
++  }
++  [[nodiscard]] const std::optional<TypedTensorIrModuleSpec>& GetTypedModuleSpec()
++      const noexcept {
++    return typed_module_spec_;
++  }
+   [[nodiscard]] const std::string& GetEntryName() const noexcept { return entry_name_; }
+   [[nodiscard]] const std::vector<TensorIrValueMetadata>& GetValueMetadata() const noexcept {
+     return value_metadata_;
+@@ -141,11 +150,16 @@ class TensorIrModule {
+   TensorIrModule(TensorIrModuleKind kind, std::string canonical_source,
+                  std::vector<TensorIrValueMetadata> value_metadata, uint32_t input_count,
+                  uint64_t contraction_extent = 0);
++  TensorIrModule(TensorIrModuleKind kind, TypedTensorIrModuleSpec typed_module_spec,
++                 std::vector<TensorIrValueMetadata> value_metadata,
++                 uint32_t input_count);
++  void Validate() const;
+   friend TensorIrModule EmitTensorIr(const ir::ProgramPtr& program);
+   friend TensorIrModule detail::EmitLegacyStaticAddV1(const ir::ProgramPtr& program);
+ 
+   TensorIrModuleKind kind_;
+   std::string canonical_source_;
++  std::optional<TypedTensorIrModuleSpec> typed_module_spec_;
+   std::string entry_name_;
+   std::vector<TensorIrValueMetadata> value_metadata_;
+   uint32_t input_count_;
+@@ -153,7 +167,7 @@ class TensorIrModule {
+ };
+ 
+ /**
+- * Emit a strict PyPTO HIR tensor subset as deterministic TensorIR text.
++ * Analyze a strict PyPTO HIR subset into one deterministic TensorIR input.
+  *
+  * The accepted legacy two-input tensor.add form remains LegacyStaticAddV1.
+  * FusedPointwise accepts a bounded linear SSA chain over registered tensor
+@@ -166,9 +180,11 @@ class TensorIrModule {
+  * StructuredMatmul accepts one direct rank-2 or equal-batch rank-3 BF16
+  * tensor.matmul, optionally transposes either physical input through an
+  * explicit TensorIR view, computes BF16xBF16 to F32, and converts the logical
+- * result back to BF16. Its physical input metadata remains unchanged.
+- * Rejected HIR raises ValueError; this function never invokes TensorIR or any
+- * device compiler.
++ * result back to BF16. Its physical input metadata remains unchanged. Native
++ * recurrent GDN produces a compiler-neutral typed module specification; the
++ * private NVIDIA bridge constructs, verifies, prints, and compiles the actual
++ * MLIR ModuleOp. Rejected HIR raises ValueError; this function never invokes
++ * TensorIR or any device compiler.
+  */
+ [[nodiscard]] TensorIrModule EmitTensorIr(const ir::ProgramPtr& program);
+ 
+diff --git a/src/codegen/nvidia/typed_tensor_ir_module_spec.h b/src/codegen/nvidia/typed_tensor_ir_module_spec.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..242d8bcf62fa9dabc21cfc8b52c3d556bd33ca9b
+--- /dev/null
++++ b/src/codegen/nvidia/typed_tensor_ir_module_spec.h
+@@ -0,0 +1,67 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#ifndef PYPTO_SRC_CODEGEN_NVIDIA_TYPED_TENSOR_IR_MODULE_SPEC_H_
++#define PYPTO_SRC_CODEGEN_NVIDIA_TYPED_TENSOR_IR_MODULE_SPEC_H_
++
++#include <array>
++#include <cstddef>
++#include <cstdint>
++#include <vector>
++
++namespace pypto::codegen::nvidia {
++
++/** Tensor element types allowed across the private typed-TensorIR seam. */
++enum class TypedTensorIrElementType : uint8_t {
++  BF16 = 0,
++  FP32 = 1,
++  INT32 = 2,
++  INT64 = 3,
++};
++
++/** Compiler-neutral description of one static TensorIR graph value. */
++struct TypedTensorIrTensorSpec {
++  TypedTensorIrElementType element_type = TypedTensorIrElementType::BF16;
++  std::vector<int64_t> shape;
++  std::vector<int64_t> strides;
++  bool has_explicit_strides = false;
++};
++
++/** Bounded semantic inputs for the native stateful GDN TensorIR builder. */
++struct NativeGdnRecurrentTensorIrSpec {
++  static constexpr std::size_t kInputCount = 7;
++
++  std::array<TypedTensorIrTensorSpec, kInputCount> inputs;
++  TypedTensorIrTensorSpec result;
++  int64_t batch_size = 0;
++  int64_t tokens_per_request = 0;
++  int64_t query_heads = 0;
++  int64_t value_heads = 0;
++  int64_t key_dim = 0;
++  int64_t value_dim = 0;
++  int64_t state_slots = 0;
++  double scale = 0.0;
++};
++
++/** Typed TensorIR builders available through the private NVIDIA bridge. */
++enum class TypedTensorIrModuleKind : uint8_t {
++  NativeGdnRecurrent = 0,
++};
++
++/** One compiler-neutral request for typed MLIR/TensorIR construction. */
++struct TypedTensorIrModuleSpec {
++  TypedTensorIrModuleKind kind = TypedTensorIrModuleKind::NativeGdnRecurrent;
++  NativeGdnRecurrentTensorIrSpec native_gdn_recurrent;
++};
++
++}  // namespace pypto::codegen::nvidia
++
++#endif  // PYPTO_SRC_CODEGEN_NVIDIA_TYPED_TENSOR_IR_MODULE_SPEC_H_
+diff --git a/src/compiler/nvidia_artifact_compiler.cpp b/src/compiler/nvidia_artifact_compiler.cpp
+index ba8075ebe881722eadc3b21e90080814b74ad591..0192ef2945dcfb882c469c92ddb252bf0f9d6479 100644
+--- a/src/compiler/nvidia_artifact_compiler.cpp
++++ b/src/compiler/nvidia_artifact_compiler.cpp
+@@ -261,7 +261,10 @@ Artifact CompileLegacyStrict(std::vector<uint8_t> canonical_source,
+   (void)Artifact::GetProducerOptionsIdentityDigest(request, build_spec);
+   return detail::CreateArtifactFromNormalized(
+       request, build_spec,
+-      detail::CompileNvidiaProducerOnce(canonical_source, request, resolved));
++      detail::CompileNvidiaProducerOnce(
++          detail::NvidiaTensorIrCompilationInput{std::move(canonical_source),
++                                                  std::nullopt},
++          request, resolved));
+ }
+ 
+ }  // namespace
+@@ -282,10 +285,10 @@ detail::NormalizedNvidiaProducerArtifact::NormalizedNvidiaProducerArtifact(
+       compile_options_identity_(std::move(compile_options_identity)) {}
+ 
+ detail::NormalizedNvidiaProducerArtifact detail::CompileNvidiaProducerOnce(
+-    const std::vector<uint8_t>& source, const CompileRequest& request,
++    const NvidiaTensorIrCompilationInput& input,
++    const CompileRequest& request,
+     const StrictTensorIrProducerOptions& resolved) {
+   ValidateStrictTensorIrBuildInfo(request);
+-  const std::string source_ir_digest = Artifact::ComputeSourceIrDigest(source);
+   const std::string request_digest = request.GetByteCompileIdentityDigest();
+   const NvidiaProducerOptions options = MakeProducerOptions(request, resolved);
+   NvidiaProducerResult result;
+@@ -294,10 +297,10 @@ detail::NormalizedNvidiaProducerArtifact detail::CompileNvidiaProducerOnce(
+   {
+     std::lock_guard<std::mutex> lock(g_producer_compile_mutex);
+     g_producer_invocation_count.fetch_add(1, std::memory_order_relaxed);
+-    result = CompilePrivateNvidiaArtifact(source, options);
++    result = CompilePrivateNvidiaArtifact(input, options);
+   }
+ #else
+-  (void)source;
++  (void)input;
+   (void)options;
+   throw InternalError("strict build-info validation returned in a backend-OFF build");
+ #endif
+@@ -318,11 +321,14 @@ detail::NormalizedNvidiaProducerArtifact detail::CompileNvidiaProducerOnce(
+   }
+   RequireProducerContract(result.status_code == 0 && result.error.empty(),
+                           "successful result contains a failure status");
+-  RequireProducerContract(result.applied_options.has_value() && result.artifact.has_value(),
++  RequireProducerContract(result.applied_options.has_value() && result.artifact.has_value() &&
++                              !result.canonical_source.empty(),
+                           "successful result is incomplete");
+   RequireProducerContract(SameProducerOptions(*result.applied_options, options),
+                           "applied options differ from the exact requested options");
+   ValidateProducerArtifact(*result.artifact, options);
++  const std::string source_ir_digest =
++      Artifact::ComputeSourceIrDigest(result.canonical_source);
+ 
+   NvidiaProducerArtifact producer_artifact = std::move(*result.artifact);
+   std::string compile_options_identity = std::move(producer_artifact.compile_options_identity);
+@@ -376,6 +382,15 @@ detail::NormalizedNvidiaProducerArtifact detail::CompileNvidiaProducerOnce(
+       std::move(compile_options_identity));
+ }
+ 
++detail::NormalizedNvidiaProducerArtifact detail::CompileNvidiaProducerOnce(
++    const std::vector<uint8_t>& canonical_source,
++    const CompileRequest& request,
++    const StrictTensorIrProducerOptions& resolved) {
++  return CompileNvidiaProducerOnce(
++      NvidiaTensorIrCompilationInput{canonical_source, std::nullopt}, request,
++      resolved);
++}
++
+ Artifact detail::CreateArtifactFromNormalized(
+     const CompileRequest& request, const KernelBuildSpec& build_spec,
+     NormalizedNvidiaProducerArtifact result) {
+diff --git a/src/compiler/nvidia_artifact_compiler_internal.h b/src/compiler/nvidia_artifact_compiler_internal.h
+index 697a69b731e5b6276df9ca4ae01612a87cbc0b39..5b72bc7eb32adef5ecac573a88a170611d2bd18c 100644
+--- a/src/compiler/nvidia_artifact_compiler_internal.h
++++ b/src/compiler/nvidia_artifact_compiler_internal.h
+@@ -17,6 +17,7 @@
+ #include <vector>
+ 
+ #include "pypto/compiler/artifact.h"
++#include "nvidia_tensor_ir_compilation_input.h"
+ #include "strict_tensor_ir_options.h"
+ 
+ namespace pypto::compiler::detail {
+@@ -31,10 +32,14 @@ class NormalizedNvidiaProducerArtifact {
+   NormalizedNvidiaProducerArtifact& operator=(NormalizedNvidiaProducerArtifact&&) = delete;
+ 
+   [[nodiscard]] const ArtifactKernelAbi& GetKernelAbi() const noexcept { return kernel_abi_; }
++  [[nodiscard]] const std::string& GetSourceIrDigest() const noexcept {
++    return source_ir_digest_;
++  }
+ 
+  private:
+   friend NormalizedNvidiaProducerArtifact CompileNvidiaProducerOnce(
+-      const std::vector<uint8_t>& source, const CompileRequest& request,
++      const NvidiaTensorIrCompilationInput& input,
++      const CompileRequest& request,
+       const StrictTensorIrProducerOptions& resolved);
+   friend Artifact CreateArtifactFromNormalized(const CompileRequest& request,
+                                                const KernelBuildSpec& build_spec,
+@@ -62,7 +67,12 @@ class NormalizedNvidiaProducerArtifact {
+ 
+ /** Validate exact build identity and invoke the concrete private producer once. */
+ [[nodiscard]] NormalizedNvidiaProducerArtifact CompileNvidiaProducerOnce(
+-    const std::vector<uint8_t>& source, const CompileRequest& request,
++    const NvidiaTensorIrCompilationInput& input,
++    const CompileRequest& request,
++    const StrictTensorIrProducerOptions& resolved);
++[[nodiscard]] NormalizedNvidiaProducerArtifact CompileNvidiaProducerOnce(
++    const std::vector<uint8_t>& canonical_source,
++    const CompileRequest& request,
+     const StrictTensorIrProducerOptions& resolved);
+ 
+ /** Create and fully validate an Artifact from the same normalized producer result. */
+diff --git a/src/compiler/nvidia_producer_bridge.cpp b/src/compiler/nvidia_producer_bridge.cpp
+index f1f3339e55c7dd422ea76e12ca0e65a61ec7fd94..b0382aba5f8a2f5e47e3fd57b7674ab34665d547 100644
+--- a/src/compiler/nvidia_producer_bridge.cpp
++++ b/src/compiler/nvidia_producer_bridge.cpp
+@@ -10,6 +10,7 @@
+  */
+ 
+ #include "nvidia_producer_bridge.h"
++#include "nvidia_typed_tensor_ir_builder.h"
+ 
+ #include <algorithm>
+ #include <cstddef>
+@@ -36,6 +37,7 @@ using mlir::nv_tensor_ir::CudaTileCodegenStrategy;
+ using mlir::nv_tensor_ir::PersistenceMode;
+ using mlir::nv_tensor_ir::SmTarget;
+ using mlir::nv_tensor_ir::StatusCode;
++using mlir::nv_tensor_ir::StatusOr;
+ using mlir::nv_tensor_ir::backend::cuda_tile::CudaTileArgumentPackingPolicy;
+ using mlir::nv_tensor_ir::backend::cuda_tile::CudaTileArtifactKind;
+ using mlir::nv_tensor_ir::backend::cuda_tile::CudaTileCompileOptions;
+@@ -473,9 +475,18 @@ NvidiaProducerArtifact CopyArtifact(const CudaTileCompiledArtifact& artifact) {
+ }  // namespace
+ 
+ NvidiaProducerResult CompilePrivateNvidiaArtifact(
+-    const std::vector<uint8_t>& canonical_source, const NvidiaProducerOptions& options) {
+-  if (const char* error = ValidateSource(canonical_source)) {
+-    return Failure(kStatusInvalidArgument, error);
++    const NvidiaTensorIrCompilationInput& input,
++    const NvidiaProducerOptions& options) {
++  const bool has_source = !input.canonical_source.empty();
++  const bool has_typed_module = input.typed_module_spec.has_value();
++  if (has_source == has_typed_module) {
++    return Failure(kStatusInvalidArgument,
++                   "producer input must contain exactly one canonical source or typed module");
++  }
++  if (has_source) {
++    if (const char* error = ValidateSource(input.canonical_source)) {
++      return Failure(kStatusInvalidArgument, error);
++    }
+   }
+   if (const char* error = ValidateStrictOptions(options)) {
+     return Failure(kStatusInvalidArgument, error);
+@@ -526,12 +537,35 @@ NvidiaProducerResult CompilePrivateNvidiaArtifact(
+                    "TensorIR IR debug options were not cleared at the private producer boundary");
+   }
+ 
+-  const llvm::StringRef source(reinterpret_cast<const char*>(canonical_source.data()),
+-                               canonical_source.size());
++  std::string typed_diagnostic;
++  std::optional<BuiltTypedTensorIrModule> typed_module;
++  if (has_typed_module) {
++    typed_module =
++        BuildTypedTensorIrModule(*input.typed_module_spec, typed_diagnostic);
++    if (!typed_module.has_value()) {
++      return Failure(kStatusInvalidArgument, typed_diagnostic,
++                     &applied_options);
++    }
++    if (const char* error = ValidateSource(typed_module->canonical_source)) {
++      return Failure(kStatusCompilationError, error, &applied_options);
++    }
++  }
++
+   CudaTileCompiler compiler;
+-  auto compiled = compiler.compileToArtifact(source, compile_options);
++  StatusOr<CudaTileCompiledArtifact> compiled = [&]() {
++    if (typed_module.has_value()) {
++      return compiler.compileToArtifact(*typed_module->module,
++                                        compile_options);
++    }
++    const llvm::StringRef source(
++        reinterpret_cast<const char*>(input.canonical_source.data()),
++        input.canonical_source.size());
++    return compiler.compileToArtifact(source, compile_options);
++  }();
+   if (!compiled.ok()) {
+-    return Failure(static_cast<int32_t>(compiled.status().code()), compiled.status().message(),
++    std::string diagnostic = compiled.status().message();
++    if (!typed_diagnostic.empty()) diagnostic += "\n" + typed_diagnostic;
++    return Failure(static_cast<int32_t>(compiled.status().code()), diagnostic,
+                    &applied_options);
+   }
+   if (const char* error = ValidateArtifactBounds(*compiled, applied_options)) {
+@@ -543,6 +577,9 @@ NvidiaProducerResult CompilePrivateNvidiaArtifact(
+   result.status_code = kStatusSuccess;
+   result.applied_options = std::move(applied_options);
+   result.artifact = CopyArtifact(*compiled);
++  result.canonical_source = typed_module.has_value()
++                                ? std::move(typed_module->canonical_source)
++                                : input.canonical_source;
+   return result;
+ }
+ 
+diff --git a/src/compiler/nvidia_producer_bridge.h b/src/compiler/nvidia_producer_bridge.h
+index d2dda75eb4a2d7d2973848d7bd9b124fff430fb5..03811ac8a6e858a85f4c9c40f42ab3f4eeda00dc 100644
+--- a/src/compiler/nvidia_producer_bridge.h
++++ b/src/compiler/nvidia_producer_bridge.h
+@@ -18,6 +18,8 @@
+ #include <string>
+ #include <vector>
+ 
++#include "nvidia_tensor_ir_compilation_input.h"
++
+ namespace pypto::compiler::detail {
+ 
+ /** CUDA Tile bytecode version crossing the private no-RTTI/no-EH bridge. */
+@@ -112,7 +114,8 @@ struct NvidiaProducerArtifact {
+ /**
+  * Status plus an optional detached artifact; diagnostics never exceed 64 KiB.
+  *
+- * Success has ok=true, status_code=0, an empty error, and a populated artifact.
++ * Success has ok=true, status_code=0, an empty error, a populated artifact,
++ * and the canonical print/source bytes compiled by the producer.
+  * Failure has ok=false, a nonzero status_code, a nonempty bounded error, and no artifact.
+  * Applied options are present once the concrete TensorIR options have been fully populated.
+  */
+@@ -122,10 +125,12 @@ struct NvidiaProducerResult {
+   std::string error;
+   std::optional<NvidiaProducerOptions> applied_options;
+   std::optional<NvidiaProducerArtifact> artifact;
++  std::vector<uint8_t> canonical_source;
+ };
+ 
+ [[nodiscard]] NvidiaProducerResult CompilePrivateNvidiaArtifact(
+-    const std::vector<uint8_t>& canonical_source, const NvidiaProducerOptions& options);
++    const NvidiaTensorIrCompilationInput& input,
++    const NvidiaProducerOptions& options);
+ 
+ }  // namespace pypto::compiler::detail
+ 
+diff --git a/src/compiler/nvidia_tensor_ir_compilation_input.h b/src/compiler/nvidia_tensor_ir_compilation_input.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..8aa1474b054bf09d098c9944429b65f2389de802
+--- /dev/null
++++ b/src/compiler/nvidia_tensor_ir_compilation_input.h
+@@ -0,0 +1,31 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#ifndef PYPTO_SRC_COMPILER_NVIDIA_TENSOR_IR_COMPILATION_INPUT_H_
++#define PYPTO_SRC_COMPILER_NVIDIA_TENSOR_IR_COMPILATION_INPUT_H_
++
++#include <cstdint>
++#include <optional>
++#include <vector>
++
++#include "src/codegen/nvidia/typed_tensor_ir_module_spec.h"
++
++namespace pypto::compiler::detail {
++
++/** Exactly one source boundary or typed TensorIR module request. */
++struct NvidiaTensorIrCompilationInput {
++  std::vector<uint8_t> canonical_source;
++  std::optional<codegen::nvidia::TypedTensorIrModuleSpec> typed_module_spec;
++};
++
++}  // namespace pypto::compiler::detail
++
++#endif  // PYPTO_SRC_COMPILER_NVIDIA_TENSOR_IR_COMPILATION_INPUT_H_
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..effa41813f8d0575d87ad47d037a37d0a234de8e
+--- /dev/null
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -0,0 +1,645 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#include "nvidia_typed_tensor_ir_builder.h"
++
++#include <algorithm>
++#include <array>
++#include <cmath>
++#include <cstddef>
++#include <cstdint>
++#include <initializer_list>
++#include <limits>
++#include <memory>
++#include <optional>
++#include <string>
++#include <string_view>
++#include <utility>
++#include <vector>
++
++#include "llvm/ADT/ArrayRef.h"
++#include "llvm/ADT/SmallVector.h"
++#include "llvm/Support/raw_ostream.h"
++#include "mlir/IR/Builders.h"
++#include "mlir/IR/BuiltinTypes.h"
++#include "mlir/IR/Verifier.h"
++#include "tensor_ir/Dialect/TensorIR.h"
++#include "tensor_ir/Registration/Registration.h"
++#include "tensor_ir/Support/TCutegen.h"
++
++namespace pypto::compiler::detail {
++namespace {
++
++namespace tir = mlir::nv_tensor_ir;
++namespace tcg = mlir::nv_tensor_ir::tcutegen;
++using codegen::nvidia::NativeGdnRecurrentTensorIrSpec;
++using codegen::nvidia::TypedTensorIrElementType;
++using codegen::nvidia::TypedTensorIrModuleKind;
++using codegen::nvidia::TypedTensorIrModuleSpec;
++using codegen::nvidia::TypedTensorIrTensorSpec;
++
++constexpr std::string_view kEntryName = "pypto_fused_pointwise";
++constexpr std::string_view kAlignedAddAttribute =
++    "_pypto_align_rhs_trailing_transpose";
++constexpr size_t kMaximumCanonicalSourceBytes = 16ULL * 1024ULL * 1024ULL;
++constexpr size_t kMaximumCapturedDiagnosticBytes = 64ULL * 1024ULL;
++constexpr int64_t kMaximumBatchTokenProduct = 4096;
++
++bool CheckedMultiply(int64_t left, int64_t right, int64_t& result) {
++  if (left <= 0 || right <= 0 ||
++      left > std::numeric_limits<int64_t>::max() / right) {
++    return false;
++  }
++  result = left * right;
++  return true;
++}
++
++bool IsDense(const TypedTensorIrTensorSpec& tensor) {
++  if (tensor.shape.size() != tensor.strides.size() || tensor.shape.empty()) {
++    return false;
++  }
++  int64_t running = 1;
++  for (size_t reverse_index = tensor.shape.size(); reverse_index > 0;
++       --reverse_index) {
++    const size_t index = reverse_index - 1;
++    if (tensor.shape[index] <= 0 || tensor.strides[index] != running ||
++        tensor.shape[index] > std::numeric_limits<int64_t>::max() / running) {
++      return false;
++    }
++    running *= tensor.shape[index];
++  }
++  return true;
++}
++
++bool IsDenseOrZeroStrideBroadcast(const TypedTensorIrTensorSpec& tensor) {
++  return IsDense(tensor) ||
++         std::any_of(tensor.strides.begin(), tensor.strides.end(),
++                     [](int64_t stride) { return stride == 0; });
++}
++
++bool HasValidStaticMetadata(const TypedTensorIrTensorSpec& tensor) {
++  if (!tensor.has_explicit_strides || tensor.shape.empty() ||
++      tensor.shape.size() > 32 || tensor.shape.size() != tensor.strides.size()) {
++    return false;
++  }
++  return std::all_of(tensor.shape.begin(), tensor.shape.end(),
++                     [](int64_t dimension) { return dimension > 0; }) &&
++         std::all_of(tensor.strides.begin(), tensor.strides.end(),
++                     [](int64_t stride) { return stride >= 0; });
++}
++
++bool SameShape(const TypedTensorIrTensorSpec& tensor,
++               std::initializer_list<int64_t> shape) {
++  return tensor.shape == std::vector<int64_t>(shape);
++}
++
++bool ValidateNativeGdnRecurrentSpec(
++    const NativeGdnRecurrentTensorIrSpec& spec, std::string& diagnostic) {
++  const auto reject = [&](std::string message) {
++    diagnostic = "typed TensorIR GDN specification rejected: " +
++                 std::move(message);
++    return false;
++  };
++  for (const TypedTensorIrTensorSpec& input : spec.inputs) {
++    if (!HasValidStaticMetadata(input)) {
++      return reject("input metadata is not fully static with explicit strides");
++    }
++  }
++  if (!HasValidStaticMetadata(spec.result)) {
++    return reject("result metadata is not fully static with explicit strides");
++  }
++  if (spec.batch_size <= 0 || spec.tokens_per_request <= 0 ||
++      spec.query_heads <= 0 || spec.value_heads <= 0 || spec.key_dim <= 0 ||
++      spec.value_dim <= 0 || spec.state_slots <= 0 ||
++      spec.value_heads % spec.query_heads != 0 || spec.key_dim % 128 != 0 ||
++      spec.value_dim % 16 != 0 || !std::isfinite(spec.scale)) {
++    return reject("static geometry is invalid");
++  }
++  int64_t batch_token_product = 0;
++  if (!CheckedMultiply(spec.batch_size, spec.tokens_per_request,
++                       batch_token_product) ||
++      batch_token_product > kMaximumBatchTokenProduct) {
++    return reject("batch-token product exceeds the bounded typed builder");
++  }
++  int64_t qk_width = 0;
++  int64_t value_width = 0;
++  int64_t state_width = 0;
++  int64_t mixed_width = 0;
++  if (!CheckedMultiply(spec.query_heads, spec.key_dim, qk_width) ||
++      !CheckedMultiply(spec.value_heads, spec.value_dim, value_width) ||
++      !CheckedMultiply(value_width, spec.key_dim, state_width) ||
++      qk_width > (std::numeric_limits<int64_t>::max() - value_width) / 2) {
++    return reject("static geometry overflows signed 64-bit metadata");
++  }
++  mixed_width = 2 * qk_width + value_width;
++  const auto& mixed_qkv = spec.inputs[0];
++  const auto& a = spec.inputs[1];
++  const auto& b = spec.inputs[2];
++  const auto& a_log = spec.inputs[3];
++  const auto& dt_bias = spec.inputs[4];
++  const auto& state = spec.inputs[5];
++  const auto& state_indices = spec.inputs[6];
++  if (mixed_qkv.element_type != TypedTensorIrElementType::BF16 ||
++      !SameShape(mixed_qkv,
++                 {spec.batch_size, spec.tokens_per_request, mixed_width}) ||
++      !IsDense(mixed_qkv) || a.element_type != TypedTensorIrElementType::BF16 ||
++      b.element_type != TypedTensorIrElementType::BF16 ||
++      a.shape != spec.result.shape || b.shape != spec.result.shape ||
++      a.strides != b.strides || !IsDenseOrZeroStrideBroadcast(a) ||
++      !IsDenseOrZeroStrideBroadcast(b) ||
++      a_log.element_type != TypedTensorIrElementType::FP32 ||
++      dt_bias.element_type != TypedTensorIrElementType::BF16 ||
++      !SameShape(a_log, {spec.value_heads, spec.value_dim}) ||
++      a_log.shape != dt_bias.shape || a_log.strides != dt_bias.strides ||
++      !IsDenseOrZeroStrideBroadcast(a_log) ||
++      !IsDenseOrZeroStrideBroadcast(dt_bias) ||
++      state.element_type != TypedTensorIrElementType::FP32 ||
++      !SameShape(state, {spec.state_slots, state_width}) ||
++      state.strides.size() != 2 || state.strides[1] != 1 ||
++      state.strides[0] < state_width ||
++      (state_indices.element_type != TypedTensorIrElementType::INT32 &&
++       state_indices.element_type != TypedTensorIrElementType::INT64) ||
++      !SameShape(state_indices, {spec.batch_size, 1}) ||
++      !IsDense(state_indices) ||
++      spec.result.element_type != TypedTensorIrElementType::BF16 ||
++      !SameShape(spec.result,
++                 {spec.batch_size, spec.tokens_per_request, spec.value_heads,
++                  spec.value_dim}) ||
++      !IsDense(spec.result)) {
++    return reject("tensor dtype, shape, or stride contract is invalid");
++  }
++  const double expected_scale =
++      1.0 / std::sqrt(static_cast<double>(spec.key_dim));
++  if (std::fabs(spec.scale - expected_scale) >
++      std::numeric_limits<double>::epsilon()) {
++    return reject("scale does not equal 1/sqrt(key_dim)");
++  }
++  return true;
++}
++
++class NativeGdnRecurrentBuilder {
++ public:
++  NativeGdnRecurrentBuilder(mlir::OpBuilder& builder, mlir::Location location,
++                            const NativeGdnRecurrentTensorIrSpec& spec)
++      : builder_(builder), location_(location), spec_(spec) {}
++
++  mlir::Value Build(mlir::Block& entry) {
++    const int64_t heads_per_query = spec_.value_heads / spec_.query_heads;
++    const int64_t qk_width = spec_.query_heads * spec_.key_dim;
++    const int64_t value_width = spec_.value_heads * spec_.value_dim;
++    const int64_t state_width = value_width * spec_.key_dim;
++
++    const auto i32_indices_type = Tensor(
++        TypedTensorIrElementType::INT32, spec_.inputs[6].shape);
++    const auto indices_column_type =
++        Tensor(TypedTensorIrElementType::INT32, {1, 1});
++    const auto indices_full_type =
++        Tensor(TypedTensorIrElementType::INT32, {1, state_width});
++    const auto state_row_type =
++        Tensor(TypedTensorIrElementType::FP32, {1, state_width});
++    const auto state_group_type = Tensor(
++        TypedTensorIrElementType::FP32,
++        {spec_.query_heads, heads_per_query, spec_.value_dim, spec_.key_dim});
++    const auto state_transposed_type = Tensor(
++        TypedTensorIrElementType::FP32,
++        {spec_.query_heads, heads_per_query, spec_.key_dim, spec_.value_dim});
++    const auto qk_box_type =
++        Tensor(TypedTensorIrElementType::BF16, {1, 1, qk_width});
++    const auto query_seed_type = Tensor(
++        TypedTensorIrElementType::BF16,
++        {spec_.query_heads, 1, 1, spec_.key_dim});
++    const auto query_group_type = Tensor(
++        TypedTensorIrElementType::BF16,
++        {spec_.query_heads, heads_per_query, 1, spec_.key_dim});
++    const auto wide_query_group_type = Tensor(
++        TypedTensorIrElementType::FP32,
++        {spec_.query_heads, heads_per_query, 1, spec_.key_dim});
++    const auto key_column_type = Tensor(
++        TypedTensorIrElementType::FP32,
++        {spec_.query_heads, heads_per_query, spec_.key_dim, 1});
++    const auto norm_type = Tensor(
++        TypedTensorIrElementType::FP32,
++        {spec_.query_heads, heads_per_query, 1, 1});
++    const auto value_box_type =
++        Tensor(TypedTensorIrElementType::BF16, {1, 1, value_width});
++    const auto value_group_type = Tensor(
++        TypedTensorIrElementType::BF16,
++        {spec_.query_heads, heads_per_query, spec_.value_dim, 1});
++    const auto wide_value_group_type = Tensor(
++        TypedTensorIrElementType::FP32,
++        {spec_.query_heads, heads_per_query, spec_.value_dim, 1});
++    const auto gate_box_type = Tensor(
++        TypedTensorIrElementType::BF16,
++        {1, 1, spec_.value_heads, spec_.value_dim});
++    const auto parameter_group_type = wide_value_group_type;
++    const auto dt_parameter_group_type = value_group_type;
++    const auto output_group_type = Tensor(
++        TypedTensorIrElementType::FP32,
++        {spec_.query_heads, heads_per_query, 1, spec_.value_dim});
++    const auto output_group_bf16_type = Tensor(
++        TypedTensorIrElementType::BF16,
++        {spec_.query_heads, heads_per_query, 1, spec_.value_dim});
++    const auto output_box_type = Tensor(
++        TypedTensorIrElementType::BF16,
++        {1, 1, spec_.value_heads, spec_.value_dim});
++    const auto batch_result_type = Tensor(
++        TypedTensorIrElementType::BF16,
++        {1, spec_.tokens_per_request, spec_.value_heads, spec_.value_dim});
++    const auto result_type = Tensor(spec_.result.element_type, spec_.result.shape);
++
++    llvm::SmallVector<mlir::Value> arguments(entry.getArguments().begin(),
++                                             entry.getArguments().end());
++    mlir::Value indices = arguments[6];
++    if (spec_.inputs[6].element_type == TypedTensorIrElementType::INT64) {
++      indices = Convert(indices, i32_indices_type);
++    }
++    const mlir::Value a_group = Reshape(arguments[3], parameter_group_type);
++    const mlir::Value exp_a_group = Unary<tir::ExpOp>(a_group);
++    const mlir::Value dt_group_bf16 =
++        Reshape(arguments[4], dt_parameter_group_type);
++    const mlir::Value dt_group =
++        Convert(dt_group_bf16, parameter_group_type);
++    const mlir::Value epsilon_splat =
++        Splat(Constant(1.0e-6F), norm_type);
++    const mlir::Value one_gate =
++        Splat(Constant(1.0F), parameter_group_type);
++    const mlir::Value zero_gate =
++        Splat(Constant(0.0F), parameter_group_type);
++    const mlir::Value scale_splat =
++        Splat(Constant(static_cast<float>(spec_.scale)),
++              wide_query_group_type);
++
++    llvm::SmallVector<mlir::Value> batch_outputs;
++    batch_outputs.reserve(static_cast<size_t>(spec_.batch_size));
++    for (int64_t batch = 0; batch < spec_.batch_size; ++batch) {
++      const mlir::Value state_index =
++          Slice(indices, indices_column_type, {batch, 0}, {batch + 1, 1},
++                {1, 1});
++      const mlir::Value indices_full =
++          Broadcast(state_index, indices_full_type);
++      const mlir::Value state_row =
++          tir::GatherRowsOp::create(builder_, location_, state_row_type,
++                                    arguments[5], indices_full)
++              .getOutput();
++      mlir::Value current_state = Reshape(state_row, state_group_type);
++      mlir::Value final_scaled_query;
++      llvm::SmallVector<mlir::Value> token_outputs;
++      token_outputs.reserve(static_cast<size_t>(spec_.tokens_per_request));
++
++      for (int64_t token = 0; token < spec_.tokens_per_request; ++token) {
++        const auto build_normalized_qk = [&](int64_t offset) {
++          const mlir::Value box = Slice(
++              arguments[0], qk_box_type, {batch, token, offset},
++              {batch + 1, token + 1, offset + qk_width}, {1, 1, 1});
++          const mlir::Value seed = Reshape(box, query_seed_type);
++          const mlir::Value group = Broadcast(seed, query_group_type);
++          const mlir::Value wide = Convert(group, wide_query_group_type);
++          const mlir::Value square = Binary<tir::MulOp>(wide, wide);
++          const mlir::Value sum = Reduce(square, norm_type, {3});
++          const mlir::Value norm2 = Binary<tir::AddOp>(sum, epsilon_splat);
++          const mlir::Value inverse = Unary<tir::RsqrtOp>(norm2);
++          const mlir::Value inverse_full =
++              Broadcast(inverse, wide_query_group_type);
++          return Binary<tir::MulOp>(wide, inverse_full);
++        };
++        const mlir::Value query = build_normalized_qk(/*offset=*/0);
++        const mlir::Value key = build_normalized_qk(/*offset=*/qk_width);
++        const mlir::Value scaled_query =
++            Binary<tir::MulOp>(query, scale_splat);
++        final_scaled_query = scaled_query;
++
++        const mlir::Value value_box = Slice(
++            arguments[0], value_box_type,
++            {batch, token, 2 * qk_width},
++            {batch + 1, token + 1, 2 * qk_width + value_width},
++            {1, 1, 1});
++        const mlir::Value value = Reshape(value_box, value_group_type);
++        const mlir::Value wide_value =
++            Convert(value, wide_value_group_type);
++
++        const auto build_gate = [&](mlir::Value argument) {
++          const mlir::Value box = Slice(
++              argument, gate_box_type, {batch, token, 0, 0},
++              {batch + 1, token + 1, spec_.value_heads, spec_.value_dim},
++              {1, 1, 1, 1});
++          const mlir::Value gate_bf16 = Reshape(box, value_group_type);
++          return Convert(gate_bf16, parameter_group_type);
++        };
++        const mlir::Value a = build_gate(arguments[1]);
++        const mlir::Value b = build_gate(arguments[2]);
++
++        const mlir::Value gate_x = Binary<tir::AddOp>(a, dt_group);
++        const mlir::Value gate_abs = Unary<tir::AbsOp>(gate_x);
++        const mlir::Value gate_neg_abs = Unary<tir::NegOp>(gate_abs);
++        const mlir::Value gate_tail_exp = Unary<tir::ExpOp>(gate_neg_abs);
++        const mlir::Value gate_tail_shift =
++            Binary<tir::AddOp>(gate_tail_exp, one_gate);
++        const mlir::Value gate_tail = Unary<tir::LogOp>(gate_tail_shift);
++        const mlir::Value gate_positive =
++            Binary<tir::MaxOp>(gate_x, zero_gate);
++        const mlir::Value softplus =
++            Binary<tir::AddOp>(gate_positive, gate_tail);
++        const mlir::Value g_positive =
++            Binary<tir::MulOp>(exp_a_group, softplus);
++        const mlir::Value g = Unary<tir::NegOp>(g_positive);
++        const mlir::Value decay = Unary<tir::ExpOp>(g);
++        const mlir::Value decay_full = Broadcast(decay, state_group_type);
++        const mlir::Value decayed =
++            Binary<tir::MulOp>(current_state, decay_full);
++
++        const mlir::Value beta_x = Unary<tir::NegOp>(b);
++        const mlir::Value beta_abs = Unary<tir::AbsOp>(beta_x);
++        const mlir::Value beta_neg_abs = Unary<tir::NegOp>(beta_abs);
++        const mlir::Value beta_tail_exp = Unary<tir::ExpOp>(beta_neg_abs);
++        const mlir::Value beta_tail_shift =
++            Binary<tir::AddOp>(beta_tail_exp, one_gate);
++        const mlir::Value beta_tail = Unary<tir::LogOp>(beta_tail_shift);
++        const mlir::Value beta_positive =
++            Binary<tir::MaxOp>(beta_x, zero_gate);
++        const mlir::Value beta_softplus =
++            Binary<tir::AddOp>(beta_positive, beta_tail);
++        const mlir::Value beta_neg_softplus =
++            Unary<tir::NegOp>(beta_softplus);
++        const mlir::Value beta = Unary<tir::ExpOp>(beta_neg_softplus);
++        const mlir::Value beta_bf16 = Convert(beta, value_group_type);
++        const mlir::Value beta_rounded =
++            Convert(beta_bf16, parameter_group_type);
++
++        const mlir::Value key_column =
++            Transpose(key, key_column_type, {0, 1, 3, 2});
++        const mlir::Value state_key =
++            Matmul(decayed, key_column, parameter_group_type);
++        const mlir::Value residual =
++            Binary<tir::SubOp>(wide_value, state_key);
++        const mlir::Value delta =
++            Binary<tir::MulOp>(residual, beta_rounded);
++        const mlir::Value outer = Matmul(delta, key, state_group_type);
++        const mlir::Value decayed_flat = Reshape(decayed, state_row_type);
++        const mlir::Value outer_flat = Reshape(outer, state_row_type);
++        auto updated_flat = tir::AddOp::create(
++            builder_, location_, state_row_type, decayed_flat, outer_flat);
++        updated_flat->setAttr(kAlignedAddAttribute,
++                              builder_.getBoolAttr(true));
++        current_state = Reshape(updated_flat.getOutput(), state_group_type);
++
++        if (token + 1 != spec_.tokens_per_request) {
++          token_outputs.push_back(BuildOutput(
++              scaled_query, current_state, state_transposed_type,
++              output_group_type, output_group_bf16_type, output_box_type));
++        }
++      }
++
++      const mlir::Value final_state = Reshape(current_state, state_row_type);
++      const mlir::Value stored_state =
++          tir::ScatterRowsOp::create(builder_, location_, state_row_type,
++                                     arguments[5], indices_full, final_state)
++              .getOutput();
++      const mlir::Value stored_group = Reshape(stored_state, state_group_type);
++      const mlir::Value final_output = BuildOutput(
++          final_scaled_query, stored_group, state_transposed_type,
++          output_group_type, output_group_bf16_type, output_box_type);
++      token_outputs.push_back(final_output);
++
++      if (token_outputs.size() == 1) {
++        batch_outputs.push_back(token_outputs.front());
++      } else {
++        batch_outputs.push_back(Concatenate(token_outputs, batch_result_type,
++                                            /*dimension=*/1));
++      }
++    }
++
++    if (batch_outputs.size() == 1) return batch_outputs.front();
++    return Concatenate(batch_outputs, result_type, /*dimension=*/0);
++  }
++
++ private:
++  mlir::Type ElementType(TypedTensorIrElementType element_type) const {
++    if (element_type == TypedTensorIrElementType::BF16) {
++      return builder_.getBF16Type();
++    }
++    if (element_type == TypedTensorIrElementType::FP32) {
++      return builder_.getF32Type();
++    }
++    if (element_type == TypedTensorIrElementType::INT32) {
++      return builder_.getIntegerType(32, mlir::IntegerType::Signed);
++    }
++    return builder_.getIntegerType(64, mlir::IntegerType::Signed);
++  }
++
++  mlir::RankedTensorType Tensor(TypedTensorIrElementType element_type,
++                                llvm::ArrayRef<int64_t> shape) const {
++    return mlir::RankedTensorType::get(shape, ElementType(element_type));
++  }
++
++  mlir::Value Constant(float value) {
++    return tir::ConstantOp::create(builder_, location_,
++                                   builder_.getF32FloatAttr(value))
++        .getResult();
++  }
++
++  mlir::Value Reshape(mlir::Value input, mlir::RankedTensorType output_type) {
++    return tir::ReshapeOp::create(builder_, location_, output_type, input,
++                                  mlir::ValueRange{})
++        .getOutput();
++  }
++
++  mlir::Value Convert(mlir::Value input, mlir::RankedTensorType output_type) {
++    return tir::ConvertOp::create(builder_, location_, output_type, input)
++        .getOutput();
++  }
++
++  mlir::Value Broadcast(mlir::Value input,
++                        mlir::RankedTensorType output_type) {
++    if (input.getType() == output_type) return input;
++    return tir::BroadcastOp::create(builder_, location_, output_type, input,
++                                    mlir::ValueRange{})
++        .getOutput();
++  }
++
++  mlir::Value Splat(mlir::Value input, mlir::RankedTensorType output_type) {
++    return tir::SplatOp::create(builder_, location_, output_type, input,
++                                mlir::ValueRange{})
++        .getOutput();
++  }
++
++  mlir::Value Slice(mlir::Value input, mlir::RankedTensorType output_type,
++                    llvm::ArrayRef<int64_t> starts,
++                    llvm::ArrayRef<int64_t> limits,
++                    llvm::ArrayRef<int64_t> strides) {
++    return tir::SliceOp::create(builder_, location_, output_type, input, starts,
++                                limits, strides)
++        .getOutput();
++  }
++
++  mlir::Value Transpose(mlir::Value input,
++                        mlir::RankedTensorType output_type,
++                        llvm::ArrayRef<int64_t> permutation) {
++    return tir::TransposeOp::create(builder_, location_, output_type, input,
++                                    permutation)
++        .getOutput();
++  }
++
++  mlir::Value Reduce(mlir::Value input, mlir::RankedTensorType output_type,
++                     llvm::ArrayRef<int32_t> dimensions) {
++    return tir::ReduceOp::create(builder_, location_, output_type, input,
++                                 dimensions, tir::ReductionMode::add)
++        .getOutput();
++  }
++
++  mlir::Value Matmul(mlir::Value left, mlir::Value right,
++                     mlir::RankedTensorType output_type) {
++    return tir::MatmulOp::create(builder_, location_, output_type, left, right)
++        .getC();
++  }
++
++  mlir::Value Concatenate(llvm::ArrayRef<mlir::Value> inputs,
++                          mlir::RankedTensorType output_type,
++                          uint64_t dimension) {
++    return tir::ConcatenateOp::create(builder_, location_, output_type, inputs,
++                                      dimension)
++        .getOutput();
++  }
++
++  template <typename Op>
++  mlir::Value Unary(mlir::Value input) {
++    return Op::create(builder_, location_, input.getType(), input).getOutput();
++  }
++
++  template <typename Op>
++  mlir::Value Binary(mlir::Value left, mlir::Value right) {
++    return Op::create(builder_, location_, left.getType(), left, right)
++        .getOutput();
++  }
++
++  mlir::Value BuildOutput(
++      mlir::Value scaled_query, mlir::Value state,
++      mlir::RankedTensorType state_transposed_type,
++      mlir::RankedTensorType output_group_type,
++      mlir::RankedTensorType output_group_bf16_type,
++      mlir::RankedTensorType output_box_type) {
++    const mlir::Value state_transposed =
++        Transpose(state, state_transposed_type, {0, 1, 3, 2});
++    const mlir::Value output_wide =
++        Matmul(scaled_query, state_transposed, output_group_type);
++    const mlir::Value output =
++        Convert(output_wide, output_group_bf16_type);
++    return Reshape(output, output_box_type);
++  }
++
++  mlir::OpBuilder& builder_;
++  mlir::Location location_;
++  const NativeGdnRecurrentTensorIrSpec& spec_;
++};
++
++mlir::StringAttr MakeStrideAttribute(mlir::OpBuilder& builder,
++                                     llvm::ArrayRef<int64_t> strides) {
++  tcg::Stride stride;
++  for (int64_t value : strides) stride.append(value);
++  return builder.getStringAttr(tcg::to_string(stride));
++}
++
++void AppendDiagnostic(std::string& output, mlir::Diagnostic& diagnostic) {
++  if (output.size() >= kMaximumCapturedDiagnosticBytes) return;
++  std::string rendered;
++  llvm::raw_string_ostream stream(rendered);
++  diagnostic.print(stream);
++  stream.flush();
++  const size_t remaining = kMaximumCapturedDiagnosticBytes - output.size();
++  output.append(rendered.data(), std::min(rendered.size(), remaining));
++  if (output.size() < kMaximumCapturedDiagnosticBytes) output.push_back('\n');
++}
++
++}  // namespace
++
++std::optional<BuiltTypedTensorIrModule> BuildTypedTensorIrModule(
++    const TypedTensorIrModuleSpec& spec, std::string& diagnostic) {
++  if (spec.kind != TypedTensorIrModuleKind::NativeGdnRecurrent) {
++    diagnostic = "typed TensorIR module kind is unsupported";
++    return std::nullopt;
++  }
++  if (!ValidateNativeGdnRecurrentSpec(spec.native_gdn_recurrent,
++                                      diagnostic)) {
++    return std::nullopt;
++  }
++
++  mlir::DialectRegistry registry;
++  tir::registerDialects(registry);
++  auto context = std::make_unique<mlir::MLIRContext>(registry);
++  context->loadAllAvailableDialects();
++  auto diagnostic_handler = std::make_unique<mlir::ScopedDiagnosticHandler>(
++      context.get(), [&](mlir::Diagnostic& value) {
++        AppendDiagnostic(diagnostic, value);
++      });
++  mlir::OpBuilder builder(context.get());
++  const mlir::Location location = builder.getUnknownLoc();
++  auto module = mlir::ModuleOp::create(location);
++  builder.setInsertionPointToStart(module.getBody());
++
++  const NativeGdnRecurrentTensorIrSpec& gdn = spec.native_gdn_recurrent;
++  llvm::SmallVector<mlir::Type> input_types;
++  input_types.reserve(gdn.inputs.size());
++  const auto element_type = [&](TypedTensorIrElementType type) -> mlir::Type {
++    if (type == TypedTensorIrElementType::BF16) return builder.getBF16Type();
++    if (type == TypedTensorIrElementType::FP32) return builder.getF32Type();
++    if (type == TypedTensorIrElementType::INT32) {
++      return builder.getIntegerType(32, mlir::IntegerType::Signed);
++    }
++    return builder.getIntegerType(64, mlir::IntegerType::Signed);
++  };
++  for (const TypedTensorIrTensorSpec& input : gdn.inputs) {
++    input_types.push_back(mlir::RankedTensorType::get(
++        input.shape, element_type(input.element_type)));
++  }
++  const mlir::Type result_type = mlir::RankedTensorType::get(
++      gdn.result.shape, element_type(gdn.result.element_type));
++  const mlir::FunctionType function_type =
++      builder.getFunctionType(input_types, {result_type});
++  auto graph = tir::GraphOp::create(
++      builder, location, kEntryName, function_type, /*arg_attrs=*/nullptr,
++      /*res_attrs=*/nullptr);
++  for (size_t index = 0; index < gdn.inputs.size(); ++index) {
++    graph.setArgAttr(index, tir::TensorIRDialect::getStrideAttrName(),
++                     MakeStrideAttribute(builder, gdn.inputs[index].strides));
++  }
++  graph.setResultAttr(0, tir::TensorIRDialect::getStrideAttrName(),
++                      MakeStrideAttribute(builder, gdn.result.strides));
++  mlir::Block* entry = graph.addEntryBlock();
++  builder.setInsertionPointToStart(entry);
++  NativeGdnRecurrentBuilder gdn_builder(builder, location, gdn);
++  const mlir::Value result = gdn_builder.Build(*entry);
++  (void)tir::ResultsOp::create(builder, location, mlir::ValueRange{result});
++
++  if (mlir::failed(mlir::verify(module))) {
++    if (diagnostic.empty()) {
++      diagnostic = "typed TensorIR module verification failed";
++    }
++    return std::nullopt;
++  }
++  std::string canonical_text;
++  llvm::raw_string_ostream stream(canonical_text);
++  module.print(stream);
++  stream << '\n';
++  stream.flush();
++  if (canonical_text.empty() ||
++      canonical_text.size() > kMaximumCanonicalSourceBytes ||
++      canonical_text.find('\0') != std::string::npos) {
++    diagnostic = "typed TensorIR canonical print is empty or exceeds 16 MiB";
++    return std::nullopt;
++  }
++  const auto* begin =
++      reinterpret_cast<const uint8_t*>(canonical_text.data());
++  std::vector<uint8_t> canonical_source(begin, begin + canonical_text.size());
++  return BuiltTypedTensorIrModule{std::move(context), std::move(module),
++                                  std::move(diagnostic_handler),
++                                  std::move(canonical_source)};
++}
++
++}  // namespace pypto::compiler::detail
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.h b/src/compiler/nvidia_typed_tensor_ir_builder.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..fb3776843a46cefe4cf6a1282df9e93faa6420f9
+--- /dev/null
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.h
+@@ -0,0 +1,43 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#ifndef PYPTO_SRC_COMPILER_NVIDIA_TYPED_TENSOR_IR_BUILDER_H_
++#define PYPTO_SRC_COMPILER_NVIDIA_TYPED_TENSOR_IR_BUILDER_H_
++
++#include <memory>
++#include <optional>
++#include <string>
++#include <vector>
++
++#include "mlir/IR/BuiltinOps.h"
++#include "mlir/IR/Diagnostics.h"
++#include "mlir/IR/MLIRContext.h"
++
++#include "src/codegen/nvidia/typed_tensor_ir_module_spec.h"
++
++namespace pypto::compiler::detail {
++
++/** Context-owned verified typed TensorIR module plus its canonical print. */
++struct BuiltTypedTensorIrModule {
++  std::unique_ptr<mlir::MLIRContext> context;
++  mlir::OwningOpRef<mlir::ModuleOp> module;
++  std::unique_ptr<mlir::ScopedDiagnosticHandler> diagnostic_handler;
++  std::vector<uint8_t> canonical_source;
++};
++
++/** Build, verify, and canonically print one bounded typed TensorIR module. */
++[[nodiscard]] std::optional<BuiltTypedTensorIrModule> BuildTypedTensorIrModule(
++    const codegen::nvidia::TypedTensorIrModuleSpec& spec,
++    std::string& diagnostic);
++
++}  // namespace pypto::compiler::detail
++
++#endif  // PYPTO_SRC_COMPILER_NVIDIA_TYPED_TENSOR_IR_BUILDER_H_
+diff --git a/src/compiler/structured_compile.cpp b/src/compiler/structured_compile.cpp
+index 334696f5d83e69e2b535c09751662c76caf2052c..37f69a61af6100ae6f98433d1dbb66f63f10605a 100644
+--- a/src/compiler/structured_compile.cpp
++++ b/src/compiler/structured_compile.cpp
+@@ -47,9 +47,11 @@ StructuredCompileResult CompileStructuredStrict(const ir::ProgramPtr& program,
+   detail::PreparedStructuredTensorIrCompilation prepared =
+       detail::PrepareStructuredTensorIrCompilation(program, request, schedule);
+   detail::NormalizedNvidiaProducerArtifact normalized = detail::CompileNvidiaProducerOnce(
+-      prepared.GetCanonicalSource(), prepared.GetCompileRequest(), prepared.GetResolvedOptions());
++      prepared.GetProducerInput(), prepared.GetCompileRequest(),
++      prepared.GetResolvedOptions());
+   KernelBuildSpec build_spec =
+-      detail::FinalizeStructuredTensorIrBuildSpec(prepared, normalized.GetKernelAbi());
++      detail::FinalizeStructuredTensorIrBuildSpec(
++          prepared, normalized.GetKernelAbi(), normalized.GetSourceIrDigest());
+   Artifact artifact = detail::CreateArtifactFromNormalized(
+       prepared.GetCompileRequest(), build_spec, std::move(normalized));
+   return detail::StructuredCompileResultBuilder::Create(std::move(build_spec),
+diff --git a/src/compiler/structured_tensor_ir_build_spec.cpp b/src/compiler/structured_tensor_ir_build_spec.cpp
+index 42c5c0edee54913cb16e8140d0e8d38537c167c5..78fd5df796537093d3efd0491c876e2acad38129 100644
+--- a/src/compiler/structured_tensor_ir_build_spec.cpp
++++ b/src/compiler/structured_tensor_ir_build_spec.cpp
+@@ -843,7 +843,8 @@ StructuredTensorIrIdentityProjection::StructuredTensorIrIdentityProjection(
+ 
+ PreparedStructuredTensorIrCompilation::PreparedStructuredTensorIrCompilation(
+     CompileRequest request, CanonicalSchedule schedule,
+-    StrictTensorIrProducerOptions resolved_options, std::vector<uint8_t> canonical_source,
++    StrictTensorIrProducerOptions resolved_options,
++    NvidiaTensorIrCompilationInput producer_input,
+     std::string source_ir_digest, std::string entry_name,
+     PreparedStructuredTensorIrModuleKind module_kind,
+     uint32_t frontend_metadata_schema_version, uint32_t input_count,
+@@ -856,7 +857,7 @@ PreparedStructuredTensorIrCompilation::PreparedStructuredTensorIrCompilation(
+     : request_(std::move(request)),
+       schedule_(std::move(schedule)),
+       resolved_options_(std::move(resolved_options)),
+-      canonical_source_(std::move(canonical_source)),
++      producer_input_(std::move(producer_input)),
+       source_ir_digest_(std::move(source_ir_digest)),
+       entry_name_(std::move(entry_name)),
+       module_kind_(module_kind),
+@@ -911,9 +912,18 @@ PreparedStructuredTensorIrCompilation PrepareStructuredTensorIrCompilation(
+     INTERNAL_UNREACHABLE << "emitted TensorIR module kind is invalid";
+   }
+ 
+-  const std::string& source = module.GetCanonicalSource();
+-  const auto* source_begin = reinterpret_cast<const uint8_t*>(source.data());
+-  std::vector<uint8_t> canonical_source(source_begin, source_begin + source.size());
++  NvidiaTensorIrCompilationInput producer_input;
++  if (module.HasTypedModuleSpec()) {
++    INTERNAL_CHECK(module.GetCanonicalSource().empty() &&
++                   module.GetTypedModuleSpec().has_value())
++        << "typed TensorIR module must not carry handwritten canonical source";
++    producer_input.typed_module_spec = *module.GetTypedModuleSpec();
++  } else {
++    const std::string& source = module.GetCanonicalSource();
++    const auto* source_begin = reinterpret_cast<const uint8_t*>(source.data());
++    producer_input.canonical_source.assign(source_begin,
++                                           source_begin + source.size());
++  }
+ 
+   std::vector<PreparedStructuredTensorIrValueMetadata> metadata;
+   metadata.reserve(module.GetValueMetadata().size());
+@@ -957,9 +967,12 @@ PreparedStructuredTensorIrCompilation PrepareStructuredTensorIrCompilation(
+   StructuredTensorIrIdentityProjection mutation_abi(
+       SerializeMutationAbi(metadata, module.GetInputCount(), projection_schema));
+ 
+-  const std::string source_ir_digest = Artifact::ComputeSourceIrDigest(canonical_source);
++  const std::string source_ir_digest = producer_input.canonical_source.empty()
++                                           ? std::string{}
++                                           : Artifact::ComputeSourceIrDigest(
++                                                 producer_input.canonical_source);
+   return PreparedStructuredTensorIrCompilation(
+-      request, schedule, resolved_options, std::move(canonical_source), source_ir_digest,
++      request, schedule, resolved_options, std::move(producer_input), source_ir_digest,
+       module.GetEntryName(), module_kind, module.GetMetadataSchemaVersion(),
+       module.GetInputCount(), std::move(metadata), std::move(static_specialization),
+       std::move(symbolic_specialization), std::move(argument_abi),
+@@ -969,9 +982,24 @@ PreparedStructuredTensorIrCompilation PrepareStructuredTensorIrCompilation(
+ KernelBuildSpec FinalizeStructuredTensorIrBuildSpec(
+     const PreparedStructuredTensorIrCompilation& prepared,
+     const ArtifactKernelAbi& real_kernel_abi) {
++  INTERNAL_CHECK(!prepared.GetSourceIrDigest().empty())
++      << "typed TensorIR finalization requires the producer source identity";
++  return FinalizeStructuredTensorIrBuildSpec(
++      prepared, real_kernel_abi, prepared.GetSourceIrDigest());
++}
++
++KernelBuildSpec FinalizeStructuredTensorIrBuildSpec(
++    const PreparedStructuredTensorIrCompilation& prepared,
++    const ArtifactKernelAbi& real_kernel_abi,
++    const std::string& source_ir_digest) {
+   ValidateKernelAbi(prepared, real_kernel_abi);
++  if (!prepared.GetSourceIrDigest().empty() &&
++      prepared.GetSourceIrDigest() != source_ir_digest) {
++    RejectFinalization(
++        "producer canonical source identity differs from prepared source identity");
++  }
+   return KernelBuildSpec(
+-      prepared.GetSourceIrDigest(), real_kernel_abi.GetIdentityDigest(),
++      source_ir_digest, real_kernel_abi.GetIdentityDigest(),
+       SemanticRoute::StructuredTensorIr, std::string(Artifact::kStructuredTensorIrPipelineRevision),
+       prepared.GetSchedule(), prepared.GetStaticSpecialization().GetIdentityDigest(),
+       prepared.GetSymbolicSpecialization().GetIdentityDigest(),
+diff --git a/src/compiler/structured_tensor_ir_build_spec.h b/src/compiler/structured_tensor_ir_build_spec.h
+index 5b681ac4edceeece8f2ee4da6af2c0948b2f3d2c..2c67951e3d83bf63028eec4f3505fc047c39b276 100644
+--- a/src/compiler/structured_tensor_ir_build_spec.h
++++ b/src/compiler/structured_tensor_ir_build_spec.h
+@@ -19,6 +19,7 @@
+ #include "pypto/compiler/compile_request.h"
+ #include "pypto/compiler/kernel_build_spec.h"
+ #include "pypto/ir/program.h"
++#include "nvidia_tensor_ir_compilation_input.h"
+ #include "strict_tensor_ir_options.h"
+ 
+ namespace pypto::compiler {
+@@ -52,7 +53,7 @@ enum class PreparedStructuredTensorIrModuleKind : uint8_t {
+   StructuredMatmul = 3,
+ };
+ 
+-/** Owned metadata copied out of TensorIR source emission. */
++/** Owned metadata copied out of TensorIR frontend analysis. */
+ class PreparedStructuredTensorIrValueMetadata {
+  public:
+   PreparedStructuredTensorIrValueMetadata() = delete;
+@@ -127,8 +128,9 @@ class StructuredTensorIrIdentityProjection {
+  * Immutable compile-free frontend result bound to one copied request and schedule.
+  *
+  * Construction is possible only through PrepareStructuredTensorIrCompilation,
+- * which emits canonical TensorIR from an ir::ProgramPtr. No TensorIrModule or
+- * producer state crosses this boundary.
++ * which analyzes an ir::ProgramPtr into either canonical source or a bounded
++ * typed-module specification. No TensorIrModule, MLIR object, or producer state
++ * crosses this boundary.
+  */
+ class PreparedStructuredTensorIrCompilation {
+  public:
+@@ -145,7 +147,11 @@ class PreparedStructuredTensorIrCompilation {
+     return resolved_options_;
+   }
+   [[nodiscard]] const std::vector<uint8_t>& GetCanonicalSource() const noexcept {
+-    return canonical_source_;
++    return producer_input_.canonical_source;
++  }
++  [[nodiscard]] const NvidiaTensorIrCompilationInput& GetProducerInput()
++      const noexcept {
++    return producer_input_;
+   }
+   [[nodiscard]] const std::string& GetSourceIrDigest() const noexcept { return source_ir_digest_; }
+   [[nodiscard]] const std::string& GetEntryName() const noexcept { return entry_name_; }
+@@ -183,7 +189,8 @@ class PreparedStructuredTensorIrCompilation {
+  private:
+   PreparedStructuredTensorIrCompilation(
+       CompileRequest request, CanonicalSchedule schedule,
+-      StrictTensorIrProducerOptions resolved_options, std::vector<uint8_t> canonical_source,
++      StrictTensorIrProducerOptions resolved_options,
++      NvidiaTensorIrCompilationInput producer_input,
+       std::string source_ir_digest, std::string entry_name,
+       PreparedStructuredTensorIrModuleKind module_kind,
+       uint32_t frontend_metadata_schema_version, uint32_t input_count,
+@@ -200,7 +207,7 @@ class PreparedStructuredTensorIrCompilation {
+   CompileRequest request_;
+   CanonicalSchedule schedule_;
+   StrictTensorIrProducerOptions resolved_options_;
+-  std::vector<uint8_t> canonical_source_;
++  NvidiaTensorIrCompilationInput producer_input_;
+   std::string source_ir_digest_;
+   std::string entry_name_;
+   PreparedStructuredTensorIrModuleKind module_kind_;
+@@ -218,6 +225,10 @@ class PreparedStructuredTensorIrCompilation {
+ [[nodiscard]] KernelBuildSpec FinalizeStructuredTensorIrBuildSpec(
+     const PreparedStructuredTensorIrCompilation& prepared,
+     const ArtifactKernelAbi& real_kernel_abi);
++[[nodiscard]] KernelBuildSpec FinalizeStructuredTensorIrBuildSpec(
++    const PreparedStructuredTensorIrCompilation& prepared,
++    const ArtifactKernelAbi& real_kernel_abi,
++    const std::string& source_ir_digest);
+ 
+ }  // namespace detail
+ }  // namespace pypto::compiler
+diff --git a/tests/ut/cpp/structured_compile_test.cpp b/tests/ut/cpp/structured_compile_test.cpp
+index f61bf2309d25484e724e9ba9271f47389706b9af..f91c6b4f681ef5292afcae40683cd42e5b1663c4 100644
+--- a/tests/ut/cpp/structured_compile_test.cpp
++++ b/tests/ut/cpp/structured_compile_test.cpp
+@@ -11,6 +11,7 @@
+ 
+ #include <any>
+ #include <array>
++#include <cmath>
+ #include <cstdint>
+ #include <functional>
+ #include <memory>
+@@ -39,6 +40,9 @@
+ #include "src/compiler/nvidia_artifact_compiler_internal.h"
+ #include "src/compiler/structured_compile_internal.h"
+ #include "src/compiler/structured_tensor_ir_build_spec.h"
++#if defined(PYPTO_ENABLE_NVIDIA_COMPILER_BACKEND)
++#include "src/compiler/nvidia_typed_tensor_ir_builder.h"
++#endif
+ 
+ using pypto::DataType;
+ using pypto::InternalError;
+@@ -934,6 +938,92 @@ int TestRealStructuredMatmulProducerSuccess() {
+   return 0;
+ }
+ 
++int TestTypedGdnModuleBuilder() {
++#if defined(PYPTO_ENABLE_NVIDIA_COMPILER_BACKEND)
++  using pypto::codegen::nvidia::NativeGdnRecurrentTensorIrSpec;
++  using pypto::codegen::nvidia::TypedTensorIrElementType;
++  using pypto::codegen::nvidia::TypedTensorIrModuleKind;
++  using pypto::codegen::nvidia::TypedTensorIrModuleSpec;
++  using pypto::codegen::nvidia::TypedTensorIrTensorSpec;
++  using pypto::compiler::detail::BuildTypedTensorIrModule;
++
++  const auto tensor = [](TypedTensorIrElementType element_type,
++                         std::vector<int64_t> shape,
++                         std::vector<int64_t> strides) {
++    return TypedTensorIrTensorSpec{element_type, std::move(shape),
++                                   std::move(strides), true};
++  };
++  TypedTensorIrModuleSpec module_spec;
++  module_spec.kind = TypedTensorIrModuleKind::NativeGdnRecurrent;
++  NativeGdnRecurrentTensorIrSpec& spec = module_spec.native_gdn_recurrent;
++  spec.batch_size = 1;
++  spec.tokens_per_request = 1;
++  spec.query_heads = 16;
++  spec.value_heads = 16;
++  spec.key_dim = 128;
++  spec.value_dim = 128;
++  spec.state_slots = 4;
++  spec.scale = 1.0 / std::sqrt(128.0);
++  spec.inputs = {
++      tensor(TypedTensorIrElementType::BF16, {1, 1, 6144}, {6144, 6144, 1}),
++      tensor(TypedTensorIrElementType::BF16, {1, 1, 16, 128},
++             {16, 16, 1, 0}),
++      tensor(TypedTensorIrElementType::BF16, {1, 1, 16, 128},
++             {16, 16, 1, 0}),
++      tensor(TypedTensorIrElementType::FP32, {16, 128}, {1, 0}),
++      tensor(TypedTensorIrElementType::BF16, {16, 128}, {1, 0}),
++      tensor(TypedTensorIrElementType::FP32, {4, 262144}, {262144, 1}),
++      tensor(TypedTensorIrElementType::INT32, {1, 1}, {1, 1}),
++  };
++  spec.result = tensor(TypedTensorIrElementType::BF16, {1, 1, 16, 128},
++                       {2048, 2048, 128, 1});
++
++  std::string first_diagnostic;
++  auto first = BuildTypedTensorIrModule(module_spec, first_diagnostic);
++  REQUIRE(first.has_value());
++  REQUIRE(first_diagnostic.empty());
++  REQUIRE(first->module);
++  REQUIRE(!first->canonical_source.empty());
++  const std::string first_source(first->canonical_source.begin(),
++                                 first->canonical_source.end());
++  REQUIRE(first_source.find("nv_tensor_ir.graph @pypto_fused_pointwise") !=
++          std::string::npos);
++  REQUIRE(first_source.find("scatter_rows") != std::string::npos);
++  REQUIRE(first_source.find("convert") != std::string::npos);
++
++  std::string second_diagnostic;
++  auto second = BuildTypedTensorIrModule(module_spec, second_diagnostic);
++  REQUIRE(second.has_value());
++  REQUIRE(second_diagnostic.empty());
++  REQUIRE(first->canonical_source == second->canonical_source);
++
++  const CompileRequest request = MakeRequest();
++  const CanonicalSchedule schedule =
++      MakeSchedule(std::vector<uint32_t>{1, 64});
++  const auto options =
++      pypto::compiler::detail::ResolveStrictTensorIrProducerOptions(request,
++                                                                    schedule);
++  pypto::compiler::detail::NvidiaTensorIrCompilationInput producer_input;
++  producer_input.typed_module_spec = module_spec;
++  const uint64_t before = GetStrictNvidiaProducerInvocationCountForTesting();
++  auto compiled = CompileNvidiaProducerOnce(producer_input, request, options);
++  REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before + 1);
++  REQUIRE(compiled.GetKernelAbi().GetEntryFunctionName() ==
++          "pypto_fused_pointwise");
++  REQUIRE(compiled.GetKernelAbi().GetArgumentLayout().GetInputOperandCount() ==
++          NativeGdnRecurrentTensorIrSpec::kInputCount);
++  REQUIRE(compiled.GetSourceIrDigest().size() == 64);
++
++  module_spec.native_gdn_recurrent.inputs[4].element_type =
++      TypedTensorIrElementType::FP32;
++  std::string invalid_diagnostic;
++  REQUIRE(!BuildTypedTensorIrModule(module_spec, invalid_diagnostic).has_value());
++  REQUIRE(invalid_diagnostic.find("dtype, shape, or stride") !=
++          std::string::npos);
++#endif
++  return 0;
++}
++
+ }  // namespace
+ 
+ int main() {
+@@ -951,5 +1041,6 @@ int main() {
+   if (const int result = TestRealFusedPointwiseProducerSuccess()) return result;
+   if (const int result = TestRealRowReductionProducerSuccess()) return result;
+   if (const int result = TestRealStructuredMatmulProducerSuccess()) return result;
++  if (const int result = TestTypedGdnModuleBuilder()) return result;
+   return 0;
+ }

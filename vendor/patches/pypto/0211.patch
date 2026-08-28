@@ -1,0 +1,48 @@
+From d9e4de74dbd972d27558b9ef53796b09a19c7834 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 19:49:45 +0800
+Subject: [PATCH 211/212] Accept row-pitched paged prefill outputs
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 4c86e5c1dd4243b66d439dbf2c173c5fbd1e4af6..4fb677e8180ed712d03c7f5ce238edd2d98a6c8c 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -5926,10 +5926,10 @@ NativeTilePagedPrefillGraph AnalyzeNativeTilePagedPrefill(
+   const StaticTensor virtual_to_physical = ReadStaticIntegerTensor(
+       function->params_[6]->GetType(), function->params_[6]->span_,
+       "native paged prefill virtual-to-physical table");
+-  const StaticTensor result = ReadStaticTensor(
++  const StaticTensor result = ReadStaticNdStridedTensor(
+       function->params_[8]->GetType(), function->params_[8]->span_,
+       "native paged prefill output");
+-  const StaticTensor declared = ReadStaticTensor(
++  const StaticTensor declared = ReadStaticNdStridedTensor(
+       function->return_types_[0], function->span_,
+       "native paged prefill declared output");
+   if (query.dtype != DataType::BF16 || query.shape.size() != 3 ||
+@@ -5947,7 +5947,11 @@ NativeTilePagedPrefillGraph AnalyzeNativeTilePagedPrefill(
+       virtual_to_physical.shape.size() != 2 ||
+       virtual_to_physical.shape[0] <= 0 ||
+       virtual_to_physical.shape[1] != 1 ||
++      query.dense_strides.size() != 3 || query.dense_strides[2] != 1 ||
++      query.dense_strides[1] != query.shape[2] ||
+       result.dtype != query.dtype || result.shape != query.shape ||
++      result.dense_strides.size() != 3 || result.dense_strides[2] != 1 ||
++      result.dense_strides[1] != result.shape[2] ||
+       !SameTensor(result, declared)) {
+     Reject("native paged prefill tensor types or ranks are invalid",
+            &function->span_);
+@@ -5958,6 +5962,9 @@ NativeTilePagedPrefillGraph AnalyzeNativeTilePagedPrefill(
+   const int64_t cache_rows = key_cache.shape[0];
+   const int64_t tokens = request_index.shape[1];
+   if (query_rows <= 0 || q_heads <= 0 || head_dim <= 0 ||
++      q_heads > std::numeric_limits<int64_t>::max() / head_dim ||
++      query.dense_strides[0] < q_heads * head_dim ||
++      result.dense_strides[0] < q_heads * head_dim ||
+       head_dim % 128 != 0 || cache_rows <= 0 || tokens <= 0 ||
+       tokens % 16 != 0 || key_cache.shape[1] % head_dim != 0 ||
+       req_to_token.shape[0] <= 0 || req_to_token.shape[1] < tokens ||

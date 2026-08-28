@@ -1,0 +1,477 @@
+From 9144e2f92303d86fd307a915e8a1a760533101d0 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 05:27:38 +0800
+Subject: [PATCH 145/212] Advance TensorIR row scatter
+
+---
+ ...0037-Add-row-scatter-layout-lowering.patch | 439 ++++++++++++++++++
+ 3rdparty/nvidia/tensor-ir                     |   2 +-
+ cmake/nvidia_backend.cmake                    |   2 +-
+ 3 files changed, 441 insertions(+), 2 deletions(-)
+ create mode 100644 3rdparty/nvidia/0037-Add-row-scatter-layout-lowering.patch
+
+diff --git a/3rdparty/nvidia/0037-Add-row-scatter-layout-lowering.patch b/3rdparty/nvidia/0037-Add-row-scatter-layout-lowering.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..3e88788a0c4a99e3e2583f563e5c1260cbbde4b4
+--- /dev/null
++++ b/3rdparty/nvidia/0037-Add-row-scatter-layout-lowering.patch
+@@ -0,0 +1,439 @@
++From 6b7599a57efea5fc67e1a696b6a2142671f0b95d Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Fri, 28 Aug 2026 05:27:09 +0800
++Subject: [PATCH] Add row scatter layout lowering
++
++---
++ include/tensor_ir/Dialect/TensorOps.td        |  34 +++
++ lib/Compiler/CudaTile/CudaTileFrontend.cpp    |   2 +-
++ .../LayoutPropagationImpl.cpp                 | 194 +++++++++++++++++-
++ lib/Dialect/TensorOps.cpp                     |  47 +++++
++ lib/Transform/GraphSplitting.cpp              |  15 +-
++ lib/Transform/LayoutAnnotation.cpp            |   3 +-
++ .../TensorToCudaTile/scatter_rows_layout.mlir |  23 +++
++ 7 files changed, 306 insertions(+), 12 deletions(-)
++ create mode 100644 test/Conversion/TensorToCudaTile/scatter_rows_layout.mlir
++
++diff --git a/include/tensor_ir/Dialect/TensorOps.td b/include/tensor_ir/Dialect/TensorOps.td
++index 1ade090..36fc0d2 100644
++--- a/include/tensor_ir/Dialect/TensorOps.td
+++++ b/include/tensor_ir/Dialect/TensorOps.td
++@@ -997,6 +997,40 @@ def TensorIR_GatherRowsOp : TensorIR_Op<"gather_rows", [
++   let hasVerifier = 1;
++ }
++ 
+++def TensorIR_ScatterRowsOp : TensorIR_Op<"scatter_rows", [
+++    OpAsmOpInterface,
+++    IterationSpaceInfoInterface,
+++    PointwiseOpInterface,
+++    DeclareOpInterfaceMethods<LayoutPropInterface, ["inferResultLayout"]>
+++  ]> {
+++  let summary = "Scatter update rows into a matrix and pass updates through";
+++  let description = [{
+++    Stores every logical update row into the selected row of a rank-2 graph
+++    argument. The indices tensor has the same shape as the updates and repeats
+++    one i32 destination row index across every update row. The result is the
+++    unchanged updates tensor, which gives the side-effecting store an SSA
+++    dependency that can be rooted in graph results.
+++
+++    ```mlir
+++    %stored = nv_tensor_ir.scatter_rows %table, %indices, %updates
+++        : (tensor<1024x128xbf16>, tensor<1x128xsi32>, tensor<1x128xbf16>)
+++       -> tensor<1x128xbf16>
+++    ```
+++  }];
+++
+++  let arguments = (ins
+++    Arg<TensorIR_TensorType, "Rank-2 destination matrix">:$data,
+++    Arg<TensorIR_TensorType, "Repeated i32 destination row indices">:$indices,
+++    Arg<TensorIR_TensorType, "Rank-2 update rows">:$updates
+++  );
+++  let results = (outs
+++    Arg<TensorIR_TensorType, "Unchanged update rows">:$output
+++  );
+++
+++  let assemblyFormat = "$data `,` $indices `,` $updates attr-dict `:` functional-type(operands, results)";
+++  let hasVerifier = 1;
+++}
+++
++ def TensorIR_ConcatenateOp : TensorIR_Op<"concatenate", [
++     Pure,
++     OpAsmOpInterface,
++diff --git a/lib/Compiler/CudaTile/CudaTileFrontend.cpp b/lib/Compiler/CudaTile/CudaTileFrontend.cpp
++index 18d262d..6d9cef2 100644
++--- a/lib/Compiler/CudaTile/CudaTileFrontend.cpp
+++++ b/lib/Compiler/CudaTile/CudaTileFrontend.cpp
++@@ -29,7 +29,7 @@ static bool isSupportedTensorIrOp(mlir::Operation *op) {
++       GraphOp, ResultsOp,
++       // Data movement.
++       TransposeOp, ConcatenateOp, SliceOp, ReshapeOp, BroadcastOp,
++-      GatherRowsOp,
+++      GatherRowsOp, ScatterRowsOp,
++       // Type conversion.
++       ConvertOp,
++       // Unary pointwise.
++diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++index bb39ce0..aa56485 100644
++--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++@@ -166,6 +166,7 @@ private:
++   friend class GraphOpConversion;
++   friend class ResultsOpConversion;
++   friend class GatherRowsOpConversion;
+++  friend class ScatterRowsOpConversion;
++ };
++ 
++ template <typename OpTy>
++@@ -380,6 +381,189 @@ public:
++   }
++ };
++ 
+++class ScatterRowsOpConversion : public ConversionPattern<ScatterRowsOp> {
+++public:
+++  using ConversionPattern<ScatterRowsOp>::ConversionPattern;
+++
+++  LogicalResult
+++  matchAndRewrite(ScatterRowsOp op, OpAdaptor adaptor,
+++                  ConversionPatternRewriter &rewriter) const override {
+++    auto &state = static_cast<ConversionStateImpl &>(this->state);
+++    MLIR_RETURN_IF_ERROR(state.update(rewriter, op));
+++    ArrayRef<int64_t> iterationTileShape = state.getTileShape();
+++    if (iterationTileShape.empty() ||
+++        state.getIndexValues().size() != iterationTileShape.size()) {
+++      return op.emitError("requires a non-empty indexed iteration-space tile");
+++    }
+++
+++    assert(state.operandIndex < state.layouts.size() &&
+++           "scatter data layout is missing");
+++    ++state.operandIndex;
+++    Value indicesTile = state.getTile(adaptor.getIndices());
+++    Value updatesTile = state.getTile(adaptor.getUpdates());
+++
+++    auto dataSource = dyn_cast<TensorSourceAttr>(state.layouts[0]);
+++    if (!dataSource || dataSource.getTensorId() < 0 ||
+++        static_cast<size_t>(dataSource.getTensorId()) >=
+++            state.inputDescriptors.size()) {
+++      return op.emitError("data layout does not identify a graph input");
+++    }
+++    const TensorDescriptor &dataDesc =
+++        state.inputDescriptors[dataSource.getTensorId()];
+++
+++    SmallVector<int64_t> sizes;
+++    SmallVector<int64_t> strides;
+++    for (auto [size, stride] :
+++         llvm::zip_equal(dataDesc.sizes, dataDesc.strides)) {
+++      if (size.dynamicValue || stride.dynamicValue ||
+++          size.staticValue == ShapedType::kDynamic ||
+++          stride.staticValue == ShapedType::kDynamic) {
+++        return op.emitError("currently requires a static data descriptor");
+++      }
+++      sizes.push_back(size.staticValue);
+++      strides.push_back(stride.staticValue);
+++    }
+++    if (sizes.size() != 2) {
+++      return op.emitError("requires a rank-2 data descriptor");
+++    }
+++
+++    auto dataLayout = dataSource.getCuteLayout();
+++    size_t iterationRank = iterationTileShape.size();
+++    if (!tcg::is_static(dataLayout) || tcg::rank(dataLayout) != iterationRank ||
+++        strides[0] == strides[1]) {
+++      return op.emitError(
+++          "requires a static unambiguous rank-2 scatter projection");
+++    }
+++    size_t rowDim = iterationRank;
+++    size_t columnDim = iterationRank;
+++    for (size_t dim = 0; dim < iterationRank; ++dim) {
+++      int64_t layoutStride =
+++          tcg::static_size(tcg::get(dataLayout.stride(), dim));
+++      if (layoutStride == 0) {
+++        continue;
+++      }
+++      if (layoutStride == strides[0] && rowDim == iterationRank) {
+++        rowDim = dim;
+++      } else if (layoutStride == strides[1] && columnDim == iterationRank) {
+++        columnDim = dim;
+++      } else {
+++        return op.emitError(
+++            "data layout cannot be projected to one row and one column axis");
+++      }
+++    }
+++    if (columnDim == iterationRank || rowDim == columnDim) {
+++      return op.emitError("data layout is missing an unambiguous column axis");
+++    }
+++    const bool scalarRowProjection = rowDim == iterationRank;
+++    if (scalarRowProjection && op.getOutput().getType().getDimSize(0) != 1) {
+++      return op.emitError(
+++          "data layout may omit the row axis only for a single-row scatter");
+++    }
+++
+++    auto indicesSource = dyn_cast<TensorSourceAttr>(state.layouts[1]);
+++    if (!indicesSource || !tcg::is_static(indicesSource.getCuteLayout()) ||
+++        tcg::rank(indicesSource.getCuteLayout()) != iterationRank) {
+++      return op.emitError("indices layout must be a static fused projection");
+++    }
+++    auto indicesLayout = indicesSource.getCuteLayout();
+++    for (size_t dim = 0; dim < iterationRank; ++dim) {
+++      int64_t layoutStride =
+++          tcg::static_size(tcg::get(indicesLayout.stride(), dim));
+++      const int64_t expectedStride =
+++          !scalarRowProjection && dim == rowDim ? 1 : 0;
+++      if (layoutStride != expectedStride) {
+++        return op.emitError(
+++            "indices layout must vary contiguously only along an explicit "
+++            "row axis");
+++      }
+++    }
+++
+++    int64_t rowTileSize =
+++        scalarRowProjection ? 1 : iterationTileShape[rowDim];
+++    int64_t columnTileSize = iterationTileShape[columnDim];
+++    if (rowTileSize > std::numeric_limits<int32_t>::max() ||
+++        columnTileSize > std::numeric_limits<int32_t>::max()) {
+++      return op.emitError("scatter tile dimensions exceed i32");
+++    }
+++
+++    Type pointerElement =
+++        cast<ShapedType>(dataDesc.pointer.getType()).getElementType();
+++    Type dataElement =
+++        cast<cuda_tile::PointerType>(pointerElement).getPointeeType();
+++    TensorDescriptor projectedDataDesc =
+++        applyLayout(rewriter, dataDesc, dataSource);
+++    auto tensorViewType = cuda_tile::TensorViewType::get(
+++        rewriter.getContext(), dataElement, sizes, strides);
+++    Value tensorView = cuda_tile::MakeTensorViewOp::create(
+++        rewriter, op.getLoc(), tensorViewType, projectedDataDesc.pointer,
+++        /*dynamic_sizes=*/ValueRange{}, /*dynamic_strides=*/ValueRange{});
+++
+++    SmallVector<int32_t> tileSizes{static_cast<int32_t>(rowTileSize),
+++                                   static_cast<int32_t>(columnTileSize)};
+++    auto tileShapeAttr =
+++        DenseI32ArrayAttr::get(rewriter.getContext(), tileSizes);
+++    auto scatterViewType = cuda_tile::GatherScatterViewType::get(
+++        rewriter.getContext(), tileShapeAttr, tensorViewType,
+++        /*sparse_dim=*/0, /*padding_value=*/{});
+++    Value scatterView = cuda_tile::MakeGatherScatterViewOp::create(
+++        rewriter, op.getLoc(), scatterViewType, tensorView);
+++
+++    auto indicesType = cast<cuda_tile::TileType>(indicesTile.getType());
+++    SmallVector<int64_t> narrowShape(iterationRank, 1);
+++    if (!scalarRowProjection) {
+++      narrowShape[rowDim] = rowTileSize;
+++    }
+++    auto narrowType = cuda_tile::TileType::get(
+++        narrowShape, indicesType.getElementType());
+++    SmallVector<Value> zeroIndices(iterationRank, state.zeroIndex);
+++    Value narrowIndices = cuda_tile::ExtractOp::create(
+++        rewriter, op.getLoc(), narrowType, indicesTile, zeroIndices);
+++    auto rowIndicesType = cuda_tile::TileType::get(
+++        SmallVector<int64_t>{rowTileSize}, indicesType.getElementType());
+++    Value rowIndices = cuda_tile::ReshapeOp::create(
+++        rewriter, op.getLoc(), rowIndicesType, narrowIndices);
+++
+++    SmallVector<int64_t> scatterTileShape{rowTileSize, columnTileSize};
+++    SmallVector<int64_t> projectedShape(iterationRank, 1);
+++    if (!scalarRowProjection) {
+++      projectedShape[rowDim] = rowTileSize;
+++    }
+++    projectedShape[columnDim] = columnTileSize;
+++    Value tileToStore = updatesTile;
+++    if (!llvm::equal(projectedShape, iterationTileShape)) {
+++      auto projectedType = cuda_tile::TileType::get(projectedShape, dataElement);
+++      tileToStore = cuda_tile::ExtractOp::create(
+++          rewriter, op.getLoc(), projectedType, tileToStore, zeroIndices);
+++    }
+++    if (!llvm::equal(projectedShape, scatterTileShape)) {
+++      auto scatterType =
+++          cuda_tile::TileType::get(scatterTileShape, dataElement);
+++      tileToStore = cuda_tile::ReshapeOp::create(
+++          rewriter, op.getLoc(), scatterType, tileToStore);
+++    }
+++
+++    Value columnScale = createConstant(
+++        rewriter, op.getLoc(),
+++        cast<ShapedType>(state.getIndexValues()[columnDim].getType()),
+++        columnTileSize);
+++    Value columnOffset = cuda_tile::MulIOp::create(
+++        rewriter, op.getLoc(), state.getIndexValues()[columnDim], columnScale);
+++    SmallVector<Value> scatterIndices{rowIndices, columnOffset};
+++    Type tokenType = cuda_tile::TokenType::get(rewriter.getContext());
+++    auto optimizationHints = createLoadStoreOptimizationHints(
+++        rewriter.getContext(), projectedDataDesc.allowTma,
+++        projectedDataDesc.cost);
+++    cuda_tile::StoreViewTkoOp::create(
+++        rewriter, op.getLoc(), tokenType,
+++        cuda_tile::MemoryOrderingSemantics::WEAK, /*memory_scope=*/nullptr,
+++        tileToStore, scatterView, scatterIndices, /*token=*/nullptr,
+++        optimizationHints);
+++
+++    rewriter.replaceOp(op, updatesTile);
+++    return success();
+++  }
+++};
+++
++ static Value broadcastAlongDimension(ConversionPatternRewriter &rewriter,
++                                      Location loc, Value tile,
++                                      ArrayRef<int64_t> targetShape,
++@@ -1238,8 +1422,9 @@ RewritePatternSet ConversionStateImpl::registerPatterns(MLIRContext *context) {
++   // Conversion patterns defined in this file.
++   patterns.add<GraphOpConversion, ResultsOpConversion, ReshapeOpConversion,
++                BroadcastOpConversion, TransposeOpConversion, SliceOpConversion,
++-               GatherRowsOpConversion, ConcatenateOpConversion,
++-               IotaOpConversion>(*this, typeConverter, context);
+++               GatherRowsOpConversion, ScatterRowsOpConversion,
+++               ConcatenateOpConversion, IotaOpConversion>(*this, typeConverter,
+++                                                          context);
++ 
++   // Pointwise operations.
++   registerPointwisePatterns(patterns, *this, typeConverter,
++@@ -1416,6 +1601,11 @@ LogicalResult verifyLayoutPropLowerable(GraphOp graphOp) {
++         gatherRowsOp.emitError("requires a rank-2 result");
++         return WalkResult::interrupt();
++       }
+++    } else if (auto scatterRowsOp = dyn_cast<ScatterRowsOp>(op)) {
+++      if (scatterRowsOp.getOutput().getType().getRank() != 2) {
+++        scatterRowsOp.emitError("requires a rank-2 result");
+++        return WalkResult::interrupt();
+++      }
++     } else if (isa<PointwiseOpInterface>(op)) {
++       if (failed(validatePointwiseOpLowerable(op))) {
++         return WalkResult::interrupt();
++diff --git a/lib/Dialect/TensorOps.cpp b/lib/Dialect/TensorOps.cpp
++index b7b0a62..5b8fc7b 100644
++--- a/lib/Dialect/TensorOps.cpp
+++++ b/lib/Dialect/TensorOps.cpp
++@@ -776,6 +776,53 @@ LayoutSourceAttrInterface GatherRowsOp::inferResultLayout(
++       getContext(), {gatheredSource, inputLayouts[1]});
++ }
++ 
+++LogicalResult ScatterRowsOp::verify() {
+++  auto dataType = getData().getType();
+++  auto indicesType = getIndices().getType();
+++  auto updatesType = getUpdates().getType();
+++  auto outputType = getOutput().getType();
+++  if (dataType.getRank() != 2 || indicesType.getRank() != 2 ||
+++      updatesType.getRank() != 2 || outputType.getRank() != 2) {
+++    return emitOpError(
+++        "requires rank-2 data, indices, updates and output tensors");
+++  }
+++  if (!indicesType.getElementType().isInteger(32)) {
+++    return emitOpError("requires i32 indices");
+++  }
+++  if (dataType.getElementType() != updatesType.getElementType() ||
+++      updatesType != outputType) {
+++    return emitOpError(
+++        "requires matching data/update element types and identical updates/output");
+++  }
+++  if (dataType.getDimSize(1) != updatesType.getDimSize(1)) {
+++    return emitOpError("requires data and update column extents to match");
+++  }
+++  if (indicesType.getShape() != updatesType.getShape()) {
+++    return emitOpError("requires indices and updates shapes to match");
+++  }
+++  if (!dataType.hasStaticShape() || !indicesType.hasStaticShape() ||
+++      !updatesType.hasStaticShape() || !outputType.hasStaticShape()) {
+++    return emitOpError("currently requires static shapes");
+++  }
+++  return success();
+++}
+++
+++LayoutSourceAttrInterface ScatterRowsOp::inferResultLayout(
+++    ArrayRef<LayoutSourceAttrInterface> inputLayouts) {
+++  assert(inputLayouts.size() == 3 &&
+++         "expects data, indices and updates layouts");
+++  auto dataSource = dyn_cast<TensorSourceAttr>(inputLayouts[0]);
+++  if (!dataSource || !getOutput().getType().hasStaticShape()) {
+++    return nullptr;
+++  }
+++  tcg::Layout projectedLayout(getShapeRef(getOutput().getType()));
+++  auto projectedData = TensorSourceAttr::get(
+++      getContext(), dataSource.getTensorId(), dataSource.getOffset(),
+++      projectedLayout.toString(), /*dynamicValueMapping=*/{});
+++  return CompositeSourceAttr::get(
+++      getContext(), {projectedData, inputLayouts[1], inputLayouts[2]});
+++}
+++
++ LogicalResult PowOp::verify() {
++   auto baseTensor = getLhs().getType();
++   auto exponentTensor = getRhs().getType();
++diff --git a/lib/Transform/GraphSplitting.cpp b/lib/Transform/GraphSplitting.cpp
++index 9742994..4d97448 100644
++--- a/lib/Transform/GraphSplitting.cpp
+++++ b/lib/Transform/GraphSplitting.cpp
++@@ -121,15 +121,13 @@ struct GraphSplittingPass
++       // Number of iteration spaces added by the operation.
++       int newIterationSpaces = 0;
++ 
++-      // Case #0: gather carries a composite output-space layout with one source
++-      // for the indirectly addressed data table and one for the indices. The
++-      // data block argument remains the original descriptor at conversion time,
++-      // while any indices producer must be cloned with this fused projection so
++-      // its loaded tile rank matches the gather's iteration space.
++-      if (isa<GatherRowsOp>(op)) {
+++      // Case #0: row gather/scatter carries a composite output-space layout.
+++      // The data block argument remains the original descriptor at conversion
+++      // time, while indices and updates are cloned with the fused projection.
+++      if (isa<GatherRowsOp, ScatterRowsOp>(op)) {
++         auto target = dyn_cast<CompositeSourceAttr>(layout);
++         if (!target || target.size() != op->getNumOperands()) {
++-          op->emitError("expected gather composite layout");
+++          op->emitError("expected row-indexed composite layout");
++           return failure();
++         }
++         operandLayouts =
++@@ -287,7 +285,8 @@ struct GraphSplittingPass
++       // Clone op with remapped operands and new layout.
++       // For non-unary pointwise ops, keep the layouts for the operands.
++       LayoutSourceAttrInterface newLayout = layout;
++-      if (isa<PointwiseOpInterface>(op) && !isa<GatherRowsOp>(op) &&
+++      if (isa<PointwiseOpInterface>(op) &&
+++          !isa<GatherRowsOp, ScatterRowsOp>(op) &&
++           op->getNumOperands() > 1) {
++         newLayout = CompositeSourceAttr::get(op->getContext(), operandLayouts);
++       }
++diff --git a/lib/Transform/LayoutAnnotation.cpp b/lib/Transform/LayoutAnnotation.cpp
++index f0ce418..3941436 100644
++--- a/lib/Transform/LayoutAnnotation.cpp
+++++ b/lib/Transform/LayoutAnnotation.cpp
++@@ -88,7 +88,8 @@ LogicalResult processOperation(Operation *op) {
++   // Compute the resulting layout attribute.
++   Attribute result;
++   bool combinesSources =
++-      isa<PointwiseOpInterface>(op) && !isa<GatherRowsOp>(op);
+++      isa<PointwiseOpInterface>(op) &&
+++      !isa<GatherRowsOp, ScatterRowsOp>(op);
++   if (sources.size() > 1 && combinesSources) {
++     // Handle operations that combine multiple source layouts.
++     llvm::SmallSetVector<LayoutSourceAttrInterface, 4> srcSet;
++diff --git a/test/Conversion/TensorToCudaTile/scatter_rows_layout.mlir b/test/Conversion/TensorToCudaTile/scatter_rows_layout.mlir
++new file mode 100644
++index 0000000..2620e9b
++--- /dev/null
+++++ b/test/Conversion/TensorToCudaTile/scatter_rows_layout.mlir
++@@ -0,0 +1,23 @@
+++// RUN: tensor_ir-opt --layout-propagation-pipeline %s | FileCheck %s
+++
+++// CHECK-LABEL: entry @scatter_single_row_broadcast
+++// CHECK: %[[DATA_VIEW:.*]] = make_tensor_view {{.*}}, shape = [65, 16], strides = [16, 1]
+++// CHECK: %[[SCATTER_VIEW:.*]] = make_gather_scatter_view %[[DATA_VIEW]] : gather_scatter_view<tile=(1x16), {{.*}}>
+++// CHECK: %[[NARROW:.*]] = extract {{.*}} : {{.*}} -> tile<1x1xi32>
+++// CHECK: %[[ROW:.*]] = reshape %[[NARROW]] : tile<1x1xi32> -> tile<1xi32>
+++// CHECK: store_view_tko weak {{.*}}, %[[SCATTER_VIEW]][%[[ROW]], {{.*}}]
+++// CHECK: store_view_tko weak
+++module {
+++  nv_tensor_ir.graph @scatter_single_row_broadcast(
+++      %data: tensor<65x16xbf16> {nv_tensor_ir.stride = "(16,1)"},
+++      %indices: tensor<1x16xsi32> {nv_tensor_ir.stride = "(0,0)"},
+++      %updates: tensor<1x16xbf16> {nv_tensor_ir.stride = "(16,1)"})
+++      -> tensor<16x16xbf16>
+++      attributes {tile_size = array<i32: 16, 16>} {
+++    %stored = scatter_rows %data, %indices, %updates
+++        : (tensor<65x16xbf16>, tensor<1x16xsi32>, tensor<1x16xbf16>)
+++       -> tensor<1x16xbf16>
+++    %expanded = broadcast %stored : tensor<1x16xbf16> -> tensor<16x16xbf16>
+++    results %expanded : tensor<16x16xbf16>
+++  }
+++}
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index be77cc98ab292b58d55fb1e717092a39cbfc50df..6b7599a57efea5fc67e1a696b6a2142671f0b95d 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit be77cc98ab292b58d55fb1e717092a39cbfc50df
++Subproject commit 6b7599a57efea5fc67e1a696b6a2142671f0b95d
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 20b61c4cadf5f1ca4cfcf227fc2b38862d0967a6..18f1e0e8ba59c8a6927c3fb54ac7447e6ca7bdc4 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "be77cc98ab292b58d55fb1e717092a39cbfc50df")
++    "6b7599a57efea5fc67e1a696b6a2142671f0b95d")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

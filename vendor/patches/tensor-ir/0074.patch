@@ -1,0 +1,38 @@
+From 1bfde95894c0d5d9a9ca9426b55cf787f552fb02 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 12:06:47 +0800
+Subject: [PATCH 74/82] Remove residual source DAG after graph splitting
+
+---
+ lib/Transform/GraphSplitting.cpp | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/lib/Transform/GraphSplitting.cpp b/lib/Transform/GraphSplitting.cpp
+index 74c90a23c49876308fea0bf4e7e4b5271775f9ab..9d5d6f4a8a656f6eaa088cc6c9746661e2ac30c0 100644
+--- a/lib/Transform/GraphSplitting.cpp
++++ b/lib/Transform/GraphSplitting.cpp
+@@ -405,6 +405,24 @@ struct GraphSplittingPass
+       }
+     }
+ 
++    // Every materialized operation carries an iteration-space id. Remove any
++    // remaining source-DAG operation in reverse SSA order; the generic
++    // use-empty sweep above can leave an old mutation-dependent chain alive
++    // even though its fully materialized clone feeds ResultsOp.
++    for (Operation &op : llvm::make_early_inc_range(
++             llvm::reverse(graphOp.getBody()->getOperations()))) {
++      if (&op == resultsOp.getOperation() ||
++          op.hasAttr(TensorIRDialect::getIterSpaceIdAttrName())) {
++        continue;
++      }
++      if (llvm::any_of(op.getResults(),
++                       [](Value result) { return !result.use_empty(); })) {
++        op.emitError("unsplit source operation still feeds materialized graph");
++        return signalPassFailure();
++      }
++      op.erase();
++    }
++
+     LLVM_DEBUG({
+       llvm::dbgs() << "After graph splitting:\n";
+       graphOp.print(llvm::dbgs());

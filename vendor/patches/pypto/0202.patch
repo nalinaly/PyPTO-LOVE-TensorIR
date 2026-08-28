@@ -1,0 +1,34 @@
+From 5c7e4e704dba36d065d52e3342a535248ca1a159 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 15:55:53 +0800
+Subject: [PATCH 202/212] Accept row-pitched native pointwise inputs
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 04ba75a70425a4d1a4d0ea4f58e5bec8988f2727..6ecca40ead2c54b3991c7e000adf06f559fa3f44 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -6807,8 +6807,8 @@ FusedPointwiseGraph AnalyzeNativeTilePointwise(const ir::ProgramPtr& program) {
+       Reject("native tile inputs must be distinct exact Var nodes",
+              parameter ? &parameter->span_ : &function->span_);
+     }
+-    inputs.push_back(ReadStaticTensor(parameter->GetType(), parameter->span_,
+-                                      "native tile input"));
++    inputs.push_back(ReadStaticNdStridedTensor(
++        parameter->GetType(), parameter->span_, "native tile input"));
+   }
+   const ir::VarPtr& output_parameter =
+       function->params_[output_parameter_index];
+@@ -6828,7 +6828,8 @@ FusedPointwiseGraph AnalyzeNativeTilePointwise(const ir::ProgramPtr& program) {
+ 
+   std::vector<bool> broadcast_inputs(inputs.size(), false);
+   for (size_t index = 0; index < inputs.size(); ++index) {
+-    if (!SameTensor(inputs[index], output)) {
++    if (inputs[index].dtype != output.dtype ||
++        inputs[index].shape != output.shape) {
+       if (!IsBroadcastOf(inputs[index], output)) {
+         Reject("native tile inputs must match the output or be broadcast-compatible",
+                &function->params_[index]->span_);

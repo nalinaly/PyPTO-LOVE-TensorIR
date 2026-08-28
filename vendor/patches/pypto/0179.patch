@@ -1,0 +1,257 @@
+From 8955cc108b8a1c229a8cb53ea6025f006b6e59fe Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 11:51:43 +0800
+Subject: [PATCH 179/212] Anchor state mutations in recurrent results
+
+---
+ 3rdparty/nvidia/tensor-ir                |   2 +-
+ cmake/nvidia_backend.cmake               |   2 +-
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 138 ++++++++++++++++++++++-
+ 3 files changed, 134 insertions(+), 8 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index db2b888be812dcb8e1919a0ecc8b9d909a7cd2d1..e8360893ca52cf1e9a45d11c7cf9f4dbb628f0df 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit db2b888be812dcb8e1919a0ecc8b9d909a7cd2d1
++Subproject commit e8360893ca52cf1e9a45d11c7cf9f4dbb628f0df
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index daa7afdccfc795adbf5070e6f62ae4246b255c75..164c8b4920984b49a45b86c62d5dc64cf8df7170 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "db2b888be812dcb8e1919a0ecc8b9d909a7cd2d1")
++    "e8360893ca52cf1e9a45d11c7cf9f4dbb628f0df")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 95d9257f8952bd8ed9e243a6a1bd6051894ded0c..a864970b6adf8bfc5aa90c60f3da7c3142bc2462 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -1264,6 +1264,15 @@ std::string EmitNativeTileStatefulCausalConvSource(
+                             {1, graph.tokens_per_request, graph.channels}, {}};
+   batch_result.dense_strides =
+       MakeDenseStridesForMetadata(batch_result.shape);
++  StaticTensor state_anchor_box{DataType::BF16, {1, 1, graph.channels}, {}};
++  state_anchor_box.dense_strides =
++      MakeDenseStridesForMetadata(state_anchor_box.shape);
++  StaticTensor index_anchor_seed{DataType::INT32, {1, 1, 1}, {}};
++  index_anchor_seed.dense_strides =
++      MakeDenseStridesForMetadata(index_anchor_seed.shape);
++  StaticTensor index_anchor{DataType::INT32,
++                            {1, graph.tokens_per_request, graph.channels}, {}};
++  index_anchor.dense_strides = MakeDenseStridesForMetadata(index_anchor.shape);
+   StaticTensor batch_state{DataType::BF16, {1, state_width}, {}};
+   batch_state.dense_strides = MakeDenseStridesForMetadata(batch_state.shape);
+ 
+@@ -1286,6 +1295,9 @@ std::string EmitNativeTileStatefulCausalConvSource(
+   const std::string output_box_type = TensorTypeText(output_box);
+   const std::string block_sequence_type = TensorTypeText(block_sequence);
+   const std::string batch_result_type = TensorTypeText(batch_result);
++  const std::string state_anchor_box_type = TensorTypeText(state_anchor_box);
++  const std::string index_anchor_seed_type = TensorTypeText(index_anchor_seed);
++  const std::string index_anchor_type = TensorTypeText(index_anchor);
+   const std::string batch_state_type = TensorTypeText(batch_state);
+   const std::string result_type = TensorTypeText(graph.result);
+ 
+@@ -1316,6 +1328,12 @@ std::string EmitNativeTileStatefulCausalConvSource(
+   source += "    %one = constant 1.0 : f32";
+   source += "\n    %one_column = splat %one : ";
+   source += column_type;
++  source += "\n    %one_index = constant 1 : si32";
++  source += "\n    %one_index_splat = splat %one_index : ";
++  source += index_anchor_type;
++  source += "\n    %zero_index = constant 0 : si32";
++  source += "\n    %zero_index_splat = splat %zero_index : ";
++  source += index_anchor_type;
+ 
+   std::vector<std::string> batch_outputs;
+   batch_outputs.reserve(static_cast<size_t>(graph.batch_size));
+@@ -1337,6 +1355,23 @@ std::string EmitNativeTileStatefulCausalConvSource(
+     source += indices_column_type;
+     source += " -> ";
+     source += indices_full_type;
++    source += "\n    %index_anchor_seed_" + batch_suffix + " = reshape " +
++              index_name + " : ";
++    source += indices_column_type;
++    source += " -> ";
++    source += index_anchor_seed_type;
++    source += "\n    %index_anchor_" + batch_suffix + " = broadcast " +
++              "%index_anchor_seed_" + batch_suffix + " : ";
++    source += index_anchor_seed_type;
++    source += " -> ";
++    source += index_anchor_type;
++    source += "\n    %index_plus_one_" + batch_suffix + " = add " +
++              "%index_anchor_" + batch_suffix + ", %one_index_splat : ";
++    source += index_anchor_type;
++    source += "\n    %valid_state_index_" + batch_suffix +
++              " = cmp %zero_index_splat lt %index_plus_one_" + batch_suffix +
++              " : ";
++    source += index_anchor_type;
+     source += "\n    " + state_rows_name + " = gather_rows %arg2, " +
+               indices_full_name + " : (";
+     source += state_type;
+@@ -1571,9 +1606,9 @@ std::string EmitNativeTileStatefulCausalConvSource(
+     source += state_plane_type;
+     source += ") -> ";
+     source += batch_state_type;
+-    source += "\n    %stored_state_" + batch_suffix +
+-              " = scatter_rows %arg2, " + indices_full_name + ", " +
+-              batch_state_name + " : (";
++    const std::string stored_state = "%stored_state_" + batch_suffix;
++    source += "\n    " + stored_state + " = scatter_rows %arg2, " +
++              indices_full_name + ", " + batch_state_name + " : (";
+     source += state_type;
+     source += ", ";
+     source += indices_full_type;
+@@ -1581,6 +1616,29 @@ std::string EmitNativeTileStatefulCausalConvSource(
+     source += state_rows_type;
+     source += ") -> ";
+     source += state_rows_type;
++    const std::string anchor_row = "%state_anchor_row_" + batch_suffix;
++    const std::string anchor_box = "%state_anchor_box_" + batch_suffix;
++    const std::string anchor_full = "%state_anchor_full_" + batch_suffix;
++    const std::string anchored_output = "%anchored_output_" + batch_suffix;
++    source += "\n    " + anchor_row + " = slice " + stored_state +
++              " starts = [0, 0] limits = [1, " +
++              std::to_string(graph.channels) + "] strides = [1, 1] : ";
++    source += state_rows_type;
++    source += " -> ";
++    source += state_plane_type;
++    source += "\n    " + anchor_box + " = reshape " + anchor_row + " : ";
++    source += state_plane_type;
++    source += " -> ";
++    source += state_anchor_box_type;
++    source += "\n    " + anchor_full + " = broadcast " + anchor_box + " : ";
++    source += state_anchor_box_type;
++    source += " -> ";
++    source += batch_result_type;
++    source += "\n    " + anchored_output +
++              " = binary_select %valid_state_index_" + batch_suffix + ", " +
++              batch_output + ", " + anchor_full + " : ";
++    source += batch_result_type;
++    batch_outputs.back() = anchored_output;
+   }
+ 
+   std::string result_value;
+@@ -9121,6 +9179,13 @@ std::string EmitNativeTileGdnRecurrentBatchedSource(
+                             {1, graph.tokens_per_request, graph.value_heads,
+                              graph.value_dim}, {}};
+   batch_result.dense_strides = MakeDenseStridesForMetadata(batch_result.shape);
++  StaticTensor index_anchor_seed{DataType::INT32, {1, 1, 1, 1}, {}};
++  index_anchor_seed.dense_strides =
++      MakeDenseStridesForMetadata(index_anchor_seed.shape);
++  StaticTensor index_anchor{
++      DataType::INT32,
++      {1, graph.tokens_per_request, graph.value_heads, graph.value_dim}, {}};
++  index_anchor.dense_strides = MakeDenseStridesForMetadata(index_anchor.shape);
+ 
+   const std::string mixed_type = TensorTypeText(graph.mixed_qkv);
+   const std::string gate_type = TensorTypeText(graph.a);
+@@ -9148,6 +9213,8 @@ std::string EmitNativeTileGdnRecurrentBatchedSource(
+   const std::string output_group_bf16_type = TensorTypeText(output_group_bf16);
+   const std::string output_box_type = TensorTypeText(output_box);
+   const std::string batch_result_type = TensorTypeText(batch_result);
++  const std::string index_anchor_seed_type = TensorTypeText(index_anchor_seed);
++  const std::string index_anchor_type = TensorTypeText(index_anchor);
+   const std::string result_type = TensorTypeText(graph.result);
+ 
+   std::string source;
+@@ -9204,6 +9271,12 @@ std::string EmitNativeTileGdnRecurrentBatchedSource(
+   AppendFloat(source, graph.scale);
+   source += " : f32\n    %scale_splat = splat %scale : ";
+   source += wide_query_group_type;
++  source += "\n    %one_index = constant 1 : si32";
++  source += "\n    %one_index_splat = splat %one_index : ";
++  source += index_anchor_type;
++  source += "\n    %zero_index = constant 0 : si32";
++  source += "\n    %zero_index_splat = splat %zero_index : ";
++  source += index_anchor_type;
+ 
+   std::vector<std::string> batch_outputs;
+   batch_outputs.reserve(static_cast<size_t>(graph.batch_size));
+@@ -9224,6 +9297,23 @@ std::string EmitNativeTileGdnRecurrentBatchedSource(
+     source += indices_column_type;
+     source += " -> ";
+     source += indices_full_type;
++    source += "\n    %index_anchor_seed_" + batch_suffix + " = reshape " +
++              index_name + " : ";
++    source += indices_column_type;
++    source += " -> ";
++    source += index_anchor_seed_type;
++    source += "\n    %index_anchor_" + batch_suffix + " = broadcast " +
++              "%index_anchor_seed_" + batch_suffix + " : ";
++    source += index_anchor_seed_type;
++    source += " -> ";
++    source += index_anchor_type;
++    source += "\n    %index_plus_one_" + batch_suffix + " = add " +
++              "%index_anchor_" + batch_suffix + ", %one_index_splat : ";
++    source += index_anchor_type;
++    source += "\n    %valid_state_index_" + batch_suffix +
++              " = cmp %zero_index_splat lt %index_plus_one_" + batch_suffix +
++              " : ";
++    source += index_anchor_type;
+     source += "\n    " + state_row_name + " = gather_rows %arg5, " +
+               indices_full_name + " : (";
+     source += state_type;
+@@ -9511,9 +9601,9 @@ std::string EmitNativeTileGdnRecurrentBatchedSource(
+     source += state_group_type;
+     source += " -> ";
+     source += state_row_type;
+-    source += "\n    %stored_state_" + batch_suffix +
+-              " = scatter_rows %arg5, " + indices_full_name + ", " +
+-              final_state + " : (";
++    const std::string stored_state = "%stored_state_" + batch_suffix;
++    source += "\n    " + stored_state + " = scatter_rows %arg5, " +
++              indices_full_name + ", " + final_state + " : (";
+     source += state_type;
+     source += ", ";
+     source += indices_full_type;
+@@ -9521,6 +9611,42 @@ std::string EmitNativeTileGdnRecurrentBatchedSource(
+     source += state_row_type;
+     source += ") -> ";
+     source += state_row_type;
++    const std::string stored_group = "%stored_group_" + batch_suffix;
++    const std::string anchor_f32 = "%state_anchor_f32_" + batch_suffix;
++    const std::string anchor_bf16 = "%state_anchor_bf16_" + batch_suffix;
++    const std::string anchor_box = "%state_anchor_box_" + batch_suffix;
++    const std::string anchor_full = "%state_anchor_full_" + batch_suffix;
++    const std::string anchored_output = "%anchored_output_" + batch_suffix;
++    source += "\n    " + stored_group + " = reshape " + stored_state + " : ";
++    source += state_row_type;
++    source += " -> ";
++    source += state_group_type;
++    source += "\n    " + anchor_f32 + " = slice " + stored_group +
++              " starts = [0, 0, 0, 0] limits = [" +
++              std::to_string(graph.q_heads) + ", " +
++              std::to_string(heads_per_query) + ", " +
++              std::to_string(graph.value_dim) +
++              ", 1] strides = [1, 1, 1, 1] : ";
++    source += state_group_type;
++    source += " -> ";
++    source += parameter_group_type;
++    source += "\n    " + anchor_bf16 + " = convert " + anchor_f32 + " : ";
++    source += parameter_group_type;
++    source += " -> ";
++    source += value_group_type;
++    source += "\n    " + anchor_box + " = reshape " + anchor_bf16 + " : ";
++    source += value_group_type;
++    source += " -> ";
++    source += output_box_type;
++    source += "\n    " + anchor_full + " = broadcast " + anchor_box + " : ";
++    source += output_box_type;
++    source += " -> ";
++    source += batch_result_type;
++    source += "\n    " + anchored_output +
++              " = binary_select %valid_state_index_" + batch_suffix + ", " +
++              batch_output + ", " + anchor_full + " : ";
++    source += batch_result_type;
++    batch_outputs.back() = anchored_output;
+   }
+ 
+   std::string result_value;

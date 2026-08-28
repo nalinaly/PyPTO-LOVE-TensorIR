@@ -1,0 +1,100 @@
+From e463bce7849b2239d0457dcae78ccf41c65ffa55 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Mon, 24 Aug 2026 08:03:22 +0800
+Subject: [PATCH 008/212] build: compile native sources through object target
+
+---
+ CMakeLists.txt                 | 27 +++++++++++++++++++++++++++
+ python/bindings/CMakeLists.txt | 16 ++++------------
+ 2 files changed, 31 insertions(+), 12 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index e71da5fbae276d2cbc06488644cb5476e6616f4f..6b984a9b0b6735908341124ae8044ca5e9a0c214 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -29,6 +29,7 @@ else()
+ endif()
+ 
+ set(LIBRARY_NAME "${PROJECT_NAME}_core")
++set(COMPILER_OBJECT_LIBRARY_NAME "${PROJECT_NAME}_compiler_objects")
+ 
+ set(CMAKE_C_STANDARD 11)
+ set(CMAKE_C_STANDARD_REQUIRED ON)
+@@ -326,6 +327,32 @@ set(PYPTO_SOURCES
+     src/backend/common/soc.cpp
+ )
+ 
++# Compile the native compiler as one internal object target. The objects still
++# live in pypto_core, preserving the existing single-DSO ownership of inline
++# process state until the public symbol/export boundary is explicit. Compiler
++# objects intentionally use the project's -O2 policy rather than nanobind's
++# size-oriented module flags.
++add_library(${COMPILER_OBJECT_LIBRARY_NAME} OBJECT ${PYPTO_SOURCES})
++target_include_directories(${COMPILER_OBJECT_LIBRARY_NAME}
++    PUBLIC
++        $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
++        # Public PyPTO headers expose the platform_comm ABI layout types, so
++        # every consumer compiling those headers needs this build-tree path.
++        $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/runtime/src/common>
++    PRIVATE
++        ${CMAKE_SOURCE_DIR}
++        ${LIBBACKTRACE_INSTALL_DIR}/include
++)
++target_link_libraries(${COMPILER_OBJECT_LIBRARY_NAME} PUBLIC
++    libbacktrace
++    msgpackc-cxx
++)
++set_target_properties(${COMPILER_OBJECT_LIBRARY_NAME} PROPERTIES
++    POSITION_INDEPENDENT_CODE ON
++    CXX_VISIBILITY_PRESET hidden
++    VISIBILITY_INLINES_HIDDEN ON
++)
++
+ # Include Python bindings
+ add_subdirectory(python/bindings)
+ 
+diff --git a/python/bindings/CMakeLists.txt b/python/bindings/CMakeLists.txt
+index e09c22ed6aa923681c8b53356d7229c3aace2640..c522bdddee0843bef348920abadeedd2aa6514ae 100644
+--- a/python/bindings/CMakeLists.txt
++++ b/python/bindings/CMakeLists.txt
+@@ -25,9 +25,6 @@ set(PYPTO_BINDING_SOURCES
+     modules/functor.cpp
+ )
+ 
+-# Make paths absolute
+-list(TRANSFORM PYPTO_SOURCES PREPEND "${CMAKE_SOURCE_DIR}/")
+-
+ # Make paths absolute
+ list(TRANSFORM PYPTO_BINDING_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+ 
+@@ -40,7 +37,6 @@ set(PYPTO_BINDING_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR} PARENT_SCOPE)
+ # Create the nanobind module
+ nanobind_add_module(${LIBRARY_NAME}
+     ${PYPTO_BINDING_SOURCES}
+-    ${PYPTO_SOURCES}
+ )
+ 
+ # Set visibility to hidden by default (best practice for Python modules)
+@@ -54,18 +50,14 @@ set_target_properties(${LIBRARY_NAME} PROPERTIES
+ # expression for multi-config generator compatibility.
+ target_compile_definitions(${LIBRARY_NAME} PRIVATE $<$<CONFIG:Debug>:PYPTO_DEBUG>)
+ 
+-# Link with libbacktrace and msgpack.
+-# runtime/src/common is added so distributed codegen can consume the runtime
+-# ABI header `platform_comm/comm_context.h` for compile-time layout asserts
+-# (see include/pypto/codegen/distributed/comm_layout.h).
++# The native compiler target owns compiler dependencies such as libbacktrace,
++# msgpack, and the runtime ABI headers. The extension's direct sources contain
++# bindings only; compiler objects are embedded from the internal object target.
+ target_include_directories(${LIBRARY_NAME} PRIVATE
+-    ${LIBBACKTRACE_INSTALL_DIR}/include
+     ${CMAKE_CURRENT_SOURCE_DIR}
+-    ${CMAKE_SOURCE_DIR}/runtime/src/common
+ )
+ target_link_libraries(${LIBRARY_NAME} PRIVATE
+-    libbacktrace
+-    msgpackc-cxx
++    ${COMPILER_OBJECT_LIBRARY_NAME}
+ )
+ 
+ # Handle installation based on build mode

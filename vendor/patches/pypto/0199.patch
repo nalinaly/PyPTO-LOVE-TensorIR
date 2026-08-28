@@ -1,0 +1,26 @@
+From d2733a86be0bf3a501611af6333520da62d6ef09 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 15:26:24 +0800
+Subject: [PATCH 199/212] Accept row-pitched QK preparation inputs
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 4ed740a89108233bd82476efb27fba6a1b59496e..e35f3cb12fc8e10654e6da4e9a39119e82f45f54 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -4488,10 +4488,10 @@ NativeTileQkRmsNormRopeGraph AnalyzeNativeTileQkRmsNormRope(
+            &function->params_[6]->span_);
+   }
+ 
+-  const StaticTensor qGate = ReadStaticTensor(
++  const StaticTensor qGate = ReadStaticNdStridedTensor(
+       function->params_[0]->GetType(), function->params_[0]->span_,
+       "native QK packed query/gate");
+-  const StaticTensor key = ReadStaticTensor(
++  const StaticTensor key = ReadStaticNdStridedTensor(
+       function->params_[1]->GetType(), function->params_[1]->span_,
+       "native QK key");
+   const StaticTensor qWeight = ReadStaticTensor(

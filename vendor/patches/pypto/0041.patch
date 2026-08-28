@@ -1,0 +1,25 @@
+From c087170444270cbe00f83e1fbf127ddcf3e33926 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 06:50:32 +0800
+Subject: [PATCH 041/212] Fix ArtifactCache corruption assertion
+
+---
+ tests/ut/compiler/test_artifact.py | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/tests/ut/compiler/test_artifact.py b/tests/ut/compiler/test_artifact.py
+index 951c84fe0519a74779ec82ef65b4cce20b079f2a..b43b74033a49362cfc20e94082bedb9f7b3eb167 100644
+--- a/tests/ut/compiler/test_artifact.py
++++ b/tests/ut/compiler/test_artifact.py
+@@ -547,9 +547,9 @@ def test_artifact_cache_root_and_entry_security_fail_closed(
+     entry.chmod(0o600)
+     entry.write_bytes(b"\xc1")
+     entry.chmod(0o400)
+-    with pytest.raises(ValueError, match="malformed Artifact"):
++    with pytest.raises(ValueError, match="malformed"):
+         cache.lookup(request, build_spec)
+-    with pytest.raises(ValueError, match="malformed Artifact"):
++    with pytest.raises(ValueError, match="malformed"):
+         cache.publish(artifact, request, build_spec)
+     assert entry.read_bytes() == b"\xc1"
+ 

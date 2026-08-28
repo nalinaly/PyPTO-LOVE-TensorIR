@@ -1,0 +1,62 @@
+From 83dd4a59c0edfbf74794faf4b55207a9b86c3378 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 04:38:01 +0800
+Subject: [PATCH 61/82] Cover valid-length masked paged decode
+
+---
+ .../paged_decode_attention_layout.mlir        | 23 ++++++++++++++-----
+ 1 file changed, 17 insertions(+), 6 deletions(-)
+
+diff --git a/test/Conversion/TensorToCudaTile/paged_decode_attention_layout.mlir b/test/Conversion/TensorToCudaTile/paged_decode_attention_layout.mlir
+index 142d26ddeddec7689a824dbe76f2aeabb3793c82..84e03676bf31a9038bc1d3caf7b0932049484ab7 100644
+--- a/test/Conversion/TensorToCudaTile/paged_decode_attention_layout.mlir
++++ b/test/Conversion/TensorToCudaTile/paged_decode_attention_layout.mlir
+@@ -6,9 +6,12 @@
+ // operand iteration space must restore it as extent one with index zero.
+ //
+ // CHECK-LABEL: entry @paged_decode_attention
+-// CHECK: make_gather_scatter_view
+-// CHECK: load_view_tko weak
+-// CHECK: mmaf
++// CHECK-DAG: make_gather_scatter_view
++// CHECK-DAG: load_view_tko weak
++// CHECK-DAG: mmaf
++// CHECK-DAG: iota
++// CHECK-DAG: cmpi less_than
++// CHECK-DAG: select
+ // CHECK: reduce
+ // CHECK: exp
+ // CHECK: mmaf
+@@ -19,10 +22,16 @@ module {
+       %key_cache: tensor<1024x256xbf16> {nv_tensor_ir.stride = "(256,1)"},
+       %value_cache: tensor<1024x256xbf16> {nv_tensor_ir.stride = "(256,1)"},
+       %physical_indices: tensor<16x256xsi32>
+-          {nv_tensor_ir.stride = "(1,0)"}) -> tensor<1x256xbf16>
++          {nv_tensor_ir.stride = "(1,0)"},
++      %valid_tokens: tensor<1x16xsi32>
++          {nv_tensor_ir.stride = "(0,0)"}) -> tensor<1x256xbf16>
+       attributes {tile_size = array<i32: 64>} {
+     %scale = constant 0.0625 : f32
+     %scale_splat = splat %scale : tensor<1x16xf32>
++    %valid_positions = iota dimension = 1 : tensor<1x16xsi32>
++    %valid_mask = cmp %valid_positions lt %valid_tokens : tensor<1x16xsi32>
++    %mask_floor = constant 0xFF7FFFFF : f32
++    %mask_floor_splat = splat %mask_floor : tensor<1x16xf32>
+     %key = gather_rows %key_cache, %physical_indices
+         : (tensor<1024x256xbf16>, tensor<16x256xsi32>)
+        -> tensor<16x256xbf16>
+@@ -31,10 +40,12 @@ module {
+     %scores = matmul(%query, %key_t)
+         : (tensor<1x256xbf16>, tensor<256x16xbf16>) -> tensor<1x16xf32>
+     %scaled = mul %scores, %scale_splat : tensor<1x16xf32>
+-    %rowmax = reduce(%scaled) <dimensions = [1], reduction_mode = <max>>
++    %masked_scaled = binary_select %valid_mask, %scaled, %mask_floor_splat
++        : tensor<1x16xf32>
++    %rowmax = reduce(%masked_scaled) <dimensions = [1], reduction_mode = <max>>
+         : tensor<1x16xf32> -> tensor<1x1xf32>
+     %max_full = broadcast %rowmax : tensor<1x1xf32> -> tensor<1x16xf32>
+-    %centered = sub %scaled, %max_full : tensor<1x16xf32>
++    %centered = sub %masked_scaled, %max_full : tensor<1x16xf32>
+     %exponent = exp %centered : tensor<1x16xf32>
+     %rowsum = reduce(%exponent) <dimensions = [1], reduction_mode = <add>>
+         : tensor<1x16xf32> -> tensor<1x1xf32>

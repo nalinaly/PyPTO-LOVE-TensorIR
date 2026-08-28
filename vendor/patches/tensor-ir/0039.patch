@@ -1,0 +1,23 @@
+From 9b6c0b293a32dc3fdcb2c20a05be1618ac33d084 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 00:45:14 +0800
+Subject: [PATCH 39/82] Make gather golden robust to constant hoisting
+
+---
+ test/Conversion/TensorToCudaTile/gather_rows_layout.mlir | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
+index ce70442fc6d00b9e4096298d41668b1a0bb2d5b3..938e92fe145abb60d31afe0f63d7965a56700200 100644
+--- a/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
++++ b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
+@@ -5,8 +5,7 @@
+ // CHECK: %[[GATHER_VIEW:.*]] = make_gather_scatter_view %[[DATA_VIEW]] : gather_scatter_view<tile=(8x128), tensor_view<1024x128xbf16, strides=[128,1]>, sparse_dim=0>
+ // CHECK: %[[NARROW:.*]] = extract {{.*}} : tile<8x128xi32> -> tile<8x1xi32>
+ // CHECK: %[[ROWS:.*]] = reshape %[[NARROW]] : tile<8x1xi32> -> tile<8xi32>
+-// CHECK: %[[COL_SCALE:.*]] = constant <i32: 128> : tile<i32>
+-// CHECK: %[[COL_OFFSET:.*]] = muli {{.*}}, %[[COL_SCALE]] : tile<i32>
++// CHECK: %[[COL_OFFSET:.*]] = muli {{.*}}, {{.*}} : tile<i32>
+ // CHECK: %[[GATHERED:.*]], {{.*}} = load_view_tko weak %[[GATHER_VIEW]][%[[ROWS]], %[[COL_OFFSET]]]
+ // CHECK-SAME: -> tile<8x128xbf16>, token
+ // CHECK: store_view_tko weak %[[GATHERED]]

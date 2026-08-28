@@ -1,0 +1,99 @@
+From c33f23f73e289d6dc0d7a1e61d1609f8eac99c76 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 04:35:24 +0800
+Subject: [PATCH 034/212] Test strict producer backend-off failure
+
+---
+ tests/ut/compiler/test_artifact.py | 44 ++++++++++++++++++++++++------
+ 1 file changed, 36 insertions(+), 8 deletions(-)
+
+diff --git a/tests/ut/compiler/test_artifact.py b/tests/ut/compiler/test_artifact.py
+index 2acb00440236c0c092cc7974ce9f4846b9cbcdc5..eec2a0024a77fc12e7ca414dfa65699b2c6a075c 100644
+--- a/tests/ut/compiler/test_artifact.py
++++ b/tests/ut/compiler/test_artifact.py
+@@ -62,11 +62,10 @@ CANONICAL_SOURCE = b"""module {
+ @pytest.fixture(scope="module")
+ def build_info() -> NvidiaBackendBuildInfo:
+     info = get_nvidia_backend_build_info()
+-    if not info.compiled:
+-        pytest.skip("Artifact v1 requires the compiled private NVIDIA backend")
+-    assert info.compiler_factory_available
+-    assert info.sm120_target == "sm_120a"
+-    assert len(info.pypto_revision) == 40
++    if info.compiled:
++        assert info.compiler_factory_available
++        assert info.sm120_target == "sm_120a"
++        assert len(info.pypto_revision) == 40
+     return info
+ 
+ 
+@@ -101,6 +100,18 @@ def _traits() -> TargetTraits:
+ 
+ 
+ def _toolchain(info: NvidiaBackendBuildInfo) -> ToolchainIdentity:
++    if not info.compiled:
++        return ToolchainIdentity(
++            pypto_revision="0" * 40,
++            tensor_ir_revision="1" * 40,
++            cuda_tile_revision="2" * 40,
++            llvm_revision="3" * 40,
++            cuda_toolkit_root="/usr/local/cuda-13.3",
++            cuda_toolkit_version="13.3.73",
++            tileiras_real_path="/usr/local/cuda-13.3/bin/tileiras",
++            tileiras_version="13.3.36",
++            tileiras_sha256="4" * 64,
++        )
+     return ToolchainIdentity(
+         pypto_revision=info.pypto_revision,
+         tensor_ir_revision=info.tensor_ir_revision,
+@@ -115,16 +126,19 @@ def _toolchain(info: NvidiaBackendBuildInfo) -> ToolchainIdentity:
+ 
+ 
+ def _request(info: NvidiaBackendBuildInfo) -> CompileRequest:
++    cuda_toolkit_version = info.cuda_toolkit_version or "13.3.73"
++    tensor_ir_revision = info.tensor_ir_revision or "1" * 40
++    cuda_tile_revision = info.cuda_tile_revision or "2" * 40
+     target = NvidiaTargetInfo(
+         device_ordinal=0,
+         device_name="NVIDIA Artifact test device",
+         device_uuid="GPU-artifact-test",
+         pci_device_id="0000:01:00.0",
+         traits=_traits(),
+-        cuda_toolkit_version=info.cuda_toolkit_version,
++        cuda_toolkit_version=cuda_toolkit_version,
+         cuda_driver_version="610.74",
+-        tensor_ir_revision=info.tensor_ir_revision,
+-        cuda_tile_revision=info.cuda_tile_revision,
++        tensor_ir_revision=tensor_ir_revision,
++        cuda_tile_revision=cuda_tile_revision,
+         supported_compute_dtypes=[pypto.DataType.BF16, pypto.DataType.FP32],
+     )
+     return CompileRequest(target, _toolchain(info))
+@@ -227,6 +241,8 @@ def _build_spec(
+ def artifact_case(
+     build_info: NvidiaBackendBuildInfo,
+ ) -> tuple[bytes, CompileRequest, KernelBuildSpec, ArtifactKernelAbi, Artifact]:
++    if not build_info.compiled:
++        pytest.skip("Artifact compilation requires the private NVIDIA backend")
+     request = _request(build_info)
+     expected_kernel_abi = _expected_kernel_abi()
+     build_spec = _build_spec(request, CANONICAL_SOURCE, expected_kernel_abi)
+@@ -234,6 +250,18 @@ def artifact_case(
+     return CANONICAL_SOURCE, request, build_spec, expected_kernel_abi, artifact
+ 
+ 
++def test_backend_off_compile_strict_fails_closed(
++    build_info: NvidiaBackendBuildInfo,
++) -> None:
++    if build_info.compiled:
++        pytest.skip("backend-OFF contract only")
++    request = _request(build_info)
++    expected_kernel_abi = _expected_kernel_abi()
++    build_spec = _build_spec(request, CANONICAL_SOURCE, expected_kernel_abi)
++    with pytest.raises(ValueError, match="compiled private NVIDIA backend"):
++        Artifact.compile_strict(CANONICAL_SOURCE, request, build_spec)
++
++
+ def test_static_artifact_round_trip_and_all_identity_projections(
+     artifact_case: tuple[bytes, CompileRequest, KernelBuildSpec, ArtifactKernelAbi, Artifact],
+ ) -> None:

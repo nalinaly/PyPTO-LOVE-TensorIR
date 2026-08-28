@@ -1,0 +1,82 @@
+From 41dc7ab63880d184908587b1e72afdb957e8a18f Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 20:28:06 +0800
+Subject: [PATCH 083/212] test: match native row tiles to flat pointwise
+ schedule
+
+---
+ tests/ut/compiler/test_structured_compile.py | 35 ++++++++++----------
+ 1 file changed, 17 insertions(+), 18 deletions(-)
+
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index 2f1c4f04a9c8086d9f825cee55c5c976d48495b5..91a3e42394053fffb6ceca9b88293c1a9262214b 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -34,13 +34,13 @@ from pypto.pypto_core import ir
+ 
+ @pl.jit
+ def _native_tile_add(
+-    lhs: pl.Tensor[[32, 32], pl.BF16],
+-    rhs: pl.Tensor[[32, 32], pl.BF16],
+-    out: pl.Out[pl.Tensor[[32, 32], pl.BF16]],
++    lhs: pl.Tensor[[1, 128], pl.BF16],
++    rhs: pl.Tensor[[1, 128], pl.BF16],
++    out: pl.Out[pl.Tensor[[1, 128], pl.BF16]],
+ ):
+     with pl.at(level=pl.Level.CORE_GROUP):
+-        lhs_tile = pl.load(lhs, [0, 0], [32, 32])
+-        rhs_tile = pl.load(rhs, [0, 0], [32, 32])
++        lhs_tile = pl.load(lhs, [0, 0], [1, 128])
++        rhs_tile = pl.load(rhs, [0, 0], [1, 128])
+         summed = pl.add(lhs_tile, rhs_tile)
+         scaled = pl.mul(summed, 2.0)
+         pl.store(scaled, [0, 0], out)
+@@ -54,12 +54,11 @@ def _native_tiled_add(
+     out: pl.Out[pl.Tensor[[64, 128], pl.BF16]],
+ ):
+     with pl.at(level=pl.Level.CORE_GROUP):
+-        for tile_row in pl.range(2):
+-            for tile_col in pl.range(4):
+-                lhs_tile = pl.load(lhs, [tile_row * 32, tile_col * 32], [32, 32])
+-                rhs_tile = pl.load(rhs, [tile_row * 32, tile_col * 32], [32, 32])
+-                summed = pl.add(lhs_tile, rhs_tile)
+-                pl.store(summed, [tile_row * 32, tile_col * 32], out)
++        for tile_row in pl.range(64):
++            lhs_tile = pl.load(lhs, [tile_row, 0], [1, 128])
++            rhs_tile = pl.load(rhs, [tile_row, 0], [1, 128])
++            summed = pl.add(lhs_tile, rhs_tile)
++            pl.store(summed, [tile_row, 0], out)
+     return out
+ 
+ 
+@@ -292,23 +291,23 @@ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+     assert native_kernel.entry_function_name == "pypto_fused_pointwise_v2"
+     assert native_kernel.argument_packing_policy == ArtifactArgumentPackingPolicy.PointerOnly
+     assert native_kernel.grid_abi.policy == ArtifactGridPolicy.Static
+-    assert native_kernel.grid_abi.static_dimensions == [8, 1, 1]
++    assert native_kernel.grid_abi.static_dimensions == [1, 1, 1]
+     assert native_kernel.grid_abi.tile_sizes == [128]
+     assert native_kernel.argument_layout.input_operand_count == 2
+     assert native_kernel.argument_layout.total_kernel_argument_count == 3
+     assert [d.shape for d in native_kernel.argument_layout.operand_descriptors] == [
+-        [32, 32],
+-        [32, 32],
+-        [32, 32],
++        [1, 128],
++        [1, 128],
++        [1, 128],
+     ]
+     assert not native_tile.artifact.fallback_used
+ 
+     tiled = compile_structured_strict(
+-        _native_tiled_add.specialize(), request, _schedule([32, 32])
++        _native_tiled_add.specialize(), request, _schedule(128)
+     )
+     assert tiled.artifact.kernel_abi.entry_function_name == "pypto_fused_pointwise_v2"
+-    assert tiled.artifact.kernel_abi.grid_abi.static_dimensions == [8, 1, 1]
+-    assert tiled.artifact.kernel_abi.grid_abi.tile_sizes == [32, 32]
++    assert tiled.artifact.kernel_abi.grid_abi.static_dimensions == [64, 1, 1]
++    assert tiled.artifact.kernel_abi.grid_abi.tile_sizes == [128]
+     assert not tiled.artifact.fallback_used
+ 
+ 

@@ -1,0 +1,162 @@
+From b5e5cae16bdf2344120b780340a6bc6d0a6da79f Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 01:01:06 +0800
+Subject: [PATCH 055/212] codegen: pin row-sum accumulator identity with an
+ explicit +0 epilogue
+
+The frozen RowReductionV3 contract requires an FP32 accumulator with
+the +0 identity, so a row of negative zeros must reduce to +0. The
+tile backend's single-element reduction fast path can return the
+element itself, producing -0 (observed on real SM120 in run
+pypto-20260826T165111Z-173109-3f7a6a). Emit an explicit
+constant/splat/add of +0 after every row_sum reduction in the FP32
+compute domain: IEEE x + (+0) leaves every value bit-identical except
+-0, which becomes +0. row_max is unchanged because its contract
+preserves -0. Source goldens updated.
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 34 +++++++++++++++++++++---
+ tests/ut/cpp/tensor_ir_codegen_test.cpp  | 28 +++++++++++++------
+ 2 files changed, 50 insertions(+), 12 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 754f65edf7b444a88e47fc7e813411c78c0080ca..0a25fd4e54a3cc79078073259e503c092fecde7a 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -507,7 +507,8 @@ std::string EmitRowReductionSource(const RowReductionGraph& graph) {
+     source += "\n";
+   }
+ 
+-  const bool reduction_is_result = !flatten && !widen;
++  const bool normalize_sum = graph.mode == RowReductionMode::Sum;
++  const bool reduction_is_result = !flatten && !widen && !normalize_sum;
+   source += reduction_is_result ? "    %result0 = reduce(" : "    %reduce0 = reduce(";
+   source += flatten ? "%flat0" : (widen ? "%wide0" : "%arg0");
+   source += ") <dimensions = [";
+@@ -522,9 +523,34 @@ std::string EmitRowReductionSource(const RowReductionGraph& graph) {
+                   : TensorTypeText(reduction_result);
+   source += "\n";
+ 
++  if (normalize_sum) {
++    // The frozen row_sum contract is an FP32 accumulator with the +0
++    // identity, so a row of negative zeros must produce +0. Adding the
++    // explicit +0 splat after the reduction keeps every other value
++    // bit-identical while pinning the accumulator semantics the tile
++    // backend's single-element fast path does not guarantee.
++    const std::string compute_type =
++        widen ? TensorTypeText(compute_reduction_result)
++              : TensorTypeText(reduction_result);
++    const char* const sum_result_name =
++        (!flatten && !widen) ? "%result0" : "%sum0";
++    source += "    %sumzero = constant ";
++    AppendFloat(source, 0.0);
++    source += " : ";
++    source += TensorIrDtype(DataType::FP32);
++    source += "\n    %sumsplat = splat %sumzero : ";
++    source += compute_type;
++    source += "\n";
++    source += "    ";
++    source += sum_result_name;
++    source += " = add %reduce0, %sumsplat : ";
++    source += compute_type;
++    source += "\n";
++  }
++
+   if (flatten) {
+-    source += widen ? "    %shape0 = reshape %reduce0 : "
+-                    : "    %result0 = reshape %reduce0 : ";
++    source += widen ? "    %shape0 = reshape %sum0 : "
++                    : "    %result0 = reshape %sum0 : ";
+     source += widen ? TensorTypeText(compute_reduction_result)
+                     : TensorTypeText(reduction_result);
+     source += " -> ";
+@@ -533,7 +559,7 @@ std::string EmitRowReductionSource(const RowReductionGraph& graph) {
+   }
+   if (widen) {
+     source += flatten ? "    %result0 = convert %shape0 : "
+-                      : "    %result0 = convert %reduce0 : ";
++                      : "    %result0 = convert %sum0 : ";
+     source += TensorTypeText(compute_result);
+     source += " -> ";
+     source += result_type;
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index b0ad264f73ec1fdcdc46292405e73cdd436a37e1..31cc0af684a3fb46b6922524312641364228d4ca 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -358,14 +358,17 @@ int TestRowReductionV3CanonicalSourcesAndMetadata() {
+       "  nv_tensor_ir.graph @pypto_row_reduction_v3(\n"
+       "    %arg0: tensor<3x5xf32> {nv_tensor_ir.stride = \"(5,1)\"}\n"
+       "  ) -> (tensor<3x1xf32> {nv_tensor_ir.stride = \"(1,1)\"}) {\n"
+-      "    %result0 = reduce(%arg0) <dimensions = [1], reduction_mode = <add>> : "
++      "    %reduce0 = reduce(%arg0) <dimensions = [1], reduction_mode = <add>> : "
+       "tensor<3x5xf32> -> tensor<3x1xf32>\n"
++      "    %sumzero = constant 0.0 : f32\n"
++      "    %sumsplat = splat %sumzero : tensor<3x1xf32>\n"
++      "    %result0 = add %reduce0, %sumsplat : tensor<3x1xf32>\n"
+       "    results %result0 : tensor<3x1xf32>\n"
+       "  }\n"
+       "}\n";
+   REQUIRE(MatchesSourceAndSha256(
+       sum_module, sum_expected,
+-      "785d31d3881cbbb27802adae0190e147c60ff0958d26e54fb9b56ed3bc131e38"));
++      "964f12e003e0e9a5e563f716279d839d12303908a94a8925f2e20bb0d71bf887"));
+   REQUIRE(sum_module.GetKind() == TensorIrModuleKind::RowReductionV3);
+   REQUIRE(sum_module.GetMetadataSchemaVersion() == 3);
+   REQUIRE(sum_module.GetEntryName() == "pypto_row_reduction_v3");
+@@ -419,13 +422,16 @@ int TestRowReductionV3CanonicalSourcesAndMetadata() {
+       "    %wide0 = convert %arg0 : tensor<128xbf16> -> tensor<128xf32>\n"
+       "    %reduce0 = reduce(%wide0) <dimensions = [0], reduction_mode = <add>> : "
+       "tensor<128xf32> -> tensor<1xf32>\n"
+-      "    %result0 = convert %reduce0 : tensor<1xf32> -> tensor<1xbf16>\n"
++      "    %sumzero = constant 0.0 : f32\n"
++      "    %sumsplat = splat %sumzero : tensor<1xf32>\n"
++      "    %sum0 = add %reduce0, %sumsplat : tensor<1xf32>\n"
++      "    %result0 = convert %sum0 : tensor<1xf32> -> tensor<1xbf16>\n"
+       "    results %result0 : tensor<1xbf16>\n"
+       "  }\n"
+       "}\n";
+   REQUIRE(MatchesSourceAndSha256(
+       rank_one_bf16, rank_one_bf16_expected,
+-      "07f43664bb49516a505467ff9cf28a174c096d1efe9c615b23510f4c5d384d3d"));
++      "84fca0270f36bf1811c5e633a89c3b8cd2514eed4146ef60fe4d16b01af23be3"));
+   REQUIRE(rank_one_bf16.GetCanonicalSource().find("reduce(%arg0)") ==
+           std::string::npos);
+ 
+@@ -467,13 +473,16 @@ int TestRowReductionV3CanonicalSourcesAndMetadata() {
+       "    %wide0 = convert %arg0 : tensor<2x3xbf16> -> tensor<2x3xf32>\n"
+       "    %reduce0 = reduce(%wide0) <dimensions = [1], reduction_mode = <add>> : "
+       "tensor<2x3xf32> -> tensor<2x1xf32>\n"
+-      "    %result0 = convert %reduce0 : tensor<2x1xf32> -> tensor<2x1xbf16>\n"
++      "    %sumzero = constant 0.0 : f32\n"
++      "    %sumsplat = splat %sumzero : tensor<2x1xf32>\n"
++      "    %sum0 = add %reduce0, %sumsplat : tensor<2x1xf32>\n"
++      "    %result0 = convert %sum0 : tensor<2x1xf32> -> tensor<2x1xbf16>\n"
+       "    results %result0 : tensor<2x1xbf16>\n"
+       "  }\n"
+       "}\n";
+   REQUIRE(MatchesSourceAndSha256(
+       bf16, bf16_expected,
+-      "ea0ad985fada975214704588d11c7ab627022a48c41a230282e458768f4d0e70"));
++      "3714060f007e8c225d35b773d2f9cc7b36ef26c46fc203847dc68adf85bd30df"));
+   REQUIRE(bf16.GetCanonicalSource().find("reduce(%arg0)") == std::string::npos);
+   REQUIRE(bf16.GetCanonicalSource().find("reduce(%wide0)") != std::string::npos);
+   REQUIRE(bf16.GetValueMetadata()[0].GetDtypeName() == "bfloat16");
+@@ -513,14 +522,17 @@ int TestRowReductionV3CanonicalSourcesAndMetadata() {
+       "    %flat0 = reshape %wide0 : tensor<2x3x5xf32> -> tensor<6x5xf32>\n"
+       "    %reduce0 = reduce(%flat0) <dimensions = [1], reduction_mode = <add>> : "
+       "tensor<6x5xf32> -> tensor<6x1xf32>\n"
+-      "    %shape0 = reshape %reduce0 : tensor<6x1xf32> -> tensor<2x3x1xf32>\n"
++      "    %sumzero = constant 0.0 : f32\n"
++      "    %sumsplat = splat %sumzero : tensor<6x1xf32>\n"
++      "    %sum0 = add %reduce0, %sumsplat : tensor<6x1xf32>\n"
++      "    %shape0 = reshape %sum0 : tensor<6x1xf32> -> tensor<2x3x1xf32>\n"
+       "    %result0 = convert %shape0 : tensor<2x3x1xf32> -> tensor<2x3x1xbf16>\n"
+       "    results %result0 : tensor<2x3x1xbf16>\n"
+       "  }\n"
+       "}\n";
+   REQUIRE(MatchesSourceAndSha256(
+       bf16_rank_three, bf16_rank_three_expected,
+-      "cb938d7e3dabbc660ec027316eb6b1fad25e5dbe4c263b9e857360c6bec7cb4c"));
++      "8e02b4b81f38e5eca7a0878cdee5a15ec3049fb105003b74485a2086dabce5ee"));
+   REQUIRE(bf16_rank_three_source.find("reduce(%arg0)") == std::string::npos);
+ 
+   const RowReductionProgram cosmetic =

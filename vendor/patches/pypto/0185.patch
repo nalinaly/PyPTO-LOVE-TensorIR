@@ -1,0 +1,74 @@
+From 31379171a962f09bad274662f998fe4f2aa9c5b0 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 12:11:55 +0800
+Subject: [PATCH 185/212] Flatten GDN mutation anchors
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 30 ++++++++++++------------
+ 1 file changed, 15 insertions(+), 15 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 83c55910cf9d8e64d3b64a9beb115405fe3f12f3..d2aae5ba25ae57223b1e4434db5197347f6b24cc 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -9131,6 +9131,11 @@ std::string EmitNativeTileGdnRecurrentBatchedSource(
+   indices_full.dense_strides = MakeDenseStridesForMetadata(indices_full.shape);
+   StaticTensor state_row{DataType::FP32, {1, state_width}, {}};
+   state_row.dense_strides = MakeDenseStridesForMetadata(state_row.shape);
++  StaticTensor state_anchor_row{DataType::FP32, {1, value_width}, {}};
++  state_anchor_row.dense_strides =
++      MakeDenseStridesForMetadata(state_anchor_row.shape);
++  StaticTensor state_anchor_row_bf16 = state_anchor_row;
++  state_anchor_row_bf16.dtype = DataType::BF16;
+   StaticTensor state_group{DataType::FP32,
+                            {graph.q_heads, heads_per_query, graph.value_dim,
+                             graph.key_dim}, {}};
+@@ -9201,6 +9206,9 @@ std::string EmitNativeTileGdnRecurrentBatchedSource(
+   const std::string indices_column_type = TensorTypeText(indices_column);
+   const std::string indices_full_type = TensorTypeText(indices_full);
+   const std::string state_row_type = TensorTypeText(state_row);
++  const std::string state_anchor_row_type = TensorTypeText(state_anchor_row);
++  const std::string state_anchor_row_bf16_type =
++      TensorTypeText(state_anchor_row_bf16);
+   const std::string state_group_type = TensorTypeText(state_group);
+   const std::string state_transposed_type = TensorTypeText(state_transposed);
+   const std::string qk_box_type = TensorTypeText(qk_box);
+@@ -9616,31 +9624,23 @@ std::string EmitNativeTileGdnRecurrentBatchedSource(
+     source += state_row_type;
+     source += ") -> ";
+     source += state_row_type;
+-    const std::string stored_group = "%stored_group_" + batch_suffix;
+     const std::string anchor_f32 = "%state_anchor_f32_" + batch_suffix;
+     const std::string anchor_bf16 = "%state_anchor_bf16_" + batch_suffix;
+     const std::string anchor_box = "%state_anchor_box_" + batch_suffix;
+     std::string anchor_full;
+     const std::string anchored_output = "%anchored_output_" + batch_suffix;
+-    source += "\n    " + stored_group + " = reshape " + stored_state + " : ";
++    source += "\n    " + anchor_f32 + " = slice " + stored_state +
++              " starts = [0, 0] limits = [1, " +
++              std::to_string(value_width) + "] strides = [1, 1] : ";
+     source += state_row_type;
+     source += " -> ";
+-    source += state_group_type;
+-    source += "\n    " + anchor_f32 + " = slice " + stored_group +
+-              " starts = [0, 0, 0, 0] limits = [" +
+-              std::to_string(graph.q_heads) + ", " +
+-              std::to_string(heads_per_query) + ", " +
+-              std::to_string(graph.value_dim) +
+-              ", 1] strides = [1, 1, 1, 1] : ";
+-    source += state_group_type;
+-    source += " -> ";
+-    source += parameter_group_type;
++    source += state_anchor_row_type;
+     source += "\n    " + anchor_bf16 + " = convert " + anchor_f32 + " : ";
+-    source += parameter_group_type;
++    source += state_anchor_row_type;
+     source += " -> ";
+-    source += value_group_type;
++    source += state_anchor_row_bf16_type;
+     source += "\n    " + anchor_box + " = reshape " + anchor_bf16 + " : ";
+-    source += value_group_type;
++    source += state_anchor_row_bf16_type;
+     source += " -> ";
+     source += output_box_type;
+     if (graph.tokens_per_request == 1) {

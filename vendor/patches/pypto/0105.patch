@@ -1,0 +1,29 @@
+From 8d4c66d6cafdf0fae8e5cbcf17b5180bc9ea3119 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 23:11:47 +0800
+Subject: [PATCH 105/212] Schedule causal concat by token
+
+---
+ tests/ut/compiler/test_structured_compile.py | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index e66ae72af2f4bf531f5d61c196144dcf8e796233..209b437e0855be40edc9be089e3d571e81ffcc58 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -598,12 +598,12 @@ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+     causal_conv = compile_structured_strict(
+         _native_tile_causal_conv1d.specialize(),
+         request,
+-        _schedule([128, 8]),
++        _schedule([128, 1]),
+     )
+     causal_conv_kernel = causal_conv.artifact.kernel_abi
+     assert causal_conv_kernel.entry_function_name == "pypto_fused_pointwise_v2"
+-    assert causal_conv_kernel.grid_abi.static_dimensions == [1, 1, 1]
+-    assert causal_conv_kernel.grid_abi.tile_sizes == [128, 8]
++    assert causal_conv_kernel.grid_abi.static_dimensions == [8, 1, 1]
++    assert causal_conv_kernel.grid_abi.tile_sizes == [128, 1]
+     assert causal_conv_kernel.argument_layout.input_operand_count == 2
+     assert causal_conv_kernel.argument_layout.total_kernel_argument_count == 3
+     assert [d.shape for d in causal_conv_kernel.argument_layout.operand_descriptors] == [

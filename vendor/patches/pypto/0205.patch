@@ -1,0 +1,549 @@
+From 792c9a0953293fa448aaa9a4856f24ab4bbbb671 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 17:34:50 +0800
+Subject: [PATCH 205/212] Build native matmul with typed TensorIR
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp      |  91 +++++++--
+ src/codegen/nvidia/tensor_ir_codegen.h        |  15 +-
+ .../nvidia/typed_tensor_ir_module_spec.h      |  13 ++
+ .../nvidia_typed_tensor_ir_builder.cpp        | 189 +++++++++++++++---
+ 4 files changed, 255 insertions(+), 53 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 44a4939bddf014d367e360c548e149bbf43b8bd7..714366b9fe707f6b3a3d3d132a08fdf846e80fbe 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -106,6 +106,7 @@ struct StructuredMatmulGraph {
+   bool a_trans;
+   bool b_trans;
+   int64_t k;
++  bool round_bf16_before_result;
+ };
+ 
+ struct NativeTileWeightedRmsNormGraph {
+@@ -2791,7 +2792,8 @@ StructuredMatmulGraph AnalyzeStructuredMatmul(const ir::ProgramPtr& program) {
+            &returned->span_);
+   }
+   return StructuredMatmulGraph{inputs[0], inputs[1], expected_result, a_trans,
+-                               b_trans, lhs_k};
++                               b_trans, lhs_k,
++                               /*round_bf16_before_result=*/false};
+ }
+ 
+ std::string EmitStructuredMatmulSource(const StructuredMatmulGraph& graph) {
+@@ -4709,6 +4711,23 @@ TypedTensorIrModuleSpec MakeNativeGdnRecurrentTensorIrSpec(
+   return module_spec;
+ }
+ 
++TypedTensorIrModuleSpec MakeStructuredMatmulTensorIrSpec(
++    const StructuredMatmulGraph& graph) {
++  TypedTensorIrModuleSpec module_spec;
++  module_spec.kind = TypedTensorIrModuleKind::StructuredMatmul;
++  auto& spec = module_spec.structured_matmul;
++  spec.inputs[0] = MakeTypedTensorIrTensorSpec(
++      graph.lhs, /*has_explicit_strides=*/true);
++  spec.inputs[1] = MakeTypedTensorIrTensorSpec(
++      graph.rhs, /*has_explicit_strides=*/true);
++  spec.result = MakeTypedTensorIrTensorSpec(
++      graph.result, /*has_explicit_strides=*/true);
++  spec.a_transpose = graph.a_trans;
++  spec.b_transpose = graph.b_trans;
++  spec.round_bf16_before_result = graph.round_bf16_before_result;
++  return module_spec;
++}
++
+ bool IsNativeTileMatmulCandidate(const ir::ProgramPtr& program) {
+   if (!IsNativeTilePointwiseCandidate(program)) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+@@ -4716,7 +4735,11 @@ bool IsNativeTileMatmulCandidate(const ir::ProgramPtr& program) {
+   const auto top = ir::As<ir::SeqStmts>(function->body_);
+   const auto scope = ir::As<ir::InCoreScopeStmt>(top->stmts_[0]);
+   const TileLoopNest loop_nest = UnwrapStaticTileLoops(scope->body_);
+-  if (!loop_nest.leaf || loop_nest.leaf->stmts_.size() != 6) return false;
++  if (!loop_nest.leaf ||
++      (loop_nest.leaf->stmts_.size() != 6 &&
++       loop_nest.leaf->stmts_.size() != 7)) {
++    return false;
++  }
+   const auto assignment = ir::As<ir::AssignStmt>(loop_nest.leaf->stmts_[3]);
+   const auto call = assignment ? ir::As<ir::Call>(assignment->value_) : nullptr;
+   return call && call->op_ && ir::IsOp(call, "tile.matmul");
+@@ -4756,7 +4779,8 @@ StructuredMatmulGraph AnalyzeNativeTileMatmul(
+   const StaticTensor declared = ReadStaticTensor(
+       function->return_types_[0], function->span_, "native matmul return");
+   if (lhs.dtype != DataType::BF16 || rhs.dtype != DataType::BF16 ||
+-      result.dtype != DataType::BF16 || lhs.shape.size() != 2 ||
++      (result.dtype != DataType::BF16 && result.dtype != DataType::FP32) ||
++      lhs.shape.size() != 2 ||
+       rhs.shape.size() != 2 || result.shape.size() != 2 ||
+       lhs.shape[1] != rhs.shape[1] || result.shape[0] != lhs.shape[0] ||
+       result.shape[1] != rhs.shape[0] || !SameTensor(result, declared) ||
+@@ -4786,19 +4810,23 @@ StructuredMatmulGraph AnalyzeNativeTileMatmul(
+   }
+ 
+   const TileLoopNest loop_nest = UnwrapStaticTileLoops(scope->body_);
++  const bool widen_rounded_result = result.dtype == DataType::FP32;
++  const size_t assignment_count = widen_rounded_result ? 6 : 5;
++  const size_t statement_count = assignment_count + 1;
+   const uint64_t expected_tiles =
+       static_cast<uint64_t>(lhs.shape[0]) *
+       static_cast<uint64_t>(rhs.shape[0] / 128);
+   if (loop_nest.repetitions != expected_tiles || !loop_nest.leaf ||
+-      loop_nest.leaf->stmts_.size() != 6) {
++      loop_nest.leaf->stmts_.size() != statement_count) {
+     Reject("native matmul loop nest must cover every [1,128] output tile once",
+            &scope->span_);
+   }
+-  constexpr std::array<std::string_view, 5> kOps = {
++  std::vector<std::string_view> expected_ops = {
+       "tile.load", "tile.load", "tile.transpose_view", "tile.matmul",
+       "tile.cast"};
+-  std::array<ir::AssignStmtPtr, 5> assignments;
+-  std::array<ir::CallPtr, 5> calls;
++  if (widen_rounded_result) expected_ops.push_back("tile.cast");
++  std::vector<ir::AssignStmtPtr> assignments(assignment_count);
++  std::vector<ir::CallPtr> calls(assignment_count);
+   for (size_t index = 0; index < assignments.size(); ++index) {
+     assignments[index] =
+         ir::As<ir::AssignStmt>(loop_nest.leaf->stmts_[index]);
+@@ -4807,7 +4835,7 @@ StructuredMatmulGraph AnalyzeNativeTileMatmul(
+                        : nullptr;
+     if (!assignments[index] || !assignments[index]->var_ || !calls[index] ||
+         !calls[index]->op_ ||
+-        !ir::IsOp(calls[index], std::string(kOps[index]))) {
++        !ir::IsOp(calls[index], std::string(expected_ops[index]))) {
+       Reject("native matmul tile operation sequence is invalid",
+              &loop_nest.leaf->stmts_[index]->span_);
+     }
+@@ -4830,13 +4858,19 @@ StructuredMatmulGraph AnalyzeNativeTileMatmul(
+   const auto cast_source = calls[4]->args_.empty()
+                                ? nullptr
+                                : ir::As<ir::Var>(calls[4]->args_[0]);
++  const auto widen_source =
++      widen_rounded_result && !calls[5]->args_.empty()
++          ? ir::As<ir::Var>(calls[5]->args_[0])
++          : nullptr;
+   if (!x_source || x_source.get() != function->params_[0].get() ||
+       !weight_source || weight_source.get() != function->params_[1].get() ||
+       !transpose_source ||
+       transpose_source.get() != assignments[1]->var_.get() || !matmul_lhs ||
+       matmul_lhs.get() != assignments[0]->var_.get() || !matmul_rhs ||
+       matmul_rhs.get() != assignments[2]->var_.get() || !cast_source ||
+-      cast_source.get() != assignments[3]->var_.get()) {
++      cast_source.get() != assignments[3]->var_.get() ||
++      (widen_rounded_result &&
++       (!widen_source || widen_source.get() != assignments[4]->var_.get()))) {
+     Reject("native matmul tile SSA dataflow is invalid", &scope->span_);
+   }
+ 
+@@ -4852,8 +4886,11 @@ StructuredMatmulGraph AnalyzeNativeTileMatmul(
+   const StaticTensor accumulation = ReadStaticTile(
+       assignments[3]->var_->GetType(), assignments[3]->span_,
+       "native matmul accumulation tile");
+-  const StaticTensor output_tile = ReadStaticTile(
++  const StaticTensor rounded_tile = ReadStaticTile(
+       assignments[4]->var_->GetType(), assignments[4]->span_,
++      "native matmul rounded tile");
++  const StaticTensor output_tile = ReadStaticTile(
++      assignments.back()->var_->GetType(), assignments.back()->span_,
+       "native matmul output tile");
+   if (x_tile.dtype != DataType::BF16 ||
+       x_tile.shape != std::vector<int64_t>({1, lhs.shape[1]}) ||
+@@ -4863,7 +4900,9 @@ StructuredMatmulGraph AnalyzeNativeTileMatmul(
+       weight_transposed.shape != std::vector<int64_t>({lhs.shape[1], 128}) ||
+       accumulation.dtype != DataType::FP32 ||
+       accumulation.shape != std::vector<int64_t>({1, 128}) ||
+-      output_tile.dtype != DataType::BF16 ||
++      rounded_tile.dtype != DataType::BF16 ||
++      rounded_tile.shape != std::vector<int64_t>({1, 128}) ||
++      output_tile.dtype != result.dtype ||
+       output_tile.shape != std::vector<int64_t>({1, 128})) {
+     Reject("native matmul tile shapes or dtypes are invalid", &scope->span_);
+   }
+@@ -4879,13 +4918,15 @@ StructuredMatmulGraph AnalyzeNativeTileMatmul(
+           ? ir::As<ir::Var>(store_call->args_[2])
+           : nullptr;
+   if (!store_call || !ir::IsOp(store_call, "tile.store") || !stored_tile ||
+-      stored_tile.get() != assignments[4]->var_.get() || !store_target ||
++      stored_tile.get() != assignments.back()->var_.get() || !store_target ||
+       store_target.get() != function->params_[2].get()) {
+     Reject("native matmul must end in tile.store to the output",
+            &loop_nest.leaf->stmts_.back()->span_);
+   }
+   return StructuredMatmulGraph{lhs, rhs, result, /*a_trans=*/false,
+-                               /*b_trans=*/true, lhs.shape[1]};
++                               /*b_trans=*/true, lhs.shape[1],
++                               /*round_bf16_before_result=*/
++                                   widen_rounded_result};
+ }
+ 
+ bool IsNativeTileGdnProjectionCandidate(const ir::ProgramPtr& program) {
+@@ -8902,13 +8943,14 @@ TensorIrModule::TensorIrModule(TensorIrModuleKind kind, std::string canonical_so
+ 
+ TensorIrModule::TensorIrModule(
+     TensorIrModuleKind kind, TypedTensorIrModuleSpec typed_module_spec,
+-    std::vector<TensorIrValueMetadata> value_metadata, uint32_t input_count)
++    std::vector<TensorIrValueMetadata> value_metadata, uint32_t input_count,
++    uint64_t contraction_extent)
+     : kind_(kind),
+       typed_module_spec_(std::move(typed_module_spec)),
+       entry_name_(EntryNameForKind(kind)),
+       value_metadata_(std::move(value_metadata)),
+       input_count_(input_count),
+-      contraction_extent_(0) {
++      contraction_extent_(contraction_extent) {
+   Validate();
+ }
+ 
+@@ -8921,9 +8963,16 @@ void TensorIrModule::Validate() const {
+     InternalReject("canonical source metadata exceeds 16 MiB");
+   }
+   if (typed_module_spec_.has_value() &&
+-      typed_module_spec_->kind != TypedTensorIrModuleKind::NativeGdnRecurrent) {
++      typed_module_spec_->kind != TypedTensorIrModuleKind::NativeGdnRecurrent &&
++      typed_module_spec_->kind != TypedTensorIrModuleKind::StructuredMatmul) {
+     InternalReject("typed TensorIR module kind is invalid");
+   }
++  if (typed_module_spec_.has_value() &&
++      ((kind_ == TensorIrModuleKind::StructuredMatmul) !=
++       (typed_module_spec_->kind ==
++        TypedTensorIrModuleKind::StructuredMatmul))) {
++    InternalReject("typed TensorIR module kind does not match module metadata");
++  }
+   if (kind_ != TensorIrModuleKind::StructuredMatmul && contraction_extent_ != 0) {
+     InternalReject("non-matmul TensorIR module unexpectedly carries a contraction extent");
+   }
+@@ -9024,7 +9073,8 @@ void TensorIrModule::Validate() const {
+     const TensorIrValueMetadata& result = value_metadata_[2];
+     if (lhs.GetDtypeCode() != DataType::BF16.Code() ||
+         rhs.GetDtypeCode() != DataType::BF16.Code() ||
+-        result.GetDtypeCode() != DataType::BF16.Code() ||
++        (result.GetDtypeCode() != DataType::BF16.Code() &&
++         result.GetDtypeCode() != DataType::FP32.Code()) ||
+         (lhs.GetShape().size() != 2 && lhs.GetShape().size() != 3) ||
+         rhs.GetShape().size() != lhs.GetShape().size() ||
+         result.GetShape().size() != lhs.GetShape().size() ||
+@@ -9304,9 +9354,10 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+         TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
+         graph.result.dense_strides, /*has_explicit_strides=*/true));
+     return TensorIrModule(TensorIrModuleKind::StructuredMatmul,
+-                          EmitStructuredMatmulSource(graph), std::move(metadata),
+-                          /*input_count=*/2,
+-                          /*contraction_extent=*/static_cast<uint64_t>(graph.k));
++                          MakeStructuredMatmulTensorIrSpec(graph),
++                          std::move(metadata), /*input_count=*/2,
++                          /*contraction_extent=*/
++                              static_cast<uint64_t>(graph.k));
+   }
+   if (IsNativeTileGdnProjectionCandidate(program)) {
+     const NativeTileGdnProjectionGraph graph =
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.h b/src/codegen/nvidia/tensor_ir_codegen.h
+index 6f1967c7e7a518eb018562f5951d3b9d56ec72d7..3e832e336ea0c53e13d5e3fb4e89839cf4a27638 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.h
++++ b/src/codegen/nvidia/tensor_ir_codegen.h
+@@ -152,7 +152,7 @@ class TensorIrModule {
+                  uint64_t contraction_extent = 0);
+   TensorIrModule(TensorIrModuleKind kind, TypedTensorIrModuleSpec typed_module_spec,
+                  std::vector<TensorIrValueMetadata> value_metadata,
+-                 uint32_t input_count);
++                 uint32_t input_count, uint64_t contraction_extent = 0);
+   void Validate() const;
+   friend TensorIrModule EmitTensorIr(const ir::ProgramPtr& program);
+   friend TensorIrModule detail::EmitLegacyStaticAddV1(const ir::ProgramPtr& program);
+@@ -178,13 +178,12 @@ class TensorIrModule {
+  * FP32 tensor. It preserves rank and dtype while setting the last result extent
+  * to one; BF16 is explicitly widened to FP32 around the TensorIR reduction.
+  * StructuredMatmul accepts one direct rank-2 or equal-batch rank-3 BF16
+- * tensor.matmul, optionally transposes either physical input through an
+- * explicit TensorIR view, computes BF16xBF16 to F32, and converts the logical
+- * result back to BF16. Its physical input metadata remains unchanged. Native
+- * recurrent GDN produces a compiler-neutral typed module specification; the
+- * private NVIDIA bridge constructs, verifies, prints, and compiles the actual
+- * MLIR ModuleOp. Rejected HIR raises ValueError; this function never invokes
+- * TensorIR or any device compiler.
++ * tensor.matmul, optionally transposes either physical input, and computes
++ * BF16xBF16 through FP32 accumulation. Native tile matmul and recurrent GDN
++ * produce compiler-neutral typed module specifications; the private NVIDIA
++ * bridge constructs, verifies, prints, and compiles the actual MLIR ModuleOp.
++ * Rejected HIR raises ValueError; this function never invokes TensorIR or any
++ * device compiler.
+  */
+ [[nodiscard]] TensorIrModule EmitTensorIr(const ir::ProgramPtr& program);
+ 
+diff --git a/src/codegen/nvidia/typed_tensor_ir_module_spec.h b/src/codegen/nvidia/typed_tensor_ir_module_spec.h
+index 242d8bcf62fa9dabc21cfc8b52c3d556bd33ca9b..fc6703dc7a673feab921a93335b9cbd7af303c6d 100644
+--- a/src/codegen/nvidia/typed_tensor_ir_module_spec.h
++++ b/src/codegen/nvidia/typed_tensor_ir_module_spec.h
+@@ -51,15 +51,28 @@ struct NativeGdnRecurrentTensorIrSpec {
+   double scale = 0.0;
+ };
+ 
++/** Bounded semantic inputs for a typed structured matmul graph. */
++struct StructuredMatmulTensorIrSpec {
++  static constexpr std::size_t kInputCount = 2;
++
++  std::array<TypedTensorIrTensorSpec, kInputCount> inputs;
++  TypedTensorIrTensorSpec result;
++  bool a_transpose = false;
++  bool b_transpose = false;
++  bool round_bf16_before_result = false;
++};
++
+ /** Typed TensorIR builders available through the private NVIDIA bridge. */
+ enum class TypedTensorIrModuleKind : uint8_t {
+   NativeGdnRecurrent = 0,
++  StructuredMatmul = 1,
+ };
+ 
+ /** One compiler-neutral request for typed MLIR/TensorIR construction. */
+ struct TypedTensorIrModuleSpec {
+   TypedTensorIrModuleKind kind = TypedTensorIrModuleKind::NativeGdnRecurrent;
+   NativeGdnRecurrentTensorIrSpec native_gdn_recurrent;
++  StructuredMatmulTensorIrSpec structured_matmul;
+ };
+ 
+ }  // namespace pypto::codegen::nvidia
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index effa41813f8d0575d87ad47d037a37d0a234de8e..725178ce9c8173c27a572b22d3cdbd0715e2ff5c 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -41,12 +41,15 @@ namespace {
+ namespace tir = mlir::nv_tensor_ir;
+ namespace tcg = mlir::nv_tensor_ir::tcutegen;
+ using codegen::nvidia::NativeGdnRecurrentTensorIrSpec;
++using codegen::nvidia::StructuredMatmulTensorIrSpec;
+ using codegen::nvidia::TypedTensorIrElementType;
+ using codegen::nvidia::TypedTensorIrModuleKind;
+ using codegen::nvidia::TypedTensorIrModuleSpec;
+ using codegen::nvidia::TypedTensorIrTensorSpec;
+ 
+ constexpr std::string_view kEntryName = "pypto_fused_pointwise";
++constexpr std::string_view kStructuredMatmulEntryName =
++    "pypto_structured_matmul";
+ constexpr std::string_view kAlignedAddAttribute =
+     "_pypto_align_rhs_trailing_transpose";
+ constexpr size_t kMaximumCanonicalSourceBytes = 16ULL * 1024ULL * 1024ULL;
+@@ -185,6 +188,124 @@ bool ValidateNativeGdnRecurrentSpec(
+   return true;
+ }
+ 
++bool ValidateStructuredMatmulSpec(const StructuredMatmulTensorIrSpec& spec,
++                                  std::string& diagnostic) {
++  const auto reject = [&](std::string message) {
++    diagnostic = "typed TensorIR structured matmul specification rejected: " +
++                 std::move(message);
++    return false;
++  };
++  if (!HasValidStaticMetadata(spec.inputs[0]) ||
++      !HasValidStaticMetadata(spec.inputs[1]) ||
++      !HasValidStaticMetadata(spec.result) || !IsDense(spec.inputs[0]) ||
++      !IsDense(spec.inputs[1]) || !IsDense(spec.result)) {
++    return reject("tensor metadata must be fully static and dense");
++  }
++  const auto& lhs = spec.inputs[0];
++  const auto& rhs = spec.inputs[1];
++  const size_t rank = lhs.shape.size();
++  if (lhs.element_type != TypedTensorIrElementType::BF16 ||
++      rhs.element_type != TypedTensorIrElementType::BF16 ||
++      (spec.result.element_type != TypedTensorIrElementType::BF16 &&
++       spec.result.element_type != TypedTensorIrElementType::FP32) ||
++      (rank != 2 && rank != 3) || rhs.shape.size() != rank ||
++      spec.result.shape.size() != rank ||
++      (spec.result.element_type == TypedTensorIrElementType::FP32) !=
++          spec.round_bf16_before_result) {
++    return reject("tensor dtype, rank, or rounding contract is invalid");
++  }
++  const int64_t batch = rank == 3 ? lhs.shape[0] : 1;
++  if (rank == 3 && rhs.shape[0] != batch) {
++    return reject("rank-3 batch extents must match");
++  }
++  const int64_t m = spec.a_transpose ? lhs.shape.back()
++                                     : lhs.shape[rank - 2];
++  const int64_t lhs_k = spec.a_transpose ? lhs.shape[rank - 2]
++                                         : lhs.shape.back();
++  const int64_t rhs_k = spec.b_transpose ? rhs.shape.back()
++                                         : rhs.shape[rank - 2];
++  const int64_t n = spec.b_transpose ? rhs.shape[rank - 2]
++                                     : rhs.shape.back();
++  const std::vector<int64_t> expected =
++      rank == 2 ? std::vector<int64_t>{m, n}
++                : std::vector<int64_t>{batch, m, n};
++  if (lhs_k != rhs_k || lhs_k % 128 != 0 || n % 16 != 0 ||
++      spec.result.shape != expected) {
++    return reject("contraction or result geometry is invalid");
++  }
++  return true;
++}
++
++mlir::Type ElementType(mlir::OpBuilder& builder,
++                       TypedTensorIrElementType element_type) {
++  if (element_type == TypedTensorIrElementType::BF16) {
++    return builder.getBF16Type();
++  }
++  if (element_type == TypedTensorIrElementType::FP32) {
++    return builder.getF32Type();
++  }
++  if (element_type == TypedTensorIrElementType::INT32) {
++    return builder.getIntegerType(32, mlir::IntegerType::Signed);
++  }
++  return builder.getIntegerType(64, mlir::IntegerType::Signed);
++}
++
++mlir::RankedTensorType TensorType(
++    mlir::OpBuilder& builder, TypedTensorIrElementType element_type,
++    llvm::ArrayRef<int64_t> shape) {
++  return mlir::RankedTensorType::get(shape,
++                                     ElementType(builder, element_type));
++}
++
++mlir::Value BuildStructuredMatmul(
++    mlir::OpBuilder& builder, mlir::Location location,
++    const StructuredMatmulTensorIrSpec& spec, mlir::Block& entry) {
++  llvm::SmallVector<mlir::Value> arguments(entry.getArguments().begin(),
++                                           entry.getArguments().end());
++  mlir::Value lhs = arguments[0];
++  mlir::Value rhs = arguments[1];
++  const size_t rank = spec.inputs[0].shape.size();
++  const llvm::SmallVector<int64_t> permutation =
++      rank == 2 ? llvm::SmallVector<int64_t>{1, 0}
++                : llvm::SmallVector<int64_t>{0, 2, 1};
++  if (spec.a_transpose) {
++    std::vector<int64_t> shape = spec.inputs[0].shape;
++    std::swap(shape[rank - 2], shape[rank - 1]);
++    lhs = tir::TransposeOp::create(
++              builder, location,
++              TensorType(builder, spec.inputs[0].element_type, shape), lhs,
++              permutation)
++              .getOutput();
++  }
++  if (spec.b_transpose) {
++    std::vector<int64_t> shape = spec.inputs[1].shape;
++    std::swap(shape[rank - 2], shape[rank - 1]);
++    rhs = tir::TransposeOp::create(
++              builder, location,
++              TensorType(builder, spec.inputs[1].element_type, shape), rhs,
++              permutation)
++              .getOutput();
++  }
++  const auto accumulation_type = TensorType(
++      builder, TypedTensorIrElementType::FP32, spec.result.shape);
++  mlir::Value result =
++      tir::MatmulOp::create(builder, location, accumulation_type, lhs, rhs)
++          .getC();
++  const auto rounded_type = TensorType(
++      builder, TypedTensorIrElementType::BF16, spec.result.shape);
++  result =
++      tir::ConvertOp::create(builder, location, rounded_type, result).getOutput();
++  if (spec.result.element_type == TypedTensorIrElementType::FP32) {
++    result = tir::ConvertOp::create(
++                 builder, location,
++                 TensorType(builder, spec.result.element_type,
++                            spec.result.shape),
++                 result)
++                 .getOutput();
++  }
++  return result;
++}
++
+ class NativeGdnRecurrentBuilder {
+  public:
+   NativeGdnRecurrentBuilder(mlir::OpBuilder& builder, mlir::Location location,
+@@ -561,14 +682,19 @@ void AppendDiagnostic(std::string& output, mlir::Diagnostic& diagnostic) {
+ 
+ std::optional<BuiltTypedTensorIrModule> BuildTypedTensorIrModule(
+     const TypedTensorIrModuleSpec& spec, std::string& diagnostic) {
+-  if (spec.kind != TypedTensorIrModuleKind::NativeGdnRecurrent) {
++  if (spec.kind == TypedTensorIrModuleKind::NativeGdnRecurrent) {
++    if (!ValidateNativeGdnRecurrentSpec(spec.native_gdn_recurrent,
++                                        diagnostic)) {
++      return std::nullopt;
++    }
++  } else if (spec.kind == TypedTensorIrModuleKind::StructuredMatmul) {
++    if (!ValidateStructuredMatmulSpec(spec.structured_matmul, diagnostic)) {
++      return std::nullopt;
++    }
++  } else {
+     diagnostic = "typed TensorIR module kind is unsupported";
+     return std::nullopt;
+   }
+-  if (!ValidateNativeGdnRecurrentSpec(spec.native_gdn_recurrent,
+-                                      diagnostic)) {
+-    return std::nullopt;
+-  }
+ 
+   mlir::DialectRegistry registry;
+   tir::registerDialects(registry);
+@@ -583,39 +709,52 @@ std::optional<BuiltTypedTensorIrModule> BuildTypedTensorIrModule(
+   auto module = mlir::ModuleOp::create(location);
+   builder.setInsertionPointToStart(module.getBody());
+ 
+-  const NativeGdnRecurrentTensorIrSpec& gdn = spec.native_gdn_recurrent;
+   llvm::SmallVector<mlir::Type> input_types;
+-  input_types.reserve(gdn.inputs.size());
+-  const auto element_type = [&](TypedTensorIrElementType type) -> mlir::Type {
+-    if (type == TypedTensorIrElementType::BF16) return builder.getBF16Type();
+-    if (type == TypedTensorIrElementType::FP32) return builder.getF32Type();
+-    if (type == TypedTensorIrElementType::INT32) {
+-      return builder.getIntegerType(32, mlir::IntegerType::Signed);
+-    }
+-    return builder.getIntegerType(64, mlir::IntegerType::Signed);
+-  };
+-  for (const TypedTensorIrTensorSpec& input : gdn.inputs) {
++  std::vector<TypedTensorIrTensorSpec> inputs;
++  TypedTensorIrTensorSpec result;
++  std::string_view entry_name;
++  if (spec.kind == TypedTensorIrModuleKind::NativeGdnRecurrent) {
++    inputs.assign(spec.native_gdn_recurrent.inputs.begin(),
++                  spec.native_gdn_recurrent.inputs.end());
++    result = spec.native_gdn_recurrent.result;
++    entry_name = kEntryName;
++  } else {
++    inputs.assign(spec.structured_matmul.inputs.begin(),
++                  spec.structured_matmul.inputs.end());
++    result = spec.structured_matmul.result;
++    entry_name = kStructuredMatmulEntryName;
++  }
++  input_types.reserve(inputs.size());
++  for (const TypedTensorIrTensorSpec& input : inputs) {
+     input_types.push_back(mlir::RankedTensorType::get(
+-        input.shape, element_type(input.element_type)));
++        input.shape, ElementType(builder, input.element_type)));
+   }
+   const mlir::Type result_type = mlir::RankedTensorType::get(
+-      gdn.result.shape, element_type(gdn.result.element_type));
++      result.shape, ElementType(builder, result.element_type));
+   const mlir::FunctionType function_type =
+       builder.getFunctionType(input_types, {result_type});
+   auto graph = tir::GraphOp::create(
+-      builder, location, kEntryName, function_type, /*arg_attrs=*/nullptr,
++      builder, location, entry_name, function_type, /*arg_attrs=*/nullptr,
+       /*res_attrs=*/nullptr);
+-  for (size_t index = 0; index < gdn.inputs.size(); ++index) {
++  for (size_t index = 0; index < inputs.size(); ++index) {
+     graph.setArgAttr(index, tir::TensorIRDialect::getStrideAttrName(),
+-                     MakeStrideAttribute(builder, gdn.inputs[index].strides));
++                     MakeStrideAttribute(builder, inputs[index].strides));
+   }
+   graph.setResultAttr(0, tir::TensorIRDialect::getStrideAttrName(),
+-                      MakeStrideAttribute(builder, gdn.result.strides));
++                      MakeStrideAttribute(builder, result.strides));
+   mlir::Block* entry = graph.addEntryBlock();
+   builder.setInsertionPointToStart(entry);
+-  NativeGdnRecurrentBuilder gdn_builder(builder, location, gdn);
+-  const mlir::Value result = gdn_builder.Build(*entry);
+-  (void)tir::ResultsOp::create(builder, location, mlir::ValueRange{result});
++  mlir::Value built_result;
++  if (spec.kind == TypedTensorIrModuleKind::NativeGdnRecurrent) {
++    NativeGdnRecurrentBuilder gdn_builder(
++        builder, location, spec.native_gdn_recurrent);
++    built_result = gdn_builder.Build(*entry);
++  } else {
++    built_result = BuildStructuredMatmul(
++        builder, location, spec.structured_matmul, *entry);
++  }
++  (void)tir::ResultsOp::create(builder, location,
++                               mlir::ValueRange{built_result});
+ 
+   if (mlir::failed(mlir::verify(module))) {
+     if (diagnostic.empty()) {

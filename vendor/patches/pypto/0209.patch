@@ -1,0 +1,85 @@
+From 987abb9ad276dac1de4e6190ae04435404543a99 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 18:38:49 +0800
+Subject: [PATCH 209/212] Support row-pitched native matmul results
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp        | 14 ++++++++------
+ src/compiler/nvidia_typed_tensor_ir_builder.cpp | 11 +++++++++--
+ 2 files changed, 17 insertions(+), 8 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index b34637bcd3ccb20f6391ee1f34a67e8f16f79837..d77137ff5fbefe1391e273b3c0d8665ac1dc0b88 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -4822,10 +4822,10 @@ StructuredMatmulGraph AnalyzeNativeTileMatmul(
+   const StaticTensor rhs = ReadStaticTensor(
+       function->params_[1]->GetType(), function->params_[1]->span_,
+       "native matmul weight");
+-  const StaticTensor result = ReadStaticTensor(
++  const StaticTensor result = ReadStaticNdStridedTensor(
+       function->params_[2]->GetType(), function->params_[2]->span_,
+       "native matmul output");
+-  const StaticTensor declared = ReadStaticTensor(
++  const StaticTensor declared = ReadStaticNdStridedTensor(
+       function->return_types_[0], function->span_, "native matmul return");
+   if (lhs.dtype != DataType::BF16 || rhs.dtype != DataType::BF16 ||
+       (result.dtype != DataType::BF16 && result.dtype != DataType::FP32) ||
+@@ -4833,7 +4833,9 @@ StructuredMatmulGraph AnalyzeNativeTileMatmul(
+       rhs.shape.size() != 2 || result.shape.size() != 2 ||
+       lhs.shape[1] != rhs.shape[1] || result.shape[0] != lhs.shape[0] ||
+       result.shape[1] != rhs.shape[0] || !SameTensor(result, declared) ||
+-      lhs.shape[1] % 128 != 0 || rhs.shape[0] % 128 != 0) {
++      lhs.shape[1] % 128 != 0 || rhs.shape[0] % 128 != 0 ||
++      result.dense_strides[1] != 1 ||
++      result.dense_strides[0] < result.shape[1]) {
+     Reject("native matmul activation/weight/output shapes are incompatible",
+            &function->span_);
+   }
+@@ -9111,14 +9113,14 @@ TensorIrValueMetadata::TensorIrValueMetadata(TensorIrValueRole role, uint32_t or
+                   [](int64_t stride) { return stride >= 0; });
+   const std::vector<int64_t> dense_strides =
+       MakeDenseStridesForMetadata(shape_);
+-  const bool rowPitchedInput =
+-      role_ == TensorIrValueRole::Input && shape_.size() >= 2 &&
++  const bool rowPitchedValue =
++      shape_.size() >= 2 &&
+       logical_dense_strides_.size() == shape_.size() &&
+       logical_dense_strides_[0] >= dense_strides[0] &&
+       std::equal(logical_dense_strides_.begin() + 1,
+                  logical_dense_strides_.end(), dense_strides.begin() + 1);
+   if (logical_dense_strides_ != dense_strides &&
+-      !zeroStrideInput && !rowPitchedInput) {
++      !zeroStrideInput && !rowPitchedValue) {
+     InternalReject(
+         "value metadata strides must be dense, row-pitched, or a zero-stride "
+         "input view");
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index 4713c08fb5471a8c093cfe02947d9fc6f2370ee0..39a7a8f6d006adcf9a017e50edf16d0382e74a16 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -199,8 +199,8 @@ bool ValidateStructuredMatmulSpec(const StructuredMatmulTensorIrSpec& spec,
+   if (!HasValidStaticMetadata(spec.inputs[0]) ||
+       !HasValidStaticMetadata(spec.inputs[1]) ||
+       !HasValidStaticMetadata(spec.result) || !IsDense(spec.inputs[0]) ||
+-      !IsDense(spec.inputs[1]) || !IsDense(spec.result)) {
+-    return reject("tensor metadata must be fully static and dense");
++      !IsDense(spec.inputs[1])) {
++    return reject("input metadata must be fully static and dense");
+   }
+   const auto& lhs = spec.inputs[0];
+   const auto& rhs = spec.inputs[1];
+@@ -215,6 +215,13 @@ bool ValidateStructuredMatmulSpec(const StructuredMatmulTensorIrSpec& spec,
+           spec.round_bf16_before_result) {
+     return reject("tensor dtype, rank, or rounding contract is invalid");
+   }
++  const bool result_layout_valid =
++      IsDense(spec.result) ||
++      (rank == 2 && spec.result.strides[1] == 1 &&
++       spec.result.strides[0] >= spec.result.shape[1]);
++  if (!result_layout_valid) {
++    return reject("result must be dense or row-pitched");
++  }
+   const int64_t batch = rank == 3 ? lhs.shape[0] : 1;
+   if (rank == 3 && rhs.shape[0] != batch) {
+     return reject("rank-3 batch extents must match");

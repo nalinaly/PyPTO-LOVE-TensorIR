@@ -1,0 +1,269 @@
+From c13409bc0cd350714a4485baeab14036ea3b72bd Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 06:48:47 +0800
+Subject: [PATCH 152/212] Accept strided paged cache tensors
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp     | 78 ++++++++++++++++++--
+ tests/ut/compiler/test_structured_compile.py | 48 +++++++-----
+ 2 files changed, 99 insertions(+), 27 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 1ecd10591d96e8cb5cb68f9b471388165732167a..9e16707c659f611f5f2d2936b9bed0940d9d92b0 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -257,6 +257,62 @@ StaticTensor ReadStaticTensor(const ir::TypePtr& type, const ir::Span& span,
+   return StaticTensor{tensor_type->dtype_, shape, MakeDenseStrides(shape, span)};
+ }
+ 
++StaticTensor ReadStaticNdStridedTensor(const ir::TypePtr& type,
++                                       const ir::Span& span,
++                                       std::string_view location) {
++  const auto tensor_type = ir::As<ir::TensorType>(type);
++  if (!tensor_type || tensor_type->memref_.has_value()) {
++    Reject(std::string(location) + " must have plain TensorType", &span);
++  }
++  if (!tensor_type->tensor_view_.has_value()) {
++    return ReadStaticTensor(type, span, location);
++  }
++  if (tensor_type->dtype_ != DataType::BF16 &&
++      tensor_type->dtype_ != DataType::FP32) {
++    Reject(std::string(location) + " dtype must be BF16 or FP32, got " +
++               tensor_type->dtype_.ToString(),
++           &span);
++  }
++  if (tensor_type->shape_.empty() ||
++      tensor_type->shape_.size() > kMaximumRank) {
++    Reject(std::string(location) + " rank must be between 1 and 32", &span);
++  }
++  const ir::TensorView& view = *tensor_type->tensor_view_;
++  if (view.layout != ir::TensorLayout::ND || !view.valid_shape.empty() ||
++      view.pad != ir::PadValue::null ||
++      view.stride.size() != tensor_type->shape_.size()) {
++    Reject(std::string(location) +
++               " supports only a complete unpadded ND TensorView stride",
++           &span);
++  }
++
++  std::vector<int64_t> shape;
++  std::vector<int64_t> strides;
++  shape.reserve(tensor_type->shape_.size());
++  strides.reserve(view.stride.size());
++  for (const ir::ExprPtr& dimension : tensor_type->shape_) {
++    const auto constant = ir::As<ir::ConstInt>(dimension);
++    if (!constant || constant->dtype() != DataType::INDEX ||
++        constant->value_ <= 0) {
++      Reject(std::string(location) +
++                 " shape must be fully static and positive",
++             &span);
++    }
++    shape.push_back(constant->value_);
++  }
++  for (const ir::ExprPtr& stride : view.stride) {
++    const auto constant = ir::As<ir::ConstInt>(stride);
++    if (!constant || constant->dtype() != DataType::INDEX ||
++        constant->value_ < 0) {
++      Reject(std::string(location) +
++                 " strides must be non-negative static INDEX values",
++             &span);
++    }
++    strides.push_back(constant->value_);
++  }
++  return StaticTensor{tensor_type->dtype_, shape, strides};
++}
++
+ StaticTensor ReadStaticIntegerTensor(const ir::TypePtr& type,
+                                      const ir::Span& span,
+                                      std::string_view location) {
+@@ -4347,10 +4403,10 @@ NativeTilePagedCacheWriteGraph AnalyzeNativeTilePagedCacheWrite(
+            &function->span_);
+   }
+ 
+-  const StaticTensor key_cache = ReadStaticTensor(
++  const StaticTensor key_cache = ReadStaticNdStridedTensor(
+       function->params_[0]->GetType(), function->params_[0]->span_,
+       "native paged cache write key cache");
+-  const StaticTensor value_cache = ReadStaticTensor(
++  const StaticTensor value_cache = ReadStaticNdStridedTensor(
+       function->params_[1]->GetType(), function->params_[1]->span_,
+       "native paged cache write value cache");
+   StaticTensor physical_row = ReadStaticIntegerTensor(
+@@ -4370,17 +4426,19 @@ NativeTilePagedCacheWriteGraph AnalyzeNativeTilePagedCacheWrite(
+       "native paged cache write declared output");
+   if (key_cache.dtype != DataType::BF16 ||
+       !SameTensor(key_cache, value_cache) || key_cache.shape.size() != 2 ||
++      key_cache.dense_strides[1] != 1 ||
++      key_cache.dense_strides[0] < key_cache.shape[1] ||
+       physical_row.dtype != DataType::INT64 ||
+       physical_row.shape.size() != 2 || key.dtype != DataType::BF16 ||
+       !SameTensor(key, value) || !SameTensor(key, result) ||
+       !SameTensor(result, declared) || key.shape.size() != 2 ||
+-      key.shape[0] != 1 || key_cache.shape[0] <= 0 ||
++      key.shape[0] <= 0 || key_cache.shape[0] <= 0 ||
+       key_cache.shape[1] != key.shape[1] || key.shape[1] % 128 != 0 ||
+       physical_row.shape != key.shape) {
+     Reject("native paged cache write tensor geometry is invalid",
+            &function->span_);
+   }
+-  physical_row.dense_strides = {0, 0};
++  physical_row.dense_strides = {1, 0};
+ 
+   const auto top = ir::As<ir::SeqStmts>(function->body_);
+   const auto scope = top && top->stmts_.size() == 2
+@@ -4529,10 +4587,10 @@ NativeTilePagedPrefillGraph AnalyzeNativeTilePagedPrefill(
+   const StaticTensor query = ReadStaticTensor(
+       function->params_[0]->GetType(), function->params_[0]->span_,
+       "native paged prefill query");
+-  const StaticTensor key_cache = ReadStaticTensor(
++  const StaticTensor key_cache = ReadStaticNdStridedTensor(
+       function->params_[1]->GetType(), function->params_[1]->span_,
+       "native paged prefill key cache");
+-  const StaticTensor value_cache = ReadStaticTensor(
++  const StaticTensor value_cache = ReadStaticNdStridedTensor(
+       function->params_[2]->GetType(), function->params_[2]->span_,
+       "native paged prefill value cache");
+   const StaticTensor req_to_token = ReadStaticIntegerTensor(
+@@ -4553,6 +4611,8 @@ NativeTilePagedPrefillGraph AnalyzeNativeTilePagedPrefill(
+   if (query.dtype != DataType::BF16 || query.shape.size() != 3 ||
+       key_cache.dtype != DataType::BF16 ||
+       !SameTensor(key_cache, value_cache) || key_cache.shape.size() != 2 ||
++      key_cache.dense_strides[1] != 1 ||
++      key_cache.dense_strides[0] < key_cache.shape[1] ||
+       req_to_token.dtype != DataType::INT32 ||
+       req_to_token.shape.size() != 2 ||
+       request_index.dtype != DataType::INT64 ||
+@@ -4769,10 +4829,10 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+   const StaticTensor query = ReadStaticTensor(
+       function->params_[0]->GetType(), function->params_[0]->span_,
+       "native paged decode query");
+-  const StaticTensor key_cache = ReadStaticTensor(
++  const StaticTensor key_cache = ReadStaticNdStridedTensor(
+       function->params_[1]->GetType(), function->params_[1]->span_,
+       "native paged decode key cache");
+-  const StaticTensor value_cache = ReadStaticTensor(
++  const StaticTensor value_cache = ReadStaticNdStridedTensor(
+       function->params_[2]->GetType(), function->params_[2]->span_,
+       "native paged decode value cache");
+   const StaticTensor req_to_token = ReadStaticIntegerTensor(
+@@ -4797,6 +4857,8 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+       valid_tokens.dtype != DataType::INT64 ||
+       result.dtype != DataType::BF16 || query.shape.size() != 3 ||
+       key_cache.shape.size() != 2 || !SameTensor(key_cache, value_cache) ||
++      key_cache.dense_strides[1] != 1 ||
++      key_cache.dense_strides[0] < key_cache.shape[1] ||
+       req_to_token.shape.size() != 2 || request_index.shape.size() != 2 ||
+       valid_tokens.shape.size() != 2 || !SameTensor(query, result) ||
+       !SameTensor(result, declared)) {
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index 4596802f3f9433e7d4ce4f67a3a745befef508bf..634f0edf12b0d9ae05d45ac326e71f4ab5384183 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -31,6 +31,10 @@ from pypto.compiler import (
+ )
+ from pypto.pypto_core import ir
+ 
++_PAGED_CACHE_VIEW = pl.TensorView(
++    stride=[2048, 1], layout=ir.TensorLayout.ND
++)
++
+ 
+ @pl.jit
+ def _native_tile_add(
+@@ -284,8 +288,8 @@ def _native_tile_attention(
+ @pl.jit
+ def _native_tile_paged_decode(
+     query: pl.Tensor[[1, 8, 256], pl.BF16],
+-    key_cache: pl.Tensor[[1024, 512], pl.BF16],
+-    value_cache: pl.Tensor[[1024, 512], pl.BF16],
++    key_cache: pl.Tensor[[1024, 512], pl.BF16, _PAGED_CACHE_VIEW],
++    value_cache: pl.Tensor[[1024, 512], pl.BF16, _PAGED_CACHE_VIEW],
+     req_to_token: pl.Tensor[[65, 4096], pl.INT32],
+     request_index: pl.Tensor[[1, 16], pl.INT64],
+     valid_tokens: pl.Tensor[[1, 16], pl.INT64],
+@@ -369,15 +373,15 @@ def _native_tile_paged_decode(
+ 
+ @pl.jit
+ def _native_tile_paged_cache_write(
+-    key_cache: pl.InOut[pl.Tensor[[1024, 512], pl.BF16]],
+-    value_cache: pl.InOut[pl.Tensor[[1024, 512], pl.BF16]],
+-    physical_row: pl.Tensor[[1, 512], pl.INT64],
+-    key: pl.Tensor[[1, 512], pl.BF16],
+-    value: pl.Tensor[[1, 512], pl.BF16],
+-    out: pl.Out[pl.Tensor[[1, 512], pl.BF16]],
++    key_cache: pl.InOut[pl.Tensor[[1024, 512], pl.BF16, _PAGED_CACHE_VIEW]],
++    value_cache: pl.InOut[pl.Tensor[[1024, 512], pl.BF16, _PAGED_CACHE_VIEW]],
++    physical_row: pl.Tensor[[13, 512], pl.INT64],
++    key: pl.Tensor[[13, 512], pl.BF16],
++    value: pl.Tensor[[13, 512], pl.BF16],
++    out: pl.Out[pl.Tensor[[13, 512], pl.BF16]],
+ ):
+     with pl.at(level=pl.Level.CORE_GROUP):
+-        for row in pl.range(1):
++        for row in pl.range(13):
+             physical_row_i64 = pl.read(physical_row, [row, 0])
+             physical_row_i32 = pl.cast(physical_row_i64, pl.INT32)
+             key_tile = pl.load(
+@@ -396,8 +400,8 @@ def _native_tile_paged_cache_write(
+ @pl.jit
+ def _native_tile_paged_prefill(
+     query: pl.Tensor[[2, 2, 256], pl.BF16],
+-    key_cache: pl.Tensor[[1024, 256], pl.BF16],
+-    value_cache: pl.Tensor[[1024, 256], pl.BF16],
++    key_cache: pl.Tensor[[1024, 256], pl.BF16, _PAGED_CACHE_VIEW],
++    value_cache: pl.Tensor[[1024, 256], pl.BF16, _PAGED_CACHE_VIEW],
+     req_to_token: pl.Tensor[[65, 4096], pl.INT32],
+     request_index: pl.Tensor[[1, 16], pl.INT64],
+     prefix_tokens: pl.Tensor[[1, 16], pl.INT32],
+@@ -771,6 +775,8 @@ def _assert_native_paged_decode_compilation(request: CompileRequest) -> None:
+         [1, 16],
+         [1, 8, 256],
+     ]
++    assert descriptors[1].strides == [2048, 1]
++    assert descriptors[2].strides == [2048, 1]
+     assert descriptors[4].strides == [1, 0]
+     assert descriptors[5].strides == [1, 0]
+     assert not paged_decode.artifact.fallback_used
+@@ -780,24 +786,26 @@ def _assert_native_paged_cache_write_compilation(request: CompileRequest) -> Non
+     cache_write = compile_structured_strict(
+         _native_tile_paged_cache_write.specialize(),
+         request,
+-        _schedule(128),
++        _schedule([1, 128]),
+     )
+     kernel = cache_write.artifact.kernel_abi
+     assert kernel.entry_function_name == "pypto_fused_pointwise"
+-    assert kernel.grid_abi.static_dimensions == [4, 1, 1]
+-    assert kernel.grid_abi.tile_sizes == [128]
++    assert kernel.grid_abi.static_dimensions == [52, 1, 1]
++    assert kernel.grid_abi.tile_sizes == [1, 128]
+     assert kernel.argument_layout.input_operand_count == 5
+     assert kernel.argument_layout.total_kernel_argument_count == 6
+     descriptors = kernel.argument_layout.operand_descriptors
+     assert [descriptor.shape for descriptor in descriptors] == [
+         [1024, 512],
+         [1024, 512],
+-        [1, 512],
+-        [1, 512],
+-        [1, 512],
+-        [1, 512],
++        [13, 512],
++        [13, 512],
++        [13, 512],
++        [13, 512],
+     ]
+-    assert descriptors[2].strides == [0, 0]
++    assert descriptors[0].strides == [2048, 1]
++    assert descriptors[1].strides == [2048, 1]
++    assert descriptors[2].strides == [1, 0]
+     assert not cache_write.artifact.fallback_used
+ 
+ 
+@@ -823,6 +831,8 @@ def _assert_native_paged_prefill_compilation(request: CompileRequest) -> None:
+         [1, 16],
+         [2, 2, 256],
+     ]
++    assert descriptors[1].strides == [2048, 1]
++    assert descriptors[2].strides == [2048, 1]
+     assert descriptors[4].strides == [0, 0]
+     assert descriptors[5].strides == [0, 0]
+     assert not prefill.artifact.fallback_used

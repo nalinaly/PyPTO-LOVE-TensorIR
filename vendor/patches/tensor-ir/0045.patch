@@ -1,0 +1,74 @@
+From 76a49bb3db2922e3c6dd06c1218497fe8e9f9b92 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 01:49:44 +0800
+Subject: [PATCH 45/82] Invalidate lazy loads on every rewrite attempt
+
+---
+ .../TensorToCudaTile/LayoutPropagationImpl.cpp | 18 ++++++++++--------
+ 1 file changed, 10 insertions(+), 8 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index b7b259aa22b1aa0cba28d7c3380e2278d375737d..0ae39d83a6edc8e0fb8bca5872c2f4c519a2bb85 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -10,6 +10,8 @@
+ 
+ #include "cuda_tile/Dialect/CudaTile/IR/Ops.h"
+ 
++#include <cstdint>
++
+ namespace tcg = mlir::nv_tensor_ir::tcutegen;
+ 
+ //===----------------------------------------------------------------------===//
+@@ -140,8 +142,8 @@ private:
+   /// materialized lazily from getTile so each new load immediately gains a
+   /// real SSA consumer instead of living only in this side table.
+   ConversionPatternRewriter *activeRewriter = nullptr;
+-  Operation *activeOperation = nullptr;
+-  DenseMap<IterationSpace *, Operation *> loadedTileCacheOwner;
++  uint64_t rewriteEpoch = 0;
++  DenseMap<IterationSpace *, uint64_t> loadedTileCacheEpoch;
+ 
+   /// A cached load is only safe while one conversion pattern is being
+   /// rewritten. Graph splitting may erase that pattern's replacement later,
+@@ -747,7 +749,7 @@ public:
+     state.blockStructure = &state.blockStructures[resultsOp.getOperation()];
+     state.iterationSpace = &state.blockStructure->iterationSpaces[0];
+     state.activeRewriter = &rewriter;
+-    state.activeOperation = resultsOp.getOperation();
++    ++state.rewriteEpoch;
+     state.layouts.clear();
+     for (Value operand : resultsOp.getOperands()) {
+       auto layout = dyn_cast_or_null<LayoutSourceAttrInterface>(
+@@ -931,8 +933,8 @@ LogicalResult ConversionStateImpl::start(GraphOp graphOp) {
+   blockStructure = nullptr;
+   iterationSpace = nullptr;
+   activeRewriter = nullptr;
+-  activeOperation = nullptr;
+-  loadedTileCacheOwner.clear();
++  rewriteEpoch = 0;
++  loadedTileCacheEpoch.clear();
+   layouts.clear();
+   operandIndex = 0;
+ 
+@@ -946,7 +948,7 @@ LogicalResult ConversionStateImpl::update(ConversionPatternRewriter &rewriter,
+                                           Operation *op) {
+   LLVM_DEBUG(llvm::dbgs() << "Converting: " << op->getName() << "\n");
+   activeRewriter = &rewriter;
+-  activeOperation = op;
++  ++rewriteEpoch;
+ 
+   // Verify the attribute-level legality (layout / iteration-space-id presence
+   // and validity). This is shared with the pre-flight feasibility check. Here,
+@@ -1041,9 +1043,9 @@ Value ConversionStateImpl::getTile(Value operand) {
+       iterationSpace = &blockStructure->iterationSpaces[idx];
+     }
+ 
+-    if (loadedTileCacheOwner.lookup(iterationSpace) != activeOperation) {
++    if (loadedTileCacheEpoch.lookup(iterationSpace) != rewriteEpoch) {
+       resetLoadedTileCache(*iterationSpace);
+-      loadedTileCacheOwner[iterationSpace] = activeOperation;
++      loadedTileCacheEpoch[iterationSpace] = rewriteEpoch;
+     }
+     auto it = iterationSpace->loadedTiles.find(tensorSource);
+     assert(it != iterationSpace->loadedTiles.end() &&

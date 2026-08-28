@@ -1,0 +1,37 @@
+From 233ab6ed25f0ae9c6c4b122072bd31079f8fa185 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Mon, 24 Aug 2026 22:24:26 +0800
+Subject: [PATCH 03/82] build: avoid CUDA toolkit runpath leakage
+
+---
+ lib/Support/CMakeLists.txt | 17 +++++++++++------
+ 1 file changed, 11 insertions(+), 6 deletions(-)
+
+diff --git a/lib/Support/CMakeLists.txt b/lib/Support/CMakeLists.txt
+index ef5cb4c4da5212f0321d0b3a4a336cf535647c76..1d6101860059eb4bc326078b5e7d0c61c5bbf693 100644
+--- a/lib/Support/CMakeLists.txt
++++ b/lib/Support/CMakeLists.txt
+@@ -12,12 +12,17 @@ add_tensor_ir_library(NVTensorIRCudaApi STATIC
+   PARTIAL_SOURCES_INTENDED
+ )
+ 
+-target_link_libraries(NVTensorIRCudaApi
+-  PUBLIC
+-    CUDA::toolkit
+-  PRIVATE
+-    ${CMAKE_DL_LIBS}
+-)
++# The dynamic dispatch implementation needs CUDA declarations, not a linked
++# CUDA runtime. CUDA::toolkit also exports the toolkit library directory; when
++# propagated through this static target that directory becomes an absolute
++# RUNPATH on every embedding product even though no CUDA DSO is DT_NEEDED.
++# Export only the public-header requirement and let CudaApi.cpp's explicit
++# loader own runtime resolution.
++foreach(_tensor_ir_cuda_include_dir IN LISTS CUDAToolkit_INCLUDE_DIRS)
++  target_include_directories(NVTensorIRCudaApi SYSTEM PUBLIC
++    "$<BUILD_INTERFACE:${_tensor_ir_cuda_include_dir}>")
++endforeach()
++target_link_libraries(NVTensorIRCudaApi PRIVATE ${CMAKE_DL_LIBS})
+ 
+ if(TENSOR_IR_CUDART_LINKAGE STREQUAL "STATIC")
+   if(NOT TARGET CUDA::cudart_static)

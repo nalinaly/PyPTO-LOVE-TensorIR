@@ -1,0 +1,45 @@
+{
+  "artifacts": {
+    "torch": {
+      "bytes": 526491534,
+      "filename": "torch-2.13.0+cu130-cp314-cp314-manylinux_2_28_x86_64.whl",
+      "git_commit": "cf30153c4c131c8164ee7798e5022d810682e2cb",
+      "sha256": "e231302a457298d0236f7bde31082568f6cd0613b66b4eb46849e8ad53c2e38d",
+      "url": "https://download-r2.pytorch.org/whl/cu130/torch-2.13.0%2Bcu130-cp314-cp314-manylinux_2_28_x86_64.whl",
+      "version": "2.13.0+cu130"
+    },
+    "triton": {
+      "bytes": 197171515,
+      "filename": "triton-3.7.1-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "c56cb810349d3699020b5b7695429b9b997574dab1b9f46b2b63fa23d7954894",
+      "source_commit": "5d6048aa0a324e090ada215b609ea76620133845",
+      "source_commit_provenance": "PyTorch cf30153c .ci/docker/ci_commit_pins/triton.txt",
+      "source_tree": "448265acc1eff726c2e528813552865b33546cc9",
+      "url": "https://download-r2.pytorch.org/whl/triton-3.7.1-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "version": "3.7.1"
+    }
+  },
+  "conda_lock": {
+    "bytes": 3364,
+    "path": "environment/conda-linux-64.lock",
+    "sha256": "dae9d06f6a54b0b4a88f9bf63320eadee1ce106ad99571afd1d5ef3886e2a84b"
+  },
+  "fresh_creation": {
+    "install_dependencies": false,
+    "pip_mode": "require-hashes-and-no-deps",
+    "reason": "The hash lock enumerates the complete validated wheel set; dependency resolution is disabled so an index cannot substitute a different artifact.",
+    "status": "artifact-complete-formal-base-created-pip-check-clean"
+  },
+  "indexes": [
+    "https://pypi.org/simple",
+    "https://download.pytorch.org/whl/cu130"
+  ],
+  "known_metadata_conflicts": [],
+  "python_requirements_lock": {
+    "bytes": 18319,
+    "path": "environment/python-requirements.lock",
+    "sha256": "2792dd2a37313552249cfb8da36ebffad5686ae7724ddfe2a15878bfede611bf"
+  },
+  "release": "qwen35-sm120-v1",
+  "schema": 1
+}

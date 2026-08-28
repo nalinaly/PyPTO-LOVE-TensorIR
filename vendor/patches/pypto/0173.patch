@@ -1,0 +1,342 @@
+From bf01a0b9bcdbcde3c436f1ef72e3f33a59a09d6f Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 11:00:10 +0800
+Subject: [PATCH 173/212] Lower state mutations as single-row transactions
+
+---
+ 3rdparty/nvidia/tensor-ir                |   2 +-
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 211 +++++++++++------------
+ 2 files changed, 99 insertions(+), 114 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 1cae26fa225b377501ec9e544fa972590bd1b8fe..db2b888be812dcb8e1919a0ecc8b9d909a7cd2d1 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 1cae26fa225b377501ec9e544fa972590bd1b8fe
++Subproject commit db2b888be812dcb8e1919a0ecc8b9d909a7cd2d1
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 3dd56e1791f358e57f978157b468e0ff7bcfaba2..1370603c1954133ea24665d4eca84f59668b2685 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -1231,15 +1231,14 @@ std::string EmitNativeTileStatefulCausalConvSource(
+   const int64_t state_width = graph.channels * 3;
+   StaticTensor indices_i32 = graph.state_indices;
+   indices_i32.dtype = DataType::INT32;
+-  StaticTensor indices_column{DataType::INT32, {graph.batch_size, 1}, {}};
++  StaticTensor index_scalar{DataType::INT32, {1}, {1}};
++  StaticTensor indices_column{DataType::INT32, {1, 1}, {}};
+   indices_column.dense_strides =
+       MakeDenseStridesForMetadata(indices_column.shape);
+-  StaticTensor indices_full{DataType::INT32,
+-                            {graph.batch_size, state_width}, {}};
++  StaticTensor indices_full{DataType::INT32, {1, state_width}, {}};
+   indices_full.dense_strides =
+       MakeDenseStridesForMetadata(indices_full.shape);
+-  StaticTensor state_rows{DataType::BF16,
+-                          {graph.batch_size, state_width}, {}};
++  StaticTensor state_rows{DataType::BF16, {1, state_width}, {}};
+   state_rows.dense_strides = MakeDenseStridesForMetadata(state_rows.shape);
+   StaticTensor state_block_flat{DataType::BF16, {1, 128 * 3}, {}};
+   state_block_flat.dense_strides =
+@@ -1279,6 +1278,7 @@ std::string EmitNativeTileStatefulCausalConvSource(
+   const std::string state_type = TensorTypeText(graph.state);
+   const std::string indices_type = TensorTypeText(graph.state_indices);
+   const std::string indices_i32_type = TensorTypeText(indices_i32);
++  const std::string index_scalar_type = TensorTypeText(index_scalar);
+   const std::string indices_column_type = TensorTypeText(indices_column);
+   const std::string indices_full_type = TensorTypeText(indices_full);
+   const std::string state_rows_type = TensorTypeText(state_rows);
+@@ -1323,32 +1323,44 @@ std::string EmitNativeTileStatefulCausalConvSource(
+     source += "\n";
+     indices_value = "%state_indices32";
+   }
+-  source += "    %state_indices_column = reshape ";
+-  source += indices_value;
+-  source += " : ";
+-  source += indices_i32_type;
+-  source += " -> ";
+-  source += indices_column_type;
+-  source += "\n    %state_indices_full = broadcast %state_indices_column : ";
+-  source += indices_column_type;
+-  source += " -> ";
+-  source += indices_full_type;
+-  source += "\n    %state_rows = gather_rows %arg2, %state_indices_full : (";
+-  source += state_type;
+-  source += ", ";
+-  source += indices_full_type;
+-  source += ") -> ";
+-  source += state_rows_type;
+-  source += "\n    %one = constant 1.0 : f32";
++  source += "    %one = constant 1.0 : f32";
+   source += "\n    %one_column = splat %one : ";
+   source += column_type;
+ 
+   std::vector<std::string> batch_outputs;
+-  std::vector<std::string> batch_states;
+   batch_outputs.reserve(static_cast<size_t>(graph.batch_size));
+-  batch_states.reserve(static_cast<size_t>(graph.batch_size));
+   const int64_t channel_blocks = graph.channels / 128;
+   for (int64_t batch = 0; batch < graph.batch_size; ++batch) {
++    const std::string batch_suffix = "b" + std::to_string(batch);
++    const std::string index_name = "%state_index_" + batch_suffix;
++    const std::string index_column_name =
++        "%state_index_column_" + batch_suffix;
++    const std::string indices_full_name =
++        "%state_indices_full_" + batch_suffix;
++    const std::string state_rows_name = "%state_rows_" + batch_suffix;
++    source += "\n    " + index_name + " = slice " + indices_value +
++              " starts = [" + std::to_string(batch) + "] limits = [" +
++              std::to_string(batch + 1) + "] strides = [1] : ";
++    source += indices_i32_type;
++    source += " -> ";
++    source += index_scalar_type;
++    source += "\n    " + index_column_name + " = reshape " + index_name +
++              " : ";
++    source += index_scalar_type;
++    source += " -> ";
++    source += indices_column_type;
++    source += "\n    " + indices_full_name + " = broadcast " +
++              index_column_name + " : ";
++    source += indices_column_type;
++    source += " -> ";
++    source += indices_full_type;
++    source += "\n    " + state_rows_name + " = gather_rows %arg2, " +
++              indices_full_name + " : (";
++    source += state_type;
++    source += ", ";
++    source += indices_full_type;
++    source += ") -> ";
++    source += state_rows_type;
+     std::vector<std::string> block_outputs;
+     std::vector<std::string> block_states;
+     block_outputs.reserve(static_cast<size_t>(channel_blocks));
+@@ -1365,10 +1377,10 @@ std::string EmitNativeTileStatefulCausalConvSource(
+             "%history_row" + std::to_string(index) + "_" + block_suffix;
+         const std::string bf16 =
+             "%history_bf16_" + std::to_string(index) + "_" + block_suffix;
+-        source += "\n    " + row + " = slice %state_rows starts = [" +
+-                  std::to_string(batch) + ", " +
++        source += "\n    " + row + " = slice " + state_rows_name +
++                  " starts = [0, " +
+                   std::to_string(state_offset + static_cast<int64_t>(index)) +
+-                  "] limits = [" + std::to_string(batch + 1) + ", " +
++                  "] limits = [1, " +
+                   std::to_string(state_offset + 128 * 3) +
+                   "] strides = [1, 3] : ";
+         source += state_rows_type;
+@@ -1561,7 +1573,16 @@ std::string EmitNativeTileStatefulCausalConvSource(
+       source += ") -> ";
+       source += batch_state_type;
+     }
+-    batch_states.push_back(batch_state_name);
++    source += "\n    %stored_state_" + batch_suffix +
++              " = scatter_rows %arg2, " + indices_full_name + ", " +
++              batch_state_name + " : (";
++    source += state_type;
++    source += ", ";
++    source += indices_full_type;
++    source += ", ";
++    source += state_rows_type;
++    source += ") -> ";
++    source += state_rows_type;
+   }
+ 
+   std::string result_value;
+@@ -1582,34 +1603,6 @@ std::string EmitNativeTileStatefulCausalConvSource(
+     source += ") -> ";
+     source += result_type;
+   }
+-  std::string updated_states;
+-  if (graph.batch_size == 1) {
+-    updated_states = batch_states[0];
+-  } else {
+-    updated_states = "%updated_states";
+-    source += "\n    %updated_states = concatenate ";
+-    for (size_t index = 0; index < batch_states.size(); ++index) {
+-      if (index != 0) source += ", ";
+-      source += batch_states[index];
+-    }
+-    source += " dimension = 0 : (";
+-    for (size_t index = 0; index < batch_states.size(); ++index) {
+-      if (index != 0) source += ", ";
+-      source += batch_state_type;
+-    }
+-    source += ") -> ";
+-    source += state_rows_type;
+-  }
+-  source += "\n    %stored_state = scatter_rows %arg2, %state_indices_full, ";
+-  source += updated_states;
+-  source += " : (";
+-  source += state_type;
+-  source += ", ";
+-  source += indices_full_type;
+-  source += ", ";
+-  source += state_rows_type;
+-  source += ") -> ";
+-  source += state_rows_type;
+   source += "\n    results ";
+   source += result_value;
+   source += " : ";
+@@ -8437,15 +8430,14 @@ std::string EmitNativeTileGdnRecurrentSource(
+   const int64_t state_width = graph.value_heads * graph.value_dim * graph.key_dim;
+   StaticTensor indices_i32 = graph.state_indices;
+   indices_i32.dtype = DataType::INT32;
+-  StaticTensor indices_column{DataType::INT32, {graph.batch_size, 1}, {}};
++  StaticTensor index_scalar{DataType::INT32, {1}, {1}};
++  StaticTensor indices_column{DataType::INT32, {1, 1}, {}};
+   indices_column.dense_strides =
+       MakeDenseStridesForMetadata(indices_column.shape);
+-  StaticTensor indices_full{DataType::INT32,
+-                            {graph.batch_size, state_width}, {}};
++  StaticTensor indices_full{DataType::INT32, {1, state_width}, {}};
+   indices_full.dense_strides =
+       MakeDenseStridesForMetadata(indices_full.shape);
+-  StaticTensor state_rows{DataType::FP32,
+-                          {graph.batch_size, state_width}, {}};
++  StaticTensor state_rows{DataType::FP32, {1, state_width}, {}};
+   state_rows.dense_strides = MakeDenseStridesForMetadata(state_rows.shape);
+   StaticTensor state_head_flat{DataType::FP32,
+                                {1, graph.value_dim * graph.key_dim}, {}};
+@@ -8515,6 +8507,7 @@ std::string EmitNativeTileGdnRecurrentSource(
+   const std::string state_type = TensorTypeText(graph.state);
+   const std::string indices_type = TensorTypeText(graph.state_indices);
+   const std::string indices_i32_type = TensorTypeText(indices_i32);
++  const std::string index_scalar_type = TensorTypeText(index_scalar);
+   const std::string indices_column_type = TensorTypeText(indices_column);
+   const std::string indices_full_type = TensorTypeText(indices_full);
+   const std::string state_rows_type = TensorTypeText(state_rows);
+@@ -8575,23 +8568,7 @@ std::string EmitNativeTileGdnRecurrentSource(
+     source += "\n";
+     indices_value = "%state_indices32";
+   }
+-  source += "    %state_indices_column = reshape ";
+-  source += indices_value;
+-  source += " : ";
+-  source += indices_i32_type;
+-  source += " -> ";
+-  source += indices_column_type;
+-  source += "\n    %state_indices_full = broadcast %state_indices_column : ";
+-  source += indices_column_type;
+-  source += " -> ";
+-  source += indices_full_type;
+-  source += "\n    %state_rows = gather_rows %arg5, %state_indices_full : (";
+-  source += state_type;
+-  source += ", ";
+-  source += indices_full_type;
+-  source += ") -> ";
+-  source += state_rows_type;
+-  source += "\n    %epsilon = constant 9.999999974752427e-07 : f32";
++  source += "    %epsilon = constant 9.999999974752427e-07 : f32";
+   source += "\n    %epsilon_splat = splat %epsilon : ";
+   source += norm_type;
+   source += "\n    %one = constant 1.0 : f32";
+@@ -8606,11 +8583,39 @@ std::string EmitNativeTileGdnRecurrentSource(
+   source += wide_query_type;
+ 
+   std::vector<std::string> batch_outputs;
+-  std::vector<std::string> batch_states;
+   batch_outputs.reserve(static_cast<size_t>(graph.batch_size));
+-  batch_states.reserve(static_cast<size_t>(graph.batch_size));
+   const int64_t value_heads_per_q = graph.value_heads / graph.q_heads;
+   for (int64_t batch = 0; batch < graph.batch_size; ++batch) {
++    const std::string batch_suffix = "b" + std::to_string(batch);
++    const std::string index_name = "%state_index_" + batch_suffix;
++    const std::string index_column_name =
++        "%state_index_column_" + batch_suffix;
++    const std::string indices_full_name =
++        "%state_indices_full_" + batch_suffix;
++    const std::string state_rows_name = "%state_rows_" + batch_suffix;
++    source += "\n    " + index_name + " = slice " + indices_value +
++              " starts = [" + std::to_string(batch) + "] limits = [" +
++              std::to_string(batch + 1) + "] strides = [1] : ";
++    source += indices_i32_type;
++    source += " -> ";
++    source += index_scalar_type;
++    source += "\n    " + index_column_name + " = reshape " + index_name +
++              " : ";
++    source += index_scalar_type;
++    source += " -> ";
++    source += indices_column_type;
++    source += "\n    " + indices_full_name + " = broadcast " +
++              index_column_name + " : ";
++    source += indices_column_type;
++    source += " -> ";
++    source += indices_full_type;
++    source += "\n    " + state_rows_name + " = gather_rows %arg5, " +
++              indices_full_name + " : (";
++    source += state_type;
++    source += ", ";
++    source += indices_full_type;
++    source += ") -> ";
++    source += state_rows_type;
+     std::vector<std::string> head_outputs;
+     std::vector<std::string> head_states;
+     head_outputs.reserve(static_cast<size_t>(graph.value_heads));
+@@ -8620,10 +8625,9 @@ std::string EmitNativeTileGdnRecurrentSource(
+       const int64_t state_offset = head * graph.value_dim * graph.key_dim;
+       const std::string head_suffix =
+           "b" + std::to_string(batch) + "_h" + std::to_string(head);
+-      source += "\n    %state_flat_" + head_suffix +
+-                " = slice %state_rows starts = [" + std::to_string(batch) +
+-                ", " + std::to_string(state_offset) + "] limits = [" +
+-                std::to_string(batch + 1) + ", " +
++      source += "\n    %state_flat_" + head_suffix + " = slice " +
++                state_rows_name + " starts = [0, " +
++                std::to_string(state_offset) + "] limits = [1, " +
+                 std::to_string(state_offset + graph.value_dim * graph.key_dim) +
+                 "] strides = [1, 1] : ";
+       source += state_rows_type;
+@@ -8987,7 +8991,16 @@ std::string EmitNativeTileGdnRecurrentSource(
+       source += ") -> ";
+       source += batch_state_type;
+     }
+-    batch_states.push_back(batch_state_name);
++    source += "\n    %stored_state_" + batch_suffix +
++              " = scatter_rows %arg5, " + indices_full_name + ", " +
++              batch_state_name + " : (";
++    source += state_type;
++    source += ", ";
++    source += indices_full_type;
++    source += ", ";
++    source += state_rows_type;
++    source += ") -> ";
++    source += state_rows_type;
+   }
+ 
+   std::string result_value;
+@@ -9008,34 +9021,6 @@ std::string EmitNativeTileGdnRecurrentSource(
+     source += ") -> ";
+     source += result_type;
+   }
+-  std::string updated_states;
+-  if (graph.batch_size == 1) {
+-    updated_states = batch_states[0];
+-  } else {
+-    updated_states = "%updated_states";
+-    source += "\n    %updated_states = concatenate ";
+-    for (size_t index = 0; index < batch_states.size(); ++index) {
+-      if (index != 0) source += ", ";
+-      source += batch_states[index];
+-    }
+-    source += " dimension = 0 : (";
+-    for (size_t index = 0; index < batch_states.size(); ++index) {
+-      if (index != 0) source += ", ";
+-      source += batch_state_type;
+-    }
+-    source += ") -> ";
+-    source += state_rows_type;
+-  }
+-  source += "\n    %stored_state = scatter_rows %arg5, %state_indices_full, ";
+-  source += updated_states;
+-  source += " : (";
+-  source += state_type;
+-  source += ", ";
+-  source += indices_full_type;
+-  source += ", ";
+-  source += state_rows_type;
+-  source += ") -> ";
+-  source += state_rows_type;
+   source += "\n    results ";
+   source += result_value;
+   source += " : ";

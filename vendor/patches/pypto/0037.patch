@@ -1,0 +1,22 @@
+From e13a46f77db1d9a2b2c5efb17544671e8f6bd6ba Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 04:52:45 +0800
+Subject: [PATCH 037/212] Fix TensorIR revision lock syntax
+
+---
+ cmake/nvidia_backend.cmake | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 39b8220010aa8a6f284b1be49e04eaa9793f4165..2ca3464cae35a713cff86da8f5a5c689c21f51b6 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -33,7 +33,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "bbe6c731379e3af6280aa07469371860dacb740b"
++    "bbe6c731379e3af6280aa07469371860dacb740b")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

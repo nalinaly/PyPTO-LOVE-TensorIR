@@ -1,0 +1,79 @@
+From d1b90b767d6be8e3907a01d41655eedbc621df2f Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 02:48:44 +0800
+Subject: [PATCH 138/212] Advance TensorIR fused gather indices
+
+---
+ ...her-index-producers-into-fused-space.patch | 41 +++++++++++++++++++
+ 3rdparty/nvidia/tensor-ir                     |  2 +-
+ cmake/nvidia_backend.cmake                    |  2 +-
+ 3 files changed, 43 insertions(+), 2 deletions(-)
+ create mode 100644 3rdparty/nvidia/0032-Project-gather-index-producers-into-fused-space.patch
+
+diff --git a/3rdparty/nvidia/0032-Project-gather-index-producers-into-fused-space.patch b/3rdparty/nvidia/0032-Project-gather-index-producers-into-fused-space.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..fcbbc381823ecfa2abba69572852c9faacfa2c82
+--- /dev/null
++++ b/3rdparty/nvidia/0032-Project-gather-index-producers-into-fused-space.patch
+@@ -0,0 +1,41 @@
++From a48606b88c7fdce4b31ebdf33cd3e6af113cf985 Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Fri, 28 Aug 2026 02:48:26 +0800
++Subject: [PATCH 32/32] Project gather index producers into fused space
++
++---
++ lib/Transform/GraphSplitting.cpp | 16 +++++++++++-----
++ 1 file changed, 11 insertions(+), 5 deletions(-)
++
++diff --git a/lib/Transform/GraphSplitting.cpp b/lib/Transform/GraphSplitting.cpp
++index fded68e..9742994 100644
++--- a/lib/Transform/GraphSplitting.cpp
+++++ b/lib/Transform/GraphSplitting.cpp
++@@ -121,13 +121,19 @@ struct GraphSplittingPass
++       // Number of iteration spaces added by the operation.
++       int newIterationSpaces = 0;
++ 
++-      // Case #0: gather keeps its output-space composite layout while its
++-      // operands remain rooted in their original graph-argument layouts.
+++      // Case #0: gather carries a composite output-space layout with one source
+++      // for the indirectly addressed data table and one for the indices. The
+++      // data block argument remains the original descriptor at conversion time,
+++      // while any indices producer must be cloned with this fused projection so
+++      // its loaded tile rank matches the gather's iteration space.
++       if (isa<GatherRowsOp>(op)) {
++-        for (Value operand : op->getOperands()) {
++-          operandLayouts.push_back(cast<LayoutSourceAttrInterface>(
++-              getLayoutSourceAttr(operand)));
+++        auto target = dyn_cast<CompositeSourceAttr>(layout);
+++        if (!target || target.size() != op->getNumOperands()) {
+++          op->emitError("expected gather composite layout");
+++          return failure();
++         }
+++        operandLayouts =
+++            SmallVector<LayoutSourceAttrInterface>(target.getSources());
++       }
++ 
++       // Case #1: pointwise operations.
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 032d67a4fdf83f03613fba745ea5ce2aa6b66df3..a48606b88c7fdce4b31ebdf33cd3e6af113cf985 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 032d67a4fdf83f03613fba745ea5ce2aa6b66df3
++Subproject commit a48606b88c7fdce4b31ebdf33cd3e6af113cf985
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 4e79412ef8c65940ffff2e6969a5ab448cca9447..34b3bf849e8851f9266c66a8b399f3b62bf9aea5 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "032d67a4fdf83f03613fba745ea5ce2aa6b66df3")
++    "a48606b88c7fdce4b31ebdf33cd3e6af113cf985")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

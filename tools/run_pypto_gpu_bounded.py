@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run bounded PyPTO GPU correctness gates without the retired 22 GiB gate."""
+"""Run bounded release GPU work without the retired 22 GiB gate."""
 
 from __future__ import annotations
 
@@ -20,6 +20,11 @@ import stop_run
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ENVIRONMENT = (ROOT / "envs/pypto-nvidia").resolve()
+ALLOWED_ENVIRONMENT_PROFILES = {
+    "pypto-nvidia": "pypto",
+    "pypto-release": "pypto",
+    "sglang-baseline": "baseline",
+}
 HOST_ABORT_KIB = 16 * 1024 * 1024
 HOST_EMERGENCY_ABORT_KIB = 15 * 1024 * 1024
 HOST_FLOOR_CONSECUTIVE_SAMPLES = 3
@@ -86,11 +91,21 @@ def process_environment(pid: int) -> dict[str, str]:
     return result
 
 
-def validate_child(raw: list[str]) -> list[str]:
+def validate_environment_profile(environment: str, profile: str) -> pathlib.Path:
+    if ALLOWED_ENVIRONMENT_PROFILES.get(environment) != profile:
+        raise BoundedGpuError(
+            f"unsupported environment/profile pair: {environment}/{profile}"
+        )
+    return isolation.ENVIRONMENTS[environment].resolve()
+
+
+def validate_child(
+    raw: list[str], environment: pathlib.Path = ENVIRONMENT
+) -> list[str]:
     if not raw or raw[0] != "--":
         raise BoundedGpuError("bounded GPU controller requires `--` before child")
     command = raw[1:]
-    expected_python = (ENVIRONMENT / "bin/python").resolve(strict=True)
+    expected_python = (environment / "bin/python").resolve(strict=True)
     if (
         len(command) < 3
         or pathlib.Path(command[0]).resolve(strict=True) != expected_python
@@ -180,8 +195,78 @@ def terminate_owned(
             pass
 
 
+def verify_formal_runtime_identity(
+    environment_name: str,
+    framework_profile: str,
+    environment: dict[str, str],
+) -> None:
+    if environment_name == "pypto-nvidia":
+        return
+    prefix = isolation.ENVIRONMENTS[environment_name].resolve()
+    python = prefix / "bin" / "python"
+    identity_lock = isolation.ENVIRONMENT_LOCKS[environment_name]
+    if not identity_lock.is_file():
+        raise BoundedGpuError(
+            f"formal environment identity lock is missing: {identity_lock}"
+        )
+    commands = (
+        [
+            str(python),
+            str(ROOT / "tools/environment_identity.py"),
+            "--prefix",
+            str(prefix),
+            "--lock",
+            str(identity_lock),
+            "--verify",
+        ],
+        [
+            str(python),
+            str(ROOT / "tools/audit_python_environment.py"),
+            "--prefix",
+            str(prefix),
+            "--profile",
+            framework_profile,
+        ],
+        [
+            str(python),
+            str(ROOT / "tools/runtime_identity.py"),
+            "--prefix",
+            str(prefix),
+            "--lock",
+            str(identity_lock),
+            "--profile",
+            framework_profile,
+            "--framework",
+        ],
+    )
+    for identity_command in commands:
+        subprocess.run(
+            identity_command,
+            cwd=ROOT,
+            env=environment,
+            check=True,
+        )
+    if framework_profile == "pypto":
+        subprocess.run(
+            [str(python), "-m", "pypto_plugins.bootstrap"],
+            cwd=ROOT,
+            env=environment,
+            check=True,
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--environment",
+        choices=tuple(ALLOWED_ENVIRONMENT_PROFILES),
+        default="pypto-nvidia",
+    )
+    parser.add_argument(
+        "--framework-profile",
+        choices=("pypto", "baseline"),
+        default="pypto",
+    )
     parser.add_argument("--run-id-file", type=pathlib.Path, required=True)
     parser.add_argument("--timeout-seconds", type=int, default=1800)
     parser.add_argument("--minimum-free-disk-gib", type=int, default=64)
@@ -193,7 +278,10 @@ def main() -> int:
         and os.sys.flags.dont_write_bytecode
     ):
         parser.error("controller requires Python -E -B -S")
-    command = validate_child(args.command)
+    environment_prefix = validate_environment_profile(
+        args.environment, args.framework_profile
+    )
+    command = validate_child(args.command, environment_prefix)
     initial_available = mem_available_kib()
     if initial_available < HOST_ABORT_KIB:
         raise BoundedGpuError("MemAvailable is already below 16 GiB abort floor")
@@ -203,7 +291,7 @@ def main() -> int:
             f"initial NVIDIA coexistence audit failed: {initial_audit}"
         )
 
-    lease = isolation.acquire_environment_lock("pypto-nvidia", "shared")
+    lease = isolation.acquire_environment_lock(args.environment, "shared")
     locked_available = mem_available_kib()
     locked_audit = audit()
     if locked_available < HOST_ABORT_KIB or not audit_ok(
@@ -223,13 +311,30 @@ def main() -> int:
     environment = isolation.isolated_environment(
         run_id,
         run_dir,
-        environment_prefix=ENVIRONMENT,
-        framework_profile="pypto",
-        protected_zero_nvidia_gpu_smoke_requested=True,
-        exact_nvidia_smoke=True,
+        environment_prefix=environment_prefix,
+        framework_profile=args.framework_profile,
+        protected_zero_nvidia_gpu_smoke_requested=(args.environment == "pypto-nvidia"),
+        exact_nvidia_smoke=args.environment == "pypto-nvidia",
     )
     environment.update(isolation.environment_lock_markers(lease))
     environment["PYPTO_RUN_MODE"] = "gpu-bounded"
+    try:
+        verify_formal_runtime_identity(
+            args.environment, args.framework_profile, environment
+        )
+    except BaseException:
+        lease.close()
+        raise
+    identity_available = mem_available_kib()
+    identity_audit = audit()
+    isolation.atomic_json(run_dir / "post-identity-audit.json", identity_audit)
+    if identity_available < HOST_ABORT_KIB or not audit_ok(
+        identity_audit, child_running=False
+    ):
+        lease.close()
+        raise BoundedGpuError(
+            "host/GPU coexistence changed during formal identity verification"
+        )
     minimum_disk = args.minimum_free_disk_gib << 30
     process = subprocess.Popen(
         command,
@@ -240,8 +345,11 @@ def main() -> int:
     )
     metadata: dict[str, object] = {
         "schema": 1,
+        "mode": "gpu-bounded",
         "run_id": run_id,
         "workspace": str(ROOT),
+        "environment": args.environment,
+        "framework_profile": args.framework_profile,
         "command": command,
         "pid": process.pid,
         "pgid": os.getpgid(process.pid),
@@ -256,6 +364,7 @@ def main() -> int:
             "gpu_free_floor_mib": GPU_FREE_FLOOR_MIB,
             "protected_zero_nvidia_required": True,
             "external_process_signals": False,
+            "formal_identity_verified": args.environment != "pypto-nvidia",
         },
         "environment_access_lock": {
             "path": str(lease.path),

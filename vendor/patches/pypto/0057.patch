@@ -1,0 +1,37 @@
+From a589f79cc6bd22ddefab9d72091890d594e81b9b Mon Sep 17 00:00:00 2001
+From: pypto zcode <zcode@pypto.local>
+Date: Thu, 27 Aug 2026 10:44:31 +0800
+Subject: [PATCH 057/212] codegen: extend FusedPointwiseV2 with
+ div/abs/sqrt/log/sin/cos/max/min
+
+Register nine more bounded pointwise operators in the fused-pointwise
+spec table, all backed by existing TensorIR dialect mnemonics and
+already-registered PyPTO tensor ops: tensor.div/divs -> div (with
+scalar), tensor.abs -> abs, tensor.sqrt -> sqrt, tensor.log -> log,
+tensor.sin -> sin, tensor.cos -> cos, tensor.maximum -> max,
+tensor.minimum -> min. Existing op bytes and goldens are unchanged;
+new-op goldens and the ON rebuild follow.
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index c87557668cade47481b59652bcb349abfb542ada..32a1e85a44e54be4824e58defbab447470dd9f1f 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -600,6 +600,15 @@ std::optional<FusedOperationSpec> GetFusedOperationSpec(const ir::CallPtr& call)
+     return FusedOperationSpec{"reciprocal", 1, false};
+   }
+   if (ir::IsOp(call, "tensor.rsqrt")) return FusedOperationSpec{"rsqrt", 1, false};
++  if (ir::IsOp(call, "tensor.div")) return FusedOperationSpec{"div", 2, false};
++  if (ir::IsOp(call, "tensor.divs")) return FusedOperationSpec{"div", 1, true};
++  if (ir::IsOp(call, "tensor.abs")) return FusedOperationSpec{"abs", 1, false};
++  if (ir::IsOp(call, "tensor.sqrt")) return FusedOperationSpec{"sqrt", 1, false};
++  if (ir::IsOp(call, "tensor.log")) return FusedOperationSpec{"log", 1, false};
++  if (ir::IsOp(call, "tensor.sin")) return FusedOperationSpec{"sin", 1, false};
++  if (ir::IsOp(call, "tensor.cos")) return FusedOperationSpec{"cos", 1, false};
++  if (ir::IsOp(call, "tensor.maximum")) return FusedOperationSpec{"max", 2, false};
++  if (ir::IsOp(call, "tensor.minimum")) return FusedOperationSpec{"min", 2, false};
+   return std::nullopt;
+ }
+ 

@@ -1,0 +1,539 @@
+From 891db5d1ead056921d0d3eabfeba4703d71b0999 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 01:01:42 +0800
+Subject: [PATCH 118/212] Lower fused QK RMSNorm and partial RoPE
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 498 +++++++++++++++++++++++
+ 1 file changed, 498 insertions(+)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 2246335c2c4351109ae2a711634ad8645b9373cf..0553dfe9e286191201a66ff866e7913decc7cf3d 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -144,6 +144,20 @@ struct NativeTileGatherRowsGraph {
+   StaticTensor result;
+ };
+ 
++struct NativeTileQkRmsNormRopeGraph {
++  StaticTensor q_gate;
++  StaticTensor key;
++  StaticTensor weight;
++  StaticTensor cache;
++  StaticTensor positions;
++  StaticTensor result;
++  int64_t q_heads;
++  int64_t kv_heads;
++  int64_t head_dim;
++  int64_t rotary_dim;
++  double epsilon;
++};
++
+ std::string BoundedDisplay(std::string_view value) {
+   std::string output;
+   const size_t count = std::min(value.size(), kMaximumDiagnosticNameBytes);
+@@ -1495,6 +1509,350 @@ std::string EmitNativeTileGatherRowsSource(
+   return source;
+ }
+ 
++std::string EmitNativeTileQkRmsNormRopeSource(
++    const NativeTileQkRmsNormRopeGraph& graph) {
++  const int64_t tokens = graph.q_gate.shape[0];
++  const int64_t qHeads = graph.q_heads;
++  const int64_t kvHeads = graph.kv_heads;
++  const int64_t headDim = graph.head_dim;
++  const int64_t rotaryDim = graph.rotary_dim;
++  const int64_t half = rotaryDim / 2;
++
++  const auto tensor = [](DataType dtype, std::vector<int64_t> shape) {
++    return StaticTensor{dtype, shape, MakeDenseStridesForMetadata(shape)};
++  };
++  const StaticTensor q3 = tensor(DataType::BF16, {tokens, qHeads, headDim});
++  const StaticTensor k3 = tensor(DataType::BF16, {tokens, kvHeads, headDim});
++  const StaticTensor qf = tensor(DataType::FP32, q3.shape);
++  const StaticTensor kf = tensor(DataType::FP32, k3.shape);
++  const StaticTensor qRow = tensor(DataType::FP32, {tokens, qHeads, 1});
++  const StaticTensor kRow = tensor(DataType::FP32, {tokens, kvHeads, 1});
++  const StaticTensor weight3 = tensor(DataType::FP32, {1, 1, headDim});
++  const StaticTensor qWeightFull = tensor(DataType::FP32, q3.shape);
++  const StaticTensor kWeightFull = tensor(DataType::FP32, k3.shape);
++  const StaticTensor cacheRows = tensor(DataType::BF16, {tokens, rotaryDim});
++  const StaticTensor cacheRowsF = tensor(DataType::FP32, cacheRows.shape);
++  const StaticTensor cacheHalf = tensor(DataType::FP32, {tokens, half});
++  const StaticTensor cacheHalf3 = tensor(DataType::FP32, {tokens, 1, half});
++  const StaticTensor qHalf = tensor(DataType::FP32, {tokens, qHeads, half});
++  const StaticTensor kHalf = tensor(DataType::FP32, {tokens, kvHeads, half});
++  const StaticTensor qTail =
++      tensor(DataType::FP32, {tokens, qHeads, headDim - rotaryDim});
++  const StaticTensor kTail =
++      tensor(DataType::FP32, {tokens, kvHeads, headDim - rotaryDim});
++  const StaticTensor qRotary =
++      tensor(DataType::FP32, {tokens, qHeads, rotaryDim});
++  const StaticTensor kRotary =
++      tensor(DataType::FP32, {tokens, kvHeads, rotaryDim});
++  const StaticTensor qFlat =
++      tensor(DataType::BF16, {tokens * qHeads * headDim});
++  const StaticTensor kFlat =
++      tensor(DataType::BF16, {tokens * kvHeads * headDim});
++  StaticTensor positions32 = graph.positions;
++  positions32.dtype = DataType::INT32;
++  StaticTensor weightF = graph.weight;
++  weightF.dtype = DataType::FP32;
++
++  const std::string q3Type = TensorTypeText(q3);
++  const std::string k3Type = TensorTypeText(k3);
++  const std::string qfType = TensorTypeText(qf);
++  const std::string kfType = TensorTypeText(kf);
++  const std::string qRowType = TensorTypeText(qRow);
++  const std::string kRowType = TensorTypeText(kRow);
++  const std::string weightType = TensorTypeText(graph.weight);
++  const std::string weightFType = TensorTypeText(weightF);
++  const std::string weight3Type = TensorTypeText(weight3);
++  const std::string qWeightFullType = TensorTypeText(qWeightFull);
++  const std::string kWeightFullType = TensorTypeText(kWeightFull);
++  const std::string cacheRowsType = TensorTypeText(cacheRows);
++  const std::string cacheRowsFType = TensorTypeText(cacheRowsF);
++  const std::string cacheHalfType = TensorTypeText(cacheHalf);
++  const std::string cacheHalf3Type = TensorTypeText(cacheHalf3);
++  const std::string qHalfType = TensorTypeText(qHalf);
++  const std::string kHalfType = TensorTypeText(kHalf);
++  const std::string qTailType = TensorTypeText(qTail);
++  const std::string kTailType = TensorTypeText(kTail);
++  const std::string qRotaryType = TensorTypeText(qRotary);
++  const std::string kRotaryType = TensorTypeText(kRotary);
++  const std::string qFlatType = TensorTypeText(qFlat);
++  const std::string kFlatType = TensorTypeText(kFlat);
++
++  std::string source;
++  source.reserve(12288);
++  source += "module {\n  nv_tensor_ir.graph @";
++  source += kFusedPointwiseEntryName;
++  source += "(\n    %arg0: ";
++  source += TensorWithStrideText(graph.q_gate);
++  source += ",\n    %arg1: ";
++  source += TensorWithStrideText(graph.key);
++  source += ",\n    %arg2: ";
++  source += TensorWithStrideText(graph.weight);
++  source += ",\n    %arg3: ";
++  source += TensorWithStrideText(graph.weight);
++  source += ",\n    %arg4: ";
++  source += TensorWithStrideText(graph.cache);
++  source += ",\n    %arg5: ";
++  source += TensorWithStrideText(graph.positions);
++  source += "\n  ) -> (";
++  source += TensorTypeText(graph.result);
++  source += ") {\n";
++
++  StaticTensor qGate3 =
++      tensor(DataType::BF16, {tokens, 2 * qHeads, headDim});
++  source += "    %q_gate3 = reshape %arg0 : ";
++  source += TensorTypeText(graph.q_gate);
++  source += " -> ";
++  source += TensorTypeText(qGate3);
++  source += "\n    %q3 = slice %q_gate3 starts = [0, 0, 0] limits = [";
++  AppendInteger(source, tokens);
++  source += ", ";
++  AppendInteger(source, 2 * qHeads);
++  source += ", ";
++  AppendInteger(source, headDim);
++  source += "] strides = [1, 2, 1] : ";
++  source += TensorTypeText(qGate3);
++  source += " -> ";
++  source += q3Type;
++  source += "\n    %gate3 = slice %q_gate3 starts = [0, 1, 0] limits = [";
++  AppendInteger(source, tokens);
++  source += ", ";
++  AppendInteger(source, 2 * qHeads);
++  source += ", ";
++  AppendInteger(source, headDim);
++  source += "] strides = [1, 2, 1] : ";
++  source += TensorTypeText(qGate3);
++  source += " -> ";
++  source += q3Type;
++  source += "\n    %k3 = reshape %arg1 : ";
++  source += TensorTypeText(graph.key);
++  source += " -> ";
++  source += k3Type;
++  source += "\n";
++
++  const auto appendNorm = [&](std::string_view prefix,
++                              std::string_view input,
++                              const std::string& inputType,
++                              const std::string& wideType,
++                              const std::string& rowType,
++                              const std::string& weightFullType,
++                              int weightArg) {
++    source += "    %" + std::string(prefix) + "_wide = convert %" +
++              std::string(input) + " : " + inputType + " -> " + wideType;
++    source += "\n    %" + std::string(prefix) + "_square = mul %" +
++              std::string(prefix) + "_wide, %" + std::string(prefix) +
++              "_wide : " + wideType;
++    source += "\n    %" + std::string(prefix) +
++              "_sum = reduce(%" + std::string(prefix) +
++              "_square) <dimensions = [2], reduction_mode = <add>> : " +
++              wideType + " -> " + rowType;
++    source += "\n    %" + std::string(prefix) + "_mean_c = constant ";
++    AppendFloat(source, 1.0 / static_cast<double>(headDim));
++    source += " : f32\n    %" + std::string(prefix) +
++              "_mean_s = splat %" + std::string(prefix) + "_mean_c : " +
++              rowType;
++    source += "\n    %" + std::string(prefix) + "_mean = mul %" +
++              std::string(prefix) + "_sum, %" + std::string(prefix) +
++              "_mean_s : " + rowType;
++    source += "\n    %" + std::string(prefix) + "_eps_c = constant ";
++    AppendFloat(source, graph.epsilon);
++    source += " : f32\n    %" + std::string(prefix) +
++              "_eps_s = splat %" + std::string(prefix) + "_eps_c : " +
++              rowType;
++    source += "\n    %" + std::string(prefix) + "_shift = add %" +
++              std::string(prefix) + "_mean, %" + std::string(prefix) +
++              "_eps_s : " + rowType;
++    source += "\n    %" + std::string(prefix) + "_inv = rsqrt %" +
++              std::string(prefix) + "_shift : " + rowType;
++    source += "\n    %" + std::string(prefix) +
++              "_inv_full = broadcast %" + std::string(prefix) +
++              "_inv : " + rowType + " -> " + wideType;
++    source += "\n    %" + std::string(prefix) + "_norm = mul %" +
++              std::string(prefix) + "_wide, %" + std::string(prefix) +
++              "_inv_full : " + wideType;
++    source += "\n    %" + std::string(prefix) +
++              "_weight2 = convert %arg" + std::to_string(weightArg) +
++              " : " + weightType + " -> " + weightFType;
++    source += "\n    %" + std::string(prefix) +
++              "_weight3 = reshape %" + std::string(prefix) +
++              "_weight2 : " + weightFType + " -> " + weight3Type;
++    source += "\n    %" + std::string(prefix) +
++              "_weight_full = broadcast %" + std::string(prefix) +
++              "_weight3 : " + weight3Type + " -> " + weightFullType;
++    source += "\n    %" + std::string(prefix) + "_one = constant 1.0 : f32";
++    source += "\n    %" + std::string(prefix) + "_ones = splat %" +
++              std::string(prefix) + "_one : " + weightFullType;
++    source += "\n    %" + std::string(prefix) + "_scale = add %" +
++              std::string(prefix) + "_weight_full, %" +
++              std::string(prefix) + "_ones : " + weightFullType;
++    source += "\n    %" + std::string(prefix) + "_weighted = mul %" +
++              std::string(prefix) + "_norm, %" + std::string(prefix) +
++              "_scale : " + wideType;
++    source += "\n    %" + std::string(prefix) +
++              "_rounded = convert %" + std::string(prefix) +
++              "_weighted : " + wideType + " -> " + inputType;
++    source += "\n    %" + std::string(prefix) +
++              "_ready = convert %" + std::string(prefix) +
++              "_rounded : " + inputType + " -> " + wideType + "\n";
++  };
++  appendNorm("q", "q3", q3Type, qfType, qRowType, qWeightFullType, 2);
++  appendNorm("k", "k3", k3Type, kfType, kRowType, kWeightFullType, 3);
++
++  source += "    %positions32 = convert %arg5 : ";
++  source += TensorTypeText(graph.positions);
++  source += " -> ";
++  source += TensorTypeText(positions32);
++  source += "\n    %cache_rows = gather_rows %arg4, %positions32 : (";
++  source += TensorTypeText(graph.cache);
++  source += ", ";
++  source += TensorTypeText(positions32);
++  source += ") -> ";
++  source += cacheRowsType;
++  source += "\n    %cache_wide = convert %cache_rows : ";
++  source += cacheRowsType;
++  source += " -> ";
++  source += cacheRowsFType;
++  source += "\n    %cos2 = slice %cache_wide starts = [0, 0] limits = [";
++  AppendInteger(source, tokens);
++  source += ", ";
++  AppendInteger(source, half);
++  source += "] strides = [1, 1] : ";
++  source += cacheRowsFType;
++  source += " -> ";
++  source += cacheHalfType;
++  source += "\n    %sin2 = slice %cache_wide starts = [0, ";
++  AppendInteger(source, half);
++  source += "] limits = [";
++  AppendInteger(source, tokens);
++  source += ", ";
++  AppendInteger(source, rotaryDim);
++  source += "] strides = [1, 1] : ";
++  source += cacheRowsFType;
++  source += " -> ";
++  source += cacheHalfType;
++  source += "\n    %cos3 = reshape %cos2 : ";
++  source += cacheHalfType;
++  source += " -> ";
++  source += cacheHalf3Type;
++  source += "\n    %sin3 = reshape %sin2 : ";
++  source += cacheHalfType;
++  source += " -> ";
++  source += cacheHalf3Type;
++  source += "\n    %q_cos = broadcast %cos3 : ";
++  source += cacheHalf3Type;
++  source += " -> ";
++  source += qHalfType;
++  source += "\n    %q_sin = broadcast %sin3 : ";
++  source += cacheHalf3Type;
++  source += " -> ";
++  source += qHalfType;
++  source += "\n    %k_cos = broadcast %cos3 : ";
++  source += cacheHalf3Type;
++  source += " -> ";
++  source += kHalfType;
++  source += "\n    %k_sin = broadcast %sin3 : ";
++  source += cacheHalf3Type;
++  source += " -> ";
++  source += kHalfType;
++  source += "\n";
++
++  const auto appendRope = [&](std::string_view prefix,
++                              const std::string& readyType,
++                              const std::string& halfType,
++                              const std::string& tailType,
++                              const std::string& rotaryType,
++                              const std::string& bf16Type,
++                              const std::string& flatType) {
++    source += "    %" + std::string(prefix) +
++              "_low = slice %" + std::string(prefix) +
++              "_ready starts = [0, 0, 0] limits = [";
++    AppendInteger(source, tokens);
++    source += ", ";
++    AppendInteger(source, prefix == "q" ? qHeads : kvHeads);
++    source += ", ";
++    AppendInteger(source, half);
++    source += "] strides = [1, 1, 1] : " + readyType + " -> " + halfType;
++    source += "\n    %" + std::string(prefix) +
++              "_high = slice %" + std::string(prefix) +
++              "_ready starts = [0, 0, ";
++    AppendInteger(source, half);
++    source += "] limits = [";
++    AppendInteger(source, tokens);
++    source += ", ";
++    AppendInteger(source, prefix == "q" ? qHeads : kvHeads);
++    source += ", ";
++    AppendInteger(source, rotaryDim);
++    source += "] strides = [1, 1, 1] : " + readyType + " -> " + halfType;
++    source += "\n    %" + std::string(prefix) +
++              "_tail = slice %" + std::string(prefix) +
++              "_ready starts = [0, 0, ";
++    AppendInteger(source, rotaryDim);
++    source += "] limits = [";
++    AppendInteger(source, tokens);
++    source += ", ";
++    AppendInteger(source, prefix == "q" ? qHeads : kvHeads);
++    source += ", ";
++    AppendInteger(source, headDim);
++    source += "] strides = [1, 1, 1] : " + readyType + " -> " + tailType;
++    source += "\n    %" + std::string(prefix) + "_low_cos = mul %" +
++              std::string(prefix) + "_low, %" + std::string(prefix) +
++              "_cos : " + halfType;
++    source += "\n    %" + std::string(prefix) + "_high_sin = mul %" +
++              std::string(prefix) + "_high, %" + std::string(prefix) +
++              "_sin : " + halfType;
++    source += "\n    %" + std::string(prefix) + "_rot_low = sub %" +
++              std::string(prefix) + "_low_cos, %" + std::string(prefix) +
++              "_high_sin : " + halfType;
++    source += "\n    %" + std::string(prefix) + "_high_cos = mul %" +
++              std::string(prefix) + "_high, %" + std::string(prefix) +
++              "_cos : " + halfType;
++    source += "\n    %" + std::string(prefix) + "_low_sin = mul %" +
++              std::string(prefix) + "_low, %" + std::string(prefix) +
++              "_sin : " + halfType;
++    source += "\n    %" + std::string(prefix) + "_rot_high = add %" +
++              std::string(prefix) + "_high_cos, %" + std::string(prefix) +
++              "_low_sin : " + halfType;
++    source += "\n    %" + std::string(prefix) +
++              "_rotary = concatenate %" + std::string(prefix) +
++              "_rot_low, %" + std::string(prefix) +
++              "_rot_high dimension = 2 : (" + halfType + ", " + halfType +
++              ") -> " + rotaryType;
++    source += "\n    %" + std::string(prefix) +
++              "_complete = concatenate %" + std::string(prefix) +
++              "_rotary, %" + std::string(prefix) +
++              "_tail dimension = 2 : (" + rotaryType + ", " + tailType +
++              ") -> " + readyType;
++    source += "\n    %" + std::string(prefix) +
++              "_result = convert %" + std::string(prefix) +
++              "_complete : " + readyType + " -> " + bf16Type;
++    source += "\n    %" + std::string(prefix) +
++              "_flat = reshape %" + std::string(prefix) +
++              "_result : " + bf16Type + " -> " + flatType + "\n";
++  };
++  appendRope("q", qfType, qHalfType, qTailType, qRotaryType, q3Type,
++             qFlatType);
++  appendRope("k", kfType, kHalfType, kTailType, kRotaryType, k3Type,
++             kFlatType);
++  source += "    %gate_flat = reshape %gate3 : ";
++  source += q3Type;
++  source += " -> ";
++  source += qFlatType;
++  source += "\n    %result0 = concatenate %q_flat, %k_flat, %gate_flat dimension = 0 : (";
++  source += qFlatType;
++  source += ", ";
++  source += kFlatType;
++  source += ", ";
++  source += qFlatType;
++  source += ") -> ";
++  source += TensorTypeText(graph.result);
++  source += "\n    results %result0 : ";
++  source += TensorTypeText(graph.result);
++  source += "\n  }\n}\n";
++  if (source.size() > kMaximumCanonicalSourceBytes) {
++    Reject("canonical TensorIR source exceeds 16 MiB");
++  }
++  return source;
++}
++
+ std::string EmitRowReductionSource(const RowReductionGraph& graph) {
+   const std::string input_type = TensorTypeText(graph.input);
+   const std::string input_with_stride = TensorWithStrideText(graph.input);
+@@ -3335,6 +3693,124 @@ NativeTileGatherRowsGraph AnalyzeNativeTileGatherRows(
+   return NativeTileGatherRowsGraph{data, indices, result};
+ }
+ 
++bool IsNativeTileQkRmsNormRopeCandidate(const ir::ProgramPtr& program) {
++  if (!program || program->functions_.size() != 1) return false;
++  const ir::FunctionPtr& function = program->functions_.begin()->second;
++  if (!function || function->params_.size() != 7) return false;
++  const auto positionsType =
++      ir::As<ir::TensorType>(function->params_[5]->GetType());
++  return positionsType &&
++         (positionsType->dtype_ == DataType::INT64 ||
++          positionsType->dtype_ == DataType::INT32);
++}
++
++NativeTileQkRmsNormRopeGraph AnalyzeNativeTileQkRmsNormRope(
++    const ir::ProgramPtr& program) {
++  if (!IsNativeTileQkRmsNormRopeCandidate(program)) {
++    Reject("native QK RMSNorm/RoPE candidate is malformed",
++           program ? &program->span_ : nullptr);
++  }
++  const auto& [global, function] = *program->functions_.begin();
++  if (!global || !function || global->name_ != function->name_ ||
++      function->requires_runtime_binding_ ||
++      function->func_type_ != ir::FunctionType::Orchestration ||
++      !function->level_.has_value() || *function->level_ != ir::Level::CHIP ||
++      !function->role_.has_value() ||
++      *function->role_ != ir::Role::Orchestrator || !function->attrs_.empty()) {
++    Reject("native QK RMSNorm/RoPE must be one canonical CHIP @pl.jit function",
++           &function->span_);
++  }
++  if (function->param_directions_.size() != 7 ||
++      function->return_types_.size() != 1) {
++    Reject("native QK RMSNorm/RoPE parameter directions are invalid",
++           &function->span_);
++  }
++  for (size_t index = 0; index < 6; ++index) {
++    if (function->param_directions_[index] != ir::ParamDirection::In) {
++      Reject("native QK RMSNorm/RoPE inputs must have direction In",
++             &function->params_[index]->span_);
++    }
++  }
++  if (function->param_directions_[6] != ir::ParamDirection::Out) {
++    Reject("native QK RMSNorm/RoPE output must have direction Out",
++           &function->params_[6]->span_);
++  }
++
++  const StaticTensor qGate = ReadStaticTensor(
++      function->params_[0]->GetType(), function->params_[0]->span_,
++      "native QK packed query/gate");
++  const StaticTensor key = ReadStaticTensor(
++      function->params_[1]->GetType(), function->params_[1]->span_,
++      "native QK key");
++  const StaticTensor qWeight = ReadStaticTensor(
++      function->params_[2]->GetType(), function->params_[2]->span_,
++      "native Q weight");
++  const StaticTensor kWeight = ReadStaticTensor(
++      function->params_[3]->GetType(), function->params_[3]->span_,
++      "native K weight");
++  const StaticTensor cache = ReadStaticTensor(
++      function->params_[4]->GetType(), function->params_[4]->span_,
++      "native RoPE cache");
++  StaticTensor positions = ReadStaticIntegerTensor(
++      function->params_[5]->GetType(), function->params_[5]->span_,
++      "native RoPE positions");
++  const StaticTensor result = ReadStaticTensor(
++      function->params_[6]->GetType(), function->params_[6]->span_,
++      "native QK packed output");
++  const StaticTensor declared = ReadStaticTensor(
++      function->return_types_[0], function->span_,
++      "native QK declared output");
++  if (qGate.shape.size() != 2 || key.shape.size() != 2 ||
++      qWeight.shape.size() != 2 || kWeight.shape.size() != 2 ||
++      cache.shape.size() != 2 || positions.shape.size() != 2 ||
++      result.shape.size() != 1 || !SameTensor(qWeight, kWeight) ||
++      !SameTensor(result, declared) || qWeight.shape[0] != 1 ||
++      qGate.shape[0] != key.shape[0] ||
++      positions.shape !=
++          std::vector<int64_t>({qGate.shape[0], cache.shape[1]})) {
++    Reject("native QK RMSNorm/RoPE tensor ranks or shared shapes are invalid",
++           &function->span_);
++  }
++  const int64_t headDim = qWeight.shape[1];
++  const int64_t rotaryDim = cache.shape[1];
++  if (headDim <= 0 || rotaryDim <= 0 || rotaryDim >= headDim ||
++      rotaryDim % 2 != 0 || qGate.shape[1] % (2 * headDim) != 0 ||
++      key.shape[1] % headDim != 0) {
++    Reject("native QK RMSNorm/RoPE head geometry is invalid",
++           &function->span_);
++  }
++  const int64_t qHeads = qGate.shape[1] / (2 * headDim);
++  const int64_t kvHeads = key.shape[1] / headDim;
++  const int64_t expectedElements =
++      qGate.shape[0] * (2 * qHeads * headDim + kvHeads * headDim);
++  if (qHeads <= 0 || kvHeads <= 0 || result.shape[0] != expectedElements) {
++    Reject("native QK RMSNorm/RoPE packed output extent is invalid",
++           &function->span_);
++  }
++  positions.dense_strides = {1, 0};
++
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = top && top->stmts_.size() == 2
++                         ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
++                         : nullptr;
++  const auto returned = top && top->stmts_.size() == 2
++                            ? ir::As<ir::ReturnStmt>(top->stmts_[1])
++                            : nullptr;
++  const auto returnedVar =
++      returned && returned->value_.size() == 1
++          ? ir::As<ir::Var>(returned->value_[0])
++          : nullptr;
++  if (!scope || scope->split_ != ir::SplitMode::None ||
++      !scope->attrs_.empty() || !returnedVar ||
++      returnedVar.get() != function->params_[6].get()) {
++    Reject("native QK RMSNorm/RoPE scope or return is invalid",
++           &function->span_);
++  }
++  return NativeTileQkRmsNormRopeGraph{
++      qGate, key, qWeight, cache, positions, result, qHeads, kvHeads,
++      headDim, rotaryDim, 1.0e-6};
++}
++
+ struct NativeTileRopeGraph {
+   StaticTensor input;
+   StaticTensor frequency;
+@@ -5531,6 +6007,28 @@ TensorIrModule EmitLegacyStaticAddV1(const ir::ProgramPtr& program) {
+ }  // namespace detail
+ 
+ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
++  if (IsNativeTileQkRmsNormRopeCandidate(program)) {
++    const NativeTileQkRmsNormRopeGraph graph =
++        AnalyzeNativeTileQkRmsNormRope(program);
++    std::vector<TensorIrValueMetadata> metadata;
++    metadata.reserve(7);
++    const std::array<StaticTensor, 6> inputs = {
++        graph.q_gate, graph.key, graph.weight, graph.weight, graph.cache,
++        graph.positions};
++    for (uint32_t index = 0; index < inputs.size(); ++index) {
++      metadata.push_back(TensorIrValueMetadata(
++          TensorIrValueRole::Input, index, inputs[index].dtype,
++          inputs[index].shape, inputs[index].dense_strides,
++          /*has_explicit_strides=*/true));
++    }
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Result, 0, graph.result.dtype,
++        graph.result.shape, graph.result.dense_strides,
++        /*has_explicit_strides=*/false));
++    return TensorIrModule(TensorIrModuleKind::FusedPointwise,
++                          EmitNativeTileQkRmsNormRopeSource(graph),
++                          std::move(metadata), /*input_count=*/6);
++  }
+   if (IsNativeTileGatherRowsCandidate(program)) {
+     const NativeTileGatherRowsGraph graph =
+         AnalyzeNativeTileGatherRows(program);

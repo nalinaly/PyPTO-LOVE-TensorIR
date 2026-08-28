@@ -1,0 +1,59 @@
+From e9be619a9c4d70a643b1d0300d7b3a7683f951a1 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 12:40:35 +0800
+Subject: [PATCH 81/82] Keep aligned scatter update tile order
+
+---
+ .../LayoutPropagationImpl.cpp                 | 39 +------------------
+ 1 file changed, 1 insertion(+), 38 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index f2341b21bd057b97b66f932bbd49f41d7d1ca527..a6ba1ff517d407ce64725627cb0b0cde0b117d2c 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -614,44 +614,7 @@ public:
+       tileToStore = cuda_tile::ExtractOp::create(
+           rewriter, op.getLoc(), projectedType, tileToStore, zeroIndices);
+     }
+-    // The fused iteration-space axes need not follow physical row-major
+-    // column order. Reorder the projected update tile as [row, outer ...,
+-    // inner] using descending physical stride before flattening it for the
+-    // rank-2 gather/scatter view.
+-    SmallVector<int32_t> physicalPermutation;
+-    SmallVector<bool> usedDimensions(iterationRank, false);
+-    if (!scalarRowProjection) {
+-      physicalPermutation.push_back(static_cast<int32_t>(rowDim));
+-      usedDimensions[rowDim] = true;
+-    }
+-    for (size_t dim : llvm::reverse(columnProjection->dimensions)) {
+-      physicalPermutation.push_back(static_cast<int32_t>(dim));
+-      usedDimensions[dim] = true;
+-    }
+-    for (size_t dim = 0; dim < iterationRank; ++dim) {
+-      if (!usedDimensions[dim]) {
+-        physicalPermutation.push_back(static_cast<int32_t>(dim));
+-      }
+-    }
+-    SmallVector<int64_t> storeShape;
+-    storeShape.reserve(iterationRank);
+-    for (int32_t dim : physicalPermutation) {
+-      storeShape.push_back(projectedShape[static_cast<size_t>(dim)]);
+-    }
+-    const bool permutationNeeded =
+-        sizes[1] != 262144 &&
+-        llvm::any_of(llvm::enumerate(physicalPermutation), [](auto item) {
+-          return item.value() != static_cast<int32_t>(item.index());
+-        });
+-    if (permutationNeeded) {
+-      auto projectedType = cast<cuda_tile::TileType>(tileToStore.getType());
+-      tileToStore = cuda_tile::PermuteOp::create(
+-          rewriter, op.getLoc(),
+-          cuda_tile::TileType::get(storeShape, projectedType.getElementType()),
+-          tileToStore,
+-          physicalPermutation);
+-    }
+-    if (!llvm::equal(storeShape, scatterTileShape)) {
++    if (!llvm::equal(projectedShape, scatterTileShape)) {
+       auto scatterType =
+           cuda_tile::TileType::get(scatterTileShape, dataElement);
+       tileToStore = cuda_tile::ReshapeOp::create(

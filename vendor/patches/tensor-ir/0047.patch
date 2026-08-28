@@ -1,0 +1,151 @@
+From 0494d49737aaf83511ae30b1f9a1afcb71e091d8 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 01:55:15 +0800
+Subject: [PATCH 47/82] Delay pure broadcasts until input consumption
+
+---
+ .../LayoutPropagationImpl.cpp                 | 78 +++++++++----------
+ 1 file changed, 37 insertions(+), 41 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index ea0414158fccb2aa945cbdd98330a754cefd5211..68910815e030561a6bc389489db41a3b9a056d7f 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -132,13 +132,13 @@ private:
+   DenseMap<int, IterationSpace *> iterationSpaces;
+ 
+   /// Block structure pointer is set for ops that modify the iteration space.
+-  BlockStructure *blockStructure = nullptr;
++  const BlockStructure *blockStructure = nullptr;
+   /// Iteration space pointer is set for every operation.
+-  IterationSpace *iterationSpace = nullptr;
++  const IterationSpace *iterationSpace = nullptr;
+ 
+-  /// Rewriter active for the current conversion pattern. Input loads are
+-  /// materialized lazily from getTile so each new load immediately gains a
+-  /// real SSA consumer instead of living only in this side table.
++  /// Rewriter active for the current conversion pattern. Zero-stride input
++  /// broadcasts are materialized lazily from getTile so every pure broadcast
++  /// immediately gains a real SSA consumer.
+   ConversionPatternRewriter *activeRewriter = nullptr;
+ 
+   /// Layouts for the current operation's operands.
+@@ -198,11 +198,10 @@ public:
+       return op.emitError("requires a rank-2 iteration-space tile");
+     }
+ 
+-    // Consume the data layout without materializing its ordinary dense load:
+-    // the gather below addresses the original source descriptor directly.
+-    assert(state.operandIndex < state.layouts.size() &&
+-           "gather data layout is missing");
+-    ++state.operandIndex;
++    // Consume both propagated layouts. The ordinary data tile is intentionally
++    // unused: the gather below addresses the original source descriptor with
++    // the dynamic row-index tile.
++    (void)state.getTile(adaptor.getData());
+     Value indicesTile = state.getTile(adaptor.getIndices());
+ 
+     auto dataSource = dyn_cast<TensorSourceAttr>(state.layouts[0]);
+@@ -516,12 +515,9 @@ public:
+           llvm::dbgs() << ")\n";
+         });
+ 
+-        // Validate tensor sources now, but materialize their loads lazily from
+-        // getTile. Eager loads have no SSA users while GraphOp is being
+-        // rewritten and can be erased before a later nested branch consumes
+-        // them, leaving a dangling Value in loadedTiles.
+-        for (auto &entry : iterationSpace.loadedTiles) {
+-          TensorSourceAttr source = entry.first;
++        // Create loads for the tensor sources in the iteration space.
++        rewriter.setInsertionPointToEnd(iterationSpace.insertionBlock);
++        for (auto &[source, loadedTile] : iterationSpace.loadedTiles) {
+           LLVM_DEBUG({
+             llvm::dbgs() << "Loading tensor #" << source.getTensorId()
+                          << " layout=" << source.getLayout()
+@@ -534,6 +530,15 @@ public:
+               state.inputDescriptors[tensorId].sizes.empty()) {
+             return graphOp.emitError("Invalid tensor ID: ") << tensorId;
+           }
++
++          // Keep the side-effecting narrow load in the skeleton. A required
++          // zero-stride broadcast is created only when a conversion pattern
++          // consumes this tile, so the pure broadcast immediately has an SSA
++          // user and cannot be reclaimed behind loadedTiles.
++          auto layoutDesc =
++              applyLayout(rewriter, state.inputDescriptors[tensorId], source);
++          loadedTile = emitLoadMaybeBroadcast(rewriter, layoutDesc,
++                                              iterationSpace, state.zeroIndex);
+         }
+       }
+ 
+@@ -579,8 +584,6 @@ public:
+   }
+ 
+ private:
+-  friend class ConversionStateImpl;
+-
+   /// Load tile and optionally broadcast to the tile shape.
+   static Value emitLoadMaybeBroadcast(ConversionPatternRewriter &rewriter,
+                                       const TensorDescriptor &desc,
+@@ -613,14 +616,10 @@ private:
+       indexValues[dim] = zeroIndex;
+     }
+ 
+-    // Emit load and broadcast.
++    // Emit only the side-effecting narrow load. The pure broadcast is delayed
++    // until getTile hands the value to its first real SSA consumer.
+     auto loadType = cast<ShapedType>(tileType).clone(tileShape);
+-    Value result = emitLoad(rewriter, desc, loadType, indexValues);
+-    if (loadType != tileType) {
+-      result = cuda_tile::BroadcastOp::create(rewriter, result.getLoc(),
+-                                              tileType, result);
+-    }
+-    return result;
++    return emitLoad(rewriter, desc, loadType, indexValues);
+   }
+ 
+   /// Update SSA values in the tensor descriptor (pointer and dynamic sizes).
+@@ -1019,7 +1018,7 @@ Value ConversionStateImpl::getTile(Value operand) {
+     // to the operand. (`iterationSpaceIndexForOperand` is keyed by operand
+     // position, which for a pruned concatenate differs from this per-source
+     // counter, so it is not indexed directly here.)
+-    IterationSpace *iterationSpace = this->iterationSpace;
++    const IterationSpace *iterationSpace = this->iterationSpace;
+     if (blockStructure) {
+       size_t idx =
+           blockStructure->iterationSpaces.size() > 1 ? operandIndex - 1 : 0;
+@@ -1029,22 +1028,19 @@ Value ConversionStateImpl::getTile(Value operand) {
+     auto it = iterationSpace->loadedTiles.find(tensorSource);
+     assert(it != iterationSpace->loadedTiles.end() &&
+            "layout has no associated value");
+-    assert(activeRewriter && "missing active conversion rewriter");
+-    RewriterBase::InsertionGuard guard(*activeRewriter);
+-    Block *block = iterationSpace->insertionBlock;
+-    if (Operation *terminator = block->getTerminator()) {
+-      activeRewriter->setInsertionPoint(terminator);
+-    } else {
+-      activeRewriter->setInsertionPointToEnd(block);
++    Value tile = it->second;
++    auto tileType = cast<ShapedType>(tile.getType());
++    if (tileType.getShape() != iterationSpace->tileShape) {
++      assert(activeRewriter && "missing active conversion rewriter");
++      Operation *definition = tile.getDefiningOp();
++      assert(definition && "loaded tile must have a defining operation");
++      RewriterBase::InsertionGuard guard(*activeRewriter);
++      activeRewriter->setInsertionPointAfter(definition);
++      tile = cuda_tile::BroadcastOp::create(
++          *activeRewriter, tile.getLoc(),
++          tileType.clone(iterationSpace->tileShape), tile);
+     }
+-    const size_t tensorId = tensorSource.getTensorId();
+-    assert(tensorId < inputDescriptors.size() &&
+-           "tensor source ID is out of bounds");
+-    auto layoutDesc =
+-        applyLayout(*activeRewriter, inputDescriptors[tensorId], tensorSource);
+-    it->second = GraphOpConversion::emitLoadMaybeBroadcast(
+-        *activeRewriter, layoutDesc, *iterationSpace, zeroIndex);
+-    return it->second;
++    return tile;
+   }
+ 
+   // The operand must have a tile type at this point.

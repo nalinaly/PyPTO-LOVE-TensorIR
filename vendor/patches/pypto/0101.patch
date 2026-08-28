@@ -1,0 +1,77 @@
+From 225cb32f7df59a98b0f33460eece88c4e6ab89f4 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 22:43:57 +0800
+Subject: [PATCH 101/212] Vendor corrected multi-output golden
+
+---
+ ...06-Fix-multi-output-golden-tile-rank.patch | 25 +++++++++++++++++++
+ 3rdparty/nvidia/tensor-ir                     |  2 +-
+ cmake/nvidia_backend.cmake                    |  2 +-
+ .../test_nvidia_backend_build_info.py         |  2 +-
+ 4 files changed, 28 insertions(+), 3 deletions(-)
+ create mode 100644 3rdparty/nvidia/0006-Fix-multi-output-golden-tile-rank.patch
+
+diff --git a/3rdparty/nvidia/0006-Fix-multi-output-golden-tile-rank.patch b/3rdparty/nvidia/0006-Fix-multi-output-golden-tile-rank.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..8cf67b1ef5d75fdd9ad02a36c731a07598b1668b
+--- /dev/null
++++ b/3rdparty/nvidia/0006-Fix-multi-output-golden-tile-rank.patch
+@@ -0,0 +1,25 @@
++From ec57ae0879462086495b5121abb10e8719ec21d4 Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Thu, 27 Aug 2026 22:43:37 +0800
++Subject: [PATCH] Fix multi-output golden tile rank
++
++---
++ test/Conversion/TensorToCudaTile/load_store_layouts.mlir | 2 +-
++ 1 file changed, 1 insertion(+), 1 deletion(-)
++
++diff --git a/test/Conversion/TensorToCudaTile/load_store_layouts.mlir b/test/Conversion/TensorToCudaTile/load_store_layouts.mlir
++index 871cbbf..7a79af0 100644
++--- a/test/Conversion/TensorToCudaTile/load_store_layouts.mlir
+++++ b/test/Conversion/TensorToCudaTile/load_store_layouts.mlir
++@@ -19,7 +19,7 @@ module {
++       %residual: tensor<32x32xf32>,
++       %weight: tensor<32x32xf32>) ->
++       (tensor<32x32xf32>, tensor<32x32xf32>)
++-      attributes {tile_size = array<i32: 16, 16>} {
+++      attributes {tile_size = array<i32: 256>} {
++     %sum = add %x, %residual : tensor<32x32xf32>
++     %primary = mul %sum, %weight : tensor<32x32xf32>
++     results %primary, %sum : tensor<32x32xf32>, tensor<32x32xf32>
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index a2aa598600989008665fa2b2cc5c8c89ecc093b6..ec57ae0879462086495b5121abb10e8719ec21d4 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit a2aa598600989008665fa2b2cc5c8c89ecc093b6
++Subproject commit ec57ae0879462086495b5121abb10e8719ec21d4
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 59892f5d4bf1659752ba8f31f6fb3a33334093cb..1b0afb43c48611464024eab30f7db9a07146b86d 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "a2aa598600989008665fa2b2cc5c8c89ecc093b6")
++    "ec57ae0879462086495b5121abb10e8719ec21d4")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+diff --git a/tests/ut/compiler/test_nvidia_backend_build_info.py b/tests/ut/compiler/test_nvidia_backend_build_info.py
+index 5587159d9bd93a404ef30535130f52ef6c9587b1..1a8f4517f695ddfef9319e83ad413dfd5785a55b 100644
+--- a/tests/ut/compiler/test_nvidia_backend_build_info.py
++++ b/tests/ut/compiler/test_nvidia_backend_build_info.py
+@@ -30,7 +30,7 @@ def test_nvidia_backend_build_info_is_immutable_and_self_consistent() -> None:
+     assert info.compiler_factory_available
+     assert len(info.pypto_revision) == 40
+     assert set(info.pypto_revision) <= set("0123456789abcdef")
+-    assert info.tensor_ir_revision == "a2aa598600989008665fa2b2cc5c8c89ecc093b6"
++    assert info.tensor_ir_revision == "ec57ae0879462086495b5121abb10e8719ec21d4"
+     assert info.cuda_tile_revision == "af2417041cc939b87ef56d92cfdcf61737c5457e"
+     assert info.llvm_revision == "57109befac92811d2253109242ca6fa69c961fb2"
+     assert info.cuda_toolkit_root == "/usr/local/cuda-13.3"

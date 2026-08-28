@@ -1,0 +1,106 @@
+From 32d1f16bf187da3dbac380f700e59a36582d4764 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 08:44:48 +0800
+Subject: [PATCH 158/212] Fix paged attention integer and unit-column lowering
+
+---
+ 3rdparty/nvidia/tensor-ir                |  2 +-
+ cmake/nvidia_backend.cmake               |  2 +-
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 29 +++++++++++++++---------
+ 3 files changed, 20 insertions(+), 13 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 6b7599a57efea5fc67e1a696b6a2142671f0b95d..d93401f6cbe825421b4b8d74256bac9f234a4df6 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 6b7599a57efea5fc67e1a696b6a2142671f0b95d
++Subproject commit d93401f6cbe825421b4b8d74256bac9f234a4df6
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 18f1e0e8ba59c8a6927c3fb54ac7447e6ca7bdc4..acfa1418327dc7a62612b39dae4e83071835c385 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "6b7599a57efea5fc67e1a696b6a2142671f0b95d")
++    "d93401f6cbe825421b4b8d74256bac9f234a4df6")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 3b22fa2a1dce9566e20ba34f1d899da74822385b..8bd9949e78aa9634c5b76042deaa9b99584ad7d9 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -359,8 +359,9 @@ StaticTensor ReadStaticIntegerTensor(const ir::TypePtr& type,
+                       MakeDenseStrides(shape, span)};
+ }
+ 
+-StaticTensor ReadStaticTile(const ir::TypePtr& type, const ir::Span& span,
+-                            std::string_view location) {
++StaticTensor ReadStaticTileWithAnyDtype(const ir::TypePtr& type,
++                                        const ir::Span& span,
++                                        std::string_view location) {
+   const auto tile_type = ir::As<ir::TileType>(type);
+   if (!tile_type) {
+     Reject(std::string(location) + " must have plain TileType", &span);
+@@ -368,11 +369,6 @@ StaticTensor ReadStaticTile(const ir::TypePtr& type, const ir::Span& span,
+   if (tile_type->memref_.has_value()) {
+     Reject(std::string(location) + " must not carry a MemRef", &span);
+   }
+-  if (tile_type->dtype_ != DataType::BF16 && tile_type->dtype_ != DataType::FP32) {
+-    Reject(std::string(location) + " dtype must be BF16 or FP32, got " +
+-               tile_type->dtype_.ToString(),
+-           &span);
+-  }
+   if (tile_type->shape_.empty() || tile_type->shape_.size() > kMaximumRank) {
+     Reject(std::string(location) + " rank must be between 1 and 32", &span);
+   }
+@@ -389,6 +385,17 @@ StaticTensor ReadStaticTile(const ir::TypePtr& type, const ir::Span& span,
+   return StaticTensor{tile_type->dtype_, shape, MakeDenseStrides(shape, span)};
+ }
+ 
++StaticTensor ReadStaticTile(const ir::TypePtr& type, const ir::Span& span,
++                            std::string_view location) {
++  const StaticTensor tile = ReadStaticTileWithAnyDtype(type, span, location);
++  if (tile.dtype != DataType::BF16 && tile.dtype != DataType::FP32) {
++    Reject(std::string(location) + " dtype must be BF16 or FP32, got " +
++               tile.dtype.ToString(),
++           &span);
++  }
++  return tile;
++}
++
+ bool SameTensor(const StaticTensor& left, const StaticTensor& right) {
+   return left.dtype == right.dtype && left.shape == right.shape &&
+          left.dense_strides == right.dense_strides;
+@@ -6126,16 +6133,16 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+              &q_body->stmts_[9 + index]->span_);
+     }
+   }
+-  const StaticTensor position_tile = ReadStaticTile(
++  const StaticTensor position_tile = ReadStaticTileWithAnyDtype(
+       assignments[4]->var_->GetType(), assignments[4]->var_->span_,
+       "native paged decode mask positions");
+   const StaticTensor masked_score = ReadStaticTile(
+       assignments[7]->var_->GetType(), assignments[7]->var_->span_,
+       "native paged decode masked score");
+-  const StaticTensor mask_tile = ReadStaticTile(
++  const StaticTensor mask_tile = ReadStaticTileWithAnyDtype(
+       assignments[5]->var_->GetType(), assignments[5]->var_->span_,
+       "native paged decode valid mask");
+-  const StaticTensor mask_scratch = ReadStaticTile(
++  const StaticTensor mask_scratch = ReadStaticTileWithAnyDtype(
+       assignments[6]->var_->GetType(), assignments[6]->var_->span_,
+       "native paged decode mask scratch");
+   const auto position_start = calls[4]->args_.size() == 2
+@@ -8009,7 +8016,7 @@ std::string EmitNativeTilePagedPrefillSource(
+         source += score_type;
+         source += "\n    %valid_offset_" + suffix + " = constant ";
+         source += std::to_string(query_row + 1);
+-        source += " : i32\n    %valid_offset_splat_" + suffix +
++        source += " : si32\n    %valid_offset_splat_" + suffix +
+                   " = splat %valid_offset_" + suffix + " : ";
+         source += index_row_type;
+         source += "\n    %valid_count_" + suffix + " = add %arg5, "

@@ -1,0 +1,50 @@
+From 8ae55a1e02698d43453d05fd6e74b10d1c5f1aa1 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 12:29:04 +0800
+Subject: [PATCH 187/212] Retain all causal convolution state planes
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 26 +++++++++++++++++++-----
+ 1 file changed, 21 insertions(+), 5 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 2bfbd2e21f22549ce216f8377d0e9e3963244ff5..ffa18892fc711991c5c3636c46072c9dd51225d2 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -1616,15 +1616,31 @@ std::string EmitNativeTileStatefulCausalConvSource(
+     source += state_rows_type;
+     source += ") -> ";
+     source += state_rows_type;
++    std::array<std::string, 3> anchor_planes;
++    for (size_t plane = 0; plane < anchor_planes.size(); ++plane) {
++      anchor_planes[plane] = "%state_anchor_plane_" + std::to_string(plane) +
++                             "_" + batch_suffix;
++      source += "\n    " + anchor_planes[plane] + " = slice " + stored_state +
++                " starts = [0, " +
++                std::to_string(static_cast<int64_t>(plane) * graph.channels) +
++                "] limits = [1, " +
++                std::to_string((static_cast<int64_t>(plane) + 1) *
++                               graph.channels) +
++                "] strides = [1, 1] : ";
++      source += state_rows_type;
++      source += " -> ";
++      source += state_plane_type;
++    }
++    const std::string anchor_sum01 = "%state_anchor_sum01_" + batch_suffix;
+     const std::string anchor_row = "%state_anchor_row_" + batch_suffix;
+     const std::string anchor_box = "%state_anchor_box_" + batch_suffix;
+     std::string anchor_full;
+     const std::string anchored_output = "%anchored_output_" + batch_suffix;
+-    source += "\n    " + anchor_row + " = slice " + stored_state +
+-              " starts = [0, 0] limits = [1, " +
+-              std::to_string(graph.channels) + "] strides = [1, 1] : ";
+-    source += state_rows_type;
+-    source += " -> ";
++    source += "\n    " + anchor_sum01 + " = add " + anchor_planes[0] + ", " +
++              anchor_planes[1] + " : ";
++    source += state_plane_type;
++    source += "\n    " + anchor_row + " = add " + anchor_sum01 + ", " +
++              anchor_planes[2] + " : ";
+     source += state_plane_type;
+     source += "\n    " + anchor_box + " = reshape " + anchor_row + " : ";
+     source += state_plane_type;

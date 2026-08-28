@@ -1,0 +1,60 @@
+From 2677d1a99ae9e4c6627872f01a26a62bf6e832c8 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Mon, 24 Aug 2026 23:43:04 +0800
+Subject: [PATCH 09/82] compiler: decode cubin target by ABI version
+
+---
+ lib/Compiler/CudaTile/CudaTileArtifact.cpp | 26 +++++++++++++---------
+ 1 file changed, 16 insertions(+), 10 deletions(-)
+
+diff --git a/lib/Compiler/CudaTile/CudaTileArtifact.cpp b/lib/Compiler/CudaTile/CudaTileArtifact.cpp
+index 0a8dc849ac0ca8524edca6aabe65d3057e0e25c5..c7b9f3afadb95383afd588b3a8dd91b2342642a4 100644
+--- a/lib/Compiler/CudaTile/CudaTileArtifact.cpp
++++ b/lib/Compiler/CudaTile/CudaTileArtifact.cpp
+@@ -66,6 +66,20 @@ bool isRangeWithin(uint64_t offset, uint64_t size, size_t totalSize) {
+   return offset <= totalSize && size <= totalSize - offset;
+ }
+ 
++StatusOr<int32_t> decodeCudaSmFlags(llvm::ArrayRef<char> bytes,
++                                    uint32_t flags) {
++  uint8_t abiVersion =
++      static_cast<uint8_t>(bytes[llvm::ELF::EI_ABIVERSION]);
++  if (abiVersion == llvm::ELF::ELFABIVERSION_CUDA_V1) {
++    return static_cast<int32_t>(flags & llvm::ELF::EF_CUDA_SM);
++  }
++  if (abiVersion == llvm::ELF::ELFABIVERSION_CUDA_V2) {
++    return static_cast<int32_t>((flags & llvm::ELF::EF_CUDA_SM_MASK) >>
++                                llvm::ELF::EF_CUDA_SM_OFFSET);
++  }
++  return Status::InvalidArgument("unsupported CUDA ELF ABI version");
++}
++
+ Status validateTileIRHeader(
+     llvm::ArrayRef<char> bytes,
+     std::optional<mlir::cuda_tile::BytecodeVersion> expectedVersion) {
+@@ -123,11 +137,7 @@ Status validateCudaElfHeader(llvm::ArrayRef<char> bytes,
+   }
+   if (expectedCc) {
+     uint32_t flags = readU32LE(bytes, kFlagsOffset);
+-    int32_t encodedCc = *expectedCc >= 100
+-                            ? static_cast<int32_t>(
+-                                  (flags & llvm::ELF::EF_CUDA_SM_MASK) >>
+-                                  llvm::ELF::EF_CUDA_SM_OFFSET)
+-                            : static_cast<int32_t>(flags & llvm::ELF::EF_CUDA_SM);
++    TIR_ASSIGN_OR_RETURN(auto encodedCc, decodeCudaSmFlags(bytes, flags));
+     if (encodedCc != *expectedCc) {
+       return Status::InvalidArgument(
+           "cubin SM flags differ from artifact target metadata");
+@@ -224,11 +234,7 @@ Status validateCompleteCudaElf(llvm::ArrayRef<char> bytes,
+ 
+   uint32_t flags = readU32LE(bytes, 48);
+   int32_t expectedCc = expectedTarget.getComputeCapabilityVersion();
+-  int32_t encodedCc = expectedCc >= 100
+-                          ? static_cast<int32_t>(
+-                                (flags & llvm::ELF::EF_CUDA_SM_MASK) >>
+-                                llvm::ELF::EF_CUDA_SM_OFFSET)
+-                          : static_cast<int32_t>(flags & llvm::ELF::EF_CUDA_SM);
++  TIR_ASSIGN_OR_RETURN(auto encodedCc, decodeCudaSmFlags(bytes, flags));
+   if (encodedCc != expectedCc) {
+     return Status::InvalidArgument(
+         "cubin SM flags differ from artifact target metadata");

@@ -1,0 +1,1778 @@
+From 1daa7e57893eeb821752ca0fcf07daec4d46080e Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Wed, 26 Aug 2026 09:25:28 +0800
+Subject: [PATCH 052/212] codegen: add bounded row reduction TensorIR frontend
+
+---
+ docs/en/dev/backend/01-nvidia-target-info.md  |  63 ++-
+ docs/zh/dev/backend/01-nvidia-target-info.md  |  54 ++-
+ src/codegen/nvidia/tensor_ir_codegen.cpp      | 317 ++++++++++++++-
+ src/codegen/nvidia/tensor_ir_codegen.h        |  22 +-
+ .../structured_tensor_ir_build_spec.cpp       |  85 ++++
+ .../structured_tensor_ir_build_spec.h         |   1 +
+ tests/ut/compiler/test_structured_compile.py  |  70 +++-
+ tests/ut/cpp/structured_compile_test.cpp      | 118 ++++++
+ .../structured_tensor_ir_build_spec_test.cpp  | 277 +++++++++++++
+ tests/ut/cpp/tensor_ir_codegen_test.cpp       | 375 ++++++++++++++++++
+ 10 files changed, 1344 insertions(+), 38 deletions(-)
+
+diff --git a/docs/en/dev/backend/01-nvidia-target-info.md b/docs/en/dev/backend/01-nvidia-target-info.md
+index 8f39125c37e9157d1028be804272f11d964c4a5b..edc08b196d31b955e872b12b2a7d8757348822d1 100644
+--- a/docs/en/dev/backend/01-nvidia-target-info.md
++++ b/docs/en/dev/backend/01-nvidia-target-info.md
+@@ -258,16 +258,17 @@ publication, provisional key, or key rewrite.
+ 
+ Every projection is canonical MessagePack in lexical map-key order, capped at
+ 1 MiB, and contains no binary, extension, or floating-point value. The frozen
+-legacy add module uses the existing v1 contracts; fused pointwise uses
+-domain-separated v2 contracts with schema version 2:
+-
+-| KernelBuildSpec input | Legacy contract | Fused contract | Contents |
+-| --------------------- | --------------- | -------------- | -------- |
+-| static specialization | `pypto.frontend.static_specialization.v1` | `pypto.frontend.static_specialization.v2` | ordered argument/result roles, ordinals, and positive static HIR shapes |
+-| symbolic specialization | `pypto.frontend.symbolic_specialization.v1` | `pypto.frontend.symbolic_specialization.v2` | explicit empty `constraints` and `symbols` arrays |
+-| argument ABI | `pypto.frontend.argument_abi.v1` | `pypto.frontend.argument_abi.v2` | all ordered inputs with `direction=in`, dtype code/name, rank, static shape, logical dense strides, contiguous and explicit-stride state |
+-| result ABI | `pypto.frontend.result_abi.v1` | `pypto.frontend.result_abi.v2` | the one ordered result with the same dtype/layout metadata, without an input direction |
+-| mutation ABI | `pypto.frontend.mutation_abi.v1` | `pypto.frontend.mutation_abi.v2` | one read-only effect per input and one `nil` result alias |
++legacy add module uses the existing v1 contracts, fused pointwise uses
++domain-separated v2 contracts, and row reduction uses domain-separated v3
++contracts:
++
++| KernelBuildSpec input | Legacy contract | Fused contract | Row-reduction contract | Contents |
++| --------------------- | --------------- | -------------- | ---------------------- | -------- |
++| static specialization | `pypto.frontend.static_specialization.v1` | `pypto.frontend.static_specialization.v2` | `pypto.frontend.static_specialization.v3` | ordered argument/result roles, ordinals, and positive static HIR shapes |
++| symbolic specialization | `pypto.frontend.symbolic_specialization.v1` | `pypto.frontend.symbolic_specialization.v2` | `pypto.frontend.symbolic_specialization.v3` | explicit empty `constraints` and `symbols` arrays |
++| argument ABI | `pypto.frontend.argument_abi.v1` | `pypto.frontend.argument_abi.v2` | `pypto.frontend.argument_abi.v3` | all ordered inputs with `direction=in`, dtype code/name, rank, static shape, logical dense strides, contiguous and explicit-stride state |
++| result ABI | `pypto.frontend.result_abi.v1` | `pypto.frontend.result_abi.v2` | `pypto.frontend.result_abi.v3` | the one ordered result with dtype/layout metadata, without an input direction |
++| mutation ABI | `pypto.frontend.mutation_abi.v1` | `pypto.frontend.mutation_abi.v2` | `pypto.frontend.mutation_abi.v3` | one read-only effect per input and one `nil` result alias |
+ 
+ The sixth identity domain remains the SHA-256 of the raw canonical TensorIR
+ source bytes, without a MessagePack envelope. A `nil` result alias means that
+@@ -278,7 +279,7 @@ non-overlap, C/C++ `restrict`, or a loader-side alias check.
+ caller-provided callable digest. It validates the returned kernel ABI against
+ the prepared metadata and schedule, then uses only
+ `ArtifactKernelAbi.identity_digest` as `KernelBuildSpec.callable_abi_digest`.
+-Both module kinds require the fixed runtime name; the prepared entry name;
++All three module kinds require the fixed runtime name; the prepared entry name;
+ exactly ordered tensor descriptors for every input followed by `Result0`;
+ fully static matching shapes and strides with no dynamic metadata; `N` inputs,
+ `N+1` kernel pointer arguments, `uniform_signature=false`, and pointer-only
+@@ -307,6 +308,13 @@ producer, filesystem, subprocess, CUDA API, or GPU. The facade may invoke the
+ CPU compiler and assembler subprocess, but it never initializes CUDA or
+ executes on a GPU.
+ 
++`RowReductionV3` has a separate normalized law. Let `rows=1` for rank one and
++`rows=product(shape[:-1])` otherwise. Preparation requires exactly one
++`dim_000` row tile `T`, with `T` a positive power of two and `T <= rows`.
++Finalization requires exactly `{ceil(rows / T), 1, 1}`. The reduced last-axis
++extent does not multiply the launch grid; it is consumed inside each CTA using
++the fixed producer reduction tile size `128`.
++
+ ### Bounded fused pointwise frontend v2
+ 
+ `FusedPointwiseV2` is private compiler analysis, not a new public compiler
+@@ -336,6 +344,39 @@ bounded syntax, deterministic identities, ABI validation and Cubin production;
+ it does not prove FP32/BF16 transcendental numerical correctness, CUDA launch,
+ or performance. Those require a separate real-SM120 correctness gate.
+ 
++### Bounded row-reduction frontend v3
++
++`RowReductionV3` is private compiler analysis, not a new public operator,
++compiler facade, or wire type. It emits entry `pypto_row_reduction_v3` and
++metadata schema 3. It accepts one Opaque function with exactly one exact `In`
++parameter, one direct assignment carrying registered `tensor.row_sum` or
++`tensor.row_max`, and one direct return of that assignment. The call has one
++operand and empty attributes and keyword arguments.
++
++The input is a plain, fully static, contiguous row-major BF16 or FP32 tensor of
++rank 1 through 32, with no MemRef or TensorView. The result preserves rank and
++HIR dtype and has the same shape except that the last extent is one. TensorIR
++uses a built-in last-axis `reduce` with mode `add` or `max`. BF16 never reaches a
++BF16-typed reduction: canonical source converts the input BF16 tensor to FP32,
++reduces in FP32, then converts the FP32 result back to BF16.
++For rank greater than two, canonical source reshapes the compute tensor to
++`[rows, shape[-1]]`, reduces it to `[rows, 1]`, then reshapes back to the HIR
++result shape. This is what makes the single row tile and flattened row-grid law
++exact rather than producer-dependent.
++
++The ABI contains exactly ordered `Input0` and `Result0` tensor descriptors, one
++read-only input plus a `nil` result alias, two pointer arguments, static grid
++policy selected by descriptor zero, zero workspace, and the shared fixed launch
++and loader contracts. Rank-one descriptors have implicit strides; higher ranks
++carry exact logical dense strides for the input and reduced result independently.
++
++V3 does not accept pointwise prefixes, multiple reductions, arbitrary-axis or
++rank-dropping reductions, dynamic extents, valid-shape/view metadata, mutation,
++CUDA Graph, runtime launch, numerical correctness, or performance. Those need
++separately versioned frontend and real-SM120 acceptance gates. The V1 and V2
++canonical sources, projection bytes, identities, and producer behavior remain
++unchanged.
++
+ ## NVIDIA Artifact v1
+ 
+ `Artifact` is the immutable, pointer-free output envelope for the first strict
+diff --git a/docs/zh/dev/backend/01-nvidia-target-info.md b/docs/zh/dev/backend/01-nvidia-target-info.md
+index 52a58d15b3dcd7b9805a31ae53dc641eb3809e8e..b29b527460cdc162e64fee66ac856aec891cadd6 100644
+--- a/docs/zh/dev/backend/01-nvidia-target-info.md
++++ b/docs/zh/dev/backend/01-nvidia-target-info.md
+@@ -228,16 +228,16 @@ provisional key 或 key rewrite。
+ 
+ 每个 projection 都是按 map key 词法顺序编码的 canonical MessagePack，上限为
+ 1 MiB，并且不包含 binary、extension 或 floating-point value。冻结的 legacy add
+-module 继续使用现有 v1 contract；fused pointwise 使用 domain-separated v2 contract
+-与 schema version 2：
++module 继续使用现有 v1 contract，fused pointwise 使用 domain-separated v2 contract，
++row reduction 使用 domain-separated v3 contract：
+ 
+-| KernelBuildSpec input | Legacy contract | Fused contract | Contents |
+-| --------------------- | --------------- | -------------- | -------- |
+-| static specialization | `pypto.frontend.static_specialization.v1` | `pypto.frontend.static_specialization.v2` | 有序 argument/result role、ordinal 与正数 static HIR shape |
+-| symbolic specialization | `pypto.frontend.symbolic_specialization.v1` | `pypto.frontend.symbolic_specialization.v2` | 显式为空的 `constraints` 与 `symbols` array |
+-| argument ABI | `pypto.frontend.argument_abi.v1` | `pypto.frontend.argument_abi.v2` | 全部有序 input，包括 `direction=in`、dtype code/name、rank、static shape、logical dense stride、contiguous 与 explicit-stride state |
+-| result ABI | `pypto.frontend.result_abi.v1` | `pypto.frontend.result_abi.v2` | 唯一有序 result，包含相同 dtype/layout metadata，但不含 input direction |
+-| mutation ABI | `pypto.frontend.mutation_abi.v1` | `pypto.frontend.mutation_abi.v2` | 每个 input 一个 read-only effect，以及一个 `nil` result alias |
++| KernelBuildSpec input | Legacy contract | Fused contract | Row-reduction contract | Contents |
++| --------------------- | --------------- | -------------- | ---------------------- | -------- |
++| static specialization | `pypto.frontend.static_specialization.v1` | `pypto.frontend.static_specialization.v2` | `pypto.frontend.static_specialization.v3` | 有序 argument/result role、ordinal 与正数 static HIR shape |
++| symbolic specialization | `pypto.frontend.symbolic_specialization.v1` | `pypto.frontend.symbolic_specialization.v2` | `pypto.frontend.symbolic_specialization.v3` | 显式为空的 `constraints` 与 `symbols` array |
++| argument ABI | `pypto.frontend.argument_abi.v1` | `pypto.frontend.argument_abi.v2` | `pypto.frontend.argument_abi.v3` | 全部有序 input，包括 `direction=in`、dtype code/name、rank、static shape、logical dense stride、contiguous 与 explicit-stride state |
++| result ABI | `pypto.frontend.result_abi.v1` | `pypto.frontend.result_abi.v2` | `pypto.frontend.result_abi.v3` | 唯一有序 result，包含 dtype/layout metadata，但不含 input direction |
++| mutation ABI | `pypto.frontend.mutation_abi.v1` | `pypto.frontend.mutation_abi.v2` | `pypto.frontend.mutation_abi.v3` | 每个 input 一个 read-only effect，以及一个 `nil` result alias |
+ 
+ 第六个 identity domain 仍然是 raw canonical TensorIR source bytes 的 SHA-256，不添加
+ MessagePack envelope。`nil` result alias 表示 HIR/SSA result 没有 input-alias lineage；
+@@ -246,7 +246,7 @@ MessagePack envelope。`nil` result alias 表示 HIR/SSA result 没有 input-ali
+ `FinalizeStructuredTensorIrBuildSpec(prepared, real_kernel_abi)` 不接受 caller 提供的
+ callable digest。它先根据 prepared metadata 与 schedule 验证返回的 kernel ABI，之后
+ 只使用 `ArtifactKernelAbi.identity_digest` 作为
+-`KernelBuildSpec.callable_abi_digest`。两种 module kind 都要求固定 runtime name、
++`KernelBuildSpec.callable_abi_digest`。三种 module kind 都要求固定 runtime name、
+ prepared entry name、严格按全部 input 后接 `Result0` 排列的 tensor descriptor、完全
+ static 且匹配的 shape/stride、无 dynamic metadata、`N` 个 input 与 `N+1` 个 kernel
+ pointer argument、`uniform_signature=false` 与 pointer-only packing、由 descriptor
+@@ -270,6 +270,12 @@ fused pointwise module 使用更强的 normalized 规则：preparation 要求恰
+ subprocess、CUDA API 或 GPU。facade 可以调用 CPU compiler 与 assembler subprocess，
+ 但不会初始化 CUDA，也不会在 GPU 上执行。
+ 
++`RowReductionV3` 使用另一条 normalized 规则：rank one 时 `rows=1`，否则
++`rows=product(shape[:-1])`。preparation 要求恰好一个 `dim_000` row tile `T`，其中
++`T` 必须是正数 2 的幂并满足 `T <= rows`。finalization 严格要求
++`{ceil(rows / T), 1, 1}`。被规约的最后一轴 extent 不会乘入 launch grid；它在每个 CTA
++内部由固定 producer reduction tile size `128` 消费。
++
+ ### 有界 fused pointwise frontend v2
+ 
+ `FusedPointwiseV2` 是 private compiler analysis，不是新的 public compiler facade 或
+@@ -296,6 +302,34 @@ validation 与 Cubin production；它不证明 FP32/BF16 transcendental numerica
+ correctness、CUDA launch 或 performance。这些结论需要单独的 real-SM120 correctness
+ gate。
+ 
++### 有界 row-reduction frontend v3
++
++`RowReductionV3` 是 private compiler analysis，不是新的 public operator、compiler
++facade 或 wire type。它生成 entry `pypto_row_reduction_v3` 与 metadata schema 3。
++它接受一个 Opaque function，其中恰好包含一个 exact `In` parameter、一个携带 registered
++`tensor.row_sum` 或 `tensor.row_max` 的 direct assignment，以及一个直接返回该 assignment
++结果的 return。call 只有一个 operand，attribute 与 keyword argument 都必须为空。
++
++input 必须是 plain、完全 static、contiguous row-major BF16 或 FP32 tensor，rank 位于
++1 到 32，且不含 MemRef 或 TensorView。result 保持相同 rank 与 HIR dtype，shape 仅将
++最后一个 extent 设为一。TensorIR 使用 mode 为 `add` 或 `max` 的 built-in last-axis
++`reduce`。BF16 绝不会进入 BF16-typed reduction：canonical source 先把 BF16 input
++convert 为 FP32，在 FP32 中规约，再把 FP32 result convert 回 BF16。
++对于 rank 大于二的输入，canonical source 会先把 compute tensor reshape 为
++`[rows, shape[-1]]`，规约到 `[rows, 1]`，再 reshape 回 HIR result shape。这样才能让
++单一 row tile 与扁平 row-grid 规则保持精确，而不是依赖 producer 的隐式行为。
++
++ABI 严格按 `Input0`、`Result0` 排列 tensor descriptor，包含一个 read-only input 与一个
++`nil` result alias、两个 pointer argument、由 descriptor zero 选择的 static grid policy、
++zero workspace，以及共享的固定 launch/loader contract。rank-one descriptor 使用 implicit
++stride；更高 rank 会分别携带 input 与 reduced result 的精确 logical dense stride。
++
++V3 不接受 pointwise prefix、多个 reduction、任意 axis 或 drop-rank reduction、dynamic
++extent、valid-shape/view metadata、mutation、CUDA Graph、runtime launch、numerical
++correctness 或 performance。这些能力需要单独 version 的 frontend 与 real-SM120
++acceptance gate。V1/V2 canonical source、projection bytes、identity 与 producer behavior
++保持不变。
++
+ ## NVIDIA Artifact v1
+ 
+ `Artifact` 是第一条 strict structured TensorIR 路径的不可变、无指针输出封装。
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 02eecb92e4b504e6c6e37a0e0044b6ba8c0a61b5..754f65edf7b444a88e47fc7e813411c78c0080ca 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -47,6 +47,7 @@ constexpr size_t kMaximumFusedPointwiseInputs = 16;
+ constexpr size_t kMaximumFusedPointwiseAssignments = 64;
+ constexpr std::string_view kLegacyStaticAddEntryName = "pypto_vector_add";
+ constexpr std::string_view kFusedPointwiseEntryName = "pypto_fused_pointwise_v2";
++constexpr std::string_view kRowReductionEntryName = "pypto_row_reduction_v3";
+ 
+ struct StaticTensor {
+   DataType dtype;
+@@ -76,6 +77,18 @@ struct FusedPointwiseGraph {
+   size_t input_count;
+ };
+ 
++enum class RowReductionMode : uint8_t {
++  Sum = 0,
++  Max = 1,
++};
++
++struct RowReductionGraph {
++  StaticTensor input;
++  StaticTensor result;
++  RowReductionMode mode;
++  int64_t rows;
++};
++
+ std::string BoundedDisplay(std::string_view value) {
+   std::string output;
+   const size_t count = std::min(value.size(), kMaximumDiagnosticNameBytes);
+@@ -297,6 +310,244 @@ std::vector<ir::StmtPtr> LegacyBodyStatements(const ir::StmtPtr& body,
+   return sequence->stmts_;
+ }
+ 
++RowReductionGraph AnalyzeRowReductionV3(const ir::ProgramPtr& program) {
++  if (!program) Reject("program must not be null");
++  if (program->functions_.size() != 1) {
++    Reject("program must contain exactly one function", &program->span_);
++  }
++
++  const auto& [global, function] = *program->functions_.begin();
++  if (!global || !function) Reject("program contains a null function binding", &program->span_);
++  if (global->name_ != function->name_) {
++    Reject("global function name does not match the bound function name", &function->span_);
++  }
++  if (function->requires_runtime_binding_) {
++    Reject("runtime-bound functions are not supported", &function->span_);
++  }
++  if (function->func_type_ != ir::FunctionType::Opaque || function->level_.has_value() ||
++      function->role_.has_value()) {
++    Reject("function must be Opaque with no hierarchy level or role", &function->span_);
++  }
++  if (!function->attrs_.empty()) {
++    Reject("function attributes are not supported", &function->span_);
++  }
++  if (function->params_.size() != 1 || function->param_directions_.size() != 1) {
++    Reject("row reduction v3 requires exactly one function parameter", &function->span_);
++  }
++  if (function->param_directions_[0] != ir::ParamDirection::In) {
++    Reject("the row reduction parameter must have direction In", &function->span_);
++  }
++  if (function->return_types_.size() != 1) {
++    Reject("row reduction v3 requires exactly one declared return", &function->span_);
++  }
++
++  const ir::VarPtr& parameter = function->params_[0];
++  if (!parameter) Reject("function contains a null parameter", &function->span_);
++  if (parameter->GetKind() != ir::ObjectKind::Var) {
++    Reject("row reduction parameter must be an exact Var node", &parameter->span_);
++  }
++  const StaticTensor input =
++      ReadStaticTensor(parameter->GetType(), parameter->span_, "row reduction parameter");
++  int64_t rows = 1;
++  for (size_t index = 0; index + 1 < input.shape.size(); ++index) {
++    rows *= input.shape[index];
++  }
++  StaticTensor expected_result = input;
++  expected_result.shape.back() = 1;
++  expected_result.dense_strides = MakeDenseStrides(expected_result.shape, function->span_);
++
++  const StaticTensor declared_result =
++      ReadStaticTensor(function->return_types_[0], function->span_, "declared row reduction result");
++  if (!SameTensor(expected_result, declared_result)) {
++    Reject("row reduction result must preserve input rank and dtype and set only the last extent to one",
++           &function->span_);
++  }
++
++  if (!function->body_) Reject("function body must not be null", &function->span_);
++  const auto sequence = ir::As<ir::SeqStmts>(function->body_);
++  if (!sequence || sequence->stmts_.size() != 2 || !sequence->stmts_[0] ||
++      !sequence->stmts_[1]) {
++    Reject("row reduction body must contain exactly one assignment and one return",
++           &function->body_->span_);
++  }
++  const auto assignment = ir::As<ir::AssignStmt>(sequence->stmts_[0]);
++  if (!assignment || !assignment->var_ || !assignment->value_) {
++    Reject("first row reduction statement must be one complete assignment",
++           &sequence->stmts_[0]->span_);
++  }
++  if (assignment->var_->GetKind() != ir::ObjectKind::Var) {
++    Reject("row reduction assignment result must be an exact Var node",
++           &assignment->var_->span_);
++  }
++  if (assignment->var_.get() == parameter.get()) {
++    Reject("row reduction result must not reuse the parameter IR identity", &assignment->span_);
++  }
++
++  const auto call = ir::As<ir::Call>(assignment->value_);
++  if (!call || !call->op_) {
++    Reject("row reduction assignment value must be a direct registered tensor call",
++           &assignment->value_->span_);
++  }
++  if (!call->attrs_.empty() || !call->kwargs_.empty()) {
++    Reject("row reduction attributes and keyword arguments are not supported", &call->span_);
++  }
++  RowReductionMode mode;
++  if (ir::IsOp(call, "tensor.row_sum")) {
++    mode = RowReductionMode::Sum;
++  } else if (ir::IsOp(call, "tensor.row_max")) {
++    mode = RowReductionMode::Max;
++  } else {
++    Reject("row reduction v3 supports only tensor.row_sum and tensor.row_max", &call->span_);
++  }
++  if (call->args_.size() != 1) {
++    Reject("row reduction operator expects exactly one operand, got " +
++               std::to_string(call->args_.size()),
++           &call->span_);
++  }
++  const ir::ExprPtr& argument = call->args_[0];
++  const auto argument_variable = ir::As<ir::Var>(argument);
++  if (!argument_variable || argument_variable->GetKind() != ir::ObjectKind::Var ||
++      argument_variable.get() != parameter.get()) {
++    Reject("row reduction operand must directly reference the exact function parameter",
++           argument ? &argument->span_ : &call->span_);
++  }
++  const StaticTensor operand =
++      ReadStaticTensor(argument_variable->GetType(), argument_variable->span_, "row reduction operand");
++  if (!SameTensor(input, operand)) {
++    Reject("row reduction operand type and shape must match the function parameter",
++           &argument_variable->span_);
++  }
++
++  const StaticTensor call_result =
++      ReadStaticTensor(call->GetType(), call->span_, "row reduction call result");
++  const StaticTensor assigned_result = ReadStaticTensor(
++      assignment->var_->GetType(), assignment->var_->span_, "row reduction assignment result");
++  if (!SameTensor(expected_result, call_result) ||
++      !SameTensor(expected_result, assigned_result)) {
++    Reject("row reduction call, assignment, and declared result types must match",
++           &call->span_);
++  }
++
++  const auto returned = ir::As<ir::ReturnStmt>(sequence->stmts_[1]);
++  if (!returned || returned->value_.size() != 1) {
++    Reject("second row reduction statement must be exactly one return",
++           &sequence->stmts_[1]->span_);
++  }
++  const auto returned_variable = ir::As<ir::Var>(returned->value_[0]);
++  if (!returned_variable || returned_variable->GetKind() != ir::ObjectKind::Var ||
++      returned_variable.get() != assignment->var_.get()) {
++    Reject("return must directly reference the row reduction assignment result",
++           &returned->span_);
++  }
++  return RowReductionGraph{input, expected_result, mode, rows};
++}
++
++const char* TensorIrReductionMode(RowReductionMode mode) {
++  if (mode == RowReductionMode::Sum) return "add";
++  if (mode == RowReductionMode::Max) return "max";
++  InternalReject("unsupported row reduction mode reached source emission");
++}
++
++std::string EmitRowReductionSource(const RowReductionGraph& graph) {
++  const std::string input_type = TensorTypeText(graph.input);
++  const std::string input_with_stride = TensorWithStrideText(graph.input);
++  const std::string result_type = TensorTypeText(graph.result);
++  const std::string result_with_stride = TensorWithStrideText(graph.result);
++  const bool flatten = graph.input.shape.size() > 2;
++  StaticTensor reduction_input = graph.input;
++  StaticTensor reduction_result = graph.result;
++  if (flatten) {
++    reduction_input.shape = {graph.rows, graph.input.shape.back()};
++    reduction_input.dense_strides = {graph.input.shape.back(), 1};
++    reduction_result.shape = {graph.rows, 1};
++    reduction_result.dense_strides = {1, 1};
++  }
++  const size_t reduction_axis = flatten ? 1 : graph.input.shape.size() - 1;
++  std::string source;
++  source.reserve(1024 + input_with_stride.size() + result_with_stride.size() +
++                 input_type.size() * 3 + result_type.size() * 3);
++  source += "module {\n  nv_tensor_ir.graph @";
++  source += kRowReductionEntryName;
++  source += "(\n    %arg0: ";
++  source += input_with_stride;
++  source += "\n  ) -> ";
++  if (graph.result.shape.size() == 1) {
++    source += result_type;
++  } else {
++    source += "(";
++    source += result_with_stride;
++    source += ")";
++  }
++  source += " {\n";
++
++  const bool widen = graph.input.dtype == DataType::BF16;
++  StaticTensor compute_input = graph.input;
++  StaticTensor compute_result = graph.result;
++  StaticTensor compute_reduction_input = reduction_input;
++  StaticTensor compute_reduction_result = reduction_result;
++  if (widen) {
++    compute_input.dtype = DataType::FP32;
++    compute_result.dtype = DataType::FP32;
++    compute_reduction_input.dtype = DataType::FP32;
++    compute_reduction_result.dtype = DataType::FP32;
++    source += "    %wide0 = convert %arg0 : ";
++    source += input_type;
++    source += " -> ";
++    source += TensorTypeText(compute_input);
++    source += "\n";
++  }
++
++  if (flatten) {
++    source += "    %flat0 = reshape ";
++    source += widen ? "%wide0 : " : "%arg0 : ";
++    source += widen ? TensorTypeText(compute_input) : input_type;
++    source += " -> ";
++    source += widen ? TensorTypeText(compute_reduction_input)
++                    : TensorTypeText(reduction_input);
++    source += "\n";
++  }
++
++  const bool reduction_is_result = !flatten && !widen;
++  source += reduction_is_result ? "    %result0 = reduce(" : "    %reduce0 = reduce(";
++  source += flatten ? "%flat0" : (widen ? "%wide0" : "%arg0");
++  source += ") <dimensions = [";
++  AppendIndex(source, reduction_axis);
++  source += "], reduction_mode = <";
++  source += TensorIrReductionMode(graph.mode);
++  source += ">> : ";
++  source += widen ? TensorTypeText(compute_reduction_input)
++                  : TensorTypeText(reduction_input);
++  source += " -> ";
++  source += widen ? TensorTypeText(compute_reduction_result)
++                  : TensorTypeText(reduction_result);
++  source += "\n";
++
++  if (flatten) {
++    source += widen ? "    %shape0 = reshape %reduce0 : "
++                    : "    %result0 = reshape %reduce0 : ";
++    source += widen ? TensorTypeText(compute_reduction_result)
++                    : TensorTypeText(reduction_result);
++    source += " -> ";
++    source += widen ? TensorTypeText(compute_result) : result_type;
++    source += "\n";
++  }
++  if (widen) {
++    source += flatten ? "    %result0 = convert %shape0 : "
++                      : "    %result0 = convert %reduce0 : ";
++    source += TensorTypeText(compute_result);
++    source += " -> ";
++    source += result_type;
++    source += "\n";
++  }
++  source += "    results %result0 : ";
++  source += result_type;
++  source += "\n  }\n}\n";
++  if (source.size() > kMaximumCanonicalSourceBytes) {
++    Reject("canonical TensorIR source exceeds 16 MiB");
++  }
++  return source;
++}
++
+ struct FusedOperationSpec {
+   std::string_view tensor_ir_op;
+   size_t tensor_operand_count;
+@@ -661,6 +912,26 @@ bool IsLegacyStaticAddV1Candidate(const ir::ProgramPtr& program) {
+   return call && call->op_ && ir::IsOp(call, "tensor.add");
+ }
+ 
++bool IsRowReductionV3Candidate(const ir::ProgramPtr& program) {
++  if (!program || program->functions_.size() != 1) return false;
++  const ir::FunctionPtr& function = program->functions_.begin()->second;
++  if (!function || !function->body_) return false;
++  const auto sequence = ir::As<ir::SeqStmts>(function->body_);
++  if (!sequence || sequence->stmts_.empty() || !sequence->stmts_[0]) return false;
++  const auto assignment = ir::As<ir::AssignStmt>(sequence->stmts_[0]);
++  if (!assignment || !assignment->value_) return false;
++  const auto call = ir::As<ir::Call>(assignment->value_);
++  return call && call->op_ &&
++         (ir::IsOp(call, "tensor.row_sum") || ir::IsOp(call, "tensor.row_max"));
++}
++
++std::string_view EntryNameForKind(TensorIrModuleKind kind) {
++  if (kind == TensorIrModuleKind::LegacyStaticAddV1) return kLegacyStaticAddEntryName;
++  if (kind == TensorIrModuleKind::FusedPointwiseV2) return kFusedPointwiseEntryName;
++  if (kind == TensorIrModuleKind::RowReductionV3) return kRowReductionEntryName;
++  InternalReject("TensorIR module kind is invalid");
++}
++
+ }  // namespace
+ 
+ TensorIrValueMetadata::TensorIrValueMetadata(TensorIrValueRole role, uint32_t ordinal,
+@@ -704,9 +975,7 @@ TensorIrModule::TensorIrModule(TensorIrModuleKind kind, std::string canonical_so
+                                uint32_t input_count)
+     : kind_(kind),
+       canonical_source_(std::move(canonical_source)),
+-      entry_name_(kind == TensorIrModuleKind::LegacyStaticAddV1
+-                      ? kLegacyStaticAddEntryName
+-                      : kFusedPointwiseEntryName),
++      entry_name_(EntryNameForKind(kind)),
+       value_metadata_(std::move(value_metadata)),
+       input_count_(input_count) {
+   if (canonical_source_.empty() || canonical_source_.size() > kMaximumCanonicalSourceBytes) {
+@@ -721,6 +990,10 @@ TensorIrModule::TensorIrModule(TensorIrModuleKind kind, std::string canonical_so
+         value_metadata_.size() != input_count_ + 1) {
+       InternalReject("fused pointwise module metadata must contain 1-16 inputs and one result");
+     }
++  } else if (kind_ == TensorIrModuleKind::RowReductionV3) {
++    if (input_count_ != 1 || value_metadata_.size() != 2) {
++      InternalReject("row reduction module metadata must contain Input0 and Result0");
++    }
+   } else {
+     InternalReject("TensorIR module kind is invalid");
+   }
+@@ -741,11 +1014,25 @@ TensorIrModule::TensorIrModule(TensorIrModuleKind kind, std::string canonical_so
+            left.GetLogicalDenseStrides() == right.GetLogicalDenseStrides() &&
+            left.HasExplicitStrides() == right.HasExplicitStrides();
+   };
+-  if (!std::all_of(value_metadata_.begin() + 1, value_metadata_.end(),
+-                   [&](const TensorIrValueMetadata& value) {
+-                     return same_value_type(value_metadata_[0], value);
+-                   })) {
+-    InternalReject("TensorIR module value metadata must have identical types and layouts");
++  if (kind_ != TensorIrModuleKind::RowReductionV3) {
++    if (!std::all_of(value_metadata_.begin() + 1, value_metadata_.end(),
++                     [&](const TensorIrValueMetadata& value) {
++                       return same_value_type(value_metadata_[0], value);
++                     })) {
++      InternalReject("TensorIR module value metadata must have identical types and layouts");
++    }
++  } else {
++    const TensorIrValueMetadata& input = value_metadata_[0];
++    const TensorIrValueMetadata& result = value_metadata_[1];
++    std::vector<int64_t> expected_result_shape = input.GetShape();
++    expected_result_shape.back() = 1;
++    if (input.GetDtypeCode() != result.GetDtypeCode() ||
++        input.GetDtypeName() != result.GetDtypeName() ||
++        input.GetShape().size() != result.GetShape().size() ||
++        input.HasExplicitStrides() != result.HasExplicitStrides() ||
++        result.GetShape() != expected_result_shape) {
++      InternalReject("row reduction module result metadata must preserve dtype and rank and reduce the last extent");
++    }
+   }
+ }
+ 
+@@ -909,6 +1196,20 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+   if (IsLegacyStaticAddV1Candidate(program)) {
+     return detail::EmitLegacyStaticAddV1(program);
+   }
++  if (IsRowReductionV3Candidate(program)) {
++    const RowReductionGraph graph = AnalyzeRowReductionV3(program);
++    std::vector<TensorIrValueMetadata> metadata;
++    metadata.reserve(2);
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Input, 0, graph.input.dtype, graph.input.shape,
++        graph.input.dense_strides, graph.input.shape.size() >= 2));
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
++        graph.result.dense_strides, graph.result.shape.size() >= 2));
++    return TensorIrModule(TensorIrModuleKind::RowReductionV3,
++                          EmitRowReductionSource(graph), std::move(metadata),
++                          /*input_count=*/1);
++  }
+ 
+   FusedPointwiseGraph graph = AnalyzeFusedPointwiseV2(program);
+   std::vector<TensorIrValueMetadata> metadata;
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.h b/src/codegen/nvidia/tensor_ir_codegen.h
+index 23dc1420d1ae91852e76e3adf5ceb091ae5631f0..6b1fecd7193a6dfc08c043cca8035d0800df53bc 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.h
++++ b/src/codegen/nvidia/tensor_ir_codegen.h
+@@ -31,6 +31,7 @@ namespace detail {
+ enum class TensorIrModuleKind : uint8_t {
+   LegacyStaticAddV1 = 0,
+   FusedPointwiseV2 = 1,
++  RowReductionV3 = 2,
+ };
+ 
+ /** Position of a value in the compile-free TensorIR graph ABI. */
+@@ -86,6 +87,7 @@ class TensorIrModule {
+  public:
+   static constexpr uint32_t kLegacyStaticAddMetadataSchemaVersion = 1;
+   static constexpr uint32_t kFusedPointwiseMetadataSchemaVersion = 2;
++  static constexpr uint32_t kRowReductionMetadataSchemaVersion = 3;
+ 
+   TensorIrModule() = delete;
+   TensorIrModule(const TensorIrModule&) = default;
+@@ -95,9 +97,13 @@ class TensorIrModule {
+ 
+   [[nodiscard]] TensorIrModuleKind GetKind() const noexcept { return kind_; }
+   [[nodiscard]] constexpr uint32_t GetMetadataSchemaVersion() const noexcept {
+-    return kind_ == TensorIrModuleKind::LegacyStaticAddV1
+-               ? kLegacyStaticAddMetadataSchemaVersion
+-               : kFusedPointwiseMetadataSchemaVersion;
++    if (kind_ == TensorIrModuleKind::LegacyStaticAddV1) {
++      return kLegacyStaticAddMetadataSchemaVersion;
++    }
++    if (kind_ == TensorIrModuleKind::FusedPointwiseV2) {
++      return kFusedPointwiseMetadataSchemaVersion;
++    }
++    return kRowReductionMetadataSchemaVersion;
+   }
+   [[nodiscard]] const std::string& GetCanonicalSource() const noexcept {
+     return canonical_source_;
+@@ -125,14 +131,18 @@ class TensorIrModule {
+ };
+ 
+ /**
+- * Emit a strict PyPTO HIR pointwise subset as deterministic TensorIR text.
++ * Emit a strict PyPTO HIR tensor subset as deterministic TensorIR text.
+  *
+  * The accepted legacy two-input tensor.add form remains LegacyStaticAddV1.
+  * FusedPointwiseV2 accepts a bounded linear SSA chain over registered tensor
+  * add/adds/sub/subs/mul/muls/neg/exp/recip/rsqrt operations. Inputs and the
+  * result must be plain, static, contiguous BF16 or FP32 tensors with identical
+- * types and shapes. Rejected HIR raises ValueError; this function never invokes
+- * TensorIR or any device compiler.
++ * types and shapes. RowReductionV3 accepts one direct tensor.row_sum or
++ * tensor.row_max over the last axis of one plain, static, contiguous BF16 or
++ * FP32 tensor. It preserves rank and dtype while setting the last result extent
++ * to one; BF16 is explicitly widened to FP32 around the TensorIR reduction.
++ * Rejected HIR raises ValueError; this function never invokes TensorIR or any
++ * device compiler.
+  */
+ [[nodiscard]] TensorIrModule EmitTensorIr(const ir::ProgramPtr& program);
+ 
+diff --git a/src/compiler/structured_tensor_ir_build_spec.cpp b/src/compiler/structured_tensor_ir_build_spec.cpp
+index 28b28a5573e2426ff05e826e1794b2dafe091a97..a3f74604f52cc69d0ed6af561ac285d8d3ffcf97 100644
+--- a/src/compiler/structured_tensor_ir_build_spec.cpp
++++ b/src/compiler/structured_tensor_ir_build_spec.cpp
+@@ -48,6 +48,13 @@ constexpr std::string_view kSymbolicSpecializationV2Contract =
+ constexpr std::string_view kArgumentAbiV2Contract = "pypto.frontend.argument_abi.v2";
+ constexpr std::string_view kResultAbiV2Contract = "pypto.frontend.result_abi.v2";
+ constexpr std::string_view kMutationAbiV2Contract = "pypto.frontend.mutation_abi.v2";
++constexpr std::string_view kStaticSpecializationV3Contract =
++    "pypto.frontend.static_specialization.v3";
++constexpr std::string_view kSymbolicSpecializationV3Contract =
++    "pypto.frontend.symbolic_specialization.v3";
++constexpr std::string_view kArgumentAbiV3Contract = "pypto.frontend.argument_abi.v3";
++constexpr std::string_view kResultAbiV3Contract = "pypto.frontend.result_abi.v3";
++constexpr std::string_view kMutationAbiV3Contract = "pypto.frontend.mutation_abi.v3";
+ constexpr std::string_view kRuntimeKernelName = "tensor_ir_rtk";
+ 
+ struct FrontendProjectionSchema {
+@@ -72,6 +79,12 @@ FrontendProjectionSchema ProjectionSchemaFor(
+                                     kArgumentAbiV2Contract, kResultAbiV2Contract,
+                                     kMutationAbiV2Contract};
+   }
++  if (module_kind == PreparedStructuredTensorIrModuleKind::RowReductionV3) {
++    return FrontendProjectionSchema{3, kStaticSpecializationV3Contract,
++                                    kSymbolicSpecializationV3Contract,
++                                    kArgumentAbiV3Contract, kResultAbiV3Contract,
++                                    kMutationAbiV3Contract};
++  }
+   INTERNAL_UNREACHABLE << "prepared structured TensorIR module kind is invalid";
+ }
+ 
+@@ -247,6 +260,21 @@ uint64_t StaticElementCount(const PreparedStructuredTensorIrValueMetadata& metad
+   return count;
+ }
+ 
++uint64_t StaticRowCount(const std::vector<int64_t>& shape) {
++  INTERNAL_CHECK(!shape.empty())
++      << "prepared row reduction shape must have rank between 1 and 32";
++  uint64_t rows = 1;
++  for (size_t index = 0; index + 1 < shape.size(); ++index) {
++    INTERNAL_CHECK(shape[index] > 0)
++        << "prepared row reduction shape contains a non-positive dimension";
++    INTERNAL_CHECK(static_cast<uint64_t>(shape[index]) <=
++                   std::numeric_limits<uint64_t>::max() / rows)
++        << "prepared row reduction row count overflows uint64";
++    rows *= static_cast<uint64_t>(shape[index]);
++  }
++  return rows;
++}
++
+ void ValidateFusedPointwiseSchedule(
+     const codegen::nvidia::TensorIrModule& module,
+     const StrictTensorIrProducerOptions& resolved_options,
+@@ -283,6 +311,33 @@ void ValidateFusedPointwiseSchedule(
+       << " exceeds the prepared target limit " << max_grid_x;
+ }
+ 
++void ValidateRowReductionSchedule(
++    const codegen::nvidia::TensorIrModule& module,
++    const StrictTensorIrProducerOptions& resolved_options,
++    const CompileRequest& request) {
++  if (module.GetKind() != codegen::nvidia::TensorIrModuleKind::RowReductionV3) return;
++  CHECK(resolved_options.tile_sizes.size() == 1)
++      << "row reduction v3 requires exactly one row tile size dim_000, got "
++      << resolved_options.tile_sizes.size();
++  const uint32_t tile_size = resolved_options.tile_sizes[0];
++  CHECK(tile_size != 0 && (tile_size & (tile_size - 1)) == 0)
++      << "row reduction v3 tile dim_000 must be a positive power of two, got "
++      << tile_size;
++
++  INTERNAL_CHECK(module.GetValueMetadata().size() == 2)
++      << "row reduction v3 module must contain one input and one result";
++  const uint64_t rows = StaticRowCount(module.GetValueMetadata()[0].GetShape());
++  CHECK(static_cast<uint64_t>(tile_size) <= rows)
++      << "row reduction v3 tile dim_000 must not exceed the checked row count "
++      << rows << ", got " << tile_size;
++  const uint64_t expected_grid_x = rows / tile_size + (rows % tile_size == 0 ? 0 : 1);
++  const int64_t max_grid_x = request.GetTargetInfo().GetTraits().GetMaxGridDimX();
++  CHECK(expected_grid_x <= static_cast<uint64_t>(std::numeric_limits<int32_t>::max()) &&
++        expected_grid_x <= static_cast<uint64_t>(max_grid_x))
++      << "row reduction v3 static grid x=" << expected_grid_x
++      << " exceeds the prepared target limit " << max_grid_x;
++}
++
+ uint32_t ExpectedFusedPointwiseGridX(
+     const PreparedStructuredTensorIrCompilation& prepared) {
+   INTERNAL_CHECK(prepared.GetModuleKind() ==
+@@ -302,6 +357,24 @@ uint32_t ExpectedFusedPointwiseGridX(
+   return static_cast<uint32_t>(grid_x);
+ }
+ 
++uint32_t ExpectedRowReductionGridX(
++    const PreparedStructuredTensorIrCompilation& prepared) {
++  INTERNAL_CHECK(prepared.GetModuleKind() ==
++                 PreparedStructuredTensorIrModuleKind::RowReductionV3)
++      << "expected-grid calculation requires a row reduction v3 preparation";
++  INTERNAL_CHECK(prepared.GetValueMetadata().size() == 2)
++      << "row reduction v3 preparation must contain one input and one result";
++  INTERNAL_CHECK(prepared.GetResolvedOptions().tile_sizes.size() == 1)
++      << "row reduction v3 preparation does not contain one row tile";
++  const uint64_t rows = StaticRowCount(prepared.GetValueMetadata()[0].GetShape());
++  const uint32_t tile_size = prepared.GetResolvedOptions().tile_sizes[0];
++  INTERNAL_CHECK(tile_size != 0) << "row reduction v3 tile size is zero";
++  const uint64_t grid_x = rows / tile_size + (rows % tile_size == 0 ? 0 : 1);
++  INTERNAL_CHECK(grid_x <= std::numeric_limits<uint32_t>::max())
++      << "row reduction v3 grid exceeds uint32 after preparation";
++  return static_cast<uint32_t>(grid_x);
++}
++
+ void ValidateDescriptor(const ArtifactArgumentDescriptor& descriptor,
+                         const PreparedStructuredTensorIrValueMetadata& metadata,
+                         size_t descriptor_index) {
+@@ -401,6 +474,12 @@ void ValidateKernelAbi(const PreparedStructuredTensorIrCompilation& prepared,
+     RejectFinalization(
+         "fused pointwise static grid x differs from the flattened shape and tile");
+   }
++  if (prepared.GetModuleKind() ==
++          PreparedStructuredTensorIrModuleKind::RowReductionV3 &&
++      dimensions[0] != ExpectedRowReductionGridX(prepared)) {
++    RejectFinalization(
++        "row reduction static grid x differs from the checked rows and row tile");
++  }
+ 
+   const ArtifactWorkspaceAbi& workspace = kernel_abi.GetWorkspaceAbi();
+   if (workspace.GetKind() != ArtifactWorkspaceKind::Static || workspace.GetSizeBytes() != 0 ||
+@@ -476,6 +555,7 @@ PreparedStructuredTensorIrCompilation PrepareStructuredTensorIrCompilation(
+   const StrictTensorIrProducerOptions resolved_options =
+       ResolveStrictTensorIrProducerOptions(request, schedule);
+   ValidateFusedPointwiseSchedule(module, resolved_options, request);
++  ValidateRowReductionSchedule(module, resolved_options, request);
+ 
+   PreparedStructuredTensorIrModuleKind module_kind =
+       PreparedStructuredTensorIrModuleKind::LegacyStaticAddV1;
+@@ -490,6 +570,11 @@ PreparedStructuredTensorIrCompilation PrepareStructuredTensorIrCompilation(
+                    module.GetInputCount() <= 16 && module.GetResultCount() == 1 &&
+                    module.GetValueMetadata().size() == module.GetInputCount() + 1)
+         << "prepared fused pointwise TensorIR module must use schema 2 with 1-16 inputs and one result";
++  } else if (module.GetKind() == codegen::nvidia::TensorIrModuleKind::RowReductionV3) {
++    module_kind = PreparedStructuredTensorIrModuleKind::RowReductionV3;
++    INTERNAL_CHECK(module.GetMetadataSchemaVersion() == 3 && module.GetInputCount() == 1 &&
++                   module.GetResultCount() == 1 && module.GetValueMetadata().size() == 2)
++        << "prepared row reduction TensorIR module must use schema 3 with one input and one result";
+   } else {
+     INTERNAL_UNREACHABLE << "emitted TensorIR module kind is invalid";
+   }
+diff --git a/src/compiler/structured_tensor_ir_build_spec.h b/src/compiler/structured_tensor_ir_build_spec.h
+index 29d0b1a6cb2c356639485ad1431f71c5b10af352..ba27527b1c3902b001ec4ffea3742281d9e2799e 100644
+--- a/src/compiler/structured_tensor_ir_build_spec.h
++++ b/src/compiler/structured_tensor_ir_build_spec.h
+@@ -43,6 +43,7 @@ enum class PreparedStructuredTensorIrValueRole : uint8_t {
+ enum class PreparedStructuredTensorIrModuleKind : uint8_t {
+   LegacyStaticAddV1 = 0,
+   FusedPointwiseV2 = 1,
++  RowReductionV3 = 2,
+ };
+ 
+ /** Owned metadata copied out of TensorIR source emission. */
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index 60eb579848151080aa364f6abeb0a2519022c1f3..f05635bd38ac1cea98bdc07512e5ffd10c45ec7c 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -101,6 +101,29 @@ def _fused_program() -> ir.Program:
+     return ir.Program([function], "structured_compile_fused", span)
+ 
+ 
++def _row_reduction_program(
++    shape: list[int], dtype: pypto.DataType, op_name: str
++) -> ir.Program:
++    span = ir.Span("structured_compile_test.py", 3, 1)
++    input_type = ir.TensorType(shape, dtype)
++    result_shape = [*shape[:-1], 1]
++    result_type = ir.TensorType(result_shape, dtype)
++    input_value = ir.Var("input", input_type, span)
++    result = ir.Var("result", result_type, span)
++    call = ir.Call(ir.get_op(op_name), [input_value], result_type, span)
++    body = ir.SeqStmts(
++        [ir.AssignStmt(result, call, span), ir.ReturnStmt([result], span)], span
++    )
++    function = ir.Function(
++        "ignored_row_reduction_name",
++        [input_value],
++        [result_type],
++        body,
++        span,
++    )
++    return ir.Program([function], "structured_compile_row_reduction", span)
++
++
+ def _traits() -> TargetTraits:
+     return TargetTraits(
+         compute_capability=120,
+@@ -173,12 +196,12 @@ def _request(info: NvidiaBackendBuildInfo) -> CompileRequest:
+     return CompileRequest(target, toolchain)
+ 
+ 
+-def _schedule() -> CanonicalSchedule:
++def _schedule(tile_size: int = 16) -> CanonicalSchedule:
+     parameter = ScheduleParameter
+     unsigned = ScheduleValueKind.UnsignedInteger
+     return CanonicalSchedule(
+         [parameter("codegen_strategy", ScheduleValueKind.Text, "layout-propagation")],
+-        [parameter("dim_000", unsigned, "16")],
++        [parameter("dim_000", unsigned, str(tile_size))],
+         [],
+         [],
+         [parameter("count", unsigned, "1")],
+@@ -201,7 +224,11 @@ def test_compile_structured_strict_functional() -> None:
+     schedule = _schedule()
+ 
+     if not info.compiled:
+-        for candidate in (program, _fused_program()):
++        for candidate in (
++            program,
++            _fused_program(),
++            _row_reduction_program([32, 17], pypto.DataType.FP32, "tensor.row_sum"),
++        ):
+             with pytest.raises(ValueError, match="requires the compiled private NVIDIA backend"):
+                 compile_structured_strict(candidate, request, schedule)
+         return
+@@ -253,6 +280,43 @@ def test_compile_structured_strict_functional() -> None:
+     assert fused.build_spec.callable_abi_digest == fused_kernel.identity_digest
+     assert fused.artifact.identities.kernel_build_spec_digest == fused.build_spec.identity_digest
+ 
++    row_cases = (
++        ([32, 17], pypto.DataType.FP32, "tensor.row_sum", [32, 1], [17, 1], [1, 1]),
++        (
++            [2, 16, 17],
++            pypto.DataType.BF16,
++            "tensor.row_max",
++            [2, 16, 1],
++            [272, 17, 1],
++            [16, 1, 1],
++        ),
++    )
++    for input_shape, dtype, op_name, result_shape, input_strides, result_strides in row_cases:
++        reduction = compile_structured_strict(
++            _row_reduction_program(input_shape, dtype, op_name), request, schedule
++        )
++        reduction_kernel = reduction.artifact.kernel_abi
++        assert reduction_kernel.entry_function_name == "pypto_row_reduction_v3"
++        assert reduction_kernel.argument_packing_policy == ArtifactArgumentPackingPolicy.PointerOnly
++        assert reduction_kernel.grid_abi.policy == ArtifactGridPolicy.Static
++        assert reduction_kernel.grid_abi.shape_operand_index == 0
++        assert reduction_kernel.grid_abi.static_dimensions == [2, 1, 1]
++        assert reduction_kernel.grid_abi.tile_sizes == [16]
++        descriptors = reduction_kernel.argument_layout.operand_descriptors
++        assert len(descriptors) == 2
++        assert reduction_kernel.argument_layout.input_operand_count == 1
++        assert reduction_kernel.argument_layout.total_kernel_argument_count == 2
++        assert descriptors[0].shape == input_shape
++        assert descriptors[0].strides == input_strides
++        assert descriptors[1].shape == result_shape
++        assert descriptors[1].strides == result_strides
++        assert not reduction.artifact.fallback_used
++        assert reduction.build_spec.callable_abi_digest == reduction_kernel.identity_digest
++        assert (
++            reduction.artifact.identities.kernel_build_spec_digest
++            == reduction.build_spec.identity_digest
++        )
++
+ 
+ if __name__ == "__main__":
+     pytest.main([__file__, "-v"])
+diff --git a/tests/ut/cpp/structured_compile_test.cpp b/tests/ut/cpp/structured_compile_test.cpp
+index 1d72984e7e3fab1ca1ca9a0089ed28555065f5e3..d9a25587f96fdabbca1688b3ff2f40df694502d4 100644
+--- a/tests/ut/cpp/structured_compile_test.cpp
++++ b/tests/ut/cpp/structured_compile_test.cpp
+@@ -154,6 +154,34 @@ ir::ProgramPtr MakeFusedProgram(DataType dtype) {
+                                       TestSpan());
+ }
+ 
++ir::ProgramPtr MakeRowReductionProgram(
++    const std::vector<int64_t>& shape, DataType dtype,
++    const std::string& op_name) {
++  auto input_type = std::make_shared<ir::TensorType>(
++      shape, dtype, std::optional<ir::MemRefPtr>{});
++  std::vector<int64_t> result_shape = shape;
++  result_shape.back() = 1;
++  auto result_type = std::make_shared<ir::TensorType>(
++      result_shape, dtype, std::optional<ir::MemRefPtr>{});
++  auto input = std::make_shared<ir::Var>("input", input_type, TestSpan());
++  auto result = std::make_shared<ir::Var>("result", result_type, TestSpan());
++  auto call = std::make_shared<ir::Call>(
++      ir::OpRegistry::GetInstance().GetOp(op_name), std::vector<ir::ExprPtr>{input},
++      std::vector<std::pair<std::string, std::any>>{},
++      std::vector<std::pair<std::string, std::any>>{}, result_type, TestSpan());
++  auto body = std::make_shared<ir::SeqStmts>(
++      std::vector<ir::StmtPtr>{
++          std::make_shared<ir::AssignStmt>(result, call, TestSpan()),
++          std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{result}, TestSpan())},
++      TestSpan());
++  auto function = std::make_shared<ir::Function>(
++      "ignored", std::vector<ir::VarPtr>{input},
++      std::vector<ir::ParamDirection>{ir::ParamDirection::In},
++      std::vector<ir::TypePtr>{result_type}, body, TestSpan());
++  return std::make_shared<ir::Program>(std::vector<ir::FunctionPtr>{function}, "test",
++                                      TestSpan());
++}
++
+ ir::ProgramPtr MakeMaximumFusedProgram() {
+   auto type = std::make_shared<ir::TensorType>(
+       std::vector<int64_t>{16}, DataType::FP32, std::optional<ir::MemRefPtr>{});
+@@ -295,6 +323,14 @@ int TestPrevalidationMakesZeroProducerCalls() {
+       [&] { (void)CompileStructuredStrict(MakeProgram(), request, MakeSchedule()); },
+       "requires the compiled private NVIDIA backend"));
+   REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before);
++  REQUIRE(RejectsValue(
++      [&] {
++        (void)CompileStructuredStrict(
++            MakeRowReductionProgram({8, 17}, DataType::FP32, "tensor.row_sum"),
++            request, MakeSchedule("4"));
++      },
++      "requires the compiled private NVIDIA backend"));
++  REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before);
+ #endif
+   return 0;
+ }
+@@ -532,6 +568,87 @@ int TestRealFusedPointwiseProducerSuccess() {
+   return 0;
+ }
+ 
++int TestRealRowReductionProducerSuccess() {
++#if defined(PYPTO_ENABLE_NVIDIA_COMPILER_BACKEND)
++  struct Case {
++    std::vector<int64_t> input_shape;
++    std::vector<int64_t> result_shape;
++    std::vector<int64_t> input_strides;
++    std::vector<int64_t> result_strides;
++    DataType dtype;
++    std::string op_name;
++    uint32_t tile_size;
++    uint32_t grid_x;
++  };
++  const std::vector<Case> cases = {
++      {{7}, {1}, {}, {}, DataType::FP32, "tensor.row_sum", 1, 1},
++      {{8, 17}, {8, 1}, {17, 1}, {1, 1}, DataType::FP32, "tensor.row_max", 4, 2},
++      {{2, 3, 17}, {2, 3, 1}, {51, 17, 1}, {3, 1, 1}, DataType::BF16,
++       "tensor.row_sum", 2, 3},
++  };
++  const CompileRequest request = MakeRequest();
++  for (const Case& test_case : cases) {
++    const uint64_t before = GetStrictNvidiaProducerInvocationCountForTesting();
++    const StructuredCompileResult result = CompileStructuredStrict(
++        MakeRowReductionProgram(test_case.input_shape, test_case.dtype,
++                                test_case.op_name),
++        request, MakeSchedule(std::to_string(test_case.tile_size)));
++    REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before + 1);
++    const Artifact& artifact = result.GetArtifact();
++    const KernelBuildSpec& build_spec = result.GetBuildSpec();
++    const auto& kernel = artifact.GetKernelAbi();
++    REQUIRE(kernel.GetEntryFunctionName() == "pypto_row_reduction_v3");
++    REQUIRE(kernel.GetArgumentLayout().GetInputOperandCount() == 1);
++    REQUIRE(kernel.GetArgumentLayout().GetOperandDescriptors().size() == 2);
++    REQUIRE(kernel.GetArgumentLayout().GetTotalKernelArgumentCount() == 2);
++    REQUIRE(kernel.GetArgumentPackingPolicy() ==
++            pypto::compiler::ArtifactArgumentPackingPolicy::PointerOnly);
++    const auto& input = kernel.GetArgumentLayout().GetOperandDescriptors()[0];
++    const auto& output = kernel.GetArgumentLayout().GetOperandDescriptors()[1];
++    REQUIRE(input.GetShape().size() == test_case.input_shape.size());
++    REQUIRE(output.GetShape().size() == test_case.result_shape.size());
++    for (size_t index = 0; index < test_case.input_shape.size(); ++index) {
++      REQUIRE(input.GetShape()[index] == test_case.input_shape[index]);
++      REQUIRE(output.GetShape()[index] == test_case.result_shape[index]);
++    }
++    if (test_case.input_shape.size() == 1) {
++      REQUIRE(input.GetStrides().empty());
++      REQUIRE(output.GetStrides().empty());
++      REQUIRE(!input.HasExplicitStrides());
++      REQUIRE(!output.HasExplicitStrides());
++    } else {
++      for (size_t index = 0; index < test_case.input_strides.size(); ++index) {
++        REQUIRE(input.GetStrides()[index] == test_case.input_strides[index]);
++        REQUIRE(output.GetStrides()[index] == test_case.result_strides[index]);
++      }
++      REQUIRE(input.HasExplicitStrides());
++      REQUIRE(output.HasExplicitStrides());
++    }
++    REQUIRE(kernel.GetGridAbi().GetPolicy() ==
++            pypto::compiler::ArtifactGridPolicy::Static);
++    REQUIRE(kernel.GetGridAbi().GetShapeOperandIndex() == 0);
++    REQUIRE((kernel.GetGridAbi().GetStaticDimensions() ==
++             std::array<uint32_t, 3>{test_case.grid_x, 1, 1}));
++    REQUIRE(kernel.GetGridAbi().GetTileSizes() ==
++            std::vector<uint32_t>({test_case.tile_size}));
++    REQUIRE(kernel.GetWorkspaceAbi().GetSizeBytes() == 0);
++    REQUIRE(!artifact.UsedFallback());
++    REQUIRE(!artifact.GetDeviceCode().empty());
++    REQUIRE(!artifact.GetDeviceCodeSha256().empty());
++    REQUIRE(build_spec.GetCallableAbiDigest() == kernel.GetIdentityDigest());
++    REQUIRE(artifact.GetIdentities().GetKernelBuildSpecDigest() ==
++            build_spec.GetIdentityDigest());
++    const std::vector<uint8_t> build_spec_bytes = build_spec.SerializeCanonical();
++    REQUIRE(KernelBuildSpec::DeserializeCanonical(build_spec_bytes).SerializeCanonical() ==
++            build_spec_bytes);
++    const std::vector<uint8_t> artifact_bytes = artifact.SerializeCanonical();
++    REQUIRE(Artifact::DeserializeCanonical(artifact_bytes, request, build_spec)
++                .SerializeCanonical() == artifact_bytes);
++  }
++#endif
++  return 0;
++}
++
+ }  // namespace
+ 
+ int main() {
+@@ -547,5 +664,6 @@ int main() {
+   if (const int result = TestLegacyBackendOffRegression()) return result;
+   if (const int result = TestRealProducerSuccess()) return result;
+   if (const int result = TestRealFusedPointwiseProducerSuccess()) return result;
++  if (const int result = TestRealRowReductionProducerSuccess()) return result;
+   return 0;
+ }
+diff --git a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+index 9498980f7b5c9d5c7438c98a9163129acfca72e7..9f55f2d773e8b7bc00dd4c33df3c092e0d7f2194 100644
+--- a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
++++ b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+@@ -168,6 +168,29 @@ constexpr std::string_view kFusedMutationGoldenHex =
+     "656666656374a9726561642d6f6e6c79a76f7264696e616c0182a6656666656374a9726561642d6f6e6c79a76f726469"
+     "6e616c02a8636f6e7472616374be707970746f2e66726f6e74656e642e6d75746174696f6e5f6162692e7632bb6d7574"
+     "6174696f6e5f6162695f736368656d615f76657273696f6e02ae726573756c745f616c696173657391c0";
++constexpr std::string_view kRowReductionStaticGoldenHex =
++    "83a8636f6e7472616374d927707970746f2e66726f6e74656e642e7374617469635f7370656369616c697a6174696f6e"
++    "2e7633d9247374617469635f7370656369616c697a6174696f6e5f736368656d615f76657273696f6e03a676616c7565"
++    "739283a76f7264696e616c00a4726f6c65a8617267756d656e74a5736861706592020383a76f7264696e616c00a4726f"
++    "6c65a6726573756c74a57368617065920201";
++constexpr std::string_view kRowReductionSymbolicGoldenHex =
++    "84ab636f6e73747261696e747390a8636f6e7472616374d929707970746f2e66726f6e74656e642e73796d626f6c6963"
++    "5f7370656369616c697a6174696f6e2e7633d92673796d626f6c69635f7370656369616c697a6174696f6e5f73636865"
++    "6d615f76657273696f6e03a773796d626f6c7390";
++constexpr std::string_view kRowReductionArgumentGoldenHex =
++    "83bb617267756d656e745f6162695f736368656d615f76657273696f6e03a9617267756d656e74739189aa636f6e7469"
++    "67756f7573c3a9646972656374696f6ea2696eaa64747970655f636f646534aa64747970655f6e616d65a466703332b0"
++    "6578706c696369745f73747269646573c3a76f7264696e616c00a472616e6b02a57368617065920203a7737472696465"
++    "73920301a8636f6e7472616374be707970746f2e66726f6e74656e642e617267756d656e745f6162692e7633";
++constexpr std::string_view kRowReductionResultGoldenHex =
++    "83a8636f6e7472616374bc707970746f2e66726f6e74656e642e726573756c745f6162692e7633b9726573756c745f61"
++    "62695f736368656d615f76657273696f6e03a7726573756c74739188aa636f6e746967756f7573c3aa64747970655f63"
++    "6f646534aa64747970655f6e616d65a466703332b06578706c696369745f73747269646573c3a76f7264696e616c00a4"
++    "72616e6b02a57368617065920201a773747269646573920101";
++constexpr std::string_view kRowReductionMutationGoldenHex =
++    "84b0617267756d656e745f656666656374739182a6656666656374a9726561642d6f6e6c79a76f7264696e616c00a863"
++    "6f6e7472616374be707970746f2e66726f6e74656e642e6d75746174696f6e5f6162692e7633bb6d75746174696f6e5f"
++    "6162695f736368656d615f76657273696f6e03ae726573756c745f616c696173657391c0";
+ 
+ const ir::Span& TestSpan() {
+   static const ir::Span span("structured_tensor_ir_build_spec_test.cpp", 7, 3);
+@@ -240,6 +263,32 @@ ir::ProgramPtr MakeFusedProgram(const std::vector<int64_t>& shape = {8, 8},
+                                       TestSpan());
+ }
+ 
++ir::ProgramPtr MakeRowReductionProgram(
++    const std::vector<int64_t>& shape = {8, 8}, DataType dtype = DataType::FP32,
++    const std::string& op_name = "tensor.row_sum") {
++  auto input_type = PlainTensor(shape, dtype);
++  std::vector<int64_t> result_shape = shape;
++  result_shape.back() = 1;
++  auto result_type = PlainTensor(result_shape, dtype);
++  auto input = std::make_shared<ir::Var>("input", input_type, TestSpan());
++  auto result = std::make_shared<ir::Var>("result", result_type, TestSpan());
++  auto call = std::make_shared<ir::Call>(
++      ir::OpRegistry::GetInstance().GetOp(op_name), std::vector<ir::ExprPtr>{input},
++      std::vector<std::pair<std::string, std::any>>{},
++      std::vector<std::pair<std::string, std::any>>{}, result_type, TestSpan());
++  auto body = std::make_shared<ir::SeqStmts>(
++      std::vector<ir::StmtPtr>{
++          std::make_shared<ir::AssignStmt>(result, call, TestSpan()),
++          std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{result}, TestSpan())},
++      TestSpan());
++  auto function = std::make_shared<ir::Function>(
++      "ignored", std::vector<ir::VarPtr>{input},
++      std::vector<ir::ParamDirection>{ir::ParamDirection::In},
++      std::vector<ir::TypePtr>{result_type}, body, TestSpan());
++  return std::make_shared<ir::Program>(std::vector<ir::FunctionPtr>{function}, "test",
++                                      TestSpan());
++}
++
+ TargetTraits ValidTraits(int multiprocessor_count = 82,
+                          int max_grid_dim_x = 2147483647) {
+   return TargetTraits(120, multiprocessor_count, 32, 1024, 1536, 24, 1024, 1024, 64,
+@@ -410,6 +459,34 @@ KernelOptions FusedKernelOptions(const std::vector<int64_t>& shape = {8, 8},
+   return options;
+ }
+ 
++KernelOptions RowReductionKernelOptions(
++    const std::vector<int64_t>& input_shape = {8, 8},
++    const std::vector<uint32_t>& tile_sizes = {4}, uint32_t grid_x = 2) {
++  std::vector<int64_t> result_shape = input_shape;
++  result_shape.back() = 1;
++  const auto dense_strides = [](const std::vector<int64_t>& shape) {
++    std::vector<int64_t> strides(shape.size());
++    int64_t running = 1;
++    for (size_t reverse_index = shape.size(); reverse_index > 0; --reverse_index) {
++      const size_t index = reverse_index - 1;
++      strides[index] = running;
++      running *= shape[index];
++    }
++    return strides;
++  };
++  KernelOptions options;
++  options.entry_function_name = "pypto_row_reduction_v3";
++  options.input_count = 1;
++  options.static_grid = {grid_x, 1, 1};
++  options.tile_sizes = tile_sizes;
++  options.descriptors = DescriptorVector(
++      TensorDescriptor(input_shape, dense_strides(input_shape), 0, 0,
++                       input_shape.size() >= 2),
++      TensorDescriptor(result_shape, dense_strides(result_shape), 0, 0,
++                       result_shape.size() >= 2));
++  return options;
++}
++
+ uint32_t TotalArguments(const std::vector<ArtifactArgumentDescriptor>& descriptors) {
+   uint32_t total = 0;
+   for (const auto& descriptor : descriptors) {
+@@ -662,6 +739,204 @@ int TestFusedPointwiseV2ScheduleRejections() {
+   return 0;
+ }
+ 
++int TestRowReductionV3ProjectionAndFinalization() {
++  const CompileRequest request = ValidRequest();
++  const CanonicalSchedule schedule = ValidSchedule({2});
++  const PreparedStructuredTensorIrCompilation prepared =
++      PrepareStructuredTensorIrCompilation(
++          MakeRowReductionProgram({2, 3}, DataType::FP32, "tensor.row_sum"),
++          request, schedule);
++  const PreparedStructuredTensorIrCompilation repeated =
++      PrepareStructuredTensorIrCompilation(
++          MakeRowReductionProgram({2, 3}, DataType::FP32, "tensor.row_sum"),
++          request, schedule);
++
++  REQUIRE(prepared.GetModuleKind() ==
++          PreparedStructuredTensorIrModuleKind::RowReductionV3);
++  REQUIRE(prepared.GetFrontendMetadataSchemaVersion() == 3);
++  REQUIRE(prepared.GetEntryName() == "pypto_row_reduction_v3");
++  REQUIRE(prepared.GetCanonicalSource().size() == 327);
++  REQUIRE(prepared.GetSourceIrDigest() ==
++          "bdd4f4d7ca2a20e962b19d572667ac0783e2e4b556da43752ffd87b963dd04c4");
++  REQUIRE(prepared.GetInputCount() == 1);
++  REQUIRE(prepared.GetResultCount() == 1);
++  REQUIRE(prepared.GetValueMetadata().size() == 2);
++  REQUIRE(prepared.GetValueMetadata()[0].GetRole() ==
++          PreparedStructuredTensorIrValueRole::Argument);
++  REQUIRE(prepared.GetValueMetadata()[0].GetShape() ==
++          std::vector<int64_t>({2, 3}));
++  REQUIRE(prepared.GetValueMetadata()[0].GetLogicalDenseStrides() ==
++          std::vector<int64_t>({3, 1}));
++  REQUIRE(prepared.GetValueMetadata()[1].GetRole() ==
++          PreparedStructuredTensorIrValueRole::Result);
++  REQUIRE(prepared.GetValueMetadata()[1].GetShape() ==
++          std::vector<int64_t>({2, 1}));
++  REQUIRE(prepared.GetValueMetadata()[1].GetLogicalDenseStrides() ==
++          std::vector<int64_t>({1, 1}));
++
++  REQUIRE(prepared.GetStaticSpecialization().GetCanonicalBytes() ==
++          BytesFromHex(kRowReductionStaticGoldenHex));
++  REQUIRE(prepared.GetStaticSpecialization().GetIdentityDigest() ==
++          "2b9415ef4caea1741dcca58364758b7573f680c6f7360d20a10df127272da686");
++  REQUIRE(prepared.GetSymbolicSpecialization().GetCanonicalBytes() ==
++          BytesFromHex(kRowReductionSymbolicGoldenHex));
++  REQUIRE(prepared.GetSymbolicSpecialization().GetIdentityDigest() ==
++          "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862");
++  REQUIRE(prepared.GetArgumentAbi().GetCanonicalBytes() ==
++          BytesFromHex(kRowReductionArgumentGoldenHex));
++  REQUIRE(prepared.GetArgumentAbi().GetIdentityDigest() ==
++          "28613fefb029ed2200425c8b90426045661c54cf558840b91c62a653b2c2dfb1");
++  REQUIRE(prepared.GetResultAbi().GetCanonicalBytes() ==
++          BytesFromHex(kRowReductionResultGoldenHex));
++  REQUIRE(prepared.GetResultAbi().GetIdentityDigest() ==
++          "3f320fa17b5fbf6cad2b18a003dab9cf9952740e14bd56f674f88bf33e392539");
++  REQUIRE(prepared.GetMutationAbi().GetCanonicalBytes() ==
++          BytesFromHex(kRowReductionMutationGoldenHex));
++  REQUIRE(prepared.GetMutationAbi().GetIdentityDigest() ==
++          "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99");
++  REQUIRE(prepared.GetStaticSpecialization().GetCanonicalBytes() ==
++          repeated.GetStaticSpecialization().GetCanonicalBytes());
++  REQUIRE(prepared.GetArgumentAbi().GetCanonicalBytes() ==
++          repeated.GetArgumentAbi().GetCanonicalBytes());
++  REQUIRE(prepared.GetResultAbi().GetCanonicalBytes() ==
++          repeated.GetResultAbi().GetCanonicalBytes());
++
++  const ArtifactKernelAbi kernel =
++      MakeKernelAbi(RowReductionKernelOptions({2, 3}, {2}, 1));
++  const KernelBuildSpec build_spec =
++      FinalizeStructuredTensorIrBuildSpec(prepared, kernel);
++  REQUIRE(kernel.GetEntryFunctionName() == "pypto_row_reduction_v3");
++  REQUIRE(kernel.GetArgumentLayout().GetInputOperandCount() == 1);
++  REQUIRE(kernel.GetArgumentLayout().GetOperandDescriptors().size() == 2);
++  REQUIRE(kernel.GetArgumentLayout().GetTotalKernelArgumentCount() == 2);
++  REQUIRE(kernel.GetArgumentLayout().GetOperandDescriptors()[0].GetShape() ==
++          OptionalValues({2, 3}));
++  REQUIRE(kernel.GetArgumentLayout().GetOperandDescriptors()[1].GetShape() ==
++          OptionalValues({2, 1}));
++  REQUIRE(kernel.GetGridAbi().GetTileSizes() == std::vector<uint32_t>({2}));
++  REQUIRE((kernel.GetGridAbi().GetStaticDimensions() ==
++           std::array<uint32_t, 3>{1, 1, 1}));
++  REQUIRE(kernel.GetWorkspaceAbi().GetSizeBytes() == 0);
++  REQUIRE(build_spec.GetCallableAbiDigest() == kernel.GetIdentityDigest());
++  REQUIRE(build_spec.GetStaticSpecializationDigest() ==
++          prepared.GetStaticSpecialization().GetIdentityDigest());
++  REQUIRE(build_spec.GetArgumentAbiDigest() ==
++          prepared.GetArgumentAbi().GetIdentityDigest());
++  REQUIRE(build_spec.GetResultAbiDigest() ==
++          prepared.GetResultAbi().GetIdentityDigest());
++
++  const PreparedStructuredTensorIrCompilation maximum =
++      PrepareStructuredTensorIrCompilation(
++          MakeRowReductionProgram({2, 3}, DataType::FP32, "tensor.row_max"),
++          request, schedule);
++  REQUIRE(maximum.GetSourceIrDigest() != prepared.GetSourceIrDigest());
++  REQUIRE(maximum.GetStaticSpecialization().GetIdentityDigest() ==
++          prepared.GetStaticSpecialization().GetIdentityDigest());
++  REQUIRE(maximum.GetArgumentAbi().GetIdentityDigest() ==
++          prepared.GetArgumentAbi().GetIdentityDigest());
++  REQUIRE(maximum.GetResultAbi().GetIdentityDigest() ==
++          prepared.GetResultAbi().GetIdentityDigest());
++  REQUIRE(maximum.GetMutationAbi().GetIdentityDigest() ==
++          prepared.GetMutationAbi().GetIdentityDigest());
++
++  const PreparedStructuredTensorIrCompilation bf16 =
++      PrepareStructuredTensorIrCompilation(
++          MakeRowReductionProgram({2, 3}, DataType::BF16, "tensor.row_max"),
++          request, schedule);
++  const std::string bf16_source(bf16.GetCanonicalSource().begin(),
++                                bf16.GetCanonicalSource().end());
++  REQUIRE(bf16_source.find("convert %arg0 : tensor<2x3xbf16> -> tensor<2x3xf32>") !=
++          std::string::npos);
++  REQUIRE(bf16_source.find("reduce(%wide0)") != std::string::npos);
++  REQUIRE(bf16_source.find("reduce(%arg0)") == std::string::npos);
++
++  const auto rank_one = PrepareStructuredTensorIrCompilation(
++      MakeRowReductionProgram({7}, DataType::FP32, "tensor.row_sum"), request,
++      ValidSchedule({1}));
++  const KernelBuildSpec rank_one_spec = FinalizeStructuredTensorIrBuildSpec(
++      rank_one, MakeKernelAbi(RowReductionKernelOptions({7}, {1}, 1)));
++  REQUIRE(rank_one.GetValueMetadata()[0].GetShape() == std::vector<int64_t>({7}));
++  REQUIRE(rank_one.GetValueMetadata()[1].GetShape() == std::vector<int64_t>({1}));
++  REQUIRE(!rank_one_spec.GetIdentityDigest().empty());
++
++  const auto rank_three = PrepareStructuredTensorIrCompilation(
++      MakeRowReductionProgram({2, 3, 5}, DataType::FP32, "tensor.row_max"),
++      request, ValidSchedule({2}));
++  const KernelBuildSpec rank_three_spec = FinalizeStructuredTensorIrBuildSpec(
++      rank_three,
++      MakeKernelAbi(RowReductionKernelOptions({2, 3, 5}, {2}, 3)));
++  REQUIRE(rank_three.GetValueMetadata()[1].GetShape() ==
++          std::vector<int64_t>({2, 3, 1}));
++  REQUIRE(!rank_three_spec.GetIdentityDigest().empty());
++
++  KernelOptions wrong_input_count = RowReductionKernelOptions({2, 3}, {2}, 1);
++  wrong_input_count.input_count = 2;
++  REQUIRE(RejectsFinalization(prepared,
++                              MakeKernelAbi(std::move(wrong_input_count)),
++                              "input count"));
++  KernelOptions missing_result = RowReductionKernelOptions({2, 3}, {2}, 1);
++  missing_result.descriptors.pop_back();
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(missing_result)),
++                              "descriptor count"));
++  KernelOptions wrong_result_shape = RowReductionKernelOptions({2, 3}, {2}, 1);
++  wrong_result_shape.descriptors[1] = TensorDescriptor({2, 2}, {2, 1});
++  REQUIRE(RejectsFinalization(
++      prepared, MakeKernelAbi(std::move(wrong_result_shape)), "static shape"));
++  KernelOptions wrong_result_stride = RowReductionKernelOptions({2, 3}, {2}, 1);
++  wrong_result_stride.descriptors[1] = TensorDescriptor({2, 1}, {2, 1});
++  REQUIRE(RejectsFinalization(
++      prepared, MakeKernelAbi(std::move(wrong_result_stride)), "static stride"));
++  KernelOptions wrong_grid = RowReductionKernelOptions({2, 3}, {2}, 1);
++  wrong_grid.static_grid = {2, 1, 1};
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(wrong_grid)),
++                              "checked rows and row tile"));
++  KernelOptions wrong_tile = RowReductionKernelOptions({2, 3}, {1}, 2);
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(wrong_tile)),
++                              "tile sizes"));
++  KernelOptions workspace = RowReductionKernelOptions({2, 3}, {2}, 1);
++  workspace.workspace_size = 8;
++  workspace.workspace_alignment = 8;
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(workspace)),
++                              "zero-workspace"));
++  return 0;
++}
++
++int TestRowReductionV3ScheduleRejections() {
++  const CompileRequest request = ValidRequest();
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(
++            MakeRowReductionProgram({8, 16}), request, ValidSchedule({2, 2}));
++      },
++      "exactly one row tile"));
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(
++            MakeRowReductionProgram({8, 16}), request, ValidSchedule({3}));
++      },
++      "positive power of two"));
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(
++            MakeRowReductionProgram({7}), request, ValidSchedule({2}));
++      },
++      "checked row count 1"));
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(
++            MakeRowReductionProgram({2, 3, 5}), request, ValidSchedule({8}));
++      },
++      "checked row count 6"));
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(
++            MakeRowReductionProgram({2, 3, 5}), ValidRequest(82, 2),
++            ValidSchedule({2}));
++      },
++      "exceeds the prepared target limit 2"));
++  return 0;
++}
++
+ int TestRankOneBf16ImplicitStrideGoldenAndFinalization() {
+   const CompileRequest request = ValidRequest();
+   const PreparedStructuredTensorIrCompilation prepared =
+@@ -1006,6 +1281,8 @@ int main() {
+   if (const int result = TestPreparationGoldenAndOwnership()) return result;
+   if (const int result = TestFusedPointwiseV2ProjectionAndFinalization()) return result;
+   if (const int result = TestFusedPointwiseV2ScheduleRejections()) return result;
++  if (const int result = TestRowReductionV3ProjectionAndFinalization()) return result;
++  if (const int result = TestRowReductionV3ScheduleRejections()) return result;
+   if (const int result = TestRankOneBf16ImplicitStrideGoldenAndFinalization()) return result;
+   if (const int result = TestStrictScheduleOverloadParity()) return result;
+   if (const int result = TestDeterminismAndIdentityChanges()) return result;
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index 1a8f858c883f91c6a4ca5b6629697dad2e7aa8bc..f12dffe098c41a540345d78c52d51fa119d6577e 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -167,6 +167,37 @@ ir::ProgramPtr MakeCustomProgram(
+                      {assignment, returned});
+ }
+ 
++struct RowReductionProgram {
++  ir::ProgramPtr program;
++  ir::VarPtr input;
++  ir::VarPtr result;
++  ir::TensorTypePtr input_type;
++  ir::TensorTypePtr result_type;
++};
++
++RowReductionProgram MakeRowReduction(
++    const std::vector<int64_t>& shape, DataType dtype,
++    const std::string& op_name = "tensor.row_sum",
++    std::vector<std::pair<std::string, std::any>> kwargs = {},
++    std::vector<std::pair<std::string, std::any>> attrs = {},
++    const std::string& function_name = "row_reduction",
++    const std::string& input_name = "input",
++    const std::string& result_name = "result") {
++  auto input_type = PlainTensor(shape, dtype);
++  std::vector<int64_t> result_shape = shape;
++  if (!result_shape.empty()) result_shape.back() = 1;
++  auto result_type = PlainTensor(result_shape, dtype);
++  auto input = std::make_shared<ir::Var>(input_name, input_type, TestSpan());
++  auto result = std::make_shared<ir::Var>(result_name, result_type, TestSpan());
++  auto call = OpCall(op_name, {input}, result_type, std::move(kwargs), std::move(attrs));
++  auto assignment = std::make_shared<ir::AssignStmt>(result, call, TestSpan());
++  auto returned =
++      std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{result}, TestSpan());
++  return {MakeProgram(function_name, {input}, {ir::ParamDirection::In}, {result_type},
++                      {assignment, returned}),
++          input, result, input_type, result_type};
++}
++
+ class GroupedNumpunct : public std::numpunct<char> {
+  protected:
+   [[nodiscard]] char do_thousands_sep() const override { return '_'; }
+@@ -306,6 +337,141 @@ int TestFusedPointwiseV2CanonicalSourceAndMetadata() {
+   return 0;
+ }
+ 
++int TestRowReductionV3CanonicalSourcesAndMetadata() {
++  const RowReductionProgram fp32_sum =
++      MakeRowReduction({3, 5}, DataType::FP32, "tensor.row_sum", {}, {},
++                       "cosmetic_sum_name", "lhs", "sum");
++  const TensorIrModule sum_module = EmitTensorIr(fp32_sum.program);
++  const std::string sum_expected =
++      "module {\n"
++      "  nv_tensor_ir.graph @pypto_row_reduction_v3(\n"
++      "    %arg0: tensor<3x5xf32> {nv_tensor_ir.stride = \"(5,1)\"}\n"
++      "  ) -> (tensor<3x1xf32> {nv_tensor_ir.stride = \"(1,1)\"}) {\n"
++      "    %result0 = reduce(%arg0) <dimensions = [1], reduction_mode = <add>> : "
++      "tensor<3x5xf32> -> tensor<3x1xf32>\n"
++      "    results %result0 : tensor<3x1xf32>\n"
++      "  }\n"
++      "}\n";
++  REQUIRE(sum_module.GetCanonicalSource() == sum_expected);
++  REQUIRE(sum_module.GetKind() == TensorIrModuleKind::RowReductionV3);
++  REQUIRE(sum_module.GetMetadataSchemaVersion() == 3);
++  REQUIRE(sum_module.GetEntryName() == "pypto_row_reduction_v3");
++  REQUIRE(sum_module.GetInputCount() == 1);
++  REQUIRE(sum_module.GetResultCount() == 1);
++  REQUIRE(sum_module.GetValueMetadata().size() == 2);
++  const auto& sum_input = sum_module.GetValueMetadata()[0];
++  const auto& sum_result = sum_module.GetValueMetadata()[1];
++  REQUIRE(sum_input.GetRole() == TensorIrValueRole::Input);
++  REQUIRE(sum_input.GetOrdinal() == 0);
++  REQUIRE(sum_input.GetShape() == std::vector<int64_t>({3, 5}));
++  REQUIRE(sum_input.GetLogicalDenseStrides() == std::vector<int64_t>({5, 1}));
++  REQUIRE(sum_input.GetDtypeCode() == DataType::FP32.Code());
++  REQUIRE(sum_result.GetRole() == TensorIrValueRole::Result);
++  REQUIRE(sum_result.GetOrdinal() == 0);
++  REQUIRE(sum_result.GetShape() == std::vector<int64_t>({3, 1}));
++  REQUIRE(sum_result.GetLogicalDenseStrides() == std::vector<int64_t>({1, 1}));
++  REQUIRE(sum_result.GetDtypeCode() == DataType::FP32.Code());
++  REQUIRE(sum_input.HasExplicitStrides());
++  REQUIRE(sum_result.HasExplicitStrides());
++
++  const TensorIrModule rank_one =
++      EmitTensorIr(MakeRowReduction({7}, DataType::FP32, "tensor.row_max").program);
++  const std::string rank_one_expected =
++      "module {\n"
++      "  nv_tensor_ir.graph @pypto_row_reduction_v3(\n"
++      "    %arg0: tensor<7xf32>\n"
++      "  ) -> tensor<1xf32> {\n"
++      "    %result0 = reduce(%arg0) <dimensions = [0], reduction_mode = <max>> : "
++      "tensor<7xf32> -> tensor<1xf32>\n"
++      "    results %result0 : tensor<1xf32>\n"
++      "  }\n"
++      "}\n";
++  REQUIRE(rank_one.GetCanonicalSource() == rank_one_expected);
++  REQUIRE(rank_one.GetValueMetadata()[0].GetShape() == std::vector<int64_t>({7}));
++  REQUIRE(rank_one.GetValueMetadata()[1].GetShape() == std::vector<int64_t>({1}));
++  REQUIRE(!rank_one.GetValueMetadata()[0].HasExplicitStrides());
++  REQUIRE(!rank_one.GetValueMetadata()[1].HasExplicitStrides());
++
++  const TensorIrModule rank_three =
++      EmitTensorIr(MakeRowReduction({2, 3, 5}, DataType::FP32,
++                                    "tensor.row_max")
++                       .program);
++  REQUIRE(rank_three.GetCanonicalSource().find(
++              "reshape %arg0 : tensor<2x3x5xf32> -> tensor<6x5xf32>") !=
++          std::string::npos);
++  REQUIRE(rank_three.GetCanonicalSource().find(
++              "reduce(%flat0) <dimensions = [1], reduction_mode = <max>>") !=
++          std::string::npos);
++  REQUIRE(rank_three.GetCanonicalSource().find(
++              "reshape %reduce0 : tensor<6x1xf32> -> tensor<2x3x1xf32>") !=
++          std::string::npos);
++  REQUIRE(rank_three.GetValueMetadata()[0].GetShape() ==
++          std::vector<int64_t>({2, 3, 5}));
++  REQUIRE(rank_three.GetValueMetadata()[0].GetLogicalDenseStrides() ==
++          std::vector<int64_t>({15, 5, 1}));
++  REQUIRE(rank_three.GetValueMetadata()[1].GetShape() ==
++          std::vector<int64_t>({2, 3, 1}));
++  REQUIRE(rank_three.GetValueMetadata()[1].GetLogicalDenseStrides() ==
++          std::vector<int64_t>({3, 1, 1}));
++
++  const TensorIrModule bf16 =
++      EmitTensorIr(MakeRowReduction({2, 3}, DataType::BF16).program);
++  const std::string bf16_expected =
++      "module {\n"
++      "  nv_tensor_ir.graph @pypto_row_reduction_v3(\n"
++      "    %arg0: tensor<2x3xbf16> {nv_tensor_ir.stride = \"(3,1)\"}\n"
++      "  ) -> (tensor<2x1xbf16> {nv_tensor_ir.stride = \"(1,1)\"}) {\n"
++      "    %wide0 = convert %arg0 : tensor<2x3xbf16> -> tensor<2x3xf32>\n"
++      "    %reduce0 = reduce(%wide0) <dimensions = [1], reduction_mode = <add>> : "
++      "tensor<2x3xf32> -> tensor<2x1xf32>\n"
++      "    %result0 = convert %reduce0 : tensor<2x1xf32> -> tensor<2x1xbf16>\n"
++      "    results %result0 : tensor<2x1xbf16>\n"
++      "  }\n"
++      "}\n";
++  REQUIRE(bf16.GetCanonicalSource() == bf16_expected);
++  REQUIRE(bf16.GetCanonicalSource().find("reduce(%arg0)") == std::string::npos);
++  REQUIRE(bf16.GetCanonicalSource().find("reduce(%wide0)") != std::string::npos);
++  REQUIRE(bf16.GetValueMetadata()[0].GetDtypeName() == "bfloat16");
++  REQUIRE(bf16.GetValueMetadata()[1].GetDtypeName() == "bfloat16");
++  const TensorIrModule bf16_max =
++      EmitTensorIr(MakeRowReduction({2, 3}, DataType::BF16,
++                                    "tensor.row_max")
++                       .program);
++  REQUIRE(bf16_max.GetCanonicalSource().find(
++              "reduce(%wide0) <dimensions = [1], reduction_mode = <max>> : "
++              "tensor<2x3xf32> -> tensor<2x1xf32>") != std::string::npos);
++  REQUIRE(bf16_max.GetCanonicalSource().find("reduce(%arg0)") ==
++          std::string::npos);
++  const TensorIrModule bf16_rank_three =
++      EmitTensorIr(MakeRowReduction({2, 3, 5}, DataType::BF16,
++                                    "tensor.row_sum")
++                       .program);
++  const std::string& bf16_rank_three_source = bf16_rank_three.GetCanonicalSource();
++  REQUIRE(bf16_rank_three_source.find(
++              "convert %arg0 : tensor<2x3x5xbf16> -> tensor<2x3x5xf32>") !=
++          std::string::npos);
++  REQUIRE(bf16_rank_three_source.find(
++              "reshape %wide0 : tensor<2x3x5xf32> -> tensor<6x5xf32>") !=
++          std::string::npos);
++  REQUIRE(bf16_rank_three_source.find(
++              "reduce(%flat0) <dimensions = [1], reduction_mode = <add>> : "
++              "tensor<6x5xf32> -> tensor<6x1xf32>") != std::string::npos);
++  REQUIRE(bf16_rank_three_source.find(
++              "reshape %reduce0 : tensor<6x1xf32> -> tensor<2x3x1xf32>") !=
++          std::string::npos);
++  REQUIRE(bf16_rank_three_source.find(
++              "convert %shape0 : tensor<2x3x1xf32> -> tensor<2x3x1xbf16>") !=
++          std::string::npos);
++  REQUIRE(bf16_rank_three_source.find("reduce(%arg0)") == std::string::npos);
++
++  const RowReductionProgram cosmetic =
++      MakeRowReduction({3, 5}, DataType::FP32, "tensor.row_sum", {}, {},
++                       "another_name", "x", "y");
++  REQUIRE(EmitTensorIr(cosmetic.program).GetCanonicalSource() ==
++          sum_module.GetCanonicalSource());
++  return 0;
++}
++
+ int TestRankOneExactCanonicalSources() {
+   const ValidProgram valid = MakeValid({7}, DataType::BF16, "bf16_add");
+   const TensorIrModule module = EmitTensorIr(valid.program);
+@@ -1146,6 +1312,213 @@ int TestFusedPointwiseV2Rejections() {
+   return 0;
+ }
+ 
++int TestRowReductionV3Rejections() {
++  const auto make_custom = [](
++                               const ir::TensorTypePtr& input_type,
++                               const ir::TypePtr& assignment_type,
++                               const ir::TypePtr& call_type,
++                               const ir::TypePtr& declared_type,
++                               const std::vector<ir::ExprPtr>& explicit_arguments,
++                               std::vector<std::pair<std::string, std::any>> kwargs = {},
++                               std::vector<std::pair<std::string, std::any>> attrs = {},
++                               ir::ParamDirection direction = ir::ParamDirection::In) {
++    auto input = std::make_shared<ir::Var>("input", input_type, TestSpan());
++    auto result = std::make_shared<ir::Var>("result", assignment_type, TestSpan());
++    std::vector<ir::ExprPtr> arguments = explicit_arguments;
++    if (arguments.empty()) arguments.push_back(input);
++    auto call = OpCall("tensor.row_sum", arguments, call_type, std::move(kwargs),
++                       std::move(attrs));
++    auto assignment = std::make_shared<ir::AssignStmt>(result, call, TestSpan());
++    auto returned =
++        std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{result}, TestSpan());
++    return MakeProgram("row", {input}, {direction}, {declared_type},
++                       {assignment, returned});
++  };
++
++  auto input_type = PlainTensor({2, 3}, DataType::FP32);
++  auto result_type = PlainTensor({2, 1}, DataType::FP32);
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(make_custom(input_type, result_type, result_type,
++                                      result_type, {}, {{"axis", -1}}));
++      },
++      "attributes and keyword arguments"));
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(make_custom(input_type, result_type, result_type,
++                                      result_type, {}, {}, {{"ignored", true}}));
++      },
++      "attributes and keyword arguments"));
++
++  auto wrong_shape = PlainTensor({2, 2}, DataType::FP32);
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(make_custom(input_type, wrong_shape, wrong_shape,
++                                      wrong_shape, {}));
++      },
++      "set only the last extent to one"));
++  auto wrong_dtype = PlainTensor({2, 1}, DataType::BF16);
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(make_custom(input_type, wrong_dtype, wrong_dtype,
++                                      wrong_dtype, {}));
++      },
++      "preserve input rank and dtype"));
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(make_custom(input_type, result_type, input_type,
++                                      result_type, {}));
++      },
++      "call, assignment, and declared result types"));
++
++  auto fp16_input = PlainTensor({2, 3}, DataType::FP16);
++  auto fp16_result = PlainTensor({2, 1}, DataType::FP16);
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(make_custom(fp16_input, fp16_result, fp16_result,
++                                      fp16_result, {}));
++      },
++      "dtype must be BF16 or FP32"));
++  auto rank_zero = PlainTensor({}, DataType::FP32);
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(
++            make_custom(rank_zero, rank_zero, rank_zero, rank_zero, {}));
++      },
++      "rank must be between 1 and 32"));
++  auto rank_33 = PlainTensor(std::vector<int64_t>(33, 1), DataType::FP32);
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(make_custom(rank_33, rank_33, rank_33, rank_33, {}));
++      },
++      "rank must be between 1 and 32"));
++
++  auto dynamic_extent = std::make_shared<ir::Var>(
++      "extent", std::make_shared<ir::ScalarType>(DataType::INDEX), TestSpan());
++  auto dynamic_input = std::make_shared<ir::TensorType>(
++      std::vector<ir::ExprPtr>{dynamic_extent}, DataType::FP32);
++  auto scalar_result = PlainTensor({1}, DataType::FP32);
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(make_custom(dynamic_input, scalar_result, scalar_result,
++                                      scalar_result, {}));
++      },
++      "shape must be fully static"));
++  auto view_input = std::make_shared<ir::TensorType>(
++      std::vector<int64_t>{2, 3}, DataType::FP32, std::optional<ir::MemRefPtr>{},
++      std::optional<ir::TensorView>{
++          ir::TensorView(std::vector<int64_t>{1, 2}, ir::TensorLayout::DN)});
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(make_custom(view_input, result_type, result_type,
++                                      result_type, {}));
++      },
++      "must not carry a TensorView"));
++
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(make_custom(input_type, result_type, result_type,
++                                      result_type, {}, {}, {},
++                                      ir::ParamDirection::Out));
++      },
++      "direction In"));
++
++  const RowReductionProgram valid = MakeRowReduction({2, 3}, DataType::FP32);
++  auto second_input = std::make_shared<ir::Var>("second", valid.input_type, TestSpan());
++  auto call = OpCall("tensor.row_sum", {valid.input}, valid.result_type);
++  auto assignment = std::make_shared<ir::AssignStmt>(valid.result, call, TestSpan());
++  auto returned = std::make_shared<ir::ReturnStmt>(
++      std::vector<ir::ExprPtr>{valid.result}, TestSpan());
++  auto two_parameters = MakeProgram(
++      "row", {valid.input, second_input},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {valid.result_type},
++      {assignment, returned});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(two_parameters); },
++                  "exactly one function parameter"));
++
++  const ir::StmtPtr& valid_body =
++      valid.program->functions_.begin()->second->body_;
++  auto attributed_function = MakeRawProgram(
++      {valid.input}, {ir::ParamDirection::In}, {valid.result_type}, valid_body,
++      {{"ignored", true}}, false, ir::FunctionType::Opaque, "row");
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(attributed_function); },
++                  "function attributes"));
++  auto runtime_bound = MakeRawProgram(
++      {valid.input}, {ir::ParamDirection::In}, {valid.result_type}, valid_body,
++      {}, true, ir::FunctionType::Opaque, "row");
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(runtime_bound); },
++                  "runtime-bound functions"));
++  auto incore = MakeRawProgram(
++      {valid.input}, {ir::ParamDirection::In}, {valid.result_type}, valid_body,
++      {}, false, ir::FunctionType::InCore, "row");
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(incore); },
++                  "must be Opaque with no hierarchy"));
++
++  auto extra_statement = MakeProgram(
++      "row", {valid.input}, {ir::ParamDirection::In}, {valid.result_type},
++      {assignment, assignment, returned});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(extra_statement); },
++                  "exactly one assignment and one return"));
++
++  auto wrong_arity_call =
++      OpCall("tensor.row_sum", {valid.input, valid.input}, valid.result_type);
++  auto wrong_arity_assignment =
++      std::make_shared<ir::AssignStmt>(valid.result, wrong_arity_call, TestSpan());
++  auto wrong_arity_program = MakeProgram(
++      "row", {valid.input}, {ir::ParamDirection::In}, {valid.result_type},
++      {wrong_arity_assignment, returned});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(wrong_arity_program); },
++                  "expects exactly one operand, got 2"));
++
++  auto external = std::make_shared<ir::Var>("external", valid.input_type, TestSpan());
++  auto external_call = OpCall("tensor.row_sum", {external}, valid.result_type);
++  auto external_assignment =
++      std::make_shared<ir::AssignStmt>(valid.result, external_call, TestSpan());
++  auto external_program = MakeProgram(
++      "row", {valid.input}, {ir::ParamDirection::In}, {valid.result_type},
++      {external_assignment, returned});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(external_program); },
++                  "exact function parameter"));
++
++  auto nested = OpCall("tensor.neg", {valid.input}, valid.input_type);
++  auto nested_call = OpCall("tensor.row_sum", {nested}, valid.result_type);
++  auto nested_assignment =
++      std::make_shared<ir::AssignStmt>(valid.result, nested_call, TestSpan());
++  auto nested_program = MakeProgram(
++      "row", {valid.input}, {ir::ParamDirection::In}, {valid.result_type},
++      {nested_assignment, returned});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(nested_program); },
++                  "exact function parameter"));
++
++  auto return_input = MakeProgram(
++      "row", {valid.input}, {ir::ParamDirection::In}, {valid.result_type},
++      {assignment, std::make_shared<ir::ReturnStmt>(
++                       std::vector<ir::ExprPtr>{valid.input}, TestSpan())});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(return_input); },
++                  "directly reference the row reduction assignment result"));
++
++  auto iter_result =
++      std::make_shared<ir::IterArg>("iter", valid.result_type, valid.input, TestSpan());
++  auto iter_assignment = std::make_shared<ir::AssignStmt>(iter_result, call, TestSpan());
++  auto iter_program = MakeProgram(
++      "row", {valid.input}, {ir::ParamDirection::In}, {valid.result_type},
++      {iter_assignment, std::make_shared<ir::ReturnStmt>(
++                            std::vector<ir::ExprPtr>{iter_result}, TestSpan())});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(iter_program); },
++                  "assignment result must be an exact Var"));
++
++  auto reuse_call = OpCall("tensor.row_sum", {valid.input}, valid.result_type);
++  auto reuse_assignment =
++      std::make_shared<ir::AssignStmt>(valid.input, reuse_call, TestSpan());
++  auto reuse_program = MakeProgram(
++      "row", {valid.input}, {ir::ParamDirection::In}, {valid.result_type},
++      {reuse_assignment, std::make_shared<ir::ReturnStmt>(
++                             std::vector<ir::ExprPtr>{valid.input}, TestSpan())});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(reuse_program); },
++                  "must not reuse the parameter"));
++  return 0;
++}
++
+ int TestStaticShapeRejections() {
+   const ir::OpPtr& add = ir::OpRegistry::GetInstance().GetOp("tensor.add");
+   const auto reject_shape = [&](const std::vector<int64_t>& shape,
+@@ -1212,6 +1585,7 @@ int main() {
+ 
+   if (const int result = TestFp32CanonicalSourceAndMetadata()) return result;
+   if (const int result = TestFusedPointwiseV2CanonicalSourceAndMetadata()) return result;
++  if (const int result = TestRowReductionV3CanonicalSourcesAndMetadata()) return result;
+   if (const int result = TestRankOneExactCanonicalSources()) return result;
+   if (const int result = TestDeterministicGeneratedNamesAndOperandIdentity()) return result;
+   if (const int result = TestCanonicalSourceIgnoresGlobalLocale()) return result;
+@@ -1219,6 +1593,7 @@ int main() {
+   if (const int result = TestTypeAndExpressionRejections()) return result;
+   if (const int result = TestFusedPointwiseV2BoundsAndScalarFormatting()) return result;
+   if (const int result = TestFusedPointwiseV2Rejections()) return result;
++  if (const int result = TestRowReductionV3Rejections()) return result;
+   if (const int result = TestStaticShapeRejections()) return result;
+   if (const int result = TestCosmeticNamesAndDiagnosticBounds()) return result;
+   return 0;

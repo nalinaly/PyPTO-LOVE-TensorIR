@@ -1,0 +1,71 @@
+From f72cfca88cb65525aabf6a12c2768f9101daf7a5 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 12:02:34 +0800
+Subject: [PATCH 180/212] Avoid unit-token anchor broadcasts
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 30 ++++++++++++++++--------
+ 1 file changed, 20 insertions(+), 10 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index a864970b6adf8bfc5aa90c60f3da7c3142bc2462..83c55910cf9d8e64d3b64a9beb115405fe3f12f3 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -1618,7 +1618,7 @@ std::string EmitNativeTileStatefulCausalConvSource(
+     source += state_rows_type;
+     const std::string anchor_row = "%state_anchor_row_" + batch_suffix;
+     const std::string anchor_box = "%state_anchor_box_" + batch_suffix;
+-    const std::string anchor_full = "%state_anchor_full_" + batch_suffix;
++    std::string anchor_full;
+     const std::string anchored_output = "%anchored_output_" + batch_suffix;
+     source += "\n    " + anchor_row + " = slice " + stored_state +
+               " starts = [0, 0] limits = [1, " +
+@@ -1630,10 +1630,15 @@ std::string EmitNativeTileStatefulCausalConvSource(
+     source += state_plane_type;
+     source += " -> ";
+     source += state_anchor_box_type;
+-    source += "\n    " + anchor_full + " = broadcast " + anchor_box + " : ";
+-    source += state_anchor_box_type;
+-    source += " -> ";
+-    source += batch_result_type;
++    if (graph.tokens_per_request == 1) {
++      anchor_full = anchor_box;
++    } else {
++      anchor_full = "%state_anchor_full_" + batch_suffix;
++      source += "\n    " + anchor_full + " = broadcast " + anchor_box + " : ";
++      source += state_anchor_box_type;
++      source += " -> ";
++      source += batch_result_type;
++    }
+     source += "\n    " + anchored_output +
+               " = binary_select %valid_state_index_" + batch_suffix + ", " +
+               batch_output + ", " + anchor_full + " : ";
+@@ -9615,7 +9620,7 @@ std::string EmitNativeTileGdnRecurrentBatchedSource(
+     const std::string anchor_f32 = "%state_anchor_f32_" + batch_suffix;
+     const std::string anchor_bf16 = "%state_anchor_bf16_" + batch_suffix;
+     const std::string anchor_box = "%state_anchor_box_" + batch_suffix;
+-    const std::string anchor_full = "%state_anchor_full_" + batch_suffix;
++    std::string anchor_full;
+     const std::string anchored_output = "%anchored_output_" + batch_suffix;
+     source += "\n    " + stored_group + " = reshape " + stored_state + " : ";
+     source += state_row_type;
+@@ -9638,10 +9643,15 @@ std::string EmitNativeTileGdnRecurrentBatchedSource(
+     source += value_group_type;
+     source += " -> ";
+     source += output_box_type;
+-    source += "\n    " + anchor_full + " = broadcast " + anchor_box + " : ";
+-    source += output_box_type;
+-    source += " -> ";
+-    source += batch_result_type;
++    if (graph.tokens_per_request == 1) {
++      anchor_full = anchor_box;
++    } else {
++      anchor_full = "%state_anchor_full_" + batch_suffix;
++      source += "\n    " + anchor_full + " = broadcast " + anchor_box + " : ";
++      source += output_box_type;
++      source += " -> ";
++      source += batch_result_type;
++    }
+     source += "\n    " + anchored_output +
+               " = binary_select %valid_state_index_" + batch_suffix + ", " +
+               batch_output + ", " + anchor_full + " : ";

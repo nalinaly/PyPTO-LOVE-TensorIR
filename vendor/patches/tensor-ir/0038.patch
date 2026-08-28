@@ -1,0 +1,44 @@
+From 494ebe55345a00a2e9ad034725b7c464217e7308 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 00:41:28 +0800
+Subject: [PATCH 38/82] Scale dense gather coordinates to element offsets
+
+---
+ lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp | 8 +++++++-
+ test/Conversion/TensorToCudaTile/gather_rows_layout.mlir  | 4 +++-
+ 2 files changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index 94c5ab260344e85680417042f5d8ed4d2ed28944..c1a3216a2acdea2f0b86b7d491570676697adf42 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -261,7 +261,13 @@ public:
+     Type tokenType = cuda_tile::TokenType::get(rewriter.getContext());
+     auto optimizationHints = createLoadStoreOptimizationHints(
+         rewriter.getContext(), dataDesc.allowTma, dataDesc.cost);
+-    SmallVector<Value> gatherIndices{rowIndices, state.getIndexValues()[1]};
++    Value columnScale = createConstant(
++        rewriter, op.getLoc(),
++        cast<ShapedType>(state.getIndexValues()[1].getType()),
++        state.getTileShape()[1]);
++    Value columnOffset = cuda_tile::MulIOp::create(
++        rewriter, op.getLoc(), state.getIndexValues()[1], columnScale);
++    SmallVector<Value> gatherIndices{rowIndices, columnOffset};
+     auto load = cuda_tile::LoadViewTkoOp::create(
+         rewriter, op.getLoc(), outputType, tokenType,
+         cuda_tile::MemoryOrderingSemantics::WEAK, /*memory_scope=*/nullptr,
+diff --git a/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
+index 9c8d46d9f25929dd67d053342f3a5dd2e513b440..ce70442fc6d00b9e4096298d41668b1a0bb2d5b3 100644
+--- a/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
++++ b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
+@@ -5,7 +5,9 @@
+ // CHECK: %[[GATHER_VIEW:.*]] = make_gather_scatter_view %[[DATA_VIEW]] : gather_scatter_view<tile=(8x128), tensor_view<1024x128xbf16, strides=[128,1]>, sparse_dim=0>
+ // CHECK: %[[NARROW:.*]] = extract {{.*}} : tile<8x128xi32> -> tile<8x1xi32>
+ // CHECK: %[[ROWS:.*]] = reshape %[[NARROW]] : tile<8x1xi32> -> tile<8xi32>
+-// CHECK: %[[GATHERED:.*]], {{.*}} = load_view_tko weak %[[GATHER_VIEW]][%[[ROWS]], {{.*}}]
++// CHECK: %[[COL_SCALE:.*]] = constant <i32: 128> : tile<i32>
++// CHECK: %[[COL_OFFSET:.*]] = muli {{.*}}, %[[COL_SCALE]] : tile<i32>
++// CHECK: %[[GATHERED:.*]], {{.*}} = load_view_tko weak %[[GATHER_VIEW]][%[[ROWS]], %[[COL_OFFSET]]]
+ // CHECK-SAME: -> tile<8x128xbf16>, token
+ // CHECK: store_view_tko weak %[[GATHERED]]
+ module {

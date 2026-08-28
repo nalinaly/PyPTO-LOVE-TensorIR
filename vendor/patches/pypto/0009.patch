@@ -1,0 +1,1687 @@
+From 042878dd6825bb65ed03f22db7b067fb96277623 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Mon, 24 Aug 2026 01:40:18 +0800
+Subject: [PATCH 009/212] compiler: add NVIDIA target identity and SM120 traits
+
+Source-reviewed candidate only. Native build, C++/binding tests, wheel packaging, TensorIR bridge, CUDA query, compilation and launch remain unverified until the protected-workload heavy gate closes and the single-DSO object-boundary commit lands first.
+---
+ CMakeLists.txt                                |   3 +
+ docs/en/dev/backend/01-nvidia-target-info.md  |  32 +++
+ docs/en/dev/backend/index.md                  |   9 +-
+ docs/zh/dev/backend/01-nvidia-target-info.md  |  27 +++
+ docs/zh/dev/backend/index.md                  |   7 +-
+ include/pypto/backend/common/backend.h        |  20 +-
+ include/pypto/backend/common/backend_type.h   |  33 +++
+ include/pypto/compiler/target_info.h          | 168 +++++++++++++
+ mkdocs.yml                                    |   1 +
+ python/bindings/CMakeLists.txt                |   1 +
+ python/bindings/bindings.cpp                  |   3 +
+ python/bindings/module.h                      |   3 +
+ python/bindings/modules/backend.cpp           |   6 +-
+ python/bindings/modules/compiler.cpp          | 103 ++++++++
+ python/pypto/__init__.py                      |   3 +-
+ python/pypto/backend/__init__.py              |   2 +
+ python/pypto/backend/_legacy.py               |  26 ++
+ python/pypto/compiler/__init__.py             |  22 ++
+ python/pypto/ir/compile.py                    |   2 +
+ python/pypto/ir/compiled_program.py           |  11 +
+ .../pypto/ir/distributed_compiled_program.py  |   8 +
+ python/pypto/pypto_core/__init__.pyi          |   3 +-
+ python/pypto/pypto_core/backend.pyi           |   5 +
+ python/pypto/pypto_core/compiler.pyi          | 133 ++++++++++
+ python/pypto/runtime/runner.py                |   2 +
+ python/pypto/tools/memory_map.py              |  10 +-
+ src/backend/common/backend.cpp                |  12 +-
+ src/backend/common/backend_config.cpp         |   4 +
+ src/compiler/target_info.cpp                  | 191 +++++++++++++++
+ tests/ut/compiler/test_target_info.py         | 227 ++++++++++++++++++
+ tests/ut/cpp/CMakeLists.txt                   |  19 ++
+ tests/ut/cpp/nvidia_target_info_test.cpp      |  84 +++++++
+ tests/ut/ir/test_compiled_program.py          |   1 +
+ tests/ut/tools/test_memory_map.py             |   3 +
+ 34 files changed, 1149 insertions(+), 35 deletions(-)
+ create mode 100644 docs/en/dev/backend/01-nvidia-target-info.md
+ create mode 100644 docs/zh/dev/backend/01-nvidia-target-info.md
+ create mode 100644 include/pypto/backend/common/backend_type.h
+ create mode 100644 include/pypto/compiler/target_info.h
+ create mode 100644 python/bindings/modules/compiler.cpp
+ create mode 100644 python/pypto/backend/_legacy.py
+ create mode 100644 python/pypto/compiler/__init__.py
+ create mode 100644 python/pypto/pypto_core/compiler.pyi
+ create mode 100644 src/compiler/target_info.cpp
+ create mode 100644 tests/ut/compiler/test_target_info.py
+ create mode 100644 tests/ut/cpp/nvidia_target_info_test.cpp
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 6b984a9b0b6735908341124ae8044ca5e9a0c214..5bad55b5d46760a28e158ca275dd1a28f257bf5f 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -80,6 +80,9 @@ include(${CMAKE_SOURCE_DIR}/cmake/msgpack.cmake)
+ 
+ # PyPTO core sources
+ set(PYPTO_SOURCES
++    # Compiler target contracts
++    src/compiler/target_info.cpp
++
+     # Core
+     src/core/backtrace.cpp
+     src/core/error.cpp
+diff --git a/docs/en/dev/backend/01-nvidia-target-info.md b/docs/en/dev/backend/01-nvidia-target-info.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..0c55ef15adfa0aa331cee0a0908fc279e0d3e008
+--- /dev/null
++++ b/docs/en/dev/backend/01-nvidia-target-info.md
+@@ -0,0 +1,32 @@
++# NVIDIA target identity (Phase 1)
++
++`BackendType::Nvidia` identifies the NVIDIA compiler target but deliberately
++does not create an Ascend-style `Backend`, `BackendHandler`, or synthetic SoC.
++Legacy code must call `HasBackendInstance()`/`has_backend_instance()` before
++requesting a singleton.
++
++`NvidiaTargetInfo` is immutable. A device-query layer must provide all device
++identity, SM/resource limits, CUDA driver/toolkit versions, TensorIR and CUDA
++Tile revisions, and the v1 compute-dtype allowlist (exactly BF16 and FP32).
++Index/scalar storage types are not represented by that compute allowlist. No
++RTX SKU or SM100 defaults are embedded in the compiler. The Phase 1
++validator accepts only numeric compute capability 120 and derives:
++
++```text
++target_name                   = nvidia:sm_120
++architecture                  = sm_120
++arch_conditional_architecture = sm_120a
++```
++
++The future TensorIR bridge must copy compute capability, SM count, default and
++opt-in CTA shared-memory limits, block/grid limits, register limits and other
++traits explicitly. It must not inherit TensorIR's current `sm_100` defaults or
++treat TensorIR's smaller `DeviceProperties` record as the complete PyPTO target
++identity. Pinned TensorIR also hard-codes a cc>=100 shared-memory assumption in
++tile candidate generation. The bridge must first patch that code to consume
++these traits or reject every candidate with an independent PyPTO legality
++filter. Until that gate lands, this object is target identity/capability data,
++not proof that a generated launch is legal.
++
++This contract does not query CUDA, link TensorIR/CUDA Tile, compile an
++artifact, or launch a kernel.
+diff --git a/docs/en/dev/backend/index.md b/docs/en/dev/backend/index.md
+index 09e1e502b373f12d8d323b1a023a2692331df6f5..62a4e029964ddb49e1a345acf15f15f379379b2b 100644
+--- a/docs/en/dev/backend/index.md
++++ b/docs/en/dev/backend/index.md
+@@ -2,14 +2,15 @@
+ 
+ Per-architecture behaviour, kept out of the passes.
+ 
+-Passes never branch on `BackendType`. Everything architecture-specific — codegen
+-target, runtime API names, hazard workarounds, cross-core layout rules — is answered
+-by a `BackendHandler` obtained from the active `PassContext`. Adding an architecture
+-means adding a handler, not editing passes.
++Legacy Ascend/PTO passes never branch on `BackendType`. Their architecture-specific
++behaviour is answered by a `BackendHandler` obtained from the active `PassContext`.
++A target-only compiler pipeline such as NVIDIA has an explicit immutable
++`TargetInfo` instead and must not invent a legacy handler or SoC.
+ 
+ | Page | What it covers |
+ | ---- | -------------- |
+ | [BackendHandler: principled backend dispatch](00-backend_handler.md) | The virtual interface, how passes query it, and what adding a new backend requires |
++| [NVIDIA target identity](01-nvidia-target-info.md) | Immutable SM120 device/toolchain traits without a fake legacy backend |
+ 
+ ## See Also
+ 
+diff --git a/docs/zh/dev/backend/01-nvidia-target-info.md b/docs/zh/dev/backend/01-nvidia-target-info.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..3228e2471843bfad75f2fcbc903bd745d62a1334
+--- /dev/null
++++ b/docs/zh/dev/backend/01-nvidia-target-info.md
+@@ -0,0 +1,27 @@
++# NVIDIA 目标身份（第一阶段）
++
++`BackendType::Nvidia` 表示 NVIDIA 编译目标，但不会伪造 Ascend 风格的
++`Backend`、`BackendHandler` 或 SoC。旧路径在请求 singleton 前必须调用
++`HasBackendInstance()` / `has_backend_instance()`。
++
++`NvidiaTargetInfo` 是不可变对象。设备查询层必须显式提供设备身份、全部
++SM/资源上限、CUDA driver/toolkit 版本、TensorIR 与 CUDA Tile revision，以及
++v1 compute dtype 白名单（严格为 BF16 和 FP32）。索引/标量的存储 dtype 不属于
++该 compute 白名单。编译器中不内置某个 RTX SKU 或 SM100 默认值。第一阶段只
++接受 numeric compute capability 120，并派生：
++
++```text
++target_name                   = nvidia:sm_120
++architecture                  = sm_120
++arch_conditional_architecture = sm_120a
++```
++
++未来 TensorIR bridge 必须显式复制 compute capability、SM 数、默认与 opt-in
++CTA shared-memory 上限、block/grid 上限、register 上限以及其它 traits。它不能
++继承 TensorIR 当前的 `sm_100` 默认值，也不能用字段更少的 `DeviceProperties`
++冒充完整 PyPTO target identity。Pinned TensorIR 的 tile candidate 生成中还对
++cc>=100 硬编码了 shared-memory 假设；bridge 必须先改为消费这些 traits，或者
++用独立 PyPTO legality filter 拒绝所有非法 candidate。在该 gate 落地前，本对象
++只是 target identity/capability 数据，不是 launch 合法性证明。
++
++本契约不会查询 CUDA、链接 TensorIR/CUDA Tile、编译 artifact 或启动 kernel。
+diff --git a/docs/zh/dev/backend/index.md b/docs/zh/dev/backend/index.md
+index d4b4bcb9b2e75b72c7f10545ce9dfb48b4ef12e7..c0ac13d5f454d6f53bf5a407a8f36872fe0b579b 100644
+--- a/docs/zh/dev/backend/index.md
++++ b/docs/zh/dev/backend/index.md
+@@ -2,13 +2,14 @@
+ 
+ 逐架构的差异行为，从 pass 中剥离出来。
+ 
+-pass 从不对 `BackendType` 做分支判断。所有与架构相关的内容 —— codegen 目标、运行时 API
+-名称、硬件冒险规避、跨核 layout 规则 —— 都由当前 `PassContext` 提供的 `BackendHandler`
+-回答。新增一个架构意味着新增一个 handler，而不是修改 pass。
++旧 Ascend/PTO pass 不对 `BackendType` 做分支判断；它们的架构差异由当前
++`PassContext` 提供的 `BackendHandler` 回答。NVIDIA 这类 target-only 编译路径改用
++显式不可变 `TargetInfo`，不能为兼容旧接口伪造 handler 或 SoC。
+ 
+ | 页面 | 内容 |
+ | ---- | ---- |
+ | [BackendHandler：有原则的后端分派](00-backend_handler.md) | 该虚接口、pass 如何查询它，以及新增后端需要做什么 |
++| [NVIDIA 目标身份](01-nvidia-target-info.md) | 不伪造旧 backend 的 SM120 设备与工具链 traits |
+ 
+ ## 另请参阅
+ 
+diff --git a/include/pypto/backend/common/backend.h b/include/pypto/backend/common/backend.h
+index 291ed331e0d300cc6d26800e6d81b7c6b697aad7..e759a0e43667c9d3cae48a6b4b6b8eaa0257c383 100644
+--- a/include/pypto/backend/common/backend.h
++++ b/include/pypto/backend/common/backend.h
+@@ -23,6 +23,7 @@
+ #include <vector>
+ 
+ #include "pypto/backend/common/soc.h"
++#include "pypto/backend/common/backend_type.h"
+ #include "pypto/core/common.h"
+ #include "pypto/ir/memory_allocator_policy.h"
+ #include "pypto/ir/memory_space.h"
+@@ -47,14 +48,6 @@ namespace backend {
+ class Backend;
+ class BackendHandler;
+ 
+-/**
+- * @brief Backend type identifier for selecting backend instance
+- */
+-enum class BackendType {
+-  Ascend910B,  ///< 910B backend (PTO assembly codegen)
+-  Ascend950    ///< 950 PTO backend
+-};
+-
+ /**
+  * @brief Get the singleton backend instance for the given type
+  *
+@@ -63,17 +56,6 @@ enum class BackendType {
+  */
+ const Backend* GetBackendInstance(BackendType type);
+ 
+-/**
+- * @brief Convert BackendType enum to a human-readable string.
+- *
+- * Used in error messages and logging. Adding a new BackendType requires
+- * updating this function so diagnostics stay readable.
+- *
+- * @param type Backend type
+- * @return Display name (e.g. "Ascend910B", "Ascend950")
+- */
+-std::string BackendTypeToString(BackendType type);
+-
+ // Backend op code generation function type
+ using BackendCodegenFunc = std::function<std::string(const ir::CallPtr& op, codegen::CodegenBase& codegen)>;
+ 
+diff --git a/include/pypto/backend/common/backend_type.h b/include/pypto/backend/common/backend_type.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..a0236acbcda068e69a3112fd4046fa5da419050c
+--- /dev/null
++++ b/include/pypto/backend/common/backend_type.h
+@@ -0,0 +1,33 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#ifndef PYPTO_BACKEND_COMMON_BACKEND_TYPE_H_
++#define PYPTO_BACKEND_COMMON_BACKEND_TYPE_H_
++
++#include <string>
++
++namespace pypto::backend {
++
++enum class BackendType {
++  Ascend910B = 0,
++  Ascend950 = 1,
++  Nvidia = 2,
++};
++
++[[nodiscard]] constexpr bool HasBackendInstance(BackendType type) noexcept {
++  return type == BackendType::Ascend910B || type == BackendType::Ascend950;
++}
++
++[[nodiscard]] std::string BackendTypeToString(BackendType type);
++
++}  // namespace pypto::backend
++
++#endif  // PYPTO_BACKEND_COMMON_BACKEND_TYPE_H_
+diff --git a/include/pypto/compiler/target_info.h b/include/pypto/compiler/target_info.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..ca166631f94610ba047e2c1cf71c46365c53c418
+--- /dev/null
++++ b/include/pypto/compiler/target_info.h
+@@ -0,0 +1,168 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#ifndef PYPTO_COMPILER_TARGET_INFO_H_
++#define PYPTO_COMPILER_TARGET_INFO_H_
++
++#include <cstdint>
++#include <string>
++#include <vector>
++
++#include "pypto/backend/common/backend_type.h"
++#include "pypto/core/dtype.h"
++
++namespace pypto::compiler {
++
++[[nodiscard]] constexpr bool IsSupportedNvidiaComputeCapability(int compute_capability) noexcept {
++  return compute_capability == 120;
++}
++
++class TargetTraits {
++ public:
++  TargetTraits() = delete;
++  TargetTraits(int compute_capability, int multiprocessor_count, int warp_size,
++               int max_threads_per_block, int max_threads_per_multiprocessor,
++               int max_blocks_per_multiprocessor, int max_block_dim_x, int max_block_dim_y,
++               int max_block_dim_z, int max_grid_dim_x, int max_grid_dim_y, int max_grid_dim_z,
++               uint64_t l1_cache_line_bytes, uint64_t default_shared_memory_per_cta_bytes,
++               uint64_t max_shared_memory_per_cta_bytes,
++               uint64_t shared_memory_per_multiprocessor_bytes, uint64_t registers_per_cta,
++               uint64_t max_registers_per_thread, uint64_t registers_per_multiprocessor,
++               uint64_t l2_cache_size_bytes, uint64_t total_global_memory_bytes);
++  TargetTraits(const TargetTraits&) = default;
++  TargetTraits(TargetTraits&&) = default;
++  TargetTraits& operator=(const TargetTraits&) = delete;
++  TargetTraits& operator=(TargetTraits&&) = delete;
++
++  [[nodiscard]] int GetComputeCapability() const noexcept { return compute_capability_; }
++  [[nodiscard]] int GetComputeCapabilityMajor() const noexcept { return compute_capability_ / 10; }
++  [[nodiscard]] int GetComputeCapabilityMinor() const noexcept { return compute_capability_ % 10; }
++  [[nodiscard]] int GetMultiprocessorCount() const noexcept { return multiprocessor_count_; }
++  [[nodiscard]] int GetWarpSize() const noexcept { return warp_size_; }
++  [[nodiscard]] int GetMaxThreadsPerBlock() const noexcept { return max_threads_per_block_; }
++  [[nodiscard]] int GetMaxThreadsPerMultiprocessor() const noexcept {
++    return max_threads_per_multiprocessor_;
++  }
++  [[nodiscard]] int GetMaxBlocksPerMultiprocessor() const noexcept {
++    return max_blocks_per_multiprocessor_;
++  }
++  [[nodiscard]] int GetMaxBlockDimX() const noexcept { return max_block_dim_x_; }
++  [[nodiscard]] int GetMaxBlockDimY() const noexcept { return max_block_dim_y_; }
++  [[nodiscard]] int GetMaxBlockDimZ() const noexcept { return max_block_dim_z_; }
++  [[nodiscard]] int GetMaxGridDimX() const noexcept { return max_grid_dim_x_; }
++  [[nodiscard]] int GetMaxGridDimY() const noexcept { return max_grid_dim_y_; }
++  [[nodiscard]] int GetMaxGridDimZ() const noexcept { return max_grid_dim_z_; }
++  [[nodiscard]] int GetMaxWarpsPerMultiprocessor() const noexcept {
++    return max_threads_per_multiprocessor_ / warp_size_;
++  }
++  [[nodiscard]] uint64_t GetL1CacheLineBytes() const noexcept { return l1_cache_line_bytes_; }
++  [[nodiscard]] uint64_t GetDefaultSharedMemoryPerCtaBytes() const noexcept {
++    return default_shared_memory_per_cta_bytes_;
++  }
++  [[nodiscard]] uint64_t GetMaxSharedMemoryPerCtaBytes() const noexcept {
++    return max_shared_memory_per_cta_bytes_;
++  }
++  [[nodiscard]] uint64_t GetSharedMemoryPerMultiprocessorBytes() const noexcept {
++    return shared_memory_per_multiprocessor_bytes_;
++  }
++  [[nodiscard]] uint64_t GetRegistersPerCta() const noexcept { return registers_per_cta_; }
++  [[nodiscard]] uint64_t GetMaxRegistersPerThread() const noexcept {
++    return max_registers_per_thread_;
++  }
++  [[nodiscard]] uint64_t GetRegistersPerMultiprocessor() const noexcept {
++    return registers_per_multiprocessor_;
++  }
++  [[nodiscard]] uint64_t GetL2CacheSizeBytes() const noexcept { return l2_cache_size_bytes_; }
++  [[nodiscard]] uint64_t GetTotalGlobalMemoryBytes() const noexcept {
++    return total_global_memory_bytes_;
++  }
++
++ private:
++  int compute_capability_;
++  int multiprocessor_count_;
++  int warp_size_;
++  int max_threads_per_block_;
++  int max_threads_per_multiprocessor_;
++  int max_blocks_per_multiprocessor_;
++  int max_block_dim_x_;
++  int max_block_dim_y_;
++  int max_block_dim_z_;
++  int max_grid_dim_x_;
++  int max_grid_dim_y_;
++  int max_grid_dim_z_;
++  uint64_t l1_cache_line_bytes_;
++  uint64_t default_shared_memory_per_cta_bytes_;
++  uint64_t max_shared_memory_per_cta_bytes_;
++  uint64_t shared_memory_per_multiprocessor_bytes_;
++  uint64_t registers_per_cta_;
++  uint64_t max_registers_per_thread_;
++  uint64_t registers_per_multiprocessor_;
++  uint64_t l2_cache_size_bytes_;
++  uint64_t total_global_memory_bytes_;
++};
++
++class NvidiaTargetInfo {
++ public:
++  NvidiaTargetInfo() = delete;
++  NvidiaTargetInfo(int device_ordinal, std::string device_name, std::string device_uuid,
++                   std::string pci_device_id, TargetTraits traits,
++                   std::string cuda_toolkit_version, std::string cuda_driver_version,
++                   std::string tensor_ir_revision, std::string cuda_tile_revision,
++                   std::vector<DataType> supported_compute_dtypes);
++  NvidiaTargetInfo(const NvidiaTargetInfo&) = default;
++  NvidiaTargetInfo(NvidiaTargetInfo&&) = default;
++  NvidiaTargetInfo& operator=(const NvidiaTargetInfo&) = delete;
++  NvidiaTargetInfo& operator=(NvidiaTargetInfo&&) = delete;
++
++  [[nodiscard]] backend::BackendType GetBackendType() const noexcept {
++    return backend::BackendType::Nvidia;
++  }
++  [[nodiscard]] int GetDeviceOrdinal() const noexcept { return device_ordinal_; }
++  [[nodiscard]] const std::string& GetDeviceName() const noexcept { return device_name_; }
++  [[nodiscard]] const std::string& GetDeviceUuid() const noexcept { return device_uuid_; }
++  [[nodiscard]] const std::string& GetPciDeviceId() const noexcept { return pci_device_id_; }
++  [[nodiscard]] const TargetTraits& GetTraits() const noexcept { return traits_; }
++  [[nodiscard]] const std::string& GetCudaToolkitVersion() const noexcept {
++    return cuda_toolkit_version_;
++  }
++  [[nodiscard]] const std::string& GetCudaDriverVersion() const noexcept {
++    return cuda_driver_version_;
++  }
++  [[nodiscard]] const std::string& GetTensorIrRevision() const noexcept {
++    return tensor_ir_revision_;
++  }
++  [[nodiscard]] const std::string& GetCudaTileRevision() const noexcept {
++    return cuda_tile_revision_;
++  }
++  [[nodiscard]] const std::vector<DataType>& GetSupportedComputeDtypes() const noexcept {
++    return supported_compute_dtypes_;
++  }
++  [[nodiscard]] bool SupportsComputeDtype(DataType dtype) const noexcept;
++  [[nodiscard]] std::string GetTargetName() const;
++  [[nodiscard]] std::string GetArchitecture() const;
++  [[nodiscard]] std::string GetArchConditionalArchitecture() const;
++
++ private:
++  int device_ordinal_;
++  std::string device_name_;
++  std::string device_uuid_;
++  std::string pci_device_id_;
++  TargetTraits traits_;
++  std::string cuda_toolkit_version_;
++  std::string cuda_driver_version_;
++  std::string tensor_ir_revision_;
++  std::string cuda_tile_revision_;
++  std::vector<DataType> supported_compute_dtypes_;
++};
++
++}  // namespace pypto::compiler
++
++#endif  // PYPTO_COMPILER_TARGET_INFO_H_
+diff --git a/mkdocs.yml b/mkdocs.yml
+index c9ffb74e131195580497b398876f628b00612ddf..44a65938a04c42acaecc87df76b071c198e96f42 100644
+--- a/mkdocs.yml
++++ b/mkdocs.yml
+@@ -373,6 +373,7 @@ nav:
+       - Backend:
+           - en/dev/backend/index.md
+           - en/dev/backend/00-backend_handler.md
++          - en/dev/backend/01-nvidia-target-info.md
+       - Debug:
+           - en/dev/debug/index.md
+           - en/dev/debug/00-torch_codegen.md
+diff --git a/python/bindings/CMakeLists.txt b/python/bindings/CMakeLists.txt
+index c522bdddee0843bef348920abadeedd2aa6514ae..1cb083fdf572bf9aa95602101fd35106076f7524 100644
+--- a/python/bindings/CMakeLists.txt
++++ b/python/bindings/CMakeLists.txt
+@@ -21,6 +21,7 @@ set(PYPTO_BINDING_SOURCES
+     modules/passes.cpp
+     modules/codegen.cpp
+     modules/backend.cpp
++    modules/compiler.cpp
+     modules/arith.cpp
+     modules/functor.cpp
+ )
+diff --git a/python/bindings/bindings.cpp b/python/bindings/bindings.cpp
+index 1ebba5e4dfa1fc1771806824a9dc852c056e7125..1677d2e5c9fe7547f198ea3aef2d272f5dc8fe97 100644
+--- a/python/bindings/bindings.cpp
++++ b/python/bindings/bindings.cpp
+@@ -63,6 +63,9 @@ NB_MODULE(pypto_core, m) {
+   // Register backend bindings
+   pypto::python::BindBackend(m);
+ 
++  // Register compiler target contracts after DataType and BackendType.
++  pypto::python::BindCompiler(m);
++
+   // Register arithmetic simplification utilities
+   pypto::python::BindArith(m);
+ 
+diff --git a/python/bindings/module.h b/python/bindings/module.h
+index 409754c9009606ae2f6dbd105520cc8306d74742..3461da3f988e0af3b77c3aed5e42b9d8c13d1ced 100644
+--- a/python/bindings/module.h
++++ b/python/bindings/module.h
+@@ -141,6 +141,9 @@ void BindCodegen(nanobind::module_& m);
+  */
+ void BindBackend(nanobind::module_& m);
+ 
++/** Register immutable compiler target identity and capability contracts. */
++void BindCompiler(nanobind::module_& m);
++
+ /**
+  * @brief Register arithmetic simplification utilities
+  *
+diff --git a/python/bindings/modules/backend.cpp b/python/bindings/modules/backend.cpp
+index f4cd2a25af5a4483a4ecde971812eacd2d7f4726..b67218bbca489d0b8e8fa3ef8d87a533a51c1c57 100644
+--- a/python/bindings/modules/backend.cpp
++++ b/python/bindings/modules/backend.cpp
+@@ -56,7 +56,8 @@ void BindBackend(nb::module_& m) {
+   nb::enum_<BackendType>(backend_mod, "BackendType",
+                          "Backend type for passes and codegen (use Instance internally)")
+       .value("Ascend910B", BackendType::Ascend910B, "910B backend (PTO assembly codegen)")
+-      .value("Ascend950", BackendType::Ascend950, "950 PTO backend");
++      .value("Ascend950", BackendType::Ascend950, "950 PTO backend")
++      .value("Nvidia", BackendType::Nvidia, "NVIDIA compiler target (no legacy Backend singleton)");
+ 
+   // ========== Mem class ==========
+   nb::class_<Mem>(backend_mod, "Mem", "Memory component")
+@@ -214,6 +215,9 @@ void BindBackend(nb::module_& m) {
+       "Get the singleton Backend instance for a specific BackendType. "
+       "Useful when the caller knows the desired backend independently of global config.");
+ 
++  backend_mod.def("has_backend_instance", &backend::HasBackendInstance, nb::arg("backend_type"),
++                  "Return whether this target has a legacy Backend singleton.");
++
+   backend_mod.def(
+       "get_handler", []() { return backend::BackendConfig::GetBackend()->GetHandler(); },
+       nb::rv_policy::reference,
+diff --git a/python/bindings/modules/compiler.cpp b/python/bindings/modules/compiler.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..2a7d80fff135748b6486ed146ad4d6a85e2c1396
+--- /dev/null
++++ b/python/bindings/modules/compiler.cpp
+@@ -0,0 +1,103 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#include <nanobind/nanobind.h>
++#include <nanobind/stl/string.h>
++#include <nanobind/stl/vector.h>
++
++#include "../module.h"
++#include "pypto/compiler/target_info.h"
++
++namespace nb = nanobind;
++
++namespace pypto::python {
++
++void BindCompiler(nb::module_& m) {
++  nb::module_ compiler_mod = m.def_submodule("compiler", "PyPTO compiler target contracts");
++
++  nb::class_<compiler::TargetTraits>(compiler_mod, "TargetTraits")
++      .def(nb::init<int, int, int, int, int, int, int, int, int, int, int, int, uint64_t,
++                    uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
++                    uint64_t>(),
++           nb::arg("compute_capability"), nb::arg("multiprocessor_count"), nb::arg("warp_size"),
++           nb::arg("max_threads_per_block"), nb::arg("max_threads_per_multiprocessor"),
++           nb::arg("max_blocks_per_multiprocessor"), nb::arg("max_block_dim_x"),
++           nb::arg("max_block_dim_y"), nb::arg("max_block_dim_z"), nb::arg("max_grid_dim_x"),
++           nb::arg("max_grid_dim_y"), nb::arg("max_grid_dim_z"), nb::arg("l1_cache_line_bytes"),
++           nb::arg("default_shared_memory_per_cta_bytes"),
++           nb::arg("max_shared_memory_per_cta_bytes"),
++           nb::arg("shared_memory_per_multiprocessor_bytes"), nb::arg("registers_per_cta"),
++           nb::arg("max_registers_per_thread"), nb::arg("registers_per_multiprocessor"),
++           nb::arg("l2_cache_size_bytes"), nb::arg("total_global_memory_bytes"))
++      .def_prop_ro("compute_capability", &compiler::TargetTraits::GetComputeCapability)
++      .def_prop_ro("compute_capability_major", &compiler::TargetTraits::GetComputeCapabilityMajor)
++      .def_prop_ro("compute_capability_minor", &compiler::TargetTraits::GetComputeCapabilityMinor)
++      .def_prop_ro("multiprocessor_count", &compiler::TargetTraits::GetMultiprocessorCount)
++      .def_prop_ro("warp_size", &compiler::TargetTraits::GetWarpSize)
++      .def_prop_ro("max_threads_per_block", &compiler::TargetTraits::GetMaxThreadsPerBlock)
++      .def_prop_ro("max_threads_per_multiprocessor",
++                   &compiler::TargetTraits::GetMaxThreadsPerMultiprocessor)
++      .def_prop_ro("max_blocks_per_multiprocessor",
++                   &compiler::TargetTraits::GetMaxBlocksPerMultiprocessor)
++      .def_prop_ro("max_block_dim_x", &compiler::TargetTraits::GetMaxBlockDimX)
++      .def_prop_ro("max_block_dim_y", &compiler::TargetTraits::GetMaxBlockDimY)
++      .def_prop_ro("max_block_dim_z", &compiler::TargetTraits::GetMaxBlockDimZ)
++      .def_prop_ro("max_grid_dim_x", &compiler::TargetTraits::GetMaxGridDimX)
++      .def_prop_ro("max_grid_dim_y", &compiler::TargetTraits::GetMaxGridDimY)
++      .def_prop_ro("max_grid_dim_z", &compiler::TargetTraits::GetMaxGridDimZ)
++      .def_prop_ro("max_warps_per_multiprocessor",
++                   &compiler::TargetTraits::GetMaxWarpsPerMultiprocessor)
++      .def_prop_ro("l1_cache_line_bytes", &compiler::TargetTraits::GetL1CacheLineBytes)
++      .def_prop_ro("default_shared_memory_per_cta_bytes",
++                   &compiler::TargetTraits::GetDefaultSharedMemoryPerCtaBytes)
++      .def_prop_ro("max_shared_memory_per_cta_bytes",
++                   &compiler::TargetTraits::GetMaxSharedMemoryPerCtaBytes)
++      .def_prop_ro("shared_memory_per_multiprocessor_bytes",
++                   &compiler::TargetTraits::GetSharedMemoryPerMultiprocessorBytes)
++      .def_prop_ro("registers_per_cta", &compiler::TargetTraits::GetRegistersPerCta)
++      .def_prop_ro("max_registers_per_thread",
++                   &compiler::TargetTraits::GetMaxRegistersPerThread)
++      .def_prop_ro("registers_per_multiprocessor",
++                   &compiler::TargetTraits::GetRegistersPerMultiprocessor)
++      .def_prop_ro("l2_cache_size_bytes", &compiler::TargetTraits::GetL2CacheSizeBytes)
++      .def_prop_ro("total_global_memory_bytes", &compiler::TargetTraits::GetTotalGlobalMemoryBytes);
++
++  nb::class_<compiler::NvidiaTargetInfo>(compiler_mod, "NvidiaTargetInfo")
++      .def(nb::init<int, std::string, std::string, std::string, compiler::TargetTraits, std::string,
++                    std::string, std::string, std::string, std::vector<DataType>>(),
++           nb::arg("device_ordinal"), nb::arg("device_name"), nb::arg("device_uuid"),
++           nb::arg("pci_device_id"), nb::arg("traits"), nb::arg("cuda_toolkit_version"),
++           nb::arg("cuda_driver_version"), nb::arg("tensor_ir_revision"),
++           nb::arg("cuda_tile_revision"), nb::arg("supported_compute_dtypes"))
++      .def_prop_ro("backend_type", &compiler::NvidiaTargetInfo::GetBackendType)
++      .def_prop_ro("device_ordinal", &compiler::NvidiaTargetInfo::GetDeviceOrdinal)
++      .def_prop_ro("device_name", &compiler::NvidiaTargetInfo::GetDeviceName)
++      .def_prop_ro("device_uuid", &compiler::NvidiaTargetInfo::GetDeviceUuid)
++      .def_prop_ro("pci_device_id", &compiler::NvidiaTargetInfo::GetPciDeviceId)
++      .def_prop_ro("traits", &compiler::NvidiaTargetInfo::GetTraits, nb::rv_policy::reference_internal)
++      .def_prop_ro("cuda_toolkit_version", &compiler::NvidiaTargetInfo::GetCudaToolkitVersion)
++      .def_prop_ro("cuda_driver_version", &compiler::NvidiaTargetInfo::GetCudaDriverVersion)
++      .def_prop_ro("tensor_ir_revision", &compiler::NvidiaTargetInfo::GetTensorIrRevision)
++      .def_prop_ro("cuda_tile_revision", &compiler::NvidiaTargetInfo::GetCudaTileRevision)
++      .def_prop_ro("supported_compute_dtypes",
++                   &compiler::NvidiaTargetInfo::GetSupportedComputeDtypes)
++      .def_prop_ro("target_name", &compiler::NvidiaTargetInfo::GetTargetName)
++      .def_prop_ro("architecture", &compiler::NvidiaTargetInfo::GetArchitecture)
++      .def_prop_ro("arch_conditional_architecture",
++                   &compiler::NvidiaTargetInfo::GetArchConditionalArchitecture)
++      .def("supports_compute_dtype", &compiler::NvidiaTargetInfo::SupportsComputeDtype,
++           nb::arg("dtype"));
++
++  compiler_mod.def("is_supported_nvidia_compute_capability",
++                   &compiler::IsSupportedNvidiaComputeCapability, nb::arg("compute_capability"));
++}
++
++}  // namespace pypto::python
+diff --git a/python/pypto/__init__.py b/python/pypto/__init__.py
+index 3adbcf747dafc85059a7c12c2e1c39bdca117e6b..b92e5c922b2db1118285669b1fdcb31ebc06be94 100644
+--- a/python/pypto/__init__.py
++++ b/python/pypto/__init__.py
+@@ -16,7 +16,7 @@ This package provides Python bindings for the PyPTO C++ library.
+ from typing import cast
+ 
+ # Import IR module (includes operations and core IR types)
+-from . import compile_profiling, ir, language, runtime
++from . import compile_profiling, compiler, ir, language, runtime
+ from .pypto_core import (
+     DataType,
+     Error,
+@@ -68,6 +68,7 @@ __all__ = [
+     "language",
+     "passes",
+     "compile_profiling",
++    "compiler",
+     "runtime",
+     "testing",
+     # Logging framework
+diff --git a/python/pypto/backend/__init__.py b/python/pypto/backend/__init__.py
+index eb66f9792d079d83fe677215b0ef5a922b838f0f..30a4971a4b7101970c6d05a2fd969697357c55f6 100644
+--- a/python/pypto/backend/__init__.py
++++ b/python/pypto/backend/__init__.py
+@@ -24,6 +24,7 @@ from pypto.pypto_core.backend import (
+     # Backend configuration
+     get_backend_instance,
+     get_backend_type,
++    has_backend_instance,
+     is_backend_configured,
+     reset_for_testing,
+     set_backend_type,
+@@ -42,6 +43,7 @@ __all__ = [
+     "set_backend_type",
+     "get_backend_type",
+     "get_backend_instance",
++    "has_backend_instance",
+     "is_backend_configured",
+     "reset_for_testing",
+ ]
+diff --git a/python/pypto/backend/_legacy.py b/python/pypto/backend/_legacy.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..0b7c7175aa6dc509211dc9259003204fa034f1ca
+--- /dev/null
++++ b/python/pypto/backend/_legacy.py
+@@ -0,0 +1,26 @@
++# Copyright (c) PyPTO Contributors.
++# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++# CANN Open Software License Agreement Version 2.0 (the "License").
++# Please refer to the License for details. You may not use this file except in compliance with the License.
++# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++# See LICENSE in the root of the software repository for the full text of the License.
++# -----------------------------------------------------------------------------------------------------------
++
++"""One fail-closed guard for Ascend-era Backend singleton consumers."""
++
++from pypto.pypto_core import backend as _backend_core
++
++
++def require_legacy_backend_instance(backend_type, *, operation: str):
++    """Reject target-only identities before a legacy API changes any state."""
++
++    if not _backend_core.has_backend_instance(backend_type):
++        raise ValueError(
++            f"{operation} does not support target-only backend {backend_type.name}; "
++            "use the NVIDIA compiler/runtime pipeline"
++        )
++    return backend_type
++
++
++__all__ = ["require_legacy_backend_instance"]
+diff --git a/python/pypto/compiler/__init__.py b/python/pypto/compiler/__init__.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..0d1ca046bc791d5bf60ace6d29538115fdcee233
+--- /dev/null
++++ b/python/pypto/compiler/__init__.py
+@@ -0,0 +1,22 @@
++# Copyright (c) PyPTO Contributors.
++# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++# CANN Open Software License Agreement Version 2.0 (the "License").
++# Please refer to the License for details. You may not use this file except in compliance with the License.
++# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++# See LICENSE in the root of the software repository for the full text of the License.
++# -----------------------------------------------------------------------------------------------------------
++
++"""Immutable compiler target identities and resource traits."""
++
++from pypto.pypto_core.compiler import (
++    NvidiaTargetInfo,
++    TargetTraits,
++    is_supported_nvidia_compute_capability,
++)
++
++__all__ = [
++    "NvidiaTargetInfo",
++    "TargetTraits",
++    "is_supported_nvidia_compute_capability",
++]
+diff --git a/python/pypto/ir/compile.py b/python/pypto/ir/compile.py
+index d2db25217bf16191afa2d09c52b3e57fad67f2e8..920f542e3b6cd70d42ba1526a7c655206f0fd210 100644
+--- a/python/pypto/ir/compile.py
++++ b/python/pypto/ir/compile.py
+@@ -16,6 +16,7 @@ from datetime import datetime
+ from typing import TYPE_CHECKING, Any, NamedTuple
+ 
+ from pypto.backend import BackendType
++from pypto.backend._legacy import require_legacy_backend_instance
+ from pypto.backend.pto_backend import PartialCodegenError, generate, multi_chip_orch_names
+ from pypto.compile_profiling import CompileProfiler, get_active_profiler
+ from pypto.pypto_core import backend as _backend_core
+@@ -62,6 +63,7 @@ class _PassPipelineResult(NamedTuple):
+ 
+ def _select_backend(*, backend_type: BackendType, platform: str | None) -> BackendType:
+     """Select and configure the backend before compilation creates artifacts."""
++    require_legacy_backend_instance(backend_type, operation="ir.compile")
+     effective_backend_type = _backend_type_for_platform(platform, backend_type)
+     _backend_core.set_backend_type(effective_backend_type)
+     return effective_backend_type
+diff --git a/python/pypto/ir/compiled_program.py b/python/pypto/ir/compiled_program.py
+index fc6a3dd2e5993ac64e6afa0c5ea542d8797df818..f5c8d0e168f14db2edc5796f9b4fde2671ec2920 100644
+--- a/python/pypto/ir/compiled_program.py
++++ b/python/pypto/ir/compiled_program.py
+@@ -29,6 +29,7 @@ from typing import Any
+ import torch
+ 
+ from pypto.backend import BackendType
++from pypto.backend._legacy import require_legacy_backend_instance
+ from pypto.pypto_core import DataType
+ from pypto.pypto_core import backend as _backend_core
+ from pypto.pypto_core.ir import (
+@@ -410,6 +411,11 @@ def _load_meta(meta_path: Path, *, filename: str, schema: int) -> dict[str, Any]
+     backend_type = BackendType.__members__.get(raw_backend) if isinstance(raw_backend, str) else None
+     if backend_type is None:
+         raise _bad(f"'backend_type' must be one of {sorted(BackendType.__members__)}, got {raw_backend!r}")
++    if not _backend_core.has_backend_instance(backend_type):
++        raise _bad(
++            f"'backend_type' {raw_backend!r} has no legacy compiled-program runtime; "
++            "use the NVIDIA executable metadata schema"
++        )
+ 
+     platform = meta.get("platform")
+     if platform is not None and not isinstance(platform, str):
+@@ -855,6 +861,7 @@ class CompiledProgram(_RuntimeFacade):
+         _return_types: list[Any] | None = None,
+         _sub_chip_names: Sequence[str] | None = None,
+     ) -> None:
++        require_legacy_backend_instance(backend_type, operation="CompiledProgram")
+         # ``program`` is ``None`` on the :meth:`from_dir` reload path: param
+         # metadata is supplied pre-derived via the ``_param_infos`` /
+         # ``_output_indices`` / ``_return_types`` kwargs (read back from
+@@ -1070,6 +1077,10 @@ class CompiledProgram(_RuntimeFacade):
+             ValueError: ``compiled_meta.json`` is unreadable, malformed, or
+                 records a ``schema`` version incompatible with this pypto build.
+         """
++        if backend_type is not None:
++            require_legacy_backend_instance(
++                backend_type, operation="CompiledProgram.from_dir"
++            )
+         meta_path = Path(output_dir).resolve() / _COMPILED_META_FILENAME
+         if not meta_path.exists():
+             raise FileNotFoundError(
+diff --git a/python/pypto/ir/distributed_compiled_program.py b/python/pypto/ir/distributed_compiled_program.py
+index ff99b82f487dc212e551cbecb2c467647cfe8eda..5f95d9fdb2c96f9de2939a7c8055c9747fed142e 100644
+--- a/python/pypto/ir/distributed_compiled_program.py
++++ b/python/pypto/ir/distributed_compiled_program.py
+@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
+ import torch
+ 
+ from pypto.backend import BackendType
++from pypto.backend._legacy import require_legacy_backend_instance
+ from pypto.pypto_core.ir import ParamDirection, Program, Role, level_to_linqu_level
+ from pypto.runtime.device_tensor import DeviceTensor, StackedDeviceTensor
+ 
+@@ -203,6 +204,9 @@ class DistributedCompiledProgram:
+         _output_indices: list[int] | None = None,
+         _return_types: list[Any] | None = None,
+     ) -> None:
++        require_legacy_backend_instance(
++            backend_type, operation="DistributedCompiledProgram"
++        )
+         # ``program`` is the post-pass IR. The runtime needs post-pass IR for
+         # orchestrator metadata (post-SSA names that match the generated
+         # host_orch.py) and to iterate Orchestration functions synthesized by
+@@ -316,6 +320,10 @@ class DistributedCompiledProgram:
+             ValueError: ``distributed_meta.json`` is unreadable, malformed, or
+                 records a ``schema`` version incompatible with this pypto build.
+         """
++        if backend_type is not None:
++            require_legacy_backend_instance(
++                backend_type, operation="DistributedCompiledProgram.from_dir"
++            )
+         meta_path = Path(output_dir).resolve() / _DISTRIBUTED_META_FILENAME
+         if not meta_path.exists():
+             raise FileNotFoundError(
+diff --git a/python/pypto/pypto_core/__init__.pyi b/python/pypto/pypto_core/__init__.pyi
+index 4f919df15d73cf477e96f9ecdae46b5ab788497e..175b7db2e7befea60b951bb6b0c8b46864625f42 100644
+--- a/python/pypto/pypto_core/__init__.pyi
++++ b/python/pypto/pypto_core/__init__.pyi
+@@ -13,7 +13,7 @@ PyPTO - Python Tensor Operations Library
+ This package provides Python bindings for the PyPTO C++ library.
+ """
+ 
+-from . import arith, codegen, ir, passes, testing
++from . import arith, codegen, compiler, ir, passes, testing
+ from .logging import (
+     Error,
+     InternalError,
+@@ -167,6 +167,7 @@ __all__ = [
+     "testing",
+     # Code generation
+     "codegen",
++    "compiler",
+     # Error classes
+     "Error",
+     "InternalError",
+diff --git a/python/pypto/pypto_core/backend.pyi b/python/pypto/pypto_core/backend.pyi
+index 05a746354512547b1f066a330b2a9fcd17dd0b04..def09590555f0719057c90d275667b4a2ac27389 100644
+--- a/python/pypto/pypto_core/backend.pyi
++++ b/python/pypto/pypto_core/backend.pyi
+@@ -18,6 +18,7 @@ class BackendType:
+ 
+     Ascend910B: BackendType
+     Ascend950: BackendType
++    Nvidia: BackendType
+     __members__: ClassVar[dict[str, BackendType]]
+     """Every member, keyed by name — the canonical way to enumerate the enum."""
+     @property
+@@ -172,6 +173,10 @@ def get_backend_instance(backend_type: BackendType) -> Backend:
+     """
+     ...
+ 
++def has_backend_instance(backend_type: BackendType) -> bool:
++    """Return whether this target has a legacy :class:`Backend` singleton."""
++    ...
++
+ def get_handler() -> BackendHandler:
+     """
+     Get the :class:`BackendHandler` for the currently configured backend.
+diff --git a/python/pypto/pypto_core/compiler.pyi b/python/pypto/pypto_core/compiler.pyi
+new file mode 100644
+index 0000000000000000000000000000000000000000..9a98065ed0fe25a2f68d712af74e9fbd5a9752c8
+--- /dev/null
++++ b/python/pypto/pypto_core/compiler.pyi
+@@ -0,0 +1,133 @@
++# Copyright (c) PyPTO Contributors.
++# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++# CANN Open Software License Agreement Version 2.0 (the "License").
++# Please refer to the License for details. You may not use this file except in compliance with the License.
++# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++# See LICENSE in the root of the software repository for the full text of the License.
++# -----------------------------------------------------------------------------------------------------------
++
++"""Type stubs for compiler target contracts."""
++
++from . import DataType
++from .backend import BackendType
++
++class TargetTraits:
++    def __init__(
++        self,
++        compute_capability: int,
++        multiprocessor_count: int,
++        warp_size: int,
++        max_threads_per_block: int,
++        max_threads_per_multiprocessor: int,
++        max_blocks_per_multiprocessor: int,
++        max_block_dim_x: int,
++        max_block_dim_y: int,
++        max_block_dim_z: int,
++        max_grid_dim_x: int,
++        max_grid_dim_y: int,
++        max_grid_dim_z: int,
++        l1_cache_line_bytes: int,
++        default_shared_memory_per_cta_bytes: int,
++        max_shared_memory_per_cta_bytes: int,
++        shared_memory_per_multiprocessor_bytes: int,
++        registers_per_cta: int,
++        max_registers_per_thread: int,
++        registers_per_multiprocessor: int,
++        l2_cache_size_bytes: int,
++        total_global_memory_bytes: int,
++    ) -> None: ...
++    @property
++    def compute_capability(self) -> int: ...
++    @property
++    def compute_capability_major(self) -> int: ...
++    @property
++    def compute_capability_minor(self) -> int: ...
++    @property
++    def multiprocessor_count(self) -> int: ...
++    @property
++    def warp_size(self) -> int: ...
++    @property
++    def max_threads_per_block(self) -> int: ...
++    @property
++    def max_threads_per_multiprocessor(self) -> int: ...
++    @property
++    def max_blocks_per_multiprocessor(self) -> int: ...
++    @property
++    def max_block_dim_x(self) -> int: ...
++    @property
++    def max_block_dim_y(self) -> int: ...
++    @property
++    def max_block_dim_z(self) -> int: ...
++    @property
++    def max_grid_dim_x(self) -> int: ...
++    @property
++    def max_grid_dim_y(self) -> int: ...
++    @property
++    def max_grid_dim_z(self) -> int: ...
++    @property
++    def max_warps_per_multiprocessor(self) -> int: ...
++    @property
++    def l1_cache_line_bytes(self) -> int: ...
++    @property
++    def default_shared_memory_per_cta_bytes(self) -> int: ...
++    @property
++    def max_shared_memory_per_cta_bytes(self) -> int: ...
++    @property
++    def shared_memory_per_multiprocessor_bytes(self) -> int: ...
++    @property
++    def registers_per_cta(self) -> int: ...
++    @property
++    def max_registers_per_thread(self) -> int: ...
++    @property
++    def registers_per_multiprocessor(self) -> int: ...
++    @property
++    def l2_cache_size_bytes(self) -> int: ...
++    @property
++    def total_global_memory_bytes(self) -> int: ...
++
++class NvidiaTargetInfo:
++    def __init__(
++        self,
++        device_ordinal: int,
++        device_name: str,
++        device_uuid: str,
++        pci_device_id: str,
++        traits: TargetTraits,
++        cuda_toolkit_version: str,
++        cuda_driver_version: str,
++        tensor_ir_revision: str,
++        cuda_tile_revision: str,
++        supported_compute_dtypes: list[DataType],
++    ) -> None: ...
++    @property
++    def backend_type(self) -> BackendType: ...
++    @property
++    def device_ordinal(self) -> int: ...
++    @property
++    def device_name(self) -> str: ...
++    @property
++    def device_uuid(self) -> str: ...
++    @property
++    def pci_device_id(self) -> str: ...
++    @property
++    def traits(self) -> TargetTraits: ...
++    @property
++    def cuda_toolkit_version(self) -> str: ...
++    @property
++    def cuda_driver_version(self) -> str: ...
++    @property
++    def tensor_ir_revision(self) -> str: ...
++    @property
++    def cuda_tile_revision(self) -> str: ...
++    @property
++    def supported_compute_dtypes(self) -> list[DataType]: ...
++    @property
++    def target_name(self) -> str: ...
++    @property
++    def architecture(self) -> str: ...
++    @property
++    def arch_conditional_architecture(self) -> str: ...
++    def supports_compute_dtype(self, dtype: DataType) -> bool: ...
++
++def is_supported_nvidia_compute_capability(compute_capability: int) -> bool: ...
+diff --git a/python/pypto/runtime/runner.py b/python/pypto/runtime/runner.py
+index 14915eb8bc90980295597d7e6f0221f6c9ff7177..16e5bc391ecec6ef3e5650bd9fc0efdd93218af7 100644
+--- a/python/pypto/runtime/runner.py
++++ b/python/pypto/runtime/runner.py
+@@ -42,6 +42,7 @@ from typing import TYPE_CHECKING, Any
+ import torch
+ 
+ from pypto.backend import BackendType
++from pypto.backend._legacy import require_legacy_backend_instance
+ from pypto.ir.pass_manager import OptimizationStrategy, PassDumpLevel
+ from pypto.pypto_core import backend as _backend_core
+ from pypto.pypto_core.passes import DiagnosticCheckSet, DiagnosticPhase, MemoryPlanner
+@@ -364,6 +365,7 @@ class RunConfig:
+     dump_ptoas_passes: bool = False
+ 
+     def __post_init__(self) -> None:
++        require_legacy_backend_instance(self.backend_type, operation="RunConfig")
+         if self.platform not in ("a2a3sim", "a2a3", "a5sim", "a5"):
+             raise ValueError(
+                 f"Invalid platform {self.platform!r}. Expected 'a2a3sim', 'a2a3', 'a5sim', or 'a5'."
+diff --git a/python/pypto/tools/memory_map.py b/python/pypto/tools/memory_map.py
+index 8489647b492a7da4ed3ba51c4eb23d2dd1de96fd..6a6edfa27095ea60c6c9491c7d7196caa3782ee8 100644
+--- a/python/pypto/tools/memory_map.py
++++ b/python/pypto/tools/memory_map.py
+@@ -434,8 +434,12 @@ def _classify_overlaps(boxes: list[Box]) -> None:
+ 
+ 
+ def backend_names() -> list[str]:
+-    """Every configurable :class:`BackendType` member name."""
+-    return list(_backend.BackendType.__members__)
++    """Every :class:`BackendType` with a legacy memory-hierarchy singleton."""
++    return [
++        name
++        for name, backend_type in _backend.BackendType.__members__.items()
++        if _backend.has_backend_instance(backend_type)
++    ]
+ 
+ 
+ def backend_instance(backend_name: str) -> _backend.Backend:
+@@ -451,7 +455,7 @@ def backend_instance(backend_name: str) -> _backend.Backend:
+         ValueError: ``backend_name`` is not a known backend.
+     """
+     backend_type = _backend.BackendType.__members__.get(backend_name)
+-    if backend_type is None:
++    if backend_type is None or not _backend.has_backend_instance(backend_type):
+         raise ValueError(f"unknown backend {backend_name!r}; known backends: {', '.join(backend_names())}")
+     return _backend.get_backend_instance(backend_type)
+ 
+diff --git a/src/backend/common/backend.cpp b/src/backend/common/backend.cpp
+index 525f7d4257f87216d506628e0f03592fe5b79e7b..ae2c856a3758bbc7cf772e390fb1f3397d315a24 100644
+--- a/src/backend/common/backend.cpp
++++ b/src/backend/common/backend.cpp
+@@ -48,15 +48,19 @@ namespace pypto {
+ namespace backend {
+ 
+ const Backend* GetBackendInstance(BackendType type) {
++  if (!HasBackendInstance(type)) {
++    throw ValueError("Backend type " + BackendTypeToString(type) +
++                     " is a compiler target without a legacy Backend singleton");
++  }
+   switch (type) {
+     case BackendType::Ascend910B:
+       return &Backend910B::Instance();
+     case BackendType::Ascend950:
+       return &Backend950::Instance();
+-    default:
+-      CHECK(false) << "GetBackendInstance: unexpected BackendType (must be Ascend910B or Ascend950)";
+-      return nullptr;  // unreachable
++    case BackendType::Nvidia:
++      break;
+   }
++  throw ValueError("GetBackendInstance: invalid BackendType value");
+ }
+ 
+ std::string BackendTypeToString(BackendType type) {
+@@ -65,6 +69,8 @@ std::string BackendTypeToString(BackendType type) {
+       return "Ascend910B";
+     case BackendType::Ascend950:
+       return "Ascend950";
++    case BackendType::Nvidia:
++      return "Nvidia";
+   }
+   return "Unknown";
+ }
+diff --git a/src/backend/common/backend_config.cpp b/src/backend/common/backend_config.cpp
+index 12aeb31c7706b6e996cc007d2dc0e76d8ad2f723..fa64ada97892d65c7f868eb3abbc269a3bc3e65a 100644
+--- a/src/backend/common/backend_config.cpp
++++ b/src/backend/common/backend_config.cpp
+@@ -26,6 +26,10 @@ std::mutex BackendConfig::mutex_;
+ void BackendConfig::SetBackendType(BackendType type) {
+   std::scoped_lock<std::mutex> lock(mutex_);
+ 
++  CHECK(HasBackendInstance(type)) << "Backend type " << BackendTypeToString(type)
++                                  << " has no legacy Backend instance; use NvidiaTargetInfo "
++                                     "through the NVIDIA compiler pipeline instead";
++
+   if (backend_type_.has_value()) {
+     // Idempotent: allow setting the same type multiple times
+     CHECK(*backend_type_ == type) << "Backend type already set to " << BackendTypeToString(*backend_type_)
+diff --git a/src/compiler/target_info.cpp b/src/compiler/target_info.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..984e1ca7daf28f4187f907e04129b86d2215113b
+--- /dev/null
++++ b/src/compiler/target_info.cpp
+@@ -0,0 +1,191 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#include "pypto/compiler/target_info.h"
++
++#include <algorithm>
++#include <cctype>
++#include <cstdint>
++#include <string>
++#include <utility>
++#include <vector>
++
++#include "pypto/core/error.h"
++
++namespace pypto::compiler {
++namespace {
++
++void RequirePositive(int value, const std::string& name) {
++  if (value <= 0) throw ValueError(name + " must be positive");
++}
++
++void RequirePositive(uint64_t value, const std::string& name) {
++  if (value == 0) throw ValueError(name + " must be positive");
++}
++
++void RequireText(const std::string& value, const std::string& name) {
++  if (value.empty() || std::isspace(static_cast<unsigned char>(value.front())) ||
++      std::isspace(static_cast<unsigned char>(value.back()))) {
++    throw ValueError(name + " must be non-empty and trimmed");
++  }
++}
++
++bool IsPowerOfTwo(uint64_t value) { return value != 0 && (value & (value - 1)) == 0; }
++
++}  // namespace
++
++TargetTraits::TargetTraits(int compute_capability, int multiprocessor_count, int warp_size,
++                           int max_threads_per_block, int max_threads_per_multiprocessor,
++                           int max_blocks_per_multiprocessor, int max_block_dim_x,
++                           int max_block_dim_y, int max_block_dim_z, int max_grid_dim_x,
++                           int max_grid_dim_y, int max_grid_dim_z, uint64_t l1_cache_line_bytes,
++                           uint64_t default_shared_memory_per_cta_bytes,
++                           uint64_t max_shared_memory_per_cta_bytes,
++                           uint64_t shared_memory_per_multiprocessor_bytes,
++                           uint64_t registers_per_cta, uint64_t max_registers_per_thread,
++                           uint64_t registers_per_multiprocessor,
++                           uint64_t l2_cache_size_bytes, uint64_t total_global_memory_bytes)
++    : compute_capability_(compute_capability),
++      multiprocessor_count_(multiprocessor_count),
++      warp_size_(warp_size),
++      max_threads_per_block_(max_threads_per_block),
++      max_threads_per_multiprocessor_(max_threads_per_multiprocessor),
++      max_blocks_per_multiprocessor_(max_blocks_per_multiprocessor),
++      max_block_dim_x_(max_block_dim_x),
++      max_block_dim_y_(max_block_dim_y),
++      max_block_dim_z_(max_block_dim_z),
++      max_grid_dim_x_(max_grid_dim_x),
++      max_grid_dim_y_(max_grid_dim_y),
++      max_grid_dim_z_(max_grid_dim_z),
++      l1_cache_line_bytes_(l1_cache_line_bytes),
++      default_shared_memory_per_cta_bytes_(default_shared_memory_per_cta_bytes),
++      max_shared_memory_per_cta_bytes_(max_shared_memory_per_cta_bytes),
++      shared_memory_per_multiprocessor_bytes_(shared_memory_per_multiprocessor_bytes),
++      registers_per_cta_(registers_per_cta),
++      max_registers_per_thread_(max_registers_per_thread),
++      registers_per_multiprocessor_(registers_per_multiprocessor),
++      l2_cache_size_bytes_(l2_cache_size_bytes),
++      total_global_memory_bytes_(total_global_memory_bytes) {
++  if (!IsSupportedNvidiaComputeCapability(compute_capability_)) {
++    throw ValueError("unsupported NVIDIA compute capability " + std::to_string(compute_capability_) +
++                     "; Phase 1 supports only SM120");
++  }
++  RequirePositive(multiprocessor_count_, "multiprocessor_count");
++  RequirePositive(warp_size_, "warp_size");
++  if (warp_size_ != 32) throw ValueError("SM120 warp_size must be 32");
++  RequirePositive(max_threads_per_block_, "max_threads_per_block");
++  RequirePositive(max_threads_per_multiprocessor_, "max_threads_per_multiprocessor");
++  RequirePositive(max_blocks_per_multiprocessor_, "max_blocks_per_multiprocessor");
++  RequirePositive(max_block_dim_x_, "max_block_dim_x");
++  RequirePositive(max_block_dim_y_, "max_block_dim_y");
++  RequirePositive(max_block_dim_z_, "max_block_dim_z");
++  RequirePositive(max_grid_dim_x_, "max_grid_dim_x");
++  RequirePositive(max_grid_dim_y_, "max_grid_dim_y");
++  RequirePositive(max_grid_dim_z_, "max_grid_dim_z");
++  if (max_threads_per_block_ > max_threads_per_multiprocessor_) {
++    throw ValueError("max_threads_per_block cannot exceed max_threads_per_multiprocessor");
++  }
++  if (max_threads_per_block_ % warp_size_ != 0 || max_threads_per_multiprocessor_ % warp_size_ != 0) {
++    throw ValueError("thread limits must be divisible by warp_size");
++  }
++  RequirePositive(l1_cache_line_bytes_, "l1_cache_line_bytes");
++  if (!IsPowerOfTwo(l1_cache_line_bytes_)) {
++    throw ValueError("l1_cache_line_bytes must be a power of two");
++  }
++  RequirePositive(default_shared_memory_per_cta_bytes_,
++                  "default_shared_memory_per_cta_bytes");
++  RequirePositive(max_shared_memory_per_cta_bytes_, "max_shared_memory_per_cta_bytes");
++  RequirePositive(shared_memory_per_multiprocessor_bytes_,
++                  "shared_memory_per_multiprocessor_bytes");
++  if (default_shared_memory_per_cta_bytes_ > max_shared_memory_per_cta_bytes_) {
++    throw ValueError(
++        "default_shared_memory_per_cta_bytes cannot exceed the opt-in CTA maximum");
++  }
++  if (max_shared_memory_per_cta_bytes_ > shared_memory_per_multiprocessor_bytes_) {
++    throw ValueError("max_shared_memory_per_cta_bytes cannot exceed shared memory per multiprocessor");
++  }
++  RequirePositive(registers_per_cta_, "registers_per_cta");
++  RequirePositive(max_registers_per_thread_, "max_registers_per_thread");
++  RequirePositive(registers_per_multiprocessor_, "registers_per_multiprocessor");
++  if (max_registers_per_thread_ > registers_per_cta_) {
++    throw ValueError("max_registers_per_thread cannot exceed registers_per_cta");
++  }
++  if (registers_per_cta_ > registers_per_multiprocessor_) {
++    throw ValueError("registers_per_cta cannot exceed registers_per_multiprocessor");
++  }
++  RequirePositive(l2_cache_size_bytes_, "l2_cache_size_bytes");
++  RequirePositive(total_global_memory_bytes_, "total_global_memory_bytes");
++  if (l2_cache_size_bytes_ > total_global_memory_bytes_) {
++    throw ValueError("l2_cache_size_bytes cannot exceed total_global_memory_bytes");
++  }
++}
++
++NvidiaTargetInfo::NvidiaTargetInfo(int device_ordinal, std::string device_name,
++                                   std::string device_uuid, std::string pci_device_id,
++                                   TargetTraits traits, std::string cuda_toolkit_version,
++                                   std::string cuda_driver_version,
++                                   std::string tensor_ir_revision,
++                                   std::string cuda_tile_revision,
++                                   std::vector<DataType> supported_compute_dtypes)
++    : device_ordinal_(device_ordinal),
++      device_name_(std::move(device_name)),
++      device_uuid_(std::move(device_uuid)),
++      pci_device_id_(std::move(pci_device_id)),
++      traits_(std::move(traits)),
++      cuda_toolkit_version_(std::move(cuda_toolkit_version)),
++      cuda_driver_version_(std::move(cuda_driver_version)),
++      tensor_ir_revision_(std::move(tensor_ir_revision)),
++      cuda_tile_revision_(std::move(cuda_tile_revision)),
++      supported_compute_dtypes_(std::move(supported_compute_dtypes)) {
++  if (device_ordinal_ < 0) throw ValueError("device_ordinal must be non-negative");
++  RequireText(device_name_, "device_name");
++  RequireText(device_uuid_, "device_uuid");
++  RequireText(pci_device_id_, "pci_device_id");
++  RequireText(cuda_toolkit_version_, "cuda_toolkit_version");
++  RequireText(cuda_driver_version_, "cuda_driver_version");
++  RequireText(tensor_ir_revision_, "tensor_ir_revision");
++  RequireText(cuda_tile_revision_, "cuda_tile_revision");
++  if (supported_compute_dtypes_.empty()) {
++    throw ValueError("supported_compute_dtypes must be non-empty");
++  }
++  if (std::any_of(supported_compute_dtypes_.begin(), supported_compute_dtypes_.end(),
++                  [](DataType dtype) { return dtype.GetBit() == 0; })) {
++    throw ValueError("supported_compute_dtypes contains an unknown DataType code");
++  }
++  std::sort(supported_compute_dtypes_.begin(), supported_compute_dtypes_.end(),
++            [](DataType first, DataType second) { return first.Code() < second.Code(); });
++  const auto duplicate =
++      std::adjacent_find(supported_compute_dtypes_.begin(), supported_compute_dtypes_.end());
++  if (duplicate != supported_compute_dtypes_.end()) {
++    throw ValueError("supported_compute_dtypes must not contain duplicates");
++  }
++  if (supported_compute_dtypes_.size() != 2 ||
++      !SupportsComputeDtype(DataType::BF16) || !SupportsComputeDtype(DataType::FP32)) {
++    throw ValueError("NVIDIA target v1 compute dtypes must be exactly BF16 and FP32");
++  }
++}
++
++bool NvidiaTargetInfo::SupportsComputeDtype(DataType dtype) const noexcept {
++  return std::binary_search(supported_compute_dtypes_.begin(), supported_compute_dtypes_.end(), dtype,
++                            [](DataType first, DataType second) { return first.Code() < second.Code(); });
++}
++
++std::string NvidiaTargetInfo::GetArchitecture() const {
++  return "sm_" + std::to_string(traits_.GetComputeCapability());
++}
++
++std::string NvidiaTargetInfo::GetArchConditionalArchitecture() const {
++  return GetArchitecture() + "a";
++}
++
++std::string NvidiaTargetInfo::GetTargetName() const { return "nvidia:" + GetArchitecture(); }
++
++}  // namespace pypto::compiler
+diff --git a/tests/ut/compiler/test_target_info.py b/tests/ut/compiler/test_target_info.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..666a1a43238b6b4daf7b100f457e1744e4d18b1d
+--- /dev/null
++++ b/tests/ut/compiler/test_target_info.py
+@@ -0,0 +1,227 @@
++"""Immutable NVIDIA SM120 target identity contract."""
++
++from __future__ import annotations
++
++import pytest
++
++import pypto
++from pypto import backend
++from pypto.compiler import (
++    NvidiaTargetInfo,
++    TargetTraits,
++    is_supported_nvidia_compute_capability,
++)
++from pypto.ir.compile import _select_backend
++from pypto.ir.compiled_program import CompiledProgram
++from pypto.ir.distributed_compiled_program import DistributedCompiledProgram
++from pypto.runtime.runner import RunConfig
++
++
++def traits(**overrides) -> TargetTraits:
++    values = dict(
++        compute_capability=120,
++        multiprocessor_count=82,
++        warp_size=32,
++        max_threads_per_block=1024,
++        max_threads_per_multiprocessor=1536,
++        max_blocks_per_multiprocessor=24,
++        max_block_dim_x=1024,
++        max_block_dim_y=1024,
++        max_block_dim_z=64,
++        max_grid_dim_x=(1 << 31) - 1,
++        max_grid_dim_y=65535,
++        max_grid_dim_z=65535,
++        l1_cache_line_bytes=128,
++        default_shared_memory_per_cta_bytes=48 * 1024,
++        max_shared_memory_per_cta_bytes=101376,
++        shared_memory_per_multiprocessor_bytes=131072,
++        registers_per_cta=65536,
++        max_registers_per_thread=255,
++        registers_per_multiprocessor=65536,
++        l2_cache_size_bytes=96 * 1024 * 1024,
++        total_global_memory_bytes=24_463 * 1024 * 1024,
++    )
++    values.update(overrides)
++    return TargetTraits(**values)
++
++
++def target(**overrides) -> NvidiaTargetInfo:
++    values = dict(
++        device_ordinal=0,
++        device_name="NVIDIA GeForce RTX 5090 Laptop GPU",
++        device_uuid="GPU-test",
++        pci_device_id="0000:01:00.0",
++        traits=traits(),
++        cuda_toolkit_version="13.3",
++        cuda_driver_version="610.74",
++        tensor_ir_revision="3b5a8bebc00510b46a1e8b97229d06dd0d006215",
++        cuda_tile_revision="af2417041cc939b87ef56d92cfdcf61737c5457e",
++        supported_compute_dtypes=[pypto.DataType.FP32, pypto.DataType.BF16],
++    )
++    values.update(overrides)
++    return NvidiaTargetInfo(**values)
++
++
++def test_backend_enum_appends_nvidia_without_renumbering_ascend() -> None:
++    assert backend.BackendType.Ascend910B.value == 0
++    assert backend.BackendType.Ascend950.value == 1
++    assert backend.BackendType.Nvidia.value == 2
++    assert backend.has_backend_instance(backend.BackendType.Ascend910B)
++    assert backend.has_backend_instance(backend.BackendType.Ascend950)
++    assert not backend.has_backend_instance(backend.BackendType.Nvidia)
++
++
++def test_nvidia_cannot_poison_legacy_global_backend_state() -> None:
++    backend.reset_for_testing()
++    with pytest.raises(ValueError, match="no legacy Backend instance"):
++        backend.set_backend_type(backend.BackendType.Nvidia)
++    assert not backend.is_backend_configured()
++    with pytest.raises(ValueError, match="without a legacy Backend singleton"):
++        backend.get_backend_instance(backend.BackendType.Nvidia)
++
++
++def test_legacy_compile_rejects_before_platform_override_or_global_write() -> None:
++    backend.reset_for_testing()
++    with pytest.raises(ValueError, match="target-only backend Nvidia"):
++        _select_backend(
++            backend_type=backend.BackendType.Nvidia,
++            platform="a2a3",
++        )
++    assert not backend.is_backend_configured()
++    backend.set_backend_type(backend.BackendType.Ascend950)
++    with pytest.raises(ValueError, match="target-only backend Nvidia"):
++        _select_backend(
++            backend_type=backend.BackendType.Nvidia,
++            platform="a2a3",
++        )
++    assert backend.get_backend_type() == backend.BackendType.Ascend950
++    backend.reset_for_testing()
++
++
++def test_all_legacy_object_entrypoints_reject_target_only_backend(tmp_path) -> None:
++    with pytest.raises(ValueError, match="target-only backend Nvidia"):
++        RunConfig(platform="a2a3", backend_type=backend.BackendType.Nvidia)
++    with pytest.raises(ValueError, match="target-only backend Nvidia"):
++        CompiledProgram(
++            None,
++            str(tmp_path / "single"),
++            backend_type=backend.BackendType.Nvidia,
++            platform="a2a3",
++        )
++    with pytest.raises(ValueError, match="target-only backend Nvidia"):
++        DistributedCompiledProgram(
++            None,
++            str(tmp_path / "distributed"),
++            backend_type=backend.BackendType.Nvidia,
++            platform="a2a3",
++        )
++    with pytest.raises(ValueError, match="target-only backend Nvidia"):
++        CompiledProgram.from_dir(
++            tmp_path / "missing-single",
++            backend_type=backend.BackendType.Nvidia,
++        )
++    with pytest.raises(ValueError, match="target-only backend Nvidia"):
++        DistributedCompiledProgram.from_dir(
++            tmp_path / "missing-distributed",
++            backend_type=backend.BackendType.Nvidia,
++        )
++    assert not (tmp_path / "single").exists()
++    assert not (tmp_path / "distributed").exists()
++
++
++def test_target_identity_and_all_resource_fields_are_derived_or_read_only() -> None:
++    value = target()
++    assert value.backend_type == backend.BackendType.Nvidia
++    assert value.target_name == "nvidia:sm_120"
++    assert value.architecture == "sm_120"
++    assert value.arch_conditional_architecture == "sm_120a"
++    assert value.device_ordinal == 0
++    assert value.cuda_toolkit_version == "13.3"
++    assert value.cuda_driver_version == "610.74"
++    assert value.traits.compute_capability == 120
++    assert value.traits.compute_capability_major == 12
++    assert value.traits.compute_capability_minor == 0
++    assert value.traits.max_warps_per_multiprocessor == 48
++    assert value.traits.default_shared_memory_per_cta_bytes == 48 * 1024
++    assert value.traits.max_shared_memory_per_cta_bytes > 48 * 1024
++    assert value.traits.max_registers_per_thread == 255
++    assert value.supported_compute_dtypes == [pypto.DataType.FP32, pypto.DataType.BF16]
++    assert value.supports_compute_dtype(pypto.DataType.BF16)
++    assert not value.supports_compute_dtype(pypto.DataType.INT32)
++    with pytest.raises(AttributeError):
++        value.device_name = "changed"
++    with pytest.raises(AttributeError):
++        value.traits.warp_size = 64
++
++
++@pytest.mark.parametrize("compute_capability", [100, 103, 121])
++def test_only_sm120_is_supported_in_phase_one(compute_capability: int) -> None:
++    assert not is_supported_nvidia_compute_capability(compute_capability)
++    with pytest.raises(ValueError, match="only SM120"):
++        traits(compute_capability=compute_capability)
++    assert is_supported_nvidia_compute_capability(120)
++
++
++@pytest.mark.parametrize(
++    ("field", "value", "message"),
++    [
++        ("multiprocessor_count", 0, "multiprocessor_count"),
++        ("warp_size", 64, "warp_size"),
++        ("max_threads_per_block", 2048, "cannot exceed"),
++        ("max_threads_per_multiprocessor", 1537, "divisible"),
++        ("max_blocks_per_multiprocessor", 0, "max_blocks"),
++        ("max_block_dim_z", 0, "max_block_dim_z"),
++        ("max_grid_dim_y", 0, "max_grid_dim_y"),
++        ("l1_cache_line_bytes", 96, "power of two"),
++        ("max_shared_memory_per_cta_bytes", 262144, "cannot exceed"),
++        ("default_shared_memory_per_cta_bytes", 120000, "opt-in"),
++        ("registers_per_cta", 131072, "cannot exceed"),
++        ("max_registers_per_thread", 70000, "cannot exceed"),
++        ("l2_cache_size_bytes", 0, "l2_cache"),
++        ("total_global_memory_bytes", 0, "total_global"),
++    ],
++)
++def test_illegal_resource_traits_fail_closed(field: str, value: int, message: str) -> None:
++    with pytest.raises(ValueError, match=message):
++        traits(**{field: value})
++
++
++@pytest.mark.parametrize(
++    ("field", "value"),
++    [
++        ("device_ordinal", -1),
++        ("device_name", ""),
++        ("device_uuid", "   "),
++        ("pci_device_id", ""),
++        ("cuda_toolkit_version", ""),
++        ("cuda_driver_version", ""),
++        ("tensor_ir_revision", ""),
++        ("cuda_tile_revision", ""),
++    ],
++)
++def test_target_identity_fields_fail_closed(field: str, value: object) -> None:
++    with pytest.raises(ValueError):
++        target(**{field: value})
++
++
++def test_dtype_capabilities_require_unique_bf16_and_fp32() -> None:
++    with pytest.raises(ValueError, match="non-empty"):
++        target(supported_compute_dtypes=[])
++    with pytest.raises(ValueError, match="duplicates"):
++        target(
++            supported_compute_dtypes=[
++                pypto.DataType.BF16,
++                pypto.DataType.BF16,
++                pypto.DataType.FP32,
++            ]
++        )
++    with pytest.raises(ValueError, match="exactly BF16 and FP32"):
++        target(supported_compute_dtypes=[pypto.DataType.BF16])
++    with pytest.raises(ValueError, match="exactly BF16 and FP32"):
++        target(
++            supported_compute_dtypes=[
++                pypto.DataType.BF16,
++                pypto.DataType.FP32,
++                pypto.DataType.INT32,
++            ]
++        )
+diff --git a/tests/ut/cpp/CMakeLists.txt b/tests/ut/cpp/CMakeLists.txt
+index bab82702b422b985683a8e4275075fa2b8919e89..5a710a1f5075098012fedaa969eca2b1b4a8989a 100644
+--- a/tests/ut/cpp/CMakeLists.txt
++++ b/tests/ut/cpp/CMakeLists.txt
+@@ -20,3 +20,22 @@ add_test(
+     NAME pypto_dsa_reuse_penalty_solver_test
+     COMMAND pypto_dsa_reuse_penalty_solver_test
+ )
++
++add_executable(pypto_nvidia_target_info_test
++    nvidia_target_info_test.cpp
++    ${CMAKE_SOURCE_DIR}/src/compiler/target_info.cpp
++    ${CMAKE_SOURCE_DIR}/src/core/backtrace.cpp
++    ${CMAKE_SOURCE_DIR}/src/core/error.cpp
++)
++
++target_include_directories(pypto_nvidia_target_info_test PRIVATE
++    ${CMAKE_SOURCE_DIR}/include
++    ${LIBBACKTRACE_INSTALL_DIR}/include
++)
++
++target_link_libraries(pypto_nvidia_target_info_test PRIVATE libbacktrace)
++
++add_test(
++    NAME pypto_nvidia_target_info_test
++    COMMAND pypto_nvidia_target_info_test
++)
+diff --git a/tests/ut/cpp/nvidia_target_info_test.cpp b/tests/ut/cpp/nvidia_target_info_test.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..10fd544593000a1909efb3bd14913f1988a6b436
+--- /dev/null
++++ b/tests/ut/cpp/nvidia_target_info_test.cpp
+@@ -0,0 +1,84 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#include <type_traits>
++#include <vector>
++
++#include "pypto/backend/common/backend_type.h"
++#include "pypto/compiler/target_info.h"
++#include "pypto/core/dtype.h"
++#include "pypto/core/error.h"
++
++using pypto::DataType;
++using pypto::ValueError;
++using pypto::backend::BackendType;
++using pypto::compiler::IsSupportedNvidiaComputeCapability;
++using pypto::compiler::NvidiaTargetInfo;
++using pypto::compiler::TargetTraits;
++
++#define REQUIRE(condition) \
++  do {                     \
++    if (!(condition)) {    \
++      return __LINE__;     \
++    }                      \
++  } while (false)
++
++namespace {
++
++TargetTraits ValidTraits() {
++  return TargetTraits(120, 82, 32, 1024, 1536, 24, 1024, 1024, 64, 2147483647,
++                      65535, 65535, 128, 48 * 1024, 101376, 131072, 65536, 255,
++                      65536, 96ULL * 1024 * 1024, 24463ULL * 1024 * 1024);
++}
++
++}  // namespace
++
++int main() {
++  static_assert(!std::is_default_constructible_v<TargetTraits>);
++  static_assert(!std::is_default_constructible_v<NvidiaTargetInfo>);
++  static_assert(!std::is_copy_assignable_v<TargetTraits>);
++  static_assert(!std::is_move_assignable_v<TargetTraits>);
++  static_assert(!std::is_copy_assignable_v<NvidiaTargetInfo>);
++  static_assert(!std::is_move_assignable_v<NvidiaTargetInfo>);
++  static_assert(static_cast<int>(BackendType::Ascend910B) == 0);
++  static_assert(static_cast<int>(BackendType::Ascend950) == 1);
++  static_assert(static_cast<int>(BackendType::Nvidia) == 2);
++  static_assert(pypto::backend::HasBackendInstance(BackendType::Ascend910B));
++  static_assert(!pypto::backend::HasBackendInstance(BackendType::Nvidia));
++  static_assert(IsSupportedNvidiaComputeCapability(120));
++  static_assert(!IsSupportedNvidiaComputeCapability(100));
++
++  auto traits = ValidTraits();
++  REQUIRE(traits.GetComputeCapabilityMajor() == 12);
++  REQUIRE(traits.GetComputeCapabilityMinor() == 0);
++  REQUIRE(traits.GetMaxWarpsPerMultiprocessor() == 48);
++  NvidiaTargetInfo target(0, "NVIDIA GeForce RTX 5090 Laptop GPU", "GPU-test", "0000:01:00.0",
++                          traits, "13.3", "610.74", "tensor-ir-test", "cuda-tile-test",
++                          std::vector<DataType>{DataType::FP32, DataType::BF16});
++  REQUIRE(target.GetBackendType() == BackendType::Nvidia);
++  REQUIRE(target.GetTargetName() == "nvidia:sm_120");
++  REQUIRE(target.GetArchitecture() == "sm_120");
++  REQUIRE(target.GetArchConditionalArchitecture() == "sm_120a");
++  REQUIRE(target.SupportsComputeDtype(DataType::BF16));
++  REQUIRE(!target.SupportsComputeDtype(DataType::INT32));
++
++  bool rejected = false;
++  try {
++    TargetTraits invalid(100, 82, 32, 1024, 1536, 24, 1024, 1024, 64, 2147483647,
++                         65535, 65535, 128, 48 * 1024, 101376, 131072, 65536, 255,
++                         65536, 96ULL * 1024 * 1024, 24463ULL * 1024 * 1024);
++    (void)invalid;
++  } catch (const ValueError&) {
++    rejected = true;
++  }
++  REQUIRE(rejected);
++  return 0;
++}
+diff --git a/tests/ut/ir/test_compiled_program.py b/tests/ut/ir/test_compiled_program.py
+index a150d3831ec706ecc0b1d83159a9419c1ad5558c..e54bf1570084c5fa6282befc3c04f7807df1751b 100644
+--- a/tests/ut/ir/test_compiled_program.py
++++ b/tests/ut/ir/test_compiled_program.py
+@@ -1238,6 +1238,7 @@ class TestCompiledMetaAndFromDir:
+             "negative return count": json.dumps({**good, "num_return_types": -1}),
+             "non-int return count": json.dumps({**good, "num_return_types": "two"}),
+             "unknown backend": json.dumps({**good, "backend_type": "AscendNope"}),
++            "target-only backend": json.dumps({**good, "backend_type": "Nvidia"}),
+             # Same trap as ``direction`` above: ``getattr(BackendType, "mro")``
+             # resolves to a bound method a lax lookup would accept as a backend.
+             "backend names an attribute": json.dumps({**good, "backend_type": "mro"}),
+diff --git a/tests/ut/tools/test_memory_map.py b/tests/ut/tools/test_memory_map.py
+index 2e7e14654844afddb57c3064165ba1e9602d6185..17a1c141ffa4e10f265b86654ca21013e04167af 100644
+--- a/tests/ut/tools/test_memory_map.py
++++ b/tests/ut/tools/test_memory_map.py
+@@ -178,6 +178,7 @@ def test_cross_base_overlap_is_flagged_as_conflict():
+ 
+ 
+ def test_backend_limits_come_from_the_backend_interface():
++    assert "Nvidia" not in memory_map.backend_names()
+     instance = backend.get_backend_instance(backend.BackendType.Ascend910B)
+     limits = memory_map.backend_limits("Ascend910B")
+     assert limits["Vec"] == instance.get_mem_size(ir.MemorySpace.Vec)
+@@ -185,6 +186,8 @@ def test_backend_limits_come_from_the_backend_interface():
+     assert "DDR" not in limits  # off-chip; never mapped
+     with pytest.raises(ValueError, match="unknown backend"):
+         memory_map.backend_limits("Ascend000")
++    with pytest.raises(ValueError, match="unknown backend"):
++        memory_map.backend_limits("Nvidia")
+ 
+ 
+ def test_backend_limits_cover_every_space_the_soc_describes():

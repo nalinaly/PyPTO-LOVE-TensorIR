@@ -1,0 +1,216 @@
+From 6054392ad011a036e7d2ce8d9437fc66ade9524e Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 21:47:34 +0800
+Subject: [PATCH 092/212] nvidia: lower native tile GDN state updates
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 182 +++++++++++++++++++++++
+ 1 file changed, 182 insertions(+)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 0aa4d0151a48dc999c59bcf123e1eb160f37bed5..7eb606d2e9612fe1d54b7bef47391d743ae3f371 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -1636,6 +1636,123 @@ struct NativeTileGdnReadGraph {
+   StaticTensor result;
+ };
+ 
++struct NativeTileGdnUpdateGraph {
++  StaticTensor state;
++  StaticTensor decay;
++  StaticTensor value;
++  StaticTensor result;
++};
++
++bool IsNativeTileGdnUpdateCandidate(const ir::ProgramPtr& program) {
++  if (!IsNativeTilePointwiseCandidate(program)) return false;
++  const ir::FunctionPtr& function = program->functions_.begin()->second;
++  if (function->params_.size() != 5) return false;
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = ir::As<ir::InCoreScopeStmt>(top->stmts_[0]);
++  const TileLoopNest loop_nest = UnwrapStaticTileLoops(scope->body_);
++  const ir::SeqStmtsPtr& leaf = loop_nest.leaf;
++  if (!leaf || leaf->stmts_.size() != 14) return false;
++  const auto assignment = ir::As<ir::AssignStmt>(leaf->stmts_[10]);
++  const auto call = assignment ? ir::As<ir::Call>(assignment->value_) : nullptr;
++  return call && ir::IsOp(call, "tile.col_expand_mul");
++}
++
++NativeTileGdnUpdateGraph AnalyzeNativeTileGdnUpdate(
++    const ir::ProgramPtr& program) {
++  const auto& [global, function] = *program->functions_.begin();
++  if (!global || !function || global->name_ != function->name_ ||
++      function->requires_runtime_binding_ ||
++      function->func_type_ != ir::FunctionType::Orchestration ||
++      !function->level_.has_value() || *function->level_ != ir::Level::CHIP ||
++      !function->role_.has_value() || *function->role_ != ir::Role::Orchestrator ||
++      !function->attrs_.empty()) {
++    Reject("native GDN update must be one canonical CHIP @pl.jit function",
++           function ? &function->span_ : &program->span_);
++  }
++  if (function->params_.size() != 5 ||
++      function->param_directions_.size() != 5 ||
++      function->return_types_.size() != 1) {
++    Reject("native GDN update requires four inputs and one output",
++           &function->span_);
++  }
++  for (size_t index = 0; index < 4; ++index) {
++    if (function->param_directions_[index] != ir::ParamDirection::In) {
++      Reject("native GDN update inputs must have direction In",
++             &function->span_);
++    }
++  }
++  if (function->param_directions_[4] != ir::ParamDirection::Out) {
++    Reject("native GDN update output must have direction Out", &function->span_);
++  }
++  const StaticTensor state = ReadStaticTensor(
++      function->params_[0]->GetType(), function->params_[0]->span_,
++      "native GDN state");
++  const StaticTensor decay = ReadStaticTensor(
++      function->params_[1]->GetType(), function->params_[1]->span_,
++      "native GDN decay");
++  const StaticTensor beta = ReadStaticTensor(
++      function->params_[2]->GetType(), function->params_[2]->span_,
++      "native GDN beta key");
++  const StaticTensor value = ReadStaticTensor(
++      function->params_[3]->GetType(), function->params_[3]->span_,
++      "native GDN update value");
++  const StaticTensor result = ReadStaticTensor(
++      function->params_[4]->GetType(), function->params_[4]->span_,
++      "native GDN updated state");
++  const StaticTensor declared = ReadStaticTensor(
++      function->return_types_[0], function->span_, "native GDN update return");
++  if (state.dtype != DataType::BF16 || state.shape.size() != 3 ||
++      !SameTensor(state, result) || !SameTensor(result, declared) ||
++      !SameTensor(decay, beta) || decay.dtype != DataType::BF16 ||
++      decay.shape != std::vector<int64_t>{state.shape[0], state.shape[1], 1} ||
++      value.dtype != DataType::BF16 ||
++      value.shape != std::vector<int64_t>{state.shape[0], 1, state.shape[2]}) {
++    Reject("native GDN update state/decay/beta/value shapes are incompatible",
++           &function->span_);
++  }
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = top && top->stmts_.size() == 2
++                         ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
++                         : nullptr;
++  const auto returned = top && top->stmts_.size() == 2
++                            ? ir::As<ir::ReturnStmt>(top->stmts_[1])
++                            : nullptr;
++  const auto returned_var =
++      returned && returned->value_.size() == 1
++          ? ir::As<ir::Var>(returned->value_[0])
++          : nullptr;
++  if (!scope || scope->split_ != ir::SplitMode::None || !scope->attrs_.empty() ||
++      !returned_var || returned_var.get() != function->params_[4].get()) {
++    Reject("native GDN update scope or return is invalid", &function->span_);
++  }
++  const TileLoopNest loop_nest = UnwrapStaticTileLoops(scope->body_);
++  const ir::SeqStmtsPtr& leaf = loop_nest.leaf;
++  if (loop_nest.repetitions != static_cast<uint64_t>(state.shape[0]) ||
++      !leaf || leaf->stmts_.size() != 14) {
++    Reject("native GDN update head loop is invalid", &scope->span_);
++  }
++  constexpr std::array<std::string_view, 13> kExpectedOps = {
++      "tile.load", "tile.load", "tile.load", "tile.load", "tile.reshape",
++      "tile.reshape", "tile.reshape", "tile.reshape", "tile.row_expand_mul",
++      "tile.row_expand", "tile.col_expand_mul", "tile.add", "tile.reshape"};
++  for (size_t index = 0; index < kExpectedOps.size(); ++index) {
++    const auto assignment = ir::As<ir::AssignStmt>(leaf->stmts_[index]);
++    const auto call = assignment ? ir::As<ir::Call>(assignment->value_) : nullptr;
++    if (!call || !ir::IsOp(call, std::string(kExpectedOps[index]))) {
++      Reject("native GDN update tile operation sequence is invalid",
++             &leaf->stmts_[index]->span_);
++    }
++  }
++  const auto store_statement = ir::As<ir::EvalStmt>(leaf->stmts_.back());
++  const auto store =
++      store_statement ? ir::As<ir::Call>(store_statement->expr_) : nullptr;
++  if (!store || !ir::IsOp(store, "tile.store")) {
++    Reject("native GDN update must end in tile.store",
++           &leaf->stmts_.back()->span_);
++  }
++  return NativeTileGdnUpdateGraph{state, decay, value, result};
++}
++
+ bool IsNativeTileGdnReadCandidate(const ir::ProgramPtr& program) {
+   if (!IsNativeTilePointwiseCandidate(program)) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+@@ -3082,6 +3199,52 @@ std::string EmitNativeTileGdnReadSource(
+   return source;
+ }
+ 
++std::string EmitNativeTileGdnUpdateSource(
++    const NativeTileGdnUpdateGraph& graph) {
++  const std::string state_type = TensorTypeText(graph.state);
++  const std::string decay_type = TensorTypeText(graph.decay);
++  const std::string value_type = TensorTypeText(graph.value);
++  std::string source;
++  source.reserve(2048);
++  source += "module {\n  nv_tensor_ir.graph @";
++  source += kFusedPointwiseEntryName;
++  source += "(\n    %arg0: ";
++  source += TensorWithStrideText(graph.state);
++  source += ",\n    %arg1: ";
++  source += TensorWithStrideText(graph.decay);
++  source += ",\n    %arg2: ";
++  source += TensorWithStrideText(graph.decay);
++  source += ",\n    %arg3: ";
++  source += TensorWithStrideText(graph.value);
++  source += "\n  ) -> (";
++  source += TensorWithStrideText(graph.result);
++  source += ") {\n    %decay = broadcast %arg1 : ";
++  source += decay_type;
++  source += " -> ";
++  source += state_type;
++  source += "\n    %beta = broadcast %arg2 : ";
++  source += decay_type;
++  source += " -> ";
++  source += state_type;
++  source += "\n    %value = broadcast %arg3 : ";
++  source += value_type;
++  source += " -> ";
++  source += state_type;
++  source += "\n    %decayed = mul %arg0, %decay : ";
++  source += state_type;
++  source += "\n    %outer = mul %beta, %value : ";
++  source += state_type;
++  source += "\n    %result0 = add %decayed, %outer : ";
++  source += state_type;
++  source += "\n    results %result0 : ";
++  source += state_type;
++  source += "\n  }\n}\n";
++  if (source.size() > kMaximumCanonicalSourceBytes) {
++    Reject("canonical TensorIR source exceeds 16 MiB");
++  }
++  return source;
++}
++
+ bool IsLegacyStaticAddV1Candidate(const ir::ProgramPtr& program) {
+   if (!program || program->functions_.size() != 1) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+@@ -3450,6 +3613,25 @@ TensorIrModule EmitLegacyStaticAddV1(const ir::ProgramPtr& program) {
+ }  // namespace detail
+ 
+ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
++  if (IsNativeTileGdnUpdateCandidate(program)) {
++    const NativeTileGdnUpdateGraph graph = AnalyzeNativeTileGdnUpdate(program);
++    std::vector<TensorIrValueMetadata> metadata;
++    metadata.reserve(5);
++    const std::array<StaticTensor, 4> inputs = {
++        graph.state, graph.decay, graph.decay, graph.value};
++    for (uint32_t index = 0; index < inputs.size(); ++index) {
++      metadata.push_back(TensorIrValueMetadata(
++          TensorIrValueRole::Input, index, inputs[index].dtype,
++          inputs[index].shape, inputs[index].dense_strides,
++          /*has_explicit_strides=*/true));
++    }
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
++        graph.result.dense_strides, /*has_explicit_strides=*/true));
++    return TensorIrModule(TensorIrModuleKind::FusedPointwiseV2,
++                          EmitNativeTileGdnUpdateSource(graph),
++                          std::move(metadata), /*input_count=*/4);
++  }
+   if (IsNativeTileGdnReadCandidate(program)) {
+     const NativeTileGdnReadGraph graph = AnalyzeNativeTileGdnRead(program);
+     std::vector<TensorIrValueMetadata> metadata;

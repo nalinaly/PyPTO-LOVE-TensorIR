@@ -1,0 +1,151 @@
+From 0af8391d954fd9b627086ec79c98f23379456419 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 01:52:18 +0800
+Subject: [PATCH 126/212] Advance TensorIR direct input loading
+
+---
+ ...alize-every-direct-input-consumption.patch | 113 ++++++++++++++++++
+ 3rdparty/nvidia/tensor-ir                     |   2 +-
+ cmake/nvidia_backend.cmake                    |   2 +-
+ 3 files changed, 115 insertions(+), 2 deletions(-)
+ create mode 100644 3rdparty/nvidia/0019-Materialize-every-direct-input-consumption.patch
+
+diff --git a/3rdparty/nvidia/0019-Materialize-every-direct-input-consumption.patch b/3rdparty/nvidia/0019-Materialize-every-direct-input-consumption.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..1d98b36f825c3fb976e7e22fcdb772f941837c92
+--- /dev/null
++++ b/3rdparty/nvidia/0019-Materialize-every-direct-input-consumption.patch
+@@ -0,0 +1,113 @@
++From 19d71d94d4fdfc0804def90b90c3b2bf7995547c Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Fri, 28 Aug 2026 01:51:56 +0800
++Subject: [PATCH 19/19] Materialize every direct input consumption
++
++---
++ .../LayoutPropagationImpl.cpp                 | 51 +++++--------------
++ 1 file changed, 14 insertions(+), 37 deletions(-)
++
++diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++index 0ae39d8..ea04141 100644
++--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++@@ -10,8 +10,6 @@
++ 
++ #include "cuda_tile/Dialect/CudaTile/IR/Ops.h"
++ 
++-#include <cstdint>
++-
++ namespace tcg = mlir::nv_tensor_ir::tcutegen;
++ 
++ //===----------------------------------------------------------------------===//
++@@ -142,17 +140,6 @@ private:
++   /// materialized lazily from getTile so each new load immediately gains a
++   /// real SSA consumer instead of living only in this side table.
++   ConversionPatternRewriter *activeRewriter = nullptr;
++-  uint64_t rewriteEpoch = 0;
++-  DenseMap<IterationSpace *, uint64_t> loadedTileCacheEpoch;
++-
++-  /// A cached load is only safe while one conversion pattern is being
++-  /// rewritten. Graph splitting may erase that pattern's replacement later,
++-  /// so never carry side-table Values into the next pattern.
++-  static void resetLoadedTileCache(IterationSpace &space) {
++-    for (auto &entry : space.loadedTiles) {
++-      entry.second = nullptr;
++-    }
++-  }
++ 
++   /// Layouts for the current operation's operands.
++   using OperandLayouts = SmallVector<LayoutSourceAttrInterface>;
++@@ -749,7 +736,6 @@ public:
++     state.blockStructure = &state.blockStructures[resultsOp.getOperation()];
++     state.iterationSpace = &state.blockStructure->iterationSpaces[0];
++     state.activeRewriter = &rewriter;
++-    ++state.rewriteEpoch;
++     state.layouts.clear();
++     for (Value operand : resultsOp.getOperands()) {
++       auto layout = dyn_cast_or_null<LayoutSourceAttrInterface>(
++@@ -933,8 +919,6 @@ LogicalResult ConversionStateImpl::start(GraphOp graphOp) {
++   blockStructure = nullptr;
++   iterationSpace = nullptr;
++   activeRewriter = nullptr;
++-  rewriteEpoch = 0;
++-  loadedTileCacheEpoch.clear();
++   layouts.clear();
++   operandIndex = 0;
++ 
++@@ -948,7 +932,6 @@ LogicalResult ConversionStateImpl::update(ConversionPatternRewriter &rewriter,
++                                           Operation *op) {
++   LLVM_DEBUG(llvm::dbgs() << "Converting: " << op->getName() << "\n");
++   activeRewriter = &rewriter;
++-  ++rewriteEpoch;
++ 
++   // Verify the attribute-level legality (layout / iteration-space-id presence
++   // and validity). This is shared with the pre-flight feasibility check. Here,
++@@ -1043,30 +1026,24 @@ Value ConversionStateImpl::getTile(Value operand) {
++       iterationSpace = &blockStructure->iterationSpaces[idx];
++     }
++ 
++-    if (loadedTileCacheEpoch.lookup(iterationSpace) != rewriteEpoch) {
++-      resetLoadedTileCache(*iterationSpace);
++-      loadedTileCacheEpoch[iterationSpace] = rewriteEpoch;
++-    }
++     auto it = iterationSpace->loadedTiles.find(tensorSource);
++     assert(it != iterationSpace->loadedTiles.end() &&
++            "layout has no associated value");
++-    if (!it->second) {
++-      assert(activeRewriter && "missing active conversion rewriter");
++-      RewriterBase::InsertionGuard guard(*activeRewriter);
++-      Block *block = iterationSpace->insertionBlock;
++-      if (Operation *terminator = block->getTerminator()) {
++-        activeRewriter->setInsertionPoint(terminator);
++-      } else {
++-        activeRewriter->setInsertionPointToEnd(block);
++-      }
++-      const size_t tensorId = tensorSource.getTensorId();
++-      assert(tensorId < inputDescriptors.size() &&
++-             "tensor source ID is out of bounds");
++-      auto layoutDesc = applyLayout(*activeRewriter,
++-                                    inputDescriptors[tensorId], tensorSource);
++-      it->second = GraphOpConversion::emitLoadMaybeBroadcast(
++-          *activeRewriter, layoutDesc, *iterationSpace, zeroIndex);
+++    assert(activeRewriter && "missing active conversion rewriter");
+++    RewriterBase::InsertionGuard guard(*activeRewriter);
+++    Block *block = iterationSpace->insertionBlock;
+++    if (Operation *terminator = block->getTerminator()) {
+++      activeRewriter->setInsertionPoint(terminator);
+++    } else {
+++      activeRewriter->setInsertionPointToEnd(block);
++     }
+++    const size_t tensorId = tensorSource.getTensorId();
+++    assert(tensorId < inputDescriptors.size() &&
+++           "tensor source ID is out of bounds");
+++    auto layoutDesc =
+++        applyLayout(*activeRewriter, inputDescriptors[tensorId], tensorSource);
+++    it->second = GraphOpConversion::emitLoadMaybeBroadcast(
+++        *activeRewriter, layoutDesc, *iterationSpace, zeroIndex);
++     return it->second;
++   }
++ 
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 76a49bb3db2922e3c6dd06c1218497fe8e9f9b92..19d71d94d4fdfc0804def90b90c3b2bf7995547c 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 76a49bb3db2922e3c6dd06c1218497fe8e9f9b92
++Subproject commit 19d71d94d4fdfc0804def90b90c3b2bf7995547c
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 3f21b2aefe03304703558d47769411eb24b83671..04694e1f2213c7a1bc673d5245c187f422f6a755 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "76a49bb3db2922e3c6dd06c1218497fe8e9f9b92")
++    "19d71d94d4fdfc0804def90b90c3b2bf7995547c")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

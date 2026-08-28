@@ -1,0 +1,63 @@
+From 192b80eec6b365ddcdb5de39bb04078dfa2f5d92 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 01:56:53 +0800
+Subject: [PATCH 128/212] Advance TensorIR broadcast shape comparison
+
+---
+ ...layed-broadcast-tile-shapes-portably.patch | 25 +++++++++++++++++++
+ 3rdparty/nvidia/tensor-ir                     |  2 +-
+ cmake/nvidia_backend.cmake                    |  2 +-
+ 3 files changed, 27 insertions(+), 2 deletions(-)
+ create mode 100644 3rdparty/nvidia/0021-Compare-delayed-broadcast-tile-shapes-portably.patch
+
+diff --git a/3rdparty/nvidia/0021-Compare-delayed-broadcast-tile-shapes-portably.patch b/3rdparty/nvidia/0021-Compare-delayed-broadcast-tile-shapes-portably.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..0b4b3ee045a2f0f9dd9cd9472e387e7564de0438
+--- /dev/null
++++ b/3rdparty/nvidia/0021-Compare-delayed-broadcast-tile-shapes-portably.patch
+@@ -0,0 +1,25 @@
++From 9137c902ed01f8836bf004994ef095b6fed77eeb Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Fri, 28 Aug 2026 01:56:29 +0800
++Subject: [PATCH 21/21] Compare delayed broadcast tile shapes portably
++
++---
++ lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp | 2 +-
++ 1 file changed, 1 insertion(+), 1 deletion(-)
++
++diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++index 6891081..088f03f 100644
++--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++@@ -1030,7 +1030,7 @@ Value ConversionStateImpl::getTile(Value operand) {
++            "layout has no associated value");
++     Value tile = it->second;
++     auto tileType = cast<ShapedType>(tile.getType());
++-    if (tileType.getShape() != iterationSpace->tileShape) {
+++    if (!llvm::equal(tileType.getShape(), iterationSpace->tileShape)) {
++       assert(activeRewriter && "missing active conversion rewriter");
++       Operation *definition = tile.getDefiningOp();
++       assert(definition && "loaded tile must have a defining operation");
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 0494d49737aaf83511ae30b1f9a1afcb71e091d8..9137c902ed01f8836bf004994ef095b6fed77eeb 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 0494d49737aaf83511ae30b1f9a1afcb71e091d8
++Subproject commit 9137c902ed01f8836bf004994ef095b6fed77eeb
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index c19cd8126b35bdf50f6e8e039044b6e47a0419c1..5103695c02b95898f8fd849e7c3f521ff4c938f6 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "0494d49737aaf83511ae30b1f9a1afcb71e091d8")
++    "9137c902ed01f8836bf004994ef095b6fed77eeb")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

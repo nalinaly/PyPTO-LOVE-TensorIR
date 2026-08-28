@@ -1,0 +1,78 @@
+From 2a04185272278e5ea796b8237df9f21ca9c796c5 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 23 Aug 2026 21:55:08 +0800
+Subject: [PATCH 003/212] parser: disambiguate class source fallback by
+ definition line
+
+---
+ python/pypto/language/parser/decorator.py  | 15 +++++++++++++--
+ tests/ut/language/parser/test_decorator.py | 22 ++++++++++++++++++++++
+ 2 files changed, 35 insertions(+), 2 deletions(-)
+
+diff --git a/python/pypto/language/parser/decorator.py b/python/pypto/language/parser/decorator.py
+index cc83084d40036db75b4c8f568d7e13add96fa662..c9210c02589f6e557c312d52d801a4f934bfb5e2 100644
+--- a/python/pypto/language/parser/decorator.py
++++ b/python/pypto/language/parser/decorator.py
+@@ -799,9 +799,20 @@ def _get_source_info(entity: Callable | type, entity_type: str) -> tuple[str, li
+     """
+     name = entity.__name__ if hasattr(entity, "__name__") else str(entity)
+ 
+-    # Get a line number hint from the code object to disambiguate same-name entities
++    # Get a line number hint to disambiguate same-name entities. CPython 3.13+
++    # stamps classes with their definition line, but inspect can still fail
++    # when a loader/import mode cannot recover their module. Preserve that
++    # authoritative hint for the linecache fallback instead of selecting the
++    # first same-name class in the file.
+     start_line_hint: int | None = None
+-    if callable(entity) and hasattr(entity, "__code__"):
++    if isinstance(entity, type):
++        try:
++            class_first_line = vars(entity).get("__firstlineno__")
++        except TypeError:
++            class_first_line = None
++        if type(class_first_line) is int and class_first_line > 0:
++            start_line_hint = class_first_line
++    elif callable(entity) and hasattr(entity, "__code__"):
+         start_line_hint = entity.__code__.co_firstlineno
+ 
+     # Strategy 1: Standard inspect
+diff --git a/tests/ut/language/parser/test_decorator.py b/tests/ut/language/parser/test_decorator.py
+index 5e2ed46852d9df56d9d7150045eedb69b9655540..ff9a9305dd8de8061fc3985c28717fbb8a0d03d8 100644
+--- a/tests/ut/language/parser/test_decorator.py
++++ b/tests/ut/language/parser/test_decorator.py
+@@ -10,6 +10,7 @@
+ """Unit tests for @pl.function, @pl.inline, and @pl.program decorators."""
+ 
+ import ast
++import importlib
+ import inspect
+ import linecache
+ import sys
+@@ -2506,6 +2507,27 @@ class TestClassSourceLookup:
+ 
+         assert indexer.index["Dup"] == 1
+ 
++    def test_linecache_fallback_uses_firstlineno_for_shadowed_classes(self, monkeypatch):
++        """A failed inspect lookup must not collapse duplicate qualnames.
++
++        CPython 3.13+ records the exact definition line on each class. Some
++        loaders and pytest import modes can still make ``inspect`` fail; the
++        fallback must carry that line into its same-name AST disambiguation.
++        """
++        decorator_module = importlib.import_module("pypto.language.parser.decorator")
++        first, second = _make_shadowed_classes()
++
++        def fail_inspect_lookup(_cls):
++            raise OSError("forced class source lookup fallback")
++
++        monkeypatch.setattr(decorator_module, "get_class_source_lines", fail_inspect_lookup)
++
++        first_lines = decorator_module._get_source_info(first, "class")[1]
++        second_lines = decorator_module._get_source_info(second, "class")[1]
++
++        assert 'WHICH = "first"' in "".join(first_lines)
++        assert 'WHICH = "second"' in "".join(second_lines)
++
+     @pytest.mark.skipif(not _INDEX_IN_USE, reason="runtime resolves classes via __firstlineno__")
+     def test_file_is_parsed_once_regardless_of_class_count(self, monkeypatch):
+         """N classes in one file cost one parse -- the O(N x file_size) regression."""

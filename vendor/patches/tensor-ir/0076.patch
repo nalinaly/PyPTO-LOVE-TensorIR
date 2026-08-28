@@ -1,0 +1,51 @@
+From c165ecb1e62b7606f9e04bb243e490ebebc4823b Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 12:10:16 +0800
+Subject: [PATCH 76/82] Detach pruned concat operands from source DAG
+
+---
+ lib/Transform/GraphSplitting.cpp | 24 ++++++++++++++++++++++++
+ 1 file changed, 24 insertions(+)
+
+diff --git a/lib/Transform/GraphSplitting.cpp b/lib/Transform/GraphSplitting.cpp
+index d6605819d0da7b5f956e49a6f293208b2020e885..77c236a03e469177a0c3e801f2e17106689ed137 100644
+--- a/lib/Transform/GraphSplitting.cpp
++++ b/lib/Transform/GraphSplitting.cpp
+@@ -271,6 +271,7 @@ struct GraphSplittingPass
+ 
+       // Recursively materialize each operand.
+       IRMapping mapping;
++      SmallVector<std::pair<Value, Value>> materializedOperands;
+       int32_t operandIterSpaceId = iterSpaceId;
+       for (auto [operand, operandLayout] :
+            llvm::zip_equal(op->getOperands(), operandLayouts)) {
+@@ -287,6 +288,29 @@ struct GraphSplittingPass
+           return failure();
+         }
+         mapping.map(operand, *newOperand);
++        materializedOperands.emplace_back(operand, *newOperand);
++      }
++      // A pruned concatenate operand feeds no iteration space, but leaving it
++      // unmapped makes the cloned concatenate retain an SSA edge into the old
++      // source DAG. The conversion never reads this operand; use any kept,
++      // type-compatible materialized value as a structural placeholder.
++      for (auto [operand, operandLayout] :
++           llvm::zip_equal(op->getOperands(), operandLayouts)) {
++        if (operandLayout != nullptr) {
++          continue;
++        }
++        if (mapping.contains(operand)) {
++          continue;
++        }
++        auto replacement = llvm::find_if(materializedOperands, [&](auto item) {
++          return item.first.getType() == operand.getType();
++        });
++        if (replacement == materializedOperands.end()) {
++          op->emitError(
++              "pruned concatenate has no type-compatible kept operand");
++          return failure();
++        }
++        mapping.map(operand, replacement->second);
+       }
+ 
+       // Clone op with remapped operands and new layout.

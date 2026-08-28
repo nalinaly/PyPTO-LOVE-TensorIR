@@ -1,0 +1,161 @@
+From d6cfe933f9fa30492912400fe537dda3a39ce9a9 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 08:55:03 +0800
+Subject: [PATCH 67/82] Project composite gather scatter indices
+
+---
+ .../LayoutPropagationImpl.cpp                 | 47 +++++++++++++++----
+ .../TensorToCudaTile/gather_rows_layout.mlir  | 17 +++++++
+ .../TensorToCudaTile/scatter_rows_layout.mlir | 18 +++++++
+ 3 files changed, 74 insertions(+), 8 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index 6366cfd5311483eba5025471e48fac2ba522af73..5f552341e7889c8a71b3438c27d822158587ecd3 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -7,6 +7,7 @@
+ #include "tensor_ir/Utils/Utils.h"
+ 
+ #include <limits>
++#include <optional>
+ 
+ #include "llvm/Support/Debug.h"
+ 
+@@ -53,6 +54,38 @@ namespace mlir::nv_tensor_ir {
+ namespace tensor_to_cuda_tile {
+ namespace {
+ 
++bool mergeConsistentStaticProjection(
++    LayoutSourceAttrInterface source,
++    std::optional<tcg::Layout> &projection) {
++  if (auto tensorSource = dyn_cast<TensorSourceAttr>(source)) {
++    tcg::Layout candidate = tensorSource.getCuteLayout();
++    if (!tcg::is_static(candidate) ||
++        (projection && *projection != candidate)) {
++      return false;
++    }
++    projection = std::move(candidate);
++    return true;
++  }
++  if (auto composite = dyn_cast<CompositeSourceAttr>(source)) {
++    if (composite.getSources().empty()) {
++      return false;
++    }
++    return llvm::all_of(composite.getSources(), [&](auto child) {
++      return mergeConsistentStaticProjection(child, projection);
++    });
++  }
++  return false;
++}
++
++std::optional<tcg::Layout>
++getConsistentStaticProjection(LayoutSourceAttrInterface source) {
++  std::optional<tcg::Layout> projection;
++  if (!mergeConsistentStaticProjection(source, projection)) {
++    return std::nullopt;
++  }
++  return projection;
++}
++
+ class ConversionStateImpl : public ConversionState {
+ public:
+   ConversionStateImpl(MLIRContext *context, const TypeConverter &typeConverter,
+@@ -286,12 +319,11 @@ public:
+           "data layout may omit the row axis only for a single-row gather");
+     }
+ 
+-    auto indicesSource = dyn_cast<TensorSourceAttr>(state.layouts[1]);
+-    if (!indicesSource || !tcg::is_static(indicesSource.getCuteLayout()) ||
+-        tcg::rank(indicesSource.getCuteLayout()) != iterationRank) {
++    auto indicesProjection = getConsistentStaticProjection(state.layouts[1]);
++    if (!indicesProjection || tcg::rank(*indicesProjection) != iterationRank) {
+       return op.emitError("indices layout must be a static fused projection");
+     }
+-    auto indicesLayout = indicesSource.getCuteLayout();
++    const tcg::Layout &indicesLayout = *indicesProjection;
+     for (size_t dim = 0; dim < iterationRank; ++dim) {
+       int64_t layoutStride =
+           tcg::static_size(tcg::get(indicesLayout.stride(), dim));
+@@ -476,12 +508,11 @@ public:
+           "data layout may omit the row axis only for a single-row scatter");
+     }
+ 
+-    auto indicesSource = dyn_cast<TensorSourceAttr>(state.layouts[1]);
+-    if (!indicesSource || !tcg::is_static(indicesSource.getCuteLayout()) ||
+-        tcg::rank(indicesSource.getCuteLayout()) != iterationRank) {
++    auto indicesProjection = getConsistentStaticProjection(state.layouts[1]);
++    if (!indicesProjection || tcg::rank(*indicesProjection) != iterationRank) {
+       return op.emitError("indices layout must be a static fused projection");
+     }
+-    auto indicesLayout = indicesSource.getCuteLayout();
++    const tcg::Layout &indicesLayout = *indicesProjection;
+     for (size_t dim = 0; dim < iterationRank; ++dim) {
+       int64_t layoutStride =
+           tcg::static_size(tcg::get(indicesLayout.stride(), dim));
+diff --git a/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
+index 502081e350462faa7a5c5a590c0cfc5e4963c8fb..2e7c5dda9d0f6f922acd5f738476e100f83f4c72 100644
+--- a/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
++++ b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
+@@ -27,6 +27,10 @@
+ // CHECK: load_view_tko weak %[[COLUMN_VIEW]][%[[COLUMN_ROWS]], {{.*}}]
+ // CHECK-SAME: -> tile<8x1xsi64>, token
+ // CHECK: store_view_tko weak
++// CHECK-LABEL: entry @gather_composite_indices
++// CHECK: make_gather_scatter_view
++// CHECK: load_view_tko weak
++// CHECK: store_view_tko weak
+ module {
+   nv_tensor_ir.graph @gather_rows(
+       %data: tensor<1024x128xbf16>,
+@@ -63,4 +67,17 @@ module {
+        -> tensor<32x1xsi64>
+     results %gathered : tensor<32x1xsi64>
+   }
++
++  nv_tensor_ir.graph @gather_composite_indices(
++      %data: tensor<1024x128xbf16>,
++      %indices0: tensor<32x128xsi32> {nv_tensor_ir.stride = "(1,0)"},
++      %indices1: tensor<32x128xsi32> {nv_tensor_ir.stride = "(1,0)"})
++      -> tensor<32x128xbf16>
++      attributes {tile_size = array<i32: 8, 128>} {
++    %indices = add %indices0, %indices1 : tensor<32x128xsi32>
++    %gathered = gather_rows %data, %indices
++        : (tensor<1024x128xbf16>, tensor<32x128xsi32>)
++       -> tensor<32x128xbf16>
++    results %gathered : tensor<32x128xbf16>
++  }
+ }
+diff --git a/test/Conversion/TensorToCudaTile/scatter_rows_layout.mlir b/test/Conversion/TensorToCudaTile/scatter_rows_layout.mlir
+index 2620e9bfb7b30755169ef27c181527dbb0c6f6d7..d29340711b4ab2860dfffce7ef68a7ae74211296 100644
+--- a/test/Conversion/TensorToCudaTile/scatter_rows_layout.mlir
++++ b/test/Conversion/TensorToCudaTile/scatter_rows_layout.mlir
+@@ -7,6 +7,9 @@
+ // CHECK: %[[ROW:.*]] = reshape %[[NARROW]] : tile<1x1xi32> -> tile<1xi32>
+ // CHECK: store_view_tko weak {{.*}}, %[[SCATTER_VIEW]][%[[ROW]], {{.*}}]
+ // CHECK: store_view_tko weak
++// CHECK-LABEL: entry @scatter_composite_indices
++// CHECK: make_gather_scatter_view
++// CHECK: store_view_tko weak
+ module {
+   nv_tensor_ir.graph @scatter_single_row_broadcast(
+       %data: tensor<65x16xbf16> {nv_tensor_ir.stride = "(16,1)"},
+@@ -20,4 +23,19 @@ module {
+     %expanded = broadcast %stored : tensor<1x16xbf16> -> tensor<16x16xbf16>
+     results %expanded : tensor<16x16xbf16>
+   }
++
++  nv_tensor_ir.graph @scatter_composite_indices(
++      %data: tensor<65x16xbf16> {nv_tensor_ir.stride = "(16,1)"},
++      %indices0: tensor<1x16xsi32> {nv_tensor_ir.stride = "(0,0)"},
++      %indices1: tensor<1x16xsi32> {nv_tensor_ir.stride = "(0,0)"},
++      %updates: tensor<1x16xbf16> {nv_tensor_ir.stride = "(16,1)"})
++      -> tensor<16x16xbf16>
++      attributes {tile_size = array<i32: 16, 16>} {
++    %indices = add %indices0, %indices1 : tensor<1x16xsi32>
++    %stored = scatter_rows %data, %indices, %updates
++        : (tensor<65x16xbf16>, tensor<1x16xsi32>, tensor<1x16xbf16>)
++       -> tensor<1x16xbf16>
++    %expanded = broadcast %stored : tensor<1x16xbf16> -> tensor<16x16xbf16>
++    results %expanded : tensor<16x16xbf16>
++  }
+ }

@@ -1,0 +1,35 @@
+From ab6a4aee8a6bae422d1f76e2ea2e5cba092bce24 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 12:40:53 +0800
+Subject: [PATCH 192/212] Align GDN outer products with state layout
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 13 ++++---------
+ 1 file changed, 4 insertions(+), 9 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index ffa18892fc711991c5c3636c46072c9dd51225d2..72105aa1001569ca7e8174389b7b4614dd83f045 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -9521,17 +9521,12 @@ std::string EmitNativeTileGdnRecurrentBatchedSource(
+       source += "\n    %delta_" + suffix + " = mul %residual_" + suffix +
+                 ", %beta_rounded_" + suffix + " : ";
+       source += parameter_group_type;
+-      source += "\n    %delta_full_" + suffix + " = broadcast %delta_" + suffix +
+-                " : ";
++      source += "\n    %outer_" + suffix + " = matmul(%delta_" + suffix +
++                ", " + k + "_norm) : (";
+       source += parameter_group_type;
+-      source += " -> ";
+-      source += state_group_type;
+-      source += "\n    %k_full_" + suffix + " = broadcast " + k + "_norm : ";
++      source += ", ";
+       source += wide_query_group_type;
+-      source += " -> ";
+-      source += state_group_type;
+-      source += "\n    %outer_" + suffix + " = mul %delta_full_" + suffix +
+-                ", %k_full_" + suffix + " : ";
++      source += ") -> ";
+       source += state_group_type;
+       const std::string updated = "%updated_" + suffix;
+       source += "\n    " + updated + " = add %decayed_" + suffix +

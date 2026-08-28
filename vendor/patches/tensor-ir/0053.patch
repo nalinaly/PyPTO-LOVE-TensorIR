@@ -1,0 +1,29 @@
+From d2ed3e43e63dfb2ac6767431db30cac91ad84b44 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 02:24:31 +0800
+Subject: [PATCH 53/82] Validate gather tiles in their real space
+
+---
+ .../TensorToCudaTile/LayoutPropagationImpl.cpp           | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index c315c3aab842b09cfc7ccf857a4a9ebc644f7599..5e8531e93b0c806993a8ab5a861ad6196bf134e8 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -1312,9 +1312,12 @@ LogicalResult verifyLayoutPropLowerable(GraphOp graphOp) {
+       return WalkResult::interrupt();
+     }
+     if (auto gatherRowsOp = dyn_cast<GatherRowsOp>(op)) {
+-      if (tileShape.size() != 2 || tileShape[0] <= 0 || tileShape[1] <= 0 ||
+-          gatherRowsOp.getOutput().getType().getRank() != 2) {
+-        gatherRowsOp.emitError("requires a positive rank-2 tile");
++      // The graph-level selected tile may describe an outer fused iteration
++      // space. Graph splitting gives gather_rows its own rank-2 space, which is
++      // only known after the skeleton is built; validate that real tile in the
++      // conversion pattern and only enforce the intrinsic result rank here.
++      if (gatherRowsOp.getOutput().getType().getRank() != 2) {
++        gatherRowsOp.emitError("requires a rank-2 result");
+         return WalkResult::interrupt();
+       }
+     } else if (isa<PointwiseOpInterface>(op)) {

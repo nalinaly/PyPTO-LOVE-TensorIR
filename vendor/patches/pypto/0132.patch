@@ -1,0 +1,103 @@
+From d1b71fe3eae716549ced617adbdd17c2dd2de1ac Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 02:22:15 +0800
+Subject: [PATCH 132/212] Advance TensorIR one-shot result layouts
+
+---
+ ...sult-layouts-for-one-shot-conversion.patch | 65 +++++++++++++++++++
+ 3rdparty/nvidia/tensor-ir                     |  2 +-
+ cmake/nvidia_backend.cmake                    |  2 +-
+ 3 files changed, 67 insertions(+), 2 deletions(-)
+ create mode 100644 3rdparty/nvidia/0025-Preserve-result-layouts-for-one-shot-conversion.patch
+
+diff --git a/3rdparty/nvidia/0025-Preserve-result-layouts-for-one-shot-conversion.patch b/3rdparty/nvidia/0025-Preserve-result-layouts-for-one-shot-conversion.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..c6e865a62d779d1587c87a27b63af36f077e8722
+--- /dev/null
++++ b/3rdparty/nvidia/0025-Preserve-result-layouts-for-one-shot-conversion.patch
+@@ -0,0 +1,65 @@
++From 1cf0150daaeaed956c13d1c66598fcbd088c8615 Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Fri, 28 Aug 2026 02:22:02 +0800
++Subject: [PATCH 25/25] Preserve result layouts for one-shot conversion
++
++---
++ .../LayoutPropagationImpl.cpp                 | 28 +++++++++++++------
++ 1 file changed, 20 insertions(+), 8 deletions(-)
++
++diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++index 305f0a2..c315c3a 100644
++--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++@@ -143,6 +143,9 @@ private:
++ 
++   /// Layouts for the current operation's operands.
++   using OperandLayouts = SmallVector<LayoutSourceAttrInterface>;
+++  /// Result operand layouts captured before one-shot conversion replaces their
+++  /// defining TensorIR values.
+++  OperandLayouts resultLayouts;
++   OperandLayouts layouts;
++   /// Index of the next operand to process, calling `getTile` updates this.
++   size_t operandIndex = 0;
++@@ -736,14 +739,9 @@ public:
++     state.blockStructure = &state.blockStructures[resultsOp.getOperation()];
++     state.iterationSpace = &state.blockStructure->iterationSpaces[0];
++     state.activeRewriter = &rewriter;
++-    state.layouts.clear();
++-    for (Value operand : resultsOp.getOperands()) {
++-      auto layout = dyn_cast_or_null<LayoutSourceAttrInterface>(
++-          getLayoutSourceAttr(operand));
++-      if (!layout) {
++-        return resultsOp.emitError("Result operand is missing layout data");
++-      }
++-      state.layouts.push_back(layout);
+++    state.layouts = state.resultLayouts;
+++    if (state.layouts.size() != resultsOp.getNumOperands()) {
+++      return resultsOp.emitError("Result operand layout count mismatch");
++     }
++     state.operandIndex = 0;
++ 
++@@ -891,6 +889,20 @@ LogicalResult ConversionStateImpl::start(GraphOp graphOp) {
++   normalizedLayout = resultsOp->getAttrOfType<LayoutSourceAttrInterface>(
++       TensorIRDialect::getIterationSpaceAttrName());
++ 
+++  // Capture result layouts while every result operand still refers to its
+++  // original TensorIR definition. In one-shot conversion, successful operand
+++  // replacements are immediate, so ResultsOpConversion cannot recover this
+++  // metadata from its live operands later.
+++  resultLayouts.clear();
+++  for (Value operand : resultsOp->getOperands()) {
+++    auto layout = dyn_cast_or_null<LayoutSourceAttrInterface>(
+++        getLayoutSourceAttr(operand));
+++    if (!layout) {
+++      return resultsOp->emitError("Result operand is missing layout data");
+++    }
+++    resultLayouts.push_back(layout);
+++  }
+++
++   auto tileSizeAttr = graphOp->getAttrOfType<mlir::DenseI32ArrayAttr>(
++       nv_tensor_ir::TensorIRDialect::getTileSizeAttrName());
++   SmallVector<int64_t> tileShape(tileSizeAttr.asArrayRef().begin(),
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 09e40e620a0212633d469d3c19bbcd575e65367d..1cf0150daaeaed956c13d1c66598fcbd088c8615 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 09e40e620a0212633d469d3c19bbcd575e65367d
++Subproject commit 1cf0150daaeaed956c13d1c66598fcbd088c8615
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 34ee012bae499001eb8e4e1f3f6ad124a3a66331..4717114aed8ecb2aa2fb98b1b53ce60b8cf542aa 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "09e40e620a0212633d469d3c19bbcd575e65367d")
++    "1cf0150daaeaed956c13d1c66598fcbd088c8615")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

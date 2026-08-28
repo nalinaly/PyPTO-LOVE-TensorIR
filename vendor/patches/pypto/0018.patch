@@ -1,0 +1,124 @@
+From 186f84ad564c88438a5b29f8d7cab5d25dad1066 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Mon, 24 Aug 2026 23:39:16 +0800
+Subject: [PATCH 018/212] test: close artifact primitive review findings
+
+---
+ 3rdparty/nvidia/tensor-ir                     |  2 +-
+ cmake/nvidia_backend.cmake                    | 22 +++++++++++--------
+ .../test_nvidia_backend_build_info.py         |  2 +-
+ tests/ut/cpp/tensor_ir_artifact_seam_test.cpp | 13 +++++++++++
+ 4 files changed, 28 insertions(+), 11 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 151d55176f67274cb6a3edb8d25833c1a90698f6..7a15076631b92e9d41964895181a2a8bac11b207 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 151d55176f67274cb6a3edb8d25833c1a90698f6
++Subproject commit 7a15076631b92e9d41964895181a2a8bac11b207
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 9980f553ac51396b02951152aabf944cbc8ae8d7..03fea1377e8de2d908f76373d64c95e192add51d 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -24,7 +24,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "151d55176f67274cb6a3edb8d25833c1a90698f6")
++    "7a15076631b92e9d41964895181a2a8bac11b207")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+@@ -39,6 +39,8 @@ set(PYPTO_NVIDIA_TILEIRAS_SHA256
+     "88737a8be5c56bf73fb885a567a950f247a8cfa1d146dbc7a65eff77e7d62bf0")
+ 
+ find_package(Git REQUIRED)
++option(PYPTO_ALLOW_DIRTY_NVIDIA_SOURCES
++       "Permit tracked NVIDIA source edits in a development build" OFF)
+ function(_pypto_require_git_revision source_dir expected_revision label)
+     execute_process(
+         COMMAND "${GIT_EXECUTABLE}" -C "${source_dir}" rev-parse HEAD
+@@ -52,14 +54,16 @@ function(_pypto_require_git_revision source_dir expected_revision label)
+             "${label} revision '${_actual_revision}' differs from locked "
+             "revision '${expected_revision}': ${_revision_error}")
+     endif()
+-    execute_process(
+-        COMMAND "${GIT_EXECUTABLE}" -C "${source_dir}" diff --quiet
+-        RESULT_VARIABLE _worktree_status)
+-    execute_process(
+-        COMMAND "${GIT_EXECUTABLE}" -C "${source_dir}" diff --cached --quiet
+-        RESULT_VARIABLE _index_status)
+-    if(NOT _worktree_status EQUAL 0 OR NOT _index_status EQUAL 0)
+-        message(FATAL_ERROR "${label} has tracked source changes")
++    if(NOT PYPTO_ALLOW_DIRTY_NVIDIA_SOURCES)
++        execute_process(
++            COMMAND "${GIT_EXECUTABLE}" -C "${source_dir}" diff --quiet
++            RESULT_VARIABLE _worktree_status)
++        execute_process(
++            COMMAND "${GIT_EXECUTABLE}" -C "${source_dir}" diff --cached --quiet
++            RESULT_VARIABLE _index_status)
++        if(NOT _worktree_status EQUAL 0 OR NOT _index_status EQUAL 0)
++            message(FATAL_ERROR "${label} has tracked source changes")
++        endif()
+     endif()
+ endfunction()
+ 
+diff --git a/tests/ut/compiler/test_nvidia_backend_build_info.py b/tests/ut/compiler/test_nvidia_backend_build_info.py
+index 68d0aebdf901c2c9247f6a710c76ca839d8c497d..140d5fa71583dce7a79618e78362b25c5ab5de53 100644
+--- a/tests/ut/compiler/test_nvidia_backend_build_info.py
++++ b/tests/ut/compiler/test_nvidia_backend_build_info.py
+@@ -18,7 +18,7 @@ def test_nvidia_backend_build_info_is_immutable_and_self_consistent() -> None:
+         return
+ 
+     assert info.compiler_factory_available
+-    assert info.tensor_ir_revision == "151d55176f67274cb6a3edb8d25833c1a90698f6"
++    assert info.tensor_ir_revision == "7a15076631b92e9d41964895181a2a8bac11b207"
+     assert info.cuda_tile_revision == "af2417041cc939b87ef56d92cfdcf61737c5457e"
+     assert info.llvm_revision == "57109befac92811d2253109242ca6fa69c961fb2"
+     assert info.cuda_toolkit_root == "/usr/local/cuda-13.3"
+diff --git a/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp b/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp
+index f75098fe6476329ccea4ee41346a0445bce8749c..c5d188662b1c5957be1783e5c3f339ba565bd055 100644
+--- a/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp
++++ b/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp
+@@ -11,6 +11,7 @@
+ 
+ #include <cstdlib>
+ #include <cstdint>
++#include <iostream>
+ #include <string>
+ 
+ #include "tensor_ir/Compiler/CudaTile/CudaTileArtifact.h"
+@@ -142,6 +143,10 @@ int TestTileIRArtifact(const SmTarget &target) {
+   invalid.actualArtifactKind = CudaTileArtifactKind::Cubin;
+   invalid.deviceCode = {'\x7f', 'E', 'L', 'F'};
+   REQUIRE(!invalid.validate().ok());
++  invalid = *artifact;
++  invalid.deviceCode.assign(artifact->deviceCode.begin(),
++                            artifact->deviceCode.begin() + 12);
++  REQUIRE(!invalid.validate().ok());
+ 
+   auto runtimeKernel =
+       static_cast<ICompiler &>(compiler).compile(kAddSource, options);
+@@ -160,6 +165,9 @@ int TestDeterministicCubinArtifact(const SmTarget &target) {
+   CudaTileCompileOptions options =
+       StrictOptions(target, CudaTileArtifactKind::Cubin);
+   auto first = compiler.compileToArtifact(kAddSource, options);
++  if (!first.ok()) {
++    std::cerr << first.status().message() << '\n';
++  }
+   REQUIRE(first.ok());
+   REQUIRE(first->validate().ok());
+   REQUIRE(first->requestedArtifactKind == CudaTileArtifactKind::Cubin);
+@@ -169,6 +177,11 @@ int TestDeterministicCubinArtifact(const SmTarget &target) {
+   REQUIRE(first->tileIRAssemblerVersion == PYPTO_TILEIRAS_VERSION);
+   REQUIRE(first->tileIRAssemblerSha256 == PYPTO_TILEIRAS_SHA256);
+ 
++  CudaTileCompiledArtifact headerOnly = *first;
++  headerOnly.deviceCode.assign(first->deviceCode.begin(),
++                               first->deviceCode.begin() + 64);
++  REQUIRE(!headerOnly.validate().ok());
++
+   auto detected = detectCudaTileArtifactKind(first->deviceCode);
+   REQUIRE(detected.ok());
+   REQUIRE(*detected == CudaTileArtifactKind::Cubin);

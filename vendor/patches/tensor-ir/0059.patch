@@ -1,0 +1,38 @@
+From a48606b88c7fdce4b31ebdf33cd3e6af113cf985 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 02:48:26 +0800
+Subject: [PATCH 59/82] Project gather index producers into fused space
+
+---
+ lib/Transform/GraphSplitting.cpp | 16 +++++++++++-----
+ 1 file changed, 11 insertions(+), 5 deletions(-)
+
+diff --git a/lib/Transform/GraphSplitting.cpp b/lib/Transform/GraphSplitting.cpp
+index fded68e89ab505e6dbd89d644f13814a88a8e638..97429945a89e928af1473d7cdb8dec9e696d16ad 100644
+--- a/lib/Transform/GraphSplitting.cpp
++++ b/lib/Transform/GraphSplitting.cpp
+@@ -121,13 +121,19 @@ struct GraphSplittingPass
+       // Number of iteration spaces added by the operation.
+       int newIterationSpaces = 0;
+ 
+-      // Case #0: gather keeps its output-space composite layout while its
+-      // operands remain rooted in their original graph-argument layouts.
++      // Case #0: gather carries a composite output-space layout with one source
++      // for the indirectly addressed data table and one for the indices. The
++      // data block argument remains the original descriptor at conversion time,
++      // while any indices producer must be cloned with this fused projection so
++      // its loaded tile rank matches the gather's iteration space.
+       if (isa<GatherRowsOp>(op)) {
+-        for (Value operand : op->getOperands()) {
+-          operandLayouts.push_back(cast<LayoutSourceAttrInterface>(
+-              getLayoutSourceAttr(operand)));
++        auto target = dyn_cast<CompositeSourceAttr>(layout);
++        if (!target || target.size() != op->getNumOperands()) {
++          op->emitError("expected gather composite layout");
++          return failure();
+         }
++        operandLayouts =
++            SmallVector<LayoutSourceAttrInterface>(target.getSources());
+       }
+ 
+       // Case #1: pointwise operations.

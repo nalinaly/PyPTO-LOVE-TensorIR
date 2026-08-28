@@ -1,0 +1,117 @@
+From d93401f6cbe825421b4b8d74256bac9f234a4df6 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 08:43:54 +0800
+Subject: [PATCH 65/82] Lower single-column gather rows
+
+---
+ .../LayoutPropagationImpl.cpp                 | 32 +++++++++++++------
+ .../TensorToCudaTile/gather_rows_layout.mlir  | 19 +++++++++++
+ 2 files changed, 41 insertions(+), 10 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index aa5648539b570e429988575935615261b8eb4b0e..5f21f29d9465e6a959be97002a16649c4044a66a 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -243,8 +243,9 @@ public:
+     // layout and require every other outer axis to be a broadcast.
+     auto dataLayout = dataSource.getCuteLayout();
+     size_t iterationRank = iterationTileShape.size();
++    const bool unitColumnDescriptor = sizes[1] == 1;
+     if (!tcg::is_static(dataLayout) || tcg::rank(dataLayout) != iterationRank ||
+-        strides[0] == strides[1]) {
++        (strides[0] == strides[1] && !unitColumnDescriptor)) {
+       return op.emitError(
+           "requires a static unambiguous rank-2 gather projection");
+     }
+@@ -265,7 +266,11 @@ public:
+             "data layout cannot be projected to one row and one column axis");
+       }
+     }
+-    if (columnDim == iterationRank || rowDim == columnDim) {
++    const bool scalarColumnProjection =
++        columnDim == iterationRank && unitColumnDescriptor &&
++        op.getOutput().getType().getDimSize(1) == 1;
++    if ((!scalarColumnProjection && columnDim == iterationRank) ||
++        rowDim == columnDim) {
+       return op.emitError("data layout is missing an unambiguous column axis");
+     }
+     // A logical one-row gather can be transposed and broadcast into a wider
+@@ -297,7 +302,8 @@ public:
+ 
+     int64_t rowTileSize =
+         scalarRowProjection ? 1 : iterationTileShape[rowDim];
+-    int64_t columnTileSize = iterationTileShape[columnDim];
++    int64_t columnTileSize =
++        scalarColumnProjection ? 1 : iterationTileShape[columnDim];
+     if (rowTileSize > std::numeric_limits<int32_t>::max() ||
+         columnTileSize > std::numeric_limits<int32_t>::max()) {
+       return op.emitError("gather tile dimensions exceed i32");
+@@ -349,12 +355,16 @@ public:
+     auto optimizationHints = createLoadStoreOptimizationHints(
+         rewriter.getContext(), projectedDataDesc.allowTma,
+         projectedDataDesc.cost);
+-    Value columnScale = createConstant(
+-        rewriter, op.getLoc(),
+-        cast<ShapedType>(state.getIndexValues()[columnDim].getType()),
+-        columnTileSize);
+-    Value columnOffset = cuda_tile::MulIOp::create(
+-        rewriter, op.getLoc(), state.getIndexValues()[columnDim], columnScale);
++    Value columnOffset = state.zeroIndex;
++    if (!scalarColumnProjection) {
++      Value columnScale = createConstant(
++          rewriter, op.getLoc(),
++          cast<ShapedType>(state.getIndexValues()[columnDim].getType()),
++          columnTileSize);
++      columnOffset = cuda_tile::MulIOp::create(
++          rewriter, op.getLoc(), state.getIndexValues()[columnDim],
++          columnScale);
++    }
+     SmallVector<Value> gatherIndices{rowIndices, columnOffset};
+     auto load = cuda_tile::LoadViewTkoOp::create(
+         rewriter, op.getLoc(), outputType, tokenType,
+@@ -365,7 +375,9 @@ public:
+     if (!scalarRowProjection) {
+       projectedShape[rowDim] = rowTileSize;
+     }
+-    projectedShape[columnDim] = columnTileSize;
++    if (!scalarColumnProjection) {
++      projectedShape[columnDim] = columnTileSize;
++    }
+     if (!llvm::equal(projectedShape, gatherTileShape)) {
+       result = cuda_tile::ReshapeOp::create(
+           rewriter, op.getLoc(),
+diff --git a/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
+index 6a52390ef74fdf08654cb6e5a186aebfa58793ef..502081e350462faa7a5c5a590c0cfc5e4963c8fb 100644
+--- a/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
++++ b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
+@@ -19,6 +19,14 @@
+ // CHECK: %[[SINGLE_ROW:.*]] = reshape %[[SINGLE_NARROW]] : tile<1x1xi32> -> tile<1xi32>
+ // CHECK: load_view_tko weak %[[SINGLE_VIEW]][%[[SINGLE_ROW]], {{.*}}]
+ // CHECK: store_view_tko weak
++// CHECK-LABEL: entry @gather_single_column
++// CHECK: %[[COLUMN_DATA:.*]] = make_tensor_view {{.*}}, shape = [1024, 1], strides = [1, 1] : tensor_view<1024x1xsi64, strides=[1,1]>
++// CHECK: %[[COLUMN_VIEW:.*]] = make_gather_scatter_view %[[COLUMN_DATA]] : gather_scatter_view<tile=(8x1), tensor_view<1024x1xsi64, strides=[1,1]>, sparse_dim=0>
++// CHECK: %[[COLUMN_NARROW:.*]] = extract {{.*}} : tile<8x1xi32> -> tile<8x1xi32>
++// CHECK: %[[COLUMN_ROWS:.*]] = reshape %[[COLUMN_NARROW]] : tile<8x1xi32> -> tile<8xi32>
++// CHECK: load_view_tko weak %[[COLUMN_VIEW]][%[[COLUMN_ROWS]], {{.*}}]
++// CHECK-SAME: -> tile<8x1xsi64>, token
++// CHECK: store_view_tko weak
+ module {
+   nv_tensor_ir.graph @gather_rows(
+       %data: tensor<1024x128xbf16>,
+@@ -44,4 +52,15 @@ module {
+         : tensor<16x1xsi32> -> tensor<16x256xsi32>
+     results %expanded : tensor<16x256xsi32>
+   }
++
++  nv_tensor_ir.graph @gather_single_column(
++      %data: tensor<1024x1xsi64> {nv_tensor_ir.stride = "(1,1)"},
++      %indices: tensor<32x1xsi32> {nv_tensor_ir.stride = "(1,0)"})
++      -> tensor<32x1xsi64>
++      attributes {tile_size = array<i32: 8, 1>} {
++    %gathered = gather_rows %data, %indices
++        : (tensor<1024x1xsi64>, tensor<32x1xsi32>)
++       -> tensor<32x1xsi64>
++    results %gathered : tensor<32x1xsi64>
++  }
+ }

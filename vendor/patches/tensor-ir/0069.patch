@@ -1,0 +1,126 @@
+From 20fab98254e0b14a587e0abf285bec951bf9382c Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 09:02:04 +0800
+Subject: [PATCH 69/82] Infer gather row axes from indices
+
+---
+ .../LayoutPropagationImpl.cpp                 | 54 ++++++++-----------
+ 1 file changed, 23 insertions(+), 31 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index 764c41ffe9b43157e5d7a794293cab3bfc49ad18..a242c143b273b576476c640887796a027b1499f4 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -53,10 +53,8 @@ namespace mlir::nv_tensor_ir {
+ namespace tensor_to_cuda_tile {
+ namespace {
+ 
+-bool validateProjectedIndices(LayoutSourceAttrInterface source,
+-                              size_t iterationRank, size_t rowDim,
+-                              bool scalarRowProjection,
+-                              bool &sawExplicitRow) {
++bool inferProjectedRowDimension(LayoutSourceAttrInterface source,
++                                size_t iterationRank, size_t &rowDim) {
+   if (auto tensorSource = dyn_cast<TensorSourceAttr>(source)) {
+     tcg::Layout candidate = tensorSource.getCuteLayout();
+     if (!tcg::is_static(candidate) ||
+@@ -66,13 +64,13 @@ bool validateProjectedIndices(LayoutSourceAttrInterface source,
+     for (size_t dim = 0; dim < iterationRank; ++dim) {
+       int64_t stride =
+           tcg::static_size(tcg::get(candidate.stride(), dim));
+-      int64_t expected = !scalarRowProjection && dim == rowDim ? 1 : 0;
+-      if (stride != 0 && stride != expected) {
+-        return false;
++      if (stride == 0) {
++        continue;
+       }
+-      if (expected == 1 && stride == 1) {
+-        sawExplicitRow = true;
++      if (stride != 1 || (rowDim != iterationRank && rowDim != dim)) {
++        return false;
+       }
++      rowDim = dim;
+     }
+     return true;
+   }
+@@ -81,8 +79,7 @@ bool validateProjectedIndices(LayoutSourceAttrInterface source,
+       return false;
+     }
+     return llvm::all_of(composite.getSources(), [&](auto child) {
+-      return validateProjectedIndices(child, iterationRank, rowDim,
+-                                      scalarRowProjection, sawExplicitRow);
++      return inferProjectedRowDimension(child, iterationRank, rowDim);
+     });
+   }
+   return false;
+@@ -91,10 +88,10 @@ bool validateProjectedIndices(LayoutSourceAttrInterface source,
+ bool hasValidProjectedIndices(LayoutSourceAttrInterface source,
+                               size_t iterationRank, size_t rowDim,
+                               bool scalarRowProjection) {
+-  bool sawExplicitRow = scalarRowProjection;
+-  return validateProjectedIndices(source, iterationRank, rowDim,
+-                                  scalarRowProjection, sawExplicitRow) &&
+-         sawExplicitRow;
++  size_t inferredRowDim = iterationRank;
++  return inferProjectedRowDimension(source, iterationRank, inferredRowDim) &&
++         (scalarRowProjection ? inferredRowDim == iterationRank
++                              : inferredRowDim == rowDim);
+ }
+ 
+ class ConversionStateImpl : public ConversionState {
+@@ -294,32 +291,32 @@ public:
+           "requires a static unambiguous rank-2 gather projection");
+     }
+     size_t rowDim = iterationRank;
++    if (!inferProjectedRowDimension(state.layouts[1], iterationRank, rowDim)) {
++      return op.emitError("indices layout must be a static fused projection");
++    }
++    const bool scalarRowProjection = rowDim == iterationRank;
++    if (scalarRowProjection && op.getOutput().getType().getDimSize(0) != 1) {
++      return op.emitError(
++          "indices layout may omit the row axis only for a single-row gather");
++    }
+     size_t columnDim = iterationRank;
+     for (size_t dim = 0; dim < iterationRank; ++dim) {
+       int64_t layoutStride =
+           tcg::static_size(tcg::get(dataLayout.stride(), dim));
+-      if (layoutStride == 0) {
++      if (dim == rowDim || layoutStride == 0) {
+         continue;
+       }
+-      if (layoutStride == strides[0] && rowDim == iterationRank) {
+-        rowDim = dim;
+-      } else if (layoutStride == strides[1] && columnDim == iterationRank) {
++      if (layoutStride == strides[1] && columnDim == iterationRank) {
+         columnDim = dim;
+       } else {
+         return op.emitError(
+             "data layout cannot be projected to one row and one column axis");
+       }
+     }
+-    const bool scalarRowProjection =
+-        rowDim == iterationRank &&
+-        op.getOutput().getType().getDimSize(0) == 1;
+     const bool scalarColumnProjection =
+         columnDim == iterationRank && unitColumnDescriptor &&
+         op.getOutput().getType().getDimSize(1) == 1;
+-    if ((!scalarRowProjection && rowDim == iterationRank) ||
+-        (!scalarColumnProjection && columnDim == iterationRank) ||
+-        (rowDim != iterationRank && columnDim != iterationRank &&
+-         rowDim == columnDim)) {
++    if (!scalarColumnProjection && columnDim == iterationRank) {
+       return op.emitError("data layout is missing an unambiguous rank-2 axis");
+     }
+     // A logical one-row gather can be transposed and broadcast into a wider
+@@ -330,11 +327,6 @@ public:
+           "data layout may omit the row axis only for a single-row gather");
+     }
+ 
+-    if (!hasValidProjectedIndices(state.layouts[1], iterationRank, rowDim,
+-                                  scalarRowProjection)) {
+-      return op.emitError("indices layout must be a static fused projection");
+-    }
+-
+     int64_t rowTileSize =
+         scalarRowProjection ? 1 : iterationTileShape[rowDim];
+     int64_t columnTileSize =

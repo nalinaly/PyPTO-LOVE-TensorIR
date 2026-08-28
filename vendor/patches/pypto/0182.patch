@@ -1,0 +1,30 @@
+From 6f2f34468982bc9d32fe4bb3e22c79c6ebd1eeaf Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 12:06:57 +0800
+Subject: [PATCH 182/212] Lock residual split-DAG cleanup
+
+---
+ 3rdparty/nvidia/tensor-ir  | 2 +-
+ cmake/nvidia_backend.cmake | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 2c68474e2e26729362e89362e6e89e0abb2a2649..1bfde95894c0d5d9a9ca9426b55cf787f552fb02 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 2c68474e2e26729362e89362e6e89e0abb2a2649
++Subproject commit 1bfde95894c0d5d9a9ca9426b55cf787f552fb02
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 39901a77d86180182a827506e0fc5ea3c9427914..b952305874fcc9ed566e6f0d33a9b5499767c370 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "2c68474e2e26729362e89362e6e89e0abb2a2649")
++    "1bfde95894c0d5d9a9ca9426b55cf787f552fb02")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

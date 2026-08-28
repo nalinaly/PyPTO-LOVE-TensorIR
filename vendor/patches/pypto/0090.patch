@@ -1,0 +1,433 @@
+From 5e3611bc1336fb89e8a517e5a11b139ae3b39509 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 21:28:10 +0800
+Subject: [PATCH 090/212] nvidia: lower native tile attention graphs
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp      | 284 +++++++++++++++++-
+ .../structured_tensor_ir_build_spec.cpp       |   4 +-
+ tests/ut/compiler/test_structured_compile.py  |  57 ++++
+ 3 files changed, 340 insertions(+), 5 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 6247220338f262d76004aebba5357e3a49b2e1d8..c46d4ea44d58c855cd0423e914010860adfd0609 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -1621,6 +1621,163 @@ struct NativeTileRopeGraph {
+   StaticTensor frequency;
+ };
+ 
++struct NativeTileAttentionGraph {
++  StaticTensor query;
++  StaticTensor key;
++  StaticTensor value;
++  StaticTensor result;
++  double scale;
++};
++
++bool IsNativeTileAttentionCandidate(const ir::ProgramPtr& program) {
++  if (!IsNativeTilePointwiseCandidate(program)) return false;
++  const ir::FunctionPtr& function = program->functions_.begin()->second;
++  if (function->params_.size() != 5) return false;
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = ir::As<ir::InCoreScopeStmt>(top->stmts_[0]);
++  const auto body = ir::As<ir::SeqStmts>(scope->body_);
++  if (!body || body->stmts_.size() != 4) return false;
++  const auto transpose_assignment = ir::As<ir::AssignStmt>(body->stmts_[2]);
++  const auto transpose_call =
++      transpose_assignment
++          ? ir::As<ir::Call>(transpose_assignment->value_)
++          : nullptr;
++  return transpose_call && ir::IsOp(transpose_call, "tile.transpose_view") &&
++         ir::As<ir::ForStmt>(body->stmts_[3]) != nullptr;
++}
++
++NativeTileAttentionGraph AnalyzeNativeTileAttention(
++    const ir::ProgramPtr& program) {
++  const auto& [global, function] = *program->functions_.begin();
++  if (!global || !function || global->name_ != function->name_ ||
++      function->requires_runtime_binding_ ||
++      function->func_type_ != ir::FunctionType::Orchestration ||
++      !function->level_.has_value() || *function->level_ != ir::Level::CHIP ||
++      !function->role_.has_value() || *function->role_ != ir::Role::Orchestrator ||
++      !function->attrs_.empty()) {
++    Reject("native attention must be one canonical CHIP @pl.jit function",
++           function ? &function->span_ : &program->span_);
++  }
++  if (function->params_.size() != 5 ||
++      function->param_directions_.size() != 5 ||
++      function->param_directions_[0] != ir::ParamDirection::In ||
++      function->param_directions_[1] != ir::ParamDirection::In ||
++      function->param_directions_[2] != ir::ParamDirection::In ||
++      function->param_directions_[3] != ir::ParamDirection::In ||
++      function->param_directions_[4] != ir::ParamDirection::Out ||
++      function->return_types_.size() != 1) {
++    Reject("native attention requires Q, K, V, scale and one output",
++           &function->span_);
++  }
++  const StaticTensor query = ReadStaticTensor(
++      function->params_[0]->GetType(), function->params_[0]->span_,
++      "native attention query");
++  const StaticTensor key = ReadStaticTensor(
++      function->params_[1]->GetType(), function->params_[1]->span_,
++      "native attention key");
++  const StaticTensor value = ReadStaticTensor(
++      function->params_[2]->GetType(), function->params_[2]->span_,
++      "native attention value");
++  const StaticTensor result = ReadStaticTensor(
++      function->params_[4]->GetType(), function->params_[4]->span_,
++      "native attention output");
++  const StaticTensor declared = ReadStaticTensor(
++      function->return_types_[0], function->span_, "native attention return");
++  if (query.dtype != DataType::BF16 || key.dtype != DataType::BF16 ||
++      value.dtype != DataType::BF16 || result.dtype != DataType::BF16 ||
++      query.shape.size() != 2 || key.shape.size() != 2 ||
++      value.shape.size() != 2 || result.shape.size() != 2 ||
++      query.shape[1] != key.shape[1] || key.shape[0] != value.shape[0] ||
++      query.shape[0] != result.shape[0] ||
++      value.shape[1] != result.shape[1] || !SameTensor(result, declared) ||
++      query.shape[1] % 128 != 0 || key.shape[0] % 16 != 0 ||
++      value.shape[1] % 16 != 0) {
++    Reject("native attention Q/K/V/output shapes are incompatible",
++           &function->span_);
++  }
++
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  if (!top || top->stmts_.size() != 2 || !top->stmts_[0] || !top->stmts_[1]) {
++    Reject("native attention body must contain one pl.at scope and one return",
++           &function->span_);
++  }
++  const auto scope = ir::As<ir::InCoreScopeStmt>(top->stmts_[0]);
++  const auto returned = ir::As<ir::ReturnStmt>(top->stmts_[1]);
++  const auto returned_var =
++      returned && returned->value_.size() == 1
++          ? ir::As<ir::Var>(returned->value_[0])
++          : nullptr;
++  if (!scope || scope->split_ != ir::SplitMode::None || !scope->attrs_.empty() ||
++      !returned_var || returned_var.get() != function->params_[4].get()) {
++    Reject("native attention scope or return is invalid", &function->span_);
++  }
++  const auto body = ir::As<ir::SeqStmts>(scope->body_);
++  if (!body || body->stmts_.size() != 4) {
++    Reject("native attention scope must load K/V then run one row loop",
++           &scope->span_);
++  }
++  constexpr std::array<std::string_view, 3> kOuterOps = {
++      "tile.load", "tile.load", "tile.transpose_view"};
++  std::array<ir::AssignStmtPtr, 3> outer_assignments;
++  for (size_t index = 0; index < outer_assignments.size(); ++index) {
++    outer_assignments[index] = ir::As<ir::AssignStmt>(body->stmts_[index]);
++    const auto call = outer_assignments[index]
++                          ? ir::As<ir::Call>(outer_assignments[index]->value_)
++                          : nullptr;
++    if (!call || !ir::IsOp(call, std::string(kOuterOps[index]))) {
++      Reject("native attention K/V load sequence is invalid",
++             &body->stmts_[index]->span_);
++    }
++  }
++  const auto loop = ir::As<ir::ForStmt>(body->stmts_[3]);
++  const auto stop = loop ? ir::As<ir::ConstInt>(loop->stop_) : nullptr;
++  const auto leaf = loop ? ir::As<ir::SeqStmts>(loop->body_) : nullptr;
++  if (!loop || !stop || stop->value_ != query.shape[0] ||
++      loop->kind_ != ir::ForKind::Sequential || !loop->iter_args_.empty() ||
++      !loop->return_vars_.empty() || !leaf || leaf->stmts_.size() != 14) {
++    Reject("native attention query-row loop is invalid", &body->stmts_[3]->span_);
++  }
++  constexpr std::array<std::string_view, 13> kInnerOps = {
++      "tile.load",        "tile.matmul",       "tile.muls",
++      "tile.create",      "tile.row_max",      "tile.row_expand_sub",
++      "tile.exp",         "tile.create",       "tile.row_sum",
++      "tile.row_expand_div", "tile.cast",      "tile.matmul",
++      "tile.cast"};
++  std::array<ir::AssignStmtPtr, 13> inner_assignments;
++  std::array<ir::CallPtr, 13> inner_calls;
++  for (size_t index = 0; index < inner_assignments.size(); ++index) {
++    inner_assignments[index] = ir::As<ir::AssignStmt>(leaf->stmts_[index]);
++    inner_calls[index] = inner_assignments[index]
++                             ? ir::As<ir::Call>(inner_assignments[index]->value_)
++                             : nullptr;
++    if (!inner_calls[index] ||
++        !ir::IsOp(inner_calls[index], std::string(kInnerOps[index]))) {
++      Reject("native attention tile operation sequence is invalid",
++             &leaf->stmts_[index]->span_);
++    }
++  }
++  const auto store_statement = ir::As<ir::EvalStmt>(leaf->stmts_.back());
++  const auto store_call =
++      store_statement ? ir::As<ir::Call>(store_statement->expr_) : nullptr;
++  if (!store_call || !ir::IsOp(store_call, "tile.store") ||
++      store_call->args_.size() != 3) {
++    Reject("native attention row must end in one tile.store",
++           &leaf->stmts_.back()->span_);
++  }
++  const auto scale = inner_calls[2]->args_.size() == 2
++                         ? ir::As<ir::ConstFloat>(inner_calls[2]->args_[1])
++                         : nullptr;
++  const double expected_scale =
++      1.0 / std::sqrt(static_cast<double>(query.shape[1]));
++  if (!scale || !std::isfinite(scale->value_) ||
++      std::fabs(scale->value_ - expected_scale) >
++          std::numeric_limits<double>::epsilon()) {
++    Reject("native attention scale must equal 1/sqrt(head_dim)",
++           &inner_calls[2]->span_);
++  }
++  return NativeTileAttentionGraph{query, key, value, result, scale->value_};
++}
++
+ bool IsNativeTileRopeCandidate(const ir::ProgramPtr& program) {
+   if (!IsNativeTilePointwiseCandidate(program)) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+@@ -2580,6 +2737,108 @@ std::string EmitNativeTileRopeSource(const NativeTileRopeGraph& graph) {
+   return source;
+ }
+ 
++std::string EmitNativeTileAttentionSource(
++    const NativeTileAttentionGraph& graph) {
++  StaticTensor key_transposed = graph.key;
++  std::swap(key_transposed.shape[0], key_transposed.shape[1]);
++  key_transposed.dense_strides =
++      MakeDenseStridesForMetadata(key_transposed.shape);
++  StaticTensor score{DataType::FP32,
++                     {graph.query.shape[0], graph.key.shape[0]}, {}};
++  score.dense_strides = MakeDenseStridesForMetadata(score.shape);
++  StaticTensor row = score;
++  row.shape[1] = 1;
++  row.dense_strides = {1, 1};
++  StaticTensor probability = score;
++  probability.dtype = DataType::BF16;
++  StaticTensor accumulation = graph.result;
++  accumulation.dtype = DataType::FP32;
++
++  const std::string query_type = TensorTypeText(graph.query);
++  const std::string key_type = TensorTypeText(graph.key);
++  const std::string key_transposed_type = TensorTypeText(key_transposed);
++  const std::string value_type = TensorTypeText(graph.value);
++  const std::string score_type = TensorTypeText(score);
++  const std::string row_type = TensorTypeText(row);
++  const std::string probability_type = TensorTypeText(probability);
++  const std::string accumulation_type = TensorTypeText(accumulation);
++  const std::string result_type = TensorTypeText(graph.result);
++
++  std::string source;
++  source.reserve(4096);
++  source += "module {\n  nv_tensor_ir.graph @";
++  source += kFusedPointwiseEntryName;
++  source += "(\n    %arg0: ";
++  source += TensorWithStrideText(graph.query);
++  source += ",\n    %arg1: ";
++  source += TensorWithStrideText(graph.key);
++  source += ",\n    %arg2: ";
++  source += TensorWithStrideText(graph.value);
++  source += "\n  ) -> (";
++  source += TensorWithStrideText(graph.result);
++  source += ") {\n    %kt = transpose %arg1 permutation = [1, 0] : ";
++  source += key_type;
++  source += " -> ";
++  source += key_transposed_type;
++  source += "\n    %scores = matmul(%arg0, %kt)\n      : (";
++  source += query_type;
++  source += ", ";
++  source += key_transposed_type;
++  source += ") -> ";
++  source += score_type;
++  source += "\n    %scale = constant ";
++  AppendFloat(source, graph.scale);
++  source += " : f32\n    %scale_splat = splat %scale : ";
++  source += score_type;
++  source += "\n    %scaled = mul %scores, %scale_splat : ";
++  source += score_type;
++  source += "\n    %rowmax = reduce(%scaled) <dimensions = [1], reduction_mode = <max>> : ";
++  source += score_type;
++  source += " -> ";
++  source += row_type;
++  source += "\n    %max_broadcast = broadcast %rowmax : ";
++  source += row_type;
++  source += " -> ";
++  source += score_type;
++  source += "\n    %centered = sub %scaled, %max_broadcast : ";
++  source += score_type;
++  source += "\n    %exponent = exp %centered : ";
++  source += score_type;
++  source += "\n    %rowsum = reduce(%exponent) <dimensions = [1], reduction_mode = <add>> : ";
++  source += score_type;
++  source += " -> ";
++  source += row_type;
++  source += "\n    %inverse = reciprocal %rowsum : ";
++  source += row_type;
++  source += "\n    %inverse_broadcast = broadcast %inverse : ";
++  source += row_type;
++  source += " -> ";
++  source += score_type;
++  source += "\n    %probability_f32 = mul %exponent, %inverse_broadcast : ";
++  source += score_type;
++  source += "\n    %probability = convert %probability_f32 : ";
++  source += score_type;
++  source += " -> ";
++  source += probability_type;
++  source += "\n    %mixed = matmul(%probability, %arg2)\n      : (";
++  source += probability_type;
++  source += ", ";
++  source += value_type;
++  source += ") -> ";
++  source += accumulation_type;
++  source += "\n    %result0 = convert %mixed : ";
++  source += accumulation_type;
++  source += " -> ";
++  source += result_type;
++  source += "\n    results %result0 : ";
++  source += result_type;
++  source += "\n  }\n}\n";
++  if (source.size() > kMaximumCanonicalSourceBytes) {
++    Reject("canonical TensorIR source exceeds 16 MiB");
++  }
++  return source;
++}
++
+ bool IsLegacyStaticAddV1Candidate(const ir::ProgramPtr& program) {
+   if (!program || program->functions_.size() != 1) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+@@ -2752,11 +3011,11 @@ TensorIrModule::TensorIrModule(TensorIrModuleKind kind, std::string canonical_so
+       }
+       return expands;
+     };
+-    if (!std::all_of(value_metadata_.begin() + 1, value_metadata_.end(),
++    if (kind_ == TensorIrModuleKind::LegacyStaticAddV1 &&
++        !std::all_of(value_metadata_.begin() + 1, value_metadata_.end(),
+                      [&](const TensorIrValueMetadata& value) {
+                        return same_value_type(value_metadata_[0], value) ||
+-                              (kind_ == TensorIrModuleKind::FusedPointwiseV2 &&
+-                               broadcast_compatible(value, value_metadata_[0]));
++                              broadcast_compatible(value, value_metadata_[0]);
+                      })) {
+       InternalReject("TensorIR module value metadata must have identical types and layouts");
+     }
+@@ -2948,6 +3207,25 @@ TensorIrModule EmitLegacyStaticAddV1(const ir::ProgramPtr& program) {
+ }  // namespace detail
+ 
+ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
++  if (IsNativeTileAttentionCandidate(program)) {
++    const NativeTileAttentionGraph graph = AnalyzeNativeTileAttention(program);
++    std::vector<TensorIrValueMetadata> metadata;
++    metadata.reserve(4);
++    const std::array<StaticTensor, 3> inputs = {
++        graph.query, graph.key, graph.value};
++    for (uint32_t index = 0; index < inputs.size(); ++index) {
++      metadata.push_back(TensorIrValueMetadata(
++          TensorIrValueRole::Input, index, inputs[index].dtype,
++          inputs[index].shape, inputs[index].dense_strides,
++          /*has_explicit_strides=*/true));
++    }
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
++        graph.result.dense_strides, /*has_explicit_strides=*/true));
++    return TensorIrModule(TensorIrModuleKind::FusedPointwiseV2,
++                          EmitNativeTileAttentionSource(graph),
++                          std::move(metadata), /*input_count=*/3);
++  }
+   if (IsNativeTileRopeCandidate(program)) {
+     const NativeTileRopeGraph graph = AnalyzeNativeTileRope(program);
+     std::vector<TensorIrValueMetadata> metadata;
+diff --git a/src/compiler/structured_tensor_ir_build_spec.cpp b/src/compiler/structured_tensor_ir_build_spec.cpp
+index 8140351745f83489345f824eda56b3619f79ef44..a28b0c4cddcb6e5c0989bfae581d63b8badafc3f 100644
+--- a/src/compiler/structured_tensor_ir_build_spec.cpp
++++ b/src/compiler/structured_tensor_ir_build_spec.cpp
+@@ -365,7 +365,7 @@ void ValidateFusedPointwiseSchedule(
+   if (module.GetKind() != codegen::nvidia::TensorIrModuleKind::FusedPointwiseV2) return;
+   INTERNAL_CHECK(!module.GetValueMetadata().empty())
+       << "fused pointwise v2 module has no value metadata";
+-  const std::vector<int64_t>& shape = module.GetValueMetadata()[0].GetShape();
++  const std::vector<int64_t>& shape = module.GetValueMetadata().back().GetShape();
+   const std::vector<uint32_t>& tile_sizes = resolved_options.tile_sizes;
+   CHECK(!tile_sizes.empty())
+       << "fused pointwise v2 requires at least one tile dimension";
+@@ -578,7 +578,7 @@ uint32_t ExpectedFusedPointwiseGridX(
+   INTERNAL_CHECK(!prepared.GetValueMetadata().empty())
+       << "fused pointwise v2 preparation has no value metadata";
+   const uint64_t grid_x = FusedPointwiseGridX(
+-      prepared.GetValueMetadata()[0].GetShape(),
++      prepared.GetValueMetadata().back().GetShape(),
+       prepared.GetResolvedOptions().tile_sizes);
+   INTERNAL_CHECK(grid_x <= std::numeric_limits<uint32_t>::max())
+       << "fused pointwise v2 grid exceeds uint32 after preparation";
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index cd1fd2681a124c96905885c7a64495fc8485bba0..79cdb743b4de41b47ac0c3a17993d4a8122890aa 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -109,6 +109,46 @@ def _native_tile_rope(
+     return out
+ 
+ 
++@pl.jit
++def _native_tile_attention(
++    query: pl.Tensor[[2, 128], pl.BF16],
++    key: pl.Tensor[[128, 128], pl.BF16],
++    value: pl.Tensor[[128, 128], pl.BF16],
++    scale: pl.FP32,
++    out: pl.Out[pl.Tensor[[2, 128], pl.BF16]],
++):
++    with pl.at(level=pl.Level.CORE_GROUP):
++        key_tile = pl.load(
++            key, [0, 0], [128, 128], target_memory=pl.MemorySpace.Mat
++        )
++        value_tile = pl.load(
++            value, [0, 0], [128, 128], target_memory=pl.MemorySpace.Mat
++        )
++        key_transposed = pl.tile.transpose_view(key_tile)
++        for row in pl.range(2):
++            query_tile = pl.load(
++                query, [row, 0], [1, 128], target_memory=pl.MemorySpace.Mat
++            )
++            score = pl.matmul(query_tile, key_transposed, out_dtype=pl.FP32)
++            scaled = pl.mul(score, scale)
++            max_scratch = pl.create_tile(
++                [1, 128], dtype=pl.FP32, target_memory=pl.MemorySpace.Vec
++            )
++            row_max = pl.row_max(scaled, max_scratch)
++            centered = pl.row_expand_sub(scaled, row_max)
++            exponent = pl.exp(centered)
++            sum_scratch = pl.create_tile(
++                [1, 128], dtype=pl.FP32, target_memory=pl.MemorySpace.Vec
++            )
++            row_sum = pl.row_sum(exponent, sum_scratch)
++            probability = pl.row_expand_div(exponent, row_sum)
++            probability_bf16 = pl.cast(probability, target_type=pl.BF16)
++            mixed = pl.matmul(probability_bf16, value_tile, out_dtype=pl.FP32)
++            result = pl.cast(mixed, target_type=pl.BF16)
++            pl.store(result, [row, 0], out)
++    return out
++
++
+ def _program() -> ir.Program:
+     span = ir.Span("structured_compile_test.py", 1, 1)
+     tensor_type = ir.TensorType([8, 8], pypto.DataType.FP32)
+@@ -389,6 +429,22 @@ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+     ]
+     assert not rope.artifact.fallback_used
+ 
++    attention = compile_structured_strict(
++        _native_tile_attention.specialize(scale=0.08838834764831843),
++        request,
++        _schedule([1, 64]),
++    )
++    attention_kernel = attention.artifact.kernel_abi
++    assert attention_kernel.entry_function_name == "pypto_fused_pointwise_v2"
++    assert attention_kernel.grid_abi.static_dimensions == [4, 1, 1]
++    assert attention_kernel.grid_abi.tile_sizes == [1, 64]
++    assert attention_kernel.argument_layout.input_operand_count == 3
++    assert attention_kernel.argument_layout.total_kernel_argument_count == 4
++    assert [
++        d.shape for d in attention_kernel.argument_layout.operand_descriptors
++    ] == [[2, 128], [128, 128], [128, 128], [2, 128]]
++    assert not attention.artifact.fallback_used
++
+ 
+ def test_compile_structured_strict_functional() -> None:
+     info = get_nvidia_backend_build_info()
+@@ -404,6 +460,7 @@ def test_compile_structured_strict_functional() -> None:
+             _native_tiled_add.specialize(),
+             _native_tile_rmsnorm.specialize(),
+             _native_tile_rope.specialize(),
++            _native_tile_attention.specialize(scale=0.08838834764831843),
+             _row_reduction_program([32, 17], pypto.DataType.FP32, "tensor.row_sum"),
+         ):
+             with pytest.raises(ValueError, match="requires the compiled private NVIDIA backend"):

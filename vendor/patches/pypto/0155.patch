@@ -1,0 +1,629 @@
+From e85c1ed30a1eec501732584f852cea88d0249eca Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 07:42:26 +0800
+Subject: [PATCH 155/212] Add stateful causal convolution emitter
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 588 +++++++++++++++++++++++
+ 1 file changed, 588 insertions(+)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index b6653323e8780c803d306031257b89cbcd1b008f..4a69f49d45fd9ef646306735cff73c24cf096016 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -139,6 +139,18 @@ struct NativeTileCausalConvGraph {
+   StaticTensor result;
+ };
+ 
++struct NativeTileStatefulCausalConvGraph {
++  StaticTensor input;
++  StaticTensor weight;
++  StaticTensor state;
++  StaticTensor state_indices;
++  StaticTensor result;
++  int64_t batch_size;
++  int64_t tokens_per_request;
++  int64_t channels;
++  int64_t state_slots;
++};
++
+ struct NativeTileGatherRowsGraph {
+   StaticTensor data;
+   StaticTensor indices;
+@@ -1185,6 +1197,393 @@ std::string EmitNativeTileGatedRmsNormSource(
+   return source;
+ }
+ 
++std::string EmitNativeTileStatefulCausalConvSource(
++    const NativeTileStatefulCausalConvGraph& graph) {
++  const int64_t state_width = graph.channels * 3;
++  StaticTensor indices_i32 = graph.state_indices;
++  indices_i32.dtype = DataType::INT32;
++  StaticTensor indices_full{DataType::INT32,
++                            {graph.batch_size, state_width}, {}};
++  indices_full.dense_strides =
++      MakeDenseStridesForMetadata(indices_full.shape);
++  StaticTensor state_rows{DataType::BF16,
++                          {graph.batch_size, state_width}, {}};
++  state_rows.dense_strides = MakeDenseStridesForMetadata(state_rows.shape);
++  StaticTensor state_block_flat{DataType::BF16, {1, 128 * 3}, {}};
++  state_block_flat.dense_strides =
++      MakeDenseStridesForMetadata(state_block_flat.shape);
++  StaticTensor state_block{DataType::BF16, {128, 3}, {}};
++  state_block.dense_strides = MakeDenseStridesForMetadata(state_block.shape);
++  StaticTensor wide_state_block = state_block;
++  wide_state_block.dtype = DataType::FP32;
++  StaticTensor column{DataType::FP32, {128, 1}, {}};
++  column.dense_strides = MakeDenseStridesForMetadata(column.shape);
++  StaticTensor bf16_column = column;
++  bf16_column.dtype = DataType::BF16;
++  StaticTensor weight_block{DataType::BF16, {128, 4}, {}};
++  weight_block.dense_strides =
++      MakeDenseStridesForMetadata(weight_block.shape);
++  StaticTensor wide_weight_block = weight_block;
++  wide_weight_block.dtype = DataType::FP32;
++  StaticTensor input_box{DataType::BF16, {1, 1, 128}, {}};
++  input_box.dense_strides = MakeDenseStridesForMetadata(input_box.shape);
++  StaticTensor output_box = input_box;
++  StaticTensor block_sequence{DataType::BF16,
++                              {1, graph.tokens_per_request, 128}, {}};
++  block_sequence.dense_strides =
++      MakeDenseStridesForMetadata(block_sequence.shape);
++  StaticTensor batch_result{DataType::BF16,
++                            {1, graph.tokens_per_request, graph.channels}, {}};
++  batch_result.dense_strides =
++      MakeDenseStridesForMetadata(batch_result.shape);
++  StaticTensor batch_state{DataType::BF16, {1, state_width}, {}};
++  batch_state.dense_strides = MakeDenseStridesForMetadata(batch_state.shape);
++
++  const std::string input_type = TensorTypeText(graph.input);
++  const std::string weight_type = TensorTypeText(graph.weight);
++  const std::string state_type = TensorTypeText(graph.state);
++  const std::string indices_type = TensorTypeText(graph.state_indices);
++  const std::string indices_i32_type = TensorTypeText(indices_i32);
++  const std::string indices_full_type = TensorTypeText(indices_full);
++  const std::string state_rows_type = TensorTypeText(state_rows);
++  const std::string state_block_flat_type = TensorTypeText(state_block_flat);
++  const std::string state_block_type = TensorTypeText(state_block);
++  const std::string wide_state_block_type =
++      TensorTypeText(wide_state_block);
++  const std::string column_type = TensorTypeText(column);
++  const std::string bf16_column_type = TensorTypeText(bf16_column);
++  const std::string weight_block_type = TensorTypeText(weight_block);
++  const std::string wide_weight_block_type =
++      TensorTypeText(wide_weight_block);
++  const std::string input_box_type = TensorTypeText(input_box);
++  const std::string output_box_type = TensorTypeText(output_box);
++  const std::string block_sequence_type = TensorTypeText(block_sequence);
++  const std::string batch_result_type = TensorTypeText(batch_result);
++  const std::string batch_state_type = TensorTypeText(batch_state);
++  const std::string result_type = TensorTypeText(graph.result);
++
++  std::string source;
++  source.reserve(8192);
++  source += "module {\n  nv_tensor_ir.graph @";
++  source += kFusedPointwiseEntryName;
++  source += "(\n    %arg0: ";
++  source += TensorWithStrideText(graph.input);
++  source += ",\n    %arg1: ";
++  source += TensorWithStrideText(graph.weight);
++  source += ",\n    %arg2: ";
++  source += TensorWithStrideText(graph.state);
++  source += ",\n    %arg3: ";
++  source += TensorWithStrideText(graph.state_indices);
++  source += "\n  ) -> (";
++  source += TensorWithStrideText(graph.result);
++  source += ") {\n";
++  std::string indices_value = "%arg3";
++  if (graph.state_indices.dtype == DataType::INT64) {
++    source += "    %state_indices32 = convert %arg3 : ";
++    source += indices_type;
++    source += " -> ";
++    source += indices_i32_type;
++    source += "\n";
++    indices_value = "%state_indices32";
++  }
++  source += "    %state_indices_full = broadcast ";
++  source += indices_value;
++  source += " : ";
++  source += indices_i32_type;
++  source += " -> ";
++  source += indices_full_type;
++  source += "\n    %state_rows = gather_rows %arg2, %state_indices_full : (";
++  source += state_type;
++  source += ", ";
++  source += indices_full_type;
++  source += ") -> ";
++  source += state_rows_type;
++  source += "\n    %one = constant 1.0 : f32";
++  source += "\n    %one_column = splat %one : ";
++  source += column_type;
++
++  std::vector<std::string> batch_outputs;
++  std::vector<std::string> batch_states;
++  batch_outputs.reserve(static_cast<size_t>(graph.batch_size));
++  batch_states.reserve(static_cast<size_t>(graph.batch_size));
++  const int64_t channel_blocks = graph.channels / 128;
++  for (int64_t batch = 0; batch < graph.batch_size; ++batch) {
++    std::vector<std::string> block_outputs;
++    std::vector<std::string> block_states;
++    block_outputs.reserve(static_cast<size_t>(channel_blocks));
++    block_states.reserve(static_cast<size_t>(channel_blocks));
++    for (int64_t block = 0; block < channel_blocks; ++block) {
++      const int64_t channel_offset = block * 128;
++      const int64_t state_offset = block * 128 * 3;
++      const std::string block_suffix =
++          "b" + std::to_string(batch) + "_c" + std::to_string(block);
++      source += "\n    %state_flat_" + block_suffix +
++                " = slice %state_rows starts = [" + std::to_string(batch) +
++                ", " + std::to_string(state_offset) + "] limits = [" +
++                std::to_string(batch + 1) + ", " +
++                std::to_string(state_offset + 128 * 3) +
++                "] strides = [1, 1] : ";
++      source += state_rows_type;
++      source += " -> ";
++      source += state_block_flat_type;
++      source += "\n    %state_block_" + block_suffix +
++                " = reshape %state_flat_" + block_suffix + " : ";
++      source += state_block_flat_type;
++      source += " -> ";
++      source += state_block_type;
++      source += "\n    %state_wide_" + block_suffix +
++                " = convert %state_block_" + block_suffix + " : ";
++      source += state_block_type;
++      source += " -> ";
++      source += wide_state_block_type;
++      std::array<std::string, 3> history;
++      for (size_t index = 0; index < history.size(); ++index) {
++        history[index] = "%history" + std::to_string(index) + "_" + block_suffix;
++        source += "\n    " + history[index] + " = slice %state_wide_" +
++                  block_suffix + " starts = [0, " + std::to_string(index) +
++                  "] limits = [128, " + std::to_string(index + 1) +
++                  "] strides = [1, 1] : ";
++        source += wide_state_block_type;
++        source += " -> ";
++        source += column_type;
++      }
++      source += "\n    %weight_block_" + block_suffix +
++                " = slice %arg1 starts = [" + std::to_string(channel_offset) +
++                ", 0] limits = [" + std::to_string(channel_offset + 128) +
++                ", 4] strides = [1, 1] : ";
++      source += weight_type;
++      source += " -> ";
++      source += weight_block_type;
++      source += "\n    %weight_wide_" + block_suffix +
++                " = convert %weight_block_" + block_suffix + " : ";
++      source += weight_block_type;
++      source += " -> ";
++      source += wide_weight_block_type;
++      std::array<std::string, 4> weights;
++      for (size_t index = 0; index < weights.size(); ++index) {
++        weights[index] = "%weight" + std::to_string(index) + "_" + block_suffix;
++        source += "\n    " + weights[index] + " = slice %weight_wide_" +
++                  block_suffix + " starts = [0, " + std::to_string(index) +
++                  "] limits = [128, " + std::to_string(index + 1) +
++                  "] strides = [1, 1] : ";
++        source += wide_weight_block_type;
++        source += " -> ";
++        source += column_type;
++      }
++
++      std::vector<std::string> token_outputs;
++      token_outputs.reserve(static_cast<size_t>(graph.tokens_per_request));
++      for (int64_t token = 0; token < graph.tokens_per_request; ++token) {
++        const std::string suffix =
++            block_suffix + "_t" + std::to_string(token);
++        source += "\n    %current_box_" + suffix +
++                  " = slice %arg0 starts = [" + std::to_string(batch) +
++                  ", " + std::to_string(token) + ", " +
++                  std::to_string(channel_offset) + "] limits = [" +
++                  std::to_string(batch + 1) + ", " +
++                  std::to_string(token + 1) + ", " +
++                  std::to_string(channel_offset + 128) +
++                  "] strides = [1, 1, 1] : ";
++        source += input_type;
++        source += " -> ";
++        source += input_box_type;
++        source += "\n    %current_bf16_" + suffix +
++                  " = reshape %current_box_" + suffix + " : ";
++        source += input_box_type;
++        source += " -> ";
++        source += bf16_column_type;
++        source += "\n    %current_" + suffix + " = convert %current_bf16_" +
++                  suffix + " : ";
++        source += bf16_column_type;
++        source += " -> ";
++        source += column_type;
++        std::array<std::string, 4> terms;
++        for (size_t index = 0; index < terms.size(); ++index) {
++          terms[index] = "%term" + std::to_string(index) + "_" + suffix;
++          const std::string &value = index == 3 ? "%current_" + suffix
++                                                : history[index];
++          source += "\n    " + terms[index] + " = mul " + value + ", " +
++                    weights[index] + " : ";
++          source += column_type;
++        }
++        source += "\n    %sum01_" + suffix + " = add " + terms[0] + ", " +
++                  terms[1] + " : ";
++        source += column_type;
++        source += "\n    %sum23_" + suffix + " = add " + terms[2] + ", " +
++                  terms[3] + " : ";
++        source += column_type;
++        source += "\n    %convolution_" + suffix + " = add %sum01_" + suffix +
++                  ", %sum23_" + suffix + " : ";
++        source += column_type;
++        source += "\n    %negative_" + suffix + " = neg %convolution_" +
++                  suffix + " : ";
++        source += column_type;
++        source += "\n    %exponent_" + suffix + " = exp %negative_" + suffix +
++                  " : ";
++        source += column_type;
++        source += "\n    %denominator_" + suffix + " = add %exponent_" +
++                  suffix + ", %one_column : ";
++        source += column_type;
++        source += "\n    %sigmoid_" + suffix + " = reciprocal %denominator_" +
++                  suffix + " : ";
++        source += column_type;
++        source += "\n    %activated_" + suffix + " = mul %convolution_" +
++                  suffix + ", %sigmoid_" + suffix + " : ";
++        source += column_type;
++        source += "\n    %result_column_" + suffix +
++                  " = convert %activated_" + suffix + " : ";
++        source += column_type;
++        source += " -> ";
++        source += bf16_column_type;
++        source += "\n    %output_box_" + suffix +
++                  " = reshape %result_column_" + suffix + " : ";
++        source += bf16_column_type;
++        source += " -> ";
++        source += output_box_type;
++        token_outputs.push_back("%output_box_" + suffix);
++        history[0] = history[1];
++        history[1] = history[2];
++        history[2] = "%current_" + suffix;
++      }
++      std::string block_output;
++      if (graph.tokens_per_request == 1) {
++        block_output = token_outputs[0];
++      } else {
++        block_output = "%block_output_" + block_suffix;
++        source += "\n    " + block_output + " = concatenate ";
++        for (size_t index = 0; index < token_outputs.size(); ++index) {
++          if (index != 0) source += ", ";
++          source += token_outputs[index];
++        }
++        source += " dimension = 1 : (";
++        for (size_t index = 0; index < token_outputs.size(); ++index) {
++          if (index != 0) source += ", ";
++          source += output_box_type;
++        }
++        source += ") -> ";
++        source += block_sequence_type;
++      }
++      block_outputs.push_back(block_output);
++      const std::string final_wide = "%final_state_wide_" + block_suffix;
++      source += "\n    " + final_wide + " = concatenate " + history[0] +
++                ", " + history[1] + ", " + history[2] + " dimension = 1 : (";
++      source += column_type;
++      source += ", ";
++      source += column_type;
++      source += ", ";
++      source += column_type;
++      source += ") -> ";
++      source += wide_state_block_type;
++      const std::string final_bf16 = "%final_state_bf16_" + block_suffix;
++      source += "\n    " + final_bf16 + " = convert " + final_wide + " : ";
++      source += wide_state_block_type;
++      source += " -> ";
++      source += state_block_type;
++      const std::string final_flat = "%final_state_flat_" + block_suffix;
++      source += "\n    " + final_flat + " = reshape " + final_bf16 + " : ";
++      source += state_block_type;
++      source += " -> ";
++      source += state_block_flat_type;
++      block_states.push_back(final_flat);
++    }
++
++    std::string batch_output;
++    if (channel_blocks == 1) {
++      batch_output = block_outputs[0];
++    } else {
++      batch_output = "%batch_output_" + std::to_string(batch);
++      source += "\n    " + batch_output + " = concatenate ";
++      for (size_t index = 0; index < block_outputs.size(); ++index) {
++        if (index != 0) source += ", ";
++        source += block_outputs[index];
++      }
++      source += " dimension = 2 : (";
++      for (size_t index = 0; index < block_outputs.size(); ++index) {
++        if (index != 0) source += ", ";
++        source += block_sequence_type;
++      }
++      source += ") -> ";
++      source += batch_result_type;
++    }
++    batch_outputs.push_back(batch_output);
++    std::string batch_state_name;
++    if (channel_blocks == 1) {
++      batch_state_name = block_states[0];
++    } else {
++      batch_state_name = "%batch_state_" + std::to_string(batch);
++      source += "\n    " + batch_state_name + " = concatenate ";
++      for (size_t index = 0; index < block_states.size(); ++index) {
++        if (index != 0) source += ", ";
++        source += block_states[index];
++      }
++      source += " dimension = 1 : (";
++      for (size_t index = 0; index < block_states.size(); ++index) {
++        if (index != 0) source += ", ";
++        source += state_block_flat_type;
++      }
++      source += ") -> ";
++      source += batch_state_type;
++    }
++    batch_states.push_back(batch_state_name);
++  }
++
++  std::string result_value;
++  if (graph.batch_size == 1) {
++    result_value = batch_outputs[0];
++  } else {
++    result_value = "%result0";
++    source += "\n    %result0 = concatenate ";
++    for (size_t index = 0; index < batch_outputs.size(); ++index) {
++      if (index != 0) source += ", ";
++      source += batch_outputs[index];
++    }
++    source += " dimension = 0 : (";
++    for (size_t index = 0; index < batch_outputs.size(); ++index) {
++      if (index != 0) source += ", ";
++      source += batch_result_type;
++    }
++    source += ") -> ";
++    source += result_type;
++  }
++  std::string updated_states;
++  if (graph.batch_size == 1) {
++    updated_states = batch_states[0];
++  } else {
++    updated_states = "%updated_states";
++    source += "\n    %updated_states = concatenate ";
++    for (size_t index = 0; index < batch_states.size(); ++index) {
++      if (index != 0) source += ", ";
++      source += batch_states[index];
++    }
++    source += " dimension = 0 : (";
++    for (size_t index = 0; index < batch_states.size(); ++index) {
++      if (index != 0) source += ", ";
++      source += batch_state_type;
++    }
++    source += ") -> ";
++    source += state_rows_type;
++  }
++  source += "\n    %stored_state = scatter_rows %arg2, %state_indices_full, ";
++  source += updated_states;
++  source += " : (";
++  source += state_type;
++  source += ", ";
++  source += indices_full_type;
++  source += ", ";
++  source += state_rows_type;
++  source += ") -> ";
++  source += state_rows_type;
++  source += "\n    results ";
++  source += result_value;
++  source += " : ";
++  source += result_type;
++  source += "\n  }\n}\n";
++  if (source.size() > kMaximumCanonicalSourceBytes) {
++    Reject("canonical TensorIR source exceeds 16 MiB");
++  }
++  return source;
++}
++
+ std::string EmitNativeTileCausalConvSource(
+     const NativeTileCausalConvGraph& graph) {
+   StaticTensor compute = graph.input;
+@@ -3469,6 +3868,172 @@ NativeTileGatedRmsNormGraph AnalyzeNativeTileGatedRmsNorm(
+       input, gate, weight, result, meanScale->value_, epsilon->value_};
+ }
+ 
++bool IsNativeTileStatefulCausalConvCandidate(const ir::ProgramPtr& program) {
++  if (!IsNativeTilePointwiseCandidate(program)) return false;
++  const ir::FunctionPtr& function = program->functions_.begin()->second;
++  if (function->params_.size() != 5) return false;
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = top && !top->stmts_.empty()
++                         ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
++                         : nullptr;
++  const auto batch_loop = scope ? ir::As<ir::ForStmt>(scope->body_) : nullptr;
++  const auto batch_body =
++      batch_loop ? ir::As<ir::SeqStmts>(batch_loop->body_) : nullptr;
++  const auto channel_loop = batch_body && batch_body->stmts_.size() == 3
++                                ? ir::As<ir::ForStmt>(batch_body->stmts_[2])
++                                : nullptr;
++  const auto channel_body =
++      channel_loop ? ir::As<ir::SeqStmts>(channel_loop->body_) : nullptr;
++  const auto token_loop = channel_body && channel_body->stmts_.size() == 18
++                              ? ir::As<ir::ForStmt>(channel_body->stmts_[13])
++                              : nullptr;
++  const auto token_body =
++      token_loop ? ir::As<ir::SeqStmts>(token_loop->body_) : nullptr;
++  return token_body && token_body->stmts_.size() == 19;
++}
++
++NativeTileStatefulCausalConvGraph AnalyzeNativeTileStatefulCausalConv(
++    const ir::ProgramPtr& program) {
++  const auto& [global, function] = *program->functions_.begin();
++  if (!global || !function || global->name_ != function->name_ ||
++      function->requires_runtime_binding_ ||
++      function->func_type_ != ir::FunctionType::Orchestration ||
++      !function->level_.has_value() || *function->level_ != ir::Level::CHIP ||
++      !function->role_.has_value() ||
++      *function->role_ != ir::Role::Orchestrator || !function->attrs_.empty()) {
++    Reject("native stateful causal conv must be one canonical CHIP @pl.jit function",
++           function ? &function->span_ : &program->span_);
++  }
++  if (function->params_.size() != 5 ||
++      function->param_directions_.size() != 5 ||
++      function->return_types_.size() != 1 ||
++      function->param_directions_[0] != ir::ParamDirection::In ||
++      function->param_directions_[1] != ir::ParamDirection::In ||
++      function->param_directions_[2] != ir::ParamDirection::InOut ||
++      function->param_directions_[3] != ir::ParamDirection::In ||
++      function->param_directions_[4] != ir::ParamDirection::Out) {
++    Reject("native stateful causal conv parameter directions are invalid",
++           &function->span_);
++  }
++  const StaticTensor input = ReadStaticTensor(
++      function->params_[0]->GetType(), function->params_[0]->span_,
++      "native stateful causal conv input");
++  const StaticTensor weight = ReadStaticTensor(
++      function->params_[1]->GetType(), function->params_[1]->span_,
++      "native stateful causal conv weight");
++  const StaticTensor state = ReadStaticNdStridedTensor(
++      function->params_[2]->GetType(), function->params_[2]->span_,
++      "native stateful causal conv state");
++  const StaticTensor state_indices = ReadStaticIntegerTensor(
++      function->params_[3]->GetType(), function->params_[3]->span_,
++      "native stateful causal conv state indices");
++  const StaticTensor result = ReadStaticTensor(
++      function->params_[4]->GetType(), function->params_[4]->span_,
++      "native stateful causal conv output");
++  const StaticTensor declared = ReadStaticTensor(
++      function->return_types_[0], function->span_,
++      "native stateful causal conv declared output");
++  if (input.dtype != DataType::BF16 || input.shape.size() != 3 ||
++      weight.dtype != DataType::BF16 || weight.shape.size() != 2 ||
++      state.dtype != DataType::BF16 || state.shape.size() != 2 ||
++      state.dense_strides[1] != 1 ||
++      state.dense_strides[0] < state.shape[1] ||
++      (state_indices.dtype != DataType::INT32 &&
++       state_indices.dtype != DataType::INT64) ||
++      state_indices.shape.size() != 2 || !SameTensor(input, result) ||
++      !SameTensor(result, declared)) {
++    Reject("native stateful causal conv tensor types or ranks are invalid",
++           &function->span_);
++  }
++  const int64_t batch_size = input.shape[0];
++  const int64_t tokens_per_request = input.shape[1];
++  const int64_t channels = input.shape[2];
++  if (batch_size <= 0 || tokens_per_request <= 0 || channels <= 0 ||
++      channels % 128 != 0 || state.shape[0] <= 0 ||
++      channels > std::numeric_limits<int64_t>::max() / 3 ||
++      state.shape[1] != channels * 3 ||
++      weight.shape != std::vector<int64_t>{channels, 4} ||
++      state_indices.shape != std::vector<int64_t>{batch_size, 1}) {
++    Reject("native stateful causal conv static geometry is invalid",
++           &function->span_);
++  }
++
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = top && top->stmts_.size() == 2
++                         ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
++                         : nullptr;
++  const auto returned = top && top->stmts_.size() == 2
++                            ? ir::As<ir::ReturnStmt>(top->stmts_[1])
++                            : nullptr;
++  const auto returned_var =
++      returned && returned->value_.size() == 1
++          ? ir::As<ir::Var>(returned->value_[0])
++          : nullptr;
++  const auto batch_loop = scope ? ir::As<ir::ForStmt>(scope->body_) : nullptr;
++  const auto batch_stop =
++      batch_loop ? ir::As<ir::ConstInt>(batch_loop->stop_) : nullptr;
++  const auto batch_body =
++      batch_loop ? ir::As<ir::SeqStmts>(batch_loop->body_) : nullptr;
++  const auto channel_loop = batch_body && batch_body->stmts_.size() == 3
++                                ? ir::As<ir::ForStmt>(batch_body->stmts_[2])
++                                : nullptr;
++  const auto channel_stop =
++      channel_loop ? ir::As<ir::ConstInt>(channel_loop->stop_) : nullptr;
++  const auto channel_body =
++      channel_loop ? ir::As<ir::SeqStmts>(channel_loop->body_) : nullptr;
++  const auto token_loop = channel_body && channel_body->stmts_.size() == 18
++                              ? ir::As<ir::ForStmt>(channel_body->stmts_[13])
++                              : nullptr;
++  const auto token_stop =
++      token_loop ? ir::As<ir::ConstInt>(token_loop->stop_) : nullptr;
++  const auto token_body =
++      token_loop ? ir::As<ir::SeqStmts>(token_loop->body_) : nullptr;
++  if (!scope || scope->split_ != ir::SplitMode::None ||
++      !scope->attrs_.empty() || !returned_var ||
++      returned_var.get() != function->params_[4].get() || !batch_loop ||
++      !batch_stop || batch_stop->value_ != batch_size || !batch_body ||
++      !channel_loop || !channel_stop || channel_stop->value_ != channels / 128 ||
++      !channel_body || !token_loop || !token_stop ||
++      token_stop->value_ != tokens_per_request || !token_body ||
++      token_body->stmts_.size() != 19) {
++    Reject("native stateful causal conv loop structure is invalid",
++           &function->span_);
++  }
++  constexpr std::array<std::pair<size_t, std::string_view>, 15> kTokenOps = {{
++      {0, "tile.load"},    {1, "tile.reshape"}, {2, "tile.cast"},
++      {3, "tile.mul"},     {4, "tile.mul"},     {5, "tile.mul"},
++      {6, "tile.mul"},     {7, "tile.add"},     {8, "tile.neg"},
++      {9, "tile.exp"},     {10, "tile.adds"},   {11, "tile.recip"},
++      {12, "tile.mul"},    {13, "tile.cast"},   {14, "tile.reshape"},
++  }};
++  for (const auto& [index, expected] : kTokenOps) {
++    const auto assignment = ir::As<ir::AssignStmt>(token_body->stmts_[index]);
++    const auto call = assignment ? ir::As<ir::Call>(assignment->value_) : nullptr;
++    if (!call || !ir::IsOp(call, std::string(expected))) {
++      Reject("native stateful causal conv token sequence is invalid",
++             &token_body->stmts_[index]->span_);
++    }
++  }
++  const auto output_store = ir::As<ir::EvalStmt>(token_body->stmts_[15]);
++  const auto output_store_call =
++      output_store ? ir::As<ir::Call>(output_store->expr_) : nullptr;
++  const auto state_store = ir::As<ir::EvalStmt>(channel_body->stmts_[17]);
++  const auto state_store_call =
++      state_store ? ir::As<ir::Call>(state_store->expr_) : nullptr;
++  if (!output_store_call || !ir::IsOp(output_store_call, "tile.store") ||
++      output_store_call->args_.size() != 3 ||
++      output_store_call->args_[2].get() != function->params_[4].get() ||
++      !state_store_call || !ir::IsOp(state_store_call, "tile.store") ||
++      state_store_call->args_.size() != 3 ||
++      state_store_call->args_[2].get() != function->params_[2].get()) {
++    Reject("native stateful causal conv stores are invalid",
++           &channel_body->span_);
++  }
++  return NativeTileStatefulCausalConvGraph{
++      input, weight, state, state_indices, result, batch_size,
++      tokens_per_request, channels, state.shape[0]};
++}
++
+ bool IsNativeTileCausalConvCandidate(const ir::ProgramPtr& program) {
+   if (!IsNativeTilePointwiseCandidate(program)) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+@@ -8751,6 +9316,29 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+                           EmitRowReductionSource(graph), std::move(metadata),
+                           /*input_count=*/1);
+   }
++  if (IsNativeTileStatefulCausalConvCandidate(program)) {
++    const NativeTileStatefulCausalConvGraph graph =
++        AnalyzeNativeTileStatefulCausalConv(program);
++    std::vector<TensorIrValueMetadata> metadata;
++    metadata.reserve(5);
++    const std::array<StaticTensor, 4> inputs = {
++        graph.input, graph.weight, graph.state, graph.state_indices};
++    for (uint32_t index = 0; index < inputs.size(); ++index) {
++      metadata.push_back(TensorIrValueMetadata(
++          TensorIrValueRole::Input, index, inputs[index].dtype,
++          inputs[index].shape, inputs[index].dense_strides,
++          /*has_explicit_strides=*/true,
++          index == 2 ? TensorIrArgumentEffect::ReadWrite
++                     : TensorIrArgumentEffect::ReadOnly));
++    }
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Result, 0, graph.result.dtype,
++        graph.result.shape, graph.result.dense_strides,
++        /*has_explicit_strides=*/true));
++    return TensorIrModule(TensorIrModuleKind::FusedPointwise,
++                          EmitNativeTileStatefulCausalConvSource(graph),
++                          std::move(metadata), /*input_count=*/4);
++  }
+   if (IsNativeTileCausalConvCandidate(program)) {
+     const NativeTileCausalConvGraph graph = AnalyzeNativeTileCausalConv(program);
+     std::vector<TensorIrValueMetadata> metadata;

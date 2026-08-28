@@ -1,0 +1,69 @@
+{
+  "build_parallelism": 24,
+  "environment_prefixes": {
+    "baseline": "envs/sglang-baseline",
+    "candidate": "envs/pypto-release"
+  },
+  "build_tools": {
+    "build": "1.5.0",
+    "cmake": "3.31.10",
+    "gcc": "15.2.0",
+    "llvm_clang": "21.1.8",
+    "nanobind": "2.15.0",
+    "ninja": "1.13.0",
+    "scikit_build_core": "1.0.3"
+  },
+  "cuda": {
+    "cuda_python": "13.3.1",
+    "cuda_tile": "1.5.0",
+    "cupti_monitor": "torch.profiler._cupti_monitor",
+    "cupti_python_distribution_required": false,
+    "driver_validated": "610.74",
+    "nvidia_cuda_cupti": "13.0.85",
+    "tileiras": "13.3.36",
+    "toolkit": "13.3.73"
+  },
+  "gpu_validated": {
+    "compute_capability": "12.0",
+    "memory_mib": 24463,
+    "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+    "sm_count": 82
+  },
+  "platform": {
+    "architecture": "x86_64",
+    "distribution": "ubuntu",
+    "distribution_version": "26.04",
+    "wsl_supported": true
+  },
+  "python": {
+    "abi": "cp314",
+    "implementation": "CPython",
+    "version": "3.14.6"
+  },
+  "reproduction": {
+    "accelerated_clone_is_optional": true,
+    "artifact_lock": "environment/python-artifacts.json",
+    "conda_lock": "environment/conda-linux-64.lock",
+    "python_requirements_lock": "environment/python-requirements.lock",
+    "status": "formal-base-created-pip-check-clean-candidate-install-pending"
+  },
+  "release": "qwen35-sm120-v1",
+  "runtime_packages": {
+    "einops": "0.8.2",
+    "flashinfer_python": "0.6.17",
+    "msgpack": "1.2.1",
+    "numpy": "2.5.1",
+    "pytest": "9.1.1",
+    "pytest_xdist": "3.8.0",
+    "safetensors": "0.8.0",
+    "torch": "2.13.0+cu130",
+    "triton": "3.7.1"
+  },
+  "schema": 1,
+  "source_identities": {
+    "pytorch": "cf30153c4c131c8164ee7798e5022d810682e2cb",
+    "sglang": "71de97b264b04dcd514cf904003028aefe9775c8",
+    "triton": "5d6048aa0a324e090ada215b609ea76620133845"
+  },
+  "status": "formal_base_created_pip_check_clean_candidate_install_pending"
+}

@@ -1,0 +1,83 @@
+From 2cc286016d2dfe113d25432e3ba8f1e5ef1afe4d Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 10:52:24 +0800
+Subject: [PATCH 172/212] Preserve state row axes through index broadcasts
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 20 ++++++++++++++++++--
+ 1 file changed, 18 insertions(+), 2 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 4efe1bff50c286652322ebfc656ebd886072307c..3dd56e1791f358e57f978157b468e0ff7bcfaba2 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -1231,6 +1231,9 @@ std::string EmitNativeTileStatefulCausalConvSource(
+   const int64_t state_width = graph.channels * 3;
+   StaticTensor indices_i32 = graph.state_indices;
+   indices_i32.dtype = DataType::INT32;
++  StaticTensor indices_column{DataType::INT32, {graph.batch_size, 1}, {}};
++  indices_column.dense_strides =
++      MakeDenseStridesForMetadata(indices_column.shape);
+   StaticTensor indices_full{DataType::INT32,
+                             {graph.batch_size, state_width}, {}};
+   indices_full.dense_strides =
+@@ -1276,6 +1279,7 @@ std::string EmitNativeTileStatefulCausalConvSource(
+   const std::string state_type = TensorTypeText(graph.state);
+   const std::string indices_type = TensorTypeText(graph.state_indices);
+   const std::string indices_i32_type = TensorTypeText(indices_i32);
++  const std::string indices_column_type = TensorTypeText(indices_column);
+   const std::string indices_full_type = TensorTypeText(indices_full);
+   const std::string state_rows_type = TensorTypeText(state_rows);
+   const std::string state_block_flat_type = TensorTypeText(state_block_flat);
+@@ -1319,11 +1323,15 @@ std::string EmitNativeTileStatefulCausalConvSource(
+     source += "\n";
+     indices_value = "%state_indices32";
+   }
+-  source += "    %state_indices_full = broadcast ";
++  source += "    %state_indices_column = reshape ";
+   source += indices_value;
+   source += " : ";
+   source += indices_i32_type;
+   source += " -> ";
++  source += indices_column_type;
++  source += "\n    %state_indices_full = broadcast %state_indices_column : ";
++  source += indices_column_type;
++  source += " -> ";
+   source += indices_full_type;
+   source += "\n    %state_rows = gather_rows %arg2, %state_indices_full : (";
+   source += state_type;
+@@ -8429,6 +8437,9 @@ std::string EmitNativeTileGdnRecurrentSource(
+   const int64_t state_width = graph.value_heads * graph.value_dim * graph.key_dim;
+   StaticTensor indices_i32 = graph.state_indices;
+   indices_i32.dtype = DataType::INT32;
++  StaticTensor indices_column{DataType::INT32, {graph.batch_size, 1}, {}};
++  indices_column.dense_strides =
++      MakeDenseStridesForMetadata(indices_column.shape);
+   StaticTensor indices_full{DataType::INT32,
+                             {graph.batch_size, state_width}, {}};
+   indices_full.dense_strides =
+@@ -8504,6 +8515,7 @@ std::string EmitNativeTileGdnRecurrentSource(
+   const std::string state_type = TensorTypeText(graph.state);
+   const std::string indices_type = TensorTypeText(graph.state_indices);
+   const std::string indices_i32_type = TensorTypeText(indices_i32);
++  const std::string indices_column_type = TensorTypeText(indices_column);
+   const std::string indices_full_type = TensorTypeText(indices_full);
+   const std::string state_rows_type = TensorTypeText(state_rows);
+   const std::string state_head_flat_type = TensorTypeText(state_head_flat);
+@@ -8563,11 +8575,15 @@ std::string EmitNativeTileGdnRecurrentSource(
+     source += "\n";
+     indices_value = "%state_indices32";
+   }
+-  source += "    %state_indices_full = broadcast ";
++  source += "    %state_indices_column = reshape ";
+   source += indices_value;
+   source += " : ";
+   source += indices_i32_type;
+   source += " -> ";
++  source += indices_column_type;
++  source += "\n    %state_indices_full = broadcast %state_indices_column : ";
++  source += indices_column_type;
++  source += " -> ";
+   source += indices_full_type;
+   source += "\n    %state_rows = gather_rows %arg5, %state_indices_full : (";
+   source += state_type;

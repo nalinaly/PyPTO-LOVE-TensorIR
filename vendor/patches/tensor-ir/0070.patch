@@ -1,0 +1,128 @@
+From 1cae26fa225b377501ec9e544fa972590bd1b8fe Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 10:19:48 +0800
+Subject: [PATCH 70/82] Infer scatter row axes from indices
+
+---
+ .../LayoutPropagationImpl.cpp                 | 66 +++++++++----------
+ 1 file changed, 32 insertions(+), 34 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index a242c143b273b576476c640887796a027b1499f4..38f4515ce5212f1ac23c3717e338f07fa22a09d5 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -85,15 +85,6 @@ bool inferProjectedRowDimension(LayoutSourceAttrInterface source,
+   return false;
+ }
+ 
+-bool hasValidProjectedIndices(LayoutSourceAttrInterface source,
+-                              size_t iterationRank, size_t rowDim,
+-                              bool scalarRowProjection) {
+-  size_t inferredRowDim = iterationRank;
+-  return inferProjectedRowDimension(source, iterationRank, inferredRowDim) &&
+-         (scalarRowProjection ? inferredRowDim == iterationRank
+-                              : inferredRowDim == rowDim);
+-}
+-
+ class ConversionStateImpl : public ConversionState {
+ public:
+   ConversionStateImpl(MLIRContext *context, const TypeConverter &typeConverter,
+@@ -468,45 +459,46 @@ public:
+ 
+     auto dataLayout = dataSource.getCuteLayout();
+     size_t iterationRank = iterationTileShape.size();
++    const bool unitColumnDescriptor = sizes[1] == 1;
+     if (!tcg::is_static(dataLayout) || tcg::rank(dataLayout) != iterationRank ||
+-        strides[0] == strides[1]) {
++        (strides[0] == strides[1] && !unitColumnDescriptor)) {
+       return op.emitError(
+           "requires a static unambiguous rank-2 scatter projection");
+     }
+     size_t rowDim = iterationRank;
++    if (!inferProjectedRowDimension(state.layouts[1], iterationRank, rowDim)) {
++      return op.emitError("indices layout must be a static fused projection");
++    }
++    const bool scalarRowProjection = rowDim == iterationRank;
++    if (scalarRowProjection && op.getOutput().getType().getDimSize(0) != 1) {
++      return op.emitError(
++          "indices layout may omit the row axis only for a single-row scatter");
++    }
+     size_t columnDim = iterationRank;
+     for (size_t dim = 0; dim < iterationRank; ++dim) {
+       int64_t layoutStride =
+           tcg::static_size(tcg::get(dataLayout.stride(), dim));
+-      if (layoutStride == 0) {
++      if (dim == rowDim || layoutStride == 0) {
+         continue;
+       }
+-      if (layoutStride == strides[0] && rowDim == iterationRank) {
+-        rowDim = dim;
+-      } else if (layoutStride == strides[1] && columnDim == iterationRank) {
++      if (layoutStride == strides[1] && columnDim == iterationRank) {
+         columnDim = dim;
+       } else {
+         return op.emitError(
+             "data layout cannot be projected to one row and one column axis");
+       }
+     }
+-    if (columnDim == iterationRank || rowDim == columnDim) {
+-      return op.emitError("data layout is missing an unambiguous column axis");
+-    }
+-    const bool scalarRowProjection = rowDim == iterationRank;
+-    if (scalarRowProjection && op.getOutput().getType().getDimSize(0) != 1) {
+-      return op.emitError(
+-          "data layout may omit the row axis only for a single-row scatter");
+-    }
+-
+-    if (!hasValidProjectedIndices(state.layouts[1], iterationRank, rowDim,
+-                                  scalarRowProjection)) {
+-      return op.emitError("indices layout must be a static fused projection");
++    const bool scalarColumnProjection =
++        columnDim == iterationRank && unitColumnDescriptor &&
++        op.getOutput().getType().getDimSize(1) == 1;
++    if (!scalarColumnProjection && columnDim == iterationRank) {
++      return op.emitError("data layout is missing an unambiguous rank-2 axis");
+     }
+ 
+     int64_t rowTileSize =
+         scalarRowProjection ? 1 : iterationTileShape[rowDim];
+-    int64_t columnTileSize = iterationTileShape[columnDim];
++    int64_t columnTileSize =
++        scalarColumnProjection ? 1 : iterationTileShape[columnDim];
+     if (rowTileSize > std::numeric_limits<int32_t>::max() ||
+         columnTileSize > std::numeric_limits<int32_t>::max()) {
+       return op.emitError("scatter tile dimensions exceed i32");
+@@ -554,7 +546,9 @@ public:
+     if (!scalarRowProjection) {
+       projectedShape[rowDim] = rowTileSize;
+     }
+-    projectedShape[columnDim] = columnTileSize;
++    if (!scalarColumnProjection) {
++      projectedShape[columnDim] = columnTileSize;
++    }
+     Value tileToStore = updatesTile;
+     if (!llvm::equal(projectedShape, iterationTileShape)) {
+       auto projectedType = cuda_tile::TileType::get(projectedShape, dataElement);
+@@ -568,12 +562,16 @@ public:
+           rewriter, op.getLoc(), scatterType, tileToStore);
+     }
+ 
+-    Value columnScale = createConstant(
+-        rewriter, op.getLoc(),
+-        cast<ShapedType>(state.getIndexValues()[columnDim].getType()),
+-        columnTileSize);
+-    Value columnOffset = cuda_tile::MulIOp::create(
+-        rewriter, op.getLoc(), state.getIndexValues()[columnDim], columnScale);
++    Value columnOffset = state.zeroIndex;
++    if (!scalarColumnProjection) {
++      Value columnScale = createConstant(
++          rewriter, op.getLoc(),
++          cast<ShapedType>(state.getIndexValues()[columnDim].getType()),
++          columnTileSize);
++      columnOffset = cuda_tile::MulIOp::create(
++          rewriter, op.getLoc(), state.getIndexValues()[columnDim],
++          columnScale);
++    }
+     SmallVector<Value> scatterIndices{rowIndices, columnOffset};
+     Type tokenType = cuda_tile::TokenType::get(rewriter.getContext());
+     auto optimizationHints = createLoadStoreOptimizationHints(

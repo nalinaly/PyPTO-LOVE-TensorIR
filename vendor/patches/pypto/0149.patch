@@ -1,0 +1,980 @@
+From 55412d3368e682dee0b4b2d5b8a3b6861f602bdb Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 06:23:32 +0800
+Subject: [PATCH 149/212] Generalize paged decode compiler to static batches
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp     | 551 ++++++++++++-------
+ tests/ut/compiler/test_structured_compile.py | 146 ++---
+ 2 files changed, 436 insertions(+), 261 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index c847b65ff3a0cd93338f8a07c8590447743aff51..22e7ea04a30b660b1bfb01ef87d5c2b5d483a40f 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -3817,6 +3817,7 @@ struct NativeTilePagedDecodeGraph {
+   StaticTensor request_index;
+   StaticTensor valid_tokens;
+   StaticTensor result;
++  int64_t batch_size;
+   int64_t q_heads;
+   int64_t kv_heads;
+   int64_t tokens;
+@@ -4283,12 +4284,12 @@ bool IsNativeTilePagedDecodeCandidate(const ir::ProgramPtr& program) {
+   const auto scope = top && !top->stmts_.empty()
+                          ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
+                          : nullptr;
+-  const auto body = scope ? ir::As<ir::SeqStmts>(scope->body_) : nullptr;
+-  const auto q_loop = body && body->stmts_.size() == 1
+-                          ? ir::As<ir::ForStmt>(body->stmts_[0])
++  const auto batch_loop = scope ? ir::As<ir::ForStmt>(scope->body_) : nullptr;
++  const auto q_loop = batch_loop
++                          ? ir::As<ir::ForStmt>(batch_loop->body_)
+                           : nullptr;
+   const auto q_body = q_loop ? ir::As<ir::SeqStmts>(q_loop->body_) : nullptr;
+-  if (!q_body || q_body->stmts_.size() != 27) return false;
++  if (!q_body || q_body->stmts_.size() != 29) return false;
+   const auto slot_loop = ir::As<ir::ForStmt>(q_body->stmts_[8]);
+   const auto slot_body = slot_loop ? ir::As<ir::SeqStmts>(slot_loop->body_) : nullptr;
+   if (!slot_body || slot_body->stmts_.size() != 4) return false;
+@@ -4794,7 +4795,7 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+       req_to_token.dtype != DataType::INT32 ||
+       request_index.dtype != DataType::INT64 ||
+       valid_tokens.dtype != DataType::INT64 ||
+-      result.dtype != DataType::BF16 || query.shape.size() != 2 ||
++      result.dtype != DataType::BF16 || query.shape.size() != 3 ||
+       key_cache.shape.size() != 2 || !SameTensor(key_cache, value_cache) ||
+       req_to_token.shape.size() != 2 || request_index.shape.size() != 2 ||
+       valid_tokens.shape.size() != 2 || !SameTensor(query, result) ||
+@@ -4802,15 +4803,17 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+     Reject("native paged decode tensor types or ranks are invalid",
+            &function->span_);
+   }
+-  const int64_t q_heads = query.shape[0];
+-  const int64_t head_dim = query.shape[1];
++  const int64_t batch_size = query.shape[0];
++  const int64_t q_heads = query.shape[1];
++  const int64_t head_dim = query.shape[2];
+   const int64_t cache_rows = key_cache.shape[0];
+   const int64_t tokens = request_index.shape[1];
+-  if (q_heads <= 0 || head_dim <= 0 || cache_rows <= 0 || tokens <= 0 ||
++  if (batch_size <= 0 || q_heads <= 0 || head_dim <= 0 || cache_rows <= 0 ||
++      tokens <= 0 ||
+       head_dim % 128 != 0 || tokens % 16 != 0 ||
+       key_cache.shape[1] % head_dim != 0 ||
+       req_to_token.shape[0] <= 0 || req_to_token.shape[1] < tokens ||
+-      request_index.shape != std::vector<int64_t>{1, tokens} ||
++      request_index.shape != std::vector<int64_t>{batch_size, tokens} ||
+       valid_tokens.shape != request_index.shape) {
+     Reject("native paged decode static geometry is invalid", &function->span_);
+   }
+@@ -4818,8 +4821,8 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+   if (kv_heads <= 0 || q_heads % kv_heads != 0) {
+     Reject("native paged decode GQA head mapping is invalid", &function->span_);
+   }
+-  request_index.dense_strides = {0, 0};
+-  valid_tokens.dense_strides = {0, 0};
++  request_index.dense_strides = {1, 0};
++  valid_tokens.dense_strides = {1, 0};
+ 
+   const auto top = ir::As<ir::SeqStmts>(function->body_);
+   const auto scope = top && top->stmts_.size() == 2
+@@ -4837,24 +4840,46 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+       returned_var.get() != function->params_[7].get()) {
+     Reject("native paged decode scope or return is invalid", &function->span_);
+   }
+-  const auto body = ir::As<ir::SeqStmts>(scope->body_);
+-  const auto q_loop = body && body->stmts_.size() == 1
+-                          ? ir::As<ir::ForStmt>(body->stmts_[0])
++  const auto batch_loop = scope ? ir::As<ir::ForStmt>(scope->body_) : nullptr;
++  const auto batch_start =
++      batch_loop ? ir::As<ir::ConstInt>(batch_loop->start_) : nullptr;
++  const auto batch_stop =
++      batch_loop ? ir::As<ir::ConstInt>(batch_loop->stop_) : nullptr;
++  const auto batch_step =
++      batch_loop ? ir::As<ir::ConstInt>(batch_loop->step_) : nullptr;
++  const auto q_loop = batch_loop
++                          ? ir::As<ir::ForStmt>(batch_loop->body_)
+                           : nullptr;
++  const auto q_start = q_loop ? ir::As<ir::ConstInt>(q_loop->start_) : nullptr;
+   const auto q_stop = q_loop ? ir::As<ir::ConstInt>(q_loop->stop_) : nullptr;
++  const auto q_step = q_loop ? ir::As<ir::ConstInt>(q_loop->step_) : nullptr;
+   const auto q_body = q_loop ? ir::As<ir::SeqStmts>(q_loop->body_) : nullptr;
+-  if (!q_loop || !q_stop || q_stop->value_ != q_heads ||
+-      q_loop->kind_ != ir::ForKind::Sequential || !q_loop->iter_args_.empty() ||
+-      !q_loop->return_vars_.empty() || !q_body ||
+-      q_body->stmts_.size() != 27) {
++  if (!batch_loop || !batch_start || batch_start->value_ != 0 || !batch_stop ||
++      batch_stop->value_ != batch_size || !batch_step ||
++      batch_step->value_ != 1 ||
++      batch_loop->kind_ != ir::ForKind::Sequential ||
++      !batch_loop->iter_args_.empty() || !batch_loop->return_vars_.empty() ||
++      !batch_loop->attrs_.empty() || !q_loop || !q_start ||
++      q_start->value_ != 0 || !q_stop || q_stop->value_ != q_heads || !q_step ||
++      q_step->value_ != 1 || q_loop->kind_ != ir::ForKind::Sequential ||
++      !q_loop->iter_args_.empty() || !q_loop->return_vars_.empty() ||
++      !q_loop->attrs_.empty() || !q_body ||
++      q_body->stmts_.size() != 29) {
+     Reject("native paged decode query-head loop is invalid", &scope->span_);
+   }
+   const auto slot_loop = ir::As<ir::ForStmt>(q_body->stmts_[8]);
++  const auto slot_start =
++      slot_loop ? ir::As<ir::ConstInt>(slot_loop->start_) : nullptr;
+   const auto slot_stop = slot_loop ? ir::As<ir::ConstInt>(slot_loop->stop_) : nullptr;
++  const auto slot_step =
++      slot_loop ? ir::As<ir::ConstInt>(slot_loop->step_) : nullptr;
+   const auto slot_body =
+       slot_loop ? ir::As<ir::SeqStmts>(slot_loop->body_) : nullptr;
+-  if (!slot_loop || !slot_stop || slot_stop->value_ != tokens ||
+-      slot_loop->kind_ != ir::ForKind::Sequential || !slot_body ||
++  if (!slot_loop || !slot_start || slot_start->value_ != 0 || !slot_stop ||
++      slot_stop->value_ != tokens || !slot_step || slot_step->value_ != 1 ||
++      slot_loop->kind_ != ir::ForKind::Sequential ||
++      !slot_loop->iter_args_.empty() || !slot_loop->return_vars_.empty() ||
++      !slot_loop->attrs_.empty() || !slot_body ||
+       slot_body->stmts_.size() != 4) {
+     Reject("native paged decode physical-index loop is invalid",
+            &q_body->stmts_[8]->span_);
+@@ -4875,13 +4900,35 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+   const auto cast_type = valid_cast
+                              ? ir::As<ir::ScalarType>(valid_cast->GetType())
+                              : nullptr;
++  const auto request_indices =
++      request_call && request_call->args_.size() == 2
++          ? ir::As<ir::MakeTuple>(request_call->args_[1])
++          : nullptr;
++  const auto valid_indices =
++      valid_call && valid_call->args_.size() == 2
++          ? ir::As<ir::MakeTuple>(valid_call->args_[1])
++          : nullptr;
++  const auto request_column =
++      request_indices && request_indices->elements_.size() == 2
++          ? ir::As<ir::ConstInt>(request_indices->elements_[1])
++          : nullptr;
++  const auto valid_column =
++      valid_indices && valid_indices->elements_.size() == 2
++          ? ir::As<ir::ConstInt>(valid_indices->elements_[1])
++          : nullptr;
+   if (!request_assignment || !request_assignment->var_ || !request_call ||
+       !ir::IsOp(request_call, "tensor.read") ||
+       request_call->args_.size() != 2 ||
+       request_call->args_[0].get() != function->params_[4].get() ||
++      !request_indices || request_indices->elements_.size() != 2 ||
++      request_indices->elements_[0].get() != batch_loop->loop_var_.get() ||
++      !request_column || request_column->value_ != 0 ||
+       !valid_assignment || !valid_assignment->var_ || !valid_call ||
+       !ir::IsOp(valid_call, "tensor.read") || valid_call->args_.size() != 2 ||
+       valid_call->args_[0].get() != function->params_[5].get() ||
++      !valid_indices || valid_indices->elements_.size() != 2 ||
++      valid_indices->elements_[0].get() != batch_loop->loop_var_.get() ||
++      !valid_column || valid_column->value_ != 0 ||
+       !cast_assignment || !cast_assignment->var_ || !valid_cast ||
+       valid_cast->operand_.get() != valid_assignment->var_.get() ||
+       !cast_type || cast_type->dtype_ != DataType::INT32) {
+@@ -4893,10 +4940,17 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+   const auto physical_call = physical_assignment
+                                  ? ir::As<ir::Call>(physical_assignment->value_)
+                                  : nullptr;
++  const auto physical_indices =
++      physical_call && physical_call->args_.size() == 2
++          ? ir::As<ir::MakeTuple>(physical_call->args_[1])
++          : nullptr;
+   if (!physical_assignment || !physical_assignment->var_ || !physical_call ||
+       !ir::IsOp(physical_call, "tensor.read") ||
+       physical_call->args_.size() != 2 ||
+-      physical_call->args_[0].get() != function->params_[3].get()) {
++      physical_call->args_[0].get() != function->params_[3].get() ||
++      !physical_indices || physical_indices->elements_.size() != 2 ||
++      physical_indices->elements_[0].get() != request_assignment->var_.get() ||
++      physical_indices->elements_[1].get() != slot_loop->loop_var_.get()) {
+     Reject("native paged decode request-table lookup is invalid",
+            &slot_body->stmts_[0]->span_);
+   }
+@@ -4908,15 +4962,16 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+              &slot_body->stmts_[index]->span_);
+     }
+   }
+-  constexpr std::array<std::string_view, 17> kExpectedOps = {
+-      "tile.load",           "tile.matmul",         "tile.muls",
+-      "tile.ci",             "tile.cmps",           "tile.create",
+-      "tile.sels",           "tile.create",         "tile.row_max",
+-      "tile.row_expand_sub", "tile.exp",            "tile.create",
+-      "tile.row_sum",        "tile.row_expand_div", "tile.cast",
+-      "tile.matmul",         "tile.cast"};
+-  std::array<ir::AssignStmtPtr, 17> assignments;
+-  std::array<ir::CallPtr, 17> calls;
++  constexpr std::array<std::string_view, 19> kExpectedOps = {
++      "tile.load",           "tile.reshape",        "tile.matmul",
++      "tile.muls",           "tile.ci",             "tile.cmps",
++      "tile.create",         "tile.sels",           "tile.create",
++      "tile.row_max",        "tile.row_expand_sub", "tile.exp",
++      "tile.create",         "tile.row_sum",        "tile.row_expand_div",
++      "tile.cast",           "tile.matmul",         "tile.cast",
++      "tile.reshape"};
++  std::array<ir::AssignStmtPtr, 19> assignments;
++  std::array<ir::CallPtr, 19> calls;
+   for (size_t index = 0; index < calls.size(); ++index) {
+     assignments[index] = ir::As<ir::AssignStmt>(q_body->stmts_[9 + index]);
+     calls[index] = assignments[index] && assignments[index]->var_
+@@ -4929,22 +4984,22 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+     }
+   }
+   const StaticTensor position_tile = ReadStaticTile(
+-      assignments[3]->var_->GetType(), assignments[3]->var_->span_,
++      assignments[4]->var_->GetType(), assignments[4]->var_->span_,
+       "native paged decode mask positions");
+   const StaticTensor masked_score = ReadStaticTile(
+-      assignments[6]->var_->GetType(), assignments[6]->var_->span_,
++      assignments[7]->var_->GetType(), assignments[7]->var_->span_,
+       "native paged decode masked score");
+   const StaticTensor mask_tile = ReadStaticTile(
+-      assignments[4]->var_->GetType(), assignments[4]->var_->span_,
++      assignments[5]->var_->GetType(), assignments[5]->var_->span_,
+       "native paged decode valid mask");
+   const StaticTensor mask_scratch = ReadStaticTile(
+-      assignments[5]->var_->GetType(), assignments[5]->var_->span_,
++      assignments[6]->var_->GetType(), assignments[6]->var_->span_,
+       "native paged decode mask scratch");
+-  const auto position_start = calls[3]->args_.size() == 2
+-                                  ? ir::As<ir::ConstInt>(calls[3]->args_[0])
++  const auto position_start = calls[4]->args_.size() == 2
++                                  ? ir::As<ir::ConstInt>(calls[4]->args_[0])
+                                   : nullptr;
+-  const auto mask_floor = calls[6]->args_.size() == 4
+-                              ? ir::As<ir::ConstFloat>(calls[6]->args_[3])
++  const auto mask_floor = calls[7]->args_.size() == 4
++                              ? ir::As<ir::ConstFloat>(calls[7]->args_[3])
+                               : nullptr;
+   const int64_t mask_columns =
+       (tokens / 256 + (tokens % 256 == 0 ? 0 : 1)) * 32;
+@@ -4958,34 +5013,66 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+       position_start->value_ != 0 ||
+       masked_score.dtype != DataType::FP32 ||
+       masked_score.shape != std::vector<int64_t>{1, tokens} ||
+-      calls[4]->args_.size() != 2 ||
+-      calls[4]->args_[0].get() != assignments[3]->var_.get() ||
+-      calls[4]->args_[1].get() != cast_assignment->var_.get() ||
+-      !calls[4]->HasKwarg("cmp_type") ||
+-      calls[4]->GetKwarg<int>("cmp_type") != 2 ||
+-      calls[6]->args_.size() != 4 ||
+-      calls[6]->args_[0].get() != assignments[4]->var_.get() ||
+-      calls[6]->args_[1].get() != assignments[2]->var_.get() ||
+-      calls[6]->args_[2].get() != assignments[5]->var_.get() || !mask_floor ||
++      calls[5]->args_.size() != 2 ||
++      calls[5]->args_[0].get() != assignments[4]->var_.get() ||
++      calls[5]->args_[1].get() != cast_assignment->var_.get() ||
++      !calls[5]->HasKwarg("cmp_type") ||
++      calls[5]->GetKwarg<int>("cmp_type") != 2 ||
++      calls[7]->args_.size() != 4 ||
++      calls[7]->args_[0].get() != assignments[5]->var_.get() ||
++      calls[7]->args_[1].get() != assignments[3]->var_.get() ||
++      calls[7]->args_[2].get() != assignments[6]->var_.get() || !mask_floor ||
+       mask_floor->dtype() != DataType::FP32 ||
+       mask_floor->value_ !=
+           -static_cast<double>(std::numeric_limits<float>::max()) ||
+-      calls[8]->args_.empty() ||
+-      calls[8]->args_[0].get() != assignments[6]->var_.get() ||
+       calls[9]->args_.empty() ||
+-      calls[9]->args_[0].get() != assignments[6]->var_.get()) {
++      calls[9]->args_[0].get() != assignments[7]->var_.get() ||
++      calls[10]->args_.empty() ||
++      calls[10]->args_[0].get() != assignments[7]->var_.get()) {
+     Reject("native paged decode valid-length mask is invalid",
+            &q_body->stmts_[12]->span_);
+   }
+-  const auto store_statement = ir::As<ir::EvalStmt>(q_body->stmts_[26]);
++  const auto store_statement = ir::As<ir::EvalStmt>(q_body->stmts_[28]);
+   const auto store =
+       store_statement ? ir::As<ir::Call>(store_statement->expr_) : nullptr;
+-  if (!store || !ir::IsOp(store, "tile.store")) {
++  const auto query_offsets =
++      calls[0]->args_.size() >= 2
++          ? ir::As<ir::MakeTuple>(calls[0]->args_[1])
++          : nullptr;
++  const auto query_column =
++      query_offsets && query_offsets->elements_.size() == 3
++          ? ir::As<ir::ConstInt>(query_offsets->elements_[2])
++          : nullptr;
++  const auto store_offsets =
++      store && store->args_.size() == 3
++          ? ir::As<ir::MakeTuple>(store->args_[1])
++          : nullptr;
++  const auto store_column =
++      store_offsets && store_offsets->elements_.size() == 3
++          ? ir::As<ir::ConstInt>(store_offsets->elements_[2])
++          : nullptr;
++  if (!store || !ir::IsOp(store, "tile.store") || store->args_.size() != 3 ||
++      calls[0]->args_.empty() ||
++      calls[0]->args_[0].get() != function->params_[0].get() ||
++      !query_offsets || query_offsets->elements_.size() != 3 ||
++      query_offsets->elements_[0].get() != batch_loop->loop_var_.get() ||
++      query_offsets->elements_[1].get() != q_loop->loop_var_.get() ||
++      !query_column || query_column->value_ != 0 ||
++      calls[1]->args_.empty() ||
++      calls[1]->args_[0].get() != assignments[0]->var_.get() ||
++      calls[18]->args_.empty() ||
++      calls[18]->args_[0].get() != assignments[17]->var_.get() ||
++      store->args_[0].get() != assignments[18]->var_.get() ||
++      !store_offsets || store_offsets->elements_.size() != 3 ||
++      store_offsets->elements_[0].get() != batch_loop->loop_var_.get() ||
++      store_offsets->elements_[1].get() != q_loop->loop_var_.get() ||
++      !store_column || store_column->value_ != 0 ||
++      store->args_[2].get() != function->params_[7].get()) {
+     Reject("native paged decode must end in one output store",
+-           &q_body->stmts_[26]->span_);
++           &q_body->stmts_[28]->span_);
+   }
+-  const auto scale = calls[2]->args_.size() == 2
+-                         ? ir::As<ir::ConstFloat>(calls[2]->args_[1])
++  const auto scale = calls[3]->args_.size() == 2
++                         ? ir::As<ir::ConstFloat>(calls[3]->args_[1])
+                          : nullptr;
+   const double expected_scale =
+       1.0 / std::sqrt(static_cast<double>(head_dim));
+@@ -4993,12 +5080,12 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+       std::fabs(scale->value_ - expected_scale) >
+           std::numeric_limits<double>::epsilon()) {
+     Reject("native paged decode scale must equal 1/sqrt(head_dim)",
+-           &calls[2]->span_);
++           &calls[3]->span_);
+   }
+   return NativeTilePagedDecodeGraph{
+       query, key_cache, value_cache, req_to_token, request_index, valid_tokens,
+-      result,
+-      q_heads, kv_heads, tokens, head_dim, cache_rows, scale->value_};
++      result, batch_size, q_heads, kv_heads, tokens, head_dim, cache_rows,
++      scale->value_};
+ }
+ 
+ bool IsNativeTileAttentionCandidate(const ir::ProgramPtr& program) {
+@@ -6115,8 +6202,12 @@ std::string EmitNativeTilePagedDecodeSource(
+                               {graph.req_to_token.shape[0], graph.tokens}, {}};
+   request_prefix.dense_strides =
+       MakeDenseStridesForMetadata(request_prefix.shape);
+-  StaticTensor request_row{DataType::INT32, {1, graph.tokens}, {}};
+-  request_row.dense_strides = MakeDenseStridesForMetadata(request_row.shape);
++  StaticTensor request_matrix{DataType::INT32,
++                              {graph.batch_size, graph.tokens}, {}};
++  request_matrix.dense_strides =
++      MakeDenseStridesForMetadata(request_matrix.shape);
++  StaticTensor index_row{DataType::INT32, {1, graph.tokens}, {}};
++  index_row.dense_strides = MakeDenseStridesForMetadata(index_row.shape);
+   StaticTensor physical_column{DataType::INT32, {graph.tokens, 1}, {}};
+   physical_column.dense_strides =
+       MakeDenseStridesForMetadata(physical_column.shape);
+@@ -6124,7 +6215,6 @@ std::string EmitNativeTilePagedDecodeSource(
+                                 {graph.tokens, graph.head_dim}, {}};
+   physical_indices.dense_strides =
+       MakeDenseStridesForMetadata(physical_indices.shape);
+-  StaticTensor index_row = request_row;
+   StaticTensor cache_head{DataType::BF16,
+                           {graph.cache_rows, graph.head_dim}, {}};
+   cache_head.dense_strides = MakeDenseStridesForMetadata(cache_head.shape);
+@@ -6134,6 +6224,8 @@ std::string EmitNativeTilePagedDecodeSource(
+                                    {graph.head_dim, graph.tokens}, {}};
+   gathered_transposed.dense_strides =
+       MakeDenseStridesForMetadata(gathered_transposed.shape);
++  StaticTensor query_box{DataType::BF16, {1, 1, graph.head_dim}, {}};
++  query_box.dense_strides = MakeDenseStridesForMetadata(query_box.shape);
+   StaticTensor query_head{DataType::BF16, {1, graph.head_dim}, {}};
+   query_head.dense_strides = MakeDenseStridesForMetadata(query_head.shape);
+   StaticTensor score{DataType::FP32, {1, graph.tokens}, {}};
+@@ -6146,6 +6238,12 @@ std::string EmitNativeTilePagedDecodeSource(
+       MakeDenseStridesForMetadata(accumulation.shape);
+   StaticTensor head_result{DataType::BF16, {1, graph.head_dim}, {}};
+   head_result.dense_strides = MakeDenseStridesForMetadata(head_result.shape);
++  StaticTensor head_box{DataType::BF16, {1, 1, graph.head_dim}, {}};
++  head_box.dense_strides = MakeDenseStridesForMetadata(head_box.shape);
++  StaticTensor batch_result{DataType::BF16,
++                            {1, graph.q_heads, graph.head_dim}, {}};
++  batch_result.dense_strides =
++      MakeDenseStridesForMetadata(batch_result.shape);
+ 
+   const std::string query_type = TensorTypeText(graph.query);
+   const std::string cache_type = TensorTypeText(graph.key_cache);
+@@ -6154,22 +6252,26 @@ std::string EmitNativeTilePagedDecodeSource(
+   const std::string request_index_type = TensorTypeText(graph.request_index);
+   const std::string valid_tokens_type = TensorTypeText(graph.valid_tokens);
+   const std::string request_prefix_type = TensorTypeText(request_prefix);
++  const std::string request_matrix_type = TensorTypeText(request_matrix);
+   const std::string index_row_type = TensorTypeText(index_row);
+   const std::string physical_column_type = TensorTypeText(physical_column);
+   const std::string physical_indices_type = TensorTypeText(physical_indices);
+   const std::string gathered_type = TensorTypeText(gathered);
+   const std::string gathered_transposed_type =
+       TensorTypeText(gathered_transposed);
++  const std::string query_box_type = TensorTypeText(query_box);
+   const std::string query_head_type = TensorTypeText(query_head);
+   const std::string score_type = TensorTypeText(score);
+   const std::string row_type = TensorTypeText(row);
+   const std::string probability_type = TensorTypeText(probability);
+   const std::string accumulation_type = TensorTypeText(accumulation);
+   const std::string head_result_type = TensorTypeText(head_result);
++  const std::string head_box_type = TensorTypeText(head_box);
++  const std::string batch_result_type = TensorTypeText(batch_result);
+   const std::string result_type = TensorTypeText(graph.result);
+ 
+   std::string source;
+-  source.reserve(static_cast<size_t>(graph.q_heads) * 2048 + 2048);
++  source.reserve(4096);
+   source += "module {\n  nv_tensor_ir.graph @";
+   source += kFusedPointwiseEntryName;
+   source += "(\n    %arg0: ";
+@@ -6189,7 +6291,7 @@ std::string EmitNativeTilePagedDecodeSource(
+   source += ") {\n    %request_index32 = convert %arg4 : ";
+   source += request_index_type;
+   source += " -> ";
+-  source += index_row_type;
++  source += request_matrix_type;
+   source += "\n    %request_prefix = slice %arg3 starts = [0, 0] limits = [";
+   source += std::to_string(graph.req_to_token.shape[0]);
+   source += ", ";
+@@ -6202,25 +6304,15 @@ std::string EmitNativeTilePagedDecodeSource(
+             "%request_index32 : (";
+   source += request_prefix_type;
+   source += ", ";
+-  source += index_row_type;
++  source += request_matrix_type;
+   source += ") -> ";
+-  source += index_row_type;
+-  source += "\n    %physical_column = transpose %request_row permutation = [1, 0] : ";
+-  source += index_row_type;
+-  source += " -> ";
+-  source += physical_column_type;
+-  source += "\n    %physical_indices = broadcast %physical_column : ";
+-  source += physical_column_type;
+-  source += " -> ";
+-  source += physical_indices_type;
++  source += request_matrix_type;
+   source += "\n    %valid_tokens32 = convert %arg5 : ";
+   source += valid_tokens_type;
+   source += " -> ";
+-  source += index_row_type;
++  source += request_matrix_type;
+   source += "\n    %valid_positions = iota dimension = 1 : ";
+   source += index_row_type;
+-  source += "\n    %valid_mask = cmp %valid_positions lt %valid_tokens32 : ";
+-  source += index_row_type;
+   source += "\n    %mask_floor = constant 0xFF7FFFFF : f32";
+   source += "\n    %mask_floor_splat = splat %mask_floor : ";
+   source += score_type;
+@@ -6229,138 +6321,215 @@ std::string EmitNativeTilePagedDecodeSource(
+   source += " : f32\n    %scale_splat = splat %scale : ";
+   source += score_type;
+ 
++  std::vector<std::vector<std::string>> head_boxes(
++      static_cast<size_t>(graph.batch_size),
++      std::vector<std::string>(static_cast<size_t>(graph.q_heads)));
+   const int64_t queries_per_kv = graph.q_heads / graph.kv_heads;
+-  for (int64_t q_head = 0; q_head < graph.q_heads; ++q_head) {
+-    const int64_t kv_head = q_head / queries_per_kv;
+-    const int64_t column_start = kv_head * graph.head_dim;
+-    const int64_t column_limit = column_start + graph.head_dim;
+-    const std::string suffix = std::to_string(q_head);
+-    source += "\n    %k_table_" + suffix + " = slice %arg1 starts = [0, " +
+-              std::to_string(column_start) + "] limits = [" +
+-              std::to_string(graph.cache_rows) + ", " +
+-              std::to_string(column_limit) + "] strides = [1, 1] : ";
+-    source += cache_type;
++  for (int64_t batch = 0; batch < graph.batch_size; ++batch) {
++    const std::string batch_suffix = std::to_string(batch);
++    source += "\n    %request_row_" + batch_suffix +
++              " = slice %request_row starts = [" + std::to_string(batch) +
++              ", 0] limits = [" + std::to_string(batch + 1) + ", " +
++              std::to_string(graph.tokens) + "] strides = [1, 1] : ";
++    source += request_matrix_type;
+     source += " -> ";
+-    source += cache_head_type;
+-    source += "\n    %k_" + suffix +
+-              " = gather_rows %k_table_" + suffix +
+-              ", %physical_indices : (";
+-    source += cache_head_type;
+-    source += ", ";
+-    source += physical_indices_type;
+-    source += ") -> ";
+-    source += gathered_type;
+-    source += "\n    %kt_" + suffix + " = transpose %k_" + suffix +
++    source += index_row_type;
++    source += "\n    %physical_column_" + batch_suffix +
++              " = transpose %request_row_" + batch_suffix +
+               " permutation = [1, 0] : ";
+-    source += gathered_type;
+-    source += " -> ";
+-    source += gathered_transposed_type;
+-    source += "\n    %q_" + suffix + " = slice %arg0 starts = [" +
+-              std::to_string(q_head) + ", 0] limits = [" +
+-              std::to_string(q_head + 1) + ", " +
+-              std::to_string(graph.head_dim) + "] strides = [1, 1] : ";
+-    source += query_type;
+-    source += " -> ";
+-    source += query_head_type;
+-    source += "\n    %scores_" + suffix + " = matmul(%q_" + suffix +
+-              ", %kt_" + suffix + ") : (";
+-    source += query_head_type;
+-    source += ", ";
+-    source += gathered_transposed_type;
+-    source += ") -> ";
+-    source += score_type;
+-    source += "\n    %scaled_" + suffix + " = mul %scores_" + suffix +
+-              ", %scale_splat : ";
+-    source += score_type;
+-    source += "\n    %masked_scaled_" + suffix +
+-              " = binary_select %valid_mask, %scaled_" + suffix +
+-              ", %mask_floor_splat : ";
+-    source += score_type;
+-    source += "\n    %rowmax_" + suffix +
+-              " = reduce(%masked_scaled_" + suffix +
+-              ") <dimensions = [1], reduction_mode = <max>> : ";
+-    source += score_type;
+-    source += " -> ";
+-    source += row_type;
+-    source += "\n    %max_broadcast_" + suffix + " = broadcast %rowmax_" +
+-              suffix + " : ";
+-    source += row_type;
++    source += index_row_type;
+     source += " -> ";
+-    source += score_type;
+-    source += "\n    %centered_" + suffix + " = sub %masked_scaled_" +
+-              suffix + ", %max_broadcast_" + suffix + " : ";
+-    source += score_type;
+-    source += "\n    %exponent_" + suffix + " = exp %centered_" + suffix +
+-              " : ";
+-    source += score_type;
+-    source += "\n    %rowsum_" + suffix + " = reduce(%exponent_" + suffix +
+-              ") <dimensions = [1], reduction_mode = <add>> : ";
+-    source += score_type;
++    source += physical_column_type;
++    source += "\n    %physical_indices_" + batch_suffix +
++              " = broadcast %physical_column_" + batch_suffix + " : ";
++    source += physical_column_type;
+     source += " -> ";
+-    source += row_type;
+-    source += "\n    %inverse_" + suffix + " = reciprocal %rowsum_" + suffix +
+-              " : ";
+-    source += row_type;
+-    source += "\n    %inverse_broadcast_" + suffix +
+-              " = broadcast %inverse_" + suffix + " : ";
+-    source += row_type;
+-    source += " -> ";
+-    source += score_type;
+-    source += "\n    %probability_f32_" + suffix + " = mul %exponent_" +
+-              suffix + ", %inverse_broadcast_" + suffix + " : ";
+-    source += score_type;
+-    source += "\n    %probability_" + suffix +
+-              " = convert %probability_f32_" + suffix + " : ";
+-    source += score_type;
+-    source += " -> ";
+-    source += probability_type;
+-    source += "\n    %v_table_" + suffix + " = slice %arg2 starts = [0, " +
+-              std::to_string(column_start) + "] limits = [" +
+-              std::to_string(graph.cache_rows) + ", " +
+-              std::to_string(column_limit) + "] strides = [1, 1] : ";
+-    source += cache_type;
+-    source += " -> ";
+-    source += cache_head_type;
+-    source += "\n    %v_" + suffix +
+-              " = gather_rows %v_table_" + suffix +
+-              ", %physical_indices : (";
+-    source += cache_head_type;
+-    source += ", ";
+     source += physical_indices_type;
+-    source += ") -> ";
+-    source += gathered_type;
+-    source += "\n    %mixed_" + suffix + " = matmul(%probability_" + suffix +
+-              ", %v_" + suffix + ") : (";
+-    source += probability_type;
+-    source += ", ";
+-    source += gathered_type;
+-    source += ") -> ";
+-    source += accumulation_type;
+-    source += "\n    %head_" + suffix + " = convert %mixed_" + suffix + " : ";
+-    source += accumulation_type;
++    source += "\n    %valid_row_" + batch_suffix +
++              " = slice %valid_tokens32 starts = [" +
++              std::to_string(batch) + ", 0] limits = [" +
++              std::to_string(batch + 1) + ", " +
++              std::to_string(graph.tokens) + "] strides = [1, 1] : ";
++    source += request_matrix_type;
+     source += " -> ";
+-    source += head_result_type;
++    source += index_row_type;
++    source += "\n    %valid_mask_" + batch_suffix +
++              " = cmp %valid_positions lt %valid_row_" + batch_suffix + " : ";
++    source += index_row_type;
++
++    for (int64_t q_head = 0; q_head < graph.q_heads; ++q_head) {
++      const int64_t kv_head = q_head / queries_per_kv;
++      const int64_t column_start = kv_head * graph.head_dim;
++      const int64_t column_limit = column_start + graph.head_dim;
++      const std::string suffix =
++          "b" + batch_suffix + "_h" + std::to_string(q_head);
++      source += "\n    %k_table_" + suffix + " = slice %arg1 starts = [0, " +
++                std::to_string(column_start) + "] limits = [" +
++                std::to_string(graph.cache_rows) + ", " +
++                std::to_string(column_limit) + "] strides = [1, 1] : ";
++      source += cache_type;
++      source += " -> ";
++      source += cache_head_type;
++      source += "\n    %k_" + suffix + " = gather_rows %k_table_" + suffix +
++                ", %physical_indices_" + batch_suffix + " : (";
++      source += cache_head_type;
++      source += ", ";
++      source += physical_indices_type;
++      source += ") -> ";
++      source += gathered_type;
++      source += "\n    %kt_" + suffix + " = transpose %k_" + suffix +
++                " permutation = [1, 0] : ";
++      source += gathered_type;
++      source += " -> ";
++      source += gathered_transposed_type;
++      source += "\n    %q_box_" + suffix + " = slice %arg0 starts = [" +
++                std::to_string(batch) + ", " + std::to_string(q_head) +
++                ", 0] limits = [" + std::to_string(batch + 1) + ", " +
++                std::to_string(q_head + 1) + ", " +
++                std::to_string(graph.head_dim) + "] strides = [1, 1, 1] : ";
++      source += query_type;
++      source += " -> ";
++      source += query_box_type;
++      source += "\n    %q_" + suffix + " = reshape %q_box_" + suffix + " : ";
++      source += query_box_type;
++      source += " -> ";
++      source += query_head_type;
++      source += "\n    %scores_" + suffix + " = matmul(%q_" + suffix +
++                ", %kt_" + suffix + ") : (";
++      source += query_head_type;
++      source += ", ";
++      source += gathered_transposed_type;
++      source += ") -> ";
++      source += score_type;
++      source += "\n    %scaled_" + suffix + " = mul %scores_" + suffix +
++                ", %scale_splat : ";
++      source += score_type;
++      source += "\n    %masked_scaled_" + suffix +
++                " = binary_select %valid_mask_" + batch_suffix +
++                ", %scaled_" + suffix + ", %mask_floor_splat : ";
++      source += score_type;
++      source += "\n    %rowmax_" + suffix +
++                " = reduce(%masked_scaled_" + suffix +
++                ") <dimensions = [1], reduction_mode = <max>> : ";
++      source += score_type;
++      source += " -> ";
++      source += row_type;
++      source += "\n    %max_broadcast_" + suffix +
++                " = broadcast %rowmax_" + suffix + " : ";
++      source += row_type;
++      source += " -> ";
++      source += score_type;
++      source += "\n    %centered_" + suffix + " = sub %masked_scaled_" +
++                suffix + ", %max_broadcast_" + suffix + " : ";
++      source += score_type;
++      source += "\n    %exponent_" + suffix + " = exp %centered_" + suffix +
++                " : ";
++      source += score_type;
++      source += "\n    %rowsum_" + suffix +
++                " = reduce(%exponent_" + suffix +
++                ") <dimensions = [1], reduction_mode = <add>> : ";
++      source += score_type;
++      source += " -> ";
++      source += row_type;
++      source += "\n    %inverse_" + suffix + " = reciprocal %rowsum_" +
++                suffix + " : ";
++      source += row_type;
++      source += "\n    %inverse_broadcast_" + suffix +
++                " = broadcast %inverse_" + suffix + " : ";
++      source += row_type;
++      source += " -> ";
++      source += score_type;
++      source += "\n    %probability_f32_" + suffix + " = mul %exponent_" +
++                suffix + ", %inverse_broadcast_" + suffix + " : ";
++      source += score_type;
++      source += "\n    %probability_" + suffix +
++                " = convert %probability_f32_" + suffix + " : ";
++      source += score_type;
++      source += " -> ";
++      source += probability_type;
++      source += "\n    %v_table_" + suffix +
++                " = slice %arg2 starts = [0, " +
++                std::to_string(column_start) + "] limits = [" +
++                std::to_string(graph.cache_rows) + ", " +
++                std::to_string(column_limit) + "] strides = [1, 1] : ";
++      source += cache_type;
++      source += " -> ";
++      source += cache_head_type;
++      source += "\n    %v_" + suffix + " = gather_rows %v_table_" + suffix +
++                ", %physical_indices_" + batch_suffix + " : (";
++      source += cache_head_type;
++      source += ", ";
++      source += physical_indices_type;
++      source += ") -> ";
++      source += gathered_type;
++      source += "\n    %mixed_" + suffix +
++                " = matmul(%probability_" + suffix + ", %v_" + suffix +
++                ") : (";
++      source += probability_type;
++      source += ", ";
++      source += gathered_type;
++      source += ") -> ";
++      source += accumulation_type;
++      source += "\n    %head_" + suffix + " = convert %mixed_" + suffix +
++                " : ";
++      source += accumulation_type;
++      source += " -> ";
++      source += head_result_type;
++      source += "\n    %head_box_" + suffix + " = reshape %head_" + suffix +
++                " : ";
++      source += head_result_type;
++      source += " -> ";
++      source += head_box_type;
++      head_boxes[static_cast<size_t>(batch)][static_cast<size_t>(q_head)] =
++          "%head_box_" + suffix;
++    }
+   }
+ 
+-  if (graph.q_heads == 1) {
+-    source += "\n    results %head_0 : ";
+-    source += head_result_type;
++  std::vector<std::string> batch_values;
++  batch_values.reserve(static_cast<size_t>(graph.batch_size));
++  for (int64_t batch = 0; batch < graph.batch_size; ++batch) {
++    const auto& heads = head_boxes[static_cast<size_t>(batch)];
++    if (graph.q_heads == 1) {
++      batch_values.push_back(heads[0]);
++      continue;
++    }
++    const std::string batch_name = "%batch_" + std::to_string(batch);
++    source += "\n    " + batch_name + " = concatenate ";
++    for (size_t head = 0; head < heads.size(); ++head) {
++      if (head != 0) source += ", ";
++      source += heads[head];
++    }
++    source += " dimension = 1 : (";
++    for (size_t head = 0; head < heads.size(); ++head) {
++      if (head != 0) source += ", ";
++      source += head_box_type;
++    }
++    source += ") -> ";
++    source += batch_result_type;
++    batch_values.push_back(batch_name);
++  }
++  std::string final_value;
++  if (graph.batch_size == 1) {
++    final_value = batch_values[0];
+   } else {
++    final_value = "%result0";
+     source += "\n    %result0 = concatenate ";
+-    for (int64_t head = 0; head < graph.q_heads; ++head) {
+-      if (head != 0) source += ", ";
+-      source += "%head_" + std::to_string(head);
++    for (size_t batch = 0; batch < batch_values.size(); ++batch) {
++      if (batch != 0) source += ", ";
++      source += batch_values[batch];
+     }
+     source += " dimension = 0 : (";
+-    for (int64_t head = 0; head < graph.q_heads; ++head) {
+-      if (head != 0) source += ", ";
+-      source += head_result_type;
++    for (size_t batch = 0; batch < batch_values.size(); ++batch) {
++      if (batch != 0) source += ", ";
++      source += batch_result_type;
+     }
+     source += ") -> ";
+     source += result_type;
+-    source += "\n    results %result0 : ";
+-    source += result_type;
+   }
++  source += "\n    results ";
++  source += final_value;
++  source += " : ";
++  source += result_type;
+   source += "\n  }\n}\n";
+   if (source.size() > kMaximumCanonicalSourceBytes) {
+     Reject("canonical TensorIR source exceeds 16 MiB");
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index 56688b006747b4ac081add8f5df636cf92385357..4596802f3f9433e7d4ce4f67a3a745befef508bf 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -283,81 +283,87 @@ def _native_tile_attention(
+ 
+ @pl.jit
+ def _native_tile_paged_decode(
+-    query: pl.Tensor[[8, 256], pl.BF16],
++    query: pl.Tensor[[1, 8, 256], pl.BF16],
+     key_cache: pl.Tensor[[1024, 512], pl.BF16],
+     value_cache: pl.Tensor[[1024, 512], pl.BF16],
+     req_to_token: pl.Tensor[[65, 4096], pl.INT32],
+     request_index: pl.Tensor[[1, 16], pl.INT64],
+     valid_tokens: pl.Tensor[[1, 16], pl.INT64],
+     scale: pl.FP32,
+-    out: pl.Out[pl.Tensor[[8, 256], pl.BF16]],
++    out: pl.Out[pl.Tensor[[1, 8, 256], pl.BF16]],
+ ):
+     with pl.at(level=pl.Level.CORE_GROUP):
+-        for q_head in pl.range(8):
+-            kv_heads = key_cache.shape[1] // query.shape[1]
+-            queries_per_kv = query.shape[0] // kv_heads
+-            kv_head = q_head // queries_per_kv
+-            request_id = pl.read(request_index, [0, 0])
+-            valid_token_count_i64 = pl.read(valid_tokens, [0, 0])
+-            valid_token_count = pl.cast(valid_token_count_i64, pl.INT32)
+-            keys = pl.tile.create(
+-                [256, 16],
+-                dtype=pl.BF16,
+-                target_memory=pl.MemorySpace.Mat,
+-                transpose=True,
+-            )
+-            values = pl.tile.create(
+-                [16, 256], dtype=pl.BF16, target_memory=pl.MemorySpace.Mat
+-            )
+-            for slot in pl.range(16):
+-                physical = pl.read(req_to_token, [request_id, slot])
+-                cache_column = kv_head * 256
+-                keys = pl.tile.gather_row(
+-                    keys,
+-                    key_cache,
+-                    [0, slot],
+-                    [physical, cache_column],
+-                    [1, 256],
++        for batch_row in pl.range(1):
++            for q_head in pl.range(8):
++                kv_heads = key_cache.shape[1] // query.shape[2]
++                queries_per_kv = query.shape[1] // kv_heads
++                kv_head = q_head // queries_per_kv
++                request_id = pl.read(request_index, [batch_row, 0])
++                valid_token_count_i64 = pl.read(valid_tokens, [batch_row, 0])
++                valid_token_count = pl.cast(valid_token_count_i64, pl.INT32)
++                keys = pl.tile.create(
++                    [256, 16],
++                    dtype=pl.BF16,
++                    target_memory=pl.MemorySpace.Mat,
+                     transpose=True,
+                 )
+-                values = pl.tile.gather_row(
+-                    values,
+-                    value_cache,
+-                    [slot, 0],
+-                    [physical, cache_column],
+-                    [1, 256],
++                values = pl.tile.create(
++                    [16, 256], dtype=pl.BF16, target_memory=pl.MemorySpace.Mat
+                 )
+-            query_tile = pl.load(
+-                query, [q_head, 0], [1, 256], target_memory=pl.MemorySpace.Mat
+-            )
+-            score = pl.matmul(query_tile, keys, out_dtype=pl.FP32)
+-            scaled = pl.mul(score, scale)
+-            positions = pl.tile.ci(0, [1, 16], dtype=pl.INT32)
+-            valid_mask = pl.cmps(positions, valid_token_count, cmp_type=2)
+-            mask_scratch = pl.tile.create(
+-                [1, 32], dtype=pl.UINT8, target_memory=pl.MemorySpace.Vec
+-            )
+-            masked_scaled = pl.sels(
+-                valid_mask,
+-                scaled,
+-                mask_scratch,
+-                -3.4028234663852886e38,
+-            )
+-            max_scratch = pl.create_tile(
+-                [1, 16], dtype=pl.FP32, target_memory=pl.MemorySpace.Vec
+-            )
+-            row_max = pl.row_max(masked_scaled, max_scratch)
+-            centered = pl.row_expand_sub(masked_scaled, row_max)
+-            exponent = pl.exp(centered)
+-            sum_scratch = pl.create_tile(
+-                [1, 16], dtype=pl.FP32, target_memory=pl.MemorySpace.Vec
+-            )
+-            row_sum = pl.row_sum(exponent, sum_scratch)
+-            probability = pl.row_expand_div(exponent, row_sum)
+-            probability_bf16 = pl.cast(probability, target_type=pl.BF16)
+-            mixed = pl.matmul(probability_bf16, values, out_dtype=pl.FP32)
+-            result = pl.cast(mixed, target_type=pl.BF16)
+-            pl.store(result, [q_head, 0], out)
++                for slot in pl.range(16):
++                    physical = pl.read(req_to_token, [request_id, slot])
++                    cache_column = kv_head * 256
++                    keys = pl.tile.gather_row(
++                        keys,
++                        key_cache,
++                        [0, slot],
++                        [physical, cache_column],
++                        [1, 256],
++                        transpose=True,
++                    )
++                    values = pl.tile.gather_row(
++                        values,
++                        value_cache,
++                        [slot, 0],
++                        [physical, cache_column],
++                        [1, 256],
++                    )
++                query_box = pl.load(
++                    query,
++                    [batch_row, q_head, 0],
++                    [1, 1, 256],
++                    target_memory=pl.MemorySpace.Mat,
++                )
++                query_tile = pl.reshape(query_box, [1, 256])
++                score = pl.matmul(query_tile, keys, out_dtype=pl.FP32)
++                scaled = pl.mul(score, scale)
++                positions = pl.tile.ci(0, [1, 16], dtype=pl.INT32)
++                valid_mask = pl.cmps(positions, valid_token_count, cmp_type=2)
++                mask_scratch = pl.tile.create(
++                    [1, 32], dtype=pl.UINT8, target_memory=pl.MemorySpace.Vec
++                )
++                masked_scaled = pl.sels(
++                    valid_mask,
++                    scaled,
++                    mask_scratch,
++                    -3.4028234663852886e38,
++                )
++                max_scratch = pl.create_tile(
++                    [1, 16], dtype=pl.FP32, target_memory=pl.MemorySpace.Vec
++                )
++                row_max = pl.row_max(masked_scaled, max_scratch)
++                centered = pl.row_expand_sub(masked_scaled, row_max)
++                exponent = pl.exp(centered)
++                sum_scratch = pl.create_tile(
++                    [1, 16], dtype=pl.FP32, target_memory=pl.MemorySpace.Vec
++                )
++                row_sum = pl.row_sum(exponent, sum_scratch)
++                probability = pl.row_expand_div(exponent, row_sum)
++                probability_bf16 = pl.cast(probability, target_type=pl.BF16)
++                mixed = pl.matmul(probability_bf16, values, out_dtype=pl.FP32)
++                result = pl.cast(mixed, target_type=pl.BF16)
++                result_box = pl.reshape(result, [1, 1, 256])
++                pl.store(result_box, [batch_row, q_head, 0], out)
+     return out
+ 
+ 
+@@ -747,26 +753,26 @@ def _assert_native_paged_decode_compilation(request: CompileRequest) -> None:
+     paged_decode = compile_structured_strict(
+         _native_tile_paged_decode.specialize(scale=0.0625),
+         request,
+-        _schedule([1, 64]),
++        _schedule([1, 1, 64]),
+     )
+     kernel = paged_decode.artifact.kernel_abi
+     assert kernel.entry_function_name == "pypto_fused_pointwise"
+     assert kernel.grid_abi.static_dimensions == [32, 1, 1]
+-    assert kernel.grid_abi.tile_sizes == [1, 64]
++    assert kernel.grid_abi.tile_sizes == [1, 1, 64]
+     assert kernel.argument_layout.input_operand_count == 6
+     assert kernel.argument_layout.total_kernel_argument_count == 7
+     descriptors = kernel.argument_layout.operand_descriptors
+     assert [descriptor.shape for descriptor in descriptors] == [
+-        [8, 256],
++        [1, 8, 256],
+         [1024, 512],
+         [1024, 512],
+         [65, 4096],
+         [1, 16],
+         [1, 16],
+-        [8, 256],
++        [1, 8, 256],
+     ]
+-    assert descriptors[4].strides == [0, 0]
+-    assert descriptors[5].strides == [0, 0]
++    assert descriptors[4].strides == [1, 0]
++    assert descriptors[5].strides == [1, 0]
+     assert not paged_decode.artifact.fallback_used
+ 
+ 

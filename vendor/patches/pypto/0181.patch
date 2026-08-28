@@ -1,0 +1,30 @@
+From b09373353b7c622648534a9a44ccca44a159a479 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 12:05:24 +0800
+Subject: [PATCH 181/212] Lock split-layout diagnostics
+
+---
+ 3rdparty/nvidia/tensor-ir  | 2 +-
+ cmake/nvidia_backend.cmake | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index e8360893ca52cf1e9a45d11c7cf9f4dbb628f0df..2c68474e2e26729362e89362e6e89e0abb2a2649 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit e8360893ca52cf1e9a45d11c7cf9f4dbb628f0df
++Subproject commit 2c68474e2e26729362e89362e6e89e0abb2a2649
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 164c8b4920984b49a45b86c62d5dc64cf8df7170..39901a77d86180182a827506e0fc5ea3c9427914 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "e8360893ca52cf1e9a45d11c7cf9f4dbb628f0df")
++    "2c68474e2e26729362e89362e6e89e0abb2a2649")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

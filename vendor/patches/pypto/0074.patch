@@ -1,0 +1,76 @@
+From 6b77d6634f0039e1730a3c3766ea2fb6f960af30 Mon Sep 17 00:00:00 2001
+From: pypto zcode <zcode@pypto.local>
+Date: Thu, 27 Aug 2026 07:48:20 +0800
+Subject: [PATCH 074/212] test: repair matmul negative fixtures for the
+ replayed base
+
+The replayed candidates were source-reviewed but never built. Three
+negative fixtures aborted at construction instead of exercising their
+finalization rejections: the missing-direction matmul program must
+assert the ir::Function size invariant, the structured-matmul kernel
+options must declare explicit dynamic counts and stride flags like the
+row-reduction fixtures, and the uniform-ABI fixture must declare
+rank-sized dynamic counts so the layout constructs and the finalization
+'no uniform ABI' rejection is reachable. Fresh backend-OFF ctest is
+11/11.
+
+(cherry picked from commit 4b61e3b12d059960da6650606f0f6eec96748c39)
+---
+ .../ut/cpp/structured_tensor_ir_build_spec_test.cpp | 13 ++++++++++---
+ tests/ut/cpp/tensor_ir_codegen_test.cpp             | 12 +++++++-----
+ 2 files changed, 17 insertions(+), 8 deletions(-)
+
+diff --git a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+index 185a38cbdf497b29cf196a3399b13ef7c6b9d28b..19a728512203583846119a3826e7f0c1a0cbd6db 100644
+--- a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
++++ b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+@@ -657,9 +657,12 @@ KernelOptions StructuredMatmulKernelOptions(
+   options.static_grid = {grid_x, 1, 1};
+   options.tile_sizes = tile_sizes;
+   options.descriptors = DescriptorVector(
+-      TensorDescriptor(lhs_shape, dense_strides(lhs_shape)),
+-      TensorDescriptor(rhs_shape, dense_strides(rhs_shape)),
+-      TensorDescriptor(result_shape, dense_strides(result_shape)));
++      TensorDescriptor(lhs_shape, dense_strides(lhs_shape), 0, 0,
++                       lhs_shape.size() >= 2),
++      TensorDescriptor(rhs_shape, dense_strides(rhs_shape), 0, 0,
++                       rhs_shape.size() >= 2),
++      TensorDescriptor(result_shape, dense_strides(result_shape), 0, 0,
++                       result_shape.size() >= 2));
+   return options;
+ }
+ 
+@@ -1361,6 +1364,10 @@ int TestStructuredMatmulV4ProjectionAndFinalization() {
+                               "entry function name"));
+   KernelOptions uniform = StructuredMatmulKernelOptions();
+   uniform.uniform_signature = true;
++  uniform.descriptors = DescriptorVector(
++      TensorDescriptor({32, 128}, {128, 1}, 2, 2),
++      TensorDescriptor({128, 16}, {16, 1}, 2, 2),
++      TensorDescriptor({32, 16}, {16, 1}, 2, 2));
+   REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(uniform)),
+                               "no uniform ABI"));
+   KernelOptions flat_packing = StructuredMatmulKernelOptions();
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index 291ca790cfbeb6014e2e9dc8cc4be65167c7b2aa..03b8e80634d091ab23d789fe46b1fe2583ea0b2a 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -2111,11 +2111,13 @@ int TestStructuredMatmulV4Rejections() {
+       valid_body, {}, false, ir::FunctionType::Opaque, "matmul");
+   REQUIRE(Rejects([&] { (void)EmitTensorIr(wrong_direction); },
+                   "must have direction In"));
+-  auto missing_direction = MakeRawProgram(
+-      {valid.lhs, valid.rhs}, {ir::ParamDirection::In}, {valid.result_type},
+-      valid_body, {}, false, ir::FunctionType::Opaque, "matmul");
+-  REQUIRE(Rejects([&] { (void)EmitTensorIr(missing_direction); },
+-                  "parameter-direction count must be 2, got 1"));
++  REQUIRE(Rejects(
++      [&] {
++        (void)MakeRawProgram({valid.lhs, valid.rhs}, {ir::ParamDirection::In},
++                             {valid.result_type}, valid_body, {}, false,
++                             ir::FunctionType::Opaque, "matmul");
++      },
++      "params and param_directions must have same size, got 2 vs 1"));
+   auto missing_return_type = MakeProgram(
+       "matmul", {valid.lhs, valid.rhs},
+       {ir::ParamDirection::In, ir::ParamDirection::In}, {},

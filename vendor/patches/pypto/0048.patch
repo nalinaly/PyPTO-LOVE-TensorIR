@@ -1,0 +1,1465 @@
+From fa85e5a2c917af78ef94576073eb91c0891c4384 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 17:59:59 +0800
+Subject: [PATCH 048/212] compiler: version canonical schedule identity
+
+---
+ docs/en/dev/backend/01-nvidia-target-info.md |  28 +
+ docs/zh/dev/backend/01-nvidia-target-info.md |  25 +
+ include/pypto/compiler/kernel_build_spec.h   |  19 +
+ python/bindings/modules/compiler.cpp         |  29 +-
+ python/pypto/pypto_core/compiler.pyi         |  13 +
+ src/compiler/kernel_build_spec.cpp           | 142 ++++-
+ tests/ut/compiler/test_canonical_schedule.py | 338 ++++++++++
+ tests/ut/cpp/CMakeLists.txt                  |  25 +
+ tests/ut/cpp/canonical_schedule_test.cpp     | 616 +++++++++++++++++++
+ 9 files changed, 1202 insertions(+), 33 deletions(-)
+ create mode 100644 tests/ut/compiler/test_canonical_schedule.py
+ create mode 100644 tests/ut/cpp/canonical_schedule_test.cpp
+
+diff --git a/docs/en/dev/backend/01-nvidia-target-info.md b/docs/en/dev/backend/01-nvidia-target-info.md
+index 57cf026b493feecf1914a91f954400ed45bab4a8..b12d57f2d00e7959b3728edda0e689befac94631 100644
+--- a/docs/en/dev/backend/01-nvidia-target-info.md
++++ b/docs/en/dev/backend/01-nvidia-target-info.md
+@@ -125,6 +125,31 @@ keeps schedule identity generic and prevents a producer from hiding tile,
+ layout, persistence, CTA, warp, stage, or other byte-affecting choices behind
+ a process-local options object.
+ 
++`CanonicalSchedule` also has a standalone v1 identity. `serialize()` emits a
++three-field canonical MessagePack envelope, in lexical key order:
++
++| Key | V1 value |
++| --- | -------- |
++| `canonical_schedule_schema_version` | `1` |
++| `contract` | `pypto.canonical_schedule.v1` |
++| `resolved_schedule` | The eight-category map described above |
++
++`identity_digest` is the lowercase SHA-256 of that complete envelope.
++`deserialize()` accepts only exact canonical bytes and rejects malformed or
++trailing data, missing/duplicate/unknown/reordered fields, nonminimal scalar
++encodings, and unsupported schema or contract values. The envelope is capped
++at 1 MiB. Schema-shaped array, map, string, nesting, total-object, aggregate
++container-item, and binary-field limits are checked before MessagePack builds
++an object tree; binary, extension, and floating-point values are not part of
++this contract.
++
++The standalone envelope is not nested inside `KernelBuildSpec`.
++`KernelBuildSpec.resolved_schedule` retains the original bare eight-category
++body, byte for byte, so the existing KernelBuildSpec v1 wire format and digest
++remain unchanged. Conversely, standalone `CanonicalSchedule.deserialize()`
++rejects a bare body, and `KernelBuildSpec.deserialize()` rejects a standalone
++schedule envelope in its `resolved_schedule` field.
++
+ ```python
+ from pypto.compiler import (
+     CanonicalSchedule,
+@@ -148,6 +173,9 @@ resolved = CanonicalSchedule(
+     stage=[u64("count", 3)],
+     options=[ScheduleParameter("fast_math", ScheduleValueKind.Boolean, "false")],
+ )
++schedule_wire_bytes = resolved.serialize()
++assert resolved.contract == "pypto.canonical_schedule.v1"
++assert CanonicalSchedule.deserialize(schedule_wire_bytes).serialize() == schedule_wire_bytes
+ spec = KernelBuildSpec(
+     source_ir_digest="1" * 64,
+     callable_abi_digest="2" * 64,
+diff --git a/docs/zh/dev/backend/01-nvidia-target-info.md b/docs/zh/dev/backend/01-nvidia-target-info.md
+index 128dae7649d864e85607054fc20a6f6f8df7e493..ed6d89e3244593a8fec3c194c2b7f5ea04e6a0cb 100644
+--- a/docs/zh/dev/backend/01-nvidia-target-info.md
++++ b/docs/zh/dev/backend/01-nvidia-target-info.md
+@@ -108,6 +108,28 @@ parameter name 是 `cluster.x` 这类小写 dotted identifier。parameter 是 ty
+ 保持通用，也避免 producer 将 tile、layout、persistence、CTA、warp、stage 或其它
+ 影响 bytes 的选择隐藏在 process-local options object 中。
+ 
++`CanonicalSchedule` 还提供 standalone v1 identity。`serialize()` 按 key 的词法顺序
++生成包含三个字段的 canonical MessagePack envelope：
++
++| Key | V1 value |
++| --- | -------- |
++| `canonical_schedule_schema_version` | `1` |
++| `contract` | `pypto.canonical_schedule.v1` |
++| `resolved_schedule` | 上述八个 category 的 map |
++
++`identity_digest` 是完整 envelope 的小写 SHA-256。`deserialize()` 只接受精确的
++canonical bytes，并拒绝 malformed 或 trailing data、缺失/重复/未知/乱序字段、
++非最短 scalar encoding，以及不支持的 schema 或 contract。envelope 上限为 1 MiB。
++在 MessagePack 创建 object tree 之前，解析器会检查与 schema 对应的 array、map、
++string、nesting、total-object、aggregate container-item 与 binary-field 限制；本契约
++不允许 binary、extension 或 floating-point value。
++
++standalone envelope 不会嵌套进 `KernelBuildSpec`。
++`KernelBuildSpec.resolved_schedule` 仍然逐 byte 保留原有的八 category bare body，
++因此现有 KernelBuildSpec v1 wire format 与 digest 均不改变。反过来，standalone
++`CanonicalSchedule.deserialize()` 会拒绝 bare body，而 `KernelBuildSpec.deserialize()`
++会拒绝在 `resolved_schedule` 字段中出现 standalone schedule envelope。
++
+ ```python
+ from pypto.compiler import (
+     CanonicalSchedule,
+@@ -131,6 +153,9 @@ resolved = CanonicalSchedule(
+     stage=[u64("count", 3)],
+     options=[ScheduleParameter("fast_math", ScheduleValueKind.Boolean, "false")],
+ )
++schedule_wire_bytes = resolved.serialize()
++assert resolved.contract == "pypto.canonical_schedule.v1"
++assert CanonicalSchedule.deserialize(schedule_wire_bytes).serialize() == schedule_wire_bytes
+ spec = KernelBuildSpec(
+     source_ir_digest="1" * 64,
+     callable_abi_digest="2" * 64,
+diff --git a/include/pypto/compiler/kernel_build_spec.h b/include/pypto/compiler/kernel_build_spec.h
+index 4dcf8268330852568cbe1aa6ab0717d38bc1d1c9..d2d7e26b2fdba6a67a863f984db803670de7244f 100644
+--- a/include/pypto/compiler/kernel_build_spec.h
++++ b/include/pypto/compiler/kernel_build_spec.h
+@@ -12,9 +12,11 @@
+ #ifndef PYPTO_COMPILER_KERNEL_BUILD_SPEC_H_
+ #define PYPTO_COMPILER_KERNEL_BUILD_SPEC_H_
+ 
++#include <cstddef>
+ #include <cstdint>
+ #include <optional>
+ #include <string>
++#include <string_view>
+ #include <vector>
+ 
+ namespace pypto::compiler {
+@@ -68,6 +70,10 @@ class ScheduleParameter {
+  */
+ class CanonicalSchedule {
+  public:
++  static constexpr uint32_t kCanonicalScheduleSchemaVersion = 1;
++  static constexpr std::string_view kContract = "pypto.canonical_schedule.v1";
++  static constexpr size_t kMaximumSerializedCanonicalScheduleBytes = 1024 * 1024;
++
+   CanonicalSchedule() = delete;
+   CanonicalSchedule(std::vector<ScheduleParameter> schedule, std::vector<ScheduleParameter> tile,
+                     std::vector<ScheduleParameter> layout, std::vector<ScheduleParameter> persistence,
+@@ -78,6 +84,10 @@ class CanonicalSchedule {
+   CanonicalSchedule& operator=(const CanonicalSchedule&) = delete;
+   CanonicalSchedule& operator=(CanonicalSchedule&&) = delete;
+ 
++  [[nodiscard]] constexpr uint32_t GetCanonicalScheduleSchemaVersion() const noexcept {
++    return kCanonicalScheduleSchemaVersion;
++  }
++  [[nodiscard]] constexpr std::string_view GetContract() const noexcept { return kContract; }
+   [[nodiscard]] const std::vector<ScheduleParameter>& GetSchedule() const noexcept { return schedule_; }
+   [[nodiscard]] const std::vector<ScheduleParameter>& GetTile() const noexcept { return tile_; }
+   [[nodiscard]] const std::vector<ScheduleParameter>& GetLayout() const noexcept { return layout_; }
+@@ -87,6 +97,15 @@ class CanonicalSchedule {
+   [[nodiscard]] const std::vector<ScheduleParameter>& GetStage() const noexcept { return stage_; }
+   [[nodiscard]] const std::vector<ScheduleParameter>& GetOptions() const noexcept { return options_; }
+ 
++  /** Serialize the standalone schedule envelope as canonical MessagePack. */
++  [[nodiscard]] std::vector<uint8_t> SerializeCanonical() const;
++
++  /** Deserialize a bounded standalone schedule envelope, rejecting noncanonical data. */
++  [[nodiscard]] static CanonicalSchedule DeserializeCanonical(const std::vector<uint8_t>& data);
++
++  /** Lowercase SHA-256 of the complete canonical CanonicalSchedule v1 envelope. */
++  [[nodiscard]] std::string GetIdentityDigest() const;
++
+  private:
+   std::vector<ScheduleParameter> schedule_;
+   std::vector<ScheduleParameter> tile_;
+diff --git a/python/bindings/modules/compiler.cpp b/python/bindings/modules/compiler.cpp
+index ccea664d51e9ffb4c880b203ec619bf3082f315b..b171d8ad3e98384576596b31ee787e642366c202 100644
+--- a/python/bindings/modules/compiler.cpp
++++ b/python/bindings/modules/compiler.cpp
+@@ -56,6 +56,13 @@ std::vector<uint8_t> FromPythonBytes(const nb::bytes& data) {
+   return std::vector<uint8_t>(begin, begin + data.size());
+ }
+ 
++std::vector<uint8_t> FromPythonCanonicalScheduleBytes(const nb::bytes& data) {
++  if (data.size() > compiler::CanonicalSchedule::kMaximumSerializedCanonicalScheduleBytes) {
++    throw nb::value_error("CanonicalSchedule payload exceeds the 1 MiB v1 limit");
++  }
++  return FromPythonBytes(data);
++}
++
+ std::vector<uint8_t> FromPythonArtifactBytes(const nb::bytes& data) {
+   if (data.size() > compiler::Artifact::kMaximumSerializedArtifactBytes) {
+     throw nb::value_error("Artifact payload exceeds the 68 MiB v1 limit");
+@@ -128,7 +135,27 @@ void BindCompiler(nb::module_& m) {
+       .def_prop_ro("cta", &compiler::CanonicalSchedule::GetCta)
+       .def_prop_ro("warp", &compiler::CanonicalSchedule::GetWarp)
+       .def_prop_ro("stage", &compiler::CanonicalSchedule::GetStage)
+-      .def_prop_ro("options", &compiler::CanonicalSchedule::GetOptions);
++      .def_prop_ro("options", &compiler::CanonicalSchedule::GetOptions)
++      .def_prop_ro("canonical_schedule_schema_version",
++                   &compiler::CanonicalSchedule::GetCanonicalScheduleSchemaVersion)
++      .def_prop_ro("contract",
++                   [](const compiler::CanonicalSchedule& schedule) {
++                     return std::string(schedule.GetContract());
++                   })
++      .def(
++          "serialize",
++          [](const compiler::CanonicalSchedule& schedule) {
++            return ToPythonBytes(schedule.SerializeCanonical());
++          },
++          "Serialize the standalone schedule envelope as canonical MessagePack bytes")
++      .def_static(
++          "deserialize",
++          [](const nb::bytes& data) {
++            return compiler::CanonicalSchedule::DeserializeCanonical(
++                FromPythonCanonicalScheduleBytes(data));
++          },
++          nb::arg("data"), "Deserialize a bounded canonical schedule envelope")
++      .def_prop_ro("identity_digest", &compiler::CanonicalSchedule::GetIdentityDigest);
+ 
+   nb::class_<compiler::CatalogProvenance>(compiler_mod, "CatalogProvenance",
+                                           "Optional all-or-none operator catalog digest provenance")
+diff --git a/python/pypto/pypto_core/compiler.pyi b/python/pypto/pypto_core/compiler.pyi
+index 69fe5ba7c63c0aef7351fb80ed291899c9afe2b5..4e5259b72633097efd6429eb9516f077833cf27d 100644
+--- a/python/pypto/pypto_core/compiler.pyi
++++ b/python/pypto/pypto_core/compiler.pyi
+@@ -90,6 +90,19 @@ class CanonicalSchedule:
+     def stage(self) -> list[ScheduleParameter]: ...
+     @property
+     def options(self) -> list[ScheduleParameter]: ...
++    @property
++    def canonical_schedule_schema_version(self) -> int: ...
++    @property
++    def contract(self) -> str: ...
++    def serialize(self) -> bytes:
++        """Serialize the standalone schedule envelope as canonical MessagePack bytes."""
++        ...
++    @staticmethod
++    def deserialize(data: bytes) -> CanonicalSchedule:
++        """Deserialize a bounded canonical schedule envelope."""
++        ...
++    @property
++    def identity_digest(self) -> str: ...
+ 
+ class CatalogProvenance:
+     """Optional all-or-none operator catalog digest provenance."""
+diff --git a/src/compiler/kernel_build_spec.cpp b/src/compiler/kernel_build_spec.cpp
+index 333e6156600edb106afa8d4683cdbe87c82cf4ff..883821ae6a569c3c22aa181ce37519547c206a5d 100644
+--- a/src/compiler/kernel_build_spec.cpp
++++ b/src/compiler/kernel_build_spec.cpp
+@@ -42,11 +42,28 @@ using detail::StrictMap;
+ constexpr std::string_view kKernelBuildSpecContract = "pypto.kernel_build_spec.v1";
+ constexpr size_t kMaximumSerializedBuildSpecBytes = 1024 * 1024;
+ constexpr size_t kMaximumScheduleParametersPerCategory = 128;
+-constexpr size_t kMaximumMapItems = 32;
+-constexpr size_t kMaximumStringBytes = 64 * 1024;
+-constexpr size_t kMaximumNestingDepth = 8;
++constexpr size_t kMaximumBuildSpecMapItems = 32;
++constexpr size_t kMaximumBuildSpecStringBytes = 64 * 1024;
++constexpr size_t kMaximumBuildSpecNestingDepth = 8;
+ constexpr size_t kMaximumParameterNameBytes = 128;
+ constexpr size_t kMaximumParameterTextBytes = 4096;
++constexpr size_t kMaximumCanonicalScheduleMapItems = 8;
++constexpr size_t kMaximumCanonicalScheduleNestingDepth = 4;
++constexpr size_t kCanonicalScheduleCategoryCount = 8;
++constexpr size_t kCanonicalScheduleParameterMapItems = 3;
++constexpr size_t kMaximumCanonicalScheduleParameters =
++    kCanonicalScheduleCategoryCount * kMaximumScheduleParametersPerCategory;
++// Root: 1 map + 3 keys + 2 scalar values + 1 body map. Body: 8 keys + 8 arrays.
++// Each parameter contributes 1 map + 3 keys + 3 scalar values.
++constexpr size_t kMaximumCanonicalScheduleObjects =
++    7 + 2 * kCanonicalScheduleCategoryCount +
++    7 * kMaximumCanonicalScheduleParameters;
++// Container items count map keys and values separately, plus every array element.
++constexpr size_t kMaximumCanonicalScheduleContainerItems =
++    2 * 3 + 2 * kCanonicalScheduleCategoryCount + kMaximumCanonicalScheduleParameters +
++    2 * kCanonicalScheduleParameterMapItems * kMaximumCanonicalScheduleParameters;
++static_assert(kMaximumCanonicalScheduleObjects == 7191);
++static_assert(kMaximumCanonicalScheduleContainerItems == 7190);
+ 
+ void RequireSha256(const std::string& value, const std::string& field_name) {
+   if (value.size() != 64 || !std::all_of(value.begin(), value.end(), [](unsigned char character) {
+@@ -253,8 +270,8 @@ void PackCatalogProvenance(CanonicalPacker& packer,
+   PackText(packer, catalog_provenance->GetScheduleDigest());
+ }
+ 
+-ScheduleValueKind ParseScheduleValueKind(const msgpack::object& object) {
+-  const std::string value = ReadText(object, "resolved_schedule parameter kind");
++ScheduleValueKind ParseScheduleValueKind(const msgpack::object& object, const std::string& context) {
++  const std::string value = ReadText(object, context + " kind");
+   if (value == "boolean") return ScheduleValueKind::Boolean;
+   if (value == "signed-integer") return ScheduleValueKind::SignedInteger;
+   if (value == "unsigned-integer") return ScheduleValueKind::UnsignedInteger;
+@@ -262,7 +279,8 @@ ScheduleValueKind ParseScheduleValueKind(const msgpack::object& object) {
+   throw ValueError("unsupported resolved_schedule parameter kind '" + value + "'");
+ }
+ 
+-std::string ParseCanonicalValue(const msgpack::object& object, ScheduleValueKind value_kind) {
++std::string ParseCanonicalValue(const msgpack::object& object, ScheduleValueKind value_kind,
++                                const std::string& context) {
+   switch (value_kind) {
+     case ScheduleValueKind::Boolean:
+       if (object.type != msgpack::type::BOOLEAN) {
+@@ -282,47 +300,47 @@ std::string ParseCanonicalValue(const msgpack::object& object, ScheduleValueKind
+       }
+       return std::to_string(object.via.u64);
+     case ScheduleValueKind::Text:
+-      return ReadText(object, "text schedule parameter value");
++      return ReadText(object, context + " value");
+   }
+   (void)ScheduleValueKindName(value_kind);
+   return {};
+ }
+ 
+-ScheduleParameter ParseScheduleParameter(const msgpack::object& object) {
+-  StrictMap fields(object, "KernelBuildSpec.resolved_schedule parameter", {"kind", "name", "value"});
+-  const ScheduleValueKind value_kind = ParseScheduleValueKind(fields.Get("kind"));
+-  return ScheduleParameter(ReadText(fields.Get("name"), "resolved_schedule parameter name"), value_kind,
+-                           ParseCanonicalValue(fields.Get("value"), value_kind));
++ScheduleParameter ParseScheduleParameter(const msgpack::object& object, const std::string& context) {
++  StrictMap fields(object, context + " parameter", {"kind", "name", "value"});
++  const ScheduleValueKind value_kind = ParseScheduleValueKind(fields.Get("kind"), context + " parameter");
++  return ScheduleParameter(ReadText(fields.Get("name"), context + " parameter name"), value_kind,
++                           ParseCanonicalValue(fields.Get("value"), value_kind, context + " parameter"));
+ }
+ 
+ std::vector<ScheduleParameter> ParseParameterCategory(const msgpack::object& object,
+-                                                      const std::string& category_name) {
++                                                      const std::string& category_name,
++                                                      const std::string& context) {
+   if (object.type != msgpack::type::ARRAY) {
+-    throw ValueError("KernelBuildSpec.resolved_schedule." + category_name + " must be an array");
++    throw ValueError(context + "." + category_name + " must be an array");
+   }
+   if (object.via.array.size > kMaximumScheduleParametersPerCategory) {
+-    throw ValueError("KernelBuildSpec.resolved_schedule." + category_name +
+-                     " contains more than 128 parameters");
++    throw ValueError(context + "." + category_name + " contains more than 128 parameters");
+   }
+   std::vector<ScheduleParameter> parameters;
+   parameters.reserve(object.via.array.size);
+   for (uint32_t i = 0; i < object.via.array.size; ++i) {
+-    parameters.push_back(ParseScheduleParameter(object.via.array.ptr[i]));
++    parameters.push_back(ParseScheduleParameter(object.via.array.ptr[i], context + "." + category_name));
+   }
+   return parameters;
+ }
+ 
+-CanonicalSchedule ParseResolvedSchedule(const msgpack::object& object) {
+-  StrictMap fields(object, "KernelBuildSpec.resolved_schedule",
++CanonicalSchedule ParseResolvedSchedule(const msgpack::object& object, const std::string& context) {
++  StrictMap fields(object, context,
+                    {"cta", "layout", "options", "persistence", "schedule", "stage", "tile", "warp"});
+-  return CanonicalSchedule(ParseParameterCategory(fields.Get("schedule"), "schedule"),
+-                           ParseParameterCategory(fields.Get("tile"), "tile"),
+-                           ParseParameterCategory(fields.Get("layout"), "layout"),
+-                           ParseParameterCategory(fields.Get("persistence"), "persistence"),
+-                           ParseParameterCategory(fields.Get("cta"), "cta"),
+-                           ParseParameterCategory(fields.Get("warp"), "warp"),
+-                           ParseParameterCategory(fields.Get("stage"), "stage"),
+-                           ParseParameterCategory(fields.Get("options"), "options"));
++  return CanonicalSchedule(ParseParameterCategory(fields.Get("schedule"), "schedule", context),
++                           ParseParameterCategory(fields.Get("tile"), "tile", context),
++                           ParseParameterCategory(fields.Get("layout"), "layout", context),
++                           ParseParameterCategory(fields.Get("persistence"), "persistence", context),
++                           ParseParameterCategory(fields.Get("cta"), "cta", context),
++                           ParseParameterCategory(fields.Get("warp"), "warp", context),
++                           ParseParameterCategory(fields.Get("stage"), "stage", context),
++                           ParseParameterCategory(fields.Get("options"), "options", context));
+ }
+ 
+ std::optional<CatalogProvenance> ParseCatalogProvenance(const msgpack::object& object) {
+@@ -342,15 +360,31 @@ SemanticRoute ParseSemanticRoute(const msgpack::object& object) {
+   throw ValueError("unsupported semantic_route '" + value + "'");
+ }
+ 
+-msgpack::object_handle UnpackOne(const std::vector<uint8_t>& data) {
++msgpack::object_handle UnpackCanonicalSchedule(const std::vector<uint8_t>& data) {
++  if (data.empty()) throw ValueError("CanonicalSchedule payload must not be empty");
++  if (data.size() > CanonicalSchedule::kMaximumSerializedCanonicalScheduleBytes) {
++    throw ValueError("CanonicalSchedule payload exceeds the 1 MiB v1 limit");
++  }
++  return detail::UnpackOne(
++      data, "CanonicalSchedule", CanonicalSchedule::kMaximumSerializedCanonicalScheduleBytes,
++      {kMaximumScheduleParametersPerCategory, kMaximumCanonicalScheduleMapItems,
++       kMaximumParameterTextBytes,
++       /*maximum_binary_bytes=*/0, kMaximumCanonicalScheduleNestingDepth,
++       kMaximumCanonicalScheduleObjects, kMaximumCanonicalScheduleContainerItems,
++       /*maximum_nonbinary_bytes=*/CanonicalSchedule::kMaximumSerializedCanonicalScheduleBytes,
++       /*maximum_binary_fields=*/0});
++}
++
++msgpack::object_handle UnpackKernelBuildSpec(const std::vector<uint8_t>& data) {
+   if (data.empty()) throw ValueError("KernelBuildSpec payload must not be empty");
+   if (data.size() > kMaximumSerializedBuildSpecBytes) {
+     throw ValueError("KernelBuildSpec payload exceeds the 1 MiB v1 limit");
+   }
+   return detail::UnpackOne(
+       data, "KernelBuildSpec", kMaximumSerializedBuildSpecBytes,
+-      {kMaximumScheduleParametersPerCategory, kMaximumMapItems, kMaximumStringBytes,
+-       /*maximum_binary_bytes=*/0, kMaximumNestingDepth,
++      {kMaximumScheduleParametersPerCategory, kMaximumBuildSpecMapItems,
++       kMaximumBuildSpecStringBytes,
++       /*maximum_binary_bytes=*/0, kMaximumBuildSpecNestingDepth,
+        /*maximum_total_objects=*/131072,
+        /*maximum_aggregate_container_items=*/131072,
+        /*maximum_nonbinary_bytes=*/kMaximumSerializedBuildSpecBytes,
+@@ -389,6 +423,50 @@ CanonicalSchedule::CanonicalSchedule(std::vector<ScheduleParameter> schedule,
+   ValidateParameterCategory(warp_, "warp");
+   ValidateParameterCategory(stage_, "stage");
+   ValidateParameterCategory(options_, "options");
++  (void)SerializeCanonical();
++}
++
++std::vector<uint8_t> CanonicalSchedule::SerializeCanonical() const {
++  msgpack::sbuffer buffer;
++  CanonicalPacker packer(buffer);
++  packer.pack_map(3);
++  PackKey(packer, "canonical_schedule_schema_version");
++  packer.pack(kCanonicalScheduleSchemaVersion);
++  PackKey(packer, "contract");
++  PackText(packer, kContract);
++  PackKey(packer, "resolved_schedule");
++  PackResolvedSchedule(packer, *this);
++  std::vector<uint8_t> bytes = FinishBuffer(buffer);
++  if (bytes.size() > kMaximumSerializedCanonicalScheduleBytes) {
++    throw ValueError("CanonicalSchedule canonical payload exceeds the 1 MiB v1 limit");
++  }
++  return bytes;
++}
++
++CanonicalSchedule CanonicalSchedule::DeserializeCanonical(const std::vector<uint8_t>& data) {
++  auto handle = UnpackCanonicalSchedule(data);
++  StrictMap fields(handle.get(), "CanonicalSchedule",
++                   {"canonical_schedule_schema_version", "contract", "resolved_schedule"});
++  const uint32_t schema_version = ReadUint32(fields.Get("canonical_schedule_schema_version"),
++                                             "canonical_schedule_schema_version");
++  if (schema_version != kCanonicalScheduleSchemaVersion) {
++    throw ValueError("unsupported CanonicalSchedule canonical_schedule_schema_version " +
++                     std::to_string(schema_version));
++  }
++  const std::string contract = ReadText(fields.Get("contract"), "contract");
++  if (contract != kContract) {
++    throw ValueError("unsupported CanonicalSchedule contract '" + contract + "'");
++  }
++  CanonicalSchedule schedule =
++      ParseResolvedSchedule(fields.Get("resolved_schedule"), "CanonicalSchedule.resolved_schedule");
++  if (schedule.SerializeCanonical() != data) {
++    throw ValueError("CanonicalSchedule payload is valid MessagePack but is not in canonical form");
++  }
++  return schedule;
++}
++
++std::string CanonicalSchedule::GetIdentityDigest() const {
++  return detail::Sha256Hex(SerializeCanonical());
+ }
+ 
+ CatalogProvenance::CatalogProvenance(std::string operator_digest, std::string problem_digest,
+@@ -472,7 +550,7 @@ std::vector<uint8_t> KernelBuildSpec::SerializeCanonical() const {
+ }
+ 
+ KernelBuildSpec KernelBuildSpec::DeserializeCanonical(const std::vector<uint8_t>& data) {
+-  auto handle = UnpackOne(data);
++  auto handle = UnpackKernelBuildSpec(data);
+   StrictMap fields(
+       handle.get(), "KernelBuildSpec",
+       {"argument_abi_digest", "callable_abi_digest", "catalog_provenance",
+@@ -495,7 +573,7 @@ KernelBuildSpec KernelBuildSpec::DeserializeCanonical(const std::vector<uint8_t>
+       ReadText(fields.Get("callable_abi_digest"), "callable_abi_digest"),
+       ParseSemanticRoute(fields.Get("semantic_route")),
+       ReadText(fields.Get("pipeline_revision"), "pipeline_revision"),
+-      ParseResolvedSchedule(fields.Get("resolved_schedule")),
++      ParseResolvedSchedule(fields.Get("resolved_schedule"), "KernelBuildSpec.resolved_schedule"),
+       ReadText(fields.Get("static_specialization_digest"), "static_specialization_digest"),
+       ReadText(fields.Get("symbolic_specialization_digest"), "symbolic_specialization_digest"),
+       ReadText(fields.Get("argument_abi_digest"), "argument_abi_digest"),
+diff --git a/tests/ut/compiler/test_canonical_schedule.py b/tests/ut/compiler/test_canonical_schedule.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..b22ea66fe7a63b6eed980bc57fbfc77915accd04
+--- /dev/null
++++ b/tests/ut/compiler/test_canonical_schedule.py
+@@ -0,0 +1,338 @@
++# Copyright (c) PyPTO Contributors.
++# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++# CANN Open Software License Agreement Version 2.0 (the "License").
++# Please refer to the License for details. You may not use this file except in compliance with the License.
++# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++# See LICENSE in the root of the software repository for the full text of the License.
++# -----------------------------------------------------------------------------------------------------------
++
++"""Standalone bounded canonical MessagePack identity for CanonicalSchedule v1."""
++
++import hashlib
++from typing import cast
++
++import pytest
++from pypto.compiler import (
++    CanonicalSchedule,
++    KernelBuildSpec,
++    ScheduleParameter,
++    ScheduleValueKind,
++    SemanticRoute,
++)
++
++EMPTY_RESOLVED_SCHEDULE_BODY = bytes.fromhex(
++    "88a363746190a66c61796f757490a76f7074696f6e7390ab70657273697374656e636590"
++    "a87363686564756c6590a5737461676590a474696c6590a47761727090"
++)
++EMPTY_CANONICAL_SCHEDULE_GOLDEN = (
++    bytes.fromhex(
++        "83d92163616e6f6e6963616c5f7363686564756c655f736368656d615f76657273696f6e"
++        "01a8636f6e7472616374bb707970746f2e63616e6f6e6963616c5f7363686564756c652e"
++        "7631b17265736f6c7665645f7363686564756c65"
++    )
++    + EMPTY_RESOLVED_SCHEDULE_BODY
++)
++EMPTY_KERNEL_BUILD_SPEC_GOLDEN = bytes.fromhex(
++    "8eb3617267756d656e745f6162695f646967657374d9403535353535353535353535353535353535"
++    "35353535353535353535353535353535353535353535353535353535353535353535353535353535"
++    "35353535353535b363616c6c61626c655f6162695f646967657374d9403232323232323232323232"
++    "32323232323232323232323232323232323232323232323232323232323232323232323232323232"
++    "32323232323232323232323232b2636174616c6f675f70726f76656e616e6365c0d924636f6d7069"
++    "6c655f726571756573745f627974655f6964656e746974795f646967657374d94038383838383838"
++    "38383838383838383838383838383838383838383838383838383838383838383838383838383838"
++    "3838383838383838383838383838383838a8636f6e7472616374ba707970746f2e6b65726e656c5f"
++    "6275696c645f737065632e7631d9206b65726e656c5f6275696c645f737065635f736368656d615f"
++    "76657273696f6e01b36d75746174696f6e5f6162695f646967657374d94037373737373737373737"
++    "37373737373737373737373737373737373737373737373737373737373737373737373737373737"
++    "3737373737373737373737373737b1706970656c696e655f7265766973696f6ed928636363636363"
++    "63636363636363636363636363636363636363636363636363636363636363636363b17265736f6c"
++    "7665645f7363686564756c6588a363746190a66c61796f757490a76f7074696f6e7390ab70657273"
++    "697374656e636590a87363686564756c6590a5737461676590a474696c6590a47761727090b17265"
++    "73756c745f6162695f646967657374d9403636363636363636363636363636363636363636363636"
++    "36363636363636363636363636363636363636363636363636363636363636363636363636363636"
++    "36ae73656d616e7469635f726f757465ae67656e657269632d646972656374b0736f757263655f69"
++    "725f646967657374d940313131313131313131313131313131313131313131313131313131313131"
++    "31313131313131313131313131313131313131313131313131313131313131313131bc7374617469"
++    "635f7370656369616c697a6174696f6e5f646967657374d940333333333333333333333333333333"
++    "33333333333333333333333333333333333333333333333333333333333333333333333333333333"
++    "333333333333333333be73796d626f6c69635f7370656369616c697a6174696f6e5f646967657374"
++    "d9403434343434343434343434343434343434343434343434343434343434343434343434343434"
++    "3434343434343434343434343434343434343434343434343434"
++)
++
++
++def parameter(name: str, kind: ScheduleValueKind, value: str) -> ScheduleParameter:
++    return ScheduleParameter(name, kind, value)
++
++
++def empty_schedule() -> CanonicalSchedule:
++    return CanonicalSchedule([], [], [], [], [], [], [], [])
++
++
++def schedule_with_one_category(category: str) -> CanonicalSchedule:
++    value = [parameter("value", ScheduleValueKind.Boolean, "true")]
++    return CanonicalSchedule(
++        schedule=value if category == "schedule" else [],
++        tile=value if category == "tile" else [],
++        layout=value if category == "layout" else [],
++        persistence=value if category == "persistence" else [],
++        cta=value if category == "cta" else [],
++        warp=value if category == "warp" else [],
++        stage=value if category == "stage" else [],
++        options=value if category == "options" else [],
++    )
++
++
++def boundary_schedule() -> CanonicalSchedule:
++    return CanonicalSchedule(
++        schedule=[parameter("false_value", ScheduleValueKind.Boolean, "false")],
++        tile=[parameter("true_value", ScheduleValueKind.Boolean, "true")],
++        layout=[parameter("signed_min", ScheduleValueKind.SignedInteger, str(-(1 << 63)))],
++        persistence=[parameter("signed_max", ScheduleValueKind.SignedInteger, str((1 << 63) - 1))],
++        cta=[parameter("unsigned_min", ScheduleValueKind.UnsignedInteger, "0")],
++        warp=[parameter("unsigned_max", ScheduleValueKind.UnsignedInteger, str((1 << 64) - 1))],
++        stage=[parameter("text", ScheduleValueKind.Text, "three-stage")],
++        options=[parameter("signed_zero", ScheduleValueKind.SignedInteger, "0")],
++    )
++
++
++def empty_build_spec() -> KernelBuildSpec:
++    return KernelBuildSpec(
++        source_ir_digest="1" * 64,
++        callable_abi_digest="2" * 64,
++        semantic_route=SemanticRoute.GenericDirect,
++        pipeline_revision="c" * 40,
++        resolved_schedule=empty_schedule(),
++        static_specialization_digest="3" * 64,
++        symbolic_specialization_digest="4" * 64,
++        argument_abi_digest="5" * 64,
++        result_abi_digest="6" * 64,
++        mutation_abi_digest="7" * 64,
++        compile_request_byte_identity_digest="8" * 64,
++    )
++
++
++def _pack_text(value: str) -> bytes:
++    encoded = value.encode("ascii")
++    if len(encoded) <= 31:
++        return bytes([0xA0 | len(encoded)]) + encoded
++    if len(encoded) <= 255:
++        return b"\xd9" + bytes([len(encoded)]) + encoded
++    raise AssertionError("test helper only supports strings up to 255 bytes")
++
++
++SCHEMA_KEY = _pack_text("canonical_schedule_schema_version")
++SCHEMA_ENTRY = SCHEMA_KEY + b"\x01"
++CONTRACT_KEY = _pack_text("contract")
++CONTRACT_ENTRY = CONTRACT_KEY + _pack_text("pypto.canonical_schedule.v1")
++SCHEDULE_KEY = _pack_text("resolved_schedule")
++SCHEDULE_ENTRY = SCHEDULE_KEY + EMPTY_RESOLVED_SCHEDULE_BODY
++
++
++def test_empty_schedule_has_exact_v1_golden_and_digest() -> None:
++    value = empty_schedule()
++    canonical = value.serialize()
++
++    assert canonical == EMPTY_CANONICAL_SCHEDULE_GOLDEN
++    assert value.canonical_schedule_schema_version == 1
++    assert value.contract == "pypto.canonical_schedule.v1"
++    assert value.identity_digest == hashlib.sha256(canonical).hexdigest()
++    assert value.identity_digest == "3d1ea8ab4f5053d979ff9ac4d8d9cf6f90188578f25fa976c185a65ebfd19c0e"
++
++
++def test_round_trip_preserves_all_scalar_extrema_and_categories() -> None:
++    canonical = boundary_schedule().serialize()
++    restored = CanonicalSchedule.deserialize(canonical)
++
++    assert restored.serialize() == canonical
++    assert restored.schedule[0].canonical_value == "false"
++    assert restored.tile[0].canonical_value == "true"
++    assert restored.layout[0].canonical_value == str(-(1 << 63))
++    assert restored.persistence[0].canonical_value == str((1 << 63) - 1)
++    assert restored.cta[0].canonical_value == "0"
++    assert restored.warp[0].canonical_value == str((1 << 64) - 1)
++    assert restored.stage[0].canonical_value == "three-stage"
++    assert restored.options[0].canonical_value == "0"
++    assert restored.layout[0].value_kind == ScheduleValueKind.SignedInteger
++    assert restored.warp[0].value_kind == ScheduleValueKind.UnsignedInteger
++    with pytest.raises(AttributeError):
++        setattr(restored, "tile", [])
++    with pytest.raises(AttributeError):
++        setattr(restored.tile[0], "canonical_value", "false")
++    copied_tile = restored.tile
++    copied_tile.clear()
++    assert restored.tile[0].canonical_value == "true"
++
++
++@pytest.mark.parametrize("payload", [bytearray(EMPTY_CANONICAL_SCHEDULE_GOLDEN), "not-bytes", None])
++def test_deserialize_is_bytes_only(payload: object) -> None:
++    with pytest.raises(TypeError):
++        CanonicalSchedule.deserialize(cast(bytes, payload))
++
++
++@pytest.mark.parametrize(
++    "category",
++    ["schedule", "tile", "layout", "persistence", "cta", "warp", "stage", "options"],
++)
++def test_every_category_changes_standalone_identity(category: str) -> None:
++    assert schedule_with_one_category(category).identity_digest != empty_schedule().identity_digest
++
++
++def test_exact_schema_limits_accept_legal_maxima() -> None:
++    maximum_category = [
++        parameter(f"value_{index:03d}", ScheduleValueKind.Boolean, "false") for index in range(128)
++    ]
++    maximum = CanonicalSchedule(*(maximum_category for _ in range(8)))
++    restored = CanonicalSchedule.deserialize(maximum.serialize())
++    assert len(restored.options) == 128
++
++    maximum_text = CanonicalSchedule(
++        [parameter("value", ScheduleValueKind.Text, "x" * 4096)], [], [], [], [], [], [], []
++    )
++    assert len(CanonicalSchedule.deserialize(maximum_text.serialize()).schedule[0].canonical_value) == 4096
++
++
++def test_constructor_rejects_category_and_payload_overflow() -> None:
++    too_many = [parameter(f"value_{index:03d}", ScheduleValueKind.Boolean, "false") for index in range(129)]
++    with pytest.raises(ValueError, match="more than 128"):
++        CanonicalSchedule(too_many, [], [], [], [], [], [], [])
++
++    maximum_text_category = [
++        parameter(f"value_{index:03d}", ScheduleValueKind.Text, "x" * 4096) for index in range(128)
++    ]
++    with pytest.raises(ValueError, match="1 MiB"):
++        CanonicalSchedule(maximum_text_category, maximum_text_category, [], [], [], [], [], [])
++
++
++def test_kernel_build_spec_nested_body_and_complete_bytes_are_unchanged() -> None:
++    wire = empty_build_spec().serialize()
++
++    assert wire == EMPTY_KERNEL_BUILD_SPEC_GOLDEN
++    assert (
++        hashlib.sha256(wire).hexdigest() == "224db1389b70934afd871ba19ff4fa72bb2efce260602266a039e5c99c425345"
++    )
++    nested_marker = SCHEDULE_KEY + EMPTY_RESOLVED_SCHEDULE_BODY
++    assert wire.count(nested_marker) == 1
++    assert SCHEDULE_KEY + EMPTY_CANONICAL_SCHEDULE_GOLDEN not in wire
++
++
++def test_bare_body_and_standalone_envelope_in_build_spec_are_rejected() -> None:
++    with pytest.raises(ValueError):
++        CanonicalSchedule.deserialize(EMPTY_RESOLVED_SCHEDULE_BODY)
++
++    wire = empty_build_spec().serialize()
++    nested_marker = SCHEDULE_KEY + EMPTY_RESOLVED_SCHEDULE_BODY
++    wrapped = wire.replace(nested_marker, SCHEDULE_KEY + EMPTY_CANONICAL_SCHEDULE_GOLDEN)
++    assert wrapped != wire
++    with pytest.raises(ValueError):
++        KernelBuildSpec.deserialize(wrapped)
++
++
++@pytest.mark.parametrize(
++    "payload",
++    [
++        b"",
++        b"\xc1",
++        b"\xc0",
++        b"\xca\x00\x00\x00\x00",
++        b"\xd4\x00\x00",
++        b"\xc4\x00",
++        b"\xdc\x00\x81",
++        b"\x89",
++        b"\xdb\x00\x00\x10\x01",
++        b"\x91" * 5 + b"\xc0",
++    ],
++    ids=[
++        "empty",
++        "invalid-marker",
++        "nil",
++        "float",
++        "extension",
++        "binary",
++        "oversized-array",
++        "oversized-map",
++        "oversized-string",
++        "excessive-depth",
++    ],
++)
++def test_malformed_and_forbidden_messagepack_payloads_are_rejected(payload: bytes) -> None:
++    with pytest.raises(ValueError):
++        CanonicalSchedule.deserialize(payload)
++
++
++@pytest.mark.parametrize(
++    "payload",
++    [
++        b"\x84" + SCHEMA_ENTRY + CONTRACT_ENTRY + SCHEDULE_ENTRY + _pack_text("unknown") + b"\x01",
++        b"\x84" + SCHEMA_ENTRY + CONTRACT_ENTRY + SCHEDULE_ENTRY + CONTRACT_ENTRY,
++        b"\x82" + SCHEMA_ENTRY + SCHEDULE_ENTRY,
++        b"\x83" + CONTRACT_ENTRY + SCHEMA_ENTRY + SCHEDULE_ENTRY,
++        b"\x83" + SCHEMA_KEY + b"\xce\x00\x00\x00\x01" + CONTRACT_ENTRY + SCHEDULE_ENTRY,
++        b"\x83" + SCHEMA_KEY + b"\x02" + CONTRACT_ENTRY + SCHEDULE_ENTRY,
++        b"\x83" + SCHEMA_ENTRY + CONTRACT_KEY + _pack_text("pypto.canonical_schedule.v2") + SCHEDULE_ENTRY,
++        b"\x83"
++        + SCHEMA_ENTRY
++        + CONTRACT_ENTRY
++        + SCHEDULE_KEY
++        + b"\x88"
++        + b"".join(
++            reversed(
++                [
++                    _pack_text("cta") + b"\x90",
++                    _pack_text("layout") + b"\x90",
++                    _pack_text("options") + b"\x90",
++                    _pack_text("persistence") + b"\x90",
++                    _pack_text("schedule") + b"\x90",
++                    _pack_text("stage") + b"\x90",
++                    _pack_text("tile") + b"\x90",
++                    _pack_text("warp") + b"\x90",
++                ]
++            )
++        ),
++    ],
++    ids=[
++        "unknown-field",
++        "duplicate-field",
++        "missing-field",
++        "reordered-root",
++        "nonminimal-version",
++        "unsupported-version",
++        "unsupported-contract",
++        "reordered-body",
++    ],
++)
++def test_strict_and_canonical_envelope_validation(payload: bytes) -> None:
++    with pytest.raises(ValueError):
++        CanonicalSchedule.deserialize(payload)
++
++
++def test_nonminimal_parameter_integer_is_rejected() -> None:
++    value = CanonicalSchedule(
++        [], [parameter("m", ScheduleValueKind.UnsignedInteger, "1")], [], [], [], [], [], []
++    )
++    canonical = value.serialize()
++    marker = _pack_text("value") + b"\x01"
++    assert canonical.count(marker) == 1
++    nonminimal = canonical.replace(marker, _pack_text("value") + b"\xcc\x01")
++    with pytest.raises(ValueError, match="canonical"):
++        CanonicalSchedule.deserialize(nonminimal)
++
++
++def test_duplicate_parameter_names_are_rejected() -> None:
++    duplicate = parameter("m", ScheduleValueKind.UnsignedInteger, "1")
++    with pytest.raises(ValueError, match="strictly ordered"):
++        CanonicalSchedule([], [duplicate, duplicate], [], [], [], [], [], [])
++
++
++def test_payload_size_trailing_and_truncation_limits() -> None:
++    with pytest.raises(ValueError, match="1 MiB"):
++        CanonicalSchedule.deserialize(b"\x00" * (1024 * 1024 + 1))
++    with pytest.raises(ValueError, match="trailing"):
++        CanonicalSchedule.deserialize(EMPTY_CANONICAL_SCHEDULE_GOLDEN + b"\x00")
++    with pytest.raises(ValueError, match="malformed"):
++        CanonicalSchedule.deserialize(EMPTY_CANONICAL_SCHEDULE_GOLDEN[:-1])
++
++
++if __name__ == "__main__":
++    pytest.main([__file__, "-v"])
+diff --git a/tests/ut/cpp/CMakeLists.txt b/tests/ut/cpp/CMakeLists.txt
+index 2c467868373ee15c8c71c6cd7086b792aef57933..145e38514463b89151688956ccc9945fda5d60fe 100644
+--- a/tests/ut/cpp/CMakeLists.txt
++++ b/tests/ut/cpp/CMakeLists.txt
+@@ -133,6 +133,31 @@ add_test(
+     COMMAND pypto_nvidia_kernel_build_spec_test
+ )
+ 
++add_executable(pypto_canonical_schedule_test
++    canonical_schedule_test.cpp
++    ${CMAKE_SOURCE_DIR}/src/compiler/canonical_msgpack.cpp
++    ${CMAKE_SOURCE_DIR}/src/compiler/digest.cpp
++    ${CMAKE_SOURCE_DIR}/src/compiler/kernel_build_spec.cpp
++    ${CMAKE_SOURCE_DIR}/src/core/backtrace.cpp
++    ${CMAKE_SOURCE_DIR}/src/core/error.cpp
++)
++
++target_include_directories(pypto_canonical_schedule_test PRIVATE
++    ${CMAKE_SOURCE_DIR}/include
++    ${CMAKE_SOURCE_DIR}/src/compiler
++    ${LIBBACKTRACE_INSTALL_DIR}/include
++)
++
++target_link_libraries(pypto_canonical_schedule_test PRIVATE
++    libbacktrace
++    msgpackc-cxx
++)
++
++add_test(
++    NAME pypto_canonical_schedule_test
++    COMMAND pypto_canonical_schedule_test
++)
++
+ add_executable(pypto_tensor_ir_codegen_test
+     tensor_ir_codegen_test.cpp
+ )
+diff --git a/tests/ut/cpp/canonical_schedule_test.cpp b/tests/ut/cpp/canonical_schedule_test.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..fa53a720f09cc8975b8d0daf89f5d6a18bd1852e
+--- /dev/null
++++ b/tests/ut/cpp/canonical_schedule_test.cpp
+@@ -0,0 +1,616 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#include <algorithm>
++#include <cstdint>
++#include <limits>
++#include <msgpack.hpp>
++#include <optional>
++#include <string>
++#include <string_view>
++#include <type_traits>
++#include <utility>
++#include <vector>
++
++#include "pypto/compiler/kernel_build_spec.h"
++#include "pypto/core/error.h"
++
++using pypto::ValueError;
++using pypto::compiler::CanonicalSchedule;
++using pypto::compiler::CatalogProvenance;
++using pypto::compiler::KernelBuildSpec;
++using pypto::compiler::ScheduleParameter;
++using pypto::compiler::ScheduleValueKind;
++using pypto::compiler::SemanticRoute;
++
++#define REQUIRE(condition) \
++  do {                     \
++    if (!(condition)) {    \
++      return __LINE__;     \
++    }                      \
++  } while (false)
++
++namespace {
++
++constexpr std::string_view kEmptyScheduleGoldenHex =
++    "83d92163616e6f6e6963616c5f7363686564756c655f736368656d615f76657273696f6e01a8636f6e7472616374"
++    "bb707970746f2e63616e6f6e6963616c5f7363686564756c652e7631b17265736f6c7665645f7363686564756c65"
++    "88a363746190a66c61796f757490a76f7074696f6e7390ab70657273697374656e636590a87363686564756c6590a5"
++    "737461676590a474696c6590a47761727090";
++constexpr std::string_view kEmptyResolvedScheduleBodyGoldenHex =
++    "88a363746190a66c61796f757490a76f7074696f6e7390ab70657273697374656e636590a87363686564756c6590a5"
++    "737461676590a474696c6590a47761727090";
++constexpr std::string_view kPipelineRevision = "cccccccccccccccccccccccccccccccccccccccc";
++
++ScheduleParameter Parameter(std::string name, ScheduleValueKind kind, std::string value) {
++  return ScheduleParameter(std::move(name), kind, std::move(value));
++}
++
++CanonicalSchedule EmptySchedule() { return CanonicalSchedule({}, {}, {}, {}, {}, {}, {}, {}); }
++
++CanonicalSchedule BoundarySchedule() {
++  return CanonicalSchedule({Parameter("false_value", ScheduleValueKind::Boolean, "false")},
++                           {Parameter("true_value", ScheduleValueKind::Boolean, "true")},
++                           {Parameter("signed_min", ScheduleValueKind::SignedInteger,
++                                      std::to_string(std::numeric_limits<int64_t>::min()))},
++                           {Parameter("signed_max", ScheduleValueKind::SignedInteger,
++                                      std::to_string(std::numeric_limits<int64_t>::max()))},
++                           {Parameter("unsigned_min", ScheduleValueKind::UnsignedInteger, "0")},
++                           {Parameter("unsigned_max", ScheduleValueKind::UnsignedInteger,
++                                      std::to_string(std::numeric_limits<uint64_t>::max()))},
++                           {Parameter("text", ScheduleValueKind::Text, "three-stage")},
++                           {Parameter("signed_zero", ScheduleValueKind::SignedInteger, "0")});
++}
++
++CanonicalSchedule ExistingKernelBuildSpecSchedule() {
++  return CanonicalSchedule({Parameter("algorithm", ScheduleValueKind::Text, "blocked")},
++                           {Parameter("k", ScheduleValueKind::UnsignedInteger, "64"),
++                            Parameter("m", ScheduleValueKind::UnsignedInteger, "128"),
++                            Parameter("n", ScheduleValueKind::UnsignedInteger, "128")},
++                           {Parameter("input", ScheduleValueKind::Text, "row-major"),
++                            Parameter("output", ScheduleValueKind::Text, "row-major")},
++                           {Parameter("enabled", ScheduleValueKind::Boolean, "false")},
++                           {Parameter("cluster_x", ScheduleValueKind::UnsignedInteger, "1"),
++                            Parameter("threads", ScheduleValueKind::UnsignedInteger, "256")},
++                           {Parameter("count", ScheduleValueKind::UnsignedInteger, "8")},
++                           {Parameter("count", ScheduleValueKind::UnsignedInteger, "3")},
++                           {Parameter("fast_math", ScheduleValueKind::Boolean, "false"),
++                            Parameter("max_candidates", ScheduleValueKind::UnsignedInteger, "0")});
++}
++
++KernelBuildSpec BuildSpec(CanonicalSchedule schedule, bool with_catalog) {
++  std::optional<CatalogProvenance> catalog;
++  if (with_catalog) {
++    catalog.emplace(std::string(64, '9'), std::string(64, 'a'), std::string(64, 'b'));
++  }
++  return KernelBuildSpec(std::string(64, '1'), std::string(64, '2'), SemanticRoute::GenericDirect,
++                         std::string(kPipelineRevision), std::move(schedule), std::string(64, '3'),
++                         std::string(64, '4'), std::string(64, '5'), std::string(64, '6'),
++                         std::string(64, '7'), std::string(64, '8'), std::move(catalog));
++}
++
++uint8_t HexNibble(char character) {
++  if (character >= '0' && character <= '9') return static_cast<uint8_t>(character - '0');
++  if (character >= 'a' && character <= 'f') {
++    return static_cast<uint8_t>(character - 'a' + 10);
++  }
++  return 0xff;
++}
++
++std::vector<uint8_t> BytesFromHex(std::string_view hex) {
++  if (hex.size() % 2 != 0) return {};
++  std::vector<uint8_t> bytes;
++  bytes.reserve(hex.size() / 2);
++  for (size_t index = 0; index < hex.size(); index += 2) {
++    const uint8_t high = HexNibble(hex[index]);
++    const uint8_t low = HexNibble(hex[index + 1]);
++    if (high == 0xff || low == 0xff) return {};
++    bytes.push_back(static_cast<uint8_t>((high << 4U) | low));
++  }
++  return bytes;
++}
++
++void PackText(msgpack::packer<msgpack::sbuffer>& packer, std::string_view text) {
++  packer.pack_str(static_cast<uint32_t>(text.size()));
++  packer.pack_str_body(text.data(), static_cast<uint32_t>(text.size()));
++}
++
++std::vector<uint8_t> BufferBytes(const msgpack::sbuffer& buffer) {
++  const auto* begin = reinterpret_cast<const uint8_t*>(buffer.data());
++  return std::vector<uint8_t>(begin, begin + buffer.size());
++}
++
++std::string ObjectKey(const msgpack::object& object) {
++  return std::string(object.via.str.ptr, object.via.str.size);
++}
++
++std::vector<uint8_t> AddUnknownRootField(const std::vector<uint8_t>& canonical) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size + 1);
++  for (uint32_t index = 0; index < root.get().via.map.size; ++index) {
++    packer.pack(root.get().via.map.ptr[index].key);
++    packer.pack(root.get().via.map.ptr[index].val);
++  }
++  PackText(packer, "unknown_field");
++  packer.pack(1);
++  return BufferBytes(buffer);
++}
++
++std::vector<uint8_t> AddDuplicateRootField(const std::vector<uint8_t>& canonical) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size + 1);
++  for (uint32_t index = 0; index < root.get().via.map.size; ++index) {
++    packer.pack(root.get().via.map.ptr[index].key);
++    packer.pack(root.get().via.map.ptr[index].val);
++  }
++  packer.pack(root.get().via.map.ptr[1].key);
++  packer.pack(root.get().via.map.ptr[1].val);
++  return BufferBytes(buffer);
++}
++
++std::vector<uint8_t> DropRootField(const std::vector<uint8_t>& canonical,
++                                   std::string_view field_name) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size - 1);
++  for (uint32_t index = 0; index < root.get().via.map.size; ++index) {
++    const auto& entry = root.get().via.map.ptr[index];
++    if (ObjectKey(entry.key) == field_name) continue;
++    packer.pack(entry.key);
++    packer.pack(entry.val);
++  }
++  return BufferBytes(buffer);
++}
++
++std::vector<uint8_t> ReverseRootOrder(const std::vector<uint8_t>& canonical) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size);
++  for (uint32_t index = root.get().via.map.size; index > 0; --index) {
++    packer.pack(root.get().via.map.ptr[index - 1].key);
++    packer.pack(root.get().via.map.ptr[index - 1].val);
++  }
++  return BufferBytes(buffer);
++}
++
++std::vector<uint8_t> ReplaceRootText(const std::vector<uint8_t>& canonical,
++                                     std::string_view field_name,
++                                     std::string_view replacement) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size);
++  for (uint32_t index = 0; index < root.get().via.map.size; ++index) {
++    const auto& entry = root.get().via.map.ptr[index];
++    packer.pack(entry.key);
++    if (ObjectKey(entry.key) == field_name) {
++      PackText(packer, replacement);
++    } else {
++      packer.pack(entry.val);
++    }
++  }
++  return BufferBytes(buffer);
++}
++
++std::vector<uint8_t> ReplaceVersion(const std::vector<uint8_t>& canonical, uint32_t version,
++                                    bool nonminimal) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size);
++  for (uint32_t index = 0; index < root.get().via.map.size; ++index) {
++    const auto& entry = root.get().via.map.ptr[index];
++    packer.pack(entry.key);
++    if (ObjectKey(entry.key) != "canonical_schedule_schema_version") {
++      packer.pack(entry.val);
++      continue;
++    }
++    if (nonminimal) {
++      const char encoded_uint32_one[] = {static_cast<char>(0xce), 0x00, 0x00, 0x00, 0x01};
++      buffer.write(encoded_uint32_one, sizeof(encoded_uint32_one));
++    } else {
++      packer.pack(version);
++    }
++  }
++  return BufferBytes(buffer);
++}
++
++enum class MapMutation { Unknown, Duplicate, Missing, Reordered };
++
++void PackMutatedMap(msgpack::packer<msgpack::sbuffer>& packer, const msgpack::object_map& map,
++                    MapMutation mutation, std::string_view unknown_key) {
++  if (mutation == MapMutation::Unknown) {
++    packer.pack_map(map.size + 1);
++    for (uint32_t index = 0; index < map.size; ++index) {
++      packer.pack(map.ptr[index].key);
++      packer.pack(map.ptr[index].val);
++    }
++    PackText(packer, unknown_key);
++    packer.pack_nil();
++    return;
++  }
++  if (mutation == MapMutation::Duplicate) {
++    packer.pack_map(map.size + 1);
++    for (uint32_t index = 0; index < map.size; ++index) {
++      packer.pack(map.ptr[index].key);
++      packer.pack(map.ptr[index].val);
++    }
++    packer.pack(map.ptr[0].key);
++    packer.pack(map.ptr[0].val);
++    return;
++  }
++  if (mutation == MapMutation::Missing) {
++    packer.pack_map(map.size - 1);
++    for (uint32_t index = 0; index + 1 < map.size; ++index) {
++      packer.pack(map.ptr[index].key);
++      packer.pack(map.ptr[index].val);
++    }
++    return;
++  }
++  packer.pack_map(map.size);
++  for (uint32_t index = map.size; index > 0; --index) {
++    packer.pack(map.ptr[index - 1].key);
++    packer.pack(map.ptr[index - 1].val);
++  }
++}
++
++std::vector<uint8_t> MutateResolvedScheduleMap(const std::vector<uint8_t>& canonical,
++                                               MapMutation mutation) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size);
++  for (uint32_t index = 0; index < root.get().via.map.size; ++index) {
++    const auto& entry = root.get().via.map.ptr[index];
++    packer.pack(entry.key);
++    if (ObjectKey(entry.key) == "resolved_schedule") {
++      PackMutatedMap(packer, entry.val.via.map, mutation, "unknown_category");
++    } else {
++      packer.pack(entry.val);
++    }
++  }
++  return BufferBytes(buffer);
++}
++
++std::vector<uint8_t> MutateFirstTileParameterMap(const std::vector<uint8_t>& canonical,
++                                                 MapMutation mutation) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size);
++  for (uint32_t root_index = 0; root_index < root.get().via.map.size; ++root_index) {
++    const auto& root_entry = root.get().via.map.ptr[root_index];
++    packer.pack(root_entry.key);
++    if (ObjectKey(root_entry.key) != "resolved_schedule") {
++      packer.pack(root_entry.val);
++      continue;
++    }
++    packer.pack_map(root_entry.val.via.map.size);
++    for (uint32_t category_index = 0; category_index < root_entry.val.via.map.size;
++         ++category_index) {
++      const auto& category = root_entry.val.via.map.ptr[category_index];
++      packer.pack(category.key);
++      if (ObjectKey(category.key) != "tile") {
++        packer.pack(category.val);
++        continue;
++      }
++      packer.pack_array(category.val.via.array.size);
++      for (uint32_t parameter_index = 0; parameter_index < category.val.via.array.size;
++           ++parameter_index) {
++        const auto& parameter = category.val.via.array.ptr[parameter_index];
++        if (parameter_index == 0) {
++          PackMutatedMap(packer, parameter.via.map, mutation, "unknown_parameter_field");
++        } else {
++          packer.pack(parameter);
++        }
++      }
++    }
++  }
++  return BufferBytes(buffer);
++}
++
++enum class TileArrayMutation { Reordered, Duplicate, NonminimalInteger };
++
++std::vector<uint8_t> MutateTileArray(const std::vector<uint8_t>& canonical,
++                                     TileArrayMutation mutation) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size);
++  for (uint32_t root_index = 0; root_index < root.get().via.map.size; ++root_index) {
++    const auto& root_entry = root.get().via.map.ptr[root_index];
++    packer.pack(root_entry.key);
++    if (ObjectKey(root_entry.key) != "resolved_schedule") {
++      packer.pack(root_entry.val);
++      continue;
++    }
++    packer.pack_map(root_entry.val.via.map.size);
++    for (uint32_t category_index = 0; category_index < root_entry.val.via.map.size;
++         ++category_index) {
++      const auto& category = root_entry.val.via.map.ptr[category_index];
++      packer.pack(category.key);
++      if (ObjectKey(category.key) != "tile") {
++        packer.pack(category.val);
++        continue;
++      }
++      if (mutation == TileArrayMutation::Reordered) {
++        packer.pack_array(category.val.via.array.size);
++        for (uint32_t parameter_index = category.val.via.array.size; parameter_index > 0;
++             --parameter_index) {
++          packer.pack(category.val.via.array.ptr[parameter_index - 1]);
++        }
++        continue;
++      }
++      if (mutation == TileArrayMutation::Duplicate) {
++        packer.pack_array(category.val.via.array.size + 1);
++        for (uint32_t parameter_index = 0; parameter_index < category.val.via.array.size;
++             ++parameter_index) {
++          packer.pack(category.val.via.array.ptr[parameter_index]);
++        }
++        packer.pack(category.val.via.array.ptr[category.val.via.array.size - 1]);
++        continue;
++      }
++      packer.pack_array(category.val.via.array.size);
++      for (uint32_t parameter_index = 0; parameter_index < category.val.via.array.size;
++           ++parameter_index) {
++        const auto& parameter = category.val.via.array.ptr[parameter_index];
++        if (parameter_index != 0) {
++          packer.pack(parameter);
++          continue;
++        }
++        packer.pack_map(parameter.via.map.size);
++        for (uint32_t field_index = 0; field_index < parameter.via.map.size; ++field_index) {
++          const auto& field = parameter.via.map.ptr[field_index];
++          packer.pack(field.key);
++          if (ObjectKey(field.key) == "value") {
++            const char nonminimal_uint8_64[] = {static_cast<char>(0xcc), 0x40};
++            buffer.write(nonminimal_uint8_64, sizeof(nonminimal_uint8_64));
++          } else {
++            packer.pack(field.val);
++          }
++        }
++      }
++    }
++  }
++  return BufferBytes(buffer);
++}
++
++std::vector<uint8_t> ExtractResolvedScheduleBody(const std::vector<uint8_t>& envelope) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(envelope.data()), envelope.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  for (uint32_t index = 0; index < root.get().via.map.size; ++index) {
++    const auto& entry = root.get().via.map.ptr[index];
++    if (ObjectKey(entry.key) == "resolved_schedule") {
++      packer.pack(entry.val);
++      return BufferBytes(buffer);
++    }
++  }
++  return {};
++}
++
++std::vector<uint8_t> WrapKernelBuildSpecSchedule(const std::vector<uint8_t>& build_spec,
++                                                 const std::vector<uint8_t>& schedule_envelope) {
++  auto build_spec_root =
++      msgpack::unpack(reinterpret_cast<const char*>(build_spec.data()), build_spec.size());
++  auto schedule_root = msgpack::unpack(reinterpret_cast<const char*>(schedule_envelope.data()),
++                                       schedule_envelope.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(build_spec_root.get().via.map.size);
++  for (uint32_t index = 0; index < build_spec_root.get().via.map.size; ++index) {
++    const auto& entry = build_spec_root.get().via.map.ptr[index];
++    packer.pack(entry.key);
++    if (ObjectKey(entry.key) == "resolved_schedule") {
++      packer.pack(schedule_root.get());
++    } else {
++      packer.pack(entry.val);
++    }
++  }
++  return BufferBytes(buffer);
++}
++
++bool RejectsSchedule(const std::vector<uint8_t>& data) {
++  try {
++    (void)CanonicalSchedule::DeserializeCanonical(data);
++  } catch (const ValueError&) {
++    return true;
++  }
++  return false;
++}
++
++bool RejectsBuildSpec(const std::vector<uint8_t>& data) {
++  try {
++    (void)KernelBuildSpec::DeserializeCanonical(data);
++  } catch (const ValueError&) {
++    return true;
++  }
++  return false;
++}
++
++template <typename Function>
++bool RejectsConstruction(Function&& function) {
++  try {
++    std::forward<Function>(function)();
++  } catch (const ValueError&) {
++    return true;
++  }
++  return false;
++}
++
++std::vector<ScheduleParameter> MaximumCardinalityCategory(ScheduleValueKind kind,
++                                                          const std::string& value) {
++  std::vector<ScheduleParameter> parameters;
++  parameters.reserve(128);
++  for (size_t index = 0; index < 128; ++index) {
++    const std::string ordinal = std::to_string(1000 + index).substr(1);
++    parameters.emplace_back("value_" + ordinal, kind, value);
++  }
++  return parameters;
++}
++
++}  // namespace
++
++int main() {
++  static_assert(CanonicalSchedule::kCanonicalScheduleSchemaVersion == 1);
++  static_assert(CanonicalSchedule::kContract == "pypto.canonical_schedule.v1");
++  static_assert(!std::is_default_constructible_v<CanonicalSchedule>);
++  static_assert(!std::is_copy_assignable_v<CanonicalSchedule>);
++  static_assert(!std::is_move_assignable_v<CanonicalSchedule>);
++
++  const CanonicalSchedule empty = EmptySchedule();
++  const std::vector<uint8_t> empty_golden = BytesFromHex(kEmptyScheduleGoldenHex);
++  REQUIRE(empty.SerializeCanonical() == empty_golden);
++  REQUIRE(empty.GetCanonicalScheduleSchemaVersion() == 1);
++  REQUIRE(empty.GetContract() == "pypto.canonical_schedule.v1");
++  REQUIRE(empty.GetIdentityDigest() ==
++          "3d1ea8ab4f5053d979ff9ac4d8d9cf6f90188578f25fa976c185a65ebfd19c0e");
++  const CanonicalSchedule empty_round_trip = CanonicalSchedule::DeserializeCanonical(empty_golden);
++  REQUIRE(empty_round_trip.SerializeCanonical() == empty_golden);
++  REQUIRE(empty_round_trip.GetSchedule().empty());
++  REQUIRE(empty_round_trip.GetTile().empty());
++  REQUIRE(empty_round_trip.GetLayout().empty());
++  REQUIRE(empty_round_trip.GetPersistence().empty());
++  REQUIRE(empty_round_trip.GetCta().empty());
++  REQUIRE(empty_round_trip.GetWarp().empty());
++  REQUIRE(empty_round_trip.GetStage().empty());
++  REQUIRE(empty_round_trip.GetOptions().empty());
++
++  const CanonicalSchedule boundaries =
++      CanonicalSchedule::DeserializeCanonical(BoundarySchedule().SerializeCanonical());
++  REQUIRE(boundaries.GetSchedule().front().GetCanonicalValue() == "false");
++  REQUIRE(boundaries.GetTile().front().GetCanonicalValue() == "true");
++  REQUIRE(boundaries.GetLayout().front().GetCanonicalValue() ==
++          std::to_string(std::numeric_limits<int64_t>::min()));
++  REQUIRE(boundaries.GetPersistence().front().GetCanonicalValue() ==
++          std::to_string(std::numeric_limits<int64_t>::max()));
++  REQUIRE(boundaries.GetCta().front().GetCanonicalValue() == "0");
++  REQUIRE(boundaries.GetWarp().front().GetCanonicalValue() ==
++          std::to_string(std::numeric_limits<uint64_t>::max()));
++  REQUIRE(boundaries.GetStage().front().GetCanonicalValue() == "three-stage");
++  REQUIRE(boundaries.GetOptions().front().GetCanonicalValue() == "0");
++
++  std::vector<std::string> category_digests = {
++      CanonicalSchedule({Parameter("value", ScheduleValueKind::Boolean, "true")}, {}, {}, {}, {}, {},
++                        {}, {})
++          .GetIdentityDigest(),
++      CanonicalSchedule({}, {Parameter("value", ScheduleValueKind::Boolean, "true")}, {}, {}, {}, {},
++                        {}, {})
++          .GetIdentityDigest(),
++      CanonicalSchedule({}, {}, {Parameter("value", ScheduleValueKind::Boolean, "true")}, {}, {}, {},
++                        {}, {})
++          .GetIdentityDigest(),
++      CanonicalSchedule({}, {}, {}, {Parameter("value", ScheduleValueKind::Boolean, "true")}, {}, {},
++                        {}, {})
++          .GetIdentityDigest(),
++      CanonicalSchedule({}, {}, {}, {}, {Parameter("value", ScheduleValueKind::Boolean, "true")}, {},
++                        {}, {})
++          .GetIdentityDigest(),
++      CanonicalSchedule({}, {}, {}, {}, {}, {Parameter("value", ScheduleValueKind::Boolean, "true")},
++                        {}, {})
++          .GetIdentityDigest(),
++      CanonicalSchedule({}, {}, {}, {}, {}, {}, {Parameter("value", ScheduleValueKind::Boolean, "true")},
++                        {})
++          .GetIdentityDigest(),
++      CanonicalSchedule({}, {}, {}, {}, {}, {}, {},
++                        {Parameter("value", ScheduleValueKind::Boolean, "true")})
++          .GetIdentityDigest(),
++  };
++  std::sort(category_digests.begin(), category_digests.end());
++  REQUIRE(std::adjacent_find(category_digests.begin(), category_digests.end()) ==
++          category_digests.end());
++
++  const auto maximum_category = MaximumCardinalityCategory(ScheduleValueKind::Boolean, "false");
++  const CanonicalSchedule maximum_cardinality(maximum_category, maximum_category, maximum_category,
++                                              maximum_category, maximum_category, maximum_category,
++                                              maximum_category, maximum_category);
++  REQUIRE(CanonicalSchedule::DeserializeCanonical(maximum_cardinality.SerializeCanonical())
++              .GetOptions()
++              .size() == 128);
++  const CanonicalSchedule maximum_text(
++      {Parameter("value", ScheduleValueKind::Text, std::string(4096, 'x'))}, {}, {}, {}, {}, {}, {}, {});
++  REQUIRE(CanonicalSchedule::DeserializeCanonical(maximum_text.SerializeCanonical())
++              .GetSchedule()
++              .front()
++              .GetCanonicalValue()
++              .size() == 4096);
++
++  REQUIRE(RejectsConstruction([&] {
++    const auto maximum_text_category =
++        MaximumCardinalityCategory(ScheduleValueKind::Text, std::string(4096, 'x'));
++    (void)CanonicalSchedule(maximum_text_category, maximum_text_category, {}, {}, {}, {}, {}, {});
++  }));
++  REQUIRE(RejectsConstruction([] {
++    auto too_many = MaximumCardinalityCategory(ScheduleValueKind::Boolean, "false");
++    too_many.emplace_back("value_128", ScheduleValueKind::Boolean, "false");
++    (void)CanonicalSchedule(std::move(too_many), {}, {}, {}, {}, {}, {}, {});
++  }));
++
++  const KernelBuildSpec existing_spec = BuildSpec(ExistingKernelBuildSpecSchedule(), true);
++  REQUIRE(existing_spec.GetIdentityDigest() ==
++          "93cab0033e5eb53ca87468c52348ffbfe5e17cd5d611080b2b8087af67fa93f6");
++  const KernelBuildSpec empty_spec = BuildSpec(EmptySchedule(), false);
++  const std::vector<uint8_t> nested_empty_body =
++      ExtractResolvedScheduleBody(empty_spec.SerializeCanonical());
++  REQUIRE(nested_empty_body == BytesFromHex(kEmptyResolvedScheduleBodyGoldenHex));
++  REQUIRE(nested_empty_body == ExtractResolvedScheduleBody(empty.SerializeCanonical()));
++  REQUIRE(RejectsSchedule(nested_empty_body));
++  REQUIRE(RejectsBuildSpec(
++      WrapKernelBuildSpecSchedule(empty_spec.SerializeCanonical(), empty.SerializeCanonical())));
++
++  REQUIRE(RejectsSchedule({}));
++  REQUIRE(RejectsSchedule(std::vector<uint8_t>{0xc1}));
++  REQUIRE(RejectsSchedule(std::vector<uint8_t>{0xc0}));
++  REQUIRE(RejectsSchedule(std::vector<uint8_t>{0xca, 0x00, 0x00, 0x00, 0x00}));
++  REQUIRE(RejectsSchedule(std::vector<uint8_t>{0xd4, 0x00, 0x00}));
++  REQUIRE(RejectsSchedule(std::vector<uint8_t>{0xc4, 0x00}));
++  REQUIRE(RejectsSchedule(std::vector<uint8_t>{0xdc, 0x00, 0x81}));
++  REQUIRE(RejectsSchedule(std::vector<uint8_t>{0x89}));
++  REQUIRE(RejectsSchedule(std::vector<uint8_t>{0xdb, 0x00, 0x00, 0x10, 0x01}));
++  REQUIRE(RejectsSchedule(std::vector<uint8_t>(1024 * 1024 + 1, 0)));
++  std::vector<uint8_t> depth_bomb(6, 0x91);
++  depth_bomb.back() = 0xc0;
++  REQUIRE(RejectsSchedule(depth_bomb));
++
++  REQUIRE(RejectsSchedule(AddUnknownRootField(empty_golden)));
++  REQUIRE(RejectsSchedule(AddDuplicateRootField(empty_golden)));
++  REQUIRE(RejectsSchedule(DropRootField(empty_golden, "contract")));
++  REQUIRE(RejectsSchedule(ReverseRootOrder(empty_golden)));
++  REQUIRE(RejectsSchedule(ReplaceRootText(empty_golden, "contract", "pypto.canonical_schedule.v2")));
++  REQUIRE(RejectsSchedule(ReplaceVersion(empty_golden, 2, false)));
++  REQUIRE(RejectsSchedule(ReplaceVersion(empty_golden, 1, true)));
++  const std::vector<uint8_t> populated = ExistingKernelBuildSpecSchedule().SerializeCanonical();
++  REQUIRE(RejectsSchedule(MutateResolvedScheduleMap(populated, MapMutation::Unknown)));
++  REQUIRE(RejectsSchedule(MutateResolvedScheduleMap(populated, MapMutation::Duplicate)));
++  REQUIRE(RejectsSchedule(MutateResolvedScheduleMap(populated, MapMutation::Missing)));
++  REQUIRE(RejectsSchedule(MutateResolvedScheduleMap(populated, MapMutation::Reordered)));
++  REQUIRE(RejectsSchedule(MutateFirstTileParameterMap(populated, MapMutation::Unknown)));
++  REQUIRE(RejectsSchedule(MutateFirstTileParameterMap(populated, MapMutation::Duplicate)));
++  REQUIRE(RejectsSchedule(MutateFirstTileParameterMap(populated, MapMutation::Missing)));
++  REQUIRE(RejectsSchedule(MutateFirstTileParameterMap(populated, MapMutation::Reordered)));
++  REQUIRE(RejectsSchedule(MutateTileArray(populated, TileArrayMutation::Reordered)));
++  REQUIRE(RejectsSchedule(MutateTileArray(populated, TileArrayMutation::Duplicate)));
++  REQUIRE(RejectsSchedule(MutateTileArray(populated, TileArrayMutation::NonminimalInteger)));
++  auto trailing = empty_golden;
++  trailing.push_back(0);
++  REQUIRE(RejectsSchedule(trailing));
++  auto truncated = empty_golden;
++  truncated.pop_back();
++  REQUIRE(RejectsSchedule(truncated));
++
++  return 0;
++}

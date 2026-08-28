@@ -1,0 +1,600 @@
+From 12a6e7cf67ba01de8dee9255806b0700337f8fef Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 06:48:17 +0800
+Subject: [PATCH 151/212] Preserve non-dense JIT tensor strides
+
+---
+ python/pypto/jit/cache.py                   |   9 +
+ python/pypto/jit/decorator.py               | 184 ++++++++++++++++----
+ python/pypto/jit/specializer.py             |  21 ++-
+ tests/ut/jit/test_cache.py                  |  18 ++
+ tests/ut/jit/test_jit_compile_extraction.py |  67 ++++++-
+ tests/ut/jit/test_specializer.py            |   7 +
+ 6 files changed, 259 insertions(+), 47 deletions(-)
+
+diff --git a/python/pypto/jit/cache.py b/python/pypto/jit/cache.py
+index fb9f5d2d746ed62a6c35332df6ce9e9a6b297157..f9050a345a86dad9d92b803aff0ca9150e05d342 100644
+--- a/python/pypto/jit/cache.py
++++ b/python/pypto/jit/cache.py
+@@ -60,12 +60,16 @@ class TensorCacheInfo:
+             closure variable (``L = pl.NZ; ... pl.Tensor[[...], pl.FP32, L]``),
+             leaving the source text — and thus ``source_hash`` — unchanged
+             while the compiled artifact differs.
++        strides: Explicit non-dense element strides, or None for canonical
++            dense storage. Runtime views with different strides must not share
++            one compiled launch ABI.
+     """
+ 
+     name: str
+     shape: tuple[int | None, ...]
+     dtype: DataType
+     layout: "TensorLayout | None" = None
++    strides: tuple[int, ...] | None = None
+ 
+ 
+ @dataclass(frozen=True)
+@@ -146,6 +150,7 @@ def make_cache_key(  # noqa: PLR0913 — args are the key's components, one per
+     memory_planner: "MemoryPlanner | None" = None,
+     enable_pypto_l0c_double_buffer: bool = False,
+     tensor_layouts: dict[str, "TensorLayout | None"] | None = None,
++    tensor_strides: dict[str, tuple[int, ...] | None] | None = None,
+     dep_layouts: tuple[tuple[str, str, str], ...] = (),
+     runtime: RuntimeKind = RuntimeKind.TENSORMAP_AND_RINGBUFFER,
+ ) -> CacheKey:
+@@ -159,6 +164,9 @@ def make_cache_key(  # noqa: PLR0913 — args are the key's components, one per
+         tensor_layouts: Annotated layout per tensor parameter name, where the
+             annotation declares one. See :class:`TensorCacheInfo.layout` for
+             why the layout has to split the key on its own.
++        tensor_strides: Explicit non-dense element strides per tensor parameter.
++            They split the key because pointer arithmetic and launch validation
++            are stride-sensitive even when shape and dtype are identical.
+         dep_layouts: ``(dep name, parameter, layout)`` triples for layouts the
+             reachable deps declare themselves. Same reasoning as
+             ``tensor_layouts``, one call deeper: they shape the generated dep
+@@ -227,6 +235,7 @@ def make_cache_key(  # noqa: PLR0913 — args are the key's components, one per
+                 shape=keyed_shape,
+                 dtype=tensor_dtypes[name],
+                 layout=(tensor_layouts or {}).get(name),
++                strides=(tensor_strides or {}).get(name),
+             )
+         )
+ 
+diff --git a/python/pypto/jit/decorator.py b/python/pypto/jit/decorator.py
+index 2ffaeff8a1134377712981c0cdcd1861870bea9d..a376a375f7a13e30d7176ff6e3c07fa3a6cb24b2 100644
+--- a/python/pypto/jit/decorator.py
++++ b/python/pypto/jit/decorator.py
+@@ -190,6 +190,7 @@ def _build_tensor_meta(
+     dtype: DataType,
+     dyn_dims: dict[int, DynDim] | None = None,
+     layout: _ir.TensorLayout | None = None,
++    strides: tuple[int, ...] | None = None,
+ ) -> TensorMeta:
+     """Build a ``TensorMeta`` from per-dim extents and a resolved dtype.
+ 
+@@ -213,22 +214,42 @@ def _build_tensor_meta(
+             shape.append(extent)
+         else:
+             shape.append(DynDim(name=bound.name, literal=bound.literal, static_bound=extent))
+-    return TensorMeta(shape=tuple(shape), dtype=dtype, layout=layout)
++    if strides is not None and len(strides) != len(shape):
++        raise TypeError("runtime tensor strides must have the same rank as shape")
++    return TensorMeta(
++        shape=tuple(shape), dtype=dtype, layout=layout, strides=strides
++    )
++
++
++def _canonical_dense_strides(extents: Sequence[int]) -> tuple[int, ...]:
++    """Return canonical row-major element strides for positive extents."""
++
++    running = 1
++    result = [0] * len(extents)
++    for index in range(len(extents) - 1, -1, -1):
++        result[index] = running
++        running *= int(extents[index])
++    return tuple(result)
+ 
+ 
+ def _extract_tensor_meta(
+     tensor: Any,
+     dyn_dims: dict[int, DynDim] | None = None,
+     layout: _ir.TensorLayout | None = None,
++    declared_strides: tuple[int, ...] | None = None,
+ ) -> TensorMeta:
+-    """Extract TensorMeta from a torch.Tensor (shape/dtype only — no data read).
++    """Extract TensorMeta from a torch.Tensor without reading tensor data.
+ 
+     ``layout`` comes from the parameter's annotation, not the tensor: torch has
+-    no notion of a PyPTO layout, so the annotation is the only source.
++    no notion of a PyPTO layout, so the annotation is the only source. A
++    non-canonical runtime stride is retained independently as an ND TensorView.
+     """
+     dtype = _torch_dtype_to_pypto(tensor.dtype)
+     extents = list(tensor.shape)
++    observed_strides = tuple(int(value) for value in tensor.stride())
+     if dtype == DataType.FP4:
++        if observed_strides != _canonical_dense_strides(extents):
++            raise TypeError("Non-contiguous packed FP4 JIT tensors are not supported")
+         if not extents:
+             raise TypeError("Packed torch.float4_e2m1fn_x2 tensors must have rank >= 1")
+         if extents[-1] <= 0:
+@@ -240,7 +261,16 @@ def _extract_tensor_meta(
+         # logical FP4 nibbles, so expand only at this API boundary and keep the
+         # storage shape out of TensorType/TileType.
+         extents[-1] *= 2
+-    return _build_tensor_meta(extents, dtype, dyn_dims, layout)
++        observed_strides = _canonical_dense_strides(extents)
++    if declared_strides is not None and observed_strides != declared_strides:
++        raise TypeError(
++            "runtime tensor strides do not match its @pl.jit TensorView annotation: "
++            f"expected {declared_strides}, got {observed_strides}"
++        )
++    strides = declared_strides
++    if strides is None and observed_strides != _canonical_dense_strides(extents):
++        strides = observed_strides
++    return _build_tensor_meta(extents, dtype, dyn_dims, layout, strides)
+ 
+ 
+ def _resolve_annotation(annotation: Any, ann_ns: dict[str, Any] | None) -> Any:
+@@ -275,8 +305,10 @@ def _annotation_namespace(func: Any, sig: inspect.Signature) -> dict[str, Any] |
+     return None
+ 
+ 
+-def _annotation_layout(annotation: Any, param_name: str, func_name: str) -> _ir.TensorLayout | None:
+-    """Read the layout slot off an already-resolved tensor annotation.
++def _annotation_tensor_contract(
++    annotation: Any, param_name: str, func_name: str
++) -> tuple[_ir.TensorLayout | None, tuple[int, ...] | None]:
++    """Read the layout and static strides from one tensor annotation.
+ 
+     ``pl.Tensor[[...], dtype, pl.NZ]`` evaluates to a ``Tensor`` instance whose
+     ``layout`` holds the third slot; the two-slot form leaves it None.
+@@ -288,27 +320,39 @@ def _annotation_layout(annotation: Any, param_name: str, func_name: str) -> _ir.
+         func_name: Enclosing kernel name, for diagnostics
+ 
+     Returns:
+-        The annotated layout, or None when the annotation declares none
+-
+-    Raises:
+-        TypeError: If the slot holds a ``pl.TensorView`` — specialization has
+-            nowhere to carry it, and silently dropping it would mis-declare the
+-            parameter
++        ``(layout, strides)``. Strides are None for a plain layout or absent
++        third slot.
+     """
+     layout = getattr(annotation, "layout", None)
+     if layout is None or isinstance(layout, _ir.TensorLayout):
+-        return layout
+-    # ``Tensor.__getitem__`` routes any non-MemRef third element into ``layout``,
+-    # so a pl.TensorView(...) lands here. TensorMeta has no field for it, and a
+-    # dropped stride is silently wrong code — refuse instead. This is reachable
+-    # from the DN rejection's own migration hint, so the message has to be plain.
+-    raise TypeError(
+-        f"@pl.jit function {func_name!r}: parameter {param_name!r} annotates a "
+-        f"{type(layout).__name__} in its layout slot, which @pl.jit does not yet "
+-        f"support — it would be dropped and the parameter compiled as ND. Use a "
+-        f"plain layout (e.g. pl.MX_A_ZZ), or declare the kernel with @pl.function, "
+-        f"which resolves the annotation directly."
+-    )
++        return layout, None
++    if not isinstance(layout, _ir.TensorView):
++        raise TypeError(
++            f"@pl.jit function {func_name!r}: parameter {param_name!r} has an "
++            f"unsupported {type(layout).__name__} tensor annotation slot"
++        )
++    if layout.valid_shape or layout.pad != _ir.PadValue.null:
++        raise TypeError(
++            f"@pl.jit function {func_name!r}: parameter {param_name!r} uses "
++            "TensorView valid-shape or padding metadata, which TensorMeta does "
++            "not represent"
++        )
++    strides: list[int] = []
++    for stride in layout.stride:
++        value = getattr(stride, "value", None)
++        if type(value) is not int or value < 0:
++            raise TypeError(
++                f"@pl.jit function {func_name!r}: parameter {param_name!r} "
++                "TensorView strides must be non-negative static integers"
++            )
++        strides.append(value)
++    return layout.layout, tuple(strides) if strides else None
++
++
++def _annotation_layout(annotation: Any, param_name: str, func_name: str) -> _ir.TensorLayout | None:
++    """Read only the layout projection of a tensor annotation."""
++
++    return _annotation_tensor_contract(annotation, param_name, func_name)[0]
+ 
+ 
+ def _param_layouts(func: Any, func_name: str) -> dict[str, _ir.TensorLayout]:
+@@ -342,6 +386,26 @@ def _param_layouts(func: Any, func_name: str) -> dict[str, _ir.TensorLayout]:
+     return layouts
+ 
+ 
++def _param_strides(func: Any, func_name: str) -> dict[str, tuple[int, ...]]:
++    """Map parameter names to explicit annotation TensorView strides."""
++
++    try:
++        sig = inspect.signature(func)
++    except (TypeError, ValueError):
++        return {}
++    ann_ns = _annotation_namespace(func, sig)
++    strides: dict[str, tuple[int, ...]] = {}
++    for name, param in sig.parameters.items():
++        if name == "self":
++            continue
++        _, declared = _annotation_tensor_contract(
++            _resolve_annotation(param.annotation, ann_ns), name, func_name
++        )
++        if declared is not None:
++            strides[name] = declared
++    return strides
++
++
+ def _signature_tensor_meta(
+     annotation: Any,
+     dtype: DataType,
+@@ -366,8 +430,8 @@ def _signature_tensor_meta(
+     for i, dim in enumerate(shape):
+         if isinstance(dim, dynvar_cls) and i not in dyn_dims:
+             dyn_dims[i] = DynDim(name=dim.name, literal=dim.name, static_bound=0)
+-    layout = _annotation_layout(annotation, param_name, func_name)
+-    return _build_tensor_meta(extents, dtype, dyn_dims, layout)
++    layout, strides = _annotation_tensor_contract(annotation, param_name, func_name)
++    return _build_tensor_meta(extents, dtype, dyn_dims, layout, strides)
+ 
+ 
+ def _signature_scalar_value(
+@@ -782,6 +846,7 @@ def _subscript_slice_meta(
+     if len(indices) > len(src_meta.shape):
+         return None
+     dims: list[ShapeDim] = []
++    strides: list[int] | None = [] if src_meta.strides is not None else None
+     for dim_idx, idx in enumerate(indices):
+         if not isinstance(idx, ast.Slice):
+             continue  # scalar index → rank-reducing, dim dropped
+@@ -798,8 +863,17 @@ def _subscript_slice_meta(
+             stop = resolve_int(idx.upper)
+             extent = stop - start if isinstance(start, int) and isinstance(stop, int) else None
+         dims.append(extent if extent is not None else parent)
++        if strides is not None:
++            strides.append(src_meta.strides[dim_idx])
+     dims.extend(src_meta.shape[len(indices) :])  # trailing implicit ``:``
+-    return TensorMeta(shape=tuple(dims), dtype=src_meta.dtype, layout=src_meta.layout)
++    if strides is not None:
++        strides.extend(src_meta.strides[len(indices) :])
++    return TensorMeta(
++        shape=tuple(dims),
++        dtype=src_meta.dtype,
++        layout=src_meta.layout,
++        strides=None if strides is None else tuple(strides),
++    )
+ 
+ 
+ def _extract_dim_alias(value: ast.expr | None) -> tuple[str, int] | None:
+@@ -1132,7 +1206,10 @@ def _extract_local_tensor_metas(
+         # need not hold on the result — but claiming ND instead would be the
+         # same silent mis-declaration. Decline the meta and let _build_params
+         # raise its clear "missing type annotation" error.
+-        if src_meta.layout not in (None, _ir.TensorLayout.ND):
++        if (
++            src_meta.layout not in (None, _ir.TensorLayout.ND)
++            or src_meta.strides is not None
++        ):
+             return None
+         return TensorMeta(shape=shape, dtype=src_meta.dtype)
+ 
+@@ -1158,7 +1235,12 @@ def _extract_local_tensor_metas(
+             # consumes a narrowed view (see examples/models/04_paged_attention.py).
+             # If the parent dim is itself a DynDim, it propagates through.
+             dims.append(v if v is not None else parent_dim)
+-        return TensorMeta(shape=tuple(dims), dtype=src_meta.dtype, layout=src_meta.layout)
++        return TensorMeta(
++            shape=tuple(dims),
++            dtype=src_meta.dtype,
++            layout=src_meta.layout,
++            strides=src_meta.strides,
++        )
+ 
+     dep_io = _scan_dep_io(func, caller_func_type)
+ 
+@@ -1348,6 +1430,11 @@ def _resolve_dep_call_metadata(
+                         # Layout describes the trailing dims, so dropping
+                         # leading ones leaves it intact.
+                         layout=base_meta.layout,
++                        strides=(
++                            None
++                            if base_meta.strides is None
++                            else base_meta.strides[caller_arg.drop :]
++                        ),
+                     )
+                 continue
+             if caller_arg in all_tensor_meta:
+@@ -1385,7 +1472,10 @@ def _resolve_dep_call_metadata(
+             changed = True
+         if changed:
+             dep_tensor_meta[dep_param] = TensorMeta(
+-                shape=tuple(new_shape), dtype=meta.dtype, layout=meta.layout
++                shape=tuple(new_shape),
++                dtype=meta.dtype,
++                layout=meta.layout,
++                strides=meta.strides,
+             )
+ 
+     _overlay_dep_declared_layouts(dep, dep_tensor_meta)
+@@ -1394,7 +1484,7 @@ def _resolve_dep_call_metadata(
+ 
+ 
+ def _overlay_dep_declared_layouts(dep: JITFunction, dep_tensor_meta: dict[str, TensorMeta]) -> None:
+-    """Fill in layouts a dep declares itself, in place.
++    """Fill in layouts and static strides a dep declares itself, in place.
+ 
+     Nothing on the caller side carries them — an argument's meta reflects the
+     *caller's* annotation — so without this a dep declaring
+@@ -1406,11 +1496,30 @@ def _overlay_dep_declared_layouts(dep: JITFunction, dep_tensor_meta: dict[str, T
+         dep: The dep whose own annotations to read
+         dep_tensor_meta: Per-parameter meta to update in place
+     """
+-    for dep_param, dep_layout in _param_layouts(dep._func, dep.__name__).items():
++    layouts = _param_layouts(dep._func, dep.__name__)
++    strides = _param_strides(dep._func, dep.__name__)
++    for dep_param in layouts.keys() | strides.keys():
+         meta = dep_tensor_meta.get(dep_param)
+-        if meta is None or meta.layout is not None:
++        if meta is None:
+             continue
+-        dep_tensor_meta[dep_param] = TensorMeta(shape=meta.shape, dtype=meta.dtype, layout=dep_layout)
++        dep_layout = layouts.get(dep_param)
++        dep_strides = strides.get(dep_param)
++        if (
++            meta.strides is not None
++            and dep_strides is not None
++            and meta.strides != dep_strides
++        ):
++            raise TypeError(
++                f"@pl.jit dependency {dep.__name__!r} parameter {dep_param!r} "
++                f"declares strides {dep_strides}, but caller metadata has "
++                f"{meta.strides}"
++            )
++        dep_tensor_meta[dep_param] = TensorMeta(
++            shape=meta.shape,
++            dtype=meta.dtype,
++            layout=meta.layout if meta.layout is not None else dep_layout,
++            strides=meta.strides if meta.strides is not None else dep_strides,
++        )
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -1825,6 +1934,7 @@ class JITFunction:
+         # A layout has no runtime counterpart on a torch tensor, so it comes
+         # from the annotation even on this path.
+         param_layouts = _param_layouts(self._func, self.__name__)
++        param_strides = _param_strides(self._func, self.__name__)
+         tensor_meta: dict[str, TensorMeta] = {}
+         scalar_values: dict[str, int | float | bool] = {}
+         scalar_dtypes: dict[str, DataType] = {}
+@@ -1850,7 +1960,10 @@ class JITFunction:
+                 )
+             if _is_tensor(value):
+                 tensor_meta[name] = _extract_tensor_meta(
+-                    value, entry_dyn_map.get(name), param_layouts.get(name)
++                    value,
++                    entry_dyn_map.get(name),
++                    param_layouts.get(name),
++                    param_strides.get(name),
+                 )
+             elif isinstance(value, (int, float, bool)):
+                 scalar_values[name] = value
+@@ -2094,6 +2207,7 @@ class JITFunction:
+             tensor_shapes={n: m.static_shape() for n, m in specialization.tensor_meta.items()},
+             tensor_dtypes={n: m.dtype for n, m in specialization.tensor_meta.items()},
+             tensor_layouts={n: m.layout for n, m in specialization.tensor_meta.items()},
++            tensor_strides={n: m.strides for n, m in specialization.tensor_meta.items()},
+             dep_layouts=self._dep_declared_layouts(),
+             dynamic_dims={
+                 (n, i) for n, m in specialization.tensor_meta.items() for i in m.dynamic_dim_indices()
+diff --git a/python/pypto/jit/specializer.py b/python/pypto/jit/specializer.py
+index bcab32e623537172543b24e3cbc885c66d4b23d9..7a1fc01724b3fe2a23ffb7d76d42fb00910140df 100644
+--- a/python/pypto/jit/specializer.py
++++ b/python/pypto/jit/specializer.py
+@@ -90,11 +90,16 @@ class TensorMeta:
+             omits it. Carried so the regenerated ``@pl.function`` source keeps
+             the slot the user wrote — a dropped layout would silently downgrade
+             the parameter to ND.
++        strides: Explicit runtime element strides for a non-contiguous tensor,
++            or None for canonical dense storage. These regenerate as an ND
++            ``pl.TensorView`` so pointer arithmetic and launch ABI stay bound
++            to the same physical view.
+     """
+ 
+     shape: tuple[ShapeDim, ...]
+     dtype: DataType
+     layout: TensorLayout | None = None
++    strides: tuple[int, ...] | None = None
+ 
+     def static_shape(self) -> tuple[int, ...]:
+         """Concrete shape tuple — DynDim dims collapse to their static_bound."""
+@@ -472,9 +477,19 @@ def _build_tensor_annotation(
+     dims = [d.name if isinstance(d, DynDim) else str(d) for d in meta.shape]
+     head = "pld.DistributedTensor" if is_distributed else "pl.Tensor"
+     slots = [f"[{', '.join(dims)}]", _dtype_str(meta.dtype)]
+-    layout_slot = _layout_str(meta.layout) if meta.layout is not None else None
+-    if layout_slot is not None:
+-        slots.append(layout_slot)
++    if meta.strides is not None:
++        if len(meta.strides) != len(meta.shape):
++            raise ValueError("TensorMeta strides must have the same rank as shape")
++        layout_name = (meta.layout or TensorLayout.ND).name
++        stride_text = ", ".join(str(value) for value in meta.strides)
++        slots.append(
++            "pl.TensorView("
++            f"stride=[{stride_text}], layout=pl.TensorLayout.{layout_name})"
++        )
++    else:
++        layout_slot = _layout_str(meta.layout) if meta.layout is not None else None
++        if layout_slot is not None:
++            slots.append(layout_slot)
+     inner = f"{head}[{', '.join(slots)}]"
+     if is_inout:
+         return f"pl.InOut[{inner}]"
+diff --git a/tests/ut/jit/test_cache.py b/tests/ut/jit/test_cache.py
+index 3449bcea11749071b2aac6c65e8368da187613db..b22d6025168420ca8085b85ed8fd485a4bb60290 100644
+--- a/tests/ut/jit/test_cache.py
++++ b/tests/ut/jit/test_cache.py
+@@ -69,6 +69,7 @@ class TestMakeCacheKey:
+         memory_planner=None,
+         enable_pypto_l0c_double_buffer=False,
+         tensor_layouts=None,
++        tensor_strides=None,
+         dep_layouts=(),
+         runtime=passes.RuntimeKind.TENSORMAP_AND_RINGBUFFER,
+     ):
+@@ -86,6 +87,7 @@ class TestMakeCacheKey:
+             memory_planner=memory_planner,
+             enable_pypto_l0c_double_buffer=enable_pypto_l0c_double_buffer,
+             tensor_layouts=tensor_layouts,
++            tensor_strides=tensor_strides,
+             dep_layouts=dep_layouts,
+             runtime=runtime,
+         )
+@@ -127,6 +129,22 @@ class TestMakeCacheKey:
+         assert info.shape == (128, 64)
+         assert info.dtype == DataType.FP32
+ 
++    def test_tensor_stride_change_causes_miss(self):
++        dense = self._make_key(
++            param_names=["a"],
++            tensor_shapes={"a": (128, 64)},
++            tensor_dtypes={"a": DataType.FP32},
++            tensor_strides={"a": None},
++        )
++        strided = self._make_key(
++            param_names=["a"],
++            tensor_shapes={"a": (128, 64)},
++            tensor_dtypes={"a": DataType.FP32},
++            tensor_strides={"a": (128, 1)},
++        )
++        assert dense != strided
++        assert strided[3][0].strides == (128, 1)
++
+     def test_dynamic_dim_becomes_none(self):
+         key = self._make_key(
+             param_names=["a"],
+diff --git a/tests/ut/jit/test_jit_compile_extraction.py b/tests/ut/jit/test_jit_compile_extraction.py
+index aad9fe05358ace2865786ff5d6881cf17484e909..8794d6af8267f9748c43778735516730ff1e83d9 100644
+--- a/tests/ut/jit/test_jit_compile_extraction.py
++++ b/tests/ut/jit/test_jit_compile_extraction.py
+@@ -565,6 +565,14 @@ def _dn_kernel(a: pl.Tensor[[64, 128], pl.FP16, pl.DN], c: pl.Out[pl.Tensor[[64,
+     return c
+ 
+ 
++@jit
++def _runtime_strided_kernel(a: pl.Tensor, c: pl.Out[pl.Tensor]):
++    M, N = a.shape
++    t = pl.load(a, [0, 0], [M, N])
++    pl.store(t, [0, 0], c)
++    return c
++
++
+ class TestAnnotationLayoutReachesTheProgram:
+     """The layout slot of a @pl.jit parameter annotation must reach the IR.
+ 
+@@ -611,6 +619,28 @@ class TestAnnotationLayoutReachesTheProgram:
+         assert span is not None
+         assert span["filename"].endswith("test_jit_compile_extraction.py")
+ 
++    def test_runtime_stride_reaches_tensor_view_and_output_stays_dense(self):
++        torch = pytest.importorskip("torch")
++        source = torch.empty_strided(
++            (64, 128), (256, 1), dtype=torch.float16, device="meta"
++        )
++        output = torch.empty((64, 128), dtype=torch.float16, device="meta")
++        _, _, tensor_meta, scalar_values, scalar_dtypes, dynamic = (
++            _runtime_strided_kernel._bind_args((source, output), {})
++        )
++        assert tensor_meta["a"].strides == (256, 1)
++        assert tensor_meta["c"].strides is None
++        program = _runtime_strided_kernel._compile_to_program(
++            tensor_meta, scalar_values, scalar_dtypes, dynamic, pl
++        )
++        params = list(program.functions.values())[0].params
++        assert params[0].type.tensor_view is not None
++        assert [int(value.value) for value in params[0].type.tensor_view.stride] == [
++            256,
++            1,
++        ]
++        assert params[1].type.tensor_view is None
++
+ 
+ @jit.incore
+ def _mx_dep(a: pl.Tensor[[64, 128], pl.UINT8, pl.MX_A_ZZ], c: pl.Out[pl.Tensor[[64, 128], pl.UINT8]]):
+@@ -646,15 +676,10 @@ class TestDepDeclaredLayout:
+         assert any(v.layout == ir.TensorLayout.MX_A_ZZ for v in views)
+ 
+ 
+-class TestUnsupportedLayoutSlot:
+-    """A ``pl.TensorView`` in the slot must be refused, never dropped.
+-
+-    ``TensorMeta`` has nowhere to carry a view, and a dropped stride is silent
+-    wrong code. The DN rejection's own hint points users at this spelling, so
+-    the refusal has to be explicit rather than a quiet ND.
+-    """
++class TestTensorViewSlot:
++    """A static TensorView survives signature and runtime specialization."""
+ 
+-    def test_tensorview_slot_raises(self):
++    def test_tensorview_slot_reaches_ir(self):
+         strided = pl.TensorView(stride=[256, 1], layout=ir.TensorLayout.ND)
+ 
+         @jit
+@@ -664,8 +689,32 @@ class TestUnsupportedLayoutSlot:
+             pl.store(t, [0, 0], c)
+             return c
+ 
+-        with pytest.raises(TypeError, match="does not yet support"):
++        _, _, tensor_meta, scalar_values, scalar_dtypes, dynamic = (
+             kernel._bind_args_from_signature({})
++        )
++        assert tensor_meta["a"].strides == (256, 1)
++        program = kernel._compile_to_program(
++            tensor_meta, scalar_values, scalar_dtypes, dynamic, pl
++        )
++        view = list(program.functions.values())[0].params[0].type.tensor_view
++        assert view is not None
++        assert [int(value.value) for value in view.stride] == [256, 1]
++
++    def test_runtime_stride_must_match_declared_view(self):
++        torch = pytest.importorskip("torch")
++        strided = pl.TensorView(stride=[256, 1], layout=ir.TensorLayout.ND)
++
++        @jit
++        def kernel(a: pl.Tensor[[64, 128], pl.FP16, strided], c: pl.Out[pl.Tensor[[64, 128], pl.FP16]]):
++            M, N = a.shape
++            t = pl.load(a, [0, 0], [M, N])
++            pl.store(t, [0, 0], c)
++            return c
++
++        dense = torch.empty((64, 128), dtype=torch.float16, device="meta")
++        output = torch.empty_like(dense)
++        with pytest.raises(TypeError, match="runtime tensor strides"):
++            kernel._bind_args((dense, output), {})
+ 
+ 
+ class TestNzOnTensorIsNotJitSpecific:
+diff --git a/tests/ut/jit/test_specializer.py b/tests/ut/jit/test_specializer.py
+index d4718862f720cff99f1666377093353430cdc455..cd820dad6b9c747d97da29b2ff6d32d1acb056b2 100644
+--- a/tests/ut/jit/test_specializer.py
++++ b/tests/ut/jit/test_specializer.py
+@@ -2020,6 +2020,13 @@ class TestTensorLayoutAnnotation:
+         meta = TensorMeta((64, 128), DataType.FP16)
+         assert _build_tensor_annotation(meta, is_out=False) == "pl.Tensor[[64, 128], pl.FP16]"
+ 
++    def test_annotation_carries_non_dense_runtime_strides(self):
++        meta = TensorMeta((64, 128), DataType.FP16, strides=(256, 1))
++        assert _build_tensor_annotation(meta, is_out=False) == (
++            "pl.Tensor[[64, 128], pl.FP16, "
++            "pl.TensorView(stride=[256, 1], layout=pl.TensorLayout.ND)]"
++        )
++
+     def test_annotation_layout_survives_out_wrapper(self):
+         meta = TensorMeta((64, 128), DataType.FP16, layout=ir.TensorLayout.NZ)
+         assert _build_tensor_annotation(meta, is_out=True) == "pl.Out[pl.Tensor[[64, 128], pl.FP16, pl.NZ]]"

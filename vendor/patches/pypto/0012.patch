@@ -1,0 +1,30 @@
+From 63247ea8402f3aa5b58aaf04ef7b2a008e3859dc Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Mon, 24 Aug 2026 21:58:14 +0800
+Subject: [PATCH 012/212] build: pin TensorIR LLVM source
+
+---
+ .gitmodules                  | 4 ++++
+ 3rdparty/nvidia/llvm-project | 1 +
+ 2 files changed, 5 insertions(+)
+ create mode 160000 3rdparty/nvidia/llvm-project
+
+diff --git a/.gitmodules b/.gitmodules
+index 9abbe672e7bfe0c704d7bae2103b940865dad7cc..e97eee3d19ea4bae25ae0d9bfb7810c01dfde0b1 100644
+--- a/.gitmodules
++++ b/.gitmodules
+@@ -13,3 +13,7 @@
+ [submodule "3rdparty/nvidia/cuda-tile"]
+ 	path = 3rdparty/nvidia/cuda-tile
+ 	url = https://github.com/NVIDIA/cuda-tile.git
++[submodule "3rdparty/nvidia/llvm-project"]
++	path = 3rdparty/nvidia/llvm-project
++	url = https://github.com/llvm/llvm-project.git
++	shallow = true
+diff --git a/3rdparty/nvidia/llvm-project b/3rdparty/nvidia/llvm-project
+new file mode 160000
+index 0000000000000000000000000000000000000000..57109befac92811d2253109242ca6fa69c961fb2
+--- /dev/null
++++ b/3rdparty/nvidia/llvm-project
+@@ -0,0 +1 @@
++Subproject commit 57109befac92811d2253109242ca6fa69c961fb2

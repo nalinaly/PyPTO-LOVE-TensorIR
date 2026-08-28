@@ -1,0 +1,22 @@
+From ec57ae0879462086495b5121abb10e8719ec21d4 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 22:43:37 +0800
+Subject: [PATCH 33/82] Fix multi-output golden tile rank
+
+---
+ test/Conversion/TensorToCudaTile/load_store_layouts.mlir | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/test/Conversion/TensorToCudaTile/load_store_layouts.mlir b/test/Conversion/TensorToCudaTile/load_store_layouts.mlir
+index 871cbbf1fbfcf4b5c63aab4c159864bf7807991d..7a79af08f5e49a4dbc3162d468805919a147df3a 100644
+--- a/test/Conversion/TensorToCudaTile/load_store_layouts.mlir
++++ b/test/Conversion/TensorToCudaTile/load_store_layouts.mlir
+@@ -19,7 +19,7 @@ module {
+       %residual: tensor<32x32xf32>,
+       %weight: tensor<32x32xf32>) ->
+       (tensor<32x32xf32>, tensor<32x32xf32>)
+-      attributes {tile_size = array<i32: 16, 16>} {
++      attributes {tile_size = array<i32: 256>} {
+     %sum = add %x, %residual : tensor<32x32xf32>
+     %primary = mul %sum, %weight : tensor<32x32xf32>
+     results %primary, %sum : tensor<32x32xf32>, tensor<32x32xf32>

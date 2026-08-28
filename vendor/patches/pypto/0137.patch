@@ -1,0 +1,286 @@
+From 011d0f77536061f463b71d2b942efa92e15bf922 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 02:42:35 +0800
+Subject: [PATCH 137/212] Advance TensorIR fused gather reductions
+
+---
+ ...ct-gather-rows-through-fused-layouts.patch | 182 ++++++++++++++++++
+ ...ore-propagated-reduction-result-rank.patch |  58 ++++++
+ 3rdparty/nvidia/tensor-ir                     |   2 +-
+ cmake/nvidia_backend.cmake                    |   2 +-
+ 4 files changed, 242 insertions(+), 2 deletions(-)
+ create mode 100644 3rdparty/nvidia/0030-Project-gather-rows-through-fused-layouts.patch
+ create mode 100644 3rdparty/nvidia/0031-Restore-propagated-reduction-result-rank.patch
+
+diff --git a/3rdparty/nvidia/0030-Project-gather-rows-through-fused-layouts.patch b/3rdparty/nvidia/0030-Project-gather-rows-through-fused-layouts.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..756260abedc82625962beca80e54dae06547a7d7
+--- /dev/null
++++ b/3rdparty/nvidia/0030-Project-gather-rows-through-fused-layouts.patch
+@@ -0,0 +1,182 @@
++From d045a84ab258057c5bbd716459c1fcbf1d9f3123 Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Fri, 28 Aug 2026 02:42:09 +0800
++Subject: [PATCH 30/31] Project gather rows through fused layouts
++
++---
++ .../LayoutPropagationImpl.cpp                 | 110 +++++++++++++++---
++ 1 file changed, 95 insertions(+), 15 deletions(-)
++
++diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++index 4c31f20..2ed6a17 100644
++--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++@@ -6,6 +6,8 @@
++ #include "tensor_ir/Support/TCutegen.h"
++ #include "tensor_ir/Utils/Utils.h"
++ 
+++#include <limits>
+++
++ #include "llvm/Support/Debug.h"
++ 
++ #include "cuda_tile/Dialect/CudaTile/IR/Ops.h"
++@@ -196,9 +198,10 @@ public:
++                   ConversionPatternRewriter &rewriter) const override {
++     auto &state = static_cast<ConversionStateImpl &>(this->state);
++     MLIR_RETURN_IF_ERROR(state.update(rewriter, op));
++-    if (state.getTileShape().size() != 2 ||
++-        state.getIndexValues().size() != 2) {
++-      return op.emitError("requires a rank-2 iteration-space tile");
+++    ArrayRef<int64_t> iterationTileShape = state.getTileShape();
+++    if (iterationTileShape.empty() ||
+++        state.getIndexValues().size() != iterationTileShape.size()) {
+++      return op.emitError("requires a non-empty indexed iteration-space tile");
++     }
++ 
++     // Consume the data layout without materializing an unused dense load: the
++@@ -233,18 +236,78 @@ public:
++       return op.emitError("requires a rank-2 data descriptor");
++     }
++ 
+++    // GatherScatterView is intrinsically rank-2, while graph splitting may
+++    // embed the logical [row, column] gather result in a higher-rank fused
+++    // iteration space. Derive the two physical axes from the propagated data
+++    // layout and require every other outer axis to be a broadcast.
+++    auto dataLayout = dataSource.getCuteLayout();
+++    size_t iterationRank = iterationTileShape.size();
+++    if (!tcg::is_static(dataLayout) || tcg::rank(dataLayout) != iterationRank ||
+++        strides[0] == strides[1]) {
+++      return op.emitError(
+++          "requires a static unambiguous rank-2 gather projection");
+++    }
+++    size_t rowDim = iterationRank;
+++    size_t columnDim = iterationRank;
+++    for (size_t dim = 0; dim < iterationRank; ++dim) {
+++      int64_t layoutStride =
+++          tcg::static_size(tcg::get(dataLayout.stride(), dim));
+++      if (layoutStride == 0) {
+++        continue;
+++      }
+++      if (layoutStride == strides[0] && rowDim == iterationRank) {
+++        rowDim = dim;
+++      } else if (layoutStride == strides[1] && columnDim == iterationRank) {
+++        columnDim = dim;
+++      } else {
+++        return op.emitError(
+++            "data layout cannot be projected to one row and one column axis");
+++      }
+++    }
+++    if (rowDim == iterationRank || columnDim == iterationRank ||
+++        rowDim == columnDim) {
+++      return op.emitError("data layout is missing a row or column axis");
+++    }
+++
+++    auto indicesSource = dyn_cast<TensorSourceAttr>(state.layouts[1]);
+++    if (!indicesSource || !tcg::is_static(indicesSource.getCuteLayout()) ||
+++        tcg::rank(indicesSource.getCuteLayout()) != iterationRank) {
+++      return op.emitError("indices layout must be a static fused projection");
+++    }
+++    auto indicesLayout = indicesSource.getCuteLayout();
+++    for (size_t dim = 0; dim < iterationRank; ++dim) {
+++      int64_t layoutStride =
+++          tcg::static_size(tcg::get(indicesLayout.stride(), dim));
+++      if ((dim == rowDim && layoutStride != 1) ||
+++          (dim != rowDim && layoutStride != 0)) {
+++        return op.emitError(
+++            "indices layout must vary contiguously only along the row axis");
+++      }
+++    }
+++
+++    int64_t rowTileSize = iterationTileShape[rowDim];
+++    int64_t columnTileSize = iterationTileShape[columnDim];
+++    if (rowTileSize > std::numeric_limits<int32_t>::max() ||
+++        columnTileSize > std::numeric_limits<int32_t>::max()) {
+++      return op.emitError("gather tile dimensions exceed i32");
+++    }
+++
++     Type pointerElement =
++         cast<ShapedType>(dataDesc.pointer.getType()).getElementType();
++     Type dataElement =
++         cast<cuda_tile::PointerType>(pointerElement).getPointeeType();
+++    // Apply the propagated source offset to the pointer, while retaining the
+++    // original rank-2 tensor-view shape and strides.
+++    TensorDescriptor projectedDataDesc =
+++        applyLayout(rewriter, dataDesc, dataSource);
++     auto tensorViewType = cuda_tile::TensorViewType::get(
++         rewriter.getContext(), dataElement, sizes, strides);
++     Value tensorView = cuda_tile::MakeTensorViewOp::create(
++-        rewriter, op.getLoc(), tensorViewType, dataDesc.pointer,
+++        rewriter, op.getLoc(), tensorViewType, projectedDataDesc.pointer,
++         /*dynamic_sizes=*/ValueRange{}, /*dynamic_strides=*/ValueRange{});
++ 
++-    SmallVector<int32_t> tileSizes(state.getTileShape().begin(),
++-                                   state.getTileShape().end());
+++    SmallVector<int32_t> tileSizes{static_cast<int32_t>(rowTileSize),
+++                                   static_cast<int32_t>(columnTileSize)};
++     auto tileShapeAttr =
++         DenseI32ArrayAttr::get(rewriter.getContext(), tileSizes);
++     auto gatherViewType = cuda_tile::GatherScatterViewType::get(
++@@ -254,34 +317,51 @@ public:
++         rewriter, op.getLoc(), gatherViewType, tensorView);
++ 
++     auto indicesType = cast<cuda_tile::TileType>(indicesTile.getType());
++-    SmallVector<int64_t> narrowShape{state.getTileShape()[0], 1};
+++    SmallVector<int64_t> narrowShape(iterationRank, 1);
+++    narrowShape[rowDim] = rowTileSize;
++     auto narrowType = cuda_tile::TileType::get(
++         narrowShape, indicesType.getElementType());
++-    SmallVector<Value> zeroIndices{state.zeroIndex, state.zeroIndex};
+++    SmallVector<Value> zeroIndices(iterationRank, state.zeroIndex);
++     Value narrowIndices = cuda_tile::ExtractOp::create(
++         rewriter, op.getLoc(), narrowType, indicesTile, zeroIndices);
++     auto rowIndicesType = cuda_tile::TileType::get(
++-        SmallVector<int64_t>{state.getTileShape()[0]},
+++        SmallVector<int64_t>{rowTileSize},
++         indicesType.getElementType());
++     Value rowIndices = cuda_tile::ReshapeOp::create(
++         rewriter, op.getLoc(), rowIndicesType, narrowIndices);
++ 
++-    auto outputType = cuda_tile::TileType::get(state.getTileShape(), dataElement);
+++    SmallVector<int64_t> gatherTileShape{rowTileSize, columnTileSize};
+++    auto outputType = cuda_tile::TileType::get(gatherTileShape, dataElement);
++     Type tokenType = cuda_tile::TokenType::get(rewriter.getContext());
++     auto optimizationHints = createLoadStoreOptimizationHints(
++-        rewriter.getContext(), dataDesc.allowTma, dataDesc.cost);
+++        rewriter.getContext(), projectedDataDesc.allowTma,
+++        projectedDataDesc.cost);
++     Value columnScale = createConstant(
++         rewriter, op.getLoc(),
++-        cast<ShapedType>(state.getIndexValues()[1].getType()),
++-        state.getTileShape()[1]);
+++        cast<ShapedType>(state.getIndexValues()[columnDim].getType()),
+++        columnTileSize);
++     Value columnOffset = cuda_tile::MulIOp::create(
++-        rewriter, op.getLoc(), state.getIndexValues()[1], columnScale);
+++        rewriter, op.getLoc(), state.getIndexValues()[columnDim], columnScale);
++     SmallVector<Value> gatherIndices{rowIndices, columnOffset};
++     auto load = cuda_tile::LoadViewTkoOp::create(
++         rewriter, op.getLoc(), outputType, tokenType,
++         cuda_tile::MemoryOrderingSemantics::WEAK, /*memory_scope=*/nullptr,
++         gatherView, gatherIndices, /*token=*/nullptr, optimizationHints);
++-    rewriter.replaceOp(op, load.getTile());
+++    Value result = load.getTile();
+++    SmallVector<int64_t> projectedShape(iterationRank, 1);
+++    projectedShape[rowDim] = rowTileSize;
+++    projectedShape[columnDim] = columnTileSize;
+++    if (!llvm::equal(projectedShape, gatherTileShape)) {
+++      result = cuda_tile::ReshapeOp::create(
+++          rewriter, op.getLoc(),
+++          cuda_tile::TileType::get(projectedShape, dataElement), result);
+++    }
+++    if (!llvm::equal(projectedShape, iterationTileShape)) {
+++      result = cuda_tile::BroadcastOp::create(
+++          rewriter, op.getLoc(),
+++          cuda_tile::TileType::get(iterationTileShape, dataElement), result);
+++    }
+++    rewriter.replaceOp(op, result);
++     return success();
++   }
++ };
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/0031-Restore-propagated-reduction-result-rank.patch b/3rdparty/nvidia/0031-Restore-propagated-reduction-result-rank.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..ff94bc40f70167cc42c4bebb0e2d0cdef761440a
+--- /dev/null
++++ b/3rdparty/nvidia/0031-Restore-propagated-reduction-result-rank.patch
+@@ -0,0 +1,58 @@
++From 032d67a4fdf83f03613fba745ea5ce2aa6b66df3 Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Fri, 28 Aug 2026 02:42:15 +0800
++Subject: [PATCH 31/31] Restore propagated reduction result rank
++
++---
++ .../TensorToCudaTile/ReductionOps.cpp         | 23 ++++++++++++++-----
++ 1 file changed, 17 insertions(+), 6 deletions(-)
++
++diff --git a/lib/Conversion/TensorToCudaTile/ReductionOps.cpp b/lib/Conversion/TensorToCudaTile/ReductionOps.cpp
++index b6c0229..82789d3 100644
++--- a/lib/Conversion/TensorToCudaTile/ReductionOps.cpp
+++++ b/lib/Conversion/TensorToCudaTile/ReductionOps.cpp
++@@ -154,10 +154,16 @@ public:
++         reductionEmission.buildEpilogue(rewriter, tileReduceOp.getResult(0),
++                                         reductionSource.getReductionSize());
++ 
++-    // Reshape and broadcast the result, if needed.
++-    if (resultTileShape != outputTileShape) {
+++    // First restore every unit/broadcast dimension represented by the
+++    // propagated reduction layout. The physical CUDA Tile reduction drops the
+++    // contracting dimension and may therefore have a lower rank even when the
+++    // layout result shape already equals the outer output shape.
+++    if (!llvm::equal(cast<ShapedType>(result.getType()).getShape(),
+++                     resultTileShape)) {
++       result = cuda_tile::ReshapeOp::create(
++           rewriter, loc, inputTileType.clone(resultTileShape), result);
+++    }
+++    if (!llvm::equal(resultTileShape, outputTileShape)) {
++       result = cuda_tile::BroadcastOp::create(
++           rewriter, loc, inputTileType.clone(outputTileShape), result);
++     }
++@@ -328,13 +334,18 @@ public:
++     rewriter.applySignatureConversion(&targetRegion->front(),
++                                       signatureConversion);
++ 
++-    // Reshape and broadcast the result, if needed.
+++    // Restore layout rank before applying any outer-space broadcast. As with
+++    // ReduceOp, the physical reduction rank can differ even when the two target
+++    // shapes are equal.
++     SmallVector<Value> results = tileReduceOp.getResults();
++-    if (resultTileShape != outputTileShape) {
++-      for (auto &result : results) {
++-        auto resultType = cast<ShapedType>(result.getType());
+++    for (auto &result : results) {
+++      auto resultType = cast<ShapedType>(result.getType());
+++      if (!llvm::equal(resultType.getShape(), resultTileShape)) {
++         result = cuda_tile::ReshapeOp::create(
++             rewriter, loc, resultType.clone(resultTileShape), result);
+++        resultType = cast<ShapedType>(result.getType());
+++      }
+++      if (!llvm::equal(resultTileShape, outputTileShape)) {
++         result = cuda_tile::BroadcastOp::create(
++             rewriter, loc, resultType.clone(outputTileShape), result);
++       }
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index a259794aa4b40146073e3a064c723110e56ffeae..032d67a4fdf83f03613fba745ea5ce2aa6b66df3 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit a259794aa4b40146073e3a064c723110e56ffeae
++Subproject commit 032d67a4fdf83f03613fba745ea5ce2aa6b66df3
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 574543883dedefbd296d8e432e494932686ee732..4e79412ef8c65940ffff2e6969a5ab448cca9447 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "a259794aa4b40146073e3a064c723110e56ffeae")
++    "032d67a4fdf83f03613fba745ea5ce2aa6b66df3")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

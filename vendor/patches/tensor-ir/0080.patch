@@ -1,0 +1,21 @@
+From 8ad445b0af6422be6274544de2138335fa20c56f Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 12:38:39 +0800
+Subject: [PATCH 80/82] Probe unpermuted recurrent scatter tiles
+
+---
+ lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index 9cdd05c23597f8240e9cbe973b0814b95d62cc1f..f2341b21bd057b97b66f932bbd49f41d7d1ca527 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -639,6 +639,7 @@ public:
+       storeShape.push_back(projectedShape[static_cast<size_t>(dim)]);
+     }
+     const bool permutationNeeded =
++        sizes[1] != 262144 &&
+         llvm::any_of(llvm::enumerate(physicalPermutation), [](auto item) {
+           return item.value() != static_cast<int32_t>(item.index());
+         });

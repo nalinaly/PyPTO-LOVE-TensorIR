@@ -1,0 +1,558 @@
+From 17b2b3c655d97076ac6d968ff2e45969da5161a2 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Wed, 26 Aug 2026 09:55:22 +0800
+Subject: [PATCH 053/212] compiler: bound row reduction contraction tiling
+
+---
+ docs/en/dev/backend/01-nvidia-target-info.md  |  11 ++
+ docs/zh/dev/backend/01-nvidia-target-info.md  |  10 ++
+ .../structured_tensor_ir_build_spec.cpp       |  43 ++++-
+ tests/ut/cpp/structured_compile_test.cpp      |   6 +
+ .../structured_tensor_ir_build_spec_test.cpp  | 151 +++++++++++++++++-
+ tests/ut/cpp/tensor_ir_codegen_test.cpp       | 119 ++++++++++----
+ 6 files changed, 308 insertions(+), 32 deletions(-)
+
+diff --git a/docs/en/dev/backend/01-nvidia-target-info.md b/docs/en/dev/backend/01-nvidia-target-info.md
+index edc08b196d31b955e872b12b2a7d8757348822d1..bce53f111fe4ab29e66ceb8ea21b58e062be5854 100644
+--- a/docs/en/dev/backend/01-nvidia-target-info.md
++++ b/docs/en/dev/backend/01-nvidia-target-info.md
+@@ -364,6 +364,17 @@ For rank greater than two, canonical source reshapes the compute tensor to
+ result shape. This is what makes the single row tile and flattened row-grid law
+ exact rather than producer-dependent.
+ 
++The resolved `reduction_tile_size=128` is a contraction-tile budget, not an
++unconditional tile extent. For positive last extent `N`, the actual contraction
++tile is `r=min(128, largest_power_of_two_divisor(N))`, and lowering materializes
++`ceil(N/r)` reduction chunks. Thus `N=128` uses `r=128` with no chunk loop,
++`N=256` uses `r=128` with two chunks, and every odd `N` uses `r=1`. The schedule
++contains exactly one positive power-of-two row tile `T`, with `T<=rows`, where
++`rows=1` for rank one and otherwise `product(shape[:-1])`; the static grid is
++`(ceil(rows/T), 1, 1)`. Preparation rejects `T*r>16,777,216`, the pinned CUDA
++Tile compiler maximum tile-element count, and rejects `ceil(N/r)>INT32_MAX`
++because TensorIR lowering materializes the chunk-loop bound as i32.
++
+ The ABI contains exactly ordered `Input0` and `Result0` tensor descriptors, one
+ read-only input plus a `nil` result alias, two pointer arguments, static grid
+ policy selected by descriptor zero, zero workspace, and the shared fixed launch
+diff --git a/docs/zh/dev/backend/01-nvidia-target-info.md b/docs/zh/dev/backend/01-nvidia-target-info.md
+index b29b527460cdc162e64fee66ac856aec891cadd6..22e3a2a4e24d8f9020d453c7abed3e590d6aaa45 100644
+--- a/docs/zh/dev/backend/01-nvidia-target-info.md
++++ b/docs/zh/dev/backend/01-nvidia-target-info.md
+@@ -319,6 +319,16 @@ convert 为 FP32，在 FP32 中规约，再把 FP32 result convert 回 BF16。
+ `[rows, shape[-1]]`，规约到 `[rows, 1]`，再 reshape 回 HIR result shape。这样才能让
+ 单一 row tile 与扁平 row-grid 规则保持精确，而不是依赖 producer 的隐式行为。
+ 
++resolved `reduction_tile_size=128` 是 contraction tile 的预算，并不表示实际 tile extent
++始终为 128。对于正的最后一维 `N`，实际 contraction tile 为
++`r=min(128, N 的最大 2 的幂因子)`，lowering 会物化 `ceil(N/r)` 个 reduction chunk。
++因此 `N=128` 时 `r=128` 且不产生 chunk loop，`N=256` 时 `r=128` 且有两个 chunk，
++任意奇数 `N` 则使用 `r=1`。schedule 恰好包含一个正的 2 的幂 row tile `T`，并要求
++`T<=rows`；rank-one 时 `rows=1`，否则 `rows=product(shape[:-1])`，static grid 为
++`(ceil(rows/T), 1, 1)`。preparation 会拒绝 `T*r>16,777,216`（CUDA Tile compiler
++固定的最大 tile element 数），也会拒绝 `ceil(N/r)>INT32_MAX`，因为 TensorIR lowering
++会把 chunk-loop bound 物化为 i32。
++
+ ABI 严格按 `Input0`、`Result0` 排列 tensor descriptor，包含一个 read-only input 与一个
+ `nil` result alias、两个 pointer argument、由 descriptor zero 选择的 static grid policy、
+ zero workspace，以及共享的固定 launch/loader contract。rank-one descriptor 使用 implicit
+diff --git a/src/compiler/structured_tensor_ir_build_spec.cpp b/src/compiler/structured_tensor_ir_build_spec.cpp
+index a3f74604f52cc69d0ed6af561ac285d8d3ffcf97..a3be867af35c4e83002783daed1e910a5c0c6ae6 100644
+--- a/src/compiler/structured_tensor_ir_build_spec.cpp
++++ b/src/compiler/structured_tensor_ir_build_spec.cpp
+@@ -56,6 +56,10 @@ constexpr std::string_view kArgumentAbiV3Contract = "pypto.frontend.argument_abi
+ constexpr std::string_view kResultAbiV3Contract = "pypto.frontend.result_abi.v3";
+ constexpr std::string_view kMutationAbiV3Contract = "pypto.frontend.mutation_abi.v3";
+ constexpr std::string_view kRuntimeKernelName = "tensor_ir_rtk";
++// Pinned compiler-infrastructure bound from CUDA Tile: one materialized tile may
++// contain at most 2^24 elements. This is a frontend safety bound, not a model or
++// operator-specific tuning choice.
++constexpr uint64_t kCudaTileCompilerMaximumTileElements = 16'777'216ULL;
+ 
+ struct FrontendProjectionSchema {
+   uint32_t version;
+@@ -275,6 +279,24 @@ uint64_t StaticRowCount(const std::vector<int64_t>& shape) {
+   return rows;
+ }
+ 
++uint64_t LargestPowerOfTwoDivisor(uint64_t value) {
++  INTERNAL_CHECK(value > 0)
++      << "prepared row reduction last extent must be positive";
++  return value & (~value + 1ULL);
++}
++
++uint64_t RowReductionContractionTile(
++    const std::vector<int64_t>& shape,
++    const StrictTensorIrProducerOptions& resolved_options) {
++  INTERNAL_CHECK(!shape.empty() && shape.back() > 0)
++      << "prepared row reduction shape must have a positive last extent";
++  INTERNAL_CHECK(resolved_options.reduction_tile_size == 128)
++      << "row reduction v3 requires the pinned reduction tile budget 128";
++  const uint64_t last_extent = static_cast<uint64_t>(shape.back());
++  return std::min(static_cast<uint64_t>(resolved_options.reduction_tile_size),
++                  LargestPowerOfTwoDivisor(last_extent));
++}
++
+ void ValidateFusedPointwiseSchedule(
+     const codegen::nvidia::TensorIrModule& module,
+     const StrictTensorIrProducerOptions& resolved_options,
+@@ -326,10 +348,29 @@ void ValidateRowReductionSchedule(
+ 
+   INTERNAL_CHECK(module.GetValueMetadata().size() == 2)
+       << "row reduction v3 module must contain one input and one result";
+-  const uint64_t rows = StaticRowCount(module.GetValueMetadata()[0].GetShape());
++  const std::vector<int64_t>& input_shape = module.GetValueMetadata()[0].GetShape();
++  const uint64_t rows = StaticRowCount(input_shape);
+   CHECK(static_cast<uint64_t>(tile_size) <= rows)
+       << "row reduction v3 tile dim_000 must not exceed the checked row count "
+       << rows << ", got " << tile_size;
++  const uint64_t last_extent = static_cast<uint64_t>(input_shape.back());
++  const uint64_t contraction_tile =
++      RowReductionContractionTile(input_shape, resolved_options);
++  const uint64_t reduction_chunks =
++      last_extent / contraction_tile +
++      (last_extent % contraction_tile == 0 ? 0 : 1);
++  CHECK(static_cast<uint64_t>(tile_size) <=
++        kCudaTileCompilerMaximumTileElements / contraction_tile)
++      << "row reduction v3 resolved tile T*r="
++      << static_cast<uint64_t>(tile_size) * contraction_tile
++      << " (T=" << tile_size << ", r=" << contraction_tile
++      << ") exceeds the pinned CUDA Tile compiler maximum tile elements "
++      << kCudaTileCompilerMaximumTileElements;
++  CHECK(reduction_chunks <=
++        static_cast<uint64_t>(std::numeric_limits<int32_t>::max()))
++      << "row reduction v3 reduction chunk count ceil(N/r)=" << reduction_chunks
++      << " (N=" << last_extent << ", r=" << contraction_tile
++      << ") exceeds INT32_MAX because TensorIR lowering materializes an i32 loop bound";
+   const uint64_t expected_grid_x = rows / tile_size + (rows % tile_size == 0 ? 0 : 1);
+   const int64_t max_grid_x = request.GetTargetInfo().GetTraits().GetMaxGridDimX();
+   CHECK(expected_grid_x <= static_cast<uint64_t>(std::numeric_limits<int32_t>::max()) &&
+diff --git a/tests/ut/cpp/structured_compile_test.cpp b/tests/ut/cpp/structured_compile_test.cpp
+index d9a25587f96fdabbca1688b3ff2f40df694502d4..e88d003dc8cda24fa6149b25a974224b4998f186 100644
+--- a/tests/ut/cpp/structured_compile_test.cpp
++++ b/tests/ut/cpp/structured_compile_test.cpp
+@@ -583,6 +583,12 @@ int TestRealRowReductionProducerSuccess() {
+   const std::vector<Case> cases = {
+       {{7}, {1}, {}, {}, DataType::FP32, "tensor.row_sum", 1, 1},
+       {{8, 17}, {8, 1}, {17, 1}, {1, 1}, DataType::FP32, "tensor.row_max", 4, 2},
++      // N=128 resolves r=128 and exercises the producer's no-loop reduction.
++      {{8, 128}, {8, 1}, {128, 1}, {1, 1}, DataType::FP32,
++       "tensor.row_sum", 4, 2},
++      // N=256 resolves r=128 and exercises two BF16-promoted FP32 chunks.
++      {{8, 256}, {8, 1}, {256, 1}, {1, 1}, DataType::BF16,
++       "tensor.row_max", 4, 2},
+       {{2, 3, 17}, {2, 3, 1}, {51, 17, 1}, {3, 1, 1}, DataType::BF16,
+        "tensor.row_sum", 2, 3},
+   };
+diff --git a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+index 9f55f2d773e8b7bc00dd4c33df3c092e0d7f2194..6b9baee1e30540d06fe0cf6246301ea92205944d 100644
+--- a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
++++ b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+@@ -191,6 +191,46 @@ constexpr std::string_view kRowReductionMutationGoldenHex =
+     "84b0617267756d656e745f656666656374739182a6656666656374a9726561642d6f6e6c79a76f7264696e616c00a863"
+     "6f6e7472616374be707970746f2e66726f6e74656e642e6d75746174696f6e5f6162692e7633bb6d75746174696f6e5f"
+     "6162695f736368656d615f76657273696f6e03ae726573756c745f616c696173657391c0";
++constexpr std::string_view kRowReductionBf16ArgumentGoldenHex =
++    "83bb617267756d656e745f6162695f736368656d615f76657273696f6e03a9617267756d656e74739189aa636f6e7469"
++    "67756f7573c3a9646972656374696f6ea2696eaa64747970655f636f646540aa64747970655f6e616d65a862666c6f61"
++    "743136b06578706c696369745f73747269646573c3a76f7264696e616c00a472616e6b02a57368617065920203a77374"
++    "7269646573920301a8636f6e7472616374be707970746f2e66726f6e74656e642e617267756d656e745f6162692e7633";
++constexpr std::string_view kRowReductionBf16ResultGoldenHex =
++    "83a8636f6e7472616374bc707970746f2e66726f6e74656e642e726573756c745f6162692e7633b9726573756c745f61"
++    "62695f736368656d615f76657273696f6e03a7726573756c74739188aa636f6e746967756f7573c3aa64747970655f63"
++    "6f646540aa64747970655f6e616d65a862666c6f61743136b06578706c696369745f73747269646573c3a76f7264696e"
++    "616c00a472616e6b02a57368617065920201a773747269646573920101";
++constexpr std::string_view kRowReductionRankOneStaticGoldenHex =
++    "83a8636f6e7472616374d927707970746f2e66726f6e74656e642e7374617469635f7370656369616c697a6174696f6e"
++    "2e7633d9247374617469635f7370656369616c697a6174696f6e5f736368656d615f76657273696f6e03a676616c7565"
++    "739283a76f7264696e616c00a4726f6c65a8617267756d656e74a57368617065910783a76f7264696e616c00a4726f6c"
++    "65a6726573756c74a573686170659101";
++constexpr std::string_view kRowReductionRankOneArgumentGoldenHex =
++    "83bb617267756d656e745f6162695f736368656d615f76657273696f6e03a9617267756d656e74739189aa636f6e7469"
++    "67756f7573c3a9646972656374696f6ea2696eaa64747970655f636f646534aa64747970655f6e616d65a466703332b0"
++    "6578706c696369745f73747269646573c2a76f7264696e616c00a472616e6b01a573686170659107a773747269646573"
++    "9101a8636f6e7472616374be707970746f2e66726f6e74656e642e617267756d656e745f6162692e7633";
++constexpr std::string_view kRowReductionRankOneResultGoldenHex =
++    "83a8636f6e7472616374bc707970746f2e66726f6e74656e642e726573756c745f6162692e7633b9726573756c745f61"
++    "62695f736368656d615f76657273696f6e03a7726573756c74739188aa636f6e746967756f7573c3aa64747970655f63"
++    "6f646534aa64747970655f6e616d65a466703332b06578706c696369745f73747269646573c2a76f7264696e616c00a4"
++    "72616e6b01a573686170659101a7737472696465739101";
++constexpr std::string_view kRowReductionRankThreeStaticGoldenHex =
++    "83a8636f6e7472616374d927707970746f2e66726f6e74656e642e7374617469635f7370656369616c697a6174696f6e"
++    "2e7633d9247374617469635f7370656369616c697a6174696f6e5f736368656d615f76657273696f6e03a676616c7565"
++    "739283a76f7264696e616c00a4726f6c65a8617267756d656e74a573686170659302030583a76f7264696e616c00a472"
++    "6f6c65a6726573756c74a5736861706593020301";
++constexpr std::string_view kRowReductionRankThreeArgumentGoldenHex =
++    "83bb617267756d656e745f6162695f736368656d615f76657273696f6e03a9617267756d656e74739189aa636f6e7469"
++    "67756f7573c3a9646972656374696f6ea2696eaa64747970655f636f646534aa64747970655f6e616d65a466703332b0"
++    "6578706c696369745f73747269646573c3a76f7264696e616c00a472616e6b03a5736861706593020305a77374726964"
++    "6573930f0501a8636f6e7472616374be707970746f2e66726f6e74656e642e617267756d656e745f6162692e7633";
++constexpr std::string_view kRowReductionRankThreeResultGoldenHex =
++    "83a8636f6e7472616374bc707970746f2e66726f6e74656e642e726573756c745f6162692e7633b9726573756c745f61"
++    "62695f736368656d615f76657273696f6e03a7726573756c74739188aa636f6e746967756f7573c3aa64747970655f63"
++    "6f646534aa64747970655f6e616d65a466703332b06578706c696369745f73747269646573c3a76f7264696e616c00a4"
++    "72616e6b03a5736861706593020301a77374726964657393030101";
+ 
+ const ir::Span& TestSpan() {
+   static const ir::Span span("structured_tensor_ir_build_spec_test.cpp", 7, 3);
+@@ -360,6 +400,29 @@ bool ContainsAscii(const std::vector<uint8_t>& bytes, std::string_view text) {
+   return std::search(bytes.begin(), bytes.end(), text.begin(), text.end()) != bytes.end();
+ }
+ 
++struct ProjectionDigestGolden {
++  std::string_view static_specialization;
++  std::string_view symbolic_specialization;
++  std::string_view argument_abi;
++  std::string_view result_abi;
++  std::string_view mutation_abi;
++};
++
++bool MatchesProjectionDigestGolden(
++    const PreparedStructuredTensorIrCompilation& prepared,
++    const ProjectionDigestGolden& golden) {
++  return std::string_view(prepared.GetStaticSpecialization().GetIdentityDigest()) ==
++             golden.static_specialization &&
++         std::string_view(prepared.GetSymbolicSpecialization().GetIdentityDigest()) ==
++             golden.symbolic_specialization &&
++         std::string_view(prepared.GetArgumentAbi().GetIdentityDigest()) ==
++             golden.argument_abi &&
++         std::string_view(prepared.GetResultAbi().GetIdentityDigest()) ==
++             golden.result_abi &&
++         std::string_view(prepared.GetMutationAbi().GetIdentityDigest()) ==
++             golden.mutation_abi;
++}
++
+ std::vector<std::optional<int64_t>> OptionalValues(const std::vector<int64_t>& values) {
+   std::vector<std::optional<int64_t>> output;
+   output.reserve(values.size());
+@@ -740,6 +803,30 @@ int TestFusedPointwiseV2ScheduleRejections() {
+ }
+ 
+ int TestRowReductionV3ProjectionAndFinalization() {
++  constexpr ProjectionDigestGolden kRankTwoFp32ProjectionDigests = {
++      "2b9415ef4caea1741dcca58364758b7573f680c6f7360d20a10df127272da686",
++      "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862",
++      "28613fefb029ed2200425c8b90426045661c54cf558840b91c62a653b2c2dfb1",
++      "3f320fa17b5fbf6cad2b18a003dab9cf9952740e14bd56f674f88bf33e392539",
++      "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99"};
++  constexpr ProjectionDigestGolden kRankTwoBf16ProjectionDigests = {
++      "2b9415ef4caea1741dcca58364758b7573f680c6f7360d20a10df127272da686",
++      "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862",
++      "d2fa49abd88ec08f69b449500c82ce1b31dec2c8bbe5fb4334ed8ec7dbeb6f1a",
++      "d933df69d01266abf6f8679aef7ac25ee9c7771b7ce8e1d802ebf823b25a9878",
++      "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99"};
++  constexpr ProjectionDigestGolden kRankOneFp32ProjectionDigests = {
++      "1136da1087d36f338002085126681194a53dea75a5cb0bb7734316c464c6e9db",
++      "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862",
++      "84efcd578fcf26e2342b71555ad377813786718e6d491bae47d1f8d77dded666",
++      "3ccbb062875190dfab01de8929d3df1cfb8322a70ad6977bf17d482c68e087f0",
++      "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99"};
++  constexpr ProjectionDigestGolden kRankThreeFp32ProjectionDigests = {
++      "4820d53ca96931ce8740f3195bafbcff19f05255ae47a091490a20b33c91a67c",
++      "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862",
++      "944552a9aaa92858133c57daf894058df83d45be33b4922d378a4e8b1ddf05f6",
++      "36e6bbf58084d4cb46a142a37620982e04f917a9216e065cbd1e5cbbf8a79f14",
++      "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99"};
+   const CompileRequest request = ValidRequest();
+   const CanonicalSchedule schedule = ValidSchedule({2});
+   const PreparedStructuredTensorIrCompilation prepared =
+@@ -794,6 +881,7 @@ int TestRowReductionV3ProjectionAndFinalization() {
+           BytesFromHex(kRowReductionMutationGoldenHex));
+   REQUIRE(prepared.GetMutationAbi().GetIdentityDigest() ==
+           "7c0d23298b696cab881387946334df37790dbd3b304ec26cfbfa9a304d0def99");
++  REQUIRE(MatchesProjectionDigestGolden(prepared, kRankTwoFp32ProjectionDigests));
+   REQUIRE(prepared.GetStaticSpecialization().GetCanonicalBytes() ==
+           repeated.GetStaticSpecialization().GetCanonicalBytes());
+   REQUIRE(prepared.GetArgumentAbi().GetCanonicalBytes() ==
+@@ -829,7 +917,8 @@ int TestRowReductionV3ProjectionAndFinalization() {
+       PrepareStructuredTensorIrCompilation(
+           MakeRowReductionProgram({2, 3}, DataType::FP32, "tensor.row_max"),
+           request, schedule);
+-  REQUIRE(maximum.GetSourceIrDigest() != prepared.GetSourceIrDigest());
++  REQUIRE(maximum.GetSourceIrDigest() ==
++          "6c2fbe5e64e69c8349b6ec7adb28ab5ff921f3f9e7698d2b0d8e23cc75413902");
+   REQUIRE(maximum.GetStaticSpecialization().GetIdentityDigest() ==
+           prepared.GetStaticSpecialization().GetIdentityDigest());
+   REQUIRE(maximum.GetArgumentAbi().GetIdentityDigest() ==
+@@ -845,6 +934,20 @@ int TestRowReductionV3ProjectionAndFinalization() {
+           request, schedule);
+   const std::string bf16_source(bf16.GetCanonicalSource().begin(),
+                                 bf16.GetCanonicalSource().end());
++  REQUIRE(bf16_source.size() == 466);
++  REQUIRE(bf16.GetSourceIrDigest() ==
++          "8b238ef9574e20f017fd588252a282f1b9342de737fa87887434185dc94279d1");
++  REQUIRE(MatchesProjectionDigestGolden(bf16, kRankTwoBf16ProjectionDigests));
++  REQUIRE(bf16.GetStaticSpecialization().GetCanonicalBytes() ==
++          BytesFromHex(kRowReductionStaticGoldenHex));
++  REQUIRE(bf16.GetSymbolicSpecialization().GetCanonicalBytes() ==
++          BytesFromHex(kRowReductionSymbolicGoldenHex));
++  REQUIRE(bf16.GetArgumentAbi().GetCanonicalBytes() ==
++          BytesFromHex(kRowReductionBf16ArgumentGoldenHex));
++  REQUIRE(bf16.GetResultAbi().GetCanonicalBytes() ==
++          BytesFromHex(kRowReductionBf16ResultGoldenHex));
++  REQUIRE(bf16.GetMutationAbi().GetCanonicalBytes() ==
++          BytesFromHex(kRowReductionMutationGoldenHex));
+   REQUIRE(bf16_source.find("convert %arg0 : tensor<2x3xbf16> -> tensor<2x3xf32>") !=
+           std::string::npos);
+   REQUIRE(bf16_source.find("reduce(%wide0)") != std::string::npos);
+@@ -855,6 +958,20 @@ int TestRowReductionV3ProjectionAndFinalization() {
+       ValidSchedule({1}));
+   const KernelBuildSpec rank_one_spec = FinalizeStructuredTensorIrBuildSpec(
+       rank_one, MakeKernelAbi(RowReductionKernelOptions({7}, {1}, 1)));
++  REQUIRE(rank_one.GetCanonicalSource().size() == 251);
++  REQUIRE(rank_one.GetSourceIrDigest() ==
++          "ecc1bb444f0118aa8aa2e7b6c3e75c42ee86eb97328b169f29dba540f2f39223");
++  REQUIRE(MatchesProjectionDigestGolden(rank_one, kRankOneFp32ProjectionDigests));
++  REQUIRE(rank_one.GetStaticSpecialization().GetCanonicalBytes() ==
++          BytesFromHex(kRowReductionRankOneStaticGoldenHex));
++  REQUIRE(rank_one.GetSymbolicSpecialization().GetCanonicalBytes() ==
++          BytesFromHex(kRowReductionSymbolicGoldenHex));
++  REQUIRE(rank_one.GetArgumentAbi().GetCanonicalBytes() ==
++          BytesFromHex(kRowReductionRankOneArgumentGoldenHex));
++  REQUIRE(rank_one.GetResultAbi().GetCanonicalBytes() ==
++          BytesFromHex(kRowReductionRankOneResultGoldenHex));
++  REQUIRE(rank_one.GetMutationAbi().GetCanonicalBytes() ==
++          BytesFromHex(kRowReductionMutationGoldenHex));
+   REQUIRE(rank_one.GetValueMetadata()[0].GetShape() == std::vector<int64_t>({7}));
+   REQUIRE(rank_one.GetValueMetadata()[1].GetShape() == std::vector<int64_t>({1}));
+   REQUIRE(!rank_one_spec.GetIdentityDigest().empty());
+@@ -865,6 +982,21 @@ int TestRowReductionV3ProjectionAndFinalization() {
+   const KernelBuildSpec rank_three_spec = FinalizeStructuredTensorIrBuildSpec(
+       rank_three,
+       MakeKernelAbi(RowReductionKernelOptions({2, 3, 5}, {2}, 3)));
++  REQUIRE(rank_three.GetCanonicalSource().size() == 476);
++  REQUIRE(rank_three.GetSourceIrDigest() ==
++          "65fec3c5d12136a6848be93f11148808f0b4f3dc2f0e025ff657035128c5fb85");
++  REQUIRE(MatchesProjectionDigestGolden(rank_three,
++                                        kRankThreeFp32ProjectionDigests));
++  REQUIRE(rank_three.GetStaticSpecialization().GetCanonicalBytes() ==
++          BytesFromHex(kRowReductionRankThreeStaticGoldenHex));
++  REQUIRE(rank_three.GetSymbolicSpecialization().GetCanonicalBytes() ==
++          BytesFromHex(kRowReductionSymbolicGoldenHex));
++  REQUIRE(rank_three.GetArgumentAbi().GetCanonicalBytes() ==
++          BytesFromHex(kRowReductionRankThreeArgumentGoldenHex));
++  REQUIRE(rank_three.GetResultAbi().GetCanonicalBytes() ==
++          BytesFromHex(kRowReductionRankThreeResultGoldenHex));
++  REQUIRE(rank_three.GetMutationAbi().GetCanonicalBytes() ==
++          BytesFromHex(kRowReductionMutationGoldenHex));
+   REQUIRE(rank_three.GetValueMetadata()[1].GetShape() ==
+           std::vector<int64_t>({2, 3, 1}));
+   REQUIRE(!rank_three_spec.GetIdentityDigest().empty());
+@@ -903,6 +1035,8 @@ int TestRowReductionV3ProjectionAndFinalization() {
+ 
+ int TestRowReductionV3ScheduleRejections() {
+   const CompileRequest request = ValidRequest();
++  const int64_t odd_extent_beyond_i32 =
++      static_cast<int64_t>(std::numeric_limits<int32_t>::max()) + 2;
+   REQUIRE(RejectsPreparation(
+       [&] {
+         (void)PrepareStructuredTensorIrCompilation(
+@@ -934,6 +1068,21 @@ int TestRowReductionV3ScheduleRejections() {
+             ValidSchedule({2}));
+       },
+       "exceeds the prepared target limit 2"));
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(
++            MakeRowReductionProgram({262144, 128}), request,
++            ValidSchedule({262144}));
++      },
++      "T*r=33554432 (T=262144, r=128) exceeds the pinned CUDA Tile compiler "
++      "maximum tile elements 16777216"));
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(
++            MakeRowReductionProgram({1, odd_extent_beyond_i32}), request,
++            ValidSchedule({1}));
++      },
++      "ceil(N/r)=2147483649 (N=2147483649, r=1) exceeds INT32_MAX"));
+   return 0;
+ }
+ 
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index f12dffe098c41a540345d78c52d51fa119d6577e..b0ad264f73ec1fdcdc46292405e73cdd436a37e1 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -24,6 +24,7 @@
+ #include <vector>
+ 
+ #include "codegen/nvidia/tensor_ir_codegen.h"
++#include "pypto/compiler/artifact.h"
+ #include "pypto/core/dtype.h"
+ #include "pypto/core/error.h"
+ #include "pypto/ir/expr.h"
+@@ -44,6 +45,7 @@ using pypto::codegen::nvidia::TensorIrModule;
+ using pypto::codegen::nvidia::TensorIrModuleKind;
+ using pypto::codegen::nvidia::TensorIrValueMetadata;
+ using pypto::codegen::nvidia::TensorIrValueRole;
++using pypto::compiler::Artifact;
+ 
+ namespace ir = pypto::ir;
+ 
+@@ -214,6 +216,15 @@ bool Rejects(const std::function<void()>& action, std::string_view expected) {
+   return false;
+ }
+ 
++bool MatchesSourceAndSha256(const TensorIrModule& module,
++                           const std::string& expected_source,
++                           std::string_view expected_sha256) {
++  const std::vector<uint8_t> bytes(expected_source.begin(), expected_source.end());
++  const std::string actual_sha256 = Artifact::ComputeSourceIrDigest(bytes);
++  return module.GetCanonicalSource() == expected_source &&
++         std::string_view(actual_sha256) == expected_sha256;
++}
++
+ int TestFp32CanonicalSourceAndMetadata() {
+   const ValidProgram valid = MakeValid();
+   const TensorIrModule module = EmitTensorIr(valid.program);
+@@ -352,7 +363,9 @@ int TestRowReductionV3CanonicalSourcesAndMetadata() {
+       "    results %result0 : tensor<3x1xf32>\n"
+       "  }\n"
+       "}\n";
+-  REQUIRE(sum_module.GetCanonicalSource() == sum_expected);
++  REQUIRE(MatchesSourceAndSha256(
++      sum_module, sum_expected,
++      "785d31d3881cbbb27802adae0190e147c60ff0958d26e54fb9b56ed3bc131e38"));
+   REQUIRE(sum_module.GetKind() == TensorIrModuleKind::RowReductionV3);
+   REQUIRE(sum_module.GetMetadataSchemaVersion() == 3);
+   REQUIRE(sum_module.GetEntryName() == "pypto_row_reduction_v3");
+@@ -386,25 +399,55 @@ int TestRowReductionV3CanonicalSourcesAndMetadata() {
+       "    results %result0 : tensor<1xf32>\n"
+       "  }\n"
+       "}\n";
+-  REQUIRE(rank_one.GetCanonicalSource() == rank_one_expected);
++  REQUIRE(MatchesSourceAndSha256(
++      rank_one, rank_one_expected,
++      "40f7578e49cdc92ce6acc8bab428db8f37cd6c5aeffc75cc61bf89c46a0b45f8"));
+   REQUIRE(rank_one.GetValueMetadata()[0].GetShape() == std::vector<int64_t>({7}));
+   REQUIRE(rank_one.GetValueMetadata()[1].GetShape() == std::vector<int64_t>({1}));
+   REQUIRE(!rank_one.GetValueMetadata()[0].HasExplicitStrides());
+   REQUIRE(!rank_one.GetValueMetadata()[1].HasExplicitStrides());
+ 
++  const TensorIrModule rank_one_bf16 =
++      EmitTensorIr(MakeRowReduction({128}, DataType::BF16,
++                                    "tensor.row_sum")
++                       .program);
++  const std::string rank_one_bf16_expected =
++      "module {\n"
++      "  nv_tensor_ir.graph @pypto_row_reduction_v3(\n"
++      "    %arg0: tensor<128xbf16>\n"
++      "  ) -> tensor<1xbf16> {\n"
++      "    %wide0 = convert %arg0 : tensor<128xbf16> -> tensor<128xf32>\n"
++      "    %reduce0 = reduce(%wide0) <dimensions = [0], reduction_mode = <add>> : "
++      "tensor<128xf32> -> tensor<1xf32>\n"
++      "    %result0 = convert %reduce0 : tensor<1xf32> -> tensor<1xbf16>\n"
++      "    results %result0 : tensor<1xbf16>\n"
++      "  }\n"
++      "}\n";
++  REQUIRE(MatchesSourceAndSha256(
++      rank_one_bf16, rank_one_bf16_expected,
++      "07f43664bb49516a505467ff9cf28a174c096d1efe9c615b23510f4c5d384d3d"));
++  REQUIRE(rank_one_bf16.GetCanonicalSource().find("reduce(%arg0)") ==
++          std::string::npos);
++
+   const TensorIrModule rank_three =
+       EmitTensorIr(MakeRowReduction({2, 3, 5}, DataType::FP32,
+                                     "tensor.row_max")
+                        .program);
+-  REQUIRE(rank_three.GetCanonicalSource().find(
+-              "reshape %arg0 : tensor<2x3x5xf32> -> tensor<6x5xf32>") !=
+-          std::string::npos);
+-  REQUIRE(rank_three.GetCanonicalSource().find(
+-              "reduce(%flat0) <dimensions = [1], reduction_mode = <max>>") !=
+-          std::string::npos);
+-  REQUIRE(rank_three.GetCanonicalSource().find(
+-              "reshape %reduce0 : tensor<6x1xf32> -> tensor<2x3x1xf32>") !=
+-          std::string::npos);
++  const std::string rank_three_expected =
++      "module {\n"
++      "  nv_tensor_ir.graph @pypto_row_reduction_v3(\n"
++      "    %arg0: tensor<2x3x5xf32> {nv_tensor_ir.stride = \"(15,5,1)\"}\n"
++      "  ) -> (tensor<2x3x1xf32> {nv_tensor_ir.stride = \"(3,1,1)\"}) {\n"
++      "    %flat0 = reshape %arg0 : tensor<2x3x5xf32> -> tensor<6x5xf32>\n"
++      "    %reduce0 = reduce(%flat0) <dimensions = [1], reduction_mode = <max>> : "
++      "tensor<6x5xf32> -> tensor<6x1xf32>\n"
++      "    %result0 = reshape %reduce0 : tensor<6x1xf32> -> tensor<2x3x1xf32>\n"
++      "    results %result0 : tensor<2x3x1xf32>\n"
++      "  }\n"
++      "}\n";
++  REQUIRE(MatchesSourceAndSha256(
++      rank_three, rank_three_expected,
++      "65fec3c5d12136a6848be93f11148808f0b4f3dc2f0e025ff657035128c5fb85"));
+   REQUIRE(rank_three.GetValueMetadata()[0].GetShape() ==
+           std::vector<int64_t>({2, 3, 5}));
+   REQUIRE(rank_three.GetValueMetadata()[0].GetLogicalDenseStrides() ==
+@@ -428,7 +471,9 @@ int TestRowReductionV3CanonicalSourcesAndMetadata() {
+       "    results %result0 : tensor<2x1xbf16>\n"
+       "  }\n"
+       "}\n";
+-  REQUIRE(bf16.GetCanonicalSource() == bf16_expected);
++  REQUIRE(MatchesSourceAndSha256(
++      bf16, bf16_expected,
++      "ea0ad985fada975214704588d11c7ab627022a48c41a230282e458768f4d0e70"));
+   REQUIRE(bf16.GetCanonicalSource().find("reduce(%arg0)") == std::string::npos);
+   REQUIRE(bf16.GetCanonicalSource().find("reduce(%wide0)") != std::string::npos);
+   REQUIRE(bf16.GetValueMetadata()[0].GetDtypeName() == "bfloat16");
+@@ -437,9 +482,21 @@ int TestRowReductionV3CanonicalSourcesAndMetadata() {
+       EmitTensorIr(MakeRowReduction({2, 3}, DataType::BF16,
+                                     "tensor.row_max")
+                        .program);
+-  REQUIRE(bf16_max.GetCanonicalSource().find(
+-              "reduce(%wide0) <dimensions = [1], reduction_mode = <max>> : "
+-              "tensor<2x3xf32> -> tensor<2x1xf32>") != std::string::npos);
++  const std::string bf16_max_expected =
++      "module {\n"
++      "  nv_tensor_ir.graph @pypto_row_reduction_v3(\n"
++      "    %arg0: tensor<2x3xbf16> {nv_tensor_ir.stride = \"(3,1)\"}\n"
++      "  ) -> (tensor<2x1xbf16> {nv_tensor_ir.stride = \"(1,1)\"}) {\n"
++      "    %wide0 = convert %arg0 : tensor<2x3xbf16> -> tensor<2x3xf32>\n"
++      "    %reduce0 = reduce(%wide0) <dimensions = [1], reduction_mode = <max>> : "
++      "tensor<2x3xf32> -> tensor<2x1xf32>\n"
++      "    %result0 = convert %reduce0 : tensor<2x1xf32> -> tensor<2x1xbf16>\n"
++      "    results %result0 : tensor<2x1xbf16>\n"
++      "  }\n"
++      "}\n";
++  REQUIRE(MatchesSourceAndSha256(
++      bf16_max, bf16_max_expected,
++      "8b238ef9574e20f017fd588252a282f1b9342de737fa87887434185dc94279d1"));
+   REQUIRE(bf16_max.GetCanonicalSource().find("reduce(%arg0)") ==
+           std::string::npos);
+   const TensorIrModule bf16_rank_three =
+@@ -447,21 +504,23 @@ int TestRowReductionV3CanonicalSourcesAndMetadata() {
+                                     "tensor.row_sum")
+                        .program);
+   const std::string& bf16_rank_three_source = bf16_rank_three.GetCanonicalSource();
+-  REQUIRE(bf16_rank_three_source.find(
+-              "convert %arg0 : tensor<2x3x5xbf16> -> tensor<2x3x5xf32>") !=
+-          std::string::npos);
+-  REQUIRE(bf16_rank_three_source.find(
+-              "reshape %wide0 : tensor<2x3x5xf32> -> tensor<6x5xf32>") !=
+-          std::string::npos);
+-  REQUIRE(bf16_rank_three_source.find(
+-              "reduce(%flat0) <dimensions = [1], reduction_mode = <add>> : "
+-              "tensor<6x5xf32> -> tensor<6x1xf32>") != std::string::npos);
+-  REQUIRE(bf16_rank_three_source.find(
+-              "reshape %reduce0 : tensor<6x1xf32> -> tensor<2x3x1xf32>") !=
+-          std::string::npos);
+-  REQUIRE(bf16_rank_three_source.find(
+-              "convert %shape0 : tensor<2x3x1xf32> -> tensor<2x3x1xbf16>") !=
+-          std::string::npos);
++  const std::string bf16_rank_three_expected =
++      "module {\n"
++      "  nv_tensor_ir.graph @pypto_row_reduction_v3(\n"
++      "    %arg0: tensor<2x3x5xbf16> {nv_tensor_ir.stride = \"(15,5,1)\"}\n"
++      "  ) -> (tensor<2x3x1xbf16> {nv_tensor_ir.stride = \"(3,1,1)\"}) {\n"
++      "    %wide0 = convert %arg0 : tensor<2x3x5xbf16> -> tensor<2x3x5xf32>\n"
++      "    %flat0 = reshape %wide0 : tensor<2x3x5xf32> -> tensor<6x5xf32>\n"
++      "    %reduce0 = reduce(%flat0) <dimensions = [1], reduction_mode = <add>> : "
++      "tensor<6x5xf32> -> tensor<6x1xf32>\n"
++      "    %shape0 = reshape %reduce0 : tensor<6x1xf32> -> tensor<2x3x1xf32>\n"
++      "    %result0 = convert %shape0 : tensor<2x3x1xf32> -> tensor<2x3x1xbf16>\n"
++      "    results %result0 : tensor<2x3x1xbf16>\n"
++      "  }\n"
++      "}\n";
++  REQUIRE(MatchesSourceAndSha256(
++      bf16_rank_three, bf16_rank_three_expected,
++      "cb938d7e3dabbc660ec027316eb6b1fad25e5dbe4c263b9e857360c6bec7cb4c"));
+   REQUIRE(bf16_rank_three_source.find("reduce(%arg0)") == std::string::npos);
+ 
+   const RowReductionProgram cosmetic =

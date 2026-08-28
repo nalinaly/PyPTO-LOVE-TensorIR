@@ -1,0 +1,358 @@
+From e05be80a1a265ae0692269140afedf424956ec01 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 21:02:48 +0800
+Subject: [PATCH 085/212] nvidia: lower native tile RoPE graphs
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp     | 256 +++++++++++++++++++
+ tests/ut/compiler/test_structured_compile.py |  42 +++
+ 2 files changed, 298 insertions(+)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index e912107264fb49b54238a7f4ed0a72e8226cbedf..95b96f81f7d13cb014a405ba3d171a6dc53da0c3 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -1616,6 +1616,180 @@ void AnalyzeNativeTileRmsNorm(
+                {"rsqrt", 0.0}};
+ }
+ 
++struct NativeTileRopeGraph {
++  StaticTensor input;
++  StaticTensor frequency;
++};
++
++bool IsNativeTileRopeCandidate(const ir::ProgramPtr& program) {
++  if (!IsNativeTilePointwiseCandidate(program)) return false;
++  const ir::FunctionPtr& function = program->functions_.begin()->second;
++  if (function->params_.size() != 4) return false;
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = ir::As<ir::InCoreScopeStmt>(top->stmts_[0]);
++  const TileLoopNest loop_nest = UnwrapStaticTileLoops(scope->body_);
++  const ir::SeqStmtsPtr& leaf = loop_nest.leaf;
++  if (!leaf || leaf->stmts_.size() != 12) return false;
++  const auto first = ir::As<ir::AssignStmt>(leaf->stmts_[0]);
++  const auto first_call = first ? ir::As<ir::Call>(first->value_) : nullptr;
++  const auto store0 = ir::As<ir::EvalStmt>(leaf->stmts_[10]);
++  const auto store1 = ir::As<ir::EvalStmt>(leaf->stmts_[11]);
++  const auto call0 = store0 ? ir::As<ir::Call>(store0->expr_) : nullptr;
++  const auto call1 = store1 ? ir::As<ir::Call>(store1->expr_) : nullptr;
++  return first_call && ir::IsOp(first_call, "tile.load") && call0 && call1 &&
++         ir::IsOp(call0, "tile.store") && ir::IsOp(call1, "tile.store");
++}
++
++NativeTileRopeGraph AnalyzeNativeTileRope(const ir::ProgramPtr& program) {
++  const auto& [global, function] = *program->functions_.begin();
++  if (!global || !function || global->name_ != function->name_ ||
++      function->requires_runtime_binding_ ||
++      function->func_type_ != ir::FunctionType::Orchestration ||
++      !function->level_.has_value() || *function->level_ != ir::Level::CHIP ||
++      !function->role_.has_value() || *function->role_ != ir::Role::Orchestrator ||
++      !function->attrs_.empty()) {
++    Reject("native RoPE must be one canonical CHIP @pl.jit function",
++           function ? &function->span_ : &program->span_);
++  }
++  if (function->params_.size() != 4 ||
++      function->param_directions_.size() != 4 ||
++      function->param_directions_[0] != ir::ParamDirection::In ||
++      function->param_directions_[1] != ir::ParamDirection::In ||
++      function->param_directions_[2] != ir::ParamDirection::In ||
++      function->param_directions_[3] != ir::ParamDirection::Out ||
++      function->return_types_.size() != 1) {
++    Reject("native RoPE requires x, cos, sin and one output parameter",
++           &function->span_);
++  }
++  for (const ir::VarPtr& parameter : function->params_) {
++    if (!parameter || parameter->GetKind() != ir::ObjectKind::Var) {
++      Reject("native RoPE parameters must be exact Var nodes", &function->span_);
++    }
++  }
++  const StaticTensor input = ReadStaticTensor(
++      function->params_[0]->GetType(), function->params_[0]->span_,
++      "native RoPE input");
++  const StaticTensor cosine = ReadStaticTensor(
++      function->params_[1]->GetType(), function->params_[1]->span_,
++      "native RoPE cosine");
++  const StaticTensor sine = ReadStaticTensor(
++      function->params_[2]->GetType(), function->params_[2]->span_,
++      "native RoPE sine");
++  const StaticTensor output = ReadStaticTensor(
++      function->params_[3]->GetType(), function->params_[3]->span_,
++      "native RoPE output");
++  const StaticTensor declared = ReadStaticTensor(
++      function->return_types_[0], function->span_, "native RoPE return");
++  if (input.dtype != DataType::BF16 || input.shape.size() != 2 ||
++      input.shape[1] % 2 != 0 || !SameTensor(input, output) ||
++      !SameTensor(input, declared) || !SameTensor(cosine, sine) ||
++      cosine.dtype != DataType::BF16 || cosine.shape.size() != 2 ||
++      cosine.shape[0] != input.shape[0] ||
++      cosine.shape[1] * 2 != input.shape[1]) {
++    Reject("native RoPE requires x/out [rows,2*half] and cos/sin [rows,half] BF16",
++           &function->span_);
++  }
++
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  if (!top || top->stmts_.size() != 2 || !top->stmts_[0] || !top->stmts_[1]) {
++    Reject("native RoPE body must contain one pl.at scope and one return",
++           &function->span_);
++  }
++  const auto scope = ir::As<ir::InCoreScopeStmt>(top->stmts_[0]);
++  if (!scope || scope->split_ != ir::SplitMode::None || !scope->attrs_.empty()) {
++    Reject("native RoPE requires an unsplit CORE_GROUP scope",
++           &top->stmts_[0]->span_);
++  }
++  const auto returned = ir::As<ir::ReturnStmt>(top->stmts_[1]);
++  const auto returned_var =
++      returned && returned->value_.size() == 1
++          ? ir::As<ir::Var>(returned->value_[0])
++          : nullptr;
++  if (!returned_var || returned_var.get() != function->params_[3].get()) {
++    Reject("native RoPE must return its output parameter", &top->stmts_[1]->span_);
++  }
++  const TileLoopNest loop_nest = UnwrapStaticTileLoops(scope->body_);
++  if (loop_nest.repetitions != static_cast<uint64_t>(input.shape[0])) {
++    Reject("native RoPE row loop must cover every row exactly once", &scope->span_);
++  }
++  const ir::SeqStmtsPtr& leaf = loop_nest.leaf;
++  if (!leaf || leaf->stmts_.size() != 12) {
++    Reject("native RoPE row body must contain ten assignments and two stores",
++           leaf ? &leaf->span_ : &scope->span_);
++  }
++  constexpr std::array<std::string_view, 10> kExpectedOps = {
++      "tile.load", "tile.load", "tile.load", "tile.load", "tile.mul",
++      "tile.mul", "tile.sub", "tile.mul", "tile.mul", "tile.add"};
++  std::array<ir::AssignStmtPtr, 10> assignments;
++  std::array<ir::CallPtr, 10> calls;
++  for (size_t index = 0; index < assignments.size(); ++index) {
++    assignments[index] = ir::As<ir::AssignStmt>(leaf->stmts_[index]);
++    calls[index] = assignments[index]
++                       ? ir::As<ir::Call>(assignments[index]->value_)
++                       : nullptr;
++    if (!assignments[index] || !assignments[index]->var_ || !calls[index] ||
++        !calls[index]->op_ ||
++        !ir::IsOp(calls[index], std::string(kExpectedOps[index]))) {
++      Reject("native RoPE tile operation sequence is not canonical",
++             &leaf->stmts_[index]->span_);
++    }
++  }
++  std::array<ir::CallPtr, 2> stores;
++  for (size_t index = 0; index < stores.size(); ++index) {
++    const auto statement = ir::As<ir::EvalStmt>(leaf->stmts_[10 + index]);
++    stores[index] = statement ? ir::As<ir::Call>(statement->expr_) : nullptr;
++    if (!stores[index] || !stores[index]->op_ ||
++        !ir::IsOp(stores[index], "tile.store") || stores[index]->args_.size() != 3) {
++      Reject("native RoPE row body must end in two tile.store calls",
++             &leaf->stmts_[10 + index]->span_);
++    }
++  }
++
++  auto require_var = [&](const ir::CallPtr& call, size_t argument_index,
++                         const ir::VarPtr& expected,
++                         std::string_view diagnostic) {
++    if (argument_index >= call->args_.size()) {
++      Reject(std::string(diagnostic), &call->span_);
++    }
++    const auto value = ir::As<ir::Var>(call->args_[argument_index]);
++    if (!value || value.get() != expected.get()) {
++      Reject(std::string(diagnostic), &call->span_);
++    }
++  };
++  require_var(calls[0], 0, function->params_[0], "RoPE low load must read x");
++  require_var(calls[1], 0, function->params_[0], "RoPE high load must read x");
++  require_var(calls[2], 0, function->params_[1], "RoPE cosine load is invalid");
++  require_var(calls[3], 0, function->params_[2], "RoPE sine load is invalid");
++  require_var(calls[4], 0, assignments[0]->var_, "RoPE low*cos lhs is invalid");
++  require_var(calls[4], 1, assignments[2]->var_, "RoPE low*cos rhs is invalid");
++  require_var(calls[5], 0, assignments[1]->var_, "RoPE high*sin lhs is invalid");
++  require_var(calls[5], 1, assignments[3]->var_, "RoPE high*sin rhs is invalid");
++  require_var(calls[6], 0, assignments[4]->var_, "RoPE low subtraction lhs is invalid");
++  require_var(calls[6], 1, assignments[5]->var_, "RoPE low subtraction rhs is invalid");
++  require_var(calls[7], 0, assignments[1]->var_, "RoPE high*cos lhs is invalid");
++  require_var(calls[7], 1, assignments[2]->var_, "RoPE high*cos rhs is invalid");
++  require_var(calls[8], 0, assignments[0]->var_, "RoPE low*sin lhs is invalid");
++  require_var(calls[8], 1, assignments[3]->var_, "RoPE low*sin rhs is invalid");
++  require_var(calls[9], 0, assignments[7]->var_, "RoPE high addition lhs is invalid");
++  require_var(calls[9], 1, assignments[8]->var_, "RoPE high addition rhs is invalid");
++  require_var(stores[0], 0, assignments[6]->var_, "RoPE low store is invalid");
++  require_var(stores[1], 0, assignments[9]->var_, "RoPE high store is invalid");
++  require_var(stores[0], 2, function->params_[3], "RoPE low output is invalid");
++  require_var(stores[1], 2, function->params_[3], "RoPE high output is invalid");
++
++  const StaticTensor expected_tile{DataType::BF16, {1, cosine.shape[1]},
++                                   {cosine.shape[1], 1}};
++  for (const ir::AssignStmtPtr& assignment : assignments) {
++    const StaticTensor tile = ReadStaticTile(
++        assignment->var_->GetType(), assignment->span_, "native RoPE tile");
++    if (!SameTensor(tile, expected_tile)) {
++      Reject("native RoPE tile shapes must all be BF16 [1,half]",
++             &assignment->span_);
++    }
++  }
++  return NativeTileRopeGraph{input, cosine};
++}
++
+ FusedPointwiseGraph AnalyzeNativeTilePointwise(const ir::ProgramPtr& program) {
+   if (!program || program->functions_.size() != 1) {
+     Reject("native tile program must contain exactly one function",
+@@ -2327,6 +2501,68 @@ std::string EmitFusedPointwiseSource(const FusedPointwiseGraph& graph) {
+   return source;
+ }
+ 
++std::string EmitNativeTileRopeSource(const NativeTileRopeGraph& graph) {
++  const StaticTensor& input = graph.input;
++  const StaticTensor& half = graph.frequency;
++  const std::string input_type = TensorTypeText(input);
++  const std::string half_type = TensorTypeText(half);
++  std::string source;
++  source.reserve(2048);
++  source += "module {\n  nv_tensor_ir.graph @";
++  source += kFusedPointwiseEntryName;
++  source += "(\n    %arg0: ";
++  source += TensorWithStrideText(input);
++  source += ",\n    %arg1: ";
++  source += TensorWithStrideText(half);
++  source += ",\n    %arg2: ";
++  source += TensorWithStrideText(half);
++  source += "\n  ) -> (";
++  source += TensorWithStrideText(input);
++  source += ") {\n    %xlow = slice %arg0 starts = [0, 0] limits = [";
++  AppendInteger(source, input.shape[0]);
++  source += ", ";
++  AppendInteger(source, half.shape[1]);
++  source += "] strides = [1, 1] : ";
++  source += input_type;
++  source += " -> ";
++  source += half_type;
++  source += "\n    %xhigh = slice %arg0 starts = [0, ";
++  AppendInteger(source, half.shape[1]);
++  source += "] limits = [";
++  AppendInteger(source, input.shape[0]);
++  source += ", ";
++  AppendInteger(source, input.shape[1]);
++  source += "] strides = [1, 1] : ";
++  source += input_type;
++  source += " -> ";
++  source += half_type;
++  source += "\n    %lowcos = mul %xlow, %arg1 : ";
++  source += half_type;
++  source += "\n    %highsin = mul %xhigh, %arg2 : ";
++  source += half_type;
++  source += "\n    %low = sub %lowcos, %highsin : ";
++  source += half_type;
++  source += "\n    %highcos = mul %xhigh, %arg1 : ";
++  source += half_type;
++  source += "\n    %lowsin = mul %xlow, %arg2 : ";
++  source += half_type;
++  source += "\n    %high = add %highcos, %lowsin : ";
++  source += half_type;
++  source += "\n    %result0 = concatenate %low, %high dimension = 1 : (";
++  source += half_type;
++  source += ", ";
++  source += half_type;
++  source += ") -> ";
++  source += input_type;
++  source += "\n    results %result0 : ";
++  source += input_type;
++  source += "\n  }\n}\n";
++  if (source.size() > kMaximumCanonicalSourceBytes) {
++    Reject("canonical TensorIR source exceeds 16 MiB");
++  }
++  return source;
++}
++
+ bool IsLegacyStaticAddV1Candidate(const ir::ProgramPtr& program) {
+   if (!program || program->functions_.size() != 1) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+@@ -2695,6 +2931,26 @@ TensorIrModule EmitLegacyStaticAddV1(const ir::ProgramPtr& program) {
+ }  // namespace detail
+ 
+ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
++  if (IsNativeTileRopeCandidate(program)) {
++    const NativeTileRopeGraph graph = AnalyzeNativeTileRope(program);
++    std::vector<TensorIrValueMetadata> metadata;
++    metadata.reserve(4);
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Input, 0, graph.input.dtype, graph.input.shape,
++        graph.input.dense_strides, /*has_explicit_strides=*/true));
++    for (uint32_t index = 1; index <= 2; ++index) {
++      metadata.push_back(TensorIrValueMetadata(
++          TensorIrValueRole::Input, index, graph.frequency.dtype,
++          graph.frequency.shape, graph.frequency.dense_strides,
++          /*has_explicit_strides=*/true));
++    }
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Result, 0, graph.input.dtype, graph.input.shape,
++        graph.input.dense_strides, /*has_explicit_strides=*/true));
++    return TensorIrModule(TensorIrModuleKind::FusedPointwiseV2,
++                          EmitNativeTileRopeSource(graph), std::move(metadata),
++                          /*input_count=*/3);
++  }
+   if (IsNativeTileRmsNormCandidate(program)) {
+     StaticTensor input;
+     std::vector<RowReductionEpilogueStep> steps;
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index ad27896c68740bca234ce02dab929a212f7c1666..00bf3b31eb423fd13d3f36bc6e80be8761ffffda 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -85,6 +85,30 @@ def _native_tile_rmsnorm(
+     return out
+ 
+ 
++@pl.jit
++def _native_tile_rope(
++    x: pl.Tensor[[2, 128], pl.BF16],
++    cos: pl.Tensor[[2, 64], pl.BF16],
++    sin: pl.Tensor[[2, 64], pl.BF16],
++    out: pl.Out[pl.Tensor[[2, 128], pl.BF16]],
++):
++    with pl.at(level=pl.Level.CORE_GROUP):
++        for row in pl.range(2):
++            x_low = pl.load(x, [row, 0], [1, 64])
++            x_high = pl.load(x, [row, 64], [1, 64])
++            cos_part = pl.load(cos, [row, 0], [1, 64])
++            sin_part = pl.load(sin, [row, 0], [1, 64])
++            low_cos = pl.mul(x_low, cos_part)
++            high_sin = pl.mul(x_high, sin_part)
++            low = pl.sub(low_cos, high_sin)
++            high_cos = pl.mul(x_high, cos_part)
++            low_sin = pl.mul(x_low, sin_part)
++            high = pl.add(high_cos, low_sin)
++            pl.store(low, [row, 0], out)
++            pl.store(high, [row, 64], out)
++    return out
++
++
+ def _program() -> ir.Program:
+     span = ir.Span("structured_compile_test.py", 1, 1)
+     tensor_type = ir.TensorType([8, 8], pypto.DataType.FP32)
+@@ -348,6 +372,23 @@ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+     ]
+     assert not rmsnorm.artifact.fallback_used
+ 
++    rope = compile_structured_strict(
++        _native_tile_rope.specialize(), request, _schedule([1, 128])
++    )
++    rope_kernel = rope.artifact.kernel_abi
++    assert rope_kernel.entry_function_name == "pypto_fused_pointwise_v2"
++    assert rope_kernel.grid_abi.static_dimensions == [2, 1, 1]
++    assert rope_kernel.grid_abi.tile_sizes == [1, 128]
++    assert rope_kernel.argument_layout.input_operand_count == 3
++    assert rope_kernel.argument_layout.total_kernel_argument_count == 4
++    assert [d.shape for d in rope_kernel.argument_layout.operand_descriptors] == [
++        [2, 128],
++        [2, 64],
++        [2, 64],
++        [2, 128],
++    ]
++    assert not rope.artifact.fallback_used
++
+ 
+ def test_compile_structured_strict_functional() -> None:
+     info = get_nvidia_backend_build_info()
+@@ -362,6 +403,7 @@ def test_compile_structured_strict_functional() -> None:
+             _native_tile_add.specialize(),
+             _native_tiled_add.specialize(),
+             _native_tile_rmsnorm.specialize(),
++            _native_tile_rope.specialize(),
+             _row_reduction_program([32, 17], pypto.DataType.FP32, "tensor.row_sum"),
+         ):
+             with pytest.raises(ValueError, match="requires the compiled private NVIDIA backend"):

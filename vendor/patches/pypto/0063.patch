@@ -1,0 +1,23 @@
+From c8f271ce1eb08fb1ae8e0f7cdc7e933d3c504d3e Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 12:23:33 +0800
+Subject: [PATCH 063/212] test: expect shape-mismatch rejection for broadcast
+ misuse
+
+---
+ tests/ut/cpp/tensor_ir_codegen_test.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index ca18d0a0ac55a0a59e6dbdb5d0f3c9f08bff2e8a..ef4c2efa40a8cb220e326d5835ea8852b54b0ece 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -1684,7 +1684,7 @@ int TestFusedPointwiseV2RowBroadcast() {
+             {ir::ParamDirection::In, ir::ParamDirection::In}, {type},
+             {misuse_assignment, misuse_return}));
+       },
+-      "row-broadcast inputs may feed only row-expand operands"));
++      "operand types and shapes must match all inputs"));
+ 
+   // A row-expand operand that is not a broadcast-shaped input is rejected.
+   auto two_wide = PlainTensor({4, 2}, DataType::FP32);

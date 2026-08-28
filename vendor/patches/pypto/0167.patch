@@ -1,0 +1,28 @@
+From 921cbd8a46bfb7c65d233124419e00d95010c716 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 09:46:08 +0800
+Subject: [PATCH 167/212] Align batched prefill schedule rank
+
+---
+ tests/ut/compiler/test_structured_compile.py | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index 63a4ac8a5a811a0eb6a3acd2b82382f5f8bfbff1..de963c42171bcdbfafbfa1dc5e15fb74a5963323 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -825,12 +825,12 @@ def _assert_native_paged_prefill_compilation(request: CompileRequest) -> None:
+     prefill = compile_structured_strict(
+         _native_tile_paged_prefill.specialize(scale=0.0625),
+         request,
+-        _schedule([1, 1, 128]),
++        _schedule([1, 1, 1, 128]),
+     )
+     kernel = prefill.artifact.kernel_abi
+     assert kernel.entry_function_name == "pypto_fused_pointwise"
+     assert kernel.grid_abi.static_dimensions == [8, 1, 1]
+-    assert kernel.grid_abi.tile_sizes == [1, 1, 128]
++    assert kernel.grid_abi.tile_sizes == [1, 1, 1, 128]
+     assert kernel.argument_layout.input_operand_count == 7
+     assert kernel.argument_layout.total_kernel_argument_count == 8
+     descriptors = kernel.argument_layout.operand_descriptors

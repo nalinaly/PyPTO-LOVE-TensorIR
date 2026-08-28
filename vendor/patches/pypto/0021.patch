@@ -1,0 +1,349 @@
+From a52d80bf1d2f96645e25c8db807c7c5dfa738291 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 00:49:17 +0800
+Subject: [PATCH 021/212] compiler: hash artifact bytes without copying
+
+---
+ src/compiler/digest.cpp      | 145 +++++++++++++++++++++--------------
+ src/compiler/digest.h        |   9 +++
+ tests/ut/cpp/CMakeLists.txt  |  20 +++++
+ tests/ut/cpp/digest_test.cpp |  95 +++++++++++++++++++++++
+ 4 files changed, 213 insertions(+), 56 deletions(-)
+ create mode 100644 tests/ut/cpp/digest_test.cpp
+
+diff --git a/src/compiler/digest.cpp b/src/compiler/digest.cpp
+index 86e415c8061734aa56e44cd8c3d93ab668fa6fa1..6a93eeeb032171695ea2c37a9436268fa42cc5e8 100644
+--- a/src/compiler/digest.cpp
++++ b/src/compiler/digest.cpp
+@@ -14,9 +14,13 @@
+ #include <array>
+ #include <cstddef>
+ #include <cstdint>
++#include <cstring>
++#include <limits>
+ #include <string>
+ #include <vector>
+ 
++#include "pypto/core/error.h"
++
+ namespace pypto::compiler::detail {
+ namespace {
+ 
+@@ -33,69 +37,94 @@ constexpr std::array<uint32_t, 64> kSha256RoundConstants = {
+ 
+ uint32_t RotateRight(uint32_t value, uint32_t count) { return (value >> count) | (value << (32U - count)); }
+ 
++using Sha256State = std::array<uint32_t, 8>;
++
++void ProcessBlock(const uint8_t* block, Sha256State& state) {
++  std::array<uint32_t, 64> words{};
++  for (size_t index = 0; index < 16; ++index) {
++    const size_t offset = index * 4U;
++    words[index] = (static_cast<uint32_t>(block[offset]) << 24U) |
++                   (static_cast<uint32_t>(block[offset + 1U]) << 16U) |
++                   (static_cast<uint32_t>(block[offset + 2U]) << 8U) |
++                   static_cast<uint32_t>(block[offset + 3U]);
++  }
++  for (size_t index = 16; index < words.size(); ++index) {
++    const uint32_t sigma0 = RotateRight(words[index - 15U], 7U) ^
++                            RotateRight(words[index - 15U], 18U) ^
++                            (words[index - 15U] >> 3U);
++    const uint32_t sigma1 = RotateRight(words[index - 2U], 17U) ^
++                            RotateRight(words[index - 2U], 19U) ^
++                            (words[index - 2U] >> 10U);
++    words[index] = words[index - 16U] + sigma0 + words[index - 7U] + sigma1;
++  }
++
++  uint32_t a = state[0];
++  uint32_t b = state[1];
++  uint32_t c = state[2];
++  uint32_t d = state[3];
++  uint32_t e = state[4];
++  uint32_t f = state[5];
++  uint32_t g = state[6];
++  uint32_t h = state[7];
++  for (size_t index = 0; index < words.size(); ++index) {
++    const uint32_t sum1 = RotateRight(e, 6U) ^ RotateRight(e, 11U) ^ RotateRight(e, 25U);
++    const uint32_t choose = (e & f) ^ ((~e) & g);
++    const uint32_t temporary1 = h + sum1 + choose + kSha256RoundConstants[index] + words[index];
++    const uint32_t sum0 = RotateRight(a, 2U) ^ RotateRight(a, 13U) ^ RotateRight(a, 22U);
++    const uint32_t majority = (a & b) ^ (a & c) ^ (b & c);
++    const uint32_t temporary2 = sum0 + majority;
++    h = g;
++    g = f;
++    f = e;
++    e = d + temporary1;
++    d = c;
++    c = b;
++    b = a;
++    a = temporary1 + temporary2;
++  }
++  state[0] += a;
++  state[1] += b;
++  state[2] += c;
++  state[3] += d;
++  state[4] += e;
++  state[5] += f;
++  state[6] += g;
++  state[7] += h;
++}
++
+ }  // namespace
+ 
+-std::string Sha256Hex(const std::vector<uint8_t>& data) {
+-  std::vector<uint8_t> padded(data);
+-  const uint64_t bit_length = static_cast<uint64_t>(padded.size()) * 8U;
+-  padded.push_back(0x80U);
+-  while (padded.size() % 64U != 56U) padded.push_back(0U);
+-  for (int shift = 56; shift >= 0; shift -= 8) {
+-    padded.push_back(static_cast<uint8_t>(bit_length >> shift));
++std::string Sha256Hex(const uint8_t* data, size_t size) {
++  if (data == nullptr && size != 0) {
++    throw ValueError("SHA-256 input pointer must not be null when size is nonzero");
++  }
++  if (size > std::numeric_limits<uint64_t>::max() / 8U) {
++    throw ValueError("SHA-256 input exceeds the 64-bit message-length limit");
+   }
+ 
+-  std::array<uint32_t, 8> state = {
++  Sha256State state = {
+       0x6a09e667U, 0xbb67ae85U, 0x3c6ef372U, 0xa54ff53aU, 0x510e527fU, 0x9b05688cU, 0x1f83d9abU, 0x5be0cd19U,
+   };
+-  for (size_t offset = 0; offset < padded.size(); offset += 64U) {
+-    std::array<uint32_t, 64> words{};
+-    for (size_t i = 0; i < 16; ++i) {
+-      const size_t word_offset = offset + i * 4U;
+-      words[i] = (static_cast<uint32_t>(padded[word_offset]) << 24U) |
+-                 (static_cast<uint32_t>(padded[word_offset + 1U]) << 16U) |
+-                 (static_cast<uint32_t>(padded[word_offset + 2U]) << 8U) |
+-                 static_cast<uint32_t>(padded[word_offset + 3U]);
+-    }
+-    for (size_t i = 16; i < words.size(); ++i) {
+-      const uint32_t sigma0 =
+-          RotateRight(words[i - 15U], 7U) ^ RotateRight(words[i - 15U], 18U) ^ (words[i - 15U] >> 3U);
+-      const uint32_t sigma1 =
+-          RotateRight(words[i - 2U], 17U) ^ RotateRight(words[i - 2U], 19U) ^ (words[i - 2U] >> 10U);
+-      words[i] = words[i - 16U] + sigma0 + words[i - 7U] + sigma1;
+-    }
+ 
+-    uint32_t a = state[0];
+-    uint32_t b = state[1];
+-    uint32_t c = state[2];
+-    uint32_t d = state[3];
+-    uint32_t e = state[4];
+-    uint32_t f = state[5];
+-    uint32_t g = state[6];
+-    uint32_t h = state[7];
+-    for (size_t i = 0; i < words.size(); ++i) {
+-      const uint32_t sum1 = RotateRight(e, 6U) ^ RotateRight(e, 11U) ^ RotateRight(e, 25U);
+-      const uint32_t choose = (e & f) ^ ((~e) & g);
+-      const uint32_t temporary1 = h + sum1 + choose + kSha256RoundConstants[i] + words[i];
+-      const uint32_t sum0 = RotateRight(a, 2U) ^ RotateRight(a, 13U) ^ RotateRight(a, 22U);
+-      const uint32_t majority = (a & b) ^ (a & c) ^ (b & c);
+-      const uint32_t temporary2 = sum0 + majority;
+-      h = g;
+-      g = f;
+-      f = e;
+-      e = d + temporary1;
+-      d = c;
+-      c = b;
+-      b = a;
+-      a = temporary1 + temporary2;
+-    }
+-    state[0] += a;
+-    state[1] += b;
+-    state[2] += c;
+-    state[3] += d;
+-    state[4] += e;
+-    state[5] += f;
+-    state[6] += g;
+-    state[7] += h;
++  constexpr size_t kBlockBytes = 64;
++  const size_t complete_block_bytes = size - (size % kBlockBytes);
++  for (size_t offset = 0; offset < complete_block_bytes; offset += kBlockBytes) {
++    ProcessBlock(data + offset, state);
++  }
++
++  std::array<uint8_t, kBlockBytes * 2> final_blocks{};
++  const size_t tail_bytes = size - complete_block_bytes;
++  if (tail_bytes != 0) {
++    std::memcpy(final_blocks.data(), data + complete_block_bytes, tail_bytes);
++  }
++  final_blocks[tail_bytes] = 0x80U;
++  const size_t final_size = tail_bytes < 56U ? kBlockBytes : kBlockBytes * 2U;
++  const uint64_t bit_length = static_cast<uint64_t>(size) * 8U;
++  for (size_t index = 0; index < sizeof(bit_length); ++index) {
++    final_blocks[final_size - 1U - index] = static_cast<uint8_t>(bit_length >> (index * 8U));
++  }
++  for (size_t offset = 0; offset < final_size; offset += kBlockBytes) {
++    ProcessBlock(final_blocks.data() + offset, state);
+   }
+ 
+   constexpr char kHexDigits[] = "0123456789abcdef";
+@@ -109,4 +138,8 @@ std::string Sha256Hex(const std::vector<uint8_t>& data) {
+   return result;
+ }
+ 
++std::string Sha256Hex(const std::vector<uint8_t>& data) {
++  return Sha256Hex(data.data(), data.size());
++}
++
+ }  // namespace pypto::compiler::detail
+diff --git a/src/compiler/digest.h b/src/compiler/digest.h
+index b60ee798c5123c002539b898c11e87005a81be46..d6b2d6c0208fb2ac98c3294177d886a55ba508a1 100644
+--- a/src/compiler/digest.h
++++ b/src/compiler/digest.h
+@@ -12,12 +12,21 @@
+ #ifndef PYPTO_SRC_COMPILER_DIGEST_H_
+ #define PYPTO_SRC_COMPILER_DIGEST_H_
+ 
++#include <cstddef>
+ #include <cstdint>
+ #include <string>
+ #include <vector>
+ 
+ namespace pypto::compiler::detail {
+ 
++/**
++ * Return the lowercase SHA-256 digest of a non-owning byte range.
++ *
++ * A null pointer is accepted exactly when size is zero. Inputs whose bit
++ * length cannot be represented by SHA-256's 64-bit length field are rejected.
++ */
++[[nodiscard]] std::string Sha256Hex(const uint8_t* data, size_t size);
++
+ /** Return the lowercase SHA-256 digest of the supplied bytes. */
+ [[nodiscard]] std::string Sha256Hex(const std::vector<uint8_t>& data);
+ 
+diff --git a/tests/ut/cpp/CMakeLists.txt b/tests/ut/cpp/CMakeLists.txt
+index 453b48d4a0ba030b0e6eaa0d5c26100cb0f23334..a0b4836697546baeb5cc4c61e535eb0acb5f32ea 100644
+--- a/tests/ut/cpp/CMakeLists.txt
++++ b/tests/ut/cpp/CMakeLists.txt
+@@ -40,6 +40,26 @@ add_test(
+     COMMAND pypto_nvidia_target_info_test
+ )
+ 
++add_executable(pypto_digest_test
++    digest_test.cpp
++    ${CMAKE_SOURCE_DIR}/src/compiler/digest.cpp
++    ${CMAKE_SOURCE_DIR}/src/core/backtrace.cpp
++    ${CMAKE_SOURCE_DIR}/src/core/error.cpp
++)
++
++target_include_directories(pypto_digest_test PRIVATE
++    ${CMAKE_SOURCE_DIR}/include
++    ${CMAKE_SOURCE_DIR}/src/compiler
++    ${LIBBACKTRACE_INSTALL_DIR}/include
++)
++
++target_link_libraries(pypto_digest_test PRIVATE libbacktrace)
++
++add_test(
++    NAME pypto_digest_test
++    COMMAND pypto_digest_test
++)
++
+ add_executable(pypto_canonical_msgpack_test
+     canonical_msgpack_test.cpp
+     ${CMAKE_SOURCE_DIR}/src/compiler/canonical_msgpack.cpp
+diff --git a/tests/ut/cpp/digest_test.cpp b/tests/ut/cpp/digest_test.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..3da9209bc737236f69a49e93575357d383c9e80f
+--- /dev/null
++++ b/tests/ut/cpp/digest_test.cpp
+@@ -0,0 +1,95 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#include <cstddef>
++#include <cstdint>
++#include <limits>
++#include <string>
++#include <vector>
++
++#include "digest.h"
++#include "pypto/core/error.h"
++
++using pypto::ValueError;
++using pypto::compiler::detail::Sha256Hex;
++
++#define REQUIRE(condition) \
++  do {                     \
++    if (!(condition)) {    \
++      return __LINE__;     \
++    }                      \
++  } while (false)
++
++namespace {
++
++bool RejectsNullNonemptyInput() {
++  try {
++    (void)Sha256Hex(nullptr, 1);
++  } catch (const ValueError&) {
++    return true;
++  }
++  return false;
++}
++
++bool RejectsOversizedInputWhenRepresentable() {
++  constexpr uint64_t kMaximumBytes = std::numeric_limits<uint64_t>::max() / 8U;
++  if (std::numeric_limits<size_t>::max() <= kMaximumBytes) return true;
++  const uint8_t byte = 0;
++  try {
++    (void)Sha256Hex(&byte, static_cast<size_t>(kMaximumBytes + 1U));
++  } catch (const ValueError&) {
++    return true;
++  }
++  return false;
++}
++
++}  // namespace
++
++int main() {
++  REQUIRE(Sha256Hex(nullptr, 0) ==
++          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
++  REQUIRE(Sha256Hex(std::vector<uint8_t>{}) ==
++          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
++
++  const uint8_t abc[] = {'a', 'b', 'c'};
++  REQUIRE(Sha256Hex(abc, sizeof(abc)) ==
++          "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
++
++  const uint8_t embedded_nul[] = {'a', 0, 'b'};
++  const std::vector<uint8_t> embedded_nul_vector(embedded_nul,
++                                                  embedded_nul + sizeof(embedded_nul));
++  REQUIRE(Sha256Hex(embedded_nul, sizeof(embedded_nul)) ==
++          "59b271ae1bbcb1d31d41929817f4b16fb439eb4f31520b5ad1d5ce98920a7138");
++  REQUIRE(Sha256Hex(embedded_nul_vector) ==
++          Sha256Hex(embedded_nul_vector.data(), embedded_nul_vector.size()));
++
++  const std::vector<uint8_t> fifty_six_a(56, static_cast<uint8_t>('a'));
++  REQUIRE(Sha256Hex(fifty_six_a) ==
++          "b35439a4ac6f0948b6d6f9e3c6af0f5f590ce20f1bde7090ef7970686ec6738a");
++
++  REQUIRE(Sha256Hex(std::vector<uint8_t>(55, static_cast<uint8_t>('a'))) ==
++          "9f4390f8d30c2dd92ec9f095b65e2b9ae9b0a925a5258e241c9f1e910f734318");
++  REQUIRE(Sha256Hex(std::vector<uint8_t>(63, static_cast<uint8_t>('a'))) ==
++          "7d3e74a05d7db15bce4ad9ec0658ea98e3f06eeecf16b4c6fff2da457ddc2f34");
++  REQUIRE(Sha256Hex(std::vector<uint8_t>(64, static_cast<uint8_t>('a'))) ==
++          "ffe054fe7ae0cb6dc65c3af9b61d5209f439851db43d0ba5997337df154668eb");
++  REQUIRE(Sha256Hex(std::vector<uint8_t>(65, static_cast<uint8_t>('a'))) ==
++          "635361c48bb9eab14198e76ea8ab7f1a41685d6ad62aa9146d301d4f17eb0ae0");
++
++  const std::vector<uint8_t> million_a(1'000'000, static_cast<uint8_t>('a'));
++  REQUIRE(Sha256Hex(million_a.data(), million_a.size()) ==
++          "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0");
++  REQUIRE(Sha256Hex(million_a) == Sha256Hex(million_a.data(), million_a.size()));
++
++  REQUIRE(RejectsNullNonemptyInput());
++  REQUIRE(RejectsOversizedInputWhenRepresentable());
++  return 0;
++}

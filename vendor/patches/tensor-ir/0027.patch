@@ -1,0 +1,189 @@
+From d540d54760de9ed5e112088d27cc0eded9ccbb14 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 18:36:34 +0800
+Subject: [PATCH 27/82] Lower zero-stride broadcast views into pointwise
+
+---
+ include/tensor_ir/Dialect/TensorOps.td        |  8 ++--
+ lib/Dialect/TensorDialect.cpp                 | 40 ++++++-------------
+ .../TensorToCudaTile/broadcast_layout.mlir    | 25 ++++++++++++
+ test/Dialect/invalid.mlir                     | 10 -----
+ test/Dialect/ops.mlir                         | 17 ++++++++
+ 5 files changed, 59 insertions(+), 41 deletions(-)
+
+diff --git a/include/tensor_ir/Dialect/TensorOps.td b/include/tensor_ir/Dialect/TensorOps.td
+index 681f2e2102044ba0ada8f9312f16c482f184d32b..7549281c690902ac4339d463b33382b152cebff1 100644
+--- a/include/tensor_ir/Dialect/TensorOps.td
++++ b/include/tensor_ir/Dialect/TensorOps.td
+@@ -750,9 +750,11 @@ def TensorIR_BroadcastOp : TensorIR_PointWiseOpBase<"broadcast", [
+ 
+     Every broadcast dim must change from a literal `1` in the input to either a
+     dynamic `?` or a literal `>1` in the output (the "shape=1 + dynamic stride"
+-    convention). The legacy "shape=? + stride=0" convention is no longer
+-    accepted. Non-broadcast dims must be either identical or both dynamic; a
+-    no-op broadcast (no dim changes) is also rejected — remove the op instead.
++    convention). A `broadcast` op does not use a full-extent, stride-zero input;
++    graph signature attributes may represent such broadcast views directly and
++    layout-propagation lowers them at the load. Non-broadcast dims must be either
++    identical or both dynamic; a no-op broadcast (no dim changes) is also
++    rejected — remove the op instead.
+ 
+     `dynamic_dims` may supply one index scalar for every dynamic result
+     dimension, in dimension order. It may be omitted during migration from
+diff --git a/lib/Dialect/TensorDialect.cpp b/lib/Dialect/TensorDialect.cpp
+index 7a39a20bdd92d10517fc0754b210560bed69626c..adac4aa01b36aca54656705986d9c615f1d2f5f8 100644
+--- a/lib/Dialect/TensorDialect.cpp
++++ b/lib/Dialect/TensorDialect.cpp
+@@ -44,8 +44,7 @@ tcutegen::Shape getShapeRef(TensorType tensorType) {
+ } // namespace mlir::nv_tensor_ir
+ 
+ static LogicalResult verifyTensorSignatureAttribute(Operation *op, Type type,
+-                                                    NamedAttribute attr,
+-                                                    bool isInput) {
++                                                    NamedAttribute attr) {
+   StringRef attrName = attr.getName().strref();
+   StringRef displayName = attrName.rsplit('.').second;
+   auto tensorType = dyn_cast<nv_tensor_ir::TensorType>(type);
+@@ -99,27 +98,13 @@ static LogicalResult verifyTensorSignatureAttribute(Operation *op, Type type,
+              << tcg::to_string(*stride) << "\"";
+     }
+ 
+-    // Reject stride=0 on input dimensions with shape != 1. Outputs are
+-    // unrestricted because their storage may intentionally represent a
+-    // broadcasted destination.
+-    if (isInput) {
+-      for (size_t i = 0; i < tcg::rank(*stride); ++i) {
+-        const auto &strideDim = (*stride)[i];
+-        if (!tcg::is_static(strideDim) || strideDim != 0) {
+-          continue;
+-        }
+-        const auto &shapeDim = shape[i];
+-        if (!tcg::is_static(shapeDim) || shapeDim != 1) {
+-          return op->emitError()
+-                 << "stride=0 is not allowed in graph input stride attribute "
+-                    "on a non-shape-1 dim (legacy broadcast convention is "
+-                    "deprecated; use shape=1 + an explicit broadcast op "
+-                    "instead), but got \""
+-                 << tcg::to_string(*stride) << "\" with shape \""
+-                 << tcg::to_string(shape) << "\"";
+-        }
+-      }
+-    }
++    // A zero stride is a valid graph-signature broadcast view, including when
++    // the corresponding logical extent is greater than one. The
++    // layout-propagation conversion lowers such an input to a unit-extent load
++    // followed by cuda_tile.broadcast, so it neither advances the source
++    // pointer nor reads outside the physical view. Keep explicit BroadcastOp's
++    // shape-changing contract separate: that op still requires a literal unit
++    // input extent and is verified in BroadcastOp::verify().
+     return success();
+   }
+ 
+@@ -221,8 +206,8 @@ TensorIRDialect::verifyRegionArgAttribute(Operation *op, unsigned regionIndex,
+                                           NamedAttribute argAttr) {
+   auto function = cast<FunctionOpInterface>(op);
+   assert(regionIndex == 0 && "function arguments must belong to region zero");
+-  return verifyTensorSignatureAttribute(
+-      op, function.getArgumentTypes()[argIndex], argAttr, /*isInput=*/true);
++  return verifyTensorSignatureAttribute(op, function.getArgumentTypes()[argIndex],
++                                        argAttr);
+ }
+ 
+ LogicalResult TensorIRDialect::verifyRegionResultAttribute(
+@@ -230,9 +215,8 @@ LogicalResult TensorIRDialect::verifyRegionResultAttribute(
+     NamedAttribute resultAttr) {
+   auto function = cast<FunctionOpInterface>(op);
+   assert(regionIndex == 0 && "function results must belong to region zero");
+-  return verifyTensorSignatureAttribute(op,
+-                                        function.getResultTypes()[resultIndex],
+-                                        resultAttr, /*isInput=*/false);
++  return verifyTensorSignatureAttribute(
++      op, function.getResultTypes()[resultIndex], resultAttr);
+ }
+ 
+ #define GET_ATTRDEF_CLASSES
+diff --git a/test/Conversion/TensorToCudaTile/broadcast_layout.mlir b/test/Conversion/TensorToCudaTile/broadcast_layout.mlir
+index df62a5b60d4282aeac9b658de20c1f5b139bfecd..a1bd96895ee8834ae01e0539cd31c3400aabffd1 100644
+--- a/test/Conversion/TensorToCudaTile/broadcast_layout.mlir
++++ b/test/Conversion/TensorToCudaTile/broadcast_layout.mlir
+@@ -25,6 +25,31 @@ module {
+ 
+ // -----
+ 
++// A producer may encode an already-expanded logical input with a zero stride.
++// The conversion must load one physical value along that dimension, then
++// broadcast the loaded tile before the pointwise operation.
++// CHECK-LABEL: entry @broadcast_view_into_pointwise
++// CHECK: %[[ZERO:.*]] = constant <i32: 0> : tile<i32>
++// CHECK: %[[ROW_VIEW:.*]] = make_tensor_view {{.*}}, shape = [32, 32], strides = [1, 0] : tensor_view<32x32xf32, strides=[1,0]>
++// CHECK: %[[ROW_PART:.*]] = make_partition_view %[[ROW_VIEW]] : partition_view<tile=(1x1), tensor_view<32x32xf32, strides=[1,0]>>
++// CHECK: %[[ROW_LOAD:.*]], {{.*}} = load_view_tko weak %[[ROW_PART]][{{.*}}, %[[ZERO]]]
++// CHECK: %[[ROW_TILE:.*]] = broadcast %[[ROW_LOAD]] : tile<1x1xf32> -> tile<1x32xf32>
++// CHECK: %[[FULL_TILE:.*]], {{.*}} = load_view_tko weak
++// CHECK: %[[MUL:.*]] = mulf %[[ROW_TILE]], %[[FULL_TILE]] : tile<1x32xf32>
++// CHECK: store_view_tko weak %[[MUL]]
++module {
++  nv_tensor_ir.graph @broadcast_view_into_pointwise(
++      %row: tensor<32x32xf32> {nv_tensor_ir.stride = "(1,0)"},
++      %full: tensor<32x32xf32>)
++      -> (tensor<32x32xf32>)
++      attributes {tile_size = array<i32: 1, 32>} {
++    %mul = mul %row, %full : tensor<32x32xf32>
++    results %mul : tensor<32x32xf32>
++  }
++}
++
++// -----
++
+ // CHECK-LABEL: entry @broadcast_two_dimensions
+ // CHECK: %[[ZERO:.*]] = constant <i32: 0> : tile<i32>
+ // CHECK: %[[TVIEW1:.*]] = make_tensor_view {{.*}}, shape = [1, 1], strides = [1, 1] : tensor_view<1x1xf32, strides=[1,1]>
+diff --git a/test/Dialect/invalid.mlir b/test/Dialect/invalid.mlir
+index 7e5b5ffa79a2c84cfca56dc12c6d674aff504ae8..13e5da97ce003c9b8fb62fe1442df5a6f807d96b 100644
+--- a/test/Dialect/invalid.mlir
++++ b/test/Dialect/invalid.mlir
+@@ -246,16 +246,6 @@ nv_tensor_ir.graph @graphOpVerifyGraphStride(
+   results %res: tensor<?x?x?xf32>
+ }
+ 
+-// -----
+-// expected-error @below {{stride=0 is not allowed in graph input stride attribute}}
+-nv_tensor_ir.graph @graphOpVerifyStrideZeroRejected(
+-  %lhs: tensor<?x?x?xf32> {nv_tensor_ir.stride = "(0,?,1)"},
+-  %rhs: tensor<?x?x?xf32>
+-) -> tensor<?x?x?xf32> {
+-  %res = add %lhs, %rhs : tensor<?x?x?xf32>
+-  results %res: tensor<?x?x?xf32>
+-}
+-
+ // -----
+ // Broadcast verifier: no-op broadcast (no dim changes from 1 to non-1).
+ nv_tensor_ir.graph @broadcastNoOp(
+diff --git a/test/Dialect/ops.mlir b/test/Dialect/ops.mlir
+index cc69210fd1e2ccf6ce6c37e3530b54ec775326b9..95eda4842d5fa8fcee0fd938fcebc2489034ab45 100644
+--- a/test/Dialect/ops.mlir
++++ b/test/Dialect/ops.mlir
+@@ -11,6 +11,23 @@ nv_tensor_ir.graph @someGraph() {
+   results
+ }
+ 
++// -----
++
++// A full-logical-extent graph input may describe a broadcast view with a zero
++// stride. This is distinct from the shape-changing broadcast op below.
++// CHECK-LABEL: nv_tensor_ir.graph @zeroStrideBroadcastView
++// CHECK-SAME: %[[ROW:.*]]: tensor<4x8xf32> {nv_tensor_ir.stride = "(1,0)"}
++// CHECK-SAME: %[[FULL:.*]]: tensor<4x8xf32> {nv_tensor_ir.stride = "(8,1)"}
++// CHECK: %[[MUL:.*]] = mul %[[ROW]], %[[FULL]] : tensor<4x8xf32>
++// CHECK: results %[[MUL]] : tensor<4x8xf32>
++nv_tensor_ir.graph @zeroStrideBroadcastView(
++  %row: tensor<4x8xf32> {nv_tensor_ir.stride = "(1,0)"},
++  %full: tensor<4x8xf32> {nv_tensor_ir.stride = "(8,1)"}
++) -> (tensor<4x8xf32> {nv_tensor_ir.stride = "(8,1)"}) {
++  %mul = mul %row, %full : tensor<4x8xf32>
++  results %mul : tensor<4x8xf32>
++}
++
+ // Pointwise binary operations
+ // CHECK-LABEL: nv_tensor_ir.graph @pointwiseBinaryFloatTestGraph
+ // CHECK-SAME: %[[arg0:.*]]: tensor<10xf32>, %[[arg1:.*]]: tensor<10xf32>, %[[arg2:.*]]: tensor<10xf32>

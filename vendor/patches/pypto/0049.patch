@@ -1,0 +1,1755 @@
+From c4cf755b7ef2998cdfb7499a76b80b280bafdf2d Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 19:20:40 +0800
+Subject: [PATCH 049/212] compiler: derive structured frontend build identity
+
+---
+ CMakeLists.txt                                |   1 +
+ docs/en/dev/backend/01-nvidia-target-info.md  |  74 +-
+ docs/zh/dev/backend/01-nvidia-target-info.md  |  64 +-
+ src/compiler/strict_tensor_ir_options.cpp     |  66 +-
+ src/compiler/strict_tensor_ir_options.h       |   3 +
+ .../structured_tensor_ir_build_spec.cpp       | 403 +++++++++
+ .../structured_tensor_ir_build_spec.h         | 190 +++++
+ tests/ut/cpp/CMakeLists.txt                   |  27 +
+ .../structured_tensor_ir_build_spec_test.cpp  | 763 ++++++++++++++++++
+ 9 files changed, 1558 insertions(+), 33 deletions(-)
+ create mode 100644 src/compiler/structured_tensor_ir_build_spec.cpp
+ create mode 100644 src/compiler/structured_tensor_ir_build_spec.h
+ create mode 100644 tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 9e00bf83b2335098e2c632dbea27d9d0388866ca..764a6788ac64e4b795108e2db3fd593e7b37b58b 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -95,6 +95,7 @@ set(PYPTO_SOURCES
+     src/compiler/nvidia_artifact_compiler.cpp
+     src/compiler/nvidia_backend_build_info.cpp
+     src/compiler/strict_tensor_ir_options.cpp
++    src/compiler/structured_tensor_ir_build_spec.cpp
+     src/compiler/target_info.cpp
+ 
+     # Core
+diff --git a/docs/en/dev/backend/01-nvidia-target-info.md b/docs/en/dev/backend/01-nvidia-target-info.md
+index b12d57f2d00e7959b3728edda0e689befac94631..a89ac8110638d0841823c1318df4cbb6e7599237 100644
+--- a/docs/en/dev/backend/01-nvidia-target-info.md
++++ b/docs/en/dev/backend/01-nvidia-target-info.md
+@@ -207,6 +207,71 @@ does not link or invoke TensorIR/CUDA Tile, compile a region, create an
+ artifact/cache/executable, modify runtime/plugins, or change legacy
+ `ir.compile`.
+ 
++### Compile-free structured TensorIR preparation
++
++The private compiler layer has a compile-free preparation/finalization seam;
++it is not a Python API and is not yet wired into `Artifact.compile_strict()` or
++the private producer. `PrepareStructuredTensorIrCompilation(program, request,
++schedule)` is the sole constructor path for
++`PreparedStructuredTensorIrCompilation`. It calls `EmitTensorIr(program)`, then
++owns copies of the request and schedule, the resolved strict producer options,
++the exact canonical TensorIR source bytes, copied `Input0`, `Input1`, `Result0`
++metadata, and five canonical identity projections. `TensorIrModule` does not
++cross this seam, and the prepared value cannot be mixed with a different
++request or schedule during finalization.
++
++The prepared value is deliberately not a `KernelBuildSpec` and is not a cache
++key. The callable identity does not exist until finalization receives the real
++producer ABI, so `ArtifactCache.lookup()` is unavailable at the prepared stage.
++The compiler must not invent a provisional callable digest, publish or later
++rewrite a provisional key, or invoke the producer once to discover an ABI and
++again after a cache lookup. A future compile-avoiding lookup requires a
++separately versioned, deterministic producer-analysis contract that returns the
++complete callable ABI without generating device code; that analysis is not
++part of this seam.
++
++Every projection is canonical MessagePack v1 in lexical map-key order, capped
++at 1 MiB, and contains no binary, extension, or floating-point value:
++
++| KernelBuildSpec input | Contract | Contents |
++| --------------------- | -------- | -------- |
++| static specialization | `pypto.frontend.static_specialization.v1` | ordered argument/result roles, ordinals, and positive static HIR shapes |
++| symbolic specialization | `pypto.frontend.symbolic_specialization.v1` | explicit empty `constraints` and `symbols` arrays |
++| argument ABI | `pypto.frontend.argument_abi.v1` | ordered inputs with `direction=in`, dtype code/name, rank, static shape, logical dense strides, contiguous and explicit-stride state |
++| result ABI | `pypto.frontend.result_abi.v1` | ordered results with the same dtype/layout metadata, without an input direction |
++| mutation ABI | `pypto.frontend.mutation_abi.v1` | two read-only argument effects and one `nil` result alias |
++
++The sixth identity domain remains the SHA-256 of the raw canonical TensorIR
++source bytes, without a MessagePack envelope. A `nil` result alias means that
++the HIR/SSA result has no input-alias lineage; it does not claim runtime pointer
++non-overlap, C/C++ `restrict`, or a loader-side alias check.
++
++`FinalizeStructuredTensorIrBuildSpec(prepared, real_kernel_abi)` accepts no
++caller-provided callable digest. It validates the returned kernel ABI against
++the prepared metadata and schedule, then uses only
++`ArtifactKernelAbi.identity_digest` as `KernelBuildSpec.callable_abi_digest`.
++The v1 check requires the fixed runtime/entry names; exactly ordered tensor
++descriptors for `Input0`, `Input1`, `Result0`; fully static matching shapes and
++strides with no dynamic metadata; two inputs, three kernel pointer arguments,
++`uniform_signature=false`, and pointer-only packing; static grid policy driven
++by descriptor zero; exact schedule tile sizes; zero workspace; and the fixed
++launch and CUDA 13.0-minimum loader ABI.
++
++The producer ABI descriptors do not contain dtype or source-role fields. Dtype
++is bound by the exact TensorIR source and frontend argument/result projections;
++`Input0`, `Input1`, and `Result0` roles are inferred positionally from descriptor
++order and input count. This is deterministic identity validation, not an
++independent proof of dtype or role semantics from Cubin bytes.
++
++Static specialization binds HIR shapes, not launch-grid dimensions.
++Layout-propagation may flatten or normalize TensorIR iteration space, so this
++compile-free seam deliberately does not recompute an exact grid from HIR shape
++and tile sizes. It requires the producer-shaped one-dimensional layout
++`y=1,z=1` and a positive `x` within the copied request's target limit. The exact
++`x` remains producer-owned until a subsequent real-producer parity test freezes
++that normalized iteration-space result. This commit invokes no producer,
++filesystem, subprocess, CUDA API, or GPU.
++
+ ## NVIDIA Artifact v1
+ 
+ `Artifact` is the immutable, pointer-free output envelope for the first strict
+@@ -347,10 +412,11 @@ ABI, and byte-for-byte canonical encoding.
+ 
+ Artifact identities repeat only the source digest and callable-ABI digest that
+ the producer entrypoint checks directly, plus the complete request and
+-KernelBuildSpec digests. Result, mutation, argument-catalog, and specialization
+-digests remain caller-declared KernelBuildSpec inputs bound transitively by its
+-complete digest; Artifact v1 does not present them as independently inferred or
+-TensorIR-verified facts.
++KernelBuildSpec digests. The private compile-free seam now derives result,
++mutation, argument-ABI, and specialization digests from emitted frontend
++metadata, but it is not yet wired into the public Artifact transaction.
++Artifact v1 therefore still does not present those fields as independently
++producer-verified facts.
+ 
+ `deserialize()` is deliberately a trusted-cache API. Producer identity and the
+ Cubin SHA-256 are declarations inside the same self-contained payload; they
+diff --git a/docs/zh/dev/backend/01-nvidia-target-info.md b/docs/zh/dev/backend/01-nvidia-target-info.md
+index ed6d89e3244593a8fec3c194c2b7f5ea04e6a0cb..3507504c9d78f6df876f101516358ace033f507e 100644
+--- a/docs/zh/dev/backend/01-nvidia-target-info.md
++++ b/docs/zh/dev/backend/01-nvidia-target-info.md
+@@ -185,6 +185,63 @@ handle；产出 bytes；actual artifact kind。它不会查询 environment、fil
+ 不会创建 artifact/cache/executable，不会修改 runtime/plugin，也不会改变旧
+ `ir.compile`。
+ 
++### Compile-free structured TensorIR preparation
++
++private compiler layer 现在提供 compile-free preparation/finalization seam；它不是
++Python API，也尚未接入 `Artifact.compile_strict()` 或 private producer。
++`PrepareStructuredTensorIrCompilation(program, request, schedule)` 是
++`PreparedStructuredTensorIrCompilation` 唯一的构造路径。它调用
++`EmitTensorIr(program)`，随后按值拥有 request、schedule、解析后的 strict producer
++option、精确 canonical TensorIR source bytes、复制的 `Input0`、`Input1`、`Result0`
++metadata，以及五个 canonical identity projection。`TensorIrModule` 不会跨过此 seam，
++finalization 也无法混入另一份 request 或 schedule。
++
++prepared value 明确不是 `KernelBuildSpec`，也不是 cache key。只有 finalization
++取得真实 producer ABI 后 callable identity 才存在，因此 prepared stage 不能执行
++`ArtifactCache.lookup()`。compiler 不得伪造 provisional callable digest，不得发布后再
++rewrite provisional key，也不得先调用一次 producer 发现 ABI、cache lookup 后再调用
++第二次 producer。未来若要在避免 compilation 的情况下 lookup，需要单独 version 的
++deterministic producer-analysis contract，在不生成 device code 的前提下返回完整 callable
++ABI；本 seam 不包含该 analysis。
++
++每个 projection 都是按 map key 词法顺序编码的 canonical MessagePack v1，上限为
++1 MiB，并且不包含 binary、extension 或 floating-point value：
++
++| KernelBuildSpec input | Contract | Contents |
++| --------------------- | -------- | -------- |
++| static specialization | `pypto.frontend.static_specialization.v1` | 有序 argument/result role、ordinal 与正数 static HIR shape |
++| symbolic specialization | `pypto.frontend.symbolic_specialization.v1` | 显式为空的 `constraints` 与 `symbols` array |
++| argument ABI | `pypto.frontend.argument_abi.v1` | 有序 input，包括 `direction=in`、dtype code/name、rank、static shape、logical dense stride、contiguous 与 explicit-stride state |
++| result ABI | `pypto.frontend.result_abi.v1` | 有序 result，包含相同 dtype/layout metadata，但不含 input direction |
++| mutation ABI | `pypto.frontend.mutation_abi.v1` | 两个 read-only argument effect 与一个 `nil` result alias |
++
++第六个 identity domain 仍然是 raw canonical TensorIR source bytes 的 SHA-256，不添加
++MessagePack envelope。`nil` result alias 表示 HIR/SSA result 没有 input-alias lineage；
++它不声明 runtime pointer 不重叠、C/C++ `restrict`，也不代表 loader 已执行 alias check。
++
++`FinalizeStructuredTensorIrBuildSpec(prepared, real_kernel_abi)` 不接受 caller 提供的
++callable digest。它先根据 prepared metadata 与 schedule 验证返回的 kernel ABI，之后
++只使用 `ArtifactKernelAbi.identity_digest` 作为
++`KernelBuildSpec.callable_abi_digest`。v1 要求固定 runtime/entry name；严格按
++`Input0`、`Input1`、`Result0` 排列的 tensor descriptor；完全 static 且匹配的
++shape/stride，并且没有 dynamic metadata；两个 input、三个 kernel pointer argument、
++`uniform_signature=false` 与 pointer-only packing；由 descriptor zero 驱动的 static
++grid policy；精确 schedule tile size；zero workspace；以及固定 launch ABI 与 CUDA
++13.0 minimum loader ABI。
++
++producer ABI descriptor 不含 dtype 或 source-role field。dtype 由精确 TensorIR source
++以及 frontend argument/result projection 绑定；`Input0`、`Input1`、`Result0` role 根据
++descriptor 顺序与 input count 按位置推导。这提供 deterministic identity validation，
++并不构成从 Cubin bytes 独立证明 dtype 或 role semantics。
++
++static specialization 绑定 HIR shape，而不是 launch-grid dimension。layout-propagation
++可能 flatten 或 normalize TensorIR iteration space，因此此 compile-free seam 不会根据
++HIR shape 与 tile size 重算精确 grid。它只要求 producer 返回的所有 static grid
++使用 producer-shaped one-dimensional layout `y=1,z=1`，并要求正数 `x` 不超过
++复制 request 中的 target limit。精确 `x` 仍由 producer 拥有，直到后续 real-producer
++parity test 冻结 normalized iteration-space result。本 commit 不调用 producer、
++filesystem、subprocess、CUDA API 或 GPU。
++
+ ## NVIDIA Artifact v1
+ 
+ `Artifact` 是第一条 strict structured TensorIR 路径的不可变、无指针输出封装。
+@@ -307,9 +364,10 @@ expected request/build identity、Cubin SHA-256、strict producer contract、tar
+ entry/parameter ABI，以及逐 byte canonical encoding。
+ 
+ Artifact identity 只重复 producer entrypoint 直接核验的 source digest 与 callable-ABI
+-digest，以及完整 request/KernelBuildSpec digest。result、mutation、argument-catalog 与
+-specialization digest 仍是 caller-declared KernelBuildSpec input，只通过完整 spec digest
+-被传递绑定；Artifact v1 不会把它们声明为独立推导或经 TensorIR 验证的事实。
++digest，以及完整 request/KernelBuildSpec digest。private compile-free seam 现在会根据
++emitted frontend metadata 推导 result、mutation、argument-ABI 与 specialization digest，
++但尚未接入 public Artifact transaction。因此 Artifact v1 仍不会把这些 field 声明为
++经 producer 独立验证的事实。
+ 
+ `deserialize()` 明确只用于 trusted cache。producer identity 与 Cubin SHA-256 都是同一份
+ self-contained payload 内的声明；它们提供 deterministic identity 与 corruption detection，
+diff --git a/src/compiler/strict_tensor_ir_options.cpp b/src/compiler/strict_tensor_ir_options.cpp
+index e83510ab6ea1c9b95bf7f2e5bb1f3a668bb6de64..9272085ca96e26cbd9ecdf8f3440c57147826b93 100644
+--- a/src/compiler/strict_tensor_ir_options.cpp
++++ b/src/compiler/strict_tensor_ir_options.cpp
+@@ -27,78 +27,92 @@ namespace {
+ 
+ void RequireScheduleParameter(const std::vector<ScheduleParameter>& parameters, size_t index,
+                               std::string_view name, ScheduleValueKind kind,
+-                              std::string_view value, std::string_view category) {
++                              std::string_view value, std::string_view category,
++                              std::string_view owner) {
+   if (index >= parameters.size() || parameters[index].GetName() != name ||
+       parameters[index].GetValueKind() != kind ||
+       parameters[index].GetCanonicalValue() != value) {
+-    throw ValueError("KernelBuildSpec " + std::string(category) +
++    throw ValueError(std::string(owner) + " " + std::string(category) +
+                      " category differs from structured-tensorir-explicit-v1");
+   }
+ }
+ 
+-uint32_t ParseStrictTileSize(const ScheduleParameter& parameter, size_t index) {
++uint32_t ParseStrictTileSize(const ScheduleParameter& parameter, size_t index,
++                             std::string_view owner) {
+   std::string expected_name = "dim_";
+   expected_name.push_back(static_cast<char>('0' + (index / 100U) % 10U));
+   expected_name.push_back(static_cast<char>('0' + (index / 10U) % 10U));
+   expected_name.push_back(static_cast<char>('0' + index % 10U));
+   if (parameter.GetName() != expected_name ||
+       parameter.GetValueKind() != ScheduleValueKind::UnsignedInteger) {
+-    throw ValueError("KernelBuildSpec tile category must use contiguous dim_NNN unsigned values");
++    throw ValueError(std::string(owner) +
++                     " tile category must use contiguous dim_NNN unsigned values");
+   }
+   uint64_t value = 0;
+   const std::string& text = parameter.GetCanonicalValue();
+   const auto parsed = std::from_chars(text.data(), text.data() + text.size(), value);
+   if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() || value == 0 ||
+       value > static_cast<uint64_t>(std::numeric_limits<int32_t>::max())) {
+-    throw ValueError("KernelBuildSpec tile size is outside the strict int32 range");
++    throw ValueError(std::string(owner) + " tile size is outside the strict int32 range");
+   }
+   return static_cast<uint32_t>(value);
+ }
+ 
+-}  // namespace
+-
+-StrictTensorIrProducerOptions ResolveStrictTensorIrProducerOptions(
+-    const CompileRequest& request, const KernelBuildSpec& build_spec) {
+-  if (build_spec.GetPipelineRevision() != Artifact::kStructuredTensorIrPipelineRevision ||
+-      build_spec.GetSemanticRoute() != SemanticRoute::StructuredTensorIr ||
+-      build_spec.GetCompileRequestByteIdentityDigest() !=
+-          request.GetByteCompileIdentityDigest()) {
+-    throw ValueError("KernelBuildSpec does not select structured-tensorir-explicit-v1");
+-  }
+-  const auto& schedule = build_spec.GetResolvedSchedule();
++StrictTensorIrProducerOptions ResolveSchedule(const CompileRequest& request,
++                                              const CanonicalSchedule& schedule,
++                                              std::string_view owner) {
+   if (schedule.GetSchedule().size() != 1 || schedule.GetCta().size() != 1 ||
+       schedule.GetWarp().size() != 1 || schedule.GetOptions().size() != 5 ||
+       !schedule.GetLayout().empty() || !schedule.GetPersistence().empty() ||
+       !schedule.GetStage().empty() || schedule.GetTile().empty() ||
+       schedule.GetTile().size() > Artifact::kMaximumTileDimensions) {
+-    throw ValueError("KernelBuildSpec resolved schedule has unsupported strict category cardinality");
++    throw ValueError(std::string(owner) +
++                     " resolved schedule has unsupported strict category cardinality");
+   }
+   RequireScheduleParameter(schedule.GetSchedule(), 0, "codegen_strategy",
+-                           ScheduleValueKind::Text, "layout-propagation", "schedule");
++                           ScheduleValueKind::Text, "layout-propagation", "schedule", owner);
+   RequireScheduleParameter(schedule.GetCta(), 0, "count",
+-                           ScheduleValueKind::UnsignedInteger, "1", "cta");
++                           ScheduleValueKind::UnsignedInteger, "1", "cta", owner);
+   RequireScheduleParameter(schedule.GetWarp(), 0, "count",
+-                           ScheduleValueKind::UnsignedInteger, "4", "warp");
++                           ScheduleValueKind::UnsignedInteger, "4", "warp", owner);
+   RequireScheduleParameter(schedule.GetOptions(), 0, "bytecode_major",
+-                           ScheduleValueKind::UnsignedInteger, "13", "options");
++                           ScheduleValueKind::UnsignedInteger, "13", "options", owner);
+   RequireScheduleParameter(schedule.GetOptions(), 1, "bytecode_minor",
+-                           ScheduleValueKind::UnsignedInteger, "3", "options");
++                           ScheduleValueKind::UnsignedInteger, "3", "options", owner);
+   RequireScheduleParameter(schedule.GetOptions(), 2, "bytecode_tag",
+-                           ScheduleValueKind::UnsignedInteger, "0", "options");
++                           ScheduleValueKind::UnsignedInteger, "0", "options", owner);
+   RequireScheduleParameter(schedule.GetOptions(), 3, "max_candidates",
+-                           ScheduleValueKind::UnsignedInteger, "0", "options");
++                           ScheduleValueKind::UnsignedInteger, "0", "options", owner);
+   RequireScheduleParameter(schedule.GetOptions(), 4, "uniform_signature",
+-                           ScheduleValueKind::Boolean, "false", "options");
++                           ScheduleValueKind::Boolean, "false", "options", owner);
+ 
+   StrictTensorIrProducerOptions options;
+   options.sm_count = request.GetTargetInfo().GetTraits().GetMultiprocessorCount();
+   options.tile_sizes.reserve(schedule.GetTile().size());
+   for (size_t index = 0; index < schedule.GetTile().size(); ++index) {
+-    options.tile_sizes.push_back(ParseStrictTileSize(schedule.GetTile()[index], index));
++    options.tile_sizes.push_back(ParseStrictTileSize(schedule.GetTile()[index], index, owner));
+   }
+   return options;
+ }
+ 
++}  // namespace
++
++StrictTensorIrProducerOptions ResolveStrictTensorIrProducerOptions(
++    const CompileRequest& request, const CanonicalSchedule& schedule) {
++  return ResolveSchedule(request, schedule, "CanonicalSchedule");
++}
++
++StrictTensorIrProducerOptions ResolveStrictTensorIrProducerOptions(
++    const CompileRequest& request, const KernelBuildSpec& build_spec) {
++  if (build_spec.GetPipelineRevision() != Artifact::kStructuredTensorIrPipelineRevision ||
++      build_spec.GetSemanticRoute() != SemanticRoute::StructuredTensorIr ||
++      build_spec.GetCompileRequestByteIdentityDigest() !=
++          request.GetByteCompileIdentityDigest()) {
++    throw ValueError("KernelBuildSpec does not select structured-tensorir-explicit-v1");
++  }
++  return ResolveSchedule(request, build_spec.GetResolvedSchedule(), "KernelBuildSpec");
++}
++
+ void ValidateStrictTensorIrBuildInfo(const CompileRequest& request) {
+   const NvidiaBackendBuildInfo build_info = GetNvidiaBackendBuildInfo();
+   const NvidiaTargetInfo& target_info = request.GetTargetInfo();
+diff --git a/src/compiler/strict_tensor_ir_options.h b/src/compiler/strict_tensor_ir_options.h
+index e9ba561f3b12cddfbe05341d06f42161da759d14..b74c0bc767cd7f42ab71eb4e0df8e3bb6c0ce162 100644
+--- a/src/compiler/strict_tensor_ir_options.h
++++ b/src/compiler/strict_tensor_ir_options.h
+@@ -43,6 +43,9 @@ struct StrictTensorIrProducerOptions {
+   std::vector<uint32_t> tile_sizes;
+ };
+ 
++[[nodiscard]] StrictTensorIrProducerOptions ResolveStrictTensorIrProducerOptions(
++    const CompileRequest& request, const CanonicalSchedule& schedule);
++
+ [[nodiscard]] StrictTensorIrProducerOptions ResolveStrictTensorIrProducerOptions(
+     const CompileRequest& request, const KernelBuildSpec& build_spec);
+ 
+diff --git a/src/compiler/structured_tensor_ir_build_spec.cpp b/src/compiler/structured_tensor_ir_build_spec.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..f89e99a3a7bf9d26e58be9b175c063c12b38e94d
+--- /dev/null
++++ b/src/compiler/structured_tensor_ir_build_spec.cpp
+@@ -0,0 +1,403 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#include "structured_tensor_ir_build_spec.h"
++
++#include <algorithm>
++#include <array>
++#include <cstddef>
++#include <cstdint>
++#include <msgpack.hpp>
++#include <optional>
++#include <string>
++#include <string_view>
++#include <utility>
++#include <vector>
++
++#include "canonical_msgpack.h"
++#include "digest.h"
++#include "pypto/compiler/artifact.h"
++#include "pypto/core/error.h"
++#include "src/codegen/nvidia/tensor_ir_codegen.h"
++
++namespace pypto::compiler::detail {
++namespace {
++
++constexpr size_t kMaximumProjectionBytes = 1024 * 1024;
++constexpr std::string_view kStaticSpecializationContract =
++    "pypto.frontend.static_specialization.v1";
++constexpr std::string_view kSymbolicSpecializationContract =
++    "pypto.frontend.symbolic_specialization.v1";
++constexpr std::string_view kArgumentAbiContract = "pypto.frontend.argument_abi.v1";
++constexpr std::string_view kResultAbiContract = "pypto.frontend.result_abi.v1";
++constexpr std::string_view kMutationAbiContract = "pypto.frontend.mutation_abi.v1";
++constexpr std::string_view kRuntimeKernelName = "tensor_ir_rtk";
++
++[[noreturn]] void RejectFinalization(std::string message) {
++  throw InternalError("structured TensorIR finalization contract violation: " + std::move(message));
++}
++
++std::string_view RoleName(PreparedStructuredTensorIrValueRole role) {
++  if (role == PreparedStructuredTensorIrValueRole::Argument) return "argument";
++  if (role == PreparedStructuredTensorIrValueRole::Result) return "result";
++  throw InternalError("prepared structured TensorIR value role is invalid");
++}
++
++void PackInt64Array(CanonicalPacker& packer, const std::vector<int64_t>& values) {
++  packer.pack_array(static_cast<uint32_t>(values.size()));
++  for (int64_t value : values) packer.pack(value);
++}
++
++void PackStaticValue(CanonicalPacker& packer,
++                     const PreparedStructuredTensorIrValueMetadata& metadata) {
++  packer.pack_map(3);
++  PackKey(packer, "ordinal");
++  packer.pack(metadata.GetOrdinal());
++  PackKey(packer, "role");
++  PackText(packer, RoleName(metadata.GetRole()));
++  PackKey(packer, "shape");
++  PackInt64Array(packer, metadata.GetShape());
++}
++
++void PackAbiDescriptor(CanonicalPacker& packer,
++                       const PreparedStructuredTensorIrValueMetadata& metadata,
++                       bool include_direction) {
++  packer.pack_map(include_direction ? 9 : 8);
++  PackKey(packer, "contiguous");
++  packer.pack(true);
++  if (include_direction) {
++    PackKey(packer, "direction");
++    PackText(packer, "in");
++  }
++  PackKey(packer, "dtype_code");
++  packer.pack(metadata.GetDtypeCode());
++  PackKey(packer, "dtype_name");
++  PackText(packer, metadata.GetDtypeName());
++  PackKey(packer, "explicit_strides");
++  packer.pack(metadata.HasExplicitStrides());
++  PackKey(packer, "ordinal");
++  packer.pack(metadata.GetOrdinal());
++  PackKey(packer, "rank");
++  packer.pack(static_cast<uint32_t>(metadata.GetShape().size()));
++  PackKey(packer, "shape");
++  PackInt64Array(packer, metadata.GetShape());
++  PackKey(packer, "strides");
++  PackInt64Array(packer, metadata.GetLogicalDenseStrides());
++}
++
++std::vector<uint8_t> FinishProjection(const msgpack::sbuffer& buffer,
++                                      std::string_view projection_name) {
++  std::vector<uint8_t> bytes = FinishBuffer(buffer);
++  if (bytes.empty() || bytes.size() > kMaximumProjectionBytes) {
++    throw InternalError(std::string(projection_name) +
++                        " projection is empty or exceeds the 1 MiB v1 limit");
++  }
++  return bytes;
++}
++
++std::vector<uint8_t> SerializeStaticSpecialization(
++    const std::vector<PreparedStructuredTensorIrValueMetadata>& metadata) {
++  msgpack::sbuffer buffer;
++  CanonicalPacker packer(buffer);
++  packer.pack_map(3);
++  PackKey(packer, "contract");
++  PackText(packer, kStaticSpecializationContract);
++  PackKey(packer, "static_specialization_schema_version");
++  packer.pack(1);
++  PackKey(packer, "values");
++  packer.pack_array(static_cast<uint32_t>(metadata.size()));
++  for (const auto& value : metadata) PackStaticValue(packer, value);
++  return FinishProjection(buffer, "static specialization");
++}
++
++std::vector<uint8_t> SerializeSymbolicSpecialization() {
++  msgpack::sbuffer buffer;
++  CanonicalPacker packer(buffer);
++  packer.pack_map(4);
++  PackKey(packer, "constraints");
++  packer.pack_array(0);
++  PackKey(packer, "contract");
++  PackText(packer, kSymbolicSpecializationContract);
++  PackKey(packer, "symbolic_specialization_schema_version");
++  packer.pack(1);
++  PackKey(packer, "symbols");
++  packer.pack_array(0);
++  return FinishProjection(buffer, "symbolic specialization");
++}
++
++std::vector<uint8_t> SerializeArgumentAbi(
++    const std::vector<PreparedStructuredTensorIrValueMetadata>& metadata) {
++  msgpack::sbuffer buffer;
++  CanonicalPacker packer(buffer);
++  packer.pack_map(3);
++  PackKey(packer, "argument_abi_schema_version");
++  packer.pack(1);
++  PackKey(packer, "arguments");
++  packer.pack_array(2);
++  PackAbiDescriptor(packer, metadata[0], /*include_direction=*/true);
++  PackAbiDescriptor(packer, metadata[1], /*include_direction=*/true);
++  PackKey(packer, "contract");
++  PackText(packer, kArgumentAbiContract);
++  return FinishProjection(buffer, "argument ABI");
++}
++
++std::vector<uint8_t> SerializeResultAbi(
++    const std::vector<PreparedStructuredTensorIrValueMetadata>& metadata) {
++  msgpack::sbuffer buffer;
++  CanonicalPacker packer(buffer);
++  packer.pack_map(3);
++  PackKey(packer, "contract");
++  PackText(packer, kResultAbiContract);
++  PackKey(packer, "result_abi_schema_version");
++  packer.pack(1);
++  PackKey(packer, "results");
++  packer.pack_array(1);
++  PackAbiDescriptor(packer, metadata[2], /*include_direction=*/false);
++  return FinishProjection(buffer, "result ABI");
++}
++
++std::vector<uint8_t> SerializeMutationAbi() {
++  msgpack::sbuffer buffer;
++  CanonicalPacker packer(buffer);
++  packer.pack_map(4);
++  PackKey(packer, "argument_effects");
++  packer.pack_array(2);
++  for (uint32_t ordinal = 0; ordinal < 2; ++ordinal) {
++    packer.pack_map(2);
++    PackKey(packer, "effect");
++    PackText(packer, "read-only");
++    PackKey(packer, "ordinal");
++    packer.pack(ordinal);
++  }
++  PackKey(packer, "contract");
++  PackText(packer, kMutationAbiContract);
++  PackKey(packer, "mutation_abi_schema_version");
++  packer.pack(1);
++  PackKey(packer, "result_aliases");
++  packer.pack_array(1);
++  packer.pack_nil();
++  return FinishProjection(buffer, "mutation ABI");
++}
++
++std::vector<std::optional<int64_t>> StaticValues(const std::vector<int64_t>& values) {
++  std::vector<std::optional<int64_t>> output;
++  output.reserve(values.size());
++  for (int64_t value : values) output.emplace_back(value);
++  return output;
++}
++
++void ValidateDescriptor(const ArtifactArgumentDescriptor& descriptor,
++                        const PreparedStructuredTensorIrValueMetadata& metadata,
++                        size_t descriptor_index) {
++  if (descriptor.GetKind() != ArtifactOperandKind::Tensor) {
++    RejectFinalization("descriptor " + std::to_string(descriptor_index) +
++                       " is not a tensor");
++  }
++  if (descriptor.GetRank() != metadata.GetShape().size() ||
++      descriptor.GetShape() != StaticValues(metadata.GetShape())) {
++    RejectFinalization("descriptor " + std::to_string(descriptor_index) +
++                       " static shape differs from prepared metadata");
++  }
++  const std::vector<std::optional<int64_t>> expected_strides =
++      metadata.HasExplicitStrides() ? StaticValues(metadata.GetLogicalDenseStrides())
++                                    : std::vector<std::optional<int64_t>>{};
++  if (descriptor.GetStrides() != expected_strides ||
++      descriptor.HasExplicitStrides() != metadata.HasExplicitStrides()) {
++    RejectFinalization("descriptor " + std::to_string(descriptor_index) +
++                       " static stride layout differs from prepared metadata");
++  }
++  if (descriptor.GetDynamicSizeCount() != 0 || descriptor.GetDynamicStrideCount() != 0 ||
++      descriptor.GetScalarSizeBytes() != 0) {
++    RejectFinalization("descriptor " + std::to_string(descriptor_index) +
++                       " contains dynamic or scalar ABI metadata");
++  }
++}
++
++void ValidateKernelAbi(const PreparedStructuredTensorIrCompilation& prepared,
++                       const ArtifactKernelAbi& kernel_abi) {
++  if (kernel_abi.GetRuntimeKernelName() != kRuntimeKernelName) {
++    RejectFinalization("runtime kernel name differs from the fixed TensorIR v1 name");
++  }
++  if (kernel_abi.GetEntryFunctionName() != prepared.GetEntryName()) {
++    RejectFinalization("entry function name differs from prepared TensorIR metadata");
++  }
++
++  const ArtifactArgumentLayout& layout = kernel_abi.GetArgumentLayout();
++  const auto& descriptors = layout.GetOperandDescriptors();
++  const auto& metadata = prepared.GetValueMetadata();
++  if (metadata.size() != 3 || descriptors.size() != metadata.size()) {
++    RejectFinalization("descriptor count must be ordered Input0, Input1, Result0");
++  }
++  if (layout.GetInputOperandCount() != 2 || layout.HasUniformSignature()) {
++    RejectFinalization("argument layout must contain two inputs and no uniform ABI");
++  }
++  for (size_t index = 0; index < metadata.size(); ++index) {
++    ValidateDescriptor(descriptors[index], metadata[index], index);
++  }
++  if (layout.GetTotalKernelArgumentCount() != 3) {
++    RejectFinalization("argument layout must contain exactly three pointer arguments");
++  }
++  if (kernel_abi.GetArgumentPackingPolicy() != ArtifactArgumentPackingPolicy::PointerOnly) {
++    RejectFinalization("argument packing policy must be pointer-only");
++  }
++
++  const ArtifactGridAbi& grid = kernel_abi.GetGridAbi();
++  if (grid.GetPolicy() != ArtifactGridPolicy::Static || grid.GetShapeOperandIndex() != 0) {
++    RejectFinalization("grid ABI must be static and selected by Input0");
++  }
++  if (grid.GetTileSizes() != prepared.GetResolvedOptions().tile_sizes) {
++    RejectFinalization("grid tile sizes differ from the prepared strict schedule");
++  }
++  const auto& dimensions = grid.GetStaticDimensions();
++  const auto& traits = prepared.GetCompileRequest().GetTargetInfo().GetTraits();
++  const std::array<uint32_t, 3> limits = {
++      static_cast<uint32_t>(traits.GetMaxGridDimX()),
++      static_cast<uint32_t>(traits.GetMaxGridDimY()),
++      static_cast<uint32_t>(traits.GetMaxGridDimZ())};
++  for (size_t index = 0; index < dimensions.size(); ++index) {
++    if (dimensions[index] == 0 || dimensions[index] > limits[index]) {
++      RejectFinalization("static grid dimensions exceed the prepared request limits");
++    }
++  }
++  if (dimensions[1] != 1 || dimensions[2] != 1) {
++    RejectFinalization("static grid must use the producer-shaped one-dimensional y=z=1 layout");
++  }
++
++  const ArtifactWorkspaceAbi& workspace = kernel_abi.GetWorkspaceAbi();
++  if (workspace.GetKind() != ArtifactWorkspaceKind::Static || workspace.GetSizeBytes() != 0 ||
++      workspace.GetAlignmentBytes() != 1) {
++    RejectFinalization("workspace ABI must be the reviewed zero-workspace contract");
++  }
++
++  const ArtifactLaunchAbi& launch = kernel_abi.GetLaunchAbi();
++  if (launch.GetBlockDimensions() != std::array<uint32_t, 3>{1, 1, 1} ||
++      launch.GetClusterSchedulingPolicy() != ArtifactClusterSchedulingPolicy::Spread ||
++      launch.GetDynamicSharedMemoryBytes() != 0 || launch.GetKernelArgumentSlotBytes() != 8) {
++    RejectFinalization("launch ABI differs from the reviewed CUDA Tile v1 contract");
++  }
++
++  const ArtifactLoaderAbi& loader = kernel_abi.GetLoaderAbi();
++  if (loader.GetMinimumCudaDriverApiVersion() != Artifact::kMinimumCudaDriverApiVersion ||
++      loader.GetMinimumCudaRuntimeApiVersion() != Artifact::kMinimumCudaRuntimeApiVersion) {
++    RejectFinalization("loader ABI differs from the reviewed CUDA 13.0 minimum");
++  }
++}
++
++}  // namespace
++
++PreparedStructuredTensorIrValueMetadata::PreparedStructuredTensorIrValueMetadata(
++    PreparedStructuredTensorIrValueRole role, uint32_t ordinal, uint8_t dtype_code,
++    std::string dtype_name, std::vector<int64_t> shape,
++    std::vector<int64_t> logical_dense_strides, bool has_explicit_strides)
++    : role_(role),
++      ordinal_(ordinal),
++      dtype_code_(dtype_code),
++      dtype_name_(std::move(dtype_name)),
++      shape_(std::move(shape)),
++      logical_dense_strides_(std::move(logical_dense_strides)),
++      has_explicit_strides_(has_explicit_strides) {}
++
++StructuredTensorIrIdentityProjection::StructuredTensorIrIdentityProjection(
++    std::vector<uint8_t> canonical_bytes)
++    : canonical_bytes_(std::move(canonical_bytes)),
++      identity_digest_(Sha256Hex(canonical_bytes_.data(), canonical_bytes_.size())) {}
++
++PreparedStructuredTensorIrCompilation::PreparedStructuredTensorIrCompilation(
++    CompileRequest request, CanonicalSchedule schedule,
++    StrictTensorIrProducerOptions resolved_options, std::vector<uint8_t> canonical_source,
++    std::string source_ir_digest, std::string entry_name,
++    std::vector<PreparedStructuredTensorIrValueMetadata> value_metadata,
++    StructuredTensorIrIdentityProjection static_specialization,
++    StructuredTensorIrIdentityProjection symbolic_specialization,
++    StructuredTensorIrIdentityProjection argument_abi,
++    StructuredTensorIrIdentityProjection result_abi,
++    StructuredTensorIrIdentityProjection mutation_abi)
++    : request_(std::move(request)),
++      schedule_(std::move(schedule)),
++      resolved_options_(std::move(resolved_options)),
++      canonical_source_(std::move(canonical_source)),
++      source_ir_digest_(std::move(source_ir_digest)),
++      entry_name_(std::move(entry_name)),
++      value_metadata_(std::move(value_metadata)),
++      static_specialization_(std::move(static_specialization)),
++      symbolic_specialization_(std::move(symbolic_specialization)),
++      argument_abi_(std::move(argument_abi)),
++      result_abi_(std::move(result_abi)),
++      mutation_abi_(std::move(mutation_abi)) {}
++
++PreparedStructuredTensorIrCompilation PrepareStructuredTensorIrCompilation(
++    const ir::ProgramPtr& program, const CompileRequest& request,
++    const CanonicalSchedule& schedule) {
++  const codegen::nvidia::TensorIrModule module = codegen::nvidia::EmitTensorIr(program);
++  const StrictTensorIrProducerOptions resolved_options =
++      ResolveStrictTensorIrProducerOptions(request, schedule);
++  if (module.GetMetadataSchemaVersion() != 1 || module.GetInputCount() != 2 ||
++      module.GetResultCount() != 1 || module.GetValueMetadata().size() != 3) {
++    throw InternalError(
++        "prepared TensorIR module must use metadata schema 1 with two inputs and one result");
++  }
++
++  const std::string& source = module.GetCanonicalSource();
++  const auto* source_begin = reinterpret_cast<const uint8_t*>(source.data());
++  std::vector<uint8_t> canonical_source(source_begin, source_begin + source.size());
++
++  std::vector<PreparedStructuredTensorIrValueMetadata> metadata;
++  metadata.reserve(module.GetValueMetadata().size());
++  for (const auto& value : module.GetValueMetadata()) {
++    const PreparedStructuredTensorIrValueRole role =
++        value.GetRole() == codegen::nvidia::TensorIrValueRole::Input
++            ? PreparedStructuredTensorIrValueRole::Argument
++            : PreparedStructuredTensorIrValueRole::Result;
++    metadata.push_back(PreparedStructuredTensorIrValueMetadata(
++        role, value.GetOrdinal(), value.GetDtypeCode(), value.GetDtypeName(), value.GetShape(),
++        value.GetLogicalDenseStrides(), value.HasExplicitStrides()));
++  }
++  if (metadata.size() != 3 ||
++      metadata[0].GetRole() != PreparedStructuredTensorIrValueRole::Argument ||
++      metadata[0].GetOrdinal() != 0 ||
++      metadata[1].GetRole() != PreparedStructuredTensorIrValueRole::Argument ||
++      metadata[1].GetOrdinal() != 1 ||
++      metadata[2].GetRole() != PreparedStructuredTensorIrValueRole::Result ||
++      metadata[2].GetOrdinal() != 0) {
++    throw InternalError("prepared TensorIR metadata is not ordered Input0, Input1, Result0");
++  }
++
++  StructuredTensorIrIdentityProjection static_specialization(
++      SerializeStaticSpecialization(metadata));
++  StructuredTensorIrIdentityProjection symbolic_specialization(
++      SerializeSymbolicSpecialization());
++  StructuredTensorIrIdentityProjection argument_abi(SerializeArgumentAbi(metadata));
++  StructuredTensorIrIdentityProjection result_abi(SerializeResultAbi(metadata));
++  StructuredTensorIrIdentityProjection mutation_abi(SerializeMutationAbi());
++
++  const std::string source_ir_digest = Artifact::ComputeSourceIrDigest(canonical_source);
++  return PreparedStructuredTensorIrCompilation(
++      request, schedule, resolved_options, std::move(canonical_source), source_ir_digest,
++      module.GetEntryName(), std::move(metadata), std::move(static_specialization),
++      std::move(symbolic_specialization), std::move(argument_abi), std::move(result_abi),
++      std::move(mutation_abi));
++}
++
++KernelBuildSpec FinalizeStructuredTensorIrBuildSpec(
++    const PreparedStructuredTensorIrCompilation& prepared,
++    const ArtifactKernelAbi& real_kernel_abi) {
++  ValidateKernelAbi(prepared, real_kernel_abi);
++  return KernelBuildSpec(
++      prepared.GetSourceIrDigest(), real_kernel_abi.GetIdentityDigest(),
++      SemanticRoute::StructuredTensorIr, std::string(Artifact::kStructuredTensorIrPipelineRevision),
++      prepared.GetSchedule(), prepared.GetStaticSpecialization().GetIdentityDigest(),
++      prepared.GetSymbolicSpecialization().GetIdentityDigest(),
++      prepared.GetArgumentAbi().GetIdentityDigest(), prepared.GetResultAbi().GetIdentityDigest(),
++      prepared.GetMutationAbi().GetIdentityDigest(),
++      prepared.GetCompileRequest().GetByteCompileIdentityDigest());
++}
++
++}  // namespace pypto::compiler::detail
+diff --git a/src/compiler/structured_tensor_ir_build_spec.h b/src/compiler/structured_tensor_ir_build_spec.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..a5664b060f5817249a51bb762acb82d9cf5e659a
+--- /dev/null
++++ b/src/compiler/structured_tensor_ir_build_spec.h
+@@ -0,0 +1,190 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#ifndef PYPTO_SRC_COMPILER_STRUCTURED_TENSOR_IR_BUILD_SPEC_H_
++#define PYPTO_SRC_COMPILER_STRUCTURED_TENSOR_IR_BUILD_SPEC_H_
++
++#include <cstdint>
++#include <string>
++#include <vector>
++
++#include "pypto/compiler/compile_request.h"
++#include "pypto/compiler/kernel_build_spec.h"
++#include "pypto/ir/program.h"
++#include "strict_tensor_ir_options.h"
++
++namespace pypto::compiler {
++
++class ArtifactKernelAbi;
++
++namespace detail {
++
++class PreparedStructuredTensorIrCompilation;
++
++[[nodiscard]] PreparedStructuredTensorIrCompilation PrepareStructuredTensorIrCompilation(
++    const ir::ProgramPtr& program, const CompileRequest& request,
++    const CanonicalSchedule& schedule);
++
++/** Role of one value in the prepared compile-free TensorIR frontend contract. */
++enum class PreparedStructuredTensorIrValueRole : uint8_t {
++  Argument = 0,
++  Result = 1,
++};
++
++/** Owned metadata copied out of TensorIR source emission. */
++class PreparedStructuredTensorIrValueMetadata {
++ public:
++  PreparedStructuredTensorIrValueMetadata() = delete;
++  PreparedStructuredTensorIrValueMetadata(const PreparedStructuredTensorIrValueMetadata&) = default;
++  PreparedStructuredTensorIrValueMetadata(PreparedStructuredTensorIrValueMetadata&&) = default;
++  PreparedStructuredTensorIrValueMetadata& operator=(
++      const PreparedStructuredTensorIrValueMetadata&) = delete;
++  PreparedStructuredTensorIrValueMetadata& operator=(PreparedStructuredTensorIrValueMetadata&&) = delete;
++
++  [[nodiscard]] PreparedStructuredTensorIrValueRole GetRole() const noexcept { return role_; }
++  [[nodiscard]] uint32_t GetOrdinal() const noexcept { return ordinal_; }
++  [[nodiscard]] uint8_t GetDtypeCode() const noexcept { return dtype_code_; }
++  [[nodiscard]] const std::string& GetDtypeName() const noexcept { return dtype_name_; }
++  [[nodiscard]] const std::vector<int64_t>& GetShape() const noexcept { return shape_; }
++  [[nodiscard]] const std::vector<int64_t>& GetLogicalDenseStrides() const noexcept {
++    return logical_dense_strides_;
++  }
++  [[nodiscard]] bool HasExplicitStrides() const noexcept { return has_explicit_strides_; }
++  [[nodiscard]] constexpr bool IsContiguous() const noexcept { return true; }
++
++ private:
++  PreparedStructuredTensorIrValueMetadata(PreparedStructuredTensorIrValueRole role, uint32_t ordinal,
++                                          uint8_t dtype_code, std::string dtype_name,
++                                          std::vector<int64_t> shape,
++                                          std::vector<int64_t> logical_dense_strides,
++                                          bool has_explicit_strides);
++  friend PreparedStructuredTensorIrCompilation PrepareStructuredTensorIrCompilation(
++      const ir::ProgramPtr& program, const CompileRequest& request,
++      const CanonicalSchedule& schedule);
++
++  PreparedStructuredTensorIrValueRole role_;
++  uint32_t ordinal_;
++  uint8_t dtype_code_;
++  std::string dtype_name_;
++  std::vector<int64_t> shape_;
++  std::vector<int64_t> logical_dense_strides_;
++  bool has_explicit_strides_;
++};
++
++/** One canonical, domain-separated identity projection and its SHA-256. */
++class StructuredTensorIrIdentityProjection {
++ public:
++  StructuredTensorIrIdentityProjection() = delete;
++  StructuredTensorIrIdentityProjection(const StructuredTensorIrIdentityProjection&) = default;
++  StructuredTensorIrIdentityProjection(StructuredTensorIrIdentityProjection&&) = default;
++  StructuredTensorIrIdentityProjection& operator=(const StructuredTensorIrIdentityProjection&) = delete;
++  StructuredTensorIrIdentityProjection& operator=(StructuredTensorIrIdentityProjection&&) = delete;
++
++  [[nodiscard]] const std::vector<uint8_t>& GetCanonicalBytes() const noexcept {
++    return canonical_bytes_;
++  }
++  [[nodiscard]] const std::string& GetIdentityDigest() const noexcept { return identity_digest_; }
++
++ private:
++  explicit StructuredTensorIrIdentityProjection(std::vector<uint8_t> canonical_bytes);
++  friend PreparedStructuredTensorIrCompilation PrepareStructuredTensorIrCompilation(
++      const ir::ProgramPtr& program, const CompileRequest& request,
++      const CanonicalSchedule& schedule);
++
++  std::vector<uint8_t> canonical_bytes_;
++  std::string identity_digest_;
++};
++
++/**
++ * Immutable compile-free frontend result bound to one copied request and schedule.
++ *
++ * Construction is possible only through PrepareStructuredTensorIrCompilation,
++ * which emits canonical TensorIR from an ir::ProgramPtr. No TensorIrModule or
++ * producer state crosses this boundary.
++ */
++class PreparedStructuredTensorIrCompilation {
++ public:
++  PreparedStructuredTensorIrCompilation() = delete;
++  PreparedStructuredTensorIrCompilation(const PreparedStructuredTensorIrCompilation&) = default;
++  PreparedStructuredTensorIrCompilation(PreparedStructuredTensorIrCompilation&&) = default;
++  PreparedStructuredTensorIrCompilation& operator=(
++      const PreparedStructuredTensorIrCompilation&) = delete;
++  PreparedStructuredTensorIrCompilation& operator=(PreparedStructuredTensorIrCompilation&&) = delete;
++
++  [[nodiscard]] const CompileRequest& GetCompileRequest() const noexcept { return request_; }
++  [[nodiscard]] const CanonicalSchedule& GetSchedule() const noexcept { return schedule_; }
++  [[nodiscard]] const StrictTensorIrProducerOptions& GetResolvedOptions() const noexcept {
++    return resolved_options_;
++  }
++  [[nodiscard]] const std::vector<uint8_t>& GetCanonicalSource() const noexcept {
++    return canonical_source_;
++  }
++  [[nodiscard]] const std::string& GetSourceIrDigest() const noexcept { return source_ir_digest_; }
++  [[nodiscard]] const std::string& GetEntryName() const noexcept { return entry_name_; }
++  [[nodiscard]] const std::vector<PreparedStructuredTensorIrValueMetadata>& GetValueMetadata()
++      const noexcept {
++    return value_metadata_;
++  }
++
++  [[nodiscard]] const StructuredTensorIrIdentityProjection& GetStaticSpecialization() const noexcept {
++    return static_specialization_;
++  }
++  [[nodiscard]] const StructuredTensorIrIdentityProjection& GetSymbolicSpecialization() const noexcept {
++    return symbolic_specialization_;
++  }
++  [[nodiscard]] const StructuredTensorIrIdentityProjection& GetArgumentAbi() const noexcept {
++    return argument_abi_;
++  }
++  [[nodiscard]] const StructuredTensorIrIdentityProjection& GetResultAbi() const noexcept {
++    return result_abi_;
++  }
++  [[nodiscard]] const StructuredTensorIrIdentityProjection& GetMutationAbi() const noexcept {
++    return mutation_abi_;
++  }
++
++ private:
++  PreparedStructuredTensorIrCompilation(
++      CompileRequest request, CanonicalSchedule schedule,
++      StrictTensorIrProducerOptions resolved_options, std::vector<uint8_t> canonical_source,
++      std::string source_ir_digest, std::string entry_name,
++      std::vector<PreparedStructuredTensorIrValueMetadata> value_metadata,
++      StructuredTensorIrIdentityProjection static_specialization,
++      StructuredTensorIrIdentityProjection symbolic_specialization,
++      StructuredTensorIrIdentityProjection argument_abi,
++      StructuredTensorIrIdentityProjection result_abi,
++      StructuredTensorIrIdentityProjection mutation_abi);
++  friend PreparedStructuredTensorIrCompilation PrepareStructuredTensorIrCompilation(
++      const ir::ProgramPtr& program, const CompileRequest& request,
++      const CanonicalSchedule& schedule);
++
++  CompileRequest request_;
++  CanonicalSchedule schedule_;
++  StrictTensorIrProducerOptions resolved_options_;
++  std::vector<uint8_t> canonical_source_;
++  std::string source_ir_digest_;
++  std::string entry_name_;
++  std::vector<PreparedStructuredTensorIrValueMetadata> value_metadata_;
++  StructuredTensorIrIdentityProjection static_specialization_;
++  StructuredTensorIrIdentityProjection symbolic_specialization_;
++  StructuredTensorIrIdentityProjection argument_abi_;
++  StructuredTensorIrIdentityProjection result_abi_;
++  StructuredTensorIrIdentityProjection mutation_abi_;
++};
++
++/** Validate the returned kernel ABI and bind it as the sole callable identity. */
++[[nodiscard]] KernelBuildSpec FinalizeStructuredTensorIrBuildSpec(
++    const PreparedStructuredTensorIrCompilation& prepared,
++    const ArtifactKernelAbi& real_kernel_abi);
++
++}  // namespace detail
++}  // namespace pypto::compiler
++
++#endif  // PYPTO_SRC_COMPILER_STRUCTURED_TENSOR_IR_BUILD_SPEC_H_
+diff --git a/tests/ut/cpp/CMakeLists.txt b/tests/ut/cpp/CMakeLists.txt
+index 145e38514463b89151688956ccc9945fda5d60fe..8ecbff5ad044ebdd179beab4eec99294b8b81696 100644
+--- a/tests/ut/cpp/CMakeLists.txt
++++ b/tests/ut/cpp/CMakeLists.txt
+@@ -185,6 +185,33 @@ add_test(
+     COMMAND pypto_tensor_ir_codegen_test
+ )
+ 
++add_executable(pypto_structured_tensor_ir_build_spec_test
++    structured_tensor_ir_build_spec_test.cpp
++)
++
++target_include_directories(pypto_structured_tensor_ir_build_spec_test PRIVATE
++    ${CMAKE_SOURCE_DIR}/include
++    ${CMAKE_SOURCE_DIR}/src
++    ${LIBBACKTRACE_INSTALL_DIR}/include
++)
++
++target_link_libraries(pypto_structured_tensor_ir_build_spec_test PRIVATE
++    ${COMPILER_OBJECT_LIBRARY_NAME}
++    libbacktrace
++    msgpackc-cxx
++)
++if(PYPTO_ENABLE_NVIDIA_BACKEND)
++    target_link_libraries(pypto_structured_tensor_ir_build_spec_test PRIVATE
++        pypto_nvidia_bridge_objects
++        pypto_nvidia_backend_dependencies
++    )
++endif()
++
++add_test(
++    NAME pypto_structured_tensor_ir_build_spec_test
++    COMMAND pypto_structured_tensor_ir_build_spec_test
++)
++
+ if(NOT PYPTO_ENABLE_NVIDIA_BACKEND)
+     add_executable(pypto_nvidia_driver_stub_test
+         nvidia_driver_stub_test.cpp
+diff --git a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..e5ec1597c7e0c0248565fb728aa48ae7fe06a329
+--- /dev/null
++++ b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+@@ -0,0 +1,763 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#include <any>
++#include <array>
++#include <cstdint>
++#include <functional>
++#include <limits>
++#include <memory>
++#include <optional>
++#include <string>
++#include <string_view>
++#include <type_traits>
++#include <utility>
++#include <vector>
++
++#include "pypto/compiler/artifact.h"
++#include "pypto/compiler/compile_request.h"
++#include "pypto/compiler/kernel_build_spec.h"
++#include "pypto/compiler/target_info.h"
++#include "pypto/core/dtype.h"
++#include "pypto/core/error.h"
++#include "pypto/ir/expr.h"
++#include "pypto/ir/function.h"
++#include "pypto/ir/op_registry.h"
++#include "pypto/ir/program.h"
++#include "pypto/ir/span.h"
++#include "pypto/ir/stmt.h"
++#include "pypto/ir/type.h"
++#include "src/compiler/strict_tensor_ir_options.h"
++#include "src/compiler/structured_tensor_ir_build_spec.h"
++
++using pypto::DataType;
++using pypto::InternalError;
++using pypto::ValueError;
++using pypto::compiler::Artifact;
++using pypto::compiler::ArtifactArgumentDescriptor;
++using pypto::compiler::ArtifactArgumentLayout;
++using pypto::compiler::ArtifactArgumentPackingPolicy;
++using pypto::compiler::ArtifactClusterSchedulingPolicy;
++using pypto::compiler::ArtifactGridAbi;
++using pypto::compiler::ArtifactGridPolicy;
++using pypto::compiler::ArtifactKernelAbi;
++using pypto::compiler::ArtifactLaunchAbi;
++using pypto::compiler::ArtifactLoaderAbi;
++using pypto::compiler::ArtifactOperandKind;
++using pypto::compiler::ArtifactWorkspaceAbi;
++using pypto::compiler::ArtifactWorkspaceKind;
++using pypto::compiler::CanonicalSchedule;
++using pypto::compiler::CompileRequest;
++using pypto::compiler::KernelBuildSpec;
++using pypto::compiler::NvidiaTargetInfo;
++using pypto::compiler::ScheduleParameter;
++using pypto::compiler::ScheduleValueKind;
++using pypto::compiler::SemanticRoute;
++using pypto::compiler::TargetTraits;
++using pypto::compiler::ToolchainIdentity;
++using pypto::compiler::detail::FinalizeStructuredTensorIrBuildSpec;
++using pypto::compiler::detail::PrepareStructuredTensorIrCompilation;
++using pypto::compiler::detail::PreparedStructuredTensorIrCompilation;
++using pypto::compiler::detail::PreparedStructuredTensorIrValueMetadata;
++using pypto::compiler::detail::PreparedStructuredTensorIrValueRole;
++using pypto::compiler::detail::ResolveStrictTensorIrProducerOptions;
++
++namespace ir = pypto::ir;
++
++#define REQUIRE(condition) \
++  do {                     \
++    if (!(condition)) {    \
++      return __LINE__;     \
++    }                      \
++  } while (false)
++
++namespace {
++
++constexpr std::string_view kPyptoRevision = "042878dd6825bb65ed03f22db7b067fb96277623";
++constexpr std::string_view kTensorIrRevision = "3b5a8bebc00510b46a1e8b97229d06dd0d006215";
++constexpr std::string_view kCudaTileRevision = "af2417041cc939b87ef56d92cfdcf61737c5457e";
++constexpr std::string_view kLlvmRevision = "1111111111111111111111111111111111111111";
++constexpr std::string_view kTileirasSha256 =
++    "2222222222222222222222222222222222222222222222222222222222222222";
++
++constexpr std::string_view kStaticGoldenHex =
++    "83a8636f6e7472616374d927707970746f2e66726f6e74656e642e7374617469635f7370656369616c697a6174696f6e"
++    "2e7631d9247374617469635f7370656369616c697a6174696f6e5f736368656d615f76657273696f6e01a676616c7565"
++    "739383a76f7264696e616c00a4726f6c65a8617267756d656e74a5736861706592080883a76f7264696e616c01a4726f"
++    "6c65a8617267756d656e74a5736861706592080883a76f7264696e616c00a4726f6c65a6726573756c74a57368617065"
++    "920808";
++constexpr std::string_view kSymbolicGoldenHex =
++    "84ab636f6e73747261696e747390a8636f6e7472616374d929707970746f2e66726f6e74656e642e73796d626f6c6963"
++    "5f7370656369616c697a6174696f6e2e7631d92673796d626f6c69635f7370656369616c697a6174696f6e5f73636865"
++    "6d615f76657273696f6e01a773796d626f6c7390";
++constexpr std::string_view kArgumentGoldenHex =
++    "83bb617267756d656e745f6162695f736368656d615f76657273696f6e01a9617267756d656e74739289aa636f6e7469"
++    "67756f7573c3a9646972656374696f6ea2696eaa64747970655f636f646534aa64747970655f6e616d65a466703332b0"
++    "6578706c696369745f73747269646573c3a76f7264696e616c00a472616e6b02a57368617065920808a7737472696465"
++    "7392080189aa636f6e746967756f7573c3a9646972656374696f6ea2696eaa64747970655f636f646534aa6474797065"
++    "5f6e616d65a466703332b06578706c696369745f73747269646573c3a76f7264696e616c01a472616e6b02a573686170"
++    "65920808a773747269646573920801a8636f6e7472616374be707970746f2e66726f6e74656e642e617267756d656e74"
++    "5f6162692e7631";
++constexpr std::string_view kResultGoldenHex =
++    "83a8636f6e7472616374bc707970746f2e66726f6e74656e642e726573756c745f6162692e7631b9726573756c745f61"
++    "62695f736368656d615f76657273696f6e01a7726573756c74739188aa636f6e746967756f7573c3aa64747970655f63"
++    "6f646534aa64747970655f6e616d65a466703332b06578706c696369745f73747269646573c3a76f7264696e616c00a4"
++    "72616e6b02a57368617065920808a773747269646573920801";
++constexpr std::string_view kMutationGoldenHex =
++    "84b0617267756d656e745f656666656374739282a6656666656374a9726561642d6f6e6c79a76f7264696e616c0082a6"
++    "656666656374a9726561642d6f6e6c79a76f7264696e616c01a8636f6e7472616374be707970746f2e66726f6e74656e"
++    "642e6d75746174696f6e5f6162692e7631bb6d75746174696f6e5f6162695f736368656d615f76657273696f6e01ae72"
++    "6573756c745f616c696173657391c0";
++constexpr std::string_view kRankOneStaticGoldenHex =
++    "83a8636f6e7472616374d927707970746f2e66726f6e74656e642e7374617469635f7370656369616c697a6174696f6e"
++    "2e7631d9247374617469635f7370656369616c697a6174696f6e5f736368656d615f76657273696f6e01a676616c7565"
++    "739383a76f7264696e616c00a4726f6c65a8617267756d656e74a5736861706591cc8083a76f7264696e616c01a4726f"
++    "6c65a8617267756d656e74a5736861706591cc8083a76f7264696e616c00a4726f6c65a6726573756c74a57368617065"
++    "91cc80";
++constexpr std::string_view kRankOneArgumentGoldenHex =
++    "83bb617267756d656e745f6162695f736368656d615f76657273696f6e01a9617267756d656e74739289aa636f6e7469"
++    "67756f7573c3a9646972656374696f6ea2696eaa64747970655f636f646540aa64747970655f6e616d65a862666c6f61"
++    "743136b06578706c696369745f73747269646573c2a76f7264696e616c00a472616e6b01a5736861706591cc80a77374"
++    "7269646573910189aa636f6e746967756f7573c3a9646972656374696f6ea2696eaa64747970655f636f646540aa6474"
++    "7970655f6e616d65a862666c6f61743136b06578706c696369745f73747269646573c2a76f7264696e616c01a472616e"
++    "6b01a5736861706591cc80a7737472696465739101a8636f6e7472616374be707970746f2e66726f6e74656e642e6172"
++    "67756d656e745f6162692e7631";
++constexpr std::string_view kRankOneResultGoldenHex =
++    "83a8636f6e7472616374bc707970746f2e66726f6e74656e642e726573756c745f6162692e7631b9726573756c745f61"
++    "62695f736368656d615f76657273696f6e01a7726573756c74739188aa636f6e746967756f7573c3aa64747970655f63"
++    "6f646540aa64747970655f6e616d65a862666c6f61743136b06578706c696369745f73747269646573c2a76f7264696e"
++    "616c00a472616e6b01a5736861706591cc80a7737472696465739101";
++
++const ir::Span& TestSpan() {
++  static const ir::Span span("structured_tensor_ir_build_spec_test.cpp", 7, 3);
++  return span;
++}
++
++ir::TensorTypePtr PlainTensor(const std::vector<int64_t>& shape, DataType dtype) {
++  return std::make_shared<ir::TensorType>(shape, dtype, std::optional<ir::MemRefPtr>{});
++}
++
++ir::ProgramPtr MakeProgram(const std::vector<int64_t>& shape = {8, 8},
++                           DataType dtype = DataType::FP32,
++                           const std::string& function_name = "add_main",
++                           const std::string& lhs_name = "lhs",
++                           const std::string& rhs_name = "rhs",
++                           bool reverse_operands = false) {
++  auto type = PlainTensor(shape, dtype);
++  auto lhs = std::make_shared<ir::Var>(lhs_name, type, TestSpan());
++  auto rhs = std::make_shared<ir::Var>(rhs_name, type, TestSpan());
++  auto result = std::make_shared<ir::Var>("sum", type, TestSpan());
++  const ir::OpPtr& add = ir::OpRegistry::GetInstance().GetOp("tensor.add");
++  auto call = std::make_shared<ir::Call>(
++      add, reverse_operands ? std::vector<ir::ExprPtr>{rhs, lhs}
++                            : std::vector<ir::ExprPtr>{lhs, rhs},
++      std::vector<std::pair<std::string, std::any>>{},
++      std::vector<std::pair<std::string, std::any>>{}, type, TestSpan());
++  auto assignment = std::make_shared<ir::AssignStmt>(result, call, TestSpan());
++  auto returned =
++      std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{result}, TestSpan());
++  auto body = std::make_shared<ir::SeqStmts>(
++      std::vector<ir::StmtPtr>{assignment, returned}, TestSpan());
++  auto function = std::make_shared<ir::Function>(
++      function_name, std::vector<ir::VarPtr>{lhs, rhs},
++      std::vector<ir::ParamDirection>{ir::ParamDirection::In, ir::ParamDirection::In},
++      std::vector<ir::TypePtr>{type}, body, TestSpan());
++  return std::make_shared<ir::Program>(std::vector<ir::FunctionPtr>{function}, "test", TestSpan());
++}
++
++TargetTraits ValidTraits(int multiprocessor_count = 82) {
++  return TargetTraits(120, multiprocessor_count, 32, 1024, 1536, 24, 1024, 1024, 64,
++                      2147483647, 65535, 65535, 128, 48 * 1024, 101376, 131072, 65536, 255,
++                      65536, 96ULL * 1024 * 1024, 24463ULL * 1024 * 1024);
++}
++
++CompileRequest ValidRequest(int multiprocessor_count = 82) {
++  NvidiaTargetInfo target(
++      0, "NVIDIA test device", "GPU-test", "0000:01:00.0", ValidTraits(multiprocessor_count),
++      "13.3", "610.74", std::string(kTensorIrRevision), std::string(kCudaTileRevision),
++      {DataType::FP32, DataType::BF16});
++  ToolchainIdentity toolchain(
++      std::string(kPyptoRevision), std::string(kTensorIrRevision), std::string(kCudaTileRevision),
++      std::string(kLlvmRevision), "/opt/cuda-13.3", "13.3", "/opt/cuda-13.3/bin/tileiras",
++      "13.3.73", std::string(kTileirasSha256));
++  return CompileRequest(std::move(target), std::move(toolchain));
++}
++
++std::string TileParameterName(size_t index) {
++  std::string name = "dim_000";
++  name[4] = static_cast<char>('0' + (index / 100U) % 10U);
++  name[5] = static_cast<char>('0' + (index / 10U) % 10U);
++  name[6] = static_cast<char>('0' + index % 10U);
++  return name;
++}
++
++CanonicalSchedule ValidSchedule(const std::vector<uint32_t>& tile_sizes = {16}) {
++  std::vector<ScheduleParameter> tile;
++  tile.reserve(tile_sizes.size());
++  for (size_t index = 0; index < tile_sizes.size(); ++index) {
++    tile.emplace_back(TileParameterName(index), ScheduleValueKind::UnsignedInteger,
++                      std::to_string(tile_sizes[index]));
++  }
++  return CanonicalSchedule(
++      {ScheduleParameter("codegen_strategy", ScheduleValueKind::Text, "layout-propagation")},
++      std::move(tile), {}, {},
++      {ScheduleParameter("count", ScheduleValueKind::UnsignedInteger, "1")},
++      {ScheduleParameter("count", ScheduleValueKind::UnsignedInteger, "4")}, {},
++      {ScheduleParameter("bytecode_major", ScheduleValueKind::UnsignedInteger, "13"),
++       ScheduleParameter("bytecode_minor", ScheduleValueKind::UnsignedInteger, "3"),
++       ScheduleParameter("bytecode_tag", ScheduleValueKind::UnsignedInteger, "0"),
++       ScheduleParameter("max_candidates", ScheduleValueKind::UnsignedInteger, "0"),
++       ScheduleParameter("uniform_signature", ScheduleValueKind::Boolean, "false")});
++}
++
++uint8_t HexNibble(char character) {
++  if (character >= '0' && character <= '9') return static_cast<uint8_t>(character - '0');
++  if (character >= 'a' && character <= 'f') return static_cast<uint8_t>(character - 'a' + 10);
++  return 0xff;
++}
++
++std::vector<uint8_t> BytesFromHex(std::string_view hex) {
++  if (hex.size() % 2 != 0) return {};
++  std::vector<uint8_t> bytes;
++  bytes.reserve(hex.size() / 2);
++  for (size_t index = 0; index < hex.size(); index += 2) {
++    const uint8_t high = HexNibble(hex[index]);
++    const uint8_t low = HexNibble(hex[index + 1]);
++    if (high == 0xff || low == 0xff) return {};
++    bytes.push_back(static_cast<uint8_t>((high << 4U) | low));
++  }
++  return bytes;
++}
++
++std::vector<std::optional<int64_t>> OptionalValues(const std::vector<int64_t>& values) {
++  std::vector<std::optional<int64_t>> output;
++  output.reserve(values.size());
++  for (int64_t value : values) output.emplace_back(value);
++  return output;
++}
++
++ArtifactArgumentDescriptor TensorDescriptor(
++    const std::vector<int64_t>& shape, const std::vector<int64_t>& strides,
++    uint32_t dynamic_size_count = 0, uint32_t dynamic_stride_count = 0,
++    bool explicit_strides = true) {
++  return ArtifactArgumentDescriptor(
++      ArtifactOperandKind::Tensor, static_cast<uint32_t>(shape.size()), OptionalValues(shape),
++      explicit_strides ? OptionalValues(strides) : std::vector<std::optional<int64_t>>{},
++      dynamic_size_count, dynamic_stride_count, explicit_strides, 0);
++}
++
++ArtifactArgumentDescriptor DynamicTensorDescriptor() {
++  return ArtifactArgumentDescriptor(ArtifactOperandKind::Tensor, 2,
++                                    {std::nullopt, std::optional<int64_t>{3}},
++                                    {std::optional<int64_t>{3}, std::optional<int64_t>{1}}, 1, 0,
++                                    true, 0);
++}
++
++ArtifactArgumentDescriptor ScalarDescriptor() {
++  return ArtifactArgumentDescriptor(ArtifactOperandKind::Scalar, 0, {}, {}, 0, 0, false, 4);
++}
++
++template <typename... Descriptors>
++std::vector<ArtifactArgumentDescriptor> DescriptorVector(Descriptors&&... descriptors) {
++  std::vector<ArtifactArgumentDescriptor> output;
++  output.reserve(sizeof...(Descriptors));
++  (output.push_back(std::forward<Descriptors>(descriptors)), ...);
++  return output;
++}
++
++struct KernelOptions {
++  std::string runtime_kernel_name = "tensor_ir_rtk";
++  std::string entry_function_name = "pypto_vector_add";
++  std::vector<ArtifactArgumentDescriptor> descriptors;
++  uint32_t input_count = 2;
++  bool uniform_signature = false;
++  ArtifactArgumentPackingPolicy packing_policy = ArtifactArgumentPackingPolicy::PointerOnly;
++  ArtifactGridPolicy grid_policy = ArtifactGridPolicy::Static;
++  uint32_t grid_shape_operand_index = 0;
++  std::array<uint32_t, 3> static_grid = {4, 1, 1};
++  std::vector<uint32_t> tile_sizes = {16};
++  uint64_t workspace_size = 0;
++  uint64_t workspace_alignment = 1;
++  std::array<uint32_t, 3> block_dimensions = {1, 1, 1};
++  uint64_t dynamic_shared_memory = 0;
++  uint32_t kernel_argument_slot_bytes = 8;
++  uint32_t minimum_driver = Artifact::kMinimumCudaDriverApiVersion;
++  uint32_t minimum_runtime = Artifact::kMinimumCudaRuntimeApiVersion;
++};
++
++KernelOptions ValidKernelOptions(const std::vector<int64_t>& shape = {8, 8},
++                                 const std::vector<uint32_t>& tile_sizes = {16},
++                                 uint32_t grid_x = 4) {
++  std::vector<int64_t> strides(shape.size());
++  int64_t running = 1;
++  for (size_t reverse_index = shape.size(); reverse_index > 0; --reverse_index) {
++    const size_t index = reverse_index - 1;
++    strides[index] = running;
++    running *= shape[index];
++  }
++  const bool explicit_strides = shape.size() >= 2;
++  KernelOptions options;
++  options.tile_sizes = tile_sizes;
++  options.static_grid = {grid_x, 1, 1};
++  for (size_t index = 0; index < 3; ++index) {
++    options.descriptors.push_back(TensorDescriptor(shape, strides, 0, 0, explicit_strides));
++  }
++  return options;
++}
++
++uint32_t TotalArguments(const std::vector<ArtifactArgumentDescriptor>& descriptors) {
++  uint32_t total = 0;
++  for (const auto& descriptor : descriptors) {
++    total += descriptor.GetKind() == ArtifactOperandKind::Scalar
++                 ? 1
++                 : 1 + descriptor.GetDynamicSizeCount() + descriptor.GetDynamicStrideCount();
++  }
++  return total;
++}
++
++ArtifactKernelAbi MakeKernelAbi(KernelOptions options) {
++  const uint32_t total_arguments = TotalArguments(options.descriptors);
++  return ArtifactKernelAbi(
++      std::move(options.runtime_kernel_name), std::move(options.entry_function_name),
++      ArtifactArgumentLayout(std::move(options.descriptors), options.input_count, total_arguments,
++                             options.uniform_signature),
++      options.packing_policy,
++      ArtifactGridAbi(options.grid_policy, options.grid_shape_operand_index, options.static_grid,
++                      std::move(options.tile_sizes)),
++      ArtifactWorkspaceAbi(ArtifactWorkspaceKind::Static, options.workspace_size,
++                           options.workspace_alignment),
++      ArtifactLaunchAbi(options.block_dimensions, ArtifactClusterSchedulingPolicy::Spread,
++                        options.dynamic_shared_memory, options.kernel_argument_slot_bytes),
++      ArtifactLoaderAbi(options.minimum_driver, options.minimum_runtime));
++}
++
++bool RejectsFinalization(const PreparedStructuredTensorIrCompilation& prepared,
++                         const ArtifactKernelAbi& kernel, std::string_view expected) {
++  try {
++    (void)FinalizeStructuredTensorIrBuildSpec(prepared, kernel);
++  } catch (const InternalError& error) {
++    return std::string_view(error.what()).find(expected) != std::string_view::npos;
++  }
++  return false;
++}
++
++bool RejectsPreparation(const std::function<void()>& action, std::string_view expected) {
++  try {
++    action();
++  } catch (const ValueError& error) {
++    return std::string_view(error.what()).find(expected) != std::string_view::npos;
++  }
++  return false;
++}
++
++int TestPreparationGoldenAndOwnership() {
++  const CompileRequest request = ValidRequest();
++  const CanonicalSchedule schedule = ValidSchedule();
++  const PreparedStructuredTensorIrCompilation prepared =
++      PrepareStructuredTensorIrCompilation(MakeProgram(), request, schedule);
++
++  REQUIRE(&prepared.GetCompileRequest() != &request);
++  REQUIRE(&prepared.GetSchedule() != &schedule);
++  REQUIRE(prepared.GetCompileRequest().SerializeCanonical() == request.SerializeCanonical());
++  REQUIRE(prepared.GetSchedule().SerializeCanonical() == schedule.SerializeCanonical());
++  REQUIRE(prepared.GetResolvedOptions().tile_sizes == std::vector<uint32_t>({16}));
++  REQUIRE(prepared.GetResolvedOptions().sm_count == 82);
++  REQUIRE(prepared.GetEntryName() == "pypto_vector_add");
++  REQUIRE(prepared.GetSourceIrDigest() ==
++          "0e5fbaf1cd70dffa0c81d43a1d2cad454f97cbf9a57ae5247da1cb27f6a049d3");
++  REQUIRE(Artifact::ComputeSourceIrDigest(prepared.GetCanonicalSource()) ==
++          prepared.GetSourceIrDigest());
++
++  const auto& metadata = prepared.GetValueMetadata();
++  REQUIRE(metadata.size() == 3);
++  REQUIRE(metadata[0].GetRole() == PreparedStructuredTensorIrValueRole::Argument);
++  REQUIRE(metadata[0].GetOrdinal() == 0);
++  REQUIRE(metadata[1].GetRole() == PreparedStructuredTensorIrValueRole::Argument);
++  REQUIRE(metadata[1].GetOrdinal() == 1);
++  REQUIRE(metadata[2].GetRole() == PreparedStructuredTensorIrValueRole::Result);
++  REQUIRE(metadata[2].GetOrdinal() == 0);
++  REQUIRE(metadata[0].GetDtypeCode() == DataType::FP32.Code());
++  REQUIRE(metadata[0].GetDtypeName() == "fp32");
++  REQUIRE(metadata[0].GetShape() == std::vector<int64_t>({8, 8}));
++  REQUIRE(metadata[0].GetLogicalDenseStrides() == std::vector<int64_t>({8, 1}));
++  REQUIRE(metadata[0].HasExplicitStrides());
++  REQUIRE(metadata[0].IsContiguous());
++
++  REQUIRE(prepared.GetStaticSpecialization().GetCanonicalBytes() ==
++          BytesFromHex(kStaticGoldenHex));
++  REQUIRE(prepared.GetStaticSpecialization().GetIdentityDigest() ==
++          "0bad0b86c36c86808f12b908692925e6493b4c78027da334d612b57bac5459aa");
++  REQUIRE(prepared.GetSymbolicSpecialization().GetCanonicalBytes() ==
++          BytesFromHex(kSymbolicGoldenHex));
++  REQUIRE(prepared.GetSymbolicSpecialization().GetIdentityDigest() ==
++          "1a2d6d32c956e86f41c0dc50dbafe53d33e3f63bd58bd683e78a06595b6ff58c");
++  REQUIRE(prepared.GetArgumentAbi().GetCanonicalBytes() == BytesFromHex(kArgumentGoldenHex));
++  REQUIRE(prepared.GetArgumentAbi().GetIdentityDigest() ==
++          "2bf59cefa95a2e95ac4e4647a654118b6d8c6fbfaa91a294621a9160d68dbd9b");
++  REQUIRE(prepared.GetResultAbi().GetCanonicalBytes() == BytesFromHex(kResultGoldenHex));
++  REQUIRE(prepared.GetResultAbi().GetIdentityDigest() ==
++          "5a786136731e5c62c80597edbb57551cd010d344bfeab14456a9f6b263e99ea5");
++  REQUIRE(prepared.GetMutationAbi().GetCanonicalBytes() == BytesFromHex(kMutationGoldenHex));
++  REQUIRE(prepared.GetMutationAbi().GetIdentityDigest() ==
++          "4adb7fa8fdbdee33582778c543686a6c63953852be40079649e4d2d6f07c766d");
++  return 0;
++}
++
++int TestRankOneBf16ImplicitStrideGoldenAndFinalization() {
++  const CompileRequest request = ValidRequest();
++  const PreparedStructuredTensorIrCompilation prepared =
++      PrepareStructuredTensorIrCompilation(MakeProgram({128}, DataType::BF16), request,
++                                           ValidSchedule({16}));
++
++  REQUIRE(prepared.GetSourceIrDigest() ==
++          "c22f2459ad794e89f88de1bbd427f17876c6059b9fd222be706dd5ce300a0a7f");
++  REQUIRE(prepared.GetValueMetadata().size() == 3);
++  for (const auto& metadata : prepared.GetValueMetadata()) {
++    REQUIRE(metadata.GetDtypeCode() == DataType::BF16.Code());
++    REQUIRE(metadata.GetDtypeName() == "bfloat16");
++    REQUIRE(metadata.GetShape() == std::vector<int64_t>({128}));
++    REQUIRE(metadata.GetLogicalDenseStrides() == std::vector<int64_t>({1}));
++    REQUIRE(!metadata.HasExplicitStrides());
++  }
++
++  REQUIRE(prepared.GetStaticSpecialization().GetCanonicalBytes() ==
++          BytesFromHex(kRankOneStaticGoldenHex));
++  REQUIRE(prepared.GetStaticSpecialization().GetIdentityDigest() ==
++          "146fbdd823eb18c77190894a272a39d1298b557acf8d3156226d44d5ce7a6051");
++  REQUIRE(prepared.GetSymbolicSpecialization().GetCanonicalBytes() ==
++          BytesFromHex(kSymbolicGoldenHex));
++  REQUIRE(prepared.GetSymbolicSpecialization().GetIdentityDigest() ==
++          "1a2d6d32c956e86f41c0dc50dbafe53d33e3f63bd58bd683e78a06595b6ff58c");
++  REQUIRE(prepared.GetArgumentAbi().GetCanonicalBytes() ==
++          BytesFromHex(kRankOneArgumentGoldenHex));
++  REQUIRE(prepared.GetArgumentAbi().GetIdentityDigest() ==
++          "5408cc8d6adb1f52d11d850c745a33dbe6a43c470fa907a238b71371f4bf04c1");
++  REQUIRE(prepared.GetResultAbi().GetCanonicalBytes() ==
++          BytesFromHex(kRankOneResultGoldenHex));
++  REQUIRE(prepared.GetResultAbi().GetIdentityDigest() ==
++          "e8111628d00263e8f568dc8844a2e0fe5d08576bf77d81682b338dbeb977460a");
++  REQUIRE(prepared.GetMutationAbi().GetCanonicalBytes() == BytesFromHex(kMutationGoldenHex));
++  REQUIRE(prepared.GetMutationAbi().GetIdentityDigest() ==
++          "4adb7fa8fdbdee33582778c543686a6c63953852be40079649e4d2d6f07c766d");
++
++  const ArtifactKernelAbi kernel = MakeKernelAbi(ValidKernelOptions({128}, {16}, 8));
++  for (const auto& descriptor : kernel.GetArgumentLayout().GetOperandDescriptors()) {
++    REQUIRE(descriptor.GetShape() ==
++            std::vector<std::optional<int64_t>>({std::optional<int64_t>{128}}));
++    REQUIRE(descriptor.GetStrides().empty());
++    REQUIRE(!descriptor.HasExplicitStrides());
++  }
++  const KernelBuildSpec build_spec = FinalizeStructuredTensorIrBuildSpec(prepared, kernel);
++  REQUIRE(kernel.GetIdentityDigest() ==
++          "e3d31183b4ba5b2f09f01ef777043b9f51818e33d6bdbf18333257211d57c0e8");
++  REQUIRE(build_spec.GetIdentityDigest() ==
++          "062171a9db8cba61f522d99b464d5405732eecef2c72b0ef25b18c2f8d555a53");
++  REQUIRE(build_spec.GetSourceIrDigest() == prepared.GetSourceIrDigest());
++  REQUIRE(build_spec.GetCallableAbiDigest() == kernel.GetIdentityDigest());
++  REQUIRE(build_spec.GetStaticSpecializationDigest() ==
++          prepared.GetStaticSpecialization().GetIdentityDigest());
++  REQUIRE(build_spec.GetArgumentAbiDigest() == prepared.GetArgumentAbi().GetIdentityDigest());
++  REQUIRE(build_spec.GetResultAbiDigest() == prepared.GetResultAbi().GetIdentityDigest());
++
++  KernelOptions explicit_stride_drift = ValidKernelOptions({128}, {16}, 8);
++  explicit_stride_drift.descriptors = DescriptorVector(
++      TensorDescriptor({128}, {1}, 0, 0, true), TensorDescriptor({128}, {}, 0, 0, false),
++      TensorDescriptor({128}, {}, 0, 0, false));
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(explicit_stride_drift)),
++                              "static stride"));
++  return 0;
++}
++
++int TestStrictScheduleOverloadParity() {
++  const CompileRequest request = ValidRequest();
++  const CanonicalSchedule schedule = ValidSchedule();
++  const auto direct = ResolveStrictTensorIrProducerOptions(request, schedule);
++  const KernelBuildSpec build_spec(
++      std::string(64, '1'), std::string(64, '2'), SemanticRoute::StructuredTensorIr,
++      std::string(Artifact::kStructuredTensorIrPipelineRevision), schedule, std::string(64, '3'),
++      std::string(64, '4'), std::string(64, '5'), std::string(64, '6'), std::string(64, '7'),
++      request.GetByteCompileIdentityDigest());
++  const auto legacy = ResolveStrictTensorIrProducerOptions(request, build_spec);
++  REQUIRE(direct.tile_sizes == legacy.tile_sizes);
++  REQUIRE(direct.sm_count == legacy.sm_count);
++  REQUIRE(direct.uniform_signature == legacy.uniform_signature);
++
++  const CanonicalSchedule invalid({}, {}, {}, {}, {}, {}, {}, {});
++  REQUIRE(RejectsPreparation(
++      [&] { (void)ResolveStrictTensorIrProducerOptions(request, invalid); },
++      "CanonicalSchedule resolved schedule"));
++  return 0;
++}
++
++int TestDeterminismAndIdentityChanges() {
++  const CompileRequest request = ValidRequest();
++  const CanonicalSchedule schedule = ValidSchedule();
++  const auto first = PrepareStructuredTensorIrCompilation(
++      MakeProgram({8, 8}, DataType::FP32, "first", "alpha", "beta"), request, schedule);
++  const auto cosmetic = PrepareStructuredTensorIrCompilation(
++      MakeProgram({8, 8}, DataType::FP32, "second", "x", "y"), request, schedule);
++  REQUIRE(first.GetCanonicalSource() == cosmetic.GetCanonicalSource());
++  REQUIRE(first.GetStaticSpecialization().GetIdentityDigest() ==
++          cosmetic.GetStaticSpecialization().GetIdentityDigest());
++  REQUIRE(first.GetArgumentAbi().GetIdentityDigest() == cosmetic.GetArgumentAbi().GetIdentityDigest());
++
++  const auto reversed = PrepareStructuredTensorIrCompilation(
++      MakeProgram({8, 8}, DataType::FP32, "first", "alpha", "beta", true), request, schedule);
++  REQUIRE(first.GetSourceIrDigest() != reversed.GetSourceIrDigest());
++  REQUIRE(first.GetArgumentAbi().GetIdentityDigest() == reversed.GetArgumentAbi().GetIdentityDigest());
++
++  const auto changed_shape = PrepareStructuredTensorIrCompilation(
++      MakeProgram({4, 8}), request, ValidSchedule());
++  REQUIRE(first.GetStaticSpecialization().GetIdentityDigest() !=
++          changed_shape.GetStaticSpecialization().GetIdentityDigest());
++  REQUIRE(first.GetArgumentAbi().GetIdentityDigest() != changed_shape.GetArgumentAbi().GetIdentityDigest());
++  REQUIRE(first.GetResultAbi().GetIdentityDigest() != changed_shape.GetResultAbi().GetIdentityDigest());
++  REQUIRE(first.GetSymbolicSpecialization().GetIdentityDigest() ==
++          changed_shape.GetSymbolicSpecialization().GetIdentityDigest());
++  REQUIRE(first.GetMutationAbi().GetIdentityDigest() == changed_shape.GetMutationAbi().GetIdentityDigest());
++
++  const auto changed_dtype = PrepareStructuredTensorIrCompilation(
++      MakeProgram({8, 8}, DataType::BF16), request, schedule);
++  REQUIRE(first.GetSourceIrDigest() != changed_dtype.GetSourceIrDigest());
++  REQUIRE(first.GetStaticSpecialization().GetIdentityDigest() ==
++          changed_dtype.GetStaticSpecialization().GetIdentityDigest());
++  REQUIRE(first.GetArgumentAbi().GetIdentityDigest() != changed_dtype.GetArgumentAbi().GetIdentityDigest());
++  REQUIRE(first.GetResultAbi().GetIdentityDigest() != changed_dtype.GetResultAbi().GetIdentityDigest());
++
++  const auto changed_request = PrepareStructuredTensorIrCompilation(
++      MakeProgram(), ValidRequest(96), schedule);
++  REQUIRE(first.GetArgumentAbi().GetIdentityDigest() == changed_request.GetArgumentAbi().GetIdentityDigest());
++  REQUIRE(first.GetResolvedOptions().sm_count != changed_request.GetResolvedOptions().sm_count);
++
++  const auto changed_schedule = PrepareStructuredTensorIrCompilation(
++      MakeProgram(), request, ValidSchedule({8}));
++  REQUIRE(first.GetArgumentAbi().GetIdentityDigest() ==
++          changed_schedule.GetArgumentAbi().GetIdentityDigest());
++  REQUIRE(first.GetSchedule().GetIdentityDigest() != changed_schedule.GetSchedule().GetIdentityDigest());
++  return 0;
++}
++
++int TestFinalizationAndCallableBinding() {
++  const CompileRequest request = ValidRequest();
++  const auto prepared =
++      PrepareStructuredTensorIrCompilation(MakeProgram(), request, ValidSchedule());
++  KernelOptions kernel_options = ValidKernelOptions();
++  const ArtifactKernelAbi kernel = MakeKernelAbi(std::move(kernel_options));
++  const KernelBuildSpec build_spec = FinalizeStructuredTensorIrBuildSpec(prepared, kernel);
++  REQUIRE(kernel.GetIdentityDigest() ==
++          "4eee741cbe0c7322f938b83b01b34844c5f12fb1b01da52c2029e6687e24c640");
++  REQUIRE(build_spec.GetIdentityDigest() ==
++          "2151a869507e57a997732d928194509422c1e037ee7ef2fc91d87dd46a8a0afa");
++  REQUIRE(build_spec.GetSourceIrDigest() == prepared.GetSourceIrDigest());
++  REQUIRE(build_spec.GetCallableAbiDigest() == kernel.GetIdentityDigest());
++  REQUIRE(build_spec.GetSemanticRoute() == SemanticRoute::StructuredTensorIr);
++  REQUIRE(build_spec.GetPipelineRevision() == Artifact::kStructuredTensorIrPipelineRevision);
++  REQUIRE(build_spec.GetStaticSpecializationDigest() ==
++          prepared.GetStaticSpecialization().GetIdentityDigest());
++  REQUIRE(build_spec.GetSymbolicSpecializationDigest() ==
++          prepared.GetSymbolicSpecialization().GetIdentityDigest());
++  REQUIRE(build_spec.GetArgumentAbiDigest() == prepared.GetArgumentAbi().GetIdentityDigest());
++  REQUIRE(build_spec.GetResultAbiDigest() == prepared.GetResultAbi().GetIdentityDigest());
++  REQUIRE(build_spec.GetMutationAbiDigest() == prepared.GetMutationAbi().GetIdentityDigest());
++  REQUIRE(build_spec.GetCompileRequestByteIdentityDigest() == request.GetByteCompileIdentityDigest());
++  REQUIRE(!build_spec.GetCatalogProvenance().has_value());
++  const std::vector<uint8_t> canonical = build_spec.SerializeCanonical();
++  const KernelBuildSpec restored = KernelBuildSpec::DeserializeCanonical(canonical);
++  REQUIRE(restored.SerializeCanonical() == canonical);
++  REQUIRE(restored.GetResolvedSchedule().SerializeCanonical() ==
++          prepared.GetSchedule().SerializeCanonical());
++
++  const auto changed_request = PrepareStructuredTensorIrCompilation(
++      MakeProgram(), ValidRequest(96), ValidSchedule());
++  const KernelBuildSpec request_spec = FinalizeStructuredTensorIrBuildSpec(
++      changed_request, MakeKernelAbi(ValidKernelOptions()));
++  REQUIRE(request_spec.GetCompileRequestByteIdentityDigest() !=
++          build_spec.GetCompileRequestByteIdentityDigest());
++  REQUIRE(request_spec.GetIdentityDigest() != build_spec.GetIdentityDigest());
++
++  const auto changed_schedule = PrepareStructuredTensorIrCompilation(
++      MakeProgram(), request, ValidSchedule({8}));
++  const KernelBuildSpec schedule_spec = FinalizeStructuredTensorIrBuildSpec(
++      changed_schedule, MakeKernelAbi(ValidKernelOptions({8, 8}, {8}, 8)));
++  REQUIRE(schedule_spec.GetCallableAbiDigest() != build_spec.GetCallableAbiDigest());
++  REQUIRE(schedule_spec.GetIdentityDigest() != build_spec.GetIdentityDigest());
++  return 0;
++}
++
++int TestFinalizationRejectsAbiDrift() {
++  const auto prepared = PrepareStructuredTensorIrCompilation(
++      MakeProgram(), ValidRequest(), ValidSchedule());
++
++  KernelOptions options = ValidKernelOptions();
++  options.runtime_kernel_name = "other_runtime";
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(options)), "runtime kernel name"));
++
++  options = ValidKernelOptions();
++  options.entry_function_name = "other_entry";
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(options)), "entry function name"));
++
++  options = ValidKernelOptions();
++  options.descriptors.pop_back();
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(options)), "descriptor count"));
++
++  options = ValidKernelOptions();
++  options.descriptors.push_back(TensorDescriptor({8, 8}, {8, 1}));
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(options)), "descriptor count"));
++
++  for (size_t changed_index = 0; changed_index < 3; ++changed_index) {
++    options = ValidKernelOptions();
++    std::vector<ArtifactArgumentDescriptor> descriptors;
++    for (size_t index = 0; index < 3; ++index) {
++      descriptors.push_back(index == changed_index ? ScalarDescriptor()
++                                                   : TensorDescriptor({8, 8}, {8, 1}));
++    }
++    options.descriptors = std::move(descriptors);
++    REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(options)), "not a tensor"));
++  }
++
++  for (size_t changed_index = 0; changed_index < 3; ++changed_index) {
++    options = ValidKernelOptions();
++    std::vector<ArtifactArgumentDescriptor> descriptors;
++    for (size_t index = 0; index < 3; ++index) {
++      descriptors.push_back(index == changed_index ? TensorDescriptor({4, 8}, {8, 1})
++                                                   : TensorDescriptor({8, 8}, {8, 1}));
++    }
++    options.descriptors = std::move(descriptors);
++    REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(options)), "static shape"));
++  }
++
++  for (size_t changed_index = 0; changed_index < 3; ++changed_index) {
++    options = ValidKernelOptions();
++    std::vector<ArtifactArgumentDescriptor> descriptors;
++    for (size_t index = 0; index < 3; ++index) {
++      descriptors.push_back(index == changed_index ? TensorDescriptor({8, 8}, {1, 8})
++                                                   : TensorDescriptor({8, 8}, {8, 1}));
++    }
++    options.descriptors = std::move(descriptors);
++    REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(options)), "static stride"));
++  }
++
++  options = ValidKernelOptions();
++  options.descriptors = DescriptorVector(TensorDescriptor({8, 8}, {}, 0, 0, false),
++                                         TensorDescriptor({8, 8}, {8, 1}),
++                                         TensorDescriptor({8, 8}, {8, 1}));
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(options)), "static stride"));
++
++  options = ValidKernelOptions();
++  options.descriptors = DescriptorVector(DynamicTensorDescriptor(),
++                                         TensorDescriptor({8, 8}, {8, 1}),
++                                         TensorDescriptor({8, 8}, {8, 1}));
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(options)), "static shape"));
++
++  options = ValidKernelOptions();
++  options.input_count = 1;
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(options)), "two inputs"));
++
++  options = ValidKernelOptions();
++  options.descriptors = DescriptorVector(TensorDescriptor({8, 8}, {8, 1}, 2, 2),
++                                         TensorDescriptor({8, 8}, {8, 1}, 2, 2),
++                                         TensorDescriptor({8, 8}, {8, 1}, 2, 2));
++  options.uniform_signature = true;
++  options.packing_policy = ArtifactArgumentPackingPolicy::Flat;
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(options)), "no uniform ABI"));
++
++  options = ValidKernelOptions();
++  options.packing_policy = ArtifactArgumentPackingPolicy::Flat;
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(options)), "pointer-only"));
++
++  options = ValidKernelOptions();
++  options.grid_policy = ArtifactGridPolicy::TileBasedRuntime;
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(options)), "grid ABI"));
++
++  options = ValidKernelOptions();
++  options.grid_shape_operand_index = 1;
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(options)), "selected by Input0"));
++
++  options = ValidKernelOptions();
++  options.tile_sizes = {8};
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(options)), "tile sizes"));
++
++  options = ValidKernelOptions();
++  options.static_grid = {2147483648U, 1, 1};
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(options)), "request limits"));
++
++  options = ValidKernelOptions();
++  options.static_grid = {4, 2, 1};
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(options)), "y=z=1"));
++
++  options = ValidKernelOptions();
++  options.static_grid = {4, 1, 2};
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(options)), "y=z=1"));
++
++  options = ValidKernelOptions();
++  options.workspace_size = 8;
++  options.workspace_alignment = 8;
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(options)), "zero-workspace"));
++
++  options = ValidKernelOptions();
++  options.workspace_alignment = 8;
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(options)), "zero-workspace"));
++
++  options = ValidKernelOptions();
++  options.block_dimensions = {2, 1, 1};
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(options)), "launch ABI"));
++
++  options = ValidKernelOptions();
++  options.dynamic_shared_memory = 1;
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(options)), "launch ABI"));
++
++  options = ValidKernelOptions();
++  options.kernel_argument_slot_bytes = 4;
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(options)), "launch ABI"));
++
++  options = ValidKernelOptions();
++  options.minimum_driver = Artifact::kMinimumCudaDriverApiVersion + 1;
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(options)), "loader ABI"));
++
++  options = ValidKernelOptions();
++  options.minimum_runtime = Artifact::kMinimumCudaRuntimeApiVersion + 1;
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(options)), "loader ABI"));
++  return 0;
++}
++
++int TestPreparationRejectsInvalidInputs() {
++  const CompileRequest request = ValidRequest();
++  REQUIRE(RejectsPreparation(
++      [&] { (void)PrepareStructuredTensorIrCompilation(ir::ProgramPtr{}, request, ValidSchedule()); },
++      "program must not be null"));
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(MakeProgram(), request,
++                                                   CanonicalSchedule({}, {}, {}, {}, {}, {}, {}, {}));
++      },
++      "CanonicalSchedule resolved schedule"));
++  return 0;
++}
++
++}  // namespace
++
++int main() {
++  static_assert(!std::is_default_constructible_v<PreparedStructuredTensorIrValueMetadata>);
++  static_assert(!std::is_default_constructible_v<PreparedStructuredTensorIrCompilation>);
++  static_assert(!std::is_copy_assignable_v<PreparedStructuredTensorIrCompilation>);
++  static_assert(!std::is_move_assignable_v<PreparedStructuredTensorIrCompilation>);
++  static_assert(!std::is_constructible_v<PreparedStructuredTensorIrCompilation, CompileRequest,
++                                         CanonicalSchedule>);
++
++  if (const int result = TestPreparationGoldenAndOwnership()) return result;
++  if (const int result = TestRankOneBf16ImplicitStrideGoldenAndFinalization()) return result;
++  if (const int result = TestStrictScheduleOverloadParity()) return result;
++  if (const int result = TestDeterminismAndIdentityChanges()) return result;
++  if (const int result = TestFinalizationAndCallableBinding()) return result;
++  if (const int result = TestFinalizationRejectsAbiDrift()) return result;
++  if (const int result = TestPreparationRejectsInvalidInputs()) return result;
++  return 0;
++}

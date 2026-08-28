@@ -1,0 +1,56 @@
+From d777b422db6f858fc1fda4096fed22cee50a187d Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 06:38:06 +0800
+Subject: [PATCH 150/212] Read paged metadata as integer tensors
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 14 +++++++-------
+ 1 file changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 22e7ea04a30b660b1bfb01ef87d5c2b5d483a40f..1ecd10591d96e8cb5cb68f9b471388165732167a 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -4353,7 +4353,7 @@ NativeTilePagedCacheWriteGraph AnalyzeNativeTilePagedCacheWrite(
+   const StaticTensor value_cache = ReadStaticTensor(
+       function->params_[1]->GetType(), function->params_[1]->span_,
+       "native paged cache write value cache");
+-  StaticTensor physical_row = ReadStaticTensor(
++  StaticTensor physical_row = ReadStaticIntegerTensor(
+       function->params_[2]->GetType(), function->params_[2]->span_,
+       "native paged cache write physical row");
+   const StaticTensor key = ReadStaticTensor(
+@@ -4535,13 +4535,13 @@ NativeTilePagedPrefillGraph AnalyzeNativeTilePagedPrefill(
+   const StaticTensor value_cache = ReadStaticTensor(
+       function->params_[2]->GetType(), function->params_[2]->span_,
+       "native paged prefill value cache");
+-  const StaticTensor req_to_token = ReadStaticTensor(
++  const StaticTensor req_to_token = ReadStaticIntegerTensor(
+       function->params_[3]->GetType(), function->params_[3]->span_,
+       "native paged prefill request table");
+-  StaticTensor request_index = ReadStaticTensor(
++  StaticTensor request_index = ReadStaticIntegerTensor(
+       function->params_[4]->GetType(), function->params_[4]->span_,
+       "native paged prefill request index");
+-  StaticTensor prefix_tokens = ReadStaticTensor(
++  StaticTensor prefix_tokens = ReadStaticIntegerTensor(
+       function->params_[5]->GetType(), function->params_[5]->span_,
+       "native paged prefill prefix length");
+   const StaticTensor result = ReadStaticTensor(
+@@ -4775,13 +4775,13 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+   const StaticTensor value_cache = ReadStaticTensor(
+       function->params_[2]->GetType(), function->params_[2]->span_,
+       "native paged decode value cache");
+-  const StaticTensor req_to_token = ReadStaticTensor(
++  const StaticTensor req_to_token = ReadStaticIntegerTensor(
+       function->params_[3]->GetType(), function->params_[3]->span_,
+       "native paged decode request table");
+-  StaticTensor request_index = ReadStaticTensor(
++  StaticTensor request_index = ReadStaticIntegerTensor(
+       function->params_[4]->GetType(), function->params_[4]->span_,
+       "native paged decode request index");
+-  StaticTensor valid_tokens = ReadStaticTensor(
++  StaticTensor valid_tokens = ReadStaticIntegerTensor(
+       function->params_[5]->GetType(), function->params_[5]->span_,
+       "native paged decode valid token count");
+   const StaticTensor result = ReadStaticTensor(

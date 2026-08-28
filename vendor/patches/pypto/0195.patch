@@ -1,0 +1,23 @@
+From e3ad04acacf33a6e1cfd44b0017c9eec93f94bad Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 12:45:00 +0800
+Subject: [PATCH 195/212] Mark GDN outer tile alignment
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index b41be3cc14b5f791e08050f19da8bfc3fed6ab6f..292167ba2edab3e29de786ff2e47d5d2edb624d8 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -9540,7 +9540,8 @@ std::string EmitNativeTileGdnRecurrentBatchedSource(
+       source += state_row_type;
+       const std::string updated_flat = "%updated_flat_" + suffix;
+       source += "\n    " + updated_flat + " = add %decayed_flat_" + suffix +
+-                ", %outer_flat_" + suffix + " : ";
++                ", %outer_flat_" + suffix +
++                " {_pypto_align_rhs_trailing_transpose = true} : ";
+       source += state_row_type;
+       const std::string updated = "%updated_" + suffix;
+       source += "\n    " + updated + " = reshape " + updated_flat + " : ";

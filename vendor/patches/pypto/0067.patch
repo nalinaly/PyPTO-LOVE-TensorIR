@@ -1,0 +1,52 @@
+From 371b90c515c032822e140bc5ade1fb2a53d92eb1 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 12:46:42 +0800
+Subject: [PATCH 067/212] codegen: materialize row broadcasts from the raw
+ argument
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 21 ++++++++++++++++-----
+ 1 file changed, 16 insertions(+), 5 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 1097797f3470a4384fffafaeeea9c957e1f364e0..9c03352c1764bf76b963db5f30821977655ddd6d 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -967,8 +967,17 @@ std::string EmitFusedPointwiseSource(const FusedPointwiseGraph& graph) {
+     source += ")";
+   }
+   source += " {\n";
++  std::vector<bool> eager_broadcast(graph.input_count, false);
++  for (const FusedPointwiseInstruction& instruction : graph.instructions) {
++    if (instruction.tensor_ir_op == "__broadcast__") continue;
++    for (const FusedTensorOperand& operand : instruction.tensor_operands) {
++      if (operand.kind == FusedTensorOperandKind::BroadcastInput) {
++        eager_broadcast[operand.input_index] = true;
++      }
++    }
++  }
+   for (size_t input_index = 0; input_index < graph.input_count; ++input_index) {
+-    if (!graph.broadcast_inputs[input_index]) continue;
++    if (!eager_broadcast[input_index]) continue;
+     source += "    %bcarg";
+     AppendIndex(source, input_index);
+     source += " = broadcast %arg";
+@@ -1000,12 +1009,14 @@ std::string EmitFusedPointwiseSource(const FusedPointwiseGraph& graph) {
+       source += "\n";
+     }
+     if (instruction.tensor_ir_op == "__broadcast__") {
+-      // Materialize the row-broadcast input as an SSA value: the first
+-      // operand only fixes the target shape and the broadcast input expands.
++      // Materialize the row-broadcast input as an SSA value. This broadcasts
++      // the raw %arg (unit trailing extents) directly: the eagerly emitted
++      // %bcarg expansion is already full-shaped and would be a rejected
++      // no-op broadcast.
+       source += "    %value";
+       AppendIndex(source, instruction_index);
+-      source += " = broadcast ";
+-      AppendFusedOperand(source, instruction.tensor_operands[1], instruction_index);
++      source += " = broadcast %arg";
++      AppendIndex(source, instruction.tensor_operands[1].input_index);
+       source += " : ";
+       source += TensorTypeText(graph.input_tensors[
+           instruction.tensor_operands[1].input_index]);

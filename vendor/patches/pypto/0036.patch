@@ -1,0 +1,44 @@
+From 0db96caa21ca89662b7683b99ab70dbef5663cdb Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 04:52:02 +0800
+Subject: [PATCH 036/212] Tolerate transient tileiras scratch churn
+
+---
+ 3rdparty/nvidia/tensor-ir                           | 2 +-
+ cmake/nvidia_backend.cmake                          | 2 +-
+ tests/ut/compiler/test_nvidia_backend_build_info.py | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 1eaf1e0615abce26b32f55af8b639ed156c11b97..bbe6c731379e3af6280aa07469371860dacb740b 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 1eaf1e0615abce26b32f55af8b639ed156c11b97
++Subproject commit bbe6c731379e3af6280aa07469371860dacb740b
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 5ae5e3899929701c48b4dc2f89b9b249a022c089..39b8220010aa8a6f284b1be49e04eaa9793f4165 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -33,7 +33,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "1eaf1e0615abce26b32f55af8b639ed156c11b97")
++    "bbe6c731379e3af6280aa07469371860dacb740b"
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+diff --git a/tests/ut/compiler/test_nvidia_backend_build_info.py b/tests/ut/compiler/test_nvidia_backend_build_info.py
+index 2a2482b66f196b4e153c5f18960806896236e864..4414b649fa8cddacd64f41de916487e07cbb98a4 100644
+--- a/tests/ut/compiler/test_nvidia_backend_build_info.py
++++ b/tests/ut/compiler/test_nvidia_backend_build_info.py
+@@ -30,7 +30,7 @@ def test_nvidia_backend_build_info_is_immutable_and_self_consistent() -> None:
+     assert info.compiler_factory_available
+     assert len(info.pypto_revision) == 40
+     assert set(info.pypto_revision) <= set("0123456789abcdef")
+-    assert info.tensor_ir_revision == "1eaf1e0615abce26b32f55af8b639ed156c11b97"
++    assert info.tensor_ir_revision == "bbe6c731379e3af6280aa07469371860dacb740b"
+     assert info.cuda_tile_revision == "af2417041cc939b87ef56d92cfdcf61737c5457e"
+     assert info.llvm_revision == "57109befac92811d2253109242ca6fa69c961fb2"
+     assert info.cuda_toolkit_root == "/usr/local/cuda-13.3"

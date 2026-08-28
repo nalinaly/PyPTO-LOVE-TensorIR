@@ -1,0 +1,28 @@
+From f2270c6cebae9edcb6558c0c1f7afb21f1028737 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Mon, 24 Aug 2026 22:17:35 +0800
+Subject: [PATCH 02/82] build: export compiler dependency headers
+
+---
+ lib/Compiler/CMakeLists.txt | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/lib/Compiler/CMakeLists.txt b/lib/Compiler/CMakeLists.txt
+index 149e1a5fe591e9628d99d35e344d42e3a365f464..7f3f25aae022318f284d973dc838f0a5ff3f5ef9 100644
+--- a/lib/Compiler/CMakeLists.txt
++++ b/lib/Compiler/CMakeLists.txt
+@@ -31,3 +31,14 @@ add_tensor_ir_library(NVTensorIRCompiler STATIC
+     NVTensorIR::Runtime
+ )
+ 
++# Compiler.h is a public embedding surface and directly includes MLIR/LLVM
++# headers. TensorIR's directory-scoped include paths are sufficient while
++# compiling TensorIR itself, but they are intentionally not inherited by a
++# parent project consuming NVTensorIR::Compiler. Export the build-tree header
++# requirements on the compiler target so embedded users do not need to copy
++# TensorIR's private directory setup or hard-code dependency paths.
++foreach(_tensor_ir_compiler_include_dir IN LISTS
++        LLVM_INCLUDE_DIRS MLIR_INCLUDE_DIRS)
++  target_include_directories(NVTensorIRCompiler SYSTEM INTERFACE
++    "$<BUILD_INTERFACE:${_tensor_ir_compiler_include_dir}>")
++endforeach()

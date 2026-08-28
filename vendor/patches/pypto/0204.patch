@@ -1,0 +1,193 @@
+From 49cb676a80b7a3c3d7fe112722f35a699a7b5067 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 16:57:33 +0800
+Subject: [PATCH 204/212] Accept static shape branches and pitched GDN
+ projections
+
+---
+ python/pypto/jit/specializer.py          | 90 +++++++++++++++++++++++-
+ src/codegen/nvidia/tensor_ir_codegen.cpp |  8 ++-
+ tests/ut/jit/test_specializer.py         | 20 ++++++
+ 3 files changed, 115 insertions(+), 3 deletions(-)
+
+diff --git a/python/pypto/jit/specializer.py b/python/pypto/jit/specializer.py
+index 7a1fc01724b3fe2a23ffb7d76d42fb00910140df..5b5bc7bada95f993fc536719a6cfd21e6defa8c7 100644
+--- a/python/pypto/jit/specializer.py
++++ b/python/pypto/jit/specializer.py
+@@ -38,6 +38,7 @@ import ast
+ import copy
+ import functools
+ import inspect
++import operator
+ import textwrap
+ import warnings
+ from dataclasses import dataclass, field
+@@ -501,6 +502,88 @@ def _build_tensor_annotation(
+ # ---------------------------------------------------------------------------
+ 
+ 
++_NOT_STATIC = object()
++_STATIC_UNARY_OPERATORS = {
++    ast.Not: operator.not_,
++    ast.UAdd: operator.pos,
++    ast.USub: operator.neg,
++}
++_STATIC_BINARY_OPERATORS = {
++    ast.Add: operator.add,
++    ast.Sub: operator.sub,
++    ast.Mult: operator.mul,
++    ast.FloorDiv: operator.floordiv,
++    ast.Mod: operator.mod,
++}
++_STATIC_BOOLEAN_OPERATORS = {
++    ast.And: all,
++    ast.Or: any,
++}
++_STATIC_COMPARISON_OPERATORS = {
++    ast.Eq: operator.eq,
++    ast.NotEq: operator.ne,
++    ast.Lt: operator.lt,
++    ast.LtE: operator.le,
++    ast.Gt: operator.gt,
++    ast.GtE: operator.ge,
++}
++
++
++def _evaluate_static_expression(node: ast.expr) -> object:
++    """Evaluate the safe literal subset used by shape-specialized branches."""
++
++    if isinstance(node, ast.Constant) and type(node.value) in (bool, int, float):
++        return node.value
++    if isinstance(node, ast.UnaryOp):
++        operand = _evaluate_static_expression(node.operand)
++        if operand is _NOT_STATIC:
++            return _NOT_STATIC
++        operation = _STATIC_UNARY_OPERATORS.get(type(node.op))
++        try:
++            return _NOT_STATIC if operation is None else operation(operand)
++        except TypeError:
++            return _NOT_STATIC
++    if isinstance(node, ast.BinOp):
++        left = _evaluate_static_expression(node.left)
++        right = _evaluate_static_expression(node.right)
++        if left is _NOT_STATIC or right is _NOT_STATIC:
++            return _NOT_STATIC
++        operation = _STATIC_BINARY_OPERATORS.get(type(node.op))
++        try:
++            return _NOT_STATIC if operation is None else operation(left, right)
++        except (TypeError, ZeroDivisionError):
++            return _NOT_STATIC
++    if isinstance(node, ast.BoolOp):
++        values = [_evaluate_static_expression(value) for value in node.values]
++        if any(value is _NOT_STATIC for value in values):
++            return _NOT_STATIC
++        operation = _STATIC_BOOLEAN_OPERATORS.get(type(node.op))
++        return (
++            _NOT_STATIC
++            if operation is None
++            else operation(bool(value) for value in values)
++        )
++    if isinstance(node, ast.Compare):
++        values = [
++            _evaluate_static_expression(node.left),
++            *(_evaluate_static_expression(value) for value in node.comparators),
++        ]
++        if any(value is _NOT_STATIC for value in values):
++            return _NOT_STATIC
++        for left, op, right in zip(values[:-1], node.ops, values[1:], strict=True):
++            operation = _STATIC_COMPARISON_OPERATORS.get(type(op))
++            if operation is None:
++                return _NOT_STATIC
++            try:
++                result = operation(left, right)
++            except TypeError:
++                return _NOT_STATIC
++            if not bool(result):
++                return False
++        return True
++    return _NOT_STATIC
++
++
+ class _BodyTransformer(ast.NodeTransformer):
+     """Rewrites a JIT function body for use inside @pl.program.
+ 
+@@ -1119,7 +1202,7 @@ class _BodyTransformer(ast.NodeTransformer):
+             return bridges + [node]
+         return node
+ 
+-    def visit_If(self, node: ast.If) -> ast.stmt:
++    def visit_If(self, node: ast.If) -> ast.stmt | list[ast.stmt] | None:
+         """Visit If; treat the two branches as mutually-exclusive sibling scopes.
+ 
+         A name first-assigned inside the then-branch is branch-local: the
+@@ -1135,6 +1218,11 @@ class _BodyTransformer(ast.NodeTransformer):
+         (``exit_scope(leak_vars=True)``) and ConvertToSSA, as for ``@pl.program``.
+         """
+         node.test = self.visit(node.test)
++        static_test = _evaluate_static_expression(node.test)
++        if type(static_test) is bool:
++            selected = node.body if static_test else node.orelse
++            visited = self._visit_scoped_body(selected)
++            return visited or None
+         self._scope_depth += 1
+         before = set(self._assign_count)
+         node.body = self._visit_scoped_body(node.body)
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 097f2c5aa849cfacb39a1f7f3ec680289f5d1306..44a4939bddf014d367e360c548e149bbf43b8bd7 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -4936,10 +4936,10 @@ NativeTileGdnProjectionGraph AnalyzeNativeTileGdnProjection(
+     Reject("native GDN projection parameter contract is invalid",
+            &function->span_);
+   }
+-  const StaticTensor projected_qkvz = ReadStaticTensor(
++  const StaticTensor projected_qkvz = ReadStaticNdStridedTensor(
+       function->params_[0]->GetType(), function->params_[0]->span_,
+       "native GDN projected QKVZ");
+-  const StaticTensor projected_ba = ReadStaticTensor(
++  const StaticTensor projected_ba = ReadStaticNdStridedTensor(
+       function->params_[1]->GetType(), function->params_[1]->span_,
+       "native GDN projected BA");
+   const StaticTensor packed = ReadStaticTensor(
+@@ -4951,6 +4951,10 @@ NativeTileGdnProjectionGraph AnalyzeNativeTileGdnProjection(
+   if (projected_qkvz.dtype != DataType::BF16 ||
+       projected_ba.dtype != DataType::BF16 ||
+       projected_qkvz.shape.size() != 2 || projected_ba.shape.size() != 2 ||
++      projected_qkvz.dense_strides[1] != 1 ||
++      projected_ba.dense_strides[1] != 1 ||
++      projected_qkvz.dense_strides[0] < projected_qkvz.shape[1] ||
++      projected_ba.dense_strides[0] < projected_ba.shape[1] ||
+       packed.dtype != DataType::BF16 || packed.shape.size() != 2 ||
+       !SameTensor(packed, declared)) {
+     Reject("native GDN projection tensor types or ranks are invalid",
+diff --git a/tests/ut/jit/test_specializer.py b/tests/ut/jit/test_specializer.py
+index cd820dad6b9c747d97da29b2ff6d32d1acb056b2..37b294390b42afa5fa881ca78a14dafb83fc9c75 100644
+--- a/tests/ut/jit/test_specializer.py
++++ b/tests/ut/jit/test_specializer.py
+@@ -511,6 +511,26 @@ class TestBodyTransformer:
+         # Substitution happens in the body; parameter name stays in the signature
+         assert "pl.load(a, [0], [64])" in out
+ 
++    def test_static_tensor_shape_condition_selects_only_reachable_branch(self):
++        src = """
++            def f(a: pl.Tensor):
++                if a.shape[0] % 128 == 0:
++                    tile = 128
++                elif a.shape[0] % 32 == 0:
++                    tile = 32
++                else:
++                    tile = 16
++                result = tile
++        """
++        out = self._transform(
++            src,
++            tensor_meta={"a": TensorMeta((32, 1024), DataType.FP32)},
++        )
++        assert "if " not in out
++        assert "tile = 32" in out
++        assert "tile = 128" not in out
++        assert "tile = 16" not in out
++
+     def _transform_with_globals(self, src: str, tensor_meta: dict, py_globals: dict):
+         src = textwrap.dedent(src)
+         tree = ast.parse(src)

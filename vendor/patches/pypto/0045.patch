@@ -1,0 +1,527 @@
+From 3431a944691f8295d3a55a4e222dadcfe34253f5 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 13:54:30 +0800
+Subject: [PATCH 045/212] Fix CUDA Tile executable parameter ABI
+
+---
+ docs/en/dev/backend/02-nvidia-executable.md |  17 ++-
+ docs/zh/dev/backend/02-nvidia-executable.md |  15 +-
+ src/compiler/nvidia_artifact_compiler.cpp   |   2 +
+ src/runtime/nvidia/executable.cpp           | 118 ++++++++++++----
+ tests/ut/cpp/nvidia_executable_test.cpp     | 144 +++++++++++++++++++-
+ 5 files changed, 263 insertions(+), 33 deletions(-)
+
+diff --git a/docs/en/dev/backend/02-nvidia-executable.md b/docs/en/dev/backend/02-nvidia-executable.md
+index 4bf31cd0c1507dd25a819119e9b53e321408e53c..3f48f74c1ae3000bb7d449a460a36e5653d69467 100644
+--- a/docs/en/dev/backend/02-nvidia-executable.md
++++ b/docs/en/dev/backend/02-nvidia-executable.md
+@@ -55,8 +55,12 @@ Prewarm is once-only and failure-latched. It:
+ 6. loads the exact Cubin with context-bound `cuModule*` APIs and resolves only
+    `entry_function_name`;
+ 7. forces lazy function loading before capture;
+-8. validates flattened parameter widths, binary target, block/shared-memory/
+-   register/cluster limits and nonzero occupancy; and
++8. validates every flattened parameter width plus bounded non-overlapping
++   device parameter ranges without assuming the Driver returns offsets in
++   signature order. Every range must end within
++   `argument_count * kernel_argument_slot_bytes`; offsets never reorder the
++   signature-ordered host pointer array. It then validates binary target,
++   block/shared-memory/register/cluster limits and nonzero occupancy; and
+ 9. publishes `Ready` only after the complete transaction succeeds.
+ 
+ Any partial module is rolled back on failure. The first bounded error is
+@@ -64,6 +68,11 @@ latched, no retry/fallback occurs, and all concurrent prewarm callers observe
+ the same result. TensorIR, TileIR JIT, PTX, cuBLAS and framework fallback are
+ not loader alternatives.
+ 
++CUDA Tile host launch dimensions are distinct from its physical worker-warp
++metadata. The reviewed launch ABI remains logical block `[1, 1, 1]`, as
++required by CUDA Tile; Cubin `EIATTR_REQNTID` records compiler-selected
++internal workers and must not be copied into `CUlaunchConfig.blockDim*`.
++
+ Artifact v1 currently emits only static workspace size `0`, alignment `1`.
+ Because it has no mapping from a workspace address to a kernel parameter, the
+ loader rejects every nonzero workspace instead of allocating unused memory.
+@@ -74,6 +83,10 @@ Argument validation and packing happen in `prepare_launch()` before graph
+ capture. It returns a move-only `NvidiaLaunchPacket` owning stable, pre-sized
+ eight-byte host slots, the parameter-pointer array and checked final grid.
+ The packet itself is an execution lease and prevents unload.
++The slot is storage, not the declared device parameter width: dynamic sizes and
++strides remain four-byte `int32` kernel parameters inside zeroed eight-byte
++slots. Positive sizes and nonnegative strides are rejected before packet
++publication when they exceed `INT32_MAX`.
+ 
+ Tensor operands provide a non-null opaque device address plus complete shape
+ and element-stride metadata. Static dimensions/strides must match exactly;
+diff --git a/docs/zh/dev/backend/02-nvidia-executable.md b/docs/zh/dev/backend/02-nvidia-executable.md
+index 8187a42585c86a031f9d2ae2a2d1eec753233115..4ba7118d98d63f0789a08b68f99c544df3bfdee6 100644
+--- a/docs/zh/dev/backend/02-nvidia-executable.md
++++ b/docs/zh/dev/backend/02-nvidia-executable.md
+@@ -47,14 +47,22 @@ Prewarm 只执行一次并锁存失败。它会：
+ 6. 使用绑定 context 的 `cuModule*` API 加载精确 Cubin，并且只解析
+    `entry_function_name`；
+ 7. 在 capture 之前强制完成 lazy function load；
+-8. 验证扁平参数宽度、binary target、block/shared-memory/register/cluster
+-   资源与非零 occupancy；
++8. 验证每个扁平参数宽度以及有界、互不重叠的 device 参数区间，不假设 Driver
++   按 signature 顺序返回 offset；每个区间的末端都必须位于
++   `argument_count * kernel_argument_slot_bytes` 内，offset 也不会改变按 signature
++   排列的 host 参数指针数组；随后验证 binary target、block/shared-memory/register/
++   cluster 资源与非零 occupancy；
+ 9. 仅在整个事务完成后发布 `Ready`。
+ 
+ 失败时会回滚已经创建的 module，锁存第一条有界错误，不重试、不 fallback；所有
+ 并发 prewarm 调用者看到同一结果。TensorIR runtime、TileIR JIT、PTX、cuBLAS
+ 以及 framework fallback 都不是 loader 备选路径。
+ 
++CUDA Tile 的 host launch dimension 与物理 worker-warp metadata 是两层语义。
++按 CUDA Tile 要求，已审查的 host launch ABI 仍是逻辑 block `[1, 1, 1]`；Cubin
++中的 `EIATTR_REQNTID` 记录 compiler 选择的内部 worker，不能复制到
++`CUlaunchConfig.blockDim*`。
++
+ Artifact v1 当前只产生静态 workspace `size=0, alignment=1`。它没有定义
+ workspace 地址如何映射到 kernel 参数，因此 loader 会拒绝所有非零 workspace，
+ 不会分配一块 kernel 根本无法使用的内存。
+@@ -64,6 +72,9 @@ workspace 地址如何映射到 kernel 参数，因此 loader 会拒绝所有非
+ 参数验证与 packing 在 graph capture 之前由 `prepare_launch()` 完成。返回的
+ `NvidiaLaunchPacket` 只能移动，持有稳定、预先定长的八字节 host slot、参数
+ 指针数组与经过检查的最终 grid。packet 本身也是 execution lease，会阻止 unload。
++slot 是 host 存储宽度，不是 device 参数声明宽度；动态 size/stride 仍是四字节
++`int32` kernel 参数，只是存放在清零的八字节 slot 中。正数 size 或非负 stride
++一旦超过 `INT32_MAX`，会在 packet 发布前被拒绝。
+ 
+ Tensor 参数提供非空的不透明 device address，以及完整 shape 和以元素计的
+ stride。静态 shape/stride 必须精确一致；动态值按 Artifact 的 uniform 或
+diff --git a/src/compiler/nvidia_artifact_compiler.cpp b/src/compiler/nvidia_artifact_compiler.cpp
+index 81b1c3fb6c0e137ff8eac4b295f0bf30f941fe50..b4e19f51594cc7ff9f8643d9d41489d3eab39644 100644
+--- a/src/compiler/nvidia_artifact_compiler.cpp
++++ b/src/compiler/nvidia_artifact_compiler.cpp
+@@ -285,6 +285,8 @@ Artifact MakeArtifact(const CompileRequest& request,
+       ArtifactWorkspaceAbi(ArtifactWorkspaceKind::Static,
+                            producer_artifact.workspace_size_bytes,
+                            producer_artifact.workspace_alignment_bytes),
++      // CUDA Tile host block dimensions are logical and must remain 1x1x1;
++      // worker warps and Cubin REQNTID are compiler-owned internal metadata.
+       ArtifactLaunchAbi({1, 1, 1},
+                         ArtifactClusterSchedulingPolicy::Spread,
+                         /*dynamic_shared_memory_bytes=*/0,
+diff --git a/src/runtime/nvidia/executable.cpp b/src/runtime/nvidia/executable.cpp
+index e55a7cbe778063c13a15103a0b05b771fd511853..fe29fd647b96207bf5eb669cb2081237ee92ea4b 100644
+--- a/src/runtime/nvidia/executable.cpp
++++ b/src/runtime/nvidia/executable.cpp
+@@ -87,6 +87,20 @@ constexpr uintptr_t kCudaPerThreadStreamAddress = 2;
+   return threads;
+ }
+ 
++[[nodiscard]] uint64_t PackInt32ArgumentSlot(int64_t value,
++                                             int64_t minimum,
++                                             const char* description) {
++  if (value < minimum ||
++      value > static_cast<int64_t>(std::numeric_limits<int32_t>::max())) {
++    throw ValueError(std::string(description) +
++                     " is outside the int32 CUDA ABI range");
++  }
++  const int32_t packed = static_cast<int32_t>(value);
++  uint64_t slot = 0;
++  std::memcpy(&slot, &packed, sizeof(packed));
++  return slot;
++}
++
+ [[nodiscard]] std::vector<uint64_t> ExpectedParameterWidths(
+     const compiler::ArtifactArgumentLayout& layout) {
+   std::vector<uint64_t> widths;
+@@ -103,7 +117,7 @@ constexpr uintptr_t kCudaPerThreadStreamAddress = 2;
+     const uint32_t stride_count = layout.HasUniformSignature()
+                                       ? static_cast<uint32_t>(descriptor.GetStrides().size())
+                                       : descriptor.GetDynamicStrideCount();
+-    widths.insert(widths.end(), size_count + stride_count, sizeof(uint64_t));
++    widths.insert(widths.end(), size_count + stride_count, sizeof(int32_t));
+   }
+   if (widths.size() != layout.GetTotalKernelArgumentCount()) {
+     throw ValueError("Artifact flattened parameter widths do not match the argument count");
+@@ -111,6 +125,65 @@ constexpr uintptr_t kCudaPerThreadStreamAddress = 2;
+   return widths;
+ }
+ 
++void ValidateLoadedParameterAbi(
++    detail::NvidiaDriverApi& driver, uintptr_t function_address,
++    const std::vector<uint64_t>& expected_widths,
++    uint64_t parameter_frame_size_bytes) {
++  struct ParameterRange {
++    uint64_t offset = 0;
++    uint64_t end = 0;
++    size_t index = 0;
++  };
++  std::vector<ParameterRange> ranges;
++  ranges.reserve(expected_widths.size());
++  for (size_t index = 0; index < expected_widths.size(); ++index) {
++    const auto info = driver.GetFunctionParameterInfo(
++        function_address, static_cast<uint32_t>(index));
++    if (!info.has_value()) {
++      throw RuntimeError("loaded CUDA function parameter ABI differs from Artifact at index " +
++                         std::to_string(index) + ": parameter is absent");
++    }
++    if (info->size_bytes != expected_widths[index]) {
++      throw RuntimeError("loaded CUDA function parameter ABI differs from Artifact at index " +
++                         std::to_string(index) + ": expected size " +
++                         std::to_string(expected_widths[index]) + ", actual size " +
++                         std::to_string(info->size_bytes) + ", actual offset " +
++                         std::to_string(info->offset_bytes));
++    }
++    if (info->offset_bytes >
++        std::numeric_limits<uint64_t>::max() - info->size_bytes) {
++      throw RuntimeError("loaded CUDA function parameter ABI differs from Artifact at index " +
++                         std::to_string(index) + ": offset range overflows");
++    }
++    const uint64_t end = info->offset_bytes + info->size_bytes;
++    if (end > parameter_frame_size_bytes) {
++      throw RuntimeError(
++          "loaded CUDA function parameter ABI differs from Artifact at index " +
++          std::to_string(index) + ": parameter range exceeds the bounded "
++                                  "Artifact frame");
++    }
++    ranges.push_back(ParameterRange{info->offset_bytes, end, index});
++  }
++  if (driver.GetFunctionParameterInfo(
++          function_address, static_cast<uint32_t>(expected_widths.size()))
++          .has_value()) {
++    throw RuntimeError("loaded CUDA function has parameters absent from Artifact ABI");
++  }
++  std::sort(ranges.begin(), ranges.end(),
++            [](const ParameterRange& lhs, const ParameterRange& rhs) {
++              if (lhs.offset != rhs.offset) return lhs.offset < rhs.offset;
++              return lhs.index < rhs.index;
++            });
++  uint64_t previous_end = 0;
++  for (const ParameterRange& range : ranges) {
++    if (range.offset < previous_end) {
++      throw RuntimeError("loaded CUDA function parameter ABI differs from Artifact: parameter " +
++                         std::to_string(range.index) + " overlaps another parameter");
++    }
++    previous_end = range.end;
++  }
++}
++
+ void ValidateStaticExecutableInputs(const compiler::Artifact& artifact,
+                                     const compiler::CompileRequest& request) {
+   if (artifact.GetIdentities().GetCompileRequestByteIdentityDigest() !=
+@@ -316,9 +389,10 @@ void ValidateFunction(const detail::NvidiaFunctionProperties& function,
+   std::string message = "NvidiaExecutable prewarm failed: ";
+   message += error.what();
+   constexpr size_t kMaximumFailureBytes = 4096;
++  constexpr std::string_view kTruncatedSuffix = " [truncated]";
+   if (message.size() > kMaximumFailureBytes) {
+-    message.resize(kMaximumFailureBytes);
+-    message += " [truncated]";
++    message.resize(kMaximumFailureBytes - kTruncatedSuffix.size());
++    message += kTruncatedSuffix;
+   }
+   return message;
+ }
+@@ -502,6 +576,10 @@ void ValidateBoundContext(detail::NvidiaExecutableSharedState& state) {
+       if (size <= 0 || stride < 0) {
+         throw ValueError("NvidiaExecutable tensor sizes must be positive and strides nonnegative");
+       }
++    }
++    for (size_t dimension = 0; dimension < descriptor.GetRank(); ++dimension) {
++      const int64_t size = argument.GetShape()[dimension];
++      const int64_t stride = argument.GetStrides()[dimension];
+       const auto& static_size = descriptor.GetShape()[dimension];
+       if (static_size.has_value() && *static_size != size) {
+         throw ValueError("NvidiaExecutable tensor size differs from static Artifact ABI");
+@@ -528,8 +606,9 @@ void ValidateBoundContext(detail::NvidiaExecutableSharedState& state) {
+         if (slot_index >= data->argument_slots.size()) {
+           throw InternalError("NvidiaExecutable shape packing exceeded allocated slots");
+         }
+-        data->argument_slots[slot_index++] =
+-            static_cast<uint64_t>(argument.GetShape()[dimension]);
++        data->argument_slots[slot_index++] = PackInt32ArgumentSlot(
++            argument.GetShape()[dimension], 1,
++            "NvidiaExecutable dynamic tensor size");
+       }
+     }
+     if (descriptor.HasExplicitStrides()) {
+@@ -539,8 +618,9 @@ void ValidateBoundContext(detail::NvidiaExecutableSharedState& state) {
+           if (slot_index >= data->argument_slots.size()) {
+             throw InternalError("NvidiaExecutable stride packing exceeded allocated slots");
+           }
+-          data->argument_slots[slot_index++] =
+-              static_cast<uint64_t>(argument.GetStrides()[dimension]);
++          data->argument_slots[slot_index++] = PackInt32ArgumentSlot(
++              argument.GetStrides()[dimension], 0,
++              "NvidiaExecutable dynamic tensor stride");
+         }
+       }
+     }
+@@ -780,26 +860,14 @@ void NvidiaExecutable::Prewarm(uint32_t active_cuda_runtime_api_version) {
+ 
+     const std::vector<uint64_t> widths = ExpectedParameterWidths(
+         state_->artifact.GetKernelAbi().GetArgumentLayout());
+-    uint64_t previous_end = 0;
+-    for (size_t index = 0; index < widths.size(); ++index) {
+-      const auto info = state_->driver->GetFunctionParameterInfo(
+-          function_address, static_cast<uint32_t>(index));
+-      if (!info.has_value() || info->size_bytes != widths[index] ||
+-          info->offset_bytes < previous_end ||
+-          info->offset_bytes > std::numeric_limits<uint64_t>::max() -
+-                                   info->size_bytes) {
+-        throw RuntimeError("loaded CUDA function parameter ABI differs from Artifact");
+-      }
+-      previous_end = info->offset_bytes + info->size_bytes;
+-    }
+-    if (state_->driver->GetFunctionParameterInfo(
+-            function_address, static_cast<uint32_t>(widths.size()))
+-            .has_value()) {
+-      throw RuntimeError("loaded CUDA function has parameters absent from Artifact ABI");
+-    }
++    const auto& launch = state_->artifact.GetKernelAbi().GetLaunchAbi();
++    const uint64_t parameter_frame_size_bytes = CheckedMultiply(
++        static_cast<uint64_t>(widths.size()),
++        launch.GetKernelArgumentSlotBytes(), "CUDA parameter frame size");
++    ValidateLoadedParameterAbi(*state_->driver, function_address, widths,
++                               parameter_frame_size_bytes);
+ 
+     const auto properties = state_->driver->GetFunctionProperties(function_address);
+-    const auto& launch = state_->artifact.GetKernelAbi().GetLaunchAbi();
+     const uint64_t block_threads = BlockThreadCount(launch.GetBlockDimensions());
+     const int occupancy = state_->driver->GetActiveBlocksPerMultiprocessor(
+         function_address, static_cast<uint32_t>(block_threads),
+diff --git a/tests/ut/cpp/nvidia_executable_test.cpp b/tests/ut/cpp/nvidia_executable_test.cpp
+index 5a746ef8238dbc5d43fc26cd6b6e6c353bfeb3fb..fd9df6c872b15b30ba479de5d3de0990be00d2b1 100644
+--- a/tests/ut/cpp/nvidia_executable_test.cpp
++++ b/tests/ut/cpp/nvidia_executable_test.cpp
+@@ -21,6 +21,7 @@
+ #include <cstring>
+ #include <cstdlib>
+ #include <functional>
++#include <limits>
+ #include <memory>
+ #include <mutex>
+ #include <new>
+@@ -540,7 +541,7 @@ class FakeDriver final : public NvidiaDriverApi {
+     }
+     std::lock_guard<std::mutex> lock(mutex_);
+     RecordLocked("Initialize");
+-    if (initialize_failure) throw RuntimeError("fake initialize failure");
++    if (initialize_failure) throw RuntimeError(initialize_failure_message);
+   }
+ 
+   uint32_t GetDriverApiVersion() override {
+@@ -797,6 +798,7 @@ class FakeDriver final : public NvidiaDriverApi {
+   uintptr_t stream_context_address = kContextAddress;
+   uintptr_t stream_green_context_address = 0;
+   bool initialize_failure = false;
++  std::string initialize_failure_message = "fake initialize failure";
+   bool claim_process_on_initialize = false;
+   bool launch_failure = false;
+   bool unload_failure = false;
+@@ -1084,6 +1086,13 @@ uint64_t ReadUint64(const std::vector<uint8_t>& bytes) {
+   return value;
+ }
+ 
++uint32_t ReadUint32(const std::vector<uint8_t>& bytes) {
++  if (bytes.size() != sizeof(uint32_t)) return 0;
++  uint32_t value = 0;
++  std::memcpy(&value, bytes.data(), sizeof(value));
++  return value;
++}
++
+ int TestConstructionDoesNotTouchDriver(const ArtifactSet& artifacts) {
+   REQUIRE(RejectsWith<ValueError>(
+       [&]() {
+@@ -1247,7 +1256,7 @@ int TestSuccessfulPrewarmAndConcurrentLaunch(const ArtifactSet& artifacts) {
+ int TestDynamicAndScalarPacking(const ArtifactSet& artifacts) {
+   {
+     auto driver = MakeFakeDriver(
+-        artifacts.request, {8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8});
++        artifacts.request, {8, 4, 4, 4, 8, 4, 4, 4, 8, 4, 4, 4});
+     auto executable =
+         MakeExecutable(artifacts.dynamic_artifact, artifacts.request, driver);
+     executable->Prewarm(kRuntimeApiVersion);
+@@ -1265,10 +1274,31 @@ int TestDynamicAndScalarPacking(const ArtifactSet& artifacts) {
+           0x6000U, 17, 9, 18,
+       };
+       for (size_t index = 0; index < expected.size(); ++index) {
+-        REQUIRE(ReadUint64(launches[0].parameter_bytes[index]) ==
+-                expected[index]);
++        if (index % 4 == 0) {
++          REQUIRE(ReadUint64(launches[0].parameter_bytes[index]) ==
++                  expected[index]);
++        } else {
++          REQUIRE(ReadUint32(launches[0].parameter_bytes[index]) ==
++                  expected[index]);
++        }
+       }
+     }
++    {
++      std::vector<NvidiaLaunchArgument> maximum_stride = {
++          NvidiaLaunchArgument::Tensor(
++              0x4000U, {17, 9},
++              {std::numeric_limits<int32_t>::max(), 1}),
++          NvidiaLaunchArgument::Tensor(0x5000U, {17, 9}, {18, 1}),
++          NvidiaLaunchArgument::Tensor(0x6000U, {17, 9}, {18, 1}),
++      };
++      NvidiaLaunchPacket packet =
++          executable->PrepareLaunch(std::move(maximum_stride));
++      executable->Launch(packet, kStreamAddress);
++      const std::vector<LaunchRecord> launches = driver->GetLaunches();
++      REQUIRE(launches.size() == 2);
++      REQUIRE(ReadUint32(launches[1].parameter_bytes[3]) ==
++              static_cast<uint32_t>(std::numeric_limits<int32_t>::max()));
++    }
+     REQUIRE(RejectsWith<ValueError>(
+         [&]() {
+           (void)executable->PrepareLaunch(
+@@ -1277,6 +1307,37 @@ int TestDynamicAndScalarPacking(const ArtifactSet& artifacts) {
+                NvidiaLaunchArgument::Tensor(0x6000U, {17, 9}, {18, 1})});
+         },
+         "strides nonnegative"));
++    REQUIRE(RejectsWith<ValueError>(
++        [&]() {
++          std::vector<NvidiaLaunchArgument> too_large_size = {
++              NvidiaLaunchArgument::Tensor(
++                  0x4000U,
++                  {static_cast<int64_t>(
++                       std::numeric_limits<int32_t>::max()) +
++                       1,
++                   9},
++                  {18, 1}),
++              NvidiaLaunchArgument::Tensor(0x5000U, {17, 9}, {18, 1}),
++              NvidiaLaunchArgument::Tensor(0x6000U, {17, 9}, {18, 1}),
++          };
++          (void)executable->PrepareLaunch(std::move(too_large_size));
++        },
++        "dynamic tensor size is outside the int32 CUDA ABI range"));
++    REQUIRE(RejectsWith<ValueError>(
++        [&]() {
++          std::vector<NvidiaLaunchArgument> too_large_stride = {
++              NvidiaLaunchArgument::Tensor(
++                  0x4000U, {17, 9},
++                  {static_cast<int64_t>(
++                       std::numeric_limits<int32_t>::max()) +
++                       1,
++                   1}),
++              NvidiaLaunchArgument::Tensor(0x5000U, {17, 9}, {18, 1}),
++              NvidiaLaunchArgument::Tensor(0x6000U, {17, 9}, {18, 1}),
++          };
++          (void)executable->PrepareLaunch(std::move(too_large_stride));
++        },
++        "dynamic tensor stride is outside the int32 CUDA ABI range"));
+     REQUIRE(RejectsWith<ValueError>(
+         [&]() {
+           (void)executable->PrepareLaunch(
+@@ -1288,11 +1349,39 @@ int TestDynamicAndScalarPacking(const ArtifactSet& artifacts) {
+                                             {536870913, 1})});
+         },
+         "runtime CUDA grid"));
++    {
++      NvidiaLaunchPacket packet =
++          executable->PrepareLaunch(MakeDynamicArguments());
++      executable->Launch(packet, kStreamAddress);
++      REQUIRE(executable->IsReady());
++      REQUIRE(driver->GetLaunches().size() == 3);
++    }
+     executable->Unload();
+   }
+ 
++  {
++    auto driver = MakeFakeDriver(
++        artifacts.request, {8, 8, 4, 4, 8, 4, 4, 4, 8, 4, 4, 4});
++    auto executable =
++        MakeExecutable(artifacts.dynamic_artifact, artifacts.request, driver);
++    std::string first_failure;
++    REQUIRE(RejectsWith<RuntimeError>(
++        [&]() { executable->Prewarm(kRuntimeApiVersion); },
++        "expected size 4, actual size 8", &first_failure));
++    REQUIRE(executable->GetState() == NvidiaExecutableState::Failed);
++    REQUIRE(driver->CountCalls("UnloadModule") == 1);
++    std::string repeated_failure;
++    REQUIRE(RejectsWith<RuntimeError>(
++        [&]() { executable->Prewarm(kRuntimeApiVersion); },
++        "expected size 4, actual size 8", &repeated_failure));
++    REQUIRE(repeated_failure == first_failure);
++  }
++
+   {
+     auto driver = MakeFakeDriver(artifacts.request, {8, 4, 8});
++    driver->parameter_info[0]->offset_bytes = 16;
++    driver->parameter_info[1]->offset_bytes = 8;
++    driver->parameter_info[2]->offset_bytes = 0;
+     auto executable =
+         MakeExecutable(artifacts.scalar_artifact, artifacts.request, driver);
+     executable->Prewarm(kRuntimeApiVersion);
+@@ -1318,6 +1407,14 @@ int TestDynamicAndScalarPacking(const ArtifactSet& artifacts) {
+                NvidiaLaunchArgument::Tensor(0x8000U, {4, 4, 4}, {16, 4, 1})});
+         },
+         "scalar operand"));
++    REQUIRE(RejectsWith<ValueError>(
++        [&]() {
++          (void)executable->PrepareLaunch(
++              {NvidiaLaunchArgument::Tensor(0x7000U, {4, -1, 4}, {16, 4, 1}),
++               NvidiaLaunchArgument::Scalar({0x78, 0x56, 0x34, 0x12}),
++               NvidiaLaunchArgument::Tensor(0x8000U, {4, 4, 4}, {16, 4, 1})});
++        },
++        "sizes must be positive"));
+     executable->Unload();
+   }
+   return 0;
+@@ -1399,6 +1496,21 @@ int TestFailureLatchAndPrewarmValidation(const ArtifactSet& artifacts) {
+     REQUIRE(repeated == failure);
+     REQUIRE(driver->GetCalls().empty());
+   }
++  {
++    auto driver = MakeFakeDriver(artifacts.request, {8, 8, 8});
++    driver->initialize_failure = true;
++    driver->initialize_failure_message.assign(5000, 'x');
++    auto executable =
++        MakeExecutable(artifacts.static_artifact, artifacts.request, driver);
++    std::string failure;
++    REQUIRE(RejectsWith<RuntimeError>(
++        [&]() { executable->Prewarm(kRuntimeApiVersion); }, " [truncated]",
++        &failure));
++    REQUIRE(failure.size() == 4096);
++    constexpr std::string_view suffix = " [truncated]";
++    REQUIRE(failure.substr(failure.size() - suffix.size()) == suffix);
++    REQUIRE(executable->GetFailureMessage() == failure);
++  }
+ 
+   int result = ExpectLatchedPrewarmFailure(
+       artifacts,
+@@ -1438,6 +1550,17 @@ int TestFailureLatchAndPrewarmValidation(const ArtifactSet& artifacts) {
+ }
+ 
+ int TestParameterAndResourceValidation(const ArtifactSet& artifacts) {
++  {
++    auto driver = MakeFakeDriver(artifacts.request, {8, 8, 8});
++    driver->parameter_info[0]->offset_bytes = 16;
++    driver->parameter_info[1]->offset_bytes = 8;
++    driver->parameter_info[2]->offset_bytes = 0;
++    auto executable = MakeExecutable(artifacts.static_artifact,
++                                     artifacts.request, driver);
++    executable->Prewarm(kRuntimeApiVersion);
++    REQUIRE(executable->IsReady());
++    executable->Unload();
++  }
+   int result = ExpectLatchedPrewarmFailure(
+       artifacts,
+       [](FakeDriver& driver) { driver.parameter_info[1] = std::nullopt; },
+@@ -1453,6 +1576,19 @@ int TestParameterAndResourceValidation(const ArtifactSet& artifacts) {
+       [](FakeDriver& driver) { driver.parameter_info[1]->offset_bytes = 4; },
+       "parameter ABI differs", 1);
+   if (result != 0) return result;
++  result = ExpectLatchedPrewarmFailure(
++      artifacts,
++      [](FakeDriver& driver) { driver.parameter_info[2]->offset_bytes = 24; },
++      "exceeds the bounded Artifact frame", 1);
++  if (result != 0) return result;
++  result = ExpectLatchedPrewarmFailure(
++      artifacts,
++      [](FakeDriver& driver) {
++        driver.parameter_info[1]->offset_bytes =
++            std::numeric_limits<uint64_t>::max() - 3;
++      },
++      "offset range overflows", 1);
++  if (result != 0) return result;
+   result = ExpectLatchedPrewarmFailure(
+       artifacts,
+       [](FakeDriver& driver) {

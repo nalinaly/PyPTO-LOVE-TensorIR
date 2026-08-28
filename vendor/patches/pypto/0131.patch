@@ -1,0 +1,87 @@
+From a45dd90006244eac3855a01fbbd9e9b0d9e65109 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 02:20:06 +0800
+Subject: [PATCH 131/212] Advance TensorIR one-shot layout conversion
+
+---
+ ...24-Run-layout-conversion-as-one-shot.patch | 49 +++++++++++++++++++
+ 3rdparty/nvidia/tensor-ir                     |  2 +-
+ cmake/nvidia_backend.cmake                    |  2 +-
+ 3 files changed, 51 insertions(+), 2 deletions(-)
+ create mode 100644 3rdparty/nvidia/0024-Run-layout-conversion-as-one-shot.patch
+
+diff --git a/3rdparty/nvidia/0024-Run-layout-conversion-as-one-shot.patch b/3rdparty/nvidia/0024-Run-layout-conversion-as-one-shot.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..25ef353d2d677ba3f981d77ac3bcfd2bfe614698
+--- /dev/null
++++ b/3rdparty/nvidia/0024-Run-layout-conversion-as-one-shot.patch
+@@ -0,0 +1,49 @@
++From 09e40e620a0212633d469d3c19bbcd575e65367d Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Fri, 28 Aug 2026 02:19:50 +0800
++Subject: [PATCH 24/24] Run layout conversion as one shot
++
++---
++ .../LayoutPropagationImpl.cpp                 | 19 ++++++++++++++-----
++ 1 file changed, 14 insertions(+), 5 deletions(-)
++
++diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++index 3b346b4..305f0a2 100644
++--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++@@ -877,9 +877,11 @@ public:
++ LogicalResult ConversionStateImpl::start(GraphOp graphOp) {
++   LLVM_DEBUG(llvm::dbgs() << "Processing graph: " << graphOp.getName() << "\n");
++ 
++-  // Validate graph-level preconditions; on failure the helper has already
++-  // emitted the diagnostic.
++-  if (failed(verifyGraphLevelLayoutPropLowerable(graphOp))) {
+++  // Validate every graph and per-op lowerability condition before entering the
+++  // stateful conversion. The conversion state stores blocks, descriptors and
+++  // loaded Values created by GraphOpConversion, so those references must share
+++  // the lifetime of one conversion attempt rather than survive a rollback.
+++  if (failed(verifyLayoutPropLowerable(graphOp))) {
++     return failure();
++   }
++ 
++@@ -922,8 +924,15 @@ LogicalResult ConversionStateImpl::start(GraphOp graphOp) {
++   layouts.clear();
++   operandIndex = 0;
++ 
++-  // Start the conversion for the current graph.
++-  return applyFullConversion(graphOp, conversionTarget, patterns);
+++  // This converter is deliberately one-shot: GraphOpConversion materializes
+++  // the skeleton and records its IR objects in ConversionStateImpl for later
+++  // operation patterns. Rolling back that graph rewrite would invalidate the
+++  // recorded objects while leaving the side tables alive. Full prevalidation
+++  // above ensures ordinary unsupported inputs fail before any rewrite.
+++  ConversionConfig conversionConfig;
+++  conversionConfig.allowPatternRollback = false;
+++  return applyFullConversion(graphOp, conversionTarget, patterns,
+++                             conversionConfig);
++ }
++ 
++ /// Prepare the conversion state for an operation conversion.
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 20367d1c5e10aa081ff1a0856c260aa18bdde871..09e40e620a0212633d469d3c19bbcd575e65367d 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 20367d1c5e10aa081ff1a0856c260aa18bdde871
++Subproject commit 09e40e620a0212633d469d3c19bbcd575e65367d
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 626ad0bd425142b875306f0b47138f901bba0642..34ee012bae499001eb8e4e1f3f6ad124a3a66331 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "20367d1c5e10aa081ff1a0856c260aa18bdde871")
++    "09e40e620a0212633d469d3c19bbcd575e65367d")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

@@ -1,0 +1,30 @@
+From 50608d5db4867dccdcd7e8e12f37521153b547fb Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 09:02:35 +0800
+Subject: [PATCH 162/212] Pin indirect gather row projection
+
+---
+ 3rdparty/nvidia/tensor-ir  | 2 +-
+ cmake/nvidia_backend.cmake | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index ee75208b1fde213e731baffb935bf8ba91c335a3..20fab98254e0b14a587e0abf285bec951bf9382c 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit ee75208b1fde213e731baffb935bf8ba91c335a3
++Subproject commit 20fab98254e0b14a587e0abf285bec951bf9382c
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 29c8d29b1c59d493d514d19e1c87d1a77c4ef100..7c5374b3a9971554319c479597b4ecd13f520096 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "ee75208b1fde213e731baffb935bf8ba91c335a3")
++    "20fab98254e0b14a587e0abf285bec951bf9382c")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

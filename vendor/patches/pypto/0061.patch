@@ -1,0 +1,23 @@
+From ac9cbaca40f37cc0941e3c483b4f7e79a5d68ea6 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 11:53:04 +0800
+Subject: [PATCH 061/212] test: retarget second pointwise rejection fixture to
+ fmod
+
+---
+ tests/ut/cpp/tensor_ir_codegen_test.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index 0aa0758828b18bd0d4c2045da7077522fede8011..1164dc31371b83d7c14dc6e7aac975c1aa1274e6 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -1184,7 +1184,7 @@ int TestFusedPointwiseV2Rejections() {
+       [&] {
+         (void)EmitTensorIr(program_with(
+             {std::make_shared<ir::AssignStmt>(
+-                 unsupported_result, OpCall("tensor.div", {x, y}, type), TestSpan()),
++                 unsupported_result, OpCall("tensor.fmod", {x, y}, type), TestSpan()),
+              std::make_shared<ir::ReturnStmt>(
+                  std::vector<ir::ExprPtr>{unsupported_result}, TestSpan())}));
+       },

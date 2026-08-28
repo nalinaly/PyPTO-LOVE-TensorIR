@@ -1,0 +1,159 @@
+From 5f5f06c91066e37df41114458dd206a5650fc02e Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 05:08:00 +0800
+Subject: [PATCH 143/212] Advance TensorIR scalar-row gathers
+
+---
+ ...-Lower-scalar-row-gather-projections.patch | 121 ++++++++++++++++++
+ 3rdparty/nvidia/tensor-ir                     |   2 +-
+ cmake/nvidia_backend.cmake                    |   2 +-
+ 3 files changed, 123 insertions(+), 2 deletions(-)
+ create mode 100644 3rdparty/nvidia/0036-Lower-scalar-row-gather-projections.patch
+
+diff --git a/3rdparty/nvidia/0036-Lower-scalar-row-gather-projections.patch b/3rdparty/nvidia/0036-Lower-scalar-row-gather-projections.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..6a00b8cf703f37a66a51f0fe28dee2315c1a263d
+--- /dev/null
++++ b/3rdparty/nvidia/0036-Lower-scalar-row-gather-projections.patch
+@@ -0,0 +1,121 @@
++From be77cc98ab292b58d55fb1e717092a39cbfc50df Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Fri, 28 Aug 2026 05:07:31 +0800
++Subject: [PATCH] Lower scalar-row gather projections
++
++---
++ .../LayoutPropagationImpl.cpp                 | 32 +++++++++++++------
++ .../TensorToCudaTile/gather_rows_layout.mlir  | 24 ++++++++++++++
++ 2 files changed, 47 insertions(+), 9 deletions(-)
++
++diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++index 2ed6a17..bb39ce0 100644
++--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++@@ -264,9 +264,16 @@ public:
++             "data layout cannot be projected to one row and one column axis");
++       }
++     }
++-    if (rowDim == iterationRank || columnDim == iterationRank ||
++-        rowDim == columnDim) {
++-      return op.emitError("data layout is missing a row or column axis");
+++    if (columnDim == iterationRank || rowDim == columnDim) {
+++      return op.emitError("data layout is missing an unambiguous column axis");
+++    }
+++    // A logical one-row gather can be transposed and broadcast into a wider
+++    // fused space. Its data projection then retains only the column axis,
+++    // while the repeated index is a scalar row selector on every fused axis.
+++    const bool scalarRowProjection = rowDim == iterationRank;
+++    if (scalarRowProjection && op.getOutput().getType().getDimSize(0) != 1) {
+++      return op.emitError(
+++          "data layout may omit the row axis only for a single-row gather");
++     }
++ 
++     auto indicesSource = dyn_cast<TensorSourceAttr>(state.layouts[1]);
++@@ -278,14 +285,17 @@ public:
++     for (size_t dim = 0; dim < iterationRank; ++dim) {
++       int64_t layoutStride =
++           tcg::static_size(tcg::get(indicesLayout.stride(), dim));
++-      if ((dim == rowDim && layoutStride != 1) ||
++-          (dim != rowDim && layoutStride != 0)) {
+++      const int64_t expectedStride =
+++          !scalarRowProjection && dim == rowDim ? 1 : 0;
+++      if (layoutStride != expectedStride) {
++         return op.emitError(
++-            "indices layout must vary contiguously only along the row axis");
+++            "indices layout must vary contiguously only along an explicit "
+++            "row axis");
++       }
++     }
++ 
++-    int64_t rowTileSize = iterationTileShape[rowDim];
+++    int64_t rowTileSize =
+++        scalarRowProjection ? 1 : iterationTileShape[rowDim];
++     int64_t columnTileSize = iterationTileShape[columnDim];
++     if (rowTileSize > std::numeric_limits<int32_t>::max() ||
++         columnTileSize > std::numeric_limits<int32_t>::max()) {
++@@ -318,7 +328,9 @@ public:
++ 
++     auto indicesType = cast<cuda_tile::TileType>(indicesTile.getType());
++     SmallVector<int64_t> narrowShape(iterationRank, 1);
++-    narrowShape[rowDim] = rowTileSize;
+++    if (!scalarRowProjection) {
+++      narrowShape[rowDim] = rowTileSize;
+++    }
++     auto narrowType = cuda_tile::TileType::get(
++         narrowShape, indicesType.getElementType());
++     SmallVector<Value> zeroIndices(iterationRank, state.zeroIndex);
++@@ -349,7 +361,9 @@ public:
++         gatherView, gatherIndices, /*token=*/nullptr, optimizationHints);
++     Value result = load.getTile();
++     SmallVector<int64_t> projectedShape(iterationRank, 1);
++-    projectedShape[rowDim] = rowTileSize;
+++    if (!scalarRowProjection) {
+++      projectedShape[rowDim] = rowTileSize;
+++    }
++     projectedShape[columnDim] = columnTileSize;
++     if (!llvm::equal(projectedShape, gatherTileShape)) {
++       result = cuda_tile::ReshapeOp::create(
++diff --git a/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
++index 938e92f..6a52390 100644
++--- a/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
+++++ b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
++@@ -9,6 +9,16 @@
++ // CHECK: %[[GATHERED:.*]], {{.*}} = load_view_tko weak %[[GATHER_VIEW]][%[[ROWS]], %[[COL_OFFSET]]]
++ // CHECK-SAME: -> tile<8x128xbf16>, token
++ // CHECK: store_view_tko weak %[[GATHERED]]
+++
+++// A single indirectly selected row may be projected through transpose and
+++// broadcast. The propagated data layout then carries only the column axis;
+++// the all-zero-stride index supplies one scalar row id.
+++// CHECK-LABEL: entry @gather_single_row_broadcast
+++// CHECK: %[[SINGLE_VIEW:.*]] = make_gather_scatter_view {{.*}} : gather_scatter_view<tile=(1x16), {{.*}}>
+++// CHECK: %[[SINGLE_NARROW:.*]] = extract {{.*}} : {{.*}} -> tile<1x1xi32>
+++// CHECK: %[[SINGLE_ROW:.*]] = reshape %[[SINGLE_NARROW]] : tile<1x1xi32> -> tile<1xi32>
+++// CHECK: load_view_tko weak %[[SINGLE_VIEW]][%[[SINGLE_ROW]], {{.*}}]
+++// CHECK: store_view_tko weak
++ module {
++   nv_tensor_ir.graph @gather_rows(
++       %data: tensor<1024x128xbf16>,
++@@ -20,4 +30,18 @@ module {
++        -> tensor<32x128xbf16>
++     results %gathered : tensor<32x128xbf16>
++   }
+++
+++  nv_tensor_ir.graph @gather_single_row_broadcast(
+++      %data: tensor<65x16xsi32> {nv_tensor_ir.stride = "(16,1)"},
+++      %request_index: tensor<1x16xsi32> {nv_tensor_ir.stride = "(0,0)"})
+++      -> tensor<16x256xsi32>
+++      attributes {tile_size = array<i32: 16, 128>} {
+++    %row = gather_rows %data, %request_index
+++        : (tensor<65x16xsi32>, tensor<1x16xsi32>) -> tensor<1x16xsi32>
+++    %column = transpose %row permutation = [1, 0]
+++        : tensor<1x16xsi32> -> tensor<16x1xsi32>
+++    %expanded = broadcast %column
+++        : tensor<16x1xsi32> -> tensor<16x256xsi32>
+++    results %expanded : tensor<16x256xsi32>
+++  }
++ }
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 70795842ee1c5de92b56c0570e5d51bd79601f27..be77cc98ab292b58d55fb1e717092a39cbfc50df 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 70795842ee1c5de92b56c0570e5d51bd79601f27
++Subproject commit be77cc98ab292b58d55fb1e717092a39cbfc50df
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index c7ffcfc7df4b1d6b320469dbeadf7a4ffbbaa1b8..20b61c4cadf5f1ca4cfcf227fc2b38862d0967a6 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "70795842ee1c5de92b56c0570e5d51bd79601f27")
++    "be77cc98ab292b58d55fb1e717092a39cbfc50df")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

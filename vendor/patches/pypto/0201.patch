@@ -1,0 +1,103 @@
+From d47162ed69d49ba506857109d23b1acb859126dd Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 15:42:54 +0800
+Subject: [PATCH 201/212] Accept row-pitched paged attention inputs
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 38 +++++++++++++++---------
+ 1 file changed, 24 insertions(+), 14 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 07cfd1bafd718cc807d9d0448d332b03660735ad..04ba75a70425a4d1a4d0ea4f58e5bec8988f2727 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -5590,10 +5590,10 @@ NativeTilePagedCacheWriteGraph AnalyzeNativeTilePagedCacheWrite(
+   const StaticTensor virtual_to_physical = ReadStaticIntegerTensor(
+       function->params_[3]->GetType(), function->params_[3]->span_,
+       "native paged cache write virtual-to-physical table");
+-  const StaticTensor key = ReadStaticTensor(
++  const StaticTensor key = ReadStaticNdStridedTensor(
+       function->params_[4]->GetType(), function->params_[4]->span_,
+       "native paged cache write key update");
+-  const StaticTensor value = ReadStaticTensor(
++  const StaticTensor value = ReadStaticNdStridedTensor(
+       function->params_[5]->GetType(), function->params_[5]->span_,
+       "native paged cache write value update");
+   const StaticTensor result = ReadStaticTensor(
+@@ -5612,9 +5612,14 @@ NativeTilePagedCacheWriteGraph AnalyzeNativeTilePagedCacheWrite(
+       virtual_to_physical.shape.size() != 2 ||
+       virtual_to_physical.shape[0] <= 0 ||
+       virtual_to_physical.shape[1] != 1 || key.dtype != DataType::BF16 ||
+-      !SameTensor(key, value) || !SameTensor(key, result) ||
+-      !SameTensor(result, declared) || key.shape.size() != 2 ||
+-      key.shape[0] <= 0 || key_cache.shape[0] <= 0 ||
++      value.dtype != DataType::BF16 || key.shape != value.shape ||
++      key.shape.size() != 2 || value.shape.size() != 2 ||
++      key.dense_strides[1] != 1 || value.dense_strides[1] != 1 ||
++      key.dense_strides[0] < key.shape[1] ||
++      value.dense_strides[0] < value.shape[1] ||
++      result.dtype != DataType::BF16 || result.shape != key.shape ||
++      !SameTensor(result, declared) || key.shape[0] <= 0 ||
++      key_cache.shape[0] <= 0 ||
+       key_cache.shape[1] != key.shape[1] || key.shape[1] % 128 != 0 ||
+       physical_row.shape != key.shape) {
+     Reject("native paged cache write tensor geometry is invalid",
+@@ -5787,7 +5792,7 @@ NativeTilePagedPrefillGraph AnalyzeNativeTilePagedPrefill(
+            &function->span_);
+   }
+ 
+-  const StaticTensor query = ReadStaticTensor(
++  const StaticTensor query = ReadStaticNdStridedTensor(
+       function->params_[0]->GetType(), function->params_[0]->span_,
+       "native paged prefill query");
+   const StaticTensor key_cache = ReadStaticNdStridedTensor(
+@@ -5829,7 +5834,8 @@ NativeTilePagedPrefillGraph AnalyzeNativeTilePagedPrefill(
+       virtual_to_physical.shape.size() != 2 ||
+       virtual_to_physical.shape[0] <= 0 ||
+       virtual_to_physical.shape[1] != 1 ||
+-      !SameTensor(query, result) || !SameTensor(result, declared)) {
++      result.dtype != query.dtype || result.shape != query.shape ||
++      !SameTensor(result, declared)) {
+     Reject("native paged prefill tensor types or ranks are invalid",
+            &function->span_);
+   }
+@@ -6070,7 +6076,7 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+            &function->span_);
+   }
+ 
+-  const StaticTensor query = ReadStaticTensor(
++  const StaticTensor query = ReadStaticNdStridedTensor(
+       function->params_[0]->GetType(), function->params_[0]->span_,
+       "native paged decode query");
+   const StaticTensor key_cache = ReadStaticNdStridedTensor(
+@@ -6111,7 +6117,8 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+       key_cache.dense_strides[1] != 1 ||
+       key_cache.dense_strides[0] < key_cache.shape[1] ||
+       req_to_token.shape.size() != 2 || request_index.shape.size() != 2 ||
+-      valid_tokens.shape.size() != 2 || !SameTensor(query, result) ||
++      valid_tokens.shape.size() != 2 || result.dtype != query.dtype ||
++      result.shape != query.shape ||
+       !SameTensor(result, declared)) {
+     Reject("native paged decode tensor types or ranks are invalid",
+            &function->span_);
+@@ -8851,12 +8858,15 @@ TensorIrValueMetadata::TensorIrValueMetadata(TensorIrValueRole role, uint32_t or
+       std::all_of(logical_dense_strides_.begin(),
+                   logical_dense_strides_.end(),
+                   [](int64_t stride) { return stride >= 0; });
++  const std::vector<int64_t> dense_strides =
++      MakeDenseStridesForMetadata(shape_);
+   const bool rowPitchedInput =
+-      role_ == TensorIrValueRole::Input && shape_.size() == 2 &&
+-      logical_dense_strides_.size() == 2 &&
+-      logical_dense_strides_[1] == 1 &&
+-      logical_dense_strides_[0] >= shape_[1];
+-  if (logical_dense_strides_ != MakeDenseStridesForMetadata(shape_) &&
++      role_ == TensorIrValueRole::Input && shape_.size() >= 2 &&
++      logical_dense_strides_.size() == shape_.size() &&
++      logical_dense_strides_[0] >= dense_strides[0] &&
++      std::equal(logical_dense_strides_.begin() + 1,
++                 logical_dense_strides_.end(), dense_strides.begin() + 1);
++  if (logical_dense_strides_ != dense_strides &&
+       !zeroStrideInput && !rowPitchedInput) {
+     InternalReject(
+         "value metadata strides must be dense, row-pitched, or a zero-stride "

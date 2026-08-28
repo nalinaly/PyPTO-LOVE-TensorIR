@@ -1,0 +1,30 @@
+From c340893c5319286d24c3532e17f7218ffb5acd88 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 12:38:54 +0800
+Subject: [PATCH 191/212] Lock unpermuted scatter probe
+
+---
+ 3rdparty/nvidia/tensor-ir  | 2 +-
+ cmake/nvidia_backend.cmake | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 6245d2baeb6f815b61464f63759c251a9a6abac0..8ad445b0af6422be6274544de2138335fa20c56f 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 6245d2baeb6f815b61464f63759c251a9a6abac0
++Subproject commit 8ad445b0af6422be6274544de2138335fa20c56f
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 0b56d539cfdfe6fcbc58c9fce874549378b2f530..68e74354fe65f633d1ddaaf0f20151317339da68 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "6245d2baeb6f815b61464f63759c251a9a6abac0")
++    "8ad445b0af6422be6274544de2138335fa20c56f")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

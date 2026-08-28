@@ -1,0 +1,223 @@
+From e0998b9ec42cf590ca389c9ffba3c9cd0d5b6571 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Mon, 24 Aug 2026 23:34:05 +0800
+Subject: [PATCH 07/82] compiler: fully validate emitted device artifacts
+
+---
+ lib/Compiler/CMakeLists.txt                |  4 ++
+ lib/Compiler/CudaTile/CudaTileArtifact.cpp | 82 +++++++++++++++++++++-
+ lib/Compiler/CudaTile/TileIRAssembly.cpp   | 59 +++++++++++++++-
+ 3 files changed, 141 insertions(+), 4 deletions(-)
+
+diff --git a/lib/Compiler/CMakeLists.txt b/lib/Compiler/CMakeLists.txt
+index d416f7337ea9f00d8a30bae31ec445487239f551..5e38b5e36b626fb32231da11d04f04dc58be9446 100644
+--- a/lib/Compiler/CMakeLists.txt
++++ b/lib/Compiler/CMakeLists.txt
+@@ -30,6 +30,10 @@ add_tensor_ir_library(NVTensorIRCompiler STATIC
+     MLIRIR
+     MLIRPass
+     NVTensorIR::Runtime
++    CudaTileBytecodeReader
++
++  LINK_COMPONENTS
++    Object
+ )
+ 
+ # Compiler.h is a public embedding surface and directly includes MLIR/LLVM
+diff --git a/lib/Compiler/CudaTile/CudaTileArtifact.cpp b/lib/Compiler/CudaTile/CudaTileArtifact.cpp
+index b2b6c335acf77f4884c17952a778a1c726e1affc..46c52021569346800438c8a9b0178908e826ca66 100644
+--- a/lib/Compiler/CudaTile/CudaTileArtifact.cpp
++++ b/lib/Compiler/CudaTile/CudaTileArtifact.cpp
+@@ -3,8 +3,16 @@
+ 
+ #include "tensor_ir/Compiler/CudaTile/CudaTileArtifact.h"
+ 
+-#include "llvm/BinaryFormat/ELF.h"
+ #include "llvm/ADT/StringRef.h"
++#include "llvm/BinaryFormat/ELF.h"
++#include "llvm/Object/ELFObjectFile.h"
++#include "llvm/Object/ObjectFile.h"
++#include "llvm/Support/Error.h"
++#include "llvm/Support/MemoryBuffer.h"
++
++#include "cuda_tile/Bytecode/Reader/BytecodeReader.h"
++#include "cuda_tile/Dialect/CudaTile/IR/Dialect.h"
++#include "mlir/IR/Diagnostics.h"
+ 
+ #include <cstddef>
+ #include <limits>
+@@ -67,6 +75,20 @@ Status validateTileIRHeader(
+   return Status::Ok();
+ }
+ 
++Status validateCompleteTileIR(llvm::ArrayRef<char> bytes) {
++  llvm::MemoryBufferRef buffer(
++      llvm::StringRef(bytes.data(), bytes.size()), "cuda-tile-artifact");
++  mlir::MLIRContext context(mlir::MLIRContext::Threading::DISABLED);
++  context.getOrLoadDialect<mlir::cuda_tile::CudaTileDialect>();
++  mlir::ScopedDiagnosticHandler handler(&context,
++                                        [](mlir::Diagnostic &) {});
++  auto module = mlir::cuda_tile::readBytecode(buffer, context);
++  if (!module) {
++    return Status::InvalidArgument("invalid or incomplete TileIR bytecode");
++  }
++  return Status::Ok();
++}
++
+ Status validateCudaElfHeader(llvm::ArrayRef<char> bytes,
+                              std::optional<int32_t> expectedCc) {
+   constexpr size_t kElf64HeaderSize = 64;
+@@ -103,6 +125,62 @@ Status validateCudaElfHeader(llvm::ArrayRef<char> bytes,
+   return Status::Ok();
+ }
+ 
++Status validateCompleteCudaElf(llvm::ArrayRef<char> bytes,
++                               const SmTarget &expectedTarget) {
++  // CUDA 13.3 cubins emitted by tileiras use OSABI byte 0x41. The pinned LLVM
++  // revision only names the older CUDA OSABI values (0x33 and 0x29).
++  static constexpr uint8_t kCudaTileOsAbi = 0x41;
++  llvm::MemoryBufferRef buffer(
++      llvm::StringRef(bytes.data(), bytes.size()), "cuda-cubin-artifact");
++  auto objectOr = llvm::object::ObjectFile::createObjectFile(buffer);
++  if (!objectOr) {
++    llvm::consumeError(objectOr.takeError());
++    return Status::InvalidArgument("invalid CUDA ELF object structure");
++  }
++  auto *elf = llvm::dyn_cast<llvm::object::ELFObjectFileBase>(objectOr->get());
++  if (!elf || elf->getEMachine() != llvm::ELF::EM_CUDA ||
++      elf->getBytesInAddress() != 8 || !elf->isLittleEndian() ||
++      (elf->getEType() != llvm::ELF::ET_EXEC &&
++       elf->getEType() != llvm::ELF::ET_REL) ||
++      (elf->getEIdentOSABI() != llvm::ELF::ELFOSABI_CUDA &&
++       elf->getEIdentOSABI() != llvm::ELF::ELFOSABI_CUDA_V2 &&
++       elf->getEIdentOSABI() != kCudaTileOsAbi) ||
++      (elf->getEIdentABIVersion() != llvm::ELF::ELFABIVERSION_CUDA_V1 &&
++       elf->getEIdentABIVersion() != llvm::ELF::ELFABIVERSION_CUDA_V2)) {
++    return Status::InvalidArgument("ELF object is not a supported CUDA cubin");
++  }
++
++  bool hasText = false;
++  for (const llvm::object::SectionRef &section : elf->sections()) {
++    auto contents = section.getContents();
++    if (!contents) {
++      llvm::consumeError(contents.takeError());
++      return Status::InvalidArgument("invalid CUDA ELF section bounds");
++    }
++    hasText = hasText || section.isText();
++  }
++  if (!hasText) {
++    return Status::InvalidArgument("CUDA cubin contains no text section");
++  }
++
++  uint32_t flags = elf->getPlatformFlags();
++  int32_t expectedCc = expectedTarget.getComputeCapabilityVersion();
++  int32_t encodedCc = expectedCc >= 100
++                          ? static_cast<int32_t>(
++                                (flags & llvm::ELF::EF_CUDA_SM_MASK) >>
++                                llvm::ELF::EF_CUDA_SM_OFFSET)
++                          : static_cast<int32_t>(flags & llvm::ELF::EF_CUDA_SM);
++  if (encodedCc != expectedCc) {
++    return Status::InvalidArgument(
++        "cubin SM flags differ from artifact target metadata");
++  }
++  // TensorIR's arch_conditional means an exact numeric architecture match;
++  // it is not the CUDA accelerator-feature suffix encoded by
++  // EF_CUDA_ACCELERATORS. The exact SM check above is therefore the complete
++  // portability validation for this Cubin path.
++  return Status::Ok();
++}
++
+ Status validateArgLayout(const ::tensor_ir::rt::KernelArgLayout &layout) {
+   if (layout.numInputs < 0 ||
+       layout.numInputs > static_cast<int32_t>(layout.tensorDescs.size())) {
+@@ -254,9 +332,11 @@ Status CudaTileCompiledArtifact::validate() const {
+   if (actualArtifactKind == CudaTileArtifactKind::TileIR) {
+     TIR_RETURN_IF_ERROR(
+         validateTileIRHeader(deviceCode, tileIRBytecodeVersion));
++    TIR_RETURN_IF_ERROR(validateCompleteTileIR(deviceCode));
+   } else {
+     TIR_RETURN_IF_ERROR(validateCudaElfHeader(
+         deviceCode, actualTarget.getComputeCapabilityVersion()));
++    TIR_RETURN_IF_ERROR(validateCompleteCudaElf(deviceCode, actualTarget));
+   }
+ 
+   TIR_RETURN_IF_ERROR(validateArgLayout(argLayout));
+diff --git a/lib/Compiler/CudaTile/TileIRAssembly.cpp b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+index 26cc6d6e4c3197c0bf2346aac12dea9c77371835..606d8a760e66989c8e35bd349f57acd29f9e355a 100644
+--- a/lib/Compiler/CudaTile/TileIRAssembly.cpp
++++ b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+@@ -91,6 +91,54 @@ StatusOr<std::string> sha256File(llvm::StringRef path) {
+       /*LowerCase=*/true);
+ }
+ 
++StatusOr<TemporaryFile>
++materializeVerifiedProgram(llvm::StringRef sourcePath,
++                           llvm::StringRef expectedSha256) {
++  auto source = llvm::MemoryBuffer::getFile(sourcePath, /*IsText=*/false);
++  if (!source) {
++    return Status::NotFound("failed to read tileiras for verified copy: " +
++                            source.getError().message());
++  }
++  llvm::SHA256 sha;
++  sha.update((*source)->getBuffer());
++  auto digest = sha.final();
++  std::string actualSha256 = llvm::toHex(
++      llvm::ArrayRef<uint8_t>(digest.data(), digest.size()),
++      /*LowerCase=*/true);
++  if (actualSha256 != expectedSha256) {
++    return Status::CompilationError(
++        "tileiras SHA-256 differs from the expected producer identity");
++  }
++
++  TIR_ASSIGN_OR_RETURN(auto copy, createTemporaryFile("tileiras"));
++  std::error_code error;
++  llvm::raw_fd_ostream output(copy.path, error, llvm::sys::fs::OF_None);
++  if (error) {
++    return Status::CompilationError(
++        "failed to open verified tileiras copy: " + error.message());
++  }
++  llvm::StringRef bytes = (*source)->getBuffer();
++  output.write(bytes.data(), bytes.size());
++  output.close();
++  if (output.has_error()) {
++    output.clear_error();
++    return Status::CompilationError("failed to write verified tileiras copy");
++  }
++  error = llvm::sys::fs::setPermissions(
++      copy.path, llvm::sys::fs::owner_read | llvm::sys::fs::owner_exe);
++  if (error) {
++    return Status::CompilationError(
++        "failed to make verified tileiras copy executable: " +
++        error.message());
++  }
++  TIR_ASSIGN_OR_RETURN(auto copySha256, sha256File(copy.path));
++  if (copySha256 != expectedSha256) {
++    return Status::CompilationError(
++        "verified tileiras copy differs from expected producer identity");
++  }
++  return copy;
++}
++
+ Status validateCanonicalProgramPath(llvm::StringRef program) {
+   llvm::SmallString<256> canonical;
+   if (std::error_code error =
+@@ -142,11 +190,16 @@ assembleWithExecutable(llvm::ArrayRef<char> bytecode, SmTarget target,
+     }
+     programStorage = assemblerPath.str();
+   }
+-  llvm::StringRef program(programStorage);
++  std::unique_ptr<TemporaryFile> verifiedProgram;
+   if (!assemblerVersion.empty() || !assemblerSha256.empty()) {
+-    TIR_RETURN_IF_ERROR(validateCanonicalProgramPath(program));
+-    TIR_RETURN_IF_ERROR(validateProgramSha256(program, assemblerSha256));
++    TIR_RETURN_IF_ERROR(validateCanonicalProgramPath(programStorage));
++    TIR_ASSIGN_OR_RETURN(
++        auto copy,
++        materializeVerifiedProgram(programStorage, assemblerSha256));
++    verifiedProgram = std::make_unique<TemporaryFile>(std::move(copy));
++    programStorage = verifiedProgram->path;
+   }
++  llvm::StringRef program(programStorage);
+ 
+   TIR_ASSIGN_OR_RETURN(auto stdoutFile, createTemporaryFile("stdout"));
+   TIR_ASSIGN_OR_RETURN(auto stderrFile, createTemporaryFile("stderr"));

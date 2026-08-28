@@ -1,0 +1,150 @@
+{
+  "bundled_repositories": [
+    "pypto",
+    "tensor_ir"
+  ],
+  "environment_lock": {
+    "bytes": 1954,
+    "path": "environment/release-runtime.json",
+    "sha256": "5bbccd0e74a33eff12bbc401670b7ca7337e26a95aea087a16df6f7175da65e9"
+  },
+  "environment_artifacts": [
+    {
+      "bytes": 1924,
+      "path": "environment/python-artifacts.json",
+      "sha256": "3422585b0ca36ae4d009bee376d6d1d9051bfadb933802d0fde55f7185b18f4a"
+    },
+    {
+      "bytes": 3364,
+      "path": "environment/conda-linux-64.lock",
+      "sha256": "dae9d06f6a54b0b4a88f9bf63320eadee1ce106ad99571afd1d5ef3886e2a84b"
+    },
+    {
+      "bytes": 18319,
+      "path": "environment/python-requirements.lock",
+      "sha256": "2792dd2a37313552249cfb8da36ebffad5686ae7724ddfe2a15878bfede611bf"
+    }
+  ],
+  "materialization": {
+    "pypto": "pypto",
+    "sglang": "sglang",
+    "tensor_ir": "tensor-ir"
+  },
+  "models": {
+    "Qwen3.5-0.8B": {
+      "repository_id": "Qwen/Qwen3.5-0.8B",
+      "revision": "2fc06364715b967f1860aea9cf38778875588b17"
+    },
+    "Qwen3.5-9B": {
+      "repository_id": "Qwen/Qwen3.5-9B",
+      "revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a"
+    }
+  },
+  "pypto_submodules": [
+    {
+      "commit": "6f8310e238fc3ce68f42f391cbe93fd156bb2c23",
+      "name": "3rdparty/libbacktrace",
+      "path": "3rdparty/libbacktrace",
+      "tree": "ad503ff870a7e80dcefdbee56ef989c436914551",
+      "url": "https://github.com/ianlancetaylor/libbacktrace.git"
+    },
+    {
+      "commit": "919908742b4fdbc575e77fe1a8657e70c9573c44",
+      "name": "3rdparty/msgpack-c",
+      "path": "3rdparty/msgpack-c",
+      "tree": "92e8061dce8ca597448f46f4760346f4f521b887",
+      "url": "https://github.com/msgpack/msgpack-c.git"
+    },
+    {
+      "commit": "93adc3865e65fd72655f571f2e4165cf5ac02616",
+      "name": "simpler",
+      "path": "runtime",
+      "tree": "e34d1bfcf296e9e7d4a83d841852e18602ec11d3",
+      "url": "https://github.com/hw-native-sys/simpler"
+    },
+    {
+      "commit": "b478e09a49c13d8ee330f770a19fef48b759f8b8",
+      "local_source": "tensor_ir",
+      "name": "3rdparty/nvidia/tensor-ir",
+      "path": "3rdparty/nvidia/tensor-ir",
+      "tree": "e01988d10b9363662ce4da07b491463055b34943",
+      "url": "https://github.com/NVIDIA/tensor-ir.git"
+    },
+    {
+      "commit": "af2417041cc939b87ef56d92cfdcf61737c5457e",
+      "name": "3rdparty/nvidia/cuda-tile",
+      "path": "3rdparty/nvidia/cuda-tile",
+      "tree": "b0a6c166d92280b62426e13230f49891949018ef",
+      "url": "https://github.com/NVIDIA/cuda-tile.git"
+    },
+    {
+      "commit": "57109befac92811d2253109242ca6fa69c961fb2",
+      "name": "3rdparty/nvidia/llvm-project",
+      "path": "3rdparty/nvidia/llvm-project",
+      "tree": "e90694a578acabc5b321268938b28077c3026b0e",
+      "url": "https://github.com/llvm/llvm-project.git"
+    }
+  ],
+  "release": "qwen35-sm120-v1",
+  "repositories": {
+    "pypto": {
+      "base_commit": "e2d0f78ae6d709c0d6ee345a48db2c3d621a4b09",
+      "base_tree": "a46f244a62dfab663fbeb899eb62ee8a042a0b41",
+      "bundle": {
+        "base_ref": "refs/tags/upstream-base",
+        "bytes": 9101996,
+        "head_ref": "refs/heads/nvidia-sm120",
+        "path": "vendor/git/pypto.bundle",
+        "sha256": "b301ae34d13a66f2774be9699b9f5369a9821fba85705031edf3754e062796a2"
+      },
+      "commit_count": 212,
+      "head_commit": "9e13b4301faeee482bb63e16e7991d0b597a5a51",
+      "head_tree": "9503b46390681393e1536668969d5ede5b547482",
+      "gitlinks": {
+        "3rdparty/libbacktrace": "6f8310e238fc3ce68f42f391cbe93fd156bb2c23",
+        "3rdparty/msgpack-c": "919908742b4fdbc575e77fe1a8657e70c9573c44",
+        "3rdparty/nvidia/cuda-tile": "af2417041cc939b87ef56d92cfdcf61737c5457e",
+        "3rdparty/nvidia/llvm-project": "57109befac92811d2253109242ca6fa69c961fb2",
+        "3rdparty/nvidia/tensor-ir": "b478e09a49c13d8ee330f770a19fef48b759f8b8",
+        "runtime": "93adc3865e65fd72655f571f2e4165cf5ac02616"
+      },
+      "origin_url": "https://github.com/hw-native-sys/pypto.git",
+      "patch_series": {
+        "directory": "vendor/patches/pypto",
+        "manifest": "vendor/patches/pypto/series.json",
+        "manifest_bytes": 66277,
+        "manifest_sha256": "8e14e2bdc41ae2f14e60023483e92aa8cd88a81cc50e97b314be056a94bab022"
+      },
+      "shallow_boundary": "e2d0f78ae6d709c0d6ee345a48db2c3d621a4b09"
+    },
+    "sglang": {
+      "head_commit": "71de97b264b04dcd514cf904003028aefe9775c8",
+      "head_tree": "41968ca25c0e5e2f71fc1a4cf2c9c5b0ae823f72",
+      "origin_url": "https://github.com/sgl-project/sglang.git",
+      "version": "v0.5.18"
+    },
+    "tensor_ir": {
+      "base_commit": "3b5a8bebc00510b46a1e8b97229d06dd0d006215",
+      "base_tree": "1cb1598849e2be37c3455f2bab7e3e9643acf922",
+      "bundle": {
+        "base_ref": "refs/tags/upstream-base",
+        "bytes": 611653,
+        "head_ref": "refs/heads/pypto-sm120",
+        "path": "vendor/git/tensor-ir.bundle",
+        "sha256": "955560ef2bb87f2394113c202533727ba4a20194fcae08d95bfa0be71f55945b"
+      },
+      "commit_count": 82,
+      "head_commit": "b478e09a49c13d8ee330f770a19fef48b759f8b8",
+      "head_tree": "e01988d10b9363662ce4da07b491463055b34943",
+      "origin_url": "https://github.com/NVIDIA/tensor-ir.git",
+      "patch_series": {
+        "directory": "vendor/patches/tensor-ir",
+        "manifest": "vendor/patches/tensor-ir/series.json",
+        "manifest_bytes": 25613,
+        "manifest_sha256": "a5c664d82c9d183ab04a201a849ec74ce65e7449734042c98d21029c23270b7c"
+      },
+      "shallow_boundary": "3b5a8bebc00510b46a1e8b97229d06dd0d006215"
+    }
+  },
+  "schema": 1
+}

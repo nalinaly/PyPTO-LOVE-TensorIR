@@ -1,0 +1,240 @@
+From 8d6e882c5f77ad9f7bc4bf226826c3fce58f1c36 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 12:59:24 +0800
+Subject: [PATCH 071/212] codegen: row-reduction epilogue graphs with
+ post-reduce broadcast
+
+sum -> optional scale/shift/rsqrt over [M,1] -> broadcast -> multiply
+lands as one fused-pointwise-shaped graph, the post-reduce broadcast
+shape the pinned lowering documents.
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 209 +++++++++++++++++++++++
+ 1 file changed, 209 insertions(+)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 6800f96de3b38c6ac17d881313dadea994164749..e65665d8b8f3b5a89802f946e10cb861a50fbc02 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -477,6 +477,196 @@ const char* TensorIrReductionMode(RowReductionMode mode) {
+   InternalReject("unsupported row reduction mode reached source emission");
+ }
+ 
++struct RowReductionEpilogueStep {
++  std::string_view op;  // "muls" | "adds" | "rsqrt"
++  double scalar = 0.0;
++};
++
++// A row reduction whose [M,1] result feeds an optional scalar/unary epilogue
++// and then broadcasts back over the input for the final combine. This is the
++// documented post-reduce broadcast shape the pinned lowering supports, and it
++// is what norm chains (sum -> scale -> shift -> rsqrt -> multiply) need.
++bool AnalyzeRowReductionV4(const ir::ProgramPtr& program,
++                           StaticTensor& input_out,
++                           std::vector<RowReductionEpilogueStep>& steps_out) {
++  if (!program || program->functions_.size() != 1) return false;
++  const ir::FunctionPtr& function = program->functions_.begin()->second;
++  if (!function || !function->body_) return false;
++  const auto sequence = ir::As<ir::SeqStmts>(function->body_);
++  if (!sequence || sequence->stmts_.size() < 3 || sequence->stmts_.size() > 6) {
++    return false;
++  }
++  if (function->params_.size() != 1 ||
++      function->param_directions_.size() != 1 ||
++      function->return_types_.size() != 1) {
++    return false;
++  }
++  const StaticTensor input = ReadStaticTensor(
++      function->params_[0]->GetType(), function->params_[0]->span_,
++      "row reduction epilogue parameter");
++  if (input.shape.size() != 2 || input.dtype != DataType::FP32) return false;
++  StaticTensor row = input;
++  row.shape[1] = 1;
++  row.dense_strides = {1, 1};
++
++  std::vector<ir::VarPtr> chain;
++  std::vector<RowReductionEpilogueStep> steps;
++  for (size_t index = 0; index + 1 < sequence->stmts_.size(); ++index) {
++    const auto assignment = ir::As<ir::AssignStmt>(sequence->stmts_[index]);
++    if (!assignment) return false;
++    const auto call = ir::As<ir::Call>(assignment->value_);
++    if (!call || !call->op_) return false;
++    const StaticTensor result = ReadStaticTensor(
++        assignment->var_->GetType(), assignment->var_->span_,
++        "row reduction epilogue result");
++    if (index == 0) {
++      if (!ir::IsOp(call, "tensor.row_sum") || call->args_.size() != 1) {
++        return false;
++      }
++      const auto operand = ir::As<ir::Var>(call->args_[0]);
++      if (!operand || operand.get() != function->params_[0].get()) return false;
++      if (!SameTensor(row, result)) return false;
++      chain.push_back(assignment->var_);
++      continue;
++    }
++    if (index + 2 == sequence->stmts_.size()) {
++      // Final combine: row_expand_mul(input, last row value) at full extent.
++      if (!ir::IsOp(call, "tensor.row_expand_mul") || call->args_.size() != 2) {
++        return false;
++      }
++      const auto full = ir::As<ir::Var>(call->args_[0]);
++      const auto scaled = ir::As<ir::Var>(call->args_[1]);
++      if (!full || full.get() != function->params_[0].get()) return false;
++      if (!scaled || scaled.get() != chain.back().get()) return false;
++      if (!SameTensor(input, result)) return false;
++      chain.push_back(assignment->var_);
++      continue;
++    }
++    if (ir::IsOp(call, "tensor.muls") && call->args_.size() == 2) {
++      const auto operand = ir::As<ir::Var>(call->args_[0]);
++      const auto scalar = ir::As<ir::ConstFloat>(call->args_[1]);
++      if (!operand || operand.get() != chain.back().get() || !scalar) return false;
++      if (!SameTensor(row, result)) return false;
++      steps.push_back({"muls", scalar->value_});
++      chain.push_back(assignment->var_);
++      continue;
++    }
++    if (ir::IsOp(call, "tensor.adds") && call->args_.size() == 2) {
++      const auto operand = ir::As<ir::Var>(call->args_[0]);
++      const auto scalar = ir::As<ir::ConstFloat>(call->args_[1]);
++      if (!operand || operand.get() != chain.back().get() || !scalar) return false;
++      if (!SameTensor(row, result)) return false;
++      steps.push_back({"adds", scalar->value_});
++      chain.push_back(assignment->var_);
++      continue;
++    }
++    if (ir::IsOp(call, "tensor.rsqrt") && call->args_.size() == 1) {
++      const auto operand = ir::As<ir::Var>(call->args_[0]);
++      if (!operand || operand.get() != chain.back().get()) return false;
++      if (!SameTensor(row, result)) return false;
++      steps.push_back({"rsqrt", 0.0});
++      chain.push_back(assignment->var_);
++      continue;
++    }
++    return false;
++  }
++  const auto returned = ir::As<ir::ReturnStmt>(sequence->stmts_.back());
++  if (!returned || returned->value_.size() != 1) return false;
++  const auto returned_variable = ir::As<ir::Var>(returned->value_[0]);
++  if (!returned_variable || returned_variable.get() != chain.back().get()) {
++    return false;
++  }
++  const StaticTensor declared = ReadStaticTensor(
++      function->return_types_[0], function->span_, "declared row reduction epilogue result");
++  if (!SameTensor(input, declared)) return false;
++  input_out = input;
++  steps_out = std::move(steps);
++  return true;
++}
++
++std::string EmitRowReductionEpilogueSource(
++    const StaticTensor& input, const std::vector<RowReductionEpilogueStep>& steps) {
++  StaticTensor row = input;
++  row.shape[1] = 1;
++  row.dense_strides = {1, 1};
++  const std::string input_type = TensorTypeText(input);
++  const std::string input_with_stride = TensorWithStrideText(input);
++  const std::string row_type = TensorTypeText(row);
++  std::string source;
++  source += "module {\n  nv_tensor_ir.graph @";
++  source += kFusedPointwiseEntryName;
++  source += "(\n    %arg0: ";
++  source += input_with_stride;
++  source += "\n  ) -> (";
++  source += input_with_stride;
++  source += ") {\n";
++  source += "    %reduce0 = reduce(%arg0) <dimensions = [1], reduction_mode = <add>> : ";
++  source += input_type;
++  source += " -> ";
++  source += row_type;
++  source += "\n";
++  source += "    %sumzero = constant 0.0 : f32\n";
++  source += "    %sumsplat = splat %sumzero : ";
++  source += row_type;
++  source += "\n    %sum0 = add %reduce0, %sumsplat : ";
++  source += row_type;
++  source += "\n";
++  std::string current = "%sum0";
++  size_t constant_index = 0;
++  for (const RowReductionEpilogueStep& step : steps) {
++    if (step.op == "rsqrt") {
++      source += "    %ep";
++      AppendIndex(source, constant_index);
++      source += " = rsqrt ";
++      source += current;
++      source += " : ";
++      source += row_type;
++      source += "\n";
++      current = "%ep" + std::to_string(constant_index);
++      ++constant_index;
++      continue;
++    }
++    source += "    %c";
++    AppendIndex(source, constant_index);
++    source += " = constant ";
++    AppendFloat(source, step.scalar);
++    source += " : f32\n    %cs";
++    AppendIndex(source, constant_index);
++    source += " = splat %c";
++    AppendIndex(source, constant_index);
++    source += " : ";
++    source += row_type;
++    source += "\n    %ep";
++    AppendIndex(source, constant_index);
++    source += " = ";
++    source += step.op == "muls" ? "mul" : "add";
++    source += " ";
++    source += current;
++    source += ", %cs";
++    AppendIndex(source, constant_index);
++    source += " : ";
++    source += row_type;
++    source += "\n";
++    current = "%ep" + std::to_string(constant_index);
++    ++constant_index;
++  }
++  source += "    %bcast0 = broadcast ";
++  source += current;
++  source += " : ";
++  source += row_type;
++  source += " -> ";
++  source += input_type;
++  source += "\n    %result0 = mul %arg0, %bcast0 : ";
++  source += input_type;
++  source += "\n    results %result0 : ";
++  source += input_type;
++  source += "\n  }\n}\n";
++  if (source.size() > kMaximumCanonicalSourceBytes) {
++    Reject("canonical TensorIR source exceeds 16 MiB");
++  }
++  return source;
++}
++
+ std::string EmitRowReductionSource(const RowReductionGraph& graph) {
+   const std::string input_type = TensorTypeText(graph.input);
+   const std::string input_with_stride = TensorWithStrideText(graph.input);
+@@ -1381,6 +1571,25 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+   if (IsLegacyStaticAddV1Candidate(program)) {
+     return detail::EmitLegacyStaticAddV1(program);
+   }
++  {
++    StaticTensor reduction_input;
++    std::vector<RowReductionEpilogueStep> steps;
++    if (AnalyzeRowReductionV4(program, reduction_input, steps)) {
++      std::vector<TensorIrValueMetadata> metadata;
++      metadata.reserve(2);
++      metadata.push_back(TensorIrValueMetadata(
++          TensorIrValueRole::Input, 0, reduction_input.dtype,
++          reduction_input.shape, reduction_input.dense_strides,
++          reduction_input.shape.size() >= 2));
++      metadata.push_back(TensorIrValueMetadata(
++          TensorIrValueRole::Result, 0, reduction_input.dtype,
++          reduction_input.shape, reduction_input.dense_strides,
++          reduction_input.shape.size() >= 2));
++      return TensorIrModule(TensorIrModuleKind::FusedPointwiseV2,
++                            EmitRowReductionEpilogueSource(reduction_input, steps),
++                            std::move(metadata), /*input_count=*/1);
++    }
++  }
+   if (IsRowReductionV3Candidate(program)) {
+     const RowReductionGraph graph = AnalyzeRowReductionV3(program);
+     std::vector<TensorIrValueMetadata> metadata;

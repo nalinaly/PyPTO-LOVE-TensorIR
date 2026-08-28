@@ -1,0 +1,351 @@
+From 6c79f96bd40d08abd7f2dfaba4f32b7373530fae Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 00:16:01 +0800
+Subject: [PATCH 109/212] Vendor TensorIR row gather lowering
+
+---
+ .../0007-Add-row-gather-layout-lowering.patch | 327 ++++++++++++++++++
+ 3rdparty/nvidia/tensor-ir                     |   2 +-
+ 2 files changed, 328 insertions(+), 1 deletion(-)
+ create mode 100644 3rdparty/nvidia/0007-Add-row-gather-layout-lowering.patch
+
+diff --git a/3rdparty/nvidia/0007-Add-row-gather-layout-lowering.patch b/3rdparty/nvidia/0007-Add-row-gather-layout-lowering.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..f7641c2edb2a515e28492ae3006e8bc76bf1e0aa
+--- /dev/null
++++ b/3rdparty/nvidia/0007-Add-row-gather-layout-lowering.patch
+@@ -0,0 +1,327 @@
++From 6cdb50c69008ce99af1d8cd88f6ff2852b76573f Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Fri, 28 Aug 2026 00:15:40 +0800
++Subject: [PATCH] Add row gather layout lowering
++
++---
++ include/tensor_ir/Dialect/TensorOps.td        |  35 ++++++
++ .../LayoutPropagationImpl.cpp                 | 103 +++++++++++++++++-
++ lib/Dialect/TensorOps.cpp                     |  42 +++++++
++ lib/Transform/GraphSplitting.cpp              |  14 ++-
++ lib/Transform/LayoutAnnotation.cpp            |   3 +-
++ .../TensorToCudaTile/gather_rows_layout.mlir  |  22 ++++
++ 6 files changed, 213 insertions(+), 6 deletions(-)
++ create mode 100644 test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
++
++diff --git a/include/tensor_ir/Dialect/TensorOps.td b/include/tensor_ir/Dialect/TensorOps.td
++index 7549281..1ade090 100644
++--- a/include/tensor_ir/Dialect/TensorOps.td
+++++ b/include/tensor_ir/Dialect/TensorOps.td
++@@ -962,6 +962,41 @@ def TensorIR_SliceOp
++   let hasVerifier = 1;
++ }
++ 
+++def TensorIR_GatherRowsOp : TensorIR_Op<"gather_rows", [
+++    Pure,
+++    OpAsmOpInterface,
+++    IterationSpaceInfoInterface,
+++    PointwiseOpInterface,
+++    DeclareOpInterfaceMethods<LayoutPropInterface, ["inferResultLayout"]>
+++  ]> {
+++  let summary = "Gather matrix rows with one index per output row";
+++  let description = [{
+++    Selects one row from a rank-2 source matrix for every output row. The
+++    indices tensor has the same logical shape as the output and must carry the
+++    selected row index repeated across each output row (normally represented
+++    by a zero column stride). This shape-preserving form lets pointwise users
+++    fuse after the gather while lowering the source access through a CUDA Tile
+++    gather/scatter view.
+++
+++    ```mlir
+++    %result = nv_tensor_ir.gather_rows %table, %indices
+++        : (tensor<1024x128xbf16>, tensor<32x128xi32>)
+++       -> tensor<32x128xbf16>
+++    ```
+++  }];
+++
+++  let arguments = (ins
+++    Arg<TensorIR_TensorType, "Rank-2 source matrix">:$data,
+++    Arg<TensorIR_TensorType, "Repeated i32 row indices">:$indices
+++  );
+++  let results = (outs
+++    Arg<TensorIR_TensorType, "Gathered rows">:$output
+++  );
+++
+++  let assemblyFormat = "$data `,` $indices attr-dict `:` functional-type(operands, results)";
+++  let hasVerifier = 1;
+++}
+++
++ def TensorIR_ConcatenateOp : TensorIR_Op<"concatenate", [
++     Pure,
++     OpAsmOpInterface,
++diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++index eeaccc4..b9f9758 100644
++--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++@@ -155,6 +155,7 @@ private:
++   /// Allow access to the conversion state from the conversion patterns.
++   friend class GraphOpConversion;
++   friend class ResultsOpConversion;
+++  friend class GatherRowsOpConversion;
++ };
++ 
++ template <typename OpTy>
++@@ -178,6 +179,96 @@ using BroadcastOpConversion = NoOpConversion<BroadcastOp>;
++ using TransposeOpConversion = NoOpConversion<TransposeOp>;
++ using SliceOpConversion = NoOpConversion<SliceOp>;
++ 
+++class GatherRowsOpConversion : public ConversionPattern<GatherRowsOp> {
+++public:
+++  using ConversionPattern<GatherRowsOp>::ConversionPattern;
+++
+++  LogicalResult
+++  matchAndRewrite(GatherRowsOp op, OpAdaptor adaptor,
+++                  ConversionPatternRewriter &rewriter) const override {
+++    auto &state = static_cast<ConversionStateImpl &>(this->state);
+++    MLIR_RETURN_IF_ERROR(state.update(rewriter, op));
+++    if (state.getTileShape().size() != 2 ||
+++        state.getIndexValues().size() != 2) {
+++      return op.emitError("requires a rank-2 iteration-space tile");
+++    }
+++
+++    // Consume both propagated layouts. The ordinary data tile is intentionally
+++    // unused: the gather below addresses the original source descriptor with
+++    // the dynamic row-index tile.
+++    (void)state.getTile(adaptor.getData());
+++    Value indicesTile = state.getTile(adaptor.getIndices());
+++
+++    auto dataSource = dyn_cast<TensorSourceAttr>(state.layouts[0]);
+++    if (!dataSource || dataSource.getTensorId() < 0 ||
+++        static_cast<size_t>(dataSource.getTensorId()) >=
+++            state.inputDescriptors.size()) {
+++      return op.emitError("data layout does not identify a graph input");
+++    }
+++    const TensorDescriptor &dataDesc =
+++        state.inputDescriptors[dataSource.getTensorId()];
+++
+++    SmallVector<int64_t> sizes;
+++    SmallVector<int64_t> strides;
+++    for (auto [size, stride] :
+++         llvm::zip_equal(dataDesc.sizes, dataDesc.strides)) {
+++      if (size.dynamicValue || stride.dynamicValue ||
+++          size.staticValue == ShapedType::kDynamic ||
+++          stride.staticValue == ShapedType::kDynamic) {
+++        return op.emitError("currently requires a static data descriptor");
+++      }
+++      sizes.push_back(size.staticValue);
+++      strides.push_back(stride.staticValue);
+++    }
+++    if (sizes.size() != 2) {
+++      return op.emitError("requires a rank-2 data descriptor");
+++    }
+++
+++    Type pointerElement =
+++        cast<ShapedType>(dataDesc.pointer.getType()).getElementType();
+++    Type dataElement =
+++        cast<cuda_tile::PointerType>(pointerElement).getPointeeType();
+++    auto tensorViewType = cuda_tile::TensorViewType::get(
+++        rewriter.getContext(), dataElement, sizes, strides);
+++    Value tensorView = cuda_tile::MakeTensorViewOp::create(
+++        rewriter, op.getLoc(), tensorViewType, dataDesc.pointer,
+++        /*dynamic_sizes=*/ValueRange{}, /*dynamic_strides=*/ValueRange{});
+++
+++    SmallVector<int32_t> tileSizes(state.getTileShape().begin(),
+++                                   state.getTileShape().end());
+++    auto tileShapeAttr =
+++        DenseI32ArrayAttr::get(rewriter.getContext(), tileSizes);
+++    auto gatherViewType = cuda_tile::GatherScatterViewType::get(
+++        rewriter.getContext(), tileShapeAttr, tensorViewType,
+++        /*sparse_dim=*/0, /*padding_value=*/{});
+++    Value gatherView = cuda_tile::MakeGatherScatterViewOp::create(
+++        rewriter, op.getLoc(), gatherViewType, tensorView);
+++
+++    auto indicesType = cast<cuda_tile::TileType>(indicesTile.getType());
+++    SmallVector<int64_t> narrowShape{state.getTileShape()[0], 1};
+++    auto narrowType = indicesType.clone(narrowShape);
+++    SmallVector<Value> zeroIndices{state.zeroIndex, state.zeroIndex};
+++    Value narrowIndices = cuda_tile::ExtractOp::create(
+++        rewriter, op.getLoc(), narrowType, indicesTile, zeroIndices);
+++    auto rowIndicesType = indicesType.clone(
+++        SmallVector<int64_t>{state.getTileShape()[0]});
+++    Value rowIndices = cuda_tile::ReshapeOp::create(
+++        rewriter, op.getLoc(), rowIndicesType, narrowIndices);
+++
+++    auto outputType = cuda_tile::TileType::get(state.getTileShape(), dataElement);
+++    Type tokenType = cuda_tile::TokenType::get(rewriter.getContext());
+++    auto optimizationHints = createLoadStoreOptimizationHints(
+++        rewriter.getContext(), dataDesc.allowTma, dataDesc.cost);
+++    SmallVector<Value> gatherIndices{rowIndices, state.getIndexValues()[1]};
+++    auto load = cuda_tile::LoadViewTkoOp::create(
+++        rewriter, op.getLoc(), outputType, tokenType,
+++        cuda_tile::MemoryOrderingSemantics::WEAK, /*memory_scope=*/nullptr,
+++        gatherView, gatherIndices, /*token=*/nullptr, optimizationHints);
+++    rewriter.replaceOp(op, load.getTile());
+++    return success();
+++  }
+++};
+++
++ static Value broadcastAlongDimension(ConversionPatternRewriter &rewriter,
++                                      Location loc, Value tile,
++                                      ArrayRef<int64_t> targetShape,
++@@ -1002,8 +1093,8 @@ RewritePatternSet ConversionStateImpl::registerPatterns(MLIRContext *context) {
++   // Conversion patterns defined in this file.
++   patterns.add<GraphOpConversion, ResultsOpConversion, ReshapeOpConversion,
++                BroadcastOpConversion, TransposeOpConversion, SliceOpConversion,
++-               ConcatenateOpConversion, IotaOpConversion>(*this, typeConverter,
++-                                                          context);
+++               GatherRowsOpConversion, ConcatenateOpConversion,
+++               IotaOpConversion>(*this, typeConverter, context);
++ 
++   // Pointwise operations.
++   registerPointwisePatterns(patterns, *this, typeConverter,
++@@ -1171,7 +1262,13 @@ LogicalResult verifyLayoutPropLowerable(GraphOp graphOp) {
++     if (failed(verifyOpStateAttrs(op, /*iterationSpaces=*/nullptr))) {
++       return WalkResult::interrupt();
++     }
++-    if (isa<PointwiseOpInterface>(op)) {
+++    if (auto gatherRowsOp = dyn_cast<GatherRowsOp>(op)) {
+++      if (tileShape.size() != 2 || tileShape[0] <= 0 || tileShape[1] <= 0 ||
+++          gatherRowsOp.getOutput().getType().getRank() != 2) {
+++        gatherRowsOp.emitError("requires a positive rank-2 tile");
+++        return WalkResult::interrupt();
+++      }
+++    } else if (isa<PointwiseOpInterface>(op)) {
++       if (failed(validatePointwiseOpLowerable(op))) {
++         return WalkResult::interrupt();
++       }
++diff --git a/lib/Dialect/TensorOps.cpp b/lib/Dialect/TensorOps.cpp
++index 84bb842..b7b0a62 100644
++--- a/lib/Dialect/TensorOps.cpp
+++++ b/lib/Dialect/TensorOps.cpp
++@@ -734,6 +734,48 @@ SliceOp::inferResultLayout(ArrayRef<LayoutSourceAttrInterface> inputLayouts) {
++   return inputLayouts[0].slice(getStarts(), getLimits(), getStrides());
++ }
++ 
+++LogicalResult GatherRowsOp::verify() {
+++  auto dataType = getData().getType();
+++  auto indicesType = getIndices().getType();
+++  auto outputType = getOutput().getType();
+++  if (dataType.getRank() != 2 || indicesType.getRank() != 2 ||
+++      outputType.getRank() != 2) {
+++    return emitOpError("requires rank-2 data, indices and output tensors");
+++  }
+++  if (!indicesType.getElementType().isInteger(32)) {
+++    return emitOpError("requires i32 indices");
+++  }
+++  if (dataType.getElementType() != outputType.getElementType()) {
+++    return emitOpError("requires matching data and output element types");
+++  }
+++  if (dataType.getDimSize(1) != outputType.getDimSize(1)) {
+++    return emitOpError("requires data and output column extents to match");
+++  }
+++  if (indicesType.getShape() != outputType.getShape()) {
+++    return emitOpError("requires indices and output shapes to match");
+++  }
+++  if (!dataType.hasStaticShape() || !indicesType.hasStaticShape() ||
+++      !outputType.hasStaticShape()) {
+++    return emitOpError("currently requires static shapes");
+++  }
+++  return success();
+++}
+++
+++LayoutSourceAttrInterface GatherRowsOp::inferResultLayout(
+++    ArrayRef<LayoutSourceAttrInterface> inputLayouts) {
+++  assert(inputLayouts.size() == 2 && "expects data and indices layouts");
+++  auto dataSource = dyn_cast<TensorSourceAttr>(inputLayouts[0]);
+++  if (!dataSource || !getOutput().getType().hasStaticShape()) {
+++    return nullptr;
+++  }
+++  tcg::Layout gatheredLayout(getShapeRef(getOutput().getType()));
+++  auto gatheredSource = TensorSourceAttr::get(
+++      getContext(), dataSource.getTensorId(), dataSource.getOffset(),
+++      gatheredLayout.toString(), /*dynamicValueMapping=*/{});
+++  return CompositeSourceAttr::get(
+++      getContext(), {gatheredSource, inputLayouts[1]});
+++}
+++
++ LogicalResult PowOp::verify() {
++   auto baseTensor = getLhs().getType();
++   auto exponentTensor = getRhs().getType();
++diff --git a/lib/Transform/GraphSplitting.cpp b/lib/Transform/GraphSplitting.cpp
++index 92eff3e..fded68e 100644
++--- a/lib/Transform/GraphSplitting.cpp
+++++ b/lib/Transform/GraphSplitting.cpp
++@@ -121,8 +121,17 @@ struct GraphSplittingPass
++       // Number of iteration spaces added by the operation.
++       int newIterationSpaces = 0;
++ 
+++      // Case #0: gather keeps its output-space composite layout while its
+++      // operands remain rooted in their original graph-argument layouts.
+++      if (isa<GatherRowsOp>(op)) {
+++        for (Value operand : op->getOperands()) {
+++          operandLayouts.push_back(cast<LayoutSourceAttrInterface>(
+++              getLayoutSourceAttr(operand)));
+++        }
+++      }
+++
++       // Case #1: pointwise operations.
++-      if (isa<PointwiseOpInterface>(op) && !isa<BroadcastOp>(op)) {
+++      else if (isa<PointwiseOpInterface>(op) && !isa<BroadcastOp>(op)) {
++         auto composite =
++             dyn_cast_or_null<CompositeSourceAttr>(getLayoutSourceAttr(value));
++         if (!composite || op->getNumOperands() == 1) {
++@@ -272,7 +281,8 @@ struct GraphSplittingPass
++       // Clone op with remapped operands and new layout.
++       // For non-unary pointwise ops, keep the layouts for the operands.
++       LayoutSourceAttrInterface newLayout = layout;
++-      if (isa<PointwiseOpInterface>(op) && op->getNumOperands() > 1) {
+++      if (isa<PointwiseOpInterface>(op) && !isa<GatherRowsOp>(op) &&
+++          op->getNumOperands() > 1) {
++         newLayout = CompositeSourceAttr::get(op->getContext(), operandLayouts);
++       }
++ 
++diff --git a/lib/Transform/LayoutAnnotation.cpp b/lib/Transform/LayoutAnnotation.cpp
++index 096cdc0..5c9a2d6 100644
++--- a/lib/Transform/LayoutAnnotation.cpp
+++++ b/lib/Transform/LayoutAnnotation.cpp
++@@ -87,7 +87,8 @@ LogicalResult processOperation(Operation *op) {
++ 
++   // Compute the resulting layout attribute.
++   Attribute result;
++-  bool combinesSources = isa<PointwiseOpInterface>(op);
+++  bool combinesSources =
+++      isa<PointwiseOpInterface>(op) && !isa<GatherRowsOp>(op);
++   if (sources.size() > 1 && combinesSources) {
++     // Handle operations that combine multiple source layouts.
++     llvm::SmallSetVector<LayoutSourceAttrInterface, 4> srcSet;
++diff --git a/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
++new file mode 100644
++index 0000000..c68ee52
++--- /dev/null
+++++ b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
++@@ -0,0 +1,22 @@
+++// RUN: tensor_ir-opt --layout-propagation-pipeline %s | FileCheck %s
+++
+++// CHECK-LABEL: entry @gather_rows
+++// CHECK: %[[DATA_VIEW:.*]] = make_tensor_view {{.*}}, shape = [1024, 128], strides = [128, 1] : tensor_view<1024x128xbf16, strides=[128,1]>
+++// CHECK: %[[GATHER_VIEW:.*]] = make_gather_scatter_view %[[DATA_VIEW]] : gather_scatter_view<tile=(8x128), tensor_view<1024x128xbf16, strides=[128,1]>, sparse_dim=0>
+++// CHECK: %[[NARROW:.*]] = extract {{.*}} : tile<8x128xi32> -> tile<8x1xi32>
+++// CHECK: %[[ROWS:.*]] = reshape %[[NARROW]] : tile<8x1xi32> -> tile<8xi32>
+++// CHECK: %[[GATHERED:.*]], {{.*}} = load_view_tko weak %[[GATHER_VIEW]][%[[ROWS]], {{.*}}]
+++// CHECK-SAME: -> tile<8x128xbf16>, token
+++// CHECK: store_view_tko weak %[[GATHERED]]
+++module {
+++  nv_tensor_ir.graph @gather_rows(
+++      %data: tensor<1024x128xbf16>,
+++      %indices: tensor<32x128xi32> {nv_tensor_ir.stride = "(1,0)"})
+++      -> tensor<32x128xbf16>
+++      attributes {tile_size = array<i32: 8, 128>} {
+++    %gathered = gather_rows %data, %indices
+++        : (tensor<1024x128xbf16>, tensor<32x128xi32>)
+++       -> tensor<32x128xbf16>
+++    results %gathered : tensor<32x128xbf16>
+++  }
+++}
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index ec57ae0879462086495b5121abb10e8719ec21d4..6cdb50c69008ce99af1d8cd88f6ff2852b76573f 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit ec57ae0879462086495b5121abb10e8719ec21d4
++Subproject commit 6cdb50c69008ce99af1d8cd88f6ff2852b76573f

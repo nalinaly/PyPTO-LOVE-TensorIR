@@ -1,0 +1,78 @@
+From a78bc3fd84c54bacd6d565fc1526e4dd27397301 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 05:43:43 +0800
+Subject: [PATCH 147/212] Generalize cache-write loop matching
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp     | 11 ++++++---
+ tests/ut/compiler/test_structured_compile.py | 25 ++++++++++----------
+ 2 files changed, 21 insertions(+), 15 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 106d9c0c579f785fced488e3c13861b7d830c630..b0d09cb2b6f934a84d04dedf321a6bfbab8afe74 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -4291,7 +4291,9 @@ bool IsNativeTilePagedCacheWriteCandidate(const ir::ProgramPtr& program) {
+   const auto scope = top && !top->stmts_.empty()
+                          ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
+                          : nullptr;
+-  const auto body = scope ? ir::As<ir::SeqStmts>(scope->body_) : nullptr;
++  const TileLoopNest loop_nest =
++      scope ? UnwrapStaticTileLoops(scope->body_) : TileLoopNest{};
++  const auto body = loop_nest.leaf;
+   if (!body || body->stmts_.size() != 8) return false;
+   for (size_t index : {size_t{4}, size_t{5}, size_t{7}}) {
+     const auto eval = ir::As<ir::EvalStmt>(body->stmts_[index]);
+@@ -4373,11 +4375,14 @@ NativeTilePagedCacheWriteGraph AnalyzeNativeTilePagedCacheWrite(
+       returned && returned->value_.size() == 1
+           ? ir::As<ir::Var>(returned->value_[0])
+           : nullptr;
+-  const auto body = scope ? ir::As<ir::SeqStmts>(scope->body_) : nullptr;
++  const TileLoopNest loop_nest =
++      scope ? UnwrapStaticTileLoops(scope->body_) : TileLoopNest{};
++  const auto body = loop_nest.leaf;
+   if (!scope || scope->split_ != ir::SplitMode::None ||
+       !scope->attrs_.empty() || !returned_var ||
+       returned_var.get() != function->params_[5].get() || !body ||
+-      body->stmts_.size() != 8) {
++      body->stmts_.size() != 8 ||
++      loop_nest.repetitions != static_cast<uint64_t>(key.shape[0])) {
+     Reject("native paged cache write scope or return is invalid",
+            &function->span_);
+   }
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index ceb7c31f219215a61614776fd9eab0d5dd384bdc..e388cb3e6771df17ee1a12ee8f8dca32f3abd563 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -371,18 +371,19 @@ def _native_tile_paged_cache_write(
+     out: pl.Out[pl.Tensor[[1, 512], pl.BF16]],
+ ):
+     with pl.at(level=pl.Level.CORE_GROUP):
+-        physical_row_i64 = pl.read(physical_row, [0, 0])
+-        physical_row_i32 = pl.cast(physical_row_i64, pl.INT32)
+-        key_tile = pl.load(
+-            key, [0, 0], [1, 512], target_memory=pl.MemorySpace.Vec
+-        )
+-        value_tile = pl.load(
+-            value, [0, 0], [1, 512], target_memory=pl.MemorySpace.Vec
+-        )
+-        pl.store(key_tile, [physical_row_i32, 0], key_cache)
+-        pl.store(value_tile, [physical_row_i32, 0], value_cache)
+-        anchor = pl.add(key_tile, value_tile)
+-        pl.store(anchor, [0, 0], out)
++        for row in pl.range(1):
++            physical_row_i64 = pl.read(physical_row, [row, 0])
++            physical_row_i32 = pl.cast(physical_row_i64, pl.INT32)
++            key_tile = pl.load(
++                key, [row, 0], [1, 512], target_memory=pl.MemorySpace.Vec
++            )
++            value_tile = pl.load(
++                value, [row, 0], [1, 512], target_memory=pl.MemorySpace.Vec
++            )
++            pl.store(key_tile, [physical_row_i32, 0], key_cache)
++            pl.store(value_tile, [physical_row_i32, 0], value_cache)
++            anchor = pl.add(key_tile, value_tile)
++            pl.store(anchor, [row, 0], out)
+     return out
+ 
+ 

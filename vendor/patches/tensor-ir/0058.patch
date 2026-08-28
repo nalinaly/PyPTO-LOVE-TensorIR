@@ -1,0 +1,55 @@
+From 032d67a4fdf83f03613fba745ea5ce2aa6b66df3 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 02:42:15 +0800
+Subject: [PATCH 58/82] Restore propagated reduction result rank
+
+---
+ .../TensorToCudaTile/ReductionOps.cpp         | 23 ++++++++++++++-----
+ 1 file changed, 17 insertions(+), 6 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/ReductionOps.cpp b/lib/Conversion/TensorToCudaTile/ReductionOps.cpp
+index b6c02297e76ddba4c9bff13971940481f99b0e11..82789d39eb613e54527b612ce77cf06de82f90b7 100644
+--- a/lib/Conversion/TensorToCudaTile/ReductionOps.cpp
++++ b/lib/Conversion/TensorToCudaTile/ReductionOps.cpp
+@@ -154,10 +154,16 @@ public:
+         reductionEmission.buildEpilogue(rewriter, tileReduceOp.getResult(0),
+                                         reductionSource.getReductionSize());
+ 
+-    // Reshape and broadcast the result, if needed.
+-    if (resultTileShape != outputTileShape) {
++    // First restore every unit/broadcast dimension represented by the
++    // propagated reduction layout. The physical CUDA Tile reduction drops the
++    // contracting dimension and may therefore have a lower rank even when the
++    // layout result shape already equals the outer output shape.
++    if (!llvm::equal(cast<ShapedType>(result.getType()).getShape(),
++                     resultTileShape)) {
+       result = cuda_tile::ReshapeOp::create(
+           rewriter, loc, inputTileType.clone(resultTileShape), result);
++    }
++    if (!llvm::equal(resultTileShape, outputTileShape)) {
+       result = cuda_tile::BroadcastOp::create(
+           rewriter, loc, inputTileType.clone(outputTileShape), result);
+     }
+@@ -328,13 +334,18 @@ public:
+     rewriter.applySignatureConversion(&targetRegion->front(),
+                                       signatureConversion);
+ 
+-    // Reshape and broadcast the result, if needed.
++    // Restore layout rank before applying any outer-space broadcast. As with
++    // ReduceOp, the physical reduction rank can differ even when the two target
++    // shapes are equal.
+     SmallVector<Value> results = tileReduceOp.getResults();
+-    if (resultTileShape != outputTileShape) {
+-      for (auto &result : results) {
+-        auto resultType = cast<ShapedType>(result.getType());
++    for (auto &result : results) {
++      auto resultType = cast<ShapedType>(result.getType());
++      if (!llvm::equal(resultType.getShape(), resultTileShape)) {
+         result = cuda_tile::ReshapeOp::create(
+             rewriter, loc, resultType.clone(resultTileShape), result);
++        resultType = cast<ShapedType>(result.getType());
++      }
++      if (!llvm::equal(resultTileShape, outputTileShape)) {
+         result = cuda_tile::BroadcastOp::create(
+             rewriter, loc, resultType.clone(outputTileShape), result);
+       }

@@ -1,0 +1,126 @@
+From b25081afbeb53c9a882c68b440d06baa9e0f6b31 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 02:35:29 +0800
+Subject: [PATCH 12/82] Bind Cubin sections to load segments
+
+---
+ lib/Compiler/CudaTile/CudaTileArtifact.cpp | 52 +++++++++++++++++++---
+ 1 file changed, 45 insertions(+), 7 deletions(-)
+
+diff --git a/lib/Compiler/CudaTile/CudaTileArtifact.cpp b/lib/Compiler/CudaTile/CudaTileArtifact.cpp
+index 1d2fabc3c992663bd214a41f1a48e2524190b962..d61d1abf8b617f24df1e0a30ed3a89e117183590 100644
+--- a/lib/Compiler/CudaTile/CudaTileArtifact.cpp
++++ b/lib/Compiler/CudaTile/CudaTileArtifact.cpp
+@@ -70,6 +70,31 @@ bool isRangeWithin(uint64_t offset, uint64_t size, size_t totalSize) {
+   return offset <= totalSize && size <= totalSize - offset;
+ }
+ 
++struct LoadSegmentRange {
++  uint32_t flags;
++  uint64_t fileOffset;
++  uint64_t fileSize;
++  uint64_t virtualAddress;
++  uint64_t memorySize;
++};
++
++bool isCoveredByLoadSegment(uint64_t fileOffset, uint64_t virtualAddress,
++                            uint64_t size, uint32_t requiredFlags,
++                            llvm::ArrayRef<LoadSegmentRange> loadSegments) {
++  return std::any_of(loadSegments.begin(), loadSegments.end(),
++                     [&](const LoadSegmentRange &segment) {
++    return (segment.flags & requiredFlags) == requiredFlags &&
++           fileOffset >= segment.fileOffset &&
++           virtualAddress >= segment.virtualAddress &&
++           fileOffset - segment.fileOffset ==
++               virtualAddress - segment.virtualAddress &&
++           isRangeWithin(fileOffset - segment.fileOffset, size,
++                         segment.fileSize) &&
++           isRangeWithin(virtualAddress - segment.virtualAddress, size,
++                         segment.memorySize);
++                     });
++}
++
+ bool sectionNameEquals(llvm::ArrayRef<char> bytes, uint64_t tableOffset,
+                        uint64_t tableSize, uint32_t nameOffset,
+                        llvm::StringRef expected) {
+@@ -208,7 +233,8 @@ Status validateEntryFunctionSymbol(llvm::ArrayRef<char> bytes,
+                                    uint16_t sectionHeaderCount,
+                                    uint16_t sectionNameIndex,
+                                    llvm::StringRef entryFunctionName,
+-                                   llvm::ArrayRef<uint32_t> kernelArgumentSizes) {
++                                   llvm::ArrayRef<uint32_t> kernelArgumentSizes,
++                                   llvm::ArrayRef<LoadSegmentRange> loadSegments) {
+   constexpr uint64_t kElf64SymbolSize = 24;
+   constexpr uint64_t kMaximumSymbolCount = 1 << 20;
+   constexpr size_t kMaximumSymbolStringCount = 65536;
+@@ -392,7 +418,12 @@ Status validateEntryFunctionSymbol(llvm::ArrayRef<char> bytes,
+                          textSectionName) ||
+       readU32LE(bytes, entryTextHeaderOffset + 40) !=
+           symbolTableSectionIndex ||
+-      readU32LE(bytes, entryTextHeaderOffset + 44) != entrySymbolIndex) {
++      readU32LE(bytes, entryTextHeaderOffset + 44) != entrySymbolIndex ||
++      !isCoveredByLoadSegment(
++          readU64LE(bytes, entryTextHeaderOffset + 24),
++          readU64LE(bytes, entryTextHeaderOffset + 16),
++          readU64LE(bytes, entryTextHeaderOffset + 32), llvm::ELF::PF_X,
++          loadSegments)) {
+     return Status::InvalidArgument(
+         "CUDA entry symbol and text section are not canonically linked");
+   }
+@@ -411,6 +442,7 @@ Status validateEntryFunctionSymbol(llvm::ArrayRef<char> bytes,
+         static_cast<uint64_t>(sectionIndex) * sectionHeaderSize;
+     uint32_t nameOffset = readU32LE(bytes, sectionHeaderOffset);
+     uint32_t sectionType = readU32LE(bytes, sectionHeaderOffset + 4);
++    uint64_t sectionAddress = readU64LE(bytes, sectionHeaderOffset + 16);
+     uint64_t sectionOffset = readU64LE(bytes, sectionHeaderOffset + 24);
+     uint64_t sectionSize = readU64LE(bytes, sectionHeaderOffset + 32);
+     uint32_t sectionLink = readU32LE(bytes, sectionHeaderOffset + 40);
+@@ -432,7 +464,9 @@ Status validateEntryFunctionSymbol(llvm::ArrayRef<char> bytes,
+                                  sectionNameTableSize, nameOffset,
+                                  constantSectionName)) {
+       if (hasConstantSection || sectionType != llvm::ELF::SHT_PROGBITS ||
+-          sectionInfo != entryTextSectionIndex || sectionSize == 0) {
++          sectionInfo != entryTextSectionIndex || sectionSize == 0 ||
++          !isCoveredByLoadSegment(sectionOffset, sectionAddress, sectionSize,
++                                  llvm::ELF::PF_R, loadSegments)) {
+         return Status::InvalidArgument(
+             "invalid CUDA entry constant-bank section");
+       }
+@@ -584,11 +618,12 @@ Status validateCompleteCudaElf(llvm::ArrayRef<char> bytes,
+                      bytes.size())) {
+     return Status::InvalidArgument("invalid CUDA ELF program header table");
+   }
+-  bool hasLoadSegment = false;
++  llvm::SmallVector<LoadSegmentRange, 8> loadSegments;
+   for (uint16_t index = 0; index < programHeaderCount; ++index) {
+     uint64_t headerOffset = programHeadersOffset +
+                             static_cast<uint64_t>(index) * programHeaderSize;
+     uint32_t segmentType = readU32LE(bytes, headerOffset);
++    uint32_t segmentFlags = readU32LE(bytes, headerOffset + 4);
+     uint64_t fileOffset = readU64LE(bytes, headerOffset + 8);
+     uint64_t virtualAddress = readU64LE(bytes, headerOffset + 16);
+     uint64_t fileSize = readU64LE(bytes, headerOffset + 32);
+@@ -607,9 +642,12 @@ Status validateCompleteCudaElf(llvm::ArrayRef<char> bytes,
+                          programHeaderCount)) {
+       return Status::InvalidArgument("invalid CUDA ELF program-header segment");
+     }
+-    hasLoadSegment = hasLoadSegment || segmentType == llvm::ELF::PT_LOAD;
++    if (segmentType == llvm::ELF::PT_LOAD && fileSize > 0 && memorySize > 0) {
++      loadSegments.push_back(
++          {segmentFlags, fileOffset, fileSize, virtualAddress, memorySize});
++    }
+   }
+-  if (!hasLoadSegment) {
++  if (loadSegments.empty()) {
+     return Status::InvalidArgument("CUDA cubin contains no loadable segment");
+   }
+ 
+@@ -665,7 +703,7 @@ Status validateCompleteCudaElf(llvm::ArrayRef<char> bytes,
+                                      sectionHeaderSize, sectionHeaderCount,
+                                      sectionNameIndex,
+                                      entryFunctionName,
+-                                     kernelArgumentSizes);
++                                     kernelArgumentSizes, loadSegments);
+ }
+ 
+ Status validateArgLayout(const ::tensor_ir::rt::KernelArgLayout &layout) {

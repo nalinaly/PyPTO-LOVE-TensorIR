@@ -1,0 +1,697 @@
+From 2351bd533e2232c6cc2a7035c8dbb784e19469cb Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 20:18:19 +0800
+Subject: [PATCH 078/212] nvidia: accept native jit pointwise tiles
+
+---
+ python/pypto/jit/decorator.py                |  29 ++
+ src/codegen/nvidia/tensor_ir_codegen.cpp     | 472 +++++++++++++++++++
+ tests/ut/compiler/test_structured_compile.py |  64 +++
+ tests/ut/jit/test_jit_compile_extraction.py  |  27 ++
+ 4 files changed, 592 insertions(+)
+
+diff --git a/python/pypto/jit/decorator.py b/python/pypto/jit/decorator.py
+index bdf685f0e30b309b4748194e0649cc1fadce34f5..2ffaeff8a1134377712981c0cdcd1861870bea9d 100644
+--- a/python/pypto/jit/decorator.py
++++ b/python/pypto/jit/decorator.py
+@@ -2260,6 +2260,35 @@ class JITFunction:
+         compiled, _ordered_args, _run_config = self._resolve_compiled(args, kwargs, allow_signature_mode=True)
+         return compiled
+ 
++    def specialize(self, *args: Any, **kwargs: Any) -> _ir.Program:
++        """Specialize this JIT function and return its parsed, pre-pass IR.
++
++        This is the frontend boundary for alternate code generators.  It keeps
++        the native ``@pl.jit`` structure intact -- including ``pl.at``,
++        ``pl.range``, ``tile.load`` and ``tile.store`` -- instead of running
++        the Ascend-oriented pass pipeline used by :meth:`lower`.
++
++        Tensor sample arguments select shapes and dtypes exactly as in
++        :meth:`compile`.  Fully shaped annotations may be used with no tensor
++        samples, and scalar arguments are specialization constants.
++        ``config=`` is accepted for API symmetry but has no effect because no
++        passes or code generation run at this boundary.
++        """
++        import pypto.language as pl  # noqa: PLC0415
++
++        specialization, _run_config = self._resolve_specialization(
++            args,
++            kwargs,
++            allow_signature_mode=True,
++        )
++        return self._compile_to_program(
++            specialization.tensor_meta,
++            specialization.scalar_values,
++            specialization.scalar_dtypes,
++            specialization.per_func_dyn,
++            pl,
++        )
++
+     def lower(self, *args: Any, **kwargs: Any) -> _ir.Program:
+         """Specialize this JIT function and return its post-pass IR.
+ 
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index c3e839af6e84b8a700ec2646729c42626f6489d1..59ad494a362606aac6006a7840beb1378e2629ab 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -204,6 +204,36 @@ StaticTensor ReadStaticTensor(const ir::TypePtr& type, const ir::Span& span,
+   return StaticTensor{tensor_type->dtype_, shape, MakeDenseStrides(shape, span)};
+ }
+ 
++StaticTensor ReadStaticTile(const ir::TypePtr& type, const ir::Span& span,
++                            std::string_view location) {
++  const auto tile_type = ir::As<ir::TileType>(type);
++  if (!tile_type) {
++    Reject(std::string(location) + " must have plain TileType", &span);
++  }
++  if (tile_type->memref_.has_value() || tile_type->tile_view_.has_value()) {
++    Reject(std::string(location) + " must not carry a MemRef or TileView", &span);
++  }
++  if (tile_type->dtype_ != DataType::BF16 && tile_type->dtype_ != DataType::FP32) {
++    Reject(std::string(location) + " dtype must be BF16 or FP32, got " +
++               tile_type->dtype_.ToString(),
++           &span);
++  }
++  if (tile_type->shape_.empty() || tile_type->shape_.size() > kMaximumRank) {
++    Reject(std::string(location) + " rank must be between 1 and 32", &span);
++  }
++
++  std::vector<int64_t> shape;
++  shape.reserve(tile_type->shape_.size());
++  for (const ir::ExprPtr& dimension : tile_type->shape_) {
++    const auto constant = ir::As<ir::ConstInt>(dimension);
++    if (!constant || constant->dtype() != DataType::INDEX || constant->value_ <= 0) {
++      Reject(std::string(location) + " shape must be fully static and positive", &span);
++    }
++    shape.push_back(constant->value_);
++  }
++  return StaticTensor{tile_type->dtype_, shape, MakeDenseStrides(shape, span)};
++}
++
+ bool SameTensor(const StaticTensor& left, const StaticTensor& right) {
+   return left.dtype == right.dtype && left.shape == right.shape &&
+          left.dense_strides == right.dense_strides;
+@@ -1236,6 +1266,53 @@ std::optional<FusedOperationSpec> GetFusedOperationSpec(const ir::CallPtr& call)
+   return std::nullopt;
+ }
+ 
++std::optional<FusedOperationSpec> GetTileFusedOperationSpec(
++    const ir::CallPtr& call) {
++  if (ir::IsOp(call, "tile.add")) return FusedOperationSpec{"add", 2, false};
++  if (ir::IsOp(call, "tile.adds")) return FusedOperationSpec{"add", 1, true};
++  if (ir::IsOp(call, "tile.sub")) return FusedOperationSpec{"sub", 2, false};
++  if (ir::IsOp(call, "tile.subs")) return FusedOperationSpec{"sub", 1, true};
++  if (ir::IsOp(call, "tile.mul")) return FusedOperationSpec{"mul", 2, false};
++  if (ir::IsOp(call, "tile.muls")) return FusedOperationSpec{"mul", 1, true};
++  if (ir::IsOp(call, "tile.neg")) return FusedOperationSpec{"neg", 1, false};
++  if (ir::IsOp(call, "tile.exp")) return FusedOperationSpec{"exp", 1, false};
++  if (ir::IsOp(call, "tile.recip")) {
++    return FusedOperationSpec{"reciprocal", 1, false};
++  }
++  if (ir::IsOp(call, "tile.rsqrt")) return FusedOperationSpec{"rsqrt", 1, false};
++  if (ir::IsOp(call, "tile.div")) return FusedOperationSpec{"div", 2, false};
++  if (ir::IsOp(call, "tile.divs")) return FusedOperationSpec{"div", 1, true};
++  if (ir::IsOp(call, "tile.abs")) return FusedOperationSpec{"abs", 1, false};
++  if (ir::IsOp(call, "tile.sqrt")) return FusedOperationSpec{"sqrt", 1, false};
++  if (ir::IsOp(call, "tile.log")) return FusedOperationSpec{"log", 1, false};
++  if (ir::IsOp(call, "tile.sin")) return FusedOperationSpec{"sin", 1, false};
++  if (ir::IsOp(call, "tile.cos")) return FusedOperationSpec{"cos", 1, false};
++  if (ir::IsOp(call, "tile.maximum")) return FusedOperationSpec{"max", 2, false};
++  if (ir::IsOp(call, "tile.minimum")) return FusedOperationSpec{"min", 2, false};
++  if (ir::IsOp(call, "tile.row_expand_mul")) {
++    return FusedOperationSpec{"mul", 2, false, true};
++  }
++  if (ir::IsOp(call, "tile.row_expand_div")) {
++    return FusedOperationSpec{"div", 2, false, true};
++  }
++  if (ir::IsOp(call, "tile.row_expand_add")) {
++    return FusedOperationSpec{"add", 2, false, true};
++  }
++  if (ir::IsOp(call, "tile.row_expand_sub")) {
++    return FusedOperationSpec{"sub", 2, false, true};
++  }
++  if (ir::IsOp(call, "tile.row_expand_max")) {
++    return FusedOperationSpec{"max", 2, false, true};
++  }
++  if (ir::IsOp(call, "tile.row_expand_min")) {
++    return FusedOperationSpec{"min", 2, false, true};
++  }
++  if (ir::IsOp(call, "tile.row_expand")) {
++    return FusedOperationSpec{"__broadcast__", 2, false, true};
++  }
++  return std::nullopt;
++}
++
+ bool IsBroadcastOf(const StaticTensor& source, const StaticTensor& full) {
+   if (source.dtype != full.dtype || source.shape.size() != full.shape.size() ||
+       source.shape.empty()) {
+@@ -1253,6 +1330,384 @@ bool IsBroadcastOf(const StaticTensor& source, const StaticTensor& full) {
+          source.dense_strides == MakeDenseStridesForMetadata(source.shape);
+ }
+ 
++uint64_t StaticElementCount(const StaticTensor& tensor, const ir::Span& span,
++                            std::string_view location) {
++  uint64_t count = 1;
++  for (const int64_t extent : tensor.shape) {
++    const uint64_t unsigned_extent = static_cast<uint64_t>(extent);
++    if (count > std::numeric_limits<uint64_t>::max() / unsigned_extent) {
++      Reject(std::string(location) + " element count exceeds uint64", &span);
++    }
++    count *= unsigned_extent;
++  }
++  return count;
++}
++
++struct TileLoopNest {
++  ir::SeqStmtsPtr leaf;
++  uint64_t repetitions;
++};
++
++TileLoopNest UnwrapStaticTileLoops(const ir::StmtPtr& body) {
++  auto sequence = ir::As<ir::SeqStmts>(body);
++  if (!sequence) {
++    Reject("native tile scope body must be a sequence", body ? &body->span_ : nullptr);
++  }
++  uint64_t repetitions = 1;
++  while (sequence->stmts_.size() == 1) {
++    const auto loop = ir::As<ir::ForStmt>(sequence->stmts_[0]);
++    if (!loop) break;
++    if (loop->kind_ != ir::ForKind::Sequential || !loop->iter_args_.empty() ||
++        !loop->return_vars_.empty() || !loop->attrs_.empty()) {
++      Reject("native tile lifting accepts only plain sequential pl.range loops",
++             &loop->span_);
++    }
++    const auto start = ir::As<ir::ConstInt>(loop->start_);
++    const auto stop = ir::As<ir::ConstInt>(loop->stop_);
++    const auto step = ir::As<ir::ConstInt>(loop->step_);
++    if (!start || !stop || !step || start->dtype() != DataType::INDEX ||
++        stop->dtype() != DataType::INDEX || step->dtype() != DataType::INDEX ||
++        start->value_ != 0 || stop->value_ <= 0 || step->value_ != 1) {
++      Reject("native tile lifting requires static pl.range(0, positive_stop, 1)",
++             &loop->span_);
++    }
++    const uint64_t trip_count = static_cast<uint64_t>(stop->value_);
++    if (repetitions > std::numeric_limits<uint64_t>::max() / trip_count) {
++      Reject("native tile loop trip-count product exceeds uint64", &loop->span_);
++    }
++    repetitions *= trip_count;
++    sequence = ir::As<ir::SeqStmts>(loop->body_);
++    if (!sequence) {
++      Reject("native tile loop body must be a sequence", &loop->span_);
++    }
++  }
++  return TileLoopNest{sequence, repetitions};
++}
++
++bool IsNativeTilePointwiseCandidate(const ir::ProgramPtr& program) {
++  if (!program || program->functions_.size() != 1) return false;
++  const ir::FunctionPtr& function = program->functions_.begin()->second;
++  if (!function || function->func_type_ != ir::FunctionType::Orchestration ||
++      !function->body_) {
++    return false;
++  }
++  const auto sequence = ir::As<ir::SeqStmts>(function->body_);
++  return sequence && !sequence->stmts_.empty() && sequence->stmts_[0] &&
++         ir::As<ir::InCoreScopeStmt>(sequence->stmts_[0]) != nullptr;
++}
++
++FusedPointwiseGraph AnalyzeNativeTilePointwise(const ir::ProgramPtr& program) {
++  if (!program || program->functions_.size() != 1) {
++    Reject("native tile program must contain exactly one function",
++           program ? &program->span_ : nullptr);
++  }
++  const auto& [global, function] = *program->functions_.begin();
++  if (!global || !function || global->name_ != function->name_) {
++    Reject("native tile program contains an invalid function binding",
++           program ? &program->span_ : nullptr);
++  }
++  if (function->requires_runtime_binding_ ||
++      function->func_type_ != ir::FunctionType::Orchestration ||
++      !function->level_.has_value() || *function->level_ != ir::Level::CHIP ||
++      !function->role_.has_value() || *function->role_ != ir::Role::Orchestrator) {
++    Reject("native @pl.jit tile function must be a CHIP Orchestration/Orchestrator",
++           &function->span_);
++  }
++  if (!function->attrs_.empty()) {
++    Reject("native tile function attributes are not supported", &function->span_);
++  }
++  if (function->params_.size() < 2 ||
++      function->params_.size() > kMaximumFusedPointwiseInputs + 1 ||
++      function->param_directions_.size() != function->params_.size()) {
++    Reject("native tile pointwise requires 1-16 inputs followed by one output",
++           &function->span_);
++  }
++  const size_t output_parameter_index = function->params_.size() - 1;
++  for (size_t index = 0; index < output_parameter_index; ++index) {
++    if (function->param_directions_[index] != ir::ParamDirection::In) {
++      Reject("native tile input parameters must have direction In",
++             &function->params_[index]->span_);
++    }
++  }
++  if (function->param_directions_[output_parameter_index] !=
++      ir::ParamDirection::Out) {
++    Reject("native tile final parameter must have direction Out",
++           &function->params_[output_parameter_index]->span_);
++  }
++  if (function->return_types_.size() != 1) {
++    Reject("native tile function must declare exactly one output return",
++           &function->span_);
++  }
++
++  std::vector<StaticTensor> inputs;
++  inputs.reserve(output_parameter_index);
++  std::unordered_map<const ir::Var*, size_t> input_indices;
++  for (size_t index = 0; index < output_parameter_index; ++index) {
++    const ir::VarPtr& parameter = function->params_[index];
++    if (!parameter || parameter->GetKind() != ir::ObjectKind::Var ||
++        !input_indices.emplace(parameter.get(), index).second) {
++      Reject("native tile inputs must be distinct exact Var nodes",
++             parameter ? &parameter->span_ : &function->span_);
++    }
++    inputs.push_back(ReadStaticTensor(parameter->GetType(), parameter->span_,
++                                      "native tile input"));
++  }
++  const ir::VarPtr& output_parameter =
++      function->params_[output_parameter_index];
++  if (!output_parameter || output_parameter->GetKind() != ir::ObjectKind::Var ||
++      input_indices.count(output_parameter.get()) != 0) {
++    Reject("native tile output must be a fresh exact Var node",
++           output_parameter ? &output_parameter->span_ : &function->span_);
++  }
++  const StaticTensor output = ReadStaticTensor(
++      output_parameter->GetType(), output_parameter->span_, "native tile output");
++  const StaticTensor declared_result = ReadStaticTensor(
++      function->return_types_[0], function->span_, "native tile declared result");
++  if (!SameTensor(output, declared_result)) {
++    Reject("native tile output parameter and declared return must match",
++           &function->span_);
++  }
++
++  std::vector<bool> broadcast_inputs(inputs.size(), false);
++  for (size_t index = 0; index < inputs.size(); ++index) {
++    if (!SameTensor(inputs[index], output)) {
++      if (!IsBroadcastOf(inputs[index], output)) {
++        Reject("native tile inputs must match the output or be broadcast-compatible",
++               &function->params_[index]->span_);
++      }
++      broadcast_inputs[index] = true;
++    }
++  }
++
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  if (!top || top->stmts_.size() != 2 || !top->stmts_[0] || !top->stmts_[1]) {
++    Reject("native tile function body must contain one pl.at scope and one return",
++           &function->body_->span_);
++  }
++  const auto scope = ir::As<ir::InCoreScopeStmt>(top->stmts_[0]);
++  if (!scope || scope->split_ != ir::SplitMode::None || !scope->attrs_.empty()) {
++    Reject("native tile function requires one unsplit pl.at(CORE_GROUP) scope",
++           &top->stmts_[0]->span_);
++  }
++  const auto returned = ir::As<ir::ReturnStmt>(top->stmts_[1]);
++  if (!returned || returned->value_.size() != 1) {
++    Reject("native tile function must return its output parameter",
++           &top->stmts_[1]->span_);
++  }
++  const auto returned_var = ir::As<ir::Var>(returned->value_[0]);
++  if (!returned_var || returned_var.get() != output_parameter.get()) {
++    Reject("native tile return must directly reference the output parameter",
++           &returned->span_);
++  }
++
++  const TileLoopNest loop_nest = UnwrapStaticTileLoops(scope->body_);
++  const ir::SeqStmtsPtr& leaf = loop_nest.leaf;
++  if (!leaf || leaf->stmts_.size() < 3 ||
++      leaf->stmts_.size() > kMaximumFusedPointwiseAssignments + inputs.size() + 1) {
++    Reject("native tile leaf must contain loads, pointwise assignments, and one store",
++           leaf ? &leaf->span_ : &scope->span_);
++  }
++
++  const auto store_stmt = ir::As<ir::EvalStmt>(leaf->stmts_.back());
++  const auto store_call = store_stmt ? ir::As<ir::Call>(store_stmt->expr_) : nullptr;
++  if (!store_call || !store_call->op_ || !ir::IsOp(store_call, "tile.store") ||
++      store_call->args_.size() != 3 || !store_call->attrs_.empty() ||
++      !store_call->kwargs_.empty()) {
++    Reject("native tile leaf must end with pl.store(tile, offsets, output)",
++           &leaf->stmts_.back()->span_);
++  }
++  const auto stored_tile_var = ir::As<ir::Var>(store_call->args_[0]);
++  const auto stored_output_var = ir::As<ir::Var>(store_call->args_[2]);
++  if (!stored_tile_var || !stored_output_var ||
++      stored_output_var.get() != output_parameter.get()) {
++    Reject("native tile store must write a tile to the output parameter",
++           &store_call->span_);
++  }
++  const StaticTensor output_tile = ReadStaticTile(
++      stored_tile_var->GetType(), stored_tile_var->span_, "native output tile");
++  if (output_tile.dtype != output.dtype || output_tile.shape.size() != output.shape.size()) {
++    Reject("native output tile rank and dtype must match the output tensor",
++           &stored_tile_var->span_);
++  }
++  uint64_t expected_repetitions = 1;
++  for (size_t index = 0; index < output.shape.size(); ++index) {
++    if (output_tile.shape[index] > output.shape[index] ||
++        output.shape[index] % output_tile.shape[index] != 0) {
++      Reject("native tile shape must divide every output tensor dimension",
++             &stored_tile_var->span_);
++    }
++    const uint64_t quotient = static_cast<uint64_t>(
++        output.shape[index] / output_tile.shape[index]);
++    if (expected_repetitions > std::numeric_limits<uint64_t>::max() / quotient) {
++      Reject("native tile coverage product exceeds uint64", &stored_tile_var->span_);
++    }
++    expected_repetitions *= quotient;
++  }
++  if (loop_nest.repetitions != expected_repetitions ||
++      StaticElementCount(output_tile, stored_tile_var->span_, "native output tile") *
++              loop_nest.repetitions !=
++          StaticElementCount(output, output_parameter->span_, "native output")) {
++    Reject("native pl.range loop nest must cover the output tensor exactly once",
++           &scope->span_);
++  }
++
++  std::unordered_map<const ir::Var*, size_t> loaded_inputs;
++  std::unordered_map<const ir::Var*, size_t> instruction_indices;
++  std::vector<bool> used_inputs(inputs.size(), false);
++  std::vector<FusedPointwiseInstruction> instructions;
++  bool saw_computation = false;
++  for (size_t statement_index = 0; statement_index + 1 < leaf->stmts_.size();
++       ++statement_index) {
++    const ir::StmtPtr& statement = leaf->stmts_[statement_index];
++    const auto assignment = ir::As<ir::AssignStmt>(statement);
++    if (!assignment || !assignment->var_ || !assignment->value_ ||
++        assignment->var_->GetKind() != ir::ObjectKind::Var) {
++      Reject("native tile leaf statements before store must be complete assignments",
++             statement ? &statement->span_ : &leaf->span_);
++    }
++    const auto call = ir::As<ir::Call>(assignment->value_);
++    if (!call || !call->op_) {
++      Reject("native tile assignments must contain registered calls",
++             &assignment->span_);
++    }
++    if (ir::IsOp(call, "tile.load")) {
++      if (saw_computation || call->args_.size() != 4 || !call->attrs_.empty()) {
++        Reject("native tile loads must precede pointwise computation and use canonical arity",
++               &call->span_);
++      }
++      const auto input_var = ir::As<ir::Var>(call->args_[0]);
++      if (!input_var) {
++        Reject("native tile load source must be a function input", &call->span_);
++      }
++      const auto input = input_indices.find(input_var.get());
++      if (input == input_indices.end() || used_inputs[input->second]) {
++        Reject("native tile must load each function input exactly once", &call->span_);
++      }
++      const StaticTensor load_call_tile = ReadStaticTile(
++          call->GetType(), call->span_, "native tile.load result");
++      const StaticTensor load_var_tile = ReadStaticTile(
++          assignment->var_->GetType(), assignment->var_->span_,
++          "native tile.load assignment");
++      if (!SameTensor(load_call_tile, load_var_tile)) {
++        Reject("native tile.load call and assignment types must match", &call->span_);
++      }
++      if (broadcast_inputs[input->second]) {
++        if (!IsBroadcastOf(load_var_tile, output_tile)) {
++          Reject("native broadcast load tile must match the output tile broadcast pattern",
++                 &call->span_);
++        }
++      } else if (!SameTensor(load_var_tile, output_tile)) {
++        Reject("native non-broadcast load tile must match the output tile",
++               &call->span_);
++      }
++      if (!loaded_inputs.emplace(assignment->var_.get(), input->second).second) {
++        Reject("native tile.load targets must be fresh SSA variables",
++               &assignment->span_);
++      }
++      used_inputs[input->second] = true;
++      continue;
++    }
++
++    saw_computation = true;
++    if (!call->attrs_.empty() || !call->kwargs_.empty()) {
++      Reject("native tile pointwise attributes and keyword arguments are not supported",
++             &call->span_);
++    }
++    const std::optional<FusedOperationSpec> spec = GetTileFusedOperationSpec(call);
++    if (!spec.has_value()) {
++      Reject("native tile pointwise supports registered tile scalar/elementwise/row-expand ops",
++             &call->span_);
++    }
++    const size_t expected_args =
++        spec->tensor_operand_count + (spec->has_scalar ? 1 : 0);
++    if (call->args_.size() != expected_args) {
++      Reject("native tile pointwise operator has unexpected arity", &call->span_);
++    }
++    FusedPointwiseInstruction instruction{spec->tensor_ir_op, {}, std::nullopt};
++    for (size_t operand_index = 0; operand_index < spec->tensor_operand_count;
++         ++operand_index) {
++      const auto operand = ir::As<ir::Var>(call->args_[operand_index]);
++      if (!operand || operand->GetKind() != ir::ObjectKind::Var) {
++        Reject("native tile operands must be direct exact Var nodes", &call->span_);
++      }
++      const StaticTensor operand_tile = ReadStaticTile(
++          operand->GetType(), operand->span_, "native tile operand");
++      const bool row_broadcast = spec->broadcast_operand && operand_index == 1;
++      const auto loaded = loaded_inputs.find(operand.get());
++      if (loaded != loaded_inputs.end()) {
++        const bool input_is_broadcast = broadcast_inputs[loaded->second];
++        if (row_broadcast != input_is_broadcast) {
++          Reject("native broadcast inputs may feed only row-expand operands",
++                 &operand->span_);
++        }
++        if (!row_broadcast && !SameTensor(operand_tile, output_tile)) {
++          Reject("native pointwise input tile must match the output tile",
++                 &operand->span_);
++        }
++        instruction.tensor_operands.push_back(FusedTensorOperand{
++            row_broadcast ? FusedTensorOperandKind::BroadcastInput
++                          : FusedTensorOperandKind::Input,
++            loaded->second});
++        continue;
++      }
++      if (row_broadcast) {
++        Reject("native row-expand operand must come directly from a broadcast load",
++               &operand->span_);
++      }
++      const auto previous = instruction_indices.find(operand.get());
++      if (previous == instruction_indices.end()) {
++        Reject("native tile operand is neither a load nor an earlier SSA result",
++               &operand->span_);
++      }
++      instruction.tensor_operands.push_back(FusedTensorOperand{
++          FusedTensorOperandKind::PreviousResult, previous->second});
++    }
++    if (spec->has_scalar) {
++      const auto scalar = ir::As<ir::ConstFloat>(call->args_.back());
++      if (!scalar || scalar->GetKind() != ir::ObjectKind::ConstFloat ||
++          scalar->dtype() != output.dtype || !std::isfinite(scalar->value_) ||
++          std::fabs(scalar->value_) > MaximumFiniteScalar(output.dtype)) {
++        Reject("native tile scalar must be a finite constant in the tile dtype",
++               &call->span_);
++      }
++      instruction.scalar = scalar->value_;
++    }
++    const StaticTensor call_tile = ReadStaticTile(
++        call->GetType(), call->span_, "native tile pointwise result");
++    const StaticTensor assigned_tile = ReadStaticTile(
++        assignment->var_->GetType(), assignment->var_->span_,
++        "native tile pointwise assignment");
++    if (!SameTensor(call_tile, output_tile) ||
++        !SameTensor(assigned_tile, output_tile)) {
++      Reject("native tile pointwise results must match the output tile",
++             &call->span_);
++    }
++    const size_t instruction_index = instructions.size();
++    if (!instruction_indices.emplace(assignment->var_.get(), instruction_index).second) {
++      Reject("native tile computation targets must be fresh SSA variables",
++             &assignment->span_);
++    }
++    instructions.push_back(std::move(instruction));
++  }
++  if (instructions.empty()) {
++    Reject("native tile pointwise requires at least one computation",
++           &leaf->span_);
++  }
++  const auto stored_instruction = instruction_indices.find(stored_tile_var.get());
++  if (stored_instruction == instruction_indices.end() ||
++      stored_instruction->second + 1 != instructions.size()) {
++    Reject("native tile store must consume the final pointwise SSA result",
++           &store_call->span_);
++  }
++  if (std::any_of(used_inputs.begin(), used_inputs.end(), [](bool used) {
++        return !used;
++      })) {
++    Reject("native tile pointwise must load every input", &scope->span_);
++  }
++  return FusedPointwiseGraph{output, std::move(instructions), inputs.size(),
++                             std::move(inputs), std::move(broadcast_inputs)};
++}
++
+ FusedPointwiseGraph AnalyzeFusedPointwiseV2(const ir::ProgramPtr& program) {
+   if (!program) Reject("program must not be null");
+   if (program->functions_.size() != 1) {
+@@ -2018,6 +2473,23 @@ TensorIrModule EmitLegacyStaticAddV1(const ir::ProgramPtr& program) {
+ }  // namespace detail
+ 
+ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
++  if (IsNativeTilePointwiseCandidate(program)) {
++    FusedPointwiseGraph graph = AnalyzeNativeTilePointwise(program);
++    std::vector<TensorIrValueMetadata> metadata;
++    metadata.reserve(graph.input_count + 1);
++    for (size_t index = 0; index < graph.input_count; ++index) {
++      const StaticTensor& input = graph.input_tensors[index];
++      metadata.push_back(TensorIrValueMetadata(
++          TensorIrValueRole::Input, static_cast<uint32_t>(index), input.dtype,
++          input.shape, input.dense_strides, input.shape.size() >= 2));
++    }
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Result, 0, graph.tensor.dtype, graph.tensor.shape,
++        graph.tensor.dense_strides, graph.tensor.shape.size() >= 2));
++    return TensorIrModule(TensorIrModuleKind::FusedPointwiseV2,
++                          EmitFusedPointwiseSource(graph), std::move(metadata),
++                          static_cast<uint32_t>(graph.input_count));
++  }
+   if (IsLegacyStaticAddV1Candidate(program)) {
+     return detail::EmitLegacyStaticAddV1(program);
+   }
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index 25c32ffc9c58659c8d06313e52d607e951531a18..30abd6c10b7e0bd9e394c6f9336d16c748713b13 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -10,6 +10,7 @@
+ """Functional Python coverage for the single-transaction structured compiler facade."""
+ 
+ import pypto
++import pypto.language as pl
+ import pytest
+ from pypto.compiler import (
+     Artifact,
+@@ -31,6 +32,37 @@ from pypto.compiler import (
+ from pypto.pypto_core import ir
+ 
+ 
++@pl.jit
++def _native_tile_add(
++    lhs: pl.Tensor[[8, 8], pl.FP32],
++    rhs: pl.Tensor[[8, 8], pl.FP32],
++    out: pl.Out[pl.Tensor[[8, 8], pl.FP32]],
++):
++    with pl.at(level=pl.Level.CORE_GROUP):
++        lhs_tile = pl.load(lhs, [0, 0], [8, 8])
++        rhs_tile = pl.load(rhs, [0, 0], [8, 8])
++        summed = pl.add(lhs_tile, rhs_tile)
++        scaled = pl.mul(summed, 2.0)
++        pl.store(scaled, [0, 0], out)
++    return out
++
++
++@pl.jit
++def _native_tiled_add(
++    lhs: pl.Tensor[[8, 8], pl.FP32],
++    rhs: pl.Tensor[[8, 8], pl.FP32],
++    out: pl.Out[pl.Tensor[[8, 8], pl.FP32]],
++):
++    with pl.at(level=pl.Level.CORE_GROUP):
++        for tile_row in pl.range(2):
++            for tile_col in pl.range(2):
++                lhs_tile = pl.load(lhs, [tile_row * 4, tile_col * 4], [4, 4])
++                rhs_tile = pl.load(rhs, [tile_row * 4, tile_col * 4], [4, 4])
++                summed = pl.add(lhs_tile, rhs_tile)
++                pl.store(summed, [tile_row * 4, tile_col * 4], out)
++    return out
++
++
+ def _program() -> ir.Program:
+     span = ir.Span("structured_compile_test.py", 1, 1)
+     tensor_type = ir.TensorType([8, 8], pypto.DataType.FP32)
+@@ -252,6 +284,34 @@ def _schedule(tile_size: int | list[int] = 16) -> CanonicalSchedule:
+     )
+ 
+ 
++def _assert_native_tile_compilation(request: CompileRequest) -> None:
++    native_tile = compile_structured_strict(
++        _native_tile_add.specialize(), request, _schedule([8, 8])
++    )
++    native_kernel = native_tile.artifact.kernel_abi
++    assert native_kernel.entry_function_name == "pypto_fused_pointwise_v2"
++    assert native_kernel.argument_packing_policy == ArtifactArgumentPackingPolicy.PointerOnly
++    assert native_kernel.grid_abi.policy == ArtifactGridPolicy.Static
++    assert native_kernel.grid_abi.static_dimensions == [1, 1, 1]
++    assert native_kernel.grid_abi.tile_sizes == [8, 8]
++    assert native_kernel.argument_layout.input_operand_count == 2
++    assert native_kernel.argument_layout.total_kernel_argument_count == 3
++    assert [d.shape for d in native_kernel.argument_layout.operand_descriptors] == [
++        [8, 8],
++        [8, 8],
++        [8, 8],
++    ]
++    assert not native_tile.artifact.fallback_used
++
++    tiled = compile_structured_strict(
++        _native_tiled_add.specialize(), request, _schedule([4, 4])
++    )
++    assert tiled.artifact.kernel_abi.entry_function_name == "pypto_fused_pointwise_v2"
++    assert tiled.artifact.kernel_abi.grid_abi.static_dimensions == [4, 1, 1]
++    assert tiled.artifact.kernel_abi.grid_abi.tile_sizes == [4, 4]
++    assert not tiled.artifact.fallback_used
++
++
+ def test_compile_structured_strict_functional() -> None:
+     info = get_nvidia_backend_build_info()
+     request = _request(info)
+@@ -262,6 +322,8 @@ def test_compile_structured_strict_functional() -> None:
+         for candidate in (
+             program,
+             _fused_program(),
++            _native_tile_add.specialize(),
++            _native_tiled_add.specialize(),
+             _row_reduction_program([32, 17], pypto.DataType.FP32, "tensor.row_sum"),
+         ):
+             with pytest.raises(ValueError, match="requires the compiled private NVIDIA backend"):
+@@ -321,6 +383,8 @@ def test_compile_structured_strict_functional() -> None:
+     assert fused.build_spec.callable_abi_digest == fused_kernel.identity_digest
+     assert fused.artifact.identities.kernel_build_spec_digest == fused.build_spec.identity_digest
+ 
++    _assert_native_tile_compilation(request)
++
+     row_cases = (
+         ([32, 17], pypto.DataType.FP32, "tensor.row_sum", [32, 1], [17, 1], [1, 1]),
+         (
+diff --git a/tests/ut/jit/test_jit_compile_extraction.py b/tests/ut/jit/test_jit_compile_extraction.py
+index 0acd51e219f8e3ecea5d61028b22b4bf89da0d4e..aad9fe05358ace2865786ff5d6881cf17484e909 100644
+--- a/tests/ut/jit/test_jit_compile_extraction.py
++++ b/tests/ut/jit/test_jit_compile_extraction.py
+@@ -230,6 +230,33 @@ class TestLowerReturnsProgram:
+         assert "c_v1" not in str(exc_info.value)
+ 
+ 
++class TestSpecializeReturnsNativeTileProgram:
++    """Verify alternate backends can consume the unlowered @pl.jit program."""
++
++    def test_specialize_preserves_explicit_tile_structure(self):
++        @jit
++        def tile_add(
++            a: pl.Tensor[[8, 8], pl.FP32],
++            b: pl.Tensor[[8, 8], pl.FP32],
++            out: pl.Out[pl.Tensor[[8, 8], pl.FP32]],
++        ):
++            with pl.at(level=pl.Level.CORE_GROUP):
++                tile_a = pl.load(a, [0, 0], [8, 8])
++                tile_b = pl.load(b, [0, 0], [8, 8])
++                tile_out = pl.add(tile_a, tile_b)
++                pl.store(tile_out, [0, 0], out)
++            return out
++
++        program = tile_add.specialize()
++        rendered = str(program)
++        assert isinstance(program, ir.Program)
++        assert "pl.tile.load" in rendered
++        assert "pl.tile.add" in rendered
++        assert "pl.tile.store" in rendered
++        assert "pl.at(level=pl.Level.CORE_GROUP)" in rendered
++        assert "tensor.add" not in rendered
++
++
+ class TestCompileForwardsRunConfig:
+     """``compile()`` consumes ``config=`` like ``__call__`` so the compiled
+     artefact honours the same compile-side knobs (strategy, dump_passes, …)."""

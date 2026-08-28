@@ -1,0 +1,474 @@
+From 81cfceec9751782d556aea431c015ff54006fb6b Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Mon, 24 Aug 2026 23:20:28 +0800
+Subject: [PATCH 017/212] build: harden private TensorIR artifact boundary
+
+---
+ 3rdparty/nvidia/tensor-ir                     |   2 +-
+ CMakeLists.txt                                |   4 +-
+ cmake/nvidia_backend.cmake                    | 100 ++++++++++++++----
+ pyproject.toml                                |   4 +-
+ python/bindings/CMakeLists.txt                |  27 ++++-
+ python/bindings/pypto_core.map                |   6 ++
+ src/compiler/nvidia_backend_bridge.cpp        |  31 ++++++
+ src/compiler/nvidia_backend_bridge.h          |  29 +++++
+ src/compiler/nvidia_backend_build_info.cpp    |  15 ++-
+ .../test_nvidia_backend_build_info.py         |   2 +-
+ tests/ut/cpp/CMakeLists.txt                   |   4 +-
+ tests/ut/cpp/tensor_ir_artifact_seam_test.cpp |  21 +++-
+ 12 files changed, 206 insertions(+), 39 deletions(-)
+ create mode 100644 python/bindings/pypto_core.map
+ create mode 100644 src/compiler/nvidia_backend_bridge.cpp
+ create mode 100644 src/compiler/nvidia_backend_bridge.h
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 156b8f7e86c27ec6875bee539a321bda95b1c576..151d55176f67274cb6a3edb8d25833c1a90698f6 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 156b8f7e86c27ec6875bee539a321bda95b1c576
++Subproject commit 151d55176f67274cb6a3edb8d25833c1a90698f6
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index e2bcfc16184482330225896c8d283c5687a5325d..5251366339f6d67497bdcacc403d3362098cb79f 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -359,9 +359,9 @@ target_link_libraries(${COMPILER_OBJECT_LIBRARY_NAME} PUBLIC
+     libbacktrace
+     msgpackc-cxx
+ )
+-if(TARGET pypto_nvidia_backend_dependencies)
++if(TARGET pypto_nvidia_backend_identity)
+     target_link_libraries(${COMPILER_OBJECT_LIBRARY_NAME} PUBLIC
+-        pypto_nvidia_backend_dependencies
++        pypto_nvidia_backend_identity
+     )
+ endif()
+ set_target_properties(${COMPILER_OBJECT_LIBRARY_NAME} PROPERTIES
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index e74d01ffd78f338c19044021eebbf61693a82b63..9980f553ac51396b02951152aabf944cbc8ae8d7 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -2,6 +2,11 @@
+ 
+ include_guard(GLOBAL)
+ 
++if(CMAKE_VERSION VERSION_LESS 3.20)
++    message(FATAL_ERROR
++        "The PyPTO NVIDIA backend requires CMake 3.20 or newer")
++endif()
++
+ set(_pypto_nvidia_root "${CMAKE_SOURCE_DIR}/3rdparty/nvidia")
+ set(_pypto_tensor_ir_source "${_pypto_nvidia_root}/tensor-ir")
+ set(_pypto_cuda_tile_source "${_pypto_nvidia_root}/cuda-tile")
+@@ -19,26 +24,53 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "156b8f7e86c27ec6875bee539a321bda95b1c576"
+-    CACHE STRING "Exact private TensorIR revision")
++    "151d55176f67274cb6a3edb8d25833c1a90698f6")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+-    "af2417041cc939b87ef56d92cfdcf61737c5457e"
+-    CACHE STRING "Exact private CUDA Tile revision")
++    "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+-    "57109befac92811d2253109242ca6fa69c961fb2"
+-    CACHE STRING "Exact private LLVM revision")
++    "57109befac92811d2253109242ca6fa69c961fb2")
+ set(PYPTO_NVIDIA_CUDA_TOOLKIT_ROOT "/usr/local/cuda-13.3"
+     CACHE PATH "Canonical CUDA Toolkit root for the NVIDIA compiler")
+-set(PYPTO_NVIDIA_CUDA_TOOLKIT_VERSION "13.3.73"
+-    CACHE STRING "Exact CUDA Toolkit package version")
++set(PYPTO_NVIDIA_CUDA_TOOLKIT_VERSION "13.3.73")
+ set(PYPTO_NVIDIA_TILEIRAS_EXECUTABLE
+-    "${PYPTO_NVIDIA_CUDA_TOOLKIT_ROOT}/bin/tileiras"
+-    CACHE FILEPATH "Exact CUDA Tile IR assembler")
+-set(PYPTO_NVIDIA_TILEIRAS_VERSION "13.3.36"
+-    CACHE STRING "Exact tileiras executable version")
++    "${PYPTO_NVIDIA_CUDA_TOOLKIT_ROOT}/bin/tileiras")
++set(PYPTO_NVIDIA_TILEIRAS_VERSION "13.3.36")
+ set(PYPTO_NVIDIA_TILEIRAS_SHA256
+-    "88737a8be5c56bf73fb885a567a950f247a8cfa1d146dbc7a65eff77e7d62bf0"
+-    CACHE STRING "Exact tileiras executable SHA-256")
++    "88737a8be5c56bf73fb885a567a950f247a8cfa1d146dbc7a65eff77e7d62bf0")
++
++find_package(Git REQUIRED)
++function(_pypto_require_git_revision source_dir expected_revision label)
++    execute_process(
++        COMMAND "${GIT_EXECUTABLE}" -C "${source_dir}" rev-parse HEAD
++        RESULT_VARIABLE _revision_status
++        OUTPUT_VARIABLE _actual_revision
++        ERROR_VARIABLE _revision_error
++        OUTPUT_STRIP_TRAILING_WHITESPACE)
++    if(NOT _revision_status EQUAL 0 OR
++       NOT _actual_revision STREQUAL expected_revision)
++        message(FATAL_ERROR
++            "${label} revision '${_actual_revision}' differs from locked "
++            "revision '${expected_revision}': ${_revision_error}")
++    endif()
++    execute_process(
++        COMMAND "${GIT_EXECUTABLE}" -C "${source_dir}" diff --quiet
++        RESULT_VARIABLE _worktree_status)
++    execute_process(
++        COMMAND "${GIT_EXECUTABLE}" -C "${source_dir}" diff --cached --quiet
++        RESULT_VARIABLE _index_status)
++    if(NOT _worktree_status EQUAL 0 OR NOT _index_status EQUAL 0)
++        message(FATAL_ERROR "${label} has tracked source changes")
++    endif()
++endfunction()
++
++_pypto_require_git_revision(
++    "${_pypto_tensor_ir_source}" "${PYPTO_NVIDIA_TENSOR_IR_REVISION}"
++    "TensorIR")
++_pypto_require_git_revision(
++    "${_pypto_cuda_tile_source}" "${PYPTO_NVIDIA_CUDA_TILE_REVISION}"
++    "CUDA Tile")
++_pypto_require_git_revision(
++    "${_pypto_llvm_source}" "${PYPTO_NVIDIA_LLVM_REVISION}" "LLVM")
+ 
+ file(REAL_PATH "${PYPTO_NVIDIA_CUDA_TOOLKIT_ROOT}"
+      _pypto_cuda_toolkit_real EXPAND_TILDE)
+@@ -114,10 +146,8 @@ foreach(_forbidden_target tensor_ir-compiler tensor_ir-opt cuda-tile-opt
+                 "Standalone NVIDIA tool leaked into PyPTO: ${_forbidden_target}")
+     endif()
+ endforeach()
+-add_library(pypto_nvidia_backend_dependencies INTERFACE)
+-target_link_libraries(pypto_nvidia_backend_dependencies INTERFACE
+-    NVTensorIR::Compiler)
+-target_compile_definitions(pypto_nvidia_backend_dependencies INTERFACE
++add_library(pypto_nvidia_backend_identity INTERFACE)
++target_compile_definitions(pypto_nvidia_backend_identity INTERFACE
+     PYPTO_ENABLE_NVIDIA_COMPILER_BACKEND=1
+     PYPTO_TENSOR_IR_REVISION="${PYPTO_NVIDIA_TENSOR_IR_REVISION}"
+     PYPTO_CUDA_TILE_REVISION="${PYPTO_NVIDIA_CUDA_TILE_REVISION}"
+@@ -127,3 +157,37 @@ target_compile_definitions(pypto_nvidia_backend_dependencies INTERFACE
+     PYPTO_TILEIRAS_REAL_PATH="${PYPTO_NVIDIA_TILEIRAS_EXECUTABLE}"
+     PYPTO_TILEIRAS_VERSION="${PYPTO_NVIDIA_TILEIRAS_VERSION}"
+     PYPTO_TILEIRAS_SHA256="${PYPTO_NVIDIA_TILEIRAS_SHA256}")
++
++add_library(pypto_nvidia_backend_dependencies INTERFACE)
++target_link_libraries(pypto_nvidia_backend_dependencies INTERFACE
++    NVTensorIR::Compiler
++    pypto_nvidia_backend_identity)
++
++function(pypto_apply_nvidia_llvm_abi target)
++    if(MSVC)
++        target_compile_options("${target}" PRIVATE /GR- /EHs-c-)
++        target_compile_definitions("${target}" PRIVATE _HAS_EXCEPTIONS=0)
++    elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
++        target_compile_options("${target}" PRIVATE
++            -fno-rtti
++            -fno-exceptions)
++    else()
++        message(FATAL_ERROR
++            "Unsupported compiler for the private LLVM ABI bridge: "
++            "${CMAKE_CXX_COMPILER_ID}")
++    endif()
++endfunction()
++
++# Keep MLIR/LLVM's no-RTTI/no-exception ABI inside a narrow bridge instead of
++# propagating it through PyPTO's exception-enabled compiler object library.
++add_library(pypto_nvidia_bridge_objects OBJECT
++    "${CMAKE_SOURCE_DIR}/src/compiler/nvidia_backend_bridge.cpp")
++target_include_directories(pypto_nvidia_bridge_objects PRIVATE
++    "${CMAKE_SOURCE_DIR}/src/compiler")
++target_link_libraries(pypto_nvidia_bridge_objects PRIVATE
++    pypto_nvidia_backend_dependencies)
++pypto_apply_nvidia_llvm_abi(pypto_nvidia_bridge_objects)
++set_target_properties(pypto_nvidia_bridge_objects PROPERTIES
++    POSITION_INDEPENDENT_CODE ON
++    CXX_VISIBILITY_PRESET hidden
++    VISIBILITY_INLINES_HIDDEN ON)
+diff --git a/pyproject.toml b/pyproject.toml
+index e41a65fd227caa7218994decd52cef437f05eb8d..98059c9305b78789f9b4d276edd34f9e91c7ced6 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -8,7 +8,7 @@
+ # -----------------------------------------------------------------------------------------------------------
+ 
+ [build-system]
+-requires = ["scikit-build-core>=0.10.0", "nanobind>=2.0.0", "ninja>=1.11.0", "cmake>=3.15"]
++requires = ["scikit-build-core>=0.10.0", "nanobind>=2.0.0", "ninja>=1.11.0", "cmake>=3.20"]
+ build-backend = "scikit_build_core.build"
+ 
+ [project]
+@@ -126,7 +126,7 @@ wheel.packages = ["python/pypto"]
+ # Install the package data files (*.pyi, py.typed)
+ wheel.install-dir = "pypto"
+ # Set minimum CMake version (cmake.minimum-version was removed in scikit-build-core 1.0)
+-cmake.version = ">=3.15"
++cmake.version = ">=3.20"
+ # Build type
+ cmake.build-type = "RelWithDebInfo"
+ # Build directory, better for incremental build
+diff --git a/python/bindings/CMakeLists.txt b/python/bindings/CMakeLists.txt
+index 1cb083fdf572bf9aa95602101fd35106076f7524..deb1e5e2802d21f9dfa58bc21d8860fd9018d401 100644
+--- a/python/bindings/CMakeLists.txt
++++ b/python/bindings/CMakeLists.txt
+@@ -60,6 +60,23 @@ target_include_directories(${LIBRARY_NAME} PRIVATE
+ target_link_libraries(${LIBRARY_NAME} PRIVATE
+     ${COMPILER_OBJECT_LIBRARY_NAME}
+ )
++if(TARGET pypto_nvidia_bridge_objects)
++    target_link_libraries(${LIBRARY_NAME} PRIVATE
++        pypto_nvidia_bridge_objects
++    )
++endif()
++
++# Static TensorIR/LLVM archives are private implementation details. Their
++# default-visible symbols must not enter the process-wide dynamic symbol table
++# where another extension (for example Triton) may embed a different LLVM.
++if(UNIX AND NOT APPLE)
++    target_link_options(${LIBRARY_NAME} PRIVATE
++        "LINKER:--exclude-libs,ALL"
++        "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/pypto_core.map"
++    )
++    set_property(TARGET ${LIBRARY_NAME} APPEND PROPERTY LINK_DEPENDS
++        "${CMAKE_CURRENT_SOURCE_DIR}/pypto_core.map")
++endif()
+ 
+ # Handle installation based on build mode
+ if(SKBUILD_MODE)
+@@ -74,8 +91,16 @@ if(SKBUILD_MODE)
+     endif()
+ else()
+     # Native CMake: output to local python directory for development
++    set(PYPTO_NATIVE_EXTENSION_OUTPUT_DIRECTORY
++        "${CMAKE_SOURCE_DIR}/python/pypto" CACHE PATH
++        "Native-build output directory for the pypto_core extension")
++    if(NOT IS_ABSOLUTE "${PYPTO_NATIVE_EXTENSION_OUTPUT_DIRECTORY}")
++        message(FATAL_ERROR
++            "PYPTO_NATIVE_EXTENSION_OUTPUT_DIRECTORY must be absolute")
++    endif()
+     set_target_properties(${LIBRARY_NAME} PROPERTIES
+-        LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/python/pypto
++        LIBRARY_OUTPUT_DIRECTORY
++            "${PYPTO_NATIVE_EXTENSION_OUTPUT_DIRECTORY}"
+     )
+ endif()
+ 
+diff --git a/python/bindings/pypto_core.map b/python/bindings/pypto_core.map
+new file mode 100644
+index 0000000000000000000000000000000000000000..68c0f4639a95237b9f70530b979dcfcf1cbf407b
+--- /dev/null
++++ b/python/bindings/pypto_core.map
+@@ -0,0 +1,6 @@
++PYPTO_CORE_1 {
++    global:
++        PyInit_pypto_core;
++    local:
++        *;
++};
+diff --git a/src/compiler/nvidia_backend_bridge.cpp b/src/compiler/nvidia_backend_bridge.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..88e0f3cdeca491d92b2ed447dea8646661ca9ef3
+--- /dev/null
++++ b/src/compiler/nvidia_backend_bridge.cpp
+@@ -0,0 +1,31 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#include "nvidia_backend_bridge.h"
++
++#include "tensor_ir/Compiler/Compiler.h"
++#include "tensor_ir/Utils/ComputeCapability.h"
++
++#include "mlir/Support/LogicalResult.h"
++
++namespace pypto::compiler::detail {
++
++NvidiaBackendProbeResult ProbePrivateNvidiaCompiler() {
++  auto target = mlir::nv_tensor_ir::SmTarget::fromCc(120);
++  if (mlir::failed(target)) return {};
++
++  auto compiler = mlir::nv_tensor_ir::ICompiler::create(
++      mlir::nv_tensor_ir::CompilerBackend::CudaTile);
++  if (!compiler) return {};
++  return NvidiaBackendProbeResult{true, target->toString()};
++}
++
++}  // namespace pypto::compiler::detail
+diff --git a/src/compiler/nvidia_backend_bridge.h b/src/compiler/nvidia_backend_bridge.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..8811338817d1c504c522322a925f4b5db2b20943
+--- /dev/null
++++ b/src/compiler/nvidia_backend_bridge.h
+@@ -0,0 +1,29 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#ifndef PYPTO_COMPILER_NVIDIA_BACKEND_BRIDGE_H_
++#define PYPTO_COMPILER_NVIDIA_BACKEND_BRIDGE_H_
++
++#include <string>
++
++namespace pypto::compiler::detail {
++
++/** TensorIR probe result crossing the private no-RTTI/no-EH bridge. */
++struct NvidiaBackendProbeResult {
++  bool compiler_factory_available = false;
++  std::string sm120_target;
++};
++
++[[nodiscard]] NvidiaBackendProbeResult ProbePrivateNvidiaCompiler();
++
++}  // namespace pypto::compiler::detail
++
++#endif  // PYPTO_COMPILER_NVIDIA_BACKEND_BRIDGE_H_
+diff --git a/src/compiler/nvidia_backend_build_info.cpp b/src/compiler/nvidia_backend_build_info.cpp
+index 32aadcf8bacf2f04a15956084ef867333fe47b14..42ee44d6716beff72b2a070db020aa17c540f36d 100644
+--- a/src/compiler/nvidia_backend_build_info.cpp
++++ b/src/compiler/nvidia_backend_build_info.cpp
+@@ -17,10 +17,7 @@
+ #include "pypto/core/error.h"
+ 
+ #if defined(PYPTO_ENABLE_NVIDIA_COMPILER_BACKEND)
+-#include "tensor_ir/Compiler/Compiler.h"
+-#include "tensor_ir/Utils/ComputeCapability.h"
+-
+-#include "mlir/Support/LogicalResult.h"
++#include "nvidia_backend_bridge.h"
+ #endif
+ 
+ namespace pypto::compiler {
+@@ -44,18 +41,18 @@ NvidiaBackendBuildInfo::NvidiaBackendBuildInfo(
+ 
+ NvidiaBackendBuildInfo GetNvidiaBackendBuildInfo() {
+ #if defined(PYPTO_ENABLE_NVIDIA_COMPILER_BACKEND)
+-  auto target = mlir::nv_tensor_ir::SmTarget::fromCc(120);
+-  if (mlir::failed(target)) {
++  auto probe = detail::ProbePrivateNvidiaCompiler();
++  if (probe.sm120_target.empty()) {
+     throw InternalError("private TensorIR build does not recognize SM120");
+   }
+-  auto compiler = mlir::nv_tensor_ir::ICompiler::create(mlir::nv_tensor_ir::CompilerBackend::CudaTile);
+-  if (!compiler) {
++  if (!probe.compiler_factory_available) {
+     throw InternalError("private TensorIR CUDA Tile compiler factory is unavailable");
+   }
+   return NvidiaBackendBuildInfo(true, true, PYPTO_TENSOR_IR_REVISION, PYPTO_CUDA_TILE_REVISION,
+                                 PYPTO_LLVM_REVISION, PYPTO_CUDA_TOOLKIT_ROOT,
+                                 PYPTO_CUDA_TOOLKIT_VERSION, PYPTO_TILEIRAS_REAL_PATH,
+-                                PYPTO_TILEIRAS_VERSION, PYPTO_TILEIRAS_SHA256, target->toString());
++                                PYPTO_TILEIRAS_VERSION, PYPTO_TILEIRAS_SHA256,
++                                std::move(probe.sm120_target));
+ #else
+   return NvidiaBackendBuildInfo(false, false, "", "", "", "", "", "", "", "", "");
+ #endif
+diff --git a/tests/ut/compiler/test_nvidia_backend_build_info.py b/tests/ut/compiler/test_nvidia_backend_build_info.py
+index 903867285d18f443ff51fc1df0d1e15728a694cd..68d0aebdf901c2c9247f6a710c76ca839d8c497d 100644
+--- a/tests/ut/compiler/test_nvidia_backend_build_info.py
++++ b/tests/ut/compiler/test_nvidia_backend_build_info.py
+@@ -18,7 +18,7 @@ def test_nvidia_backend_build_info_is_immutable_and_self_consistent() -> None:
+         return
+ 
+     assert info.compiler_factory_available
+-    assert info.tensor_ir_revision == "156b8f7e86c27ec6875bee539a321bda95b1c576"
++    assert info.tensor_ir_revision == "151d55176f67274cb6a3edb8d25833c1a90698f6"
+     assert info.cuda_tile_revision == "af2417041cc939b87ef56d92cfdcf61737c5457e"
+     assert info.llvm_revision == "57109befac92811d2253109242ca6fa69c961fb2"
+     assert info.cuda_toolkit_root == "/usr/local/cuda-13.3"
+diff --git a/tests/ut/cpp/CMakeLists.txt b/tests/ut/cpp/CMakeLists.txt
+index 18242c0eae796a5ac6999c23095faffb43ca6849..f82528d8b255afcbcd7e1228bcde04e77fb9b27a 100644
+--- a/tests/ut/cpp/CMakeLists.txt
++++ b/tests/ut/cpp/CMakeLists.txt
+@@ -96,9 +96,7 @@ if(PYPTO_ENABLE_NVIDIA_BACKEND)
+     target_link_libraries(pypto_tensor_ir_artifact_seam_test PRIVATE
+         pypto_nvidia_backend_dependencies
+     )
+-    target_compile_options(pypto_tensor_ir_artifact_seam_test PRIVATE
+-        -fno-rtti
+-    )
++    pypto_apply_nvidia_llvm_abi(pypto_tensor_ir_artifact_seam_test)
+ 
+     add_test(
+         NAME pypto_tensor_ir_artifact_seam_test
+diff --git a/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp b/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp
+index f3d1d5b13a76afe7ee104f3a7a7b08f8fbffae84..f75098fe6476329ccea4ee41346a0445bce8749c 100644
+--- a/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp
++++ b/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp
+@@ -66,13 +66,15 @@ module {
+ CudaTileCompileOptions StrictOptions(const SmTarget &target,
+                                      CudaTileArtifactKind kind) {
+   CudaTileCompileOptions options(target);
+-  options.tileSize = {64};
++  options.tileSize = {16};
+   options.maxTileCandidates = 0;
+   options.allowEnvironmentOverrides = false;
+   options.allowArtifactFallback = false;
+   options.artifactKind = kind;
+   if (kind == CudaTileArtifactKind::Cubin) {
+     options.tileIRAssemblerPath = PYPTO_TILEIRAS_REAL_PATH;
++    options.tileIRAssemblerVersion = PYPTO_TILEIRAS_VERSION;
++    options.tileIRAssemblerSha256 = PYPTO_TILEIRAS_SHA256;
+   }
+   return options;
+ }
+@@ -116,7 +118,7 @@ int TestTileIRArtifact(const SmTarget &target) {
+   REQUIRE(artifact->argumentPackingPolicy ==
+           CudaTileArgumentPackingPolicy::PointerOnly);
+   REQUIRE(artifact->gridPolicy == CudaTileGridPolicy::Static);
+-  REQUIRE(artifact->staticGrid[0] == 1);
++  REQUIRE(artifact->staticGrid[0] == 4);
+   REQUIRE(artifact->staticGrid[1] == 1);
+   REQUIRE(artifact->staticGrid[2] == 1);
+   REQUIRE(artifact->argLayout.tensorDescs.size() == 3);
+@@ -136,6 +138,10 @@ int TestTileIRArtifact(const SmTarget &target) {
+   invalid = *artifact;
+   invalid.workspaceAlignmentBytes = 3;
+   REQUIRE(!invalid.validate().ok());
++  invalid = *artifact;
++  invalid.actualArtifactKind = CudaTileArtifactKind::Cubin;
++  invalid.deviceCode = {'\x7f', 'E', 'L', 'F'};
++  REQUIRE(!invalid.validate().ok());
+ 
+   auto runtimeKernel =
+       static_cast<ICompiler &>(compiler).compile(kAddSource, options);
+@@ -160,6 +166,8 @@ int TestDeterministicCubinArtifact(const SmTarget &target) {
+   REQUIRE(first->actualArtifactKind == CudaTileArtifactKind::Cubin);
+   REQUIRE(!first->usedArtifactFallback());
+   REQUIRE(first->tileIRAssemblerPath == PYPTO_TILEIRAS_REAL_PATH);
++  REQUIRE(first->tileIRAssemblerVersion == PYPTO_TILEIRAS_VERSION);
++  REQUIRE(first->tileIRAssemblerSha256 == PYPTO_TILEIRAS_SHA256);
+ 
+   auto detected = detectCudaTileArtifactKind(first->deviceCode);
+   REQUIRE(detected.ok());
+@@ -180,6 +188,11 @@ int TestDeterministicCubinArtifact(const SmTarget &target) {
+   REQUIRE(first->entryFunctionName == second->entryFunctionName);
+   REQUIRE(first->staticGrid == second->staticGrid);
+ 
++  options.tileIRAssemblerSha256 = std::string(64, '0');
++  auto wrongProducer = compiler.compileToArtifact(kAddSource, options);
++  REQUIRE(!wrongProducer.ok());
++  options.tileIRAssemblerSha256 = PYPTO_TILEIRAS_SHA256;
++
+   options.tileIRAssemblerPath = "/does/not/exist/tileiras";
+   auto noFallback = compiler.compileToArtifact(kAddSource, options);
+   REQUIRE(!noFallback.ok());
+@@ -216,6 +229,10 @@ int TestDynamicArtifactMetadata(const SmTarget &target) {
+     REQUIRE(desc.numDynStrides == 1);
+     REQUIRE(desc.hasExplicitStrides);
+   }
++  CudaTileCompiledArtifact invalid = *artifact;
++  --invalid.argLayout.tensorDescs[0].numDynSizes;
++  --invalid.argLayout.totalKernelArgs;
++  REQUIRE(!invalid.validate().ok());
+   return 0;
+ }
+ 

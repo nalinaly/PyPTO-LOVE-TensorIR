@@ -1,0 +1,47 @@
+From 70795842ee1c5de92b56c0570e5d51bd79601f27 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 04:53:15 +0800
+Subject: [PATCH 62/82] Read decode slots from request table
+
+---
+ .../paged_decode_attention_layout.mlir        | 22 +++++++++++++++----
+ 1 file changed, 18 insertions(+), 4 deletions(-)
+
+diff --git a/test/Conversion/TensorToCudaTile/paged_decode_attention_layout.mlir b/test/Conversion/TensorToCudaTile/paged_decode_attention_layout.mlir
+index 84e03676bf31a9038bc1d3caf7b0932049484ab7..60f411900f0a64986e78f1837a6ea9ba7e7b69d1 100644
+--- a/test/Conversion/TensorToCudaTile/paged_decode_attention_layout.mlir
++++ b/test/Conversion/TensorToCudaTile/paged_decode_attention_layout.mlir
+@@ -21,15 +21,29 @@ module {
+       %query: tensor<1x256xbf16> {nv_tensor_ir.stride = "(256,1)"},
+       %key_cache: tensor<1024x256xbf16> {nv_tensor_ir.stride = "(256,1)"},
+       %value_cache: tensor<1024x256xbf16> {nv_tensor_ir.stride = "(256,1)"},
+-      %physical_indices: tensor<16x256xsi32>
+-          {nv_tensor_ir.stride = "(1,0)"},
+-      %valid_tokens: tensor<1x16xsi32>
++      %req_to_token: tensor<65x4096xsi32>
++          {nv_tensor_ir.stride = "(4096,1)"},
++      %request_index: tensor<1x16xsi64>
++          {nv_tensor_ir.stride = "(0,0)"},
++      %valid_tokens: tensor<1x16xsi64>
+           {nv_tensor_ir.stride = "(0,0)"}) -> tensor<1x256xbf16>
+       attributes {tile_size = array<i32: 64>} {
+     %scale = constant 0.0625 : f32
+     %scale_splat = splat %scale : tensor<1x16xf32>
++    %request_index32 = convert %request_index
++        : tensor<1x16xsi64> -> tensor<1x16xsi32>
++    %request_prefix = slice %req_to_token starts = [0, 0] limits = [65, 16]
++        strides = [1, 1] : tensor<65x4096xsi32> -> tensor<65x16xsi32>
++    %request_row = gather_rows %request_prefix, %request_index32
++        : (tensor<65x16xsi32>, tensor<1x16xsi32>) -> tensor<1x16xsi32>
++    %physical_column = transpose %request_row permutation = [1, 0]
++        : tensor<1x16xsi32> -> tensor<16x1xsi32>
++    %physical_indices = broadcast %physical_column
++        : tensor<16x1xsi32> -> tensor<16x256xsi32>
++    %valid_tokens32 = convert %valid_tokens
++        : tensor<1x16xsi64> -> tensor<1x16xsi32>
+     %valid_positions = iota dimension = 1 : tensor<1x16xsi32>
+-    %valid_mask = cmp %valid_positions lt %valid_tokens : tensor<1x16xsi32>
++    %valid_mask = cmp %valid_positions lt %valid_tokens32 : tensor<1x16xsi32>
+     %mask_floor = constant 0xFF7FFFFF : f32
+     %mask_floor_splat = splat %mask_floor : tensor<1x16xf32>
+     %key = gather_rows %key_cache, %physical_indices

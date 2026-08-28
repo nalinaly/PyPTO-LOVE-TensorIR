@@ -1,0 +1,119 @@
+From 23c1bc849ef87bc65bc61efd4cc01bffad2f3773 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 09:44:14 +0800
+Subject: [PATCH 166/212] Rank-lift paged prefill batches
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 43 +++++++++++++++++++++---
+ 1 file changed, 38 insertions(+), 5 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 5d4f5b3669fb6279a172af6c828b5e9ab16f1807..7e95ea83fce8ca73a27be94310118c20fce006d2 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -7831,9 +7831,17 @@ std::string EmitNativeTilePagedPrefillSource(
+                                    {graph.head_dim, graph.tokens}, {}};
+   gathered_transposed.dense_strides =
+       MakeDenseStridesForMetadata(gathered_transposed.shape);
++  StaticTensor key_batch_seed{DataType::BF16,
++                              {1, graph.head_dim, graph.tokens}, {}};
++  key_batch_seed.dense_strides =
++      MakeDenseStridesForMetadata(key_batch_seed.shape);
+   StaticTensor key_batch{DataType::BF16,
+                          {queries_per_kv, graph.head_dim, graph.tokens}, {}};
+   key_batch.dense_strides = MakeDenseStridesForMetadata(key_batch.shape);
++  StaticTensor value_batch_seed{DataType::BF16,
++                                {1, graph.tokens, graph.head_dim}, {}};
++  value_batch_seed.dense_strides =
++      MakeDenseStridesForMetadata(value_batch_seed.shape);
+   StaticTensor value_batch{DataType::BF16,
+                            {queries_per_kv, graph.tokens, graph.head_dim}, {}};
+   value_batch.dense_strides = MakeDenseStridesForMetadata(value_batch.shape);
+@@ -7852,6 +7860,10 @@ std::string EmitNativeTilePagedPrefillSource(
+                                      {graph.query_rows, graph.tokens}, {}};
+   query_position_matrix.dense_strides =
+       MakeDenseStridesForMetadata(query_position_matrix.shape);
++  StaticTensor query_position_batch_seed{
++      DataType::INT32, {1, graph.query_rows, graph.tokens}, {}};
++  query_position_batch_seed.dense_strides =
++      MakeDenseStridesForMetadata(query_position_batch_seed.shape);
+   StaticTensor query_position_batch{
+       DataType::INT32, {queries_per_kv, graph.query_rows, graph.tokens}, {}};
+   query_position_batch.dense_strides =
+@@ -7891,7 +7903,9 @@ std::string EmitNativeTilePagedPrefillSource(
+   const std::string gathered_type = TensorTypeText(gathered);
+   const std::string gathered_transposed_type =
+       TensorTypeText(gathered_transposed);
++  const std::string key_batch_seed_type = TensorTypeText(key_batch_seed);
+   const std::string key_batch_type = TensorTypeText(key_batch);
++  const std::string value_batch_seed_type = TensorTypeText(value_batch_seed);
+   const std::string value_batch_type = TensorTypeText(value_batch);
+   const std::string query_box_type = TensorTypeText(query_box);
+   const std::string query_head_type = TensorTypeText(query_head);
+@@ -7900,6 +7914,8 @@ std::string EmitNativeTilePagedPrefillSource(
+       TensorTypeText(query_position_column);
+   const std::string query_position_matrix_type =
+       TensorTypeText(query_position_matrix);
++  const std::string query_position_batch_seed_type =
++      TensorTypeText(query_position_batch_seed);
+   const std::string query_position_batch_type =
+       TensorTypeText(query_position_batch);
+   const std::string score_type = TensorTypeText(score);
+@@ -7973,9 +7989,13 @@ std::string EmitNativeTilePagedPrefillSource(
+   source += index_row_type;
+   source += " -> ";
+   source += query_position_matrix_type;
+-  source += "\n    %valid_positions_batch = broadcast %valid_positions : ";
++  source += "\n    %valid_positions_seed = reshape %valid_positions : ";
+   source += query_position_matrix_type;
+   source += " -> ";
++  source += query_position_batch_seed_type;
++  source += "\n    %valid_positions_batch = broadcast %valid_positions_seed : ";
++  source += query_position_batch_seed_type;
++  source += " -> ";
+   source += query_position_batch_type;
+   source += "\n    %query_rows = iota dimension = 0 : ";
+   source += query_position_column_type;
+@@ -7999,9 +8019,13 @@ std::string EmitNativeTilePagedPrefillSource(
+   source += query_position_column_type;
+   source += " -> ";
+   source += query_position_matrix_type;
+-  source += "\n    %valid_count_batch = broadcast %valid_count : ";
++  source += "\n    %valid_count_seed = reshape %valid_count : ";
+   source += query_position_matrix_type;
+   source += " -> ";
++  source += query_position_batch_seed_type;
++  source += "\n    %valid_count_batch = broadcast %valid_count_seed : ";
++  source += query_position_batch_seed_type;
++  source += " -> ";
+   source += query_position_batch_type;
+   source += "\n    %valid_mask = cmp %valid_positions_batch lt "
+             "%valid_count_batch : ";
+@@ -8058,15 +8082,24 @@ std::string EmitNativeTilePagedPrefillSource(
+     const int64_t q_start = kv_head * queries_per_kv;
+     const int64_t q_limit = q_start + queries_per_kv;
+     const std::string suffix = "kv" + kv_suffix;
+-    source += "\n    %kt_batch_" + suffix + " = broadcast %kt_" + kv_suffix +
++    source += "\n    %kt_seed_" + suffix + " = reshape %kt_" + kv_suffix +
+               " : ";
+     source += gathered_transposed_type;
+     source += " -> ";
+-    source += key_batch_type;
+-    source += "\n    %v_batch_" + suffix + " = broadcast %v_" + kv_suffix +
++    source += key_batch_seed_type;
++    source += "\n    %kt_batch_" + suffix + " = broadcast %kt_seed_" + suffix +
+               " : ";
++    source += key_batch_seed_type;
++    source += " -> ";
++    source += key_batch_type;
++    source += "\n    %v_seed_" + suffix + " = reshape %v_" + kv_suffix + " : ";
+     source += gathered_type;
+     source += " -> ";
++    source += value_batch_seed_type;
++    source += "\n    %v_batch_" + suffix + " = broadcast %v_seed_" + suffix +
++              " : ";
++    source += value_batch_seed_type;
++    source += " -> ";
+     source += value_batch_type;
+     source += "\n    %q_box_" + suffix + " = slice %arg0 starts = [0, " +
+               std::to_string(q_start) + ", 0] limits = [" +

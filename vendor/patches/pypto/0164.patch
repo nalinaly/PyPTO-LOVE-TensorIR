@@ -1,0 +1,318 @@
+From c6f8beffb99c08fd1a07f43af7fbc2a65a6c4b75 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 09:41:12 +0800
+Subject: [PATCH 164/212] Batch paged prefill query heads
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 225 +++++++++++++----------
+ 1 file changed, 130 insertions(+), 95 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 8a2519be468abbef2ae929a50854e318cb1943b7..f3441e1e24b6c93fd454618f1b496279978c6925 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -7415,6 +7415,8 @@ std::string EmitNativeTilePagedDecodeSource(
+   const std::string gathered_type = TensorTypeText(gathered);
+   const std::string gathered_transposed_type =
+       TensorTypeText(gathered_transposed);
++  const std::string key_batch_type = TensorTypeText(key_batch);
++  const std::string value_batch_type = TensorTypeText(value_batch);
+   const std::string query_box_type = TensorTypeText(query_box);
+   const std::string query_head_type = TensorTypeText(query_head);
+   const std::string score_type = TensorTypeText(score);
+@@ -7806,6 +7808,7 @@ std::string EmitNativeTilePagedCacheWriteSource(
+ 
+ std::string EmitNativeTilePagedPrefillSource(
+     const NativeTilePagedPrefillGraph& graph) {
++  const int64_t queries_per_kv = graph.q_heads / graph.kv_heads;
+   StaticTensor request_prefix{DataType::INT32,
+                               {graph.req_to_token.shape[0], graph.tokens}, {}};
+   request_prefix.dense_strides =
+@@ -7830,11 +7833,17 @@ std::string EmitNativeTilePagedPrefillSource(
+                                    {graph.head_dim, graph.tokens}, {}};
+   gathered_transposed.dense_strides =
+       MakeDenseStridesForMetadata(gathered_transposed.shape);
++  StaticTensor key_batch{DataType::BF16,
++                         {queries_per_kv, graph.head_dim, graph.tokens}, {}};
++  key_batch.dense_strides = MakeDenseStridesForMetadata(key_batch.shape);
++  StaticTensor value_batch{DataType::BF16,
++                           {queries_per_kv, graph.tokens, graph.head_dim}, {}};
++  value_batch.dense_strides = MakeDenseStridesForMetadata(value_batch.shape);
+   StaticTensor query_box{DataType::BF16,
+-                         {graph.query_rows, 1, graph.head_dim}, {}};
++                         {graph.query_rows, queries_per_kv, graph.head_dim}, {}};
+   query_box.dense_strides = MakeDenseStridesForMetadata(query_box.shape);
+   StaticTensor query_head{DataType::BF16,
+-                          {graph.query_rows, graph.head_dim}, {}};
++                          {queries_per_kv, graph.query_rows, graph.head_dim}, {}};
+   query_head.dense_strides = MakeDenseStridesForMetadata(query_head.shape);
+   StaticTensor index_scalar{DataType::INT32, {1, 1}, {1, 1}};
+   StaticTensor query_position_column{DataType::INT32,
+@@ -7845,21 +7854,27 @@ std::string EmitNativeTilePagedPrefillSource(
+                                      {graph.query_rows, graph.tokens}, {}};
+   query_position_matrix.dense_strides =
+       MakeDenseStridesForMetadata(query_position_matrix.shape);
++  StaticTensor query_position_batch{
++      DataType::INT32, {queries_per_kv, graph.query_rows, graph.tokens}, {}};
++  query_position_batch.dense_strides =
++      MakeDenseStridesForMetadata(query_position_batch.shape);
+   StaticTensor score{DataType::FP32,
+-                     {graph.query_rows, graph.tokens}, {}};
++                     {queries_per_kv, graph.query_rows, graph.tokens}, {}};
+   score.dense_strides = MakeDenseStridesForMetadata(score.shape);
+-  StaticTensor row{DataType::FP32, {graph.query_rows, 1}, {1, 1}};
++  StaticTensor row{DataType::FP32,
++                   {queries_per_kv, graph.query_rows, 1}, {}};
++  row.dense_strides = MakeDenseStridesForMetadata(row.shape);
+   StaticTensor probability = score;
+   probability.dtype = DataType::BF16;
+   StaticTensor accumulation{DataType::FP32,
+-                            {graph.query_rows, graph.head_dim}, {}};
++                            {queries_per_kv, graph.query_rows, graph.head_dim}, {}};
+   accumulation.dense_strides =
+       MakeDenseStridesForMetadata(accumulation.shape);
+   StaticTensor head_result{DataType::BF16,
+-                           {graph.query_rows, graph.head_dim}, {}};
++                           {queries_per_kv, graph.query_rows, graph.head_dim}, {}};
+   head_result.dense_strides = MakeDenseStridesForMetadata(head_result.shape);
+   StaticTensor head_box{DataType::BF16,
+-                        {graph.query_rows, 1, graph.head_dim}, {}};
++                        {graph.query_rows, queries_per_kv, graph.head_dim}, {}};
+   head_box.dense_strides = MakeDenseStridesForMetadata(head_box.shape);
+ 
+   const std::string query_type = TensorTypeText(graph.query);
+@@ -7885,6 +7900,8 @@ std::string EmitNativeTilePagedPrefillSource(
+       TensorTypeText(query_position_column);
+   const std::string query_position_matrix_type =
+       TensorTypeText(query_position_matrix);
++  const std::string query_position_batch_type =
++      TensorTypeText(query_position_batch);
+   const std::string score_type = TensorTypeText(score);
+   const std::string row_type = TensorTypeText(row);
+   const std::string probability_type = TensorTypeText(probability);
+@@ -7956,6 +7973,10 @@ std::string EmitNativeTilePagedPrefillSource(
+   source += index_row_type;
+   source += " -> ";
+   source += query_position_matrix_type;
++  source += "\n    %valid_positions_batch = broadcast %valid_positions : ";
++  source += query_position_matrix_type;
++  source += " -> ";
++  source += query_position_batch_type;
+   source += "\n    %query_rows = iota dimension = 0 : ";
+   source += query_position_column_type;
+   source += "\n    %one = constant 1 : si32";
+@@ -7978,8 +7999,13 @@ std::string EmitNativeTilePagedPrefillSource(
+   source += query_position_column_type;
+   source += " -> ";
+   source += query_position_matrix_type;
+-  source += "\n    %valid_mask = cmp %valid_positions lt %valid_count : ";
++  source += "\n    %valid_count_batch = broadcast %valid_count : ";
+   source += query_position_matrix_type;
++  source += " -> ";
++  source += query_position_batch_type;
++  source += "\n    %valid_mask = cmp %valid_positions_batch lt "
++            "%valid_count_batch : ";
++  source += query_position_batch_type;
+   source += "\n    %mask_floor = constant 0xFF7FFFFF : f32";
+   source += "\n    %mask_floor_splat = splat %mask_floor : ";
+   source += score_type;
+@@ -7988,8 +8014,7 @@ std::string EmitNativeTilePagedPrefillSource(
+   source += " : f32\n    %scale_splat = splat %scale : ";
+   source += score_type;
+ 
+-  std::vector<std::string> head_boxes(static_cast<size_t>(graph.q_heads));
+-  const int64_t queries_per_kv = graph.q_heads / graph.kv_heads;
++  std::vector<std::string> head_boxes(static_cast<size_t>(graph.kv_heads));
+   for (int64_t kv_head = 0; kv_head < graph.kv_heads; ++kv_head) {
+     const int64_t column_start = kv_head * graph.head_dim;
+     const int64_t column_limit = column_start + graph.head_dim;
+@@ -8030,94 +8055,104 @@ std::string EmitNativeTilePagedPrefillSource(
+     source += ") -> ";
+     source += gathered_type;
+ 
+-    for (int64_t q_group = 0; q_group < queries_per_kv; ++q_group) {
+-      const int64_t q_head = kv_head * queries_per_kv + q_group;
+-      const std::string suffix = "h" + std::to_string(q_head);
+-      source += "\n    %q_box_" + suffix + " = slice %arg0 starts = [0, " +
+-                std::to_string(q_head) + ", 0] limits = [" +
+-                std::to_string(graph.query_rows) + ", " +
+-                std::to_string(q_head + 1) + ", " +
+-                std::to_string(graph.head_dim) + "] strides = [1, 1, 1] : ";
+-      source += query_type;
+-      source += " -> ";
+-      source += query_box_type;
+-      source += "\n    %q_" + suffix + " = reshape %q_box_" + suffix + " : ";
+-      source += query_box_type;
+-      source += " -> ";
+-      source += query_head_type;
+-      source += "\n    %scores_" + suffix + " = matmul(%q_" + suffix +
+-                ", %kt_" + kv_suffix + ") : (";
+-      source += query_head_type;
+-      source += ", ";
+-      source += gathered_transposed_type;
+-      source += ") -> ";
+-      source += score_type;
+-      source += "\n    %scaled_" + suffix + " = mul %scores_" + suffix +
+-                ", %scale_splat : ";
+-      source += score_type;
+-      source += "\n    %masked_scaled_" + suffix +
+-                " = binary_select %valid_mask, %scaled_" + suffix +
+-                ", %mask_floor_splat : ";
+-      source += score_type;
+-      source += "\n    %rowmax_" + suffix + " = reduce(%masked_scaled_" +
+-                suffix + ") <dimensions = [1], reduction_mode = <max>> : ";
+-      source += score_type;
+-      source += " -> ";
+-      source += row_type;
+-      source += "\n    %max_full_" + suffix + " = broadcast %rowmax_" + suffix +
+-                " : ";
+-      source += row_type;
+-      source += " -> ";
+-      source += score_type;
+-      source += "\n    %centered_" + suffix + " = sub %masked_scaled_" +
+-                suffix + ", %max_full_" + suffix + " : ";
+-      source += score_type;
+-      source += "\n    %exponent_" + suffix + " = exp %centered_" + suffix +
+-                " : ";
+-      source += score_type;
+-      source += "\n    %rowsum_" + suffix + " = reduce(%exponent_" + suffix +
+-                ") <dimensions = [1], reduction_mode = <add>> : ";
+-      source += score_type;
+-      source += " -> ";
+-      source += row_type;
+-      source += "\n    %inverse_" + suffix + " = reciprocal %rowsum_" + suffix +
+-                " : ";
+-      source += row_type;
+-      source += "\n    %inverse_full_" + suffix + " = broadcast %inverse_" +
+-                suffix + " : ";
+-      source += row_type;
+-      source += " -> ";
+-      source += score_type;
+-      source += "\n    %probability_f32_" + suffix + " = mul %exponent_" +
+-                suffix + ", %inverse_full_" + suffix + " : ";
+-      source += score_type;
+-      source += "\n    %probability_" + suffix +
+-                " = convert %probability_f32_" + suffix + " : ";
+-      source += score_type;
+-      source += " -> ";
+-      source += probability_type;
+-      source += "\n    %mixed_" + suffix + " = matmul(%probability_" + suffix +
+-                ", %v_" + kv_suffix + ") : (";
+-      source += probability_type;
+-      source += ", ";
+-      source += gathered_type;
+-      source += ") -> ";
+-      source += accumulation_type;
+-      source += "\n    %head_" + suffix + " = convert %mixed_" + suffix + " : ";
+-      source += accumulation_type;
+-      source += " -> ";
+-      source += head_result_type;
+-      source += "\n    %head_box_" + suffix + " = reshape %head_" + suffix +
+-                " : ";
+-      source += head_result_type;
+-      source += " -> ";
+-      source += head_box_type;
+-      head_boxes[static_cast<size_t>(q_head)] = "%head_box_" + suffix;
+-    }
++    const int64_t q_start = kv_head * queries_per_kv;
++    const int64_t q_limit = q_start + queries_per_kv;
++    const std::string suffix = "kv" + kv_suffix;
++    source += "\n    %kt_batch_" + suffix + " = broadcast %kt_" + kv_suffix +
++              " : ";
++    source += gathered_transposed_type;
++    source += " -> ";
++    source += key_batch_type;
++    source += "\n    %v_batch_" + suffix + " = broadcast %v_" + kv_suffix +
++              " : ";
++    source += gathered_type;
++    source += " -> ";
++    source += value_batch_type;
++    source += "\n    %q_box_" + suffix + " = slice %arg0 starts = [0, " +
++              std::to_string(q_start) + ", 0] limits = [" +
++              std::to_string(graph.query_rows) + ", " +
++              std::to_string(q_limit) + ", " +
++              std::to_string(graph.head_dim) + "] strides = [1, 1, 1] : ";
++    source += query_type;
++    source += " -> ";
++    source += query_box_type;
++    source += "\n    %q_" + suffix + " = transpose %q_box_" + suffix +
++              " permutation = [1, 0, 2] : ";
++    source += query_box_type;
++    source += " -> ";
++    source += query_head_type;
++    source += "\n    %scores_" + suffix + " = matmul(%q_" + suffix +
++              ", %kt_batch_" + suffix + ") : (";
++    source += query_head_type;
++    source += ", ";
++    source += key_batch_type;
++    source += ") -> ";
++    source += score_type;
++    source += "\n    %scaled_" + suffix + " = mul %scores_" + suffix +
++              ", %scale_splat : ";
++    source += score_type;
++    source += "\n    %masked_scaled_" + suffix +
++              " = binary_select %valid_mask, %scaled_" + suffix +
++              ", %mask_floor_splat : ";
++    source += score_type;
++    source += "\n    %rowmax_" + suffix + " = reduce(%masked_scaled_" + suffix +
++              ") <dimensions = [2], reduction_mode = <max>> : ";
++    source += score_type;
++    source += " -> ";
++    source += row_type;
++    source += "\n    %max_full_" + suffix + " = broadcast %rowmax_" + suffix +
++              " : ";
++    source += row_type;
++    source += " -> ";
++    source += score_type;
++    source += "\n    %centered_" + suffix + " = sub %masked_scaled_" + suffix +
++              ", %max_full_" + suffix + " : ";
++    source += score_type;
++    source += "\n    %exponent_" + suffix + " = exp %centered_" + suffix +
++              " : ";
++    source += score_type;
++    source += "\n    %rowsum_" + suffix + " = reduce(%exponent_" + suffix +
++              ") <dimensions = [2], reduction_mode = <add>> : ";
++    source += score_type;
++    source += " -> ";
++    source += row_type;
++    source += "\n    %inverse_" + suffix + " = reciprocal %rowsum_" + suffix +
++              " : ";
++    source += row_type;
++    source += "\n    %inverse_full_" + suffix + " = broadcast %inverse_" +
++              suffix + " : ";
++    source += row_type;
++    source += " -> ";
++    source += score_type;
++    source += "\n    %probability_f32_" + suffix + " = mul %exponent_" + suffix +
++              ", %inverse_full_" + suffix + " : ";
++    source += score_type;
++    source += "\n    %probability_" + suffix +
++              " = convert %probability_f32_" + suffix + " : ";
++    source += score_type;
++    source += " -> ";
++    source += probability_type;
++    source += "\n    %mixed_" + suffix + " = matmul(%probability_" + suffix +
++              ", %v_batch_" + suffix + ") : (";
++    source += probability_type;
++    source += ", ";
++    source += value_batch_type;
++    source += ") -> ";
++    source += accumulation_type;
++    source += "\n    %head_" + suffix + " = convert %mixed_" + suffix + " : ";
++    source += accumulation_type;
++    source += " -> ";
++    source += head_result_type;
++    source += "\n    %head_box_" + suffix + " = transpose %head_" + suffix +
++              " permutation = [1, 0, 2] : ";
++    source += head_result_type;
++    source += " -> ";
++    source += head_box_type;
++    head_boxes[static_cast<size_t>(kv_head)] = "%head_box_" + suffix;
+   }
+ 
+   std::string final_value;
+-  if (graph.q_heads == 1) {
++  if (graph.kv_heads == 1) {
+     final_value = head_boxes[0];
+   } else {
+     final_value = "%result0";

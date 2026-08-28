@@ -1,0 +1,44 @@
+From b478e09a49c13d8ee330f770a19fef48b759f8b8 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 12:44:50 +0800
+Subject: [PATCH 82/82] Align marked pointwise RHS tile axes
+
+---
+ .../TensorToCudaTile/PointwiseOps.cpp         | 24 +++++++++++++++++++
+ 1 file changed, 24 insertions(+)
+
+diff --git a/lib/Conversion/TensorToCudaTile/PointwiseOps.cpp b/lib/Conversion/TensorToCudaTile/PointwiseOps.cpp
+index d89ec1a1098e83b3ce8609e995918102c6379224..a07b23075df9e9515f35fbbf13354ac187cfe2ad 100644
+--- a/lib/Conversion/TensorToCudaTile/PointwiseOps.cpp
++++ b/lib/Conversion/TensorToCudaTile/PointwiseOps.cpp
+@@ -343,6 +343,30 @@ public:
+     Value lhs = state.getTile(adaptor.getLhs());
+     Value rhs = state.getTile(adaptor.getRhs());
+ 
++    if (Attribute marker = op->getAttr("_pypto_align_rhs_trailing_transpose")) {
++      auto enabled = dyn_cast<BoolAttr>(marker);
++      ArrayRef<int64_t> tileShape = state.getTileShape();
++      if (!enabled || !enabled.getValue() || tileShape.size() < 2) {
++        return op.emitError(
++            "RHS trailing-transpose alignment marker is invalid");
++      }
++      SmallVector<int32_t> permutation;
++      permutation.reserve(tileShape.size());
++      for (size_t dim = 0; dim < tileShape.size(); ++dim) {
++        permutation.push_back(static_cast<int32_t>(dim));
++      }
++      std::swap(permutation[permutation.size() - 2], permutation.back());
++      SmallVector<int64_t> permutedShape(tileShape.begin(), tileShape.end());
++      std::swap(permutedShape[permutedShape.size() - 2],
++                permutedShape.back());
++      auto rhsType = cast<cuda_tile::TileType>(rhs.getType());
++      rhs = cuda_tile::PermuteOp::create(
++          rewriter, op.getLoc(),
++          cuda_tile::TileType::get(permutedShape, rhsType.getElementType()), rhs,
++          permutation);
++      rhs = cuda_tile::ReshapeOp::create(rewriter, op.getLoc(), rhsType, rhs);
++    }
++
+     Type elementType = op.getType().getElementType();
+     if (elementType.isFloat()) {
+       rewriter.replaceOpWithNewOp<cuda_tile::AddFOp>(

@@ -1,0 +1,576 @@
+From e44e66f4b6d654e395fd7faaf513df3877388a6f Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 22:23:50 +0800
+Subject: [PATCH 095/212] Support native fused add RMSNorm outputs
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp      | 350 +++++++++++++++++-
+ .../structured_tensor_ir_build_spec.cpp       |  31 +-
+ tests/ut/compiler/test_structured_compile.py  |  54 +++
+ 3 files changed, 422 insertions(+), 13 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 7ba338415d70b39449ba874b17f756da051ca197..9b33a171e6c0965be3c7e97f99f2708368257791 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -47,6 +47,7 @@ constexpr size_t kMaximumDiagnosticNameBytes = 96;
+ constexpr size_t kMaximumCanonicalSourceBytes = 16ULL * 1024ULL * 1024ULL;
+ constexpr size_t kMaximumRank = 32;
+ constexpr size_t kMaximumFusedPointwiseInputs = 16;
++constexpr size_t kMaximumFusedPointwiseResults = 2;
+ constexpr size_t kMaximumFusedPointwiseAssignments = 64;
+ constexpr std::string_view kLegacyStaticAddEntryName = "pypto_vector_add";
+ constexpr std::string_view kFusedPointwiseEntryName = "pypto_fused_pointwise_v2";
+@@ -114,6 +115,14 @@ struct NativeTileWeightedRmsNormGraph {
+   double epsilon;
+ };
+ 
++struct NativeTileFusedAddRmsNormGraph {
++  StaticTensor input;
++  StaticTensor weight;
++  StaticTensor result;
++  double mean_scale;
++  double epsilon;
++};
++
+ std::string BoundedDisplay(std::string_view value) {
+   std::string output;
+   const size_t count = std::min(value.size(), kMaximumDiagnosticNameBytes);
+@@ -848,6 +857,102 @@ std::string EmitNativeTileWeightedRmsNormSource(
+   return source;
+ }
+ 
++std::string EmitNativeTileFusedAddRmsNormSource(
++    const NativeTileFusedAddRmsNormGraph& graph) {
++  StaticTensor compute = graph.input;
++  compute.dtype = DataType::FP32;
++  StaticTensor row = compute;
++  row.shape[1] = 1;
++  row.dense_strides = {1, 1};
++  StaticTensor weight_compute = graph.weight;
++  weight_compute.dtype = DataType::FP32;
++
++  const std::string input_type = TensorTypeText(graph.input);
++  const std::string compute_type = TensorTypeText(compute);
++  const std::string row_type = TensorTypeText(row);
++  const std::string weight_type = TensorTypeText(graph.weight);
++  const std::string weight_compute_type = TensorTypeText(weight_compute);
++  std::string source;
++  source.reserve(3584);
++  source += "module {\n  nv_tensor_ir.graph @";
++  source += kFusedPointwiseEntryName;
++  source += "(\n    %arg0: ";
++  source += TensorWithStrideText(graph.input);
++  source += ",\n    %arg1: ";
++  source += TensorWithStrideText(graph.input);
++  source += ",\n    %arg2: ";
++  source += TensorWithStrideText(graph.weight);
++  source += "\n  ) -> (";
++  source += TensorWithStrideText(graph.result);
++  source += ", ";
++  source += TensorWithStrideText(graph.result);
++  source += ") {\n    %residual0 = add %arg0, %arg1 : ";
++  source += input_type;
++  source += "\n    %wide = convert %residual0 : ";
++  source += input_type;
++  source += " -> ";
++  source += compute_type;
++  source += "\n    %square = mul %wide, %wide : ";
++  source += compute_type;
++  source += "\n    %sum = reduce(%square) <dimensions = [1], reduction_mode = <add>> : ";
++  source += compute_type;
++  source += " -> ";
++  source += row_type;
++  source += "\n    %mean_constant = constant ";
++  AppendFloat(source, graph.mean_scale);
++  source += " : f32\n    %mean_splat = splat %mean_constant : ";
++  source += row_type;
++  source += "\n    %mean = mul %sum, %mean_splat : ";
++  source += row_type;
++  source += "\n    %epsilon_constant = constant ";
++  AppendFloat(source, graph.epsilon);
++  source += " : f32\n    %epsilon_splat = splat %epsilon_constant : ";
++  source += row_type;
++  source += "\n    %shifted = add %mean, %epsilon_splat : ";
++  source += row_type;
++  source += "\n    %inverse = rsqrt %shifted : ";
++  source += row_type;
++  source += "\n    %inverse_broadcast = broadcast %inverse : ";
++  source += row_type;
++  source += " -> ";
++  source += compute_type;
++  source += "\n    %normalized = mul %wide, %inverse_broadcast : ";
++  source += compute_type;
++  source += "\n    %weight_wide = convert %arg2 : ";
++  source += weight_type;
++  source += " -> ";
++  source += weight_compute_type;
++  source += "\n    %one = constant 1.0 : f32\n    %one_splat = splat %one : ";
++  source += weight_compute_type;
++  source += "\n    %weight_scale = add %weight_wide, %one_splat : ";
++  source += weight_compute_type;
++  std::string weight_value = "%weight_scale";
++  if (graph.input.shape[0] != 1) {
++    source += "\n    %weight_broadcast = broadcast %weight_scale : ";
++    source += weight_compute_type;
++    source += " -> ";
++    source += compute_type;
++    weight_value = "%weight_broadcast";
++  }
++  source += "\n    %weighted = mul %normalized, ";
++  source += weight_value;
++  source += " : ";
++  source += compute_type;
++  source += "\n    %result0 = convert %weighted : ";
++  source += compute_type;
++  source += " -> ";
++  source += input_type;
++  source += "\n    results %result0, %residual0 : ";
++  source += input_type;
++  source += ", ";
++  source += input_type;
++  source += "\n  }\n}\n";
++  if (source.size() > kMaximumCanonicalSourceBytes) {
++    Reject("canonical TensorIR source exceeds 16 MiB");
++  }
++  return source;
++}
++
+ std::string EmitRowReductionSource(const RowReductionGraph& graph) {
+   const std::string input_type = TensorTypeText(graph.input);
+   const std::string input_with_stride = TensorWithStrideText(graph.input);
+@@ -1914,6 +2019,214 @@ NativeTileWeightedRmsNormGraph AnalyzeNativeTileWeightedRmsNorm(
+       input, weight, result, mean_scale->value_, epsilon->value_};
+ }
+ 
++bool IsNativeTileFusedAddRmsNormCandidate(const ir::ProgramPtr& program) {
++  if (!IsNativeTileRmsNormCandidate(program)) return false;
++  const ir::FunctionPtr& function = program->functions_.begin()->second;
++  return function->params_.size() == 5;
++}
++
++NativeTileFusedAddRmsNormGraph AnalyzeNativeTileFusedAddRmsNorm(
++    const ir::ProgramPtr& program) {
++  const auto& [global, function] = *program->functions_.begin();
++  if (!global || !function || global->name_ != function->name_ ||
++      function->requires_runtime_binding_ ||
++      function->func_type_ != ir::FunctionType::Orchestration ||
++      !function->level_.has_value() || *function->level_ != ir::Level::CHIP ||
++      !function->role_.has_value() || *function->role_ != ir::Role::Orchestrator ||
++      !function->attrs_.empty()) {
++    Reject("native fused add RMSNorm must be one canonical CHIP @pl.jit function",
++           function ? &function->span_ : &program->span_);
++  }
++  if (function->params_.size() != 5 ||
++      function->param_directions_.size() != 5 ||
++      function->param_directions_[0] != ir::ParamDirection::In ||
++      function->param_directions_[1] != ir::ParamDirection::In ||
++      function->param_directions_[2] != ir::ParamDirection::In ||
++      function->param_directions_[3] != ir::ParamDirection::Out ||
++      function->param_directions_[4] != ir::ParamDirection::Out ||
++      function->return_types_.size() != 2) {
++    Reject("native fused add RMSNorm requires three inputs and two outputs",
++           &function->span_);
++  }
++  const StaticTensor input = ReadStaticTensor(
++      function->params_[0]->GetType(), function->params_[0]->span_,
++      "native fused add RMSNorm input");
++  const StaticTensor residual = ReadStaticTensor(
++      function->params_[1]->GetType(), function->params_[1]->span_,
++      "native fused add RMSNorm residual");
++  const StaticTensor weight = ReadStaticTensor(
++      function->params_[2]->GetType(), function->params_[2]->span_,
++      "native fused add RMSNorm weight");
++  const StaticTensor normalized_result = ReadStaticTensor(
++      function->params_[3]->GetType(), function->params_[3]->span_,
++      "native fused add RMSNorm normalized output");
++  const StaticTensor residual_result = ReadStaticTensor(
++      function->params_[4]->GetType(), function->params_[4]->span_,
++      "native fused add RMSNorm residual output");
++  if (input.dtype != DataType::BF16 || input.shape.size() != 2 ||
++      !SameTensor(input, residual) || !SameTensor(input, normalized_result) ||
++      !SameTensor(input, residual_result) || weight.dtype != DataType::BF16 ||
++      weight.shape != std::vector<int64_t>({1, input.shape[1]})) {
++    Reject("native fused add RMSNorm tensors have incompatible types or shapes",
++           &function->span_);
++  }
++  for (size_t index = 0; index < 2; ++index) {
++    const StaticTensor declared = ReadStaticTensor(
++        function->return_types_[index], function->span_,
++        "native fused add RMSNorm declared return");
++    if (!SameTensor(input, declared)) {
++      Reject("native fused add RMSNorm returns must match the input",
++             &function->span_);
++    }
++  }
++
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  if (!top || top->stmts_.size() != 2 || !top->stmts_[0] ||
++      !top->stmts_[1]) {
++    Reject("native fused add RMSNorm body must contain one scope and return",
++           &function->span_);
++  }
++  const auto scope = ir::As<ir::InCoreScopeStmt>(top->stmts_[0]);
++  const auto returned = ir::As<ir::ReturnStmt>(top->stmts_[1]);
++  if (!scope || scope->split_ != ir::SplitMode::None ||
++      !scope->attrs_.empty() || !returned || returned->value_.size() != 2) {
++    Reject("native fused add RMSNorm scope or return is invalid",
++           &function->span_);
++  }
++  for (size_t index = 0; index < 2; ++index) {
++    const auto value = ir::As<ir::Var>(returned->value_[index]);
++    if (!value || value.get() != function->params_[3 + index].get()) {
++      Reject("native fused add RMSNorm return order is invalid",
++             &returned->span_);
++    }
++  }
++
++  const TileLoopNest loop_nest = UnwrapStaticTileLoops(scope->body_);
++  if (loop_nest.repetitions != static_cast<uint64_t>(input.shape[0]) ||
++      !loop_nest.leaf || loop_nest.leaf->stmts_.size() != 18) {
++    Reject("native fused add RMSNorm must cover each row with one tile body",
++           &scope->span_);
++  }
++  constexpr std::array<std::string_view, 16> kOps = {
++      "tile.load", "tile.load", "tile.load", "tile.add", "tile.cast",
++      "tile.mul", "tile.create", "tile.row_sum", "tile.muls", "tile.adds",
++      "tile.rsqrt", "tile.row_expand_mul", "tile.cast", "tile.adds",
++      "tile.mul", "tile.cast"};
++  std::array<ir::AssignStmtPtr, 16> assignments;
++  std::array<ir::CallPtr, 16> calls;
++  for (size_t index = 0; index < assignments.size(); ++index) {
++    assignments[index] =
++        ir::As<ir::AssignStmt>(loop_nest.leaf->stmts_[index]);
++    calls[index] = assignments[index]
++                       ? ir::As<ir::Call>(assignments[index]->value_)
++                       : nullptr;
++    if (!assignments[index] || !assignments[index]->var_ || !calls[index] ||
++        !calls[index]->op_ ||
++        !ir::IsOp(calls[index], std::string(kOps[index]))) {
++      Reject("native fused add RMSNorm tile sequence is invalid",
++             &loop_nest.leaf->stmts_[index]->span_);
++    }
++  }
++  auto require_var = [&](const ir::CallPtr& call, size_t index,
++                         const ir::VarPtr& expected,
++                         std::string_view diagnostic) {
++    const auto value = index < call->args_.size()
++                           ? ir::As<ir::Var>(call->args_[index])
++                           : nullptr;
++    if (!value || value.get() != expected.get()) {
++      Reject(std::string(diagnostic), &call->span_);
++    }
++  };
++  require_var(calls[0], 0, function->params_[0],
++              "fused RMSNorm input load is invalid");
++  require_var(calls[1], 0, function->params_[1],
++              "fused RMSNorm residual load is invalid");
++  require_var(calls[2], 0, function->params_[2],
++              "fused RMSNorm weight load is invalid");
++  require_var(calls[3], 0, assignments[0]->var_,
++              "fused RMSNorm add lhs is invalid");
++  require_var(calls[3], 1, assignments[1]->var_,
++              "fused RMSNorm add rhs is invalid");
++  require_var(calls[4], 0, assignments[3]->var_,
++              "fused RMSNorm residual cast is invalid");
++  require_var(calls[5], 0, assignments[4]->var_,
++              "fused RMSNorm square lhs is invalid");
++  require_var(calls[5], 1, assignments[4]->var_,
++              "fused RMSNorm square rhs is invalid");
++  require_var(calls[7], 0, assignments[5]->var_,
++              "fused RMSNorm row sum input is invalid");
++  require_var(calls[7], 1, assignments[6]->var_,
++              "fused RMSNorm row sum scratch is invalid");
++  for (size_t index = 8; index <= 10; ++index) {
++    require_var(calls[index], 0, assignments[index - 1]->var_,
++                "fused RMSNorm reduction epilogue is not linear");
++  }
++  require_var(calls[11], 0, assignments[4]->var_,
++              "fused RMSNorm normalization input is invalid");
++  require_var(calls[11], 1, assignments[10]->var_,
++              "fused RMSNorm inverse RMS is invalid");
++  require_var(calls[12], 0, assignments[2]->var_,
++              "fused RMSNorm weight cast is invalid");
++  require_var(calls[13], 0, assignments[12]->var_,
++              "fused RMSNorm scale is invalid");
++  require_var(calls[14], 0, assignments[11]->var_,
++              "fused RMSNorm normalized value is invalid");
++  require_var(calls[14], 1, assignments[13]->var_,
++              "fused RMSNorm weighted scale is invalid");
++  require_var(calls[15], 0, assignments[14]->var_,
++              "fused RMSNorm result cast is invalid");
++
++  std::array<ir::CallPtr, 2> stores;
++  for (size_t index = 0; index < stores.size(); ++index) {
++    const auto statement =
++        ir::As<ir::EvalStmt>(loop_nest.leaf->stmts_[16 + index]);
++    stores[index] = statement ? ir::As<ir::Call>(statement->expr_) : nullptr;
++    if (!stores[index] || !ir::IsOp(stores[index], "tile.store")) {
++      Reject("native fused add RMSNorm must end in two tile.store calls",
++             &loop_nest.leaf->stmts_[16 + index]->span_);
++    }
++  }
++  require_var(stores[0], 0, assignments[15]->var_,
++              "fused RMSNorm normalized store value is invalid");
++  require_var(stores[0], 2, function->params_[3],
++              "fused RMSNorm normalized store target is invalid");
++  require_var(stores[1], 0, assignments[3]->var_,
++              "fused RMSNorm residual store value is invalid");
++  require_var(stores[1], 2, function->params_[4],
++              "fused RMSNorm residual store target is invalid");
++
++  const StaticTensor expected_bf16{DataType::BF16, {1, input.shape[1]},
++                                   {input.shape[1], 1}};
++  for (size_t index : {0U, 1U, 2U, 3U, 15U}) {
++    const StaticTensor tile = ReadStaticTile(
++        assignments[index]->var_->GetType(), assignments[index]->span_,
++        "native fused add RMSNorm BF16 tile");
++    if (!SameTensor(tile, expected_bf16)) {
++      Reject("native fused add RMSNorm BF16 tile shape is invalid",
++             &assignments[index]->span_);
++    }
++  }
++  const auto mean_scale = calls[8]->args_.size() == 2
++                              ? ir::As<ir::ConstFloat>(calls[8]->args_[1])
++                              : nullptr;
++  const auto epsilon = calls[9]->args_.size() == 2
++                           ? ir::As<ir::ConstFloat>(calls[9]->args_[1])
++                           : nullptr;
++  const auto weight_one = calls[13]->args_.size() == 2
++                              ? ir::As<ir::ConstFloat>(calls[13]->args_[1])
++                              : nullptr;
++  const double expected_mean = 1.0 / static_cast<double>(input.shape[1]);
++  if (!mean_scale || !epsilon || !weight_one ||
++      !std::isfinite(mean_scale->value_) || !std::isfinite(epsilon->value_) ||
++      epsilon->value_ <= 0.0 || weight_one->value_ != 1.0 ||
++      std::fabs(mean_scale->value_ - expected_mean) >
++          std::numeric_limits<double>::epsilon()) {
++    Reject("native fused add RMSNorm scalar constants are invalid", &scope->span_);
++  }
++  return NativeTileFusedAddRmsNormGraph{
++      input, weight, normalized_result, mean_scale->value_, epsilon->value_};
++}
++
+ struct NativeTileRopeGraph {
+   StaticTensor input;
+   StaticTensor frequency;
+@@ -3791,7 +4104,8 @@ TensorIrValueMetadata::TensorIrValueMetadata(TensorIrValueRole role, uint32_t or
+     InternalReject("value metadata role is invalid");
+   }
+   if ((role_ == TensorIrValueRole::Input && ordinal_ >= kMaximumFusedPointwiseInputs) ||
+-      (role_ == TensorIrValueRole::Result && ordinal_ != 0)) {
++      (role_ == TensorIrValueRole::Result &&
++       ordinal_ >= kMaximumFusedPointwiseResults)) {
+     InternalReject("value metadata ordinal is invalid for its role");
+   }
+   if (dtype != DataType::BF16 && dtype != DataType::FP32) {
+@@ -3832,9 +4146,11 @@ TensorIrModule::TensorIrModule(TensorIrModuleKind kind, std::string canonical_so
+       InternalReject("tensor.add module metadata must contain Input0, Input1, and Result0");
+     }
+   } else if (kind_ == TensorIrModuleKind::FusedPointwiseV2) {
++    const size_t result_count = value_metadata_.size() - input_count_;
+     if (input_count_ == 0 || input_count_ > kMaximumFusedPointwiseInputs ||
+-        value_metadata_.size() != input_count_ + 1) {
+-      InternalReject("fused pointwise module metadata must contain 1-16 inputs and one result");
++        result_count == 0 || result_count > kMaximumFusedPointwiseResults) {
++      InternalReject(
++          "fused pointwise module metadata must contain 1-16 inputs and 1-2 results");
+     }
+   } else if (kind_ == TensorIrModuleKind::RowReductionV3) {
+     if (input_count_ != 1 || value_metadata_.size() != 2) {
+@@ -3853,7 +4169,9 @@ TensorIrModule::TensorIrModule(TensorIrModuleKind kind, std::string canonical_so
+     const TensorIrValueRole expected_role =
+         index < input_count_ ? TensorIrValueRole::Input : TensorIrValueRole::Result;
+     const uint32_t expected_ordinal =
+-        index < input_count_ ? static_cast<uint32_t>(index) : 0;
++        index < input_count_
++            ? static_cast<uint32_t>(index)
++            : static_cast<uint32_t>(index - input_count_);
+     if (value_metadata_[index].GetRole() != expected_role ||
+         value_metadata_[index].GetOrdinal() != expected_ordinal) {
+       InternalReject("TensorIR module metadata roles and ordinals are invalid");
+@@ -4189,6 +4507,30 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+                           EmitNativeTileRopeSource(graph), std::move(metadata),
+                           /*input_count=*/3);
+   }
++  if (IsNativeTileFusedAddRmsNormCandidate(program)) {
++    const NativeTileFusedAddRmsNormGraph graph =
++        AnalyzeNativeTileFusedAddRmsNorm(program);
++    std::vector<TensorIrValueMetadata> metadata;
++    metadata.reserve(5);
++    for (uint32_t index = 0; index < 2; ++index) {
++      metadata.push_back(TensorIrValueMetadata(
++          TensorIrValueRole::Input, index, graph.input.dtype,
++          graph.input.shape, graph.input.dense_strides,
++          /*has_explicit_strides=*/true));
++    }
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Input, 2, graph.weight.dtype, graph.weight.shape,
++        graph.weight.dense_strides, /*has_explicit_strides=*/true));
++    for (uint32_t index = 0; index < 2; ++index) {
++      metadata.push_back(TensorIrValueMetadata(
++          TensorIrValueRole::Result, index, graph.result.dtype,
++          graph.result.shape, graph.result.dense_strides,
++          /*has_explicit_strides=*/true));
++    }
++    return TensorIrModule(TensorIrModuleKind::FusedPointwiseV2,
++                          EmitNativeTileFusedAddRmsNormSource(graph),
++                          std::move(metadata), /*input_count=*/3);
++  }
+   if (IsNativeTileWeightedRmsNormCandidate(program)) {
+     const NativeTileWeightedRmsNormGraph graph =
+         AnalyzeNativeTileWeightedRmsNorm(program);
+diff --git a/src/compiler/structured_tensor_ir_build_spec.cpp b/src/compiler/structured_tensor_ir_build_spec.cpp
+index a28b0c4cddcb6e5c0989bfae581d63b8badafc3f..f3e25053cc970c79b69ad677ca897d24e2054f04 100644
+--- a/src/compiler/structured_tensor_ir_build_spec.cpp
++++ b/src/compiler/structured_tensor_ir_build_spec.cpp
+@@ -228,8 +228,13 @@ std::vector<uint8_t> SerializeResultAbi(
+   PackKey(packer, "result_abi_schema_version");
+   packer.pack(schema.version);
+   PackKey(packer, "results");
+-  packer.pack_array(1);
+-  PackAbiDescriptor(packer, metadata[input_count], /*include_direction=*/false);
++  const uint32_t result_count =
++      static_cast<uint32_t>(metadata.size()) - input_count;
++  packer.pack_array(result_count);
++  for (uint32_t index = 0; index < result_count; ++index) {
++    PackAbiDescriptor(packer, metadata[input_count + index],
++                      /*include_direction=*/false);
++  }
+   return FinishProjection(buffer, "result ABI");
+ }
+ 
+@@ -365,7 +370,8 @@ void ValidateFusedPointwiseSchedule(
+   if (module.GetKind() != codegen::nvidia::TensorIrModuleKind::FusedPointwiseV2) return;
+   INTERNAL_CHECK(!module.GetValueMetadata().empty())
+       << "fused pointwise v2 module has no value metadata";
+-  const std::vector<int64_t>& shape = module.GetValueMetadata().back().GetShape();
++  const std::vector<int64_t>& shape =
++      module.GetValueMetadata()[module.GetInputCount()].GetShape();
+   const std::vector<uint32_t>& tile_sizes = resolved_options.tile_sizes;
+   CHECK(!tile_sizes.empty())
+       << "fused pointwise v2 requires at least one tile dimension";
+@@ -667,13 +673,16 @@ void ValidateKernelAbi(const PreparedStructuredTensorIrCompilation& prepared,
+   const auto& descriptors = layout.GetOperandDescriptors();
+   const auto& metadata = prepared.GetValueMetadata();
+   const uint32_t input_count = prepared.GetInputCount();
+-  if (metadata.size() != static_cast<size_t>(input_count) + 1 ||
++  if (prepared.GetResultCount() == 0 || prepared.GetResultCount() > 2 ||
++      metadata.size() !=
++          static_cast<size_t>(input_count) + prepared.GetResultCount() ||
+       descriptors.size() != metadata.size()) {
+     if (prepared.GetModuleKind() ==
+         PreparedStructuredTensorIrModuleKind::LegacyStaticAddV1) {
+       RejectFinalization("descriptor count must be ordered Input0, Input1, Result0");
+     }
+-    RejectFinalization("descriptor count must contain ordered inputs followed by Result0");
++    RejectFinalization(
++        "descriptor count must contain ordered inputs followed by results");
+   }
+   if (layout.GetInputOperandCount() != input_count) {
+     if (prepared.GetModuleKind() ==
+@@ -843,9 +852,11 @@ PreparedStructuredTensorIrCompilation PrepareStructuredTensorIrCompilation(
+   } else if (module.GetKind() == codegen::nvidia::TensorIrModuleKind::FusedPointwiseV2) {
+     module_kind = PreparedStructuredTensorIrModuleKind::FusedPointwiseV2;
+     INTERNAL_CHECK(module.GetMetadataSchemaVersion() == 2 && module.GetInputCount() >= 1 &&
+-                   module.GetInputCount() <= 16 && module.GetResultCount() == 1 &&
+-                   module.GetValueMetadata().size() == module.GetInputCount() + 1)
+-        << "prepared fused pointwise TensorIR module must use schema 2 with 1-16 inputs and one result";
++                   module.GetInputCount() <= 16 && module.GetResultCount() >= 1 &&
++                   module.GetResultCount() <= 2 &&
++                   module.GetValueMetadata().size() ==
++                       module.GetInputCount() + module.GetResultCount())
++        << "prepared fused pointwise TensorIR module must use schema 2 with 1-16 inputs and 1-2 results";
+   } else if (module.GetKind() == codegen::nvidia::TensorIrModuleKind::RowReductionV3) {
+     module_kind = PreparedStructuredTensorIrModuleKind::RowReductionV3;
+     INTERNAL_CHECK(module.GetMetadataSchemaVersion() == 3 && module.GetInputCount() == 1 &&
+@@ -883,7 +894,9 @@ PreparedStructuredTensorIrCompilation PrepareStructuredTensorIrCompilation(
+     const PreparedStructuredTensorIrValueRole expected_role =
+         is_input ? PreparedStructuredTensorIrValueRole::Argument
+                  : PreparedStructuredTensorIrValueRole::Result;
+-    const uint32_t expected_ordinal = is_input ? static_cast<uint32_t>(index) : 0;
++    const uint32_t expected_ordinal =
++        is_input ? static_cast<uint32_t>(index)
++                 : static_cast<uint32_t>(index - module.GetInputCount());
+     INTERNAL_CHECK(metadata[index].GetRole() == expected_role &&
+                    metadata[index].GetOrdinal() == expected_ordinal)
+         << "prepared TensorIR metadata roles or ordinals are not canonical";
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index 4ead3ff42eb18473c9f3f461ab783527e1084505..08e18dfba744a93c0f7504ea11d37331325a8e47 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -90,6 +90,39 @@ def _native_tile_rmsnorm(
+     return out
+ 
+ 
++@pl.jit
++def _native_tile_fused_add_rmsnorm(
++    x: pl.Tensor[[2, 256], pl.BF16],
++    residual: pl.Tensor[[2, 256], pl.BF16],
++    weight: pl.Tensor[[1, 256], pl.BF16],
++    normalized_out: pl.Out[pl.Tensor[[2, 256], pl.BF16]],
++    residual_out: pl.Out[pl.Tensor[[2, 256], pl.BF16]],
++):
++    with pl.at(level=pl.Level.CORE_GROUP):
++        for row in pl.range(2):
++            x_part = pl.load(x, [row, 0], [1, 256])
++            residual_part = pl.load(residual, [row, 0], [1, 256])
++            weight_part = pl.load(weight, [0, 0], [1, 256])
++            residual_sum = pl.add(x_part, residual_part)
++            residual_wide = pl.cast(residual_sum, target_type=pl.FP32)
++            square = pl.mul(residual_wide, residual_wide)
++            scratch = pl.create_tile(
++                [1, 256], dtype=pl.FP32, target_memory=pl.MemorySpace.Vec
++            )
++            square_sum = pl.row_sum(square, scratch)
++            mean_square = pl.mul(square_sum, 1.0 / 256)
++            shifted = pl.add(mean_square, 1.0e-6)
++            inv_rms = pl.rsqrt(shifted)
++            normalized = pl.row_expand_mul(residual_wide, inv_rms)
++            weight_wide = pl.cast(weight_part, target_type=pl.FP32)
++            scale = pl.add(weight_wide, 1.0)
++            weighted = pl.mul(normalized, scale)
++            result = pl.cast(weighted, target_type=pl.BF16)
++            pl.store(result, [row, 0], normalized_out)
++            pl.store(residual_sum, [row, 0], residual_out)
++    return normalized_out, residual_out
++
++
+ @pl.jit
+ def _native_tile_rope(
+     x: pl.Tensor[[2, 128], pl.BF16],
+@@ -445,6 +478,26 @@ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+     ]
+     assert not rmsnorm.artifact.fallback_used
+ 
++    fused_rmsnorm = compile_structured_strict(
++        _native_tile_fused_add_rmsnorm.specialize(),
++        request,
++        _schedule([1, 128]),
++    )
++    fused_rms_kernel = fused_rmsnorm.artifact.kernel_abi
++    assert fused_rms_kernel.entry_function_name == "pypto_fused_pointwise_v2"
++    assert fused_rms_kernel.grid_abi.static_dimensions == [4, 1, 1]
++    assert fused_rms_kernel.grid_abi.tile_sizes == [1, 128]
++    assert fused_rms_kernel.argument_layout.input_operand_count == 3
++    assert fused_rms_kernel.argument_layout.total_kernel_argument_count == 5
++    assert [d.shape for d in fused_rms_kernel.argument_layout.operand_descriptors] == [
++        [2, 256],
++        [2, 256],
++        [1, 256],
++        [2, 256],
++        [2, 256],
++    ]
++    assert not fused_rmsnorm.artifact.fallback_used
++
+     rope = compile_structured_strict(
+         _native_tile_rope.specialize(), request, _schedule([1, 1, 64])
+     )
+@@ -508,6 +561,7 @@ def test_compile_structured_strict_functional() -> None:
+             _native_tile_add.specialize(),
+             _native_tiled_add.specialize(),
+             _native_tile_rmsnorm.specialize(),
++            _native_tile_fused_add_rmsnorm.specialize(),
+             _native_tile_rope.specialize(),
+             _native_tile_attention.specialize(scale=0.08838834764831843),
+             _native_tile_linear.specialize(),

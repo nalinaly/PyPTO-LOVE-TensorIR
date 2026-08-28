@@ -1,0 +1,30 @@
+From 15fd2264da8819334643afaf089238e07caeeeef Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 12:45:00 +0800
+Subject: [PATCH 196/212] Lock marked pointwise tile alignment
+
+---
+ 3rdparty/nvidia/tensor-ir  | 2 +-
+ cmake/nvidia_backend.cmake | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index e9be619a9c4d70a643b1d0300d7b3a7683f951a1..b478e09a49c13d8ee330f770a19fef48b759f8b8 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit e9be619a9c4d70a643b1d0300d7b3a7683f951a1
++Subproject commit b478e09a49c13d8ee330f770a19fef48b759f8b8
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 28769243bd07fc2af469a58d9167b2a57cf97818..5a8673d4e45eb79446e8f9a6f2baf2703aa28e3b 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "e9be619a9c4d70a643b1d0300d7b3a7683f951a1")
++    "b478e09a49c13d8ee330f770a19fef48b759f8b8")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

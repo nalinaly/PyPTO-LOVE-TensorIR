@@ -1,0 +1,314 @@
+From 9c5dbae3cf834b7ebb588e4e22935ffca59b450e Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Mon, 24 Aug 2026 22:54:15 +0800
+Subject: [PATCH 016/212] test: gate deterministic TensorIR artifact seam
+
+---
+ 3rdparty/nvidia/tensor-ir                     |   2 +-
+ cmake/nvidia_backend.cmake                    |   2 +-
+ .../test_nvidia_backend_build_info.py         |   2 +-
+ tests/ut/cpp/CMakeLists.txt                   |  18 ++
+ tests/ut/cpp/tensor_ir_artifact_seam_test.cpp | 235 ++++++++++++++++++
+ 5 files changed, 256 insertions(+), 3 deletions(-)
+ create mode 100644 tests/ut/cpp/tensor_ir_artifact_seam_test.cpp
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 233ab6ed25f0ae9c6c4b122072bd31079f8fa185..156b8f7e86c27ec6875bee539a321bda95b1c576 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 233ab6ed25f0ae9c6c4b122072bd31079f8fa185
++Subproject commit 156b8f7e86c27ec6875bee539a321bda95b1c576
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index e7b7531c1b39f21a12b2ea3b4917120d80492814..e74d01ffd78f338c19044021eebbf61693a82b63 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -19,7 +19,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "233ab6ed25f0ae9c6c4b122072bd31079f8fa185"
++    "156b8f7e86c27ec6875bee539a321bda95b1c576"
+     CACHE STRING "Exact private TensorIR revision")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e"
+diff --git a/tests/ut/compiler/test_nvidia_backend_build_info.py b/tests/ut/compiler/test_nvidia_backend_build_info.py
+index e3d59b48d1056cd74e1a04805319818a095bf17b..903867285d18f443ff51fc1df0d1e15728a694cd 100644
+--- a/tests/ut/compiler/test_nvidia_backend_build_info.py
++++ b/tests/ut/compiler/test_nvidia_backend_build_info.py
+@@ -18,7 +18,7 @@ def test_nvidia_backend_build_info_is_immutable_and_self_consistent() -> None:
+         return
+ 
+     assert info.compiler_factory_available
+-    assert info.tensor_ir_revision == "233ab6ed25f0ae9c6c4b122072bd31079f8fa185"
++    assert info.tensor_ir_revision == "156b8f7e86c27ec6875bee539a321bda95b1c576"
+     assert info.cuda_tile_revision == "af2417041cc939b87ef56d92cfdcf61737c5457e"
+     assert info.llvm_revision == "57109befac92811d2253109242ca6fa69c961fb2"
+     assert info.cuda_toolkit_root == "/usr/local/cuda-13.3"
+diff --git a/tests/ut/cpp/CMakeLists.txt b/tests/ut/cpp/CMakeLists.txt
+index 534ab699c532654ab93698fb7ea06e11ec5fb222..18242c0eae796a5ac6999c23095faffb43ca6849 100644
+--- a/tests/ut/cpp/CMakeLists.txt
++++ b/tests/ut/cpp/CMakeLists.txt
+@@ -87,3 +87,21 @@ add_test(
+     NAME pypto_nvidia_kernel_build_spec_test
+     COMMAND pypto_nvidia_kernel_build_spec_test
+ )
++
++if(PYPTO_ENABLE_NVIDIA_BACKEND)
++    add_executable(pypto_tensor_ir_artifact_seam_test
++        tensor_ir_artifact_seam_test.cpp
++    )
++
++    target_link_libraries(pypto_tensor_ir_artifact_seam_test PRIVATE
++        pypto_nvidia_backend_dependencies
++    )
++    target_compile_options(pypto_tensor_ir_artifact_seam_test PRIVATE
++        -fno-rtti
++    )
++
++    add_test(
++        NAME pypto_tensor_ir_artifact_seam_test
++        COMMAND pypto_tensor_ir_artifact_seam_test
++    )
++endif()
+diff --git a/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp b/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..f3d1d5b13a76afe7ee104f3a7a7b08f8fbffae84
+--- /dev/null
++++ b/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp
+@@ -0,0 +1,235 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#include <cstdlib>
++#include <cstdint>
++#include <string>
++
++#include "tensor_ir/Compiler/CudaTile/CudaTileArtifact.h"
++#include "tensor_ir/Compiler/CudaTile/CudaTileCompiler.h"
++#include "tensor_ir/Runtime/CudaTile/CudaTileRuntimeKernel.h"
++#include "tensor_ir/Utils/ComputeCapability.h"
++
++using mlir::nv_tensor_ir::ArchPortability;
++using mlir::nv_tensor_ir::ICompiler;
++using mlir::nv_tensor_ir::SmTarget;
++using mlir::nv_tensor_ir::backend::cuda_tile::CudaTileArgumentPackingPolicy;
++using mlir::nv_tensor_ir::backend::cuda_tile::CudaTileArtifactKind;
++using mlir::nv_tensor_ir::backend::cuda_tile::CudaTileCompileOptions;
++using mlir::nv_tensor_ir::backend::cuda_tile::CudaTileCompiledArtifact;
++using mlir::nv_tensor_ir::backend::cuda_tile::CudaTileCompiler;
++using mlir::nv_tensor_ir::backend::cuda_tile::CudaTileGridPolicy;
++using mlir::nv_tensor_ir::backend::cuda_tile::detectCudaTileArtifactKind;
++using tensor_ir::rt::CudaTileRuntimeKernel;
++
++#define REQUIRE(condition) \
++  do {                     \
++    if (!(condition)) {    \
++      return __LINE__;     \
++    }                      \
++  } while (false)
++
++namespace {
++
++constexpr char kAddSource[] = R"mlir(
++module {
++  nv_tensor_ir.graph @add_op_simple(
++    %a: tensor<8x8xf32> {nv_tensor_ir.stride = "(8,1)"},
++    %b: tensor<8x8xf32> {nv_tensor_ir.stride = "(8,1)"}
++  ) -> (tensor<8x8xf32> {nv_tensor_ir.stride = "(8,1)"}) {
++    %add = add %a, %b : tensor<8x8xf32>
++    results %add : tensor<8x8xf32>
++  }
++}
++)mlir";
++
++constexpr char kDynamicAddSource[] = R"mlir(
++module {
++  nv_tensor_ir.graph @add_dynamic_shape(
++    %a: tensor<?x?xf32> {nv_tensor_ir.stride = "(?,1)"},
++    %b: tensor<?x?xf32> {nv_tensor_ir.stride = "(?,1)"}
++  ) -> (tensor<?x?xf32> {nv_tensor_ir.stride = "(?,1)"}) {
++    %add = add %a, %b : tensor<?x?xf32>
++    results %add : tensor<?x?xf32>
++  }
++}
++)mlir";
++
++CudaTileCompileOptions StrictOptions(const SmTarget &target,
++                                     CudaTileArtifactKind kind) {
++  CudaTileCompileOptions options(target);
++  options.tileSize = {64};
++  options.maxTileCandidates = 0;
++  options.allowEnvironmentOverrides = false;
++  options.allowArtifactFallback = false;
++  options.artifactKind = kind;
++  if (kind == CudaTileArtifactKind::Cubin) {
++    options.tileIRAssemblerPath = PYPTO_TILEIRAS_REAL_PATH;
++  }
++  return options;
++}
++
++int TestStrictOptionValidation(const SmTarget &target) {
++  CudaTileCompileOptions options =
++      StrictOptions(target, CudaTileArtifactKind::Cubin);
++  REQUIRE(options.validate().ok());
++  REQUIRE(options.toUniqueString().find(PYPTO_TILEIRAS_REAL_PATH) !=
++          std::string::npos);
++
++  options.tileIRAssemblerPath.clear();
++  REQUIRE(!options.validate().ok());
++  options.tileIRAssemblerPath = "relative/tileiras";
++  REQUIRE(!options.validate().ok());
++
++  options = StrictOptions(target, CudaTileArtifactKind::TileIR);
++  options.irDebug.loadTileIRBCPath = "/tmp/untrusted.tileir";
++  REQUIRE(!options.validate().ok());
++  options.irDebug.loadTileIRBCPath.clear();
++  options.tileSize.clear();
++  REQUIRE(!options.validate().ok());
++  return 0;
++}
++
++int TestTileIRArtifact(const SmTarget &target) {
++  CudaTileCompiler compiler;
++  CudaTileCompileOptions options =
++      StrictOptions(target, CudaTileArtifactKind::TileIR);
++  auto artifact = compiler.compileToArtifact(kAddSource, options);
++  REQUIRE(artifact.ok());
++  REQUIRE(artifact->validate().ok());
++  REQUIRE(artifact->schemaVersion == CudaTileCompiledArtifact::kSchemaVersion);
++  REQUIRE(artifact->requestedArtifactKind == CudaTileArtifactKind::TileIR);
++  REQUIRE(artifact->actualArtifactKind == CudaTileArtifactKind::TileIR);
++  REQUIRE(!artifact->usedArtifactFallback());
++  REQUIRE(artifact->requestedTarget.toString() == "sm_120a");
++  REQUIRE(artifact->actualTarget.toString() == "sm_120a");
++  REQUIRE(!artifact->runtimeKernelName.empty());
++  REQUIRE(!artifact->entryFunctionName.empty());
++  REQUIRE(artifact->argumentPackingPolicy ==
++          CudaTileArgumentPackingPolicy::PointerOnly);
++  REQUIRE(artifact->gridPolicy == CudaTileGridPolicy::Static);
++  REQUIRE(artifact->staticGrid[0] == 1);
++  REQUIRE(artifact->staticGrid[1] == 1);
++  REQUIRE(artifact->staticGrid[2] == 1);
++  REQUIRE(artifact->argLayout.tensorDescs.size() == 3);
++  REQUIRE(artifact->argLayout.numInputs == 2);
++  REQUIRE(artifact->argLayout.totalKernelArgs == 3);
++  REQUIRE(!artifact->environmentOverridesEnabled);
++  REQUIRE(!artifact->artifactFallbackAllowed);
++  REQUIRE(artifact->tileIRAssemblerPath.empty());
++
++  auto detected = detectCudaTileArtifactKind(artifact->deviceCode);
++  REQUIRE(detected.ok());
++  REQUIRE(*detected == CudaTileArtifactKind::TileIR);
++
++  CudaTileCompiledArtifact invalid = *artifact;
++  invalid.actualArtifactKind = CudaTileArtifactKind::Cubin;
++  REQUIRE(!invalid.validate().ok());
++  invalid = *artifact;
++  invalid.workspaceAlignmentBytes = 3;
++  REQUIRE(!invalid.validate().ok());
++
++  auto runtimeKernel =
++      static_cast<ICompiler &>(compiler).compile(kAddSource, options);
++  REQUIRE(runtimeKernel.ok());
++  auto *cudaTileRuntime =
++      static_cast<CudaTileRuntimeKernel *>(runtimeKernel->get());
++  REQUIRE(cudaTileRuntime->name() == artifact->runtimeKernelName);
++  REQUIRE(cudaTileRuntime->funcName() == artifact->entryFunctionName);
++  REQUIRE(cudaTileRuntime->deviceCode() ==
++          llvm::ArrayRef<char>(artifact->deviceCode));
++  return 0;
++}
++
++int TestDeterministicCubinArtifact(const SmTarget &target) {
++  CudaTileCompiler compiler;
++  CudaTileCompileOptions options =
++      StrictOptions(target, CudaTileArtifactKind::Cubin);
++  auto first = compiler.compileToArtifact(kAddSource, options);
++  REQUIRE(first.ok());
++  REQUIRE(first->validate().ok());
++  REQUIRE(first->requestedArtifactKind == CudaTileArtifactKind::Cubin);
++  REQUIRE(first->actualArtifactKind == CudaTileArtifactKind::Cubin);
++  REQUIRE(!first->usedArtifactFallback());
++  REQUIRE(first->tileIRAssemblerPath == PYPTO_TILEIRAS_REAL_PATH);
++
++  auto detected = detectCudaTileArtifactKind(first->deviceCode);
++  REQUIRE(detected.ok());
++  REQUIRE(*detected == CudaTileArtifactKind::Cubin);
++
++  REQUIRE(setenv("TENSOR_IR_CODEGEN_STRATEGY", "affine-map", 1) == 0);
++  REQUIRE(setenv("TENSOR_IR_MAX_TILE_CANDIDATES", "99", 1) == 0);
++  REQUIRE(setenv("TENSOR_IR_LOAD_TILEIR_BC", "/does/not/exist", 1) == 0);
++  auto second = compiler.compileToArtifact(kAddSource, options);
++  REQUIRE(unsetenv("TENSOR_IR_CODEGEN_STRATEGY") == 0);
++  REQUIRE(unsetenv("TENSOR_IR_MAX_TILE_CANDIDATES") == 0);
++  REQUIRE(unsetenv("TENSOR_IR_LOAD_TILEIR_BC") == 0);
++  REQUIRE(second.ok());
++  REQUIRE(second->validate().ok());
++  REQUIRE(first->deviceCode == second->deviceCode);
++  REQUIRE(first->compileOptionsIdentity == second->compileOptionsIdentity);
++  REQUIRE(first->runtimeKernelName == second->runtimeKernelName);
++  REQUIRE(first->entryFunctionName == second->entryFunctionName);
++  REQUIRE(first->staticGrid == second->staticGrid);
++
++  options.tileIRAssemblerPath = "/does/not/exist/tileiras";
++  auto noFallback = compiler.compileToArtifact(kAddSource, options);
++  REQUIRE(!noFallback.ok());
++
++  options.allowArtifactFallback = true;
++  auto fallback = compiler.compileToArtifact(kAddSource, options);
++  REQUIRE(fallback.ok());
++  REQUIRE(fallback->validate().ok());
++  REQUIRE(fallback->requestedArtifactKind == CudaTileArtifactKind::Cubin);
++  REQUIRE(fallback->actualArtifactKind == CudaTileArtifactKind::TileIR);
++  REQUIRE(fallback->usedArtifactFallback());
++  return 0;
++}
++
++int TestDynamicArtifactMetadata(const SmTarget &target) {
++  CudaTileCompiler compiler;
++  CudaTileCompileOptions options =
++      StrictOptions(target, CudaTileArtifactKind::TileIR);
++  options.tileSize = {8, 8};
++  auto artifact = compiler.compileToArtifact(kDynamicAddSource, options);
++  REQUIRE(artifact.ok());
++  REQUIRE(artifact->validate().ok());
++  REQUIRE(artifact->argumentPackingPolicy ==
++          CudaTileArgumentPackingPolicy::Flat);
++  REQUIRE(artifact->gridPolicy == CudaTileGridPolicy::TileBasedRuntime);
++  REQUIRE(artifact->argLayout.tensorDescs.size() == 3);
++  REQUIRE(artifact->argLayout.numInputs == 2);
++  REQUIRE(artifact->argLayout.totalKernelArgs == 12);
++  REQUIRE(artifact->argLayout.gridShapeTensorIdx == 0);
++  REQUIRE(artifact->argLayout.tileSizes.size() == 2);
++  for (const auto &desc : artifact->argLayout.tensorDescs) {
++    REQUIRE(desc.rank == 2);
++    REQUIRE(desc.numDynSizes == 2);
++    REQUIRE(desc.numDynStrides == 1);
++    REQUIRE(desc.hasExplicitStrides);
++  }
++  return 0;
++}
++
++}  // namespace
++
++int main() {
++  auto target = SmTarget::fromCc(120, ArchPortability::arch_conditional);
++  REQUIRE(mlir::succeeded(target));
++
++  int result = TestStrictOptionValidation(*target);
++  if (result != 0) return result;
++  result = TestTileIRArtifact(*target);
++  if (result != 0) return result;
++  result = TestDynamicArtifactMetadata(*target);
++  if (result != 0) return result;
++  return TestDeterministicCubinArtifact(*target);
++}

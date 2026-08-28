@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -85,11 +86,38 @@ def main() -> int:
     if args.framework:
         import sglang
 
-        sglang_root = ROOT / "upstream" / "sglang"
+        default_sglang_root = ROOT / "upstream" / "sglang"
+        sglang_root = pathlib.Path(
+            os.environ.get("PYPTO_SGLANG_SOURCE_ROOT", default_sglang_root)
+        ).resolve()
+        allowed_sglang_roots = {
+            default_sglang_root.resolve(),
+            (ROOT / ".sources" / "sglang").resolve(),
+        }
+        if sglang_root not in allowed_sglang_roots:
+            failures.append(f"SGLang source root escaped release inputs: {sglang_root}")
+        formal_prefix = prefix.name in {"pypto-release", "sglang-baseline"}
+        expected_sglang_root = (
+            (ROOT / ".sources" / "sglang").resolve()
+            if formal_prefix
+            else default_sglang_root.resolve()
+        )
+        if sglang_root != expected_sglang_root:
+            failures.append(
+                f"SGLang source root does not match selected prefix: "
+                f"expected={expected_sglang_root}, actual={sglang_root}"
+            )
         sglang_file = pathlib.Path(sglang.__file__).resolve()
         if not is_below(sglang_file, sglang_root / "python" / "sglang"):
             failures.append(f"SGLang import escaped pinned checkout: {sglang_file}")
-        if str(sglang.__version__).split("+", 1)[0] != EXPECTED_SGLANG_VERSION:
+        observed_sglang_version = str(sglang.__version__).split("+", 1)[0]
+        source_fallback_version = (
+            formal_prefix and observed_sglang_version == "0.0.0.dev0"
+        )
+        if (
+            observed_sglang_version != EXPECTED_SGLANG_VERSION
+            and not source_fallback_version
+        ):
             failures.append(f"unexpected SGLang version: {sglang.__version__}")
         try:
             commit = git_output(sglang_root, "rev-parse", "HEAD")
@@ -101,6 +129,18 @@ def main() -> int:
                 failures.append(
                     f"SGLang checkout mismatch: commit={commit}, dirty={bool(dirty)}"
                 )
+        sglang_identity = {
+            "source": str(sglang_file),
+            "observed_version": observed_sglang_version,
+            "effective_version": (
+                EXPECTED_SGLANG_VERSION
+                if source_fallback_version
+                else observed_sglang_version
+            ),
+            "source_fallback_version": source_fallback_version,
+            "commit": commit if "commit" in locals() else None,
+            "dirty": bool(dirty) if "dirty" in locals() else None,
+        }
         if args.profile == "baseline":
             leaked = sorted(
                 name
@@ -123,6 +163,7 @@ def main() -> int:
         "profile": args.profile,
         "framework": args.framework,
         "runtime": runtime,
+        "sglang": sglang_identity if args.framework else None,
         "gpu": gpu,
         "forbidden_dsos": forbidden_dsos,
         "failures": failures,

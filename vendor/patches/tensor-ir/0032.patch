@@ -1,0 +1,64 @@
+From a2aa598600989008665fa2b2cc5c8c89ecc093b6 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 22:37:09 +0800
+Subject: [PATCH 32/82] Store every layout-propagation result
+
+---
+ .../LayoutPropagationImpl.cpp                 | 39 ++++++++++++-------
+ 1 file changed, 26 insertions(+), 13 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index ed7ba6b3ab8bd20162690a42f275989e6508cd50..eeaccc407374b30ff44ffe271c863b3aae05194d 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -631,24 +631,37 @@ public:
+     // updated here instead of calling the `update` method.
+     state.blockStructure = &state.blockStructures[resultsOp.getOperation()];
+     state.iterationSpace = &state.blockStructure->iterationSpaces[0];
+-    state.layouts = ConversionStateImpl::OperandLayouts{state.normalizedLayout};
++    state.layouts.clear();
++    for (Value operand : resultsOp.getOperands()) {
++      auto layout = dyn_cast_or_null<LayoutSourceAttrInterface>(
++          getLayoutSourceAttr(operand));
++      if (!layout) {
++        return resultsOp.emitError("Result operand is missing layout data");
++      }
++      state.layouts.push_back(layout);
++    }
+     state.operandIndex = 0;
+ 
+     rewriter.setInsertionPointToEnd(state.iterationSpace->insertionBlock);
+ 
+-    // Reshape the output to the iteration space shape.
+-    const TensorDescriptor &desc = state.outputDescriptors[0];
+-    TensorSourceAttr outputSource = buildTensorSource(desc);
+-    outputSource = dyn_cast_if_present<TensorSourceAttr>(
+-        outputSource.reshape(state.normalizedLayout.getShape()));
+-    if (!outputSource) {
+-      return resultsOp.emitError("Failed to calculate the output layout");
++    // Emit one store per ordered result. Every result shares Result0's launch
++    // domain, but may carry a subset layout produced by graph splitting.
++    if (state.outputDescriptors.size() != adaptor.getOperands().size()) {
++      return resultsOp.emitError(
++          "Output descriptor count does not match result count");
++    }
++    for (auto [index, operand] : llvm::enumerate(adaptor.getOperands())) {
++      const TensorDescriptor &desc = state.outputDescriptors[index];
++      TensorSourceAttr outputSource = buildTensorSource(desc);
++      outputSource = dyn_cast_if_present<TensorSourceAttr>(
++          outputSource.reshape(state.layouts[index].getShape()));
++      if (!outputSource) {
++        return resultsOp.emitError("Failed to calculate an output layout");
++      }
++      auto layoutDesc = applyLayout(rewriter, desc, outputSource);
++      Value tile = state.getTile(operand);
++      emitStore(rewriter, layoutDesc, tile, state.iterationSpace->indexValues);
+     }
+-
+-    // Emit store for the output tensor.
+-    auto layoutDesc = applyLayout(rewriter, desc, outputSource);
+-    Value tile = state.getTile(adaptor.getOperands()[0]);
+-    emitStore(rewriter, layoutDesc, tile, state.iterationSpace->indexValues);
+ 
+     // Remove the zero index if it has no users.
+     if (state.zeroIndex.use_empty()) {

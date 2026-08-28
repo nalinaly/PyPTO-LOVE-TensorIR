@@ -1,0 +1,214 @@
+From b06b0b3fb9a61eda733b57c9caae99303d72ce44 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 05:04:46 +0800
+Subject: [PATCH 25/82] Fail closed on tileiras scratch scan errors
+
+---
+ lib/Compiler/CudaTile/TileIRAssembly.cpp      | 93 +++++++++++++++----
+ .../CudaTile/TileIRAssemblyInternal.h         | 48 ++++++++++
+ 2 files changed, 124 insertions(+), 17 deletions(-)
+ create mode 100644 lib/Compiler/CudaTile/TileIRAssemblyInternal.h
+
+diff --git a/lib/Compiler/CudaTile/TileIRAssembly.cpp b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+index febf3de4ea09fe2e844884b4b60e35d8778c8a48..7df565d41beff2d53fbc473f86cbf7429b67f67b 100644
+--- a/lib/Compiler/CudaTile/TileIRAssembly.cpp
++++ b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+@@ -3,6 +3,8 @@
+ 
+ #include "tensor_ir/Compiler/CudaTile/TileIRAssembly.h"
+ 
++#include "Compiler/CudaTile/TileIRAssemblyInternal.h"
++
+ #include "llvm/ADT/SmallString.h"
+ #include "llvm/ADT/StringExtras.h"
+ #include "llvm/Support/FileSystem.h"
+@@ -77,36 +79,84 @@ constexpr unsigned kMetadataCommandTimeoutSeconds = 30;
+ constexpr unsigned kCompileCommandTimeoutSeconds = 300;
+ constexpr unsigned kAssemblerMemoryLimitMiB = 4096;
+ 
+-bool scratchDirectoryWithinLimit(llvm::StringRef path) {
++detail::ScratchScanResult classifyScratchScanError(std::error_code error) {
++  return {error == std::errc::no_such_file_or_directory
++              ? detail::ScratchScanStatus::TransientError
++              : detail::ScratchScanStatus::FatalError,
++          error};
++}
++
++} // namespace
++
++detail::ScratchScanResult detail::scanScratchDirectory(
++    llvm::StringRef path, uint64_t maximumBytes) {
+   std::error_code error;
+   llvm::sys::fs::recursive_directory_iterator iterator(
+       path, error, /*follow_symlinks=*/false);
+   llvm::sys::fs::recursive_directory_iterator end;
+   if (error) {
+-    return true;
++    return classifyScratchScanError(error);
+   }
+   uint64_t totalBytes = 0;
+   while (iterator != end) {
+-    if (iterator->type() == llvm::sys::fs::file_type::regular_file) {
++    auto status = iterator->status();
++    if (!status) {
++      return classifyScratchScanError(status.getError());
++    }
++    if (status->type() == llvm::sys::fs::file_type::regular_file) {
+       uint64_t fileBytes = 0;
+-      if (llvm::sys::fs::file_size(iterator->path(), fileBytes)) {
+-        iterator.increment(error);
+-        if (error) {
+-          return true;
+-        }
+-        continue;
++      if (std::error_code sizeError =
++              llvm::sys::fs::file_size(iterator->path(), fileBytes)) {
++        return classifyScratchScanError(sizeError);
+       }
+-      if (fileBytes > kMaximumChildScratchBytes - totalBytes) {
+-        return false;
++      if (fileBytes > maximumBytes - totalBytes) {
++        return {detail::ScratchScanStatus::Exceeded, {}};
+       }
+       totalBytes += fileBytes;
+     }
+     iterator.increment(error);
+     if (error) {
+-      return true;
++      return classifyScratchScanError(error);
++    }
++  }
++  return {detail::ScratchScanStatus::WithinLimit, {}};
++}
++
++detail::ScratchQuotaDecision detail::ScratchQuotaMonitor::observe(
++    const ScratchScanResult &result, bool childExited) {
++  if (result.status == ScratchScanStatus::Exceeded) {
++    return ScratchQuotaDecision::RejectExceeded;
++  }
++  if (result.status == ScratchScanStatus::FatalError) {
++    return ScratchQuotaDecision::RejectScanError;
++  }
++  if (result.status == ScratchScanStatus::TransientError) {
++    ++consecutiveTransientScans_;
++    if (childExited || consecutiveTransientScans_ >
++                           kMaximumConsecutiveTransientScans) {
++      return ScratchQuotaDecision::RejectScanError;
+     }
++    return ScratchQuotaDecision::Continue;
++  }
++  consecutiveTransientScans_ = 0;
++  return ScratchQuotaDecision::Continue;
++}
++
++namespace {
++
++ProcessResult scratchQuotaFailure(detail::ScratchQuotaDecision decision,
++                                  const detail::ScratchScanResult &scan) {
++  if (decision == detail::ScratchQuotaDecision::RejectExceeded) {
++    return {-3, "tileiras child exceeded the bounded scratch quota"};
+   }
+-  return true;
++  std::string message = "tileiras scratch quota scan failed closed";
++  if (scan.error) {
++    message += ": " + scan.error.message();
++  } else if (scan.status == detail::ScratchScanStatus::TransientError) {
++    message += ": transient filesystem churn did not settle within the "
++               "bounded retry window";
++  }
++  return {-4, std::move(message)};
+ }
+ 
+ ProcessResult runProgramWithFileLimit(
+@@ -243,6 +293,7 @@ ProcessResult runProgramWithFileLimit(
+ 
+   const auto deadline = std::chrono::steady_clock::now() +
+                         std::chrono::seconds(timeoutSeconds);
++  detail::ScratchQuotaMonitor scratchQuotaMonitor;
+   int status = 0;
+   while (true) {
+     pid_t waited = ::waitpid(child, &status, WNOHANG);
+@@ -267,17 +318,25 @@ ProcessResult runProgramWithFileLimit(
+       }
+       return {-2, "tileiras child exceeded the bounded timeout"};
+     }
+-    if (!scratchDirectoryWithinLimit(scratchDirectory)) {
++    detail::ScratchScanResult scratchScan = detail::scanScratchDirectory(
++        scratchDirectory, kMaximumChildScratchBytes);
++    detail::ScratchQuotaDecision scratchDecision =
++        scratchQuotaMonitor.observe(scratchScan, /*childExited=*/false);
++    if (scratchDecision != detail::ScratchQuotaDecision::Continue) {
+       (void)::kill(-child, SIGKILL);
+       (void)::kill(child, SIGKILL);
+       while (::waitpid(child, &status, 0) == -1 && errno == EINTR) {
+       }
+-      return {-3, "tileiras child exceeded the bounded scratch quota"};
++      return scratchQuotaFailure(scratchDecision, scratchScan);
+     }
+     std::this_thread::sleep_for(std::chrono::milliseconds(10));
+   }
+-  if (!scratchDirectoryWithinLimit(scratchDirectory)) {
+-    return {-3, "tileiras child exceeded the bounded scratch quota"};
++  detail::ScratchScanResult finalScratchScan = detail::scanScratchDirectory(
++      scratchDirectory, kMaximumChildScratchBytes);
++  detail::ScratchQuotaDecision finalScratchDecision =
++      scratchQuotaMonitor.observe(finalScratchScan, /*childExited=*/true);
++  if (finalScratchDecision != detail::ScratchQuotaDecision::Continue) {
++    return scratchQuotaFailure(finalScratchDecision, finalScratchScan);
+   }
+   if (WIFEXITED(status)) {
+     return {WEXITSTATUS(status), {}};
+diff --git a/lib/Compiler/CudaTile/TileIRAssemblyInternal.h b/lib/Compiler/CudaTile/TileIRAssemblyInternal.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..2231e93e324f7eddf5ac128f9ecde2c7bfccda3a
+--- /dev/null
++++ b/lib/Compiler/CudaTile/TileIRAssemblyInternal.h
+@@ -0,0 +1,48 @@
++// SPDX-FileCopyrightText: Copyright (c) 2026 PyPTO Contributors
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++
++#ifndef TENSOR_IR_LIB_COMPILER_CUDATILE_TILEIRASSEMBLYINTERNAL_H
++#define TENSOR_IR_LIB_COMPILER_CUDATILE_TILEIRASSEMBLYINTERNAL_H
++
++#include "llvm/ADT/StringRef.h"
++
++#include <cstdint>
++#include <system_error>
++
++namespace mlir::nv_tensor_ir::backend::cuda_tile::detail {
++
++enum class ScratchScanStatus {
++  WithinLimit,
++  Exceeded,
++  TransientError,
++  FatalError,
++};
++
++struct ScratchScanResult {
++  ScratchScanStatus status;
++  std::error_code error;
++};
++
++enum class ScratchQuotaDecision {
++  Continue,
++  RejectExceeded,
++  RejectScanError,
++};
++
++class ScratchQuotaMonitor {
++public:
++  static constexpr unsigned kMaximumConsecutiveTransientScans = 100;
++
++  ScratchQuotaDecision observe(const ScratchScanResult &result,
++                               bool childExited);
++
++private:
++  unsigned consecutiveTransientScans_ = 0;
++};
++
++ScratchScanResult scanScratchDirectory(llvm::StringRef path,
++                                       uint64_t maximumBytes);
++
++} // namespace mlir::nv_tensor_ir::backend::cuda_tile::detail
++
++#endif // TENSOR_IR_LIB_COMPILER_CUDATILE_TILEIRASSEMBLYINTERNAL_H

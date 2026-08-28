@@ -1,0 +1,72 @@
+From 532d4a9991c87a84e56d737cb801b0bffa498ef3 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 04:16:08 +0800
+Subject: [PATCH 027/212] Preserve bounded tileiras memory semantics
+
+---
+ 3rdparty/nvidia/tensor-ir                           | 2 +-
+ cmake/nvidia_backend.cmake                          | 2 +-
+ docs/en/dev/backend/01-nvidia-target-info.md        | 2 +-
+ docs/zh/dev/backend/01-nvidia-target-info.md        | 2 +-
+ tests/ut/compiler/test_nvidia_backend_build_info.py | 2 +-
+ 5 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 0a1f76362e1f673d34fa5a63c254279c0b88b5fd..96201e1a1fd36bafab23cd9dc9501c8ffd43a6e7 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 0a1f76362e1f673d34fa5a63c254279c0b88b5fd
++Subproject commit 96201e1a1fd36bafab23cd9dc9501c8ffd43a6e7
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 838c1c9a6559bd712b68692523e352946363a281..3bdc659fc6498f3cb23eb2262297ff4b8ea6cf09 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -33,7 +33,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "0a1f76362e1f673d34fa5a63c254279c0b88b5fd")
++    "96201e1a1fd36bafab23cd9dc9501c8ffd43a6e7")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+diff --git a/docs/en/dev/backend/01-nvidia-target-info.md b/docs/en/dev/backend/01-nvidia-target-info.md
+index 6ad0ebe33c7fa2268a5becb6e76915a53bd94236..f26867bf02470c11234919de30949af1fcb907b2 100644
+--- a/docs/en/dev/backend/01-nvidia-target-info.md
++++ b/docs/en/dev/backend/01-nvidia-target-info.md
+@@ -241,7 +241,7 @@ placeholder.
+ The fixed resource and producer policy is also explicit: occupancy `1`, SM
+ count from `NvidiaTargetInfo`, reduction tile size `128`, persistence `none`,
+ sanitized assembler environment v1, a 300-second assembler limit, 4096 MiB
+-child address-space limit, a 64 MiB per-file limit enforced by `RLIMIT_FSIZE`,
++child data/RSS limit, a 64 MiB per-file limit enforced by `RLIMIT_FSIZE`,
+ and a 64 KiB returned-diagnostic limit. The Linux strict child closes every
+ descriptor above stderr with fail-closed `close_range` before exact `execve`.
+ All TensorIR IR dump/load, print-tree, and timing debug options are empty or
+diff --git a/docs/zh/dev/backend/01-nvidia-target-info.md b/docs/zh/dev/backend/01-nvidia-target-info.md
+index d7125c4b87887390ea65750ee6c7885f0ddaca51..6c0e711dbc3ced419ea82886a56601634ba07ca6 100644
+--- a/docs/zh/dev/backend/01-nvidia-target-info.md
++++ b/docs/zh/dev/backend/01-nvidia-target-info.md
+@@ -215,7 +215,7 @@ CMake 会验证该 identity，避免 pipeline revision 变成无法解释的 pla
+ 
+ 固定 resource/producer policy 也被显式记录：occupancy 为 `1`、SM count 来自
+ `NvidiaTargetInfo`、reduction tile size 为 `128`、persistence 为 `none`，并使用
+-sanitized assembler environment v1、300 秒 assembler 上限、4096 MiB child memory
++sanitized assembler environment v1、300 秒 assembler 上限、4096 MiB child data/RSS
+ 上限、由 `RLIMIT_FSIZE` 强制的每文件 64 MiB 上限，以及 64 KiB returned-diagnostic
+ 上限。Linux strict child 会在 exact `execve` 前通过 fail-closed `close_range` 关闭
+ stderr 以上的所有 file descriptor。
+diff --git a/tests/ut/compiler/test_nvidia_backend_build_info.py b/tests/ut/compiler/test_nvidia_backend_build_info.py
+index 91d6f88bf34b23745641ba4431b51d8a56f5e6ae..c4e4019dc882cf2dba7c9a093849b6b97c50e83b 100644
+--- a/tests/ut/compiler/test_nvidia_backend_build_info.py
++++ b/tests/ut/compiler/test_nvidia_backend_build_info.py
+@@ -30,7 +30,7 @@ def test_nvidia_backend_build_info_is_immutable_and_self_consistent() -> None:
+     assert info.compiler_factory_available
+     assert len(info.pypto_revision) == 40
+     assert set(info.pypto_revision) <= set("0123456789abcdef")
+-    assert info.tensor_ir_revision == "0a1f76362e1f673d34fa5a63c254279c0b88b5fd"
++    assert info.tensor_ir_revision == "96201e1a1fd36bafab23cd9dc9501c8ffd43a6e7"
+     assert info.cuda_tile_revision == "af2417041cc939b87ef56d92cfdcf61737c5457e"
+     assert info.llvm_revision == "57109befac92811d2253109242ca6fa69c961fb2"
+     assert info.cuda_toolkit_root == "/usr/local/cuda-13.3"

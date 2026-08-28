@@ -1,0 +1,78 @@
+From d8eaca6f6bc56b1217ad942a866e48fb4112381c Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 00:45:46 +0800
+Subject: [PATCH 117/212] Finalize the TensorIR gather revision
+
+---
+ ...r-golden-robust-to-constant-hoisting.patch | 26 +++++++++++++++++++
+ 3rdparty/nvidia/tensor-ir                     |  2 +-
+ cmake/nvidia_backend.cmake                    |  2 +-
+ .../test_nvidia_backend_build_info.py         |  2 +-
+ 4 files changed, 29 insertions(+), 3 deletions(-)
+ create mode 100644 3rdparty/nvidia/0012-Make-gather-golden-robust-to-constant-hoisting.patch
+
+diff --git a/3rdparty/nvidia/0012-Make-gather-golden-robust-to-constant-hoisting.patch b/3rdparty/nvidia/0012-Make-gather-golden-robust-to-constant-hoisting.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..851829c77c642d89e2d0ad0da2da7f6a672d6f20
+--- /dev/null
++++ b/3rdparty/nvidia/0012-Make-gather-golden-robust-to-constant-hoisting.patch
+@@ -0,0 +1,26 @@
++From 9b6c0b293a32dc3fdcb2c20a05be1618ac33d084 Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Fri, 28 Aug 2026 00:45:14 +0800
++Subject: [PATCH] Make gather golden robust to constant hoisting
++
++---
++ test/Conversion/TensorToCudaTile/gather_rows_layout.mlir | 3 +--
++ 1 file changed, 1 insertion(+), 2 deletions(-)
++
++diff --git a/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
++index ce70442..938e92f 100644
++--- a/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
+++++ b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
++@@ -5,8 +5,7 @@
++ // CHECK: %[[GATHER_VIEW:.*]] = make_gather_scatter_view %[[DATA_VIEW]] : gather_scatter_view<tile=(8x128), tensor_view<1024x128xbf16, strides=[128,1]>, sparse_dim=0>
++ // CHECK: %[[NARROW:.*]] = extract {{.*}} : tile<8x128xi32> -> tile<8x1xi32>
++ // CHECK: %[[ROWS:.*]] = reshape %[[NARROW]] : tile<8x1xi32> -> tile<8xi32>
++-// CHECK: %[[COL_SCALE:.*]] = constant <i32: 128> : tile<i32>
++-// CHECK: %[[COL_OFFSET:.*]] = muli {{.*}}, %[[COL_SCALE]] : tile<i32>
+++// CHECK: %[[COL_OFFSET:.*]] = muli {{.*}}, {{.*}} : tile<i32>
++ // CHECK: %[[GATHERED:.*]], {{.*}} = load_view_tko weak %[[GATHER_VIEW]][%[[ROWS]], %[[COL_OFFSET]]]
++ // CHECK-SAME: -> tile<8x128xbf16>, token
++ // CHECK: store_view_tko weak %[[GATHERED]]
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 494ebe55345a00a2e9ad034725b7c464217e7308..9b6c0b293a32dc3fdcb2c20a05be1618ac33d084 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 494ebe55345a00a2e9ad034725b7c464217e7308
++Subproject commit 9b6c0b293a32dc3fdcb2c20a05be1618ac33d084
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index c2d82ceb8ea824ba4155c8bfe0a8c06c4d246cb4..407457f4b6eb9232d481047258a34ca058bd842c 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "494ebe55345a00a2e9ad034725b7c464217e7308")
++    "9b6c0b293a32dc3fdcb2c20a05be1618ac33d084")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+diff --git a/tests/ut/compiler/test_nvidia_backend_build_info.py b/tests/ut/compiler/test_nvidia_backend_build_info.py
+index 3277b31f0392de5e99e9347f694b535cea54c9f9..7ee498242a9ba31c9573407531535ae689b940e0 100644
+--- a/tests/ut/compiler/test_nvidia_backend_build_info.py
++++ b/tests/ut/compiler/test_nvidia_backend_build_info.py
+@@ -30,7 +30,7 @@ def test_nvidia_backend_build_info_is_immutable_and_self_consistent() -> None:
+     assert info.compiler_factory_available
+     assert len(info.pypto_revision) == 40
+     assert set(info.pypto_revision) <= set("0123456789abcdef")
+-    assert info.tensor_ir_revision == "494ebe55345a00a2e9ad034725b7c464217e7308"
++    assert info.tensor_ir_revision == "9b6c0b293a32dc3fdcb2c20a05be1618ac33d084"
+     assert info.cuda_tile_revision == "af2417041cc939b87ef56d92cfdcf61737c5457e"
+     assert info.llvm_revision == "57109befac92811d2253109242ca6fa69c961fb2"
+     assert info.cuda_toolkit_root == "/usr/local/cuda-13.3"

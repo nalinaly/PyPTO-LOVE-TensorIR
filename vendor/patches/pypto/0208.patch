@@ -1,0 +1,420 @@
+From f60ebd3a2324030e8b0b83b85f9cf06e41762eb9 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 18:25:55 +0800
+Subject: [PATCH 208/212] Build native SwiGLU with FP32 typed TensorIR
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp      | 204 +++++++++++++++++-
+ .../nvidia/typed_tensor_ir_module_spec.h      |  10 +
+ .../nvidia_typed_tensor_ir_builder.cpp        |  82 ++++++-
+ 3 files changed, 293 insertions(+), 3 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 91ddc9c918ffba4cc3c4461c0493f87046978a7a..b34637bcd3ccb20f6391ee1f34a67e8f16f79837 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -158,6 +158,12 @@ struct NativeTileGatherRowsGraph {
+   StaticTensor result;
+ };
+ 
++struct NativeTileSiluAndMulGraph {
++  StaticTensor gate;
++  StaticTensor up;
++  StaticTensor result;
++};
++
+ struct NativeTileQkRmsNormRopeGraph {
+   StaticTensor q_gate;
+   StaticTensor key;
+@@ -4757,6 +4763,20 @@ TypedTensorIrModuleSpec MakeStructuredMatmulTensorIrSpec(
+   return module_spec;
+ }
+ 
++TypedTensorIrModuleSpec MakeNativeSiluAndMulTensorIrSpec(
++    const NativeTileSiluAndMulGraph& graph) {
++  TypedTensorIrModuleSpec module_spec;
++  module_spec.kind = TypedTensorIrModuleKind::NativeSiluAndMul;
++  auto& spec = module_spec.native_silu_and_mul;
++  spec.inputs[0] = MakeTypedTensorIrTensorSpec(
++      graph.gate, /*has_explicit_strides=*/true);
++  spec.inputs[1] = MakeTypedTensorIrTensorSpec(
++      graph.up, /*has_explicit_strides=*/true);
++  spec.result = MakeTypedTensorIrTensorSpec(
++      graph.result, /*has_explicit_strides=*/true);
++  return module_spec;
++}
++
+ bool IsNativeTileMatmulCandidate(const ir::ProgramPtr& program) {
+   if (!IsNativeTilePointwiseCandidate(program)) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+@@ -6828,6 +6848,167 @@ NativeTileRopeGraph AnalyzeNativeTileRope(const ir::ProgramPtr& program) {
+   return NativeTileRopeGraph{input, cosine};
+ }
+ 
++bool IsNativeTileSiluAndMulCandidate(const ir::ProgramPtr& program) {
++  if (!IsNativeTilePointwiseCandidate(program)) return false;
++  const ir::FunctionPtr& function = program->functions_.begin()->second;
++  if (function->params_.size() != 3) return false;
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = top && !top->stmts_.empty()
++                         ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
++                         : nullptr;
++  const TileLoopNest loop_nest =
++      scope ? UnwrapStaticTileLoops(scope->body_) : TileLoopNest{};
++  if (!loop_nest.leaf || loop_nest.leaf->stmts_.size() != 12) return false;
++  const auto first_cast =
++      ir::As<ir::AssignStmt>(loop_nest.leaf->stmts_[2]);
++  const auto final_cast =
++      ir::As<ir::AssignStmt>(loop_nest.leaf->stmts_[10]);
++  const auto first_call =
++      first_cast ? ir::As<ir::Call>(first_cast->value_) : nullptr;
++  const auto final_call =
++      final_cast ? ir::As<ir::Call>(final_cast->value_) : nullptr;
++  return first_call && final_call && ir::IsOp(first_call, "tile.cast") &&
++         ir::IsOp(final_call, "tile.cast");
++}
++
++NativeTileSiluAndMulGraph AnalyzeNativeTileSiluAndMul(
++    const ir::ProgramPtr& program) {
++  const auto& [global, function] = *program->functions_.begin();
++  if (!global || !function || global->name_ != function->name_ ||
++      function->requires_runtime_binding_ ||
++      function->func_type_ != ir::FunctionType::Orchestration ||
++      !function->level_.has_value() || *function->level_ != ir::Level::CHIP ||
++      !function->role_.has_value() ||
++      *function->role_ != ir::Role::Orchestrator || !function->attrs_.empty()) {
++    Reject("native SiLU-and-mul must be one canonical CHIP @pl.jit function",
++           function ? &function->span_ : &program->span_);
++  }
++  if (function->params_.size() != 3 ||
++      function->param_directions_.size() != 3 ||
++      function->param_directions_[0] != ir::ParamDirection::In ||
++      function->param_directions_[1] != ir::ParamDirection::In ||
++      function->param_directions_[2] != ir::ParamDirection::Out ||
++      function->return_types_.size() != 1) {
++    Reject("native SiLU-and-mul requires two inputs and one output",
++           &function->span_);
++  }
++  const StaticTensor gate = ReadStaticNdStridedTensor(
++      function->params_[0]->GetType(), function->params_[0]->span_,
++      "native SiLU gate");
++  const StaticTensor up = ReadStaticNdStridedTensor(
++      function->params_[1]->GetType(), function->params_[1]->span_,
++      "native SiLU up input");
++  const StaticTensor result = ReadStaticTensor(
++      function->params_[2]->GetType(), function->params_[2]->span_,
++      "native SiLU result");
++  const StaticTensor declared = ReadStaticTensor(
++      function->return_types_[0], function->span_,
++      "native SiLU declared result");
++  if (gate.dtype != DataType::BF16 || up.dtype != DataType::BF16 ||
++      result.dtype != DataType::BF16 || gate.shape.size() != 2 ||
++      gate.shape != up.shape || gate.shape != result.shape ||
++      gate.dense_strides[1] != 1 || up.dense_strides[1] != 1 ||
++      gate.dense_strides[0] < gate.shape[1] ||
++      up.dense_strides[0] < up.shape[1] || !SameTensor(result, declared) ||
++      result.shape[1] % 128 != 0) {
++    Reject("native SiLU-and-mul tensor types, shapes, or strides are invalid",
++           &function->span_);
++  }
++
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = top && top->stmts_.size() == 2
++                         ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
++                         : nullptr;
++  const auto returned = top && top->stmts_.size() == 2
++                            ? ir::As<ir::ReturnStmt>(top->stmts_[1])
++                            : nullptr;
++  const auto returned_var =
++      returned && returned->value_.size() == 1
++          ? ir::As<ir::Var>(returned->value_[0])
++          : nullptr;
++  if (!scope || scope->split_ != ir::SplitMode::None ||
++      !scope->attrs_.empty() || !returned_var ||
++      returned_var.get() != function->params_[2].get()) {
++    Reject("native SiLU-and-mul scope or return is invalid", &function->span_);
++  }
++  const TileLoopNest loop_nest = UnwrapStaticTileLoops(scope->body_);
++  const uint64_t expected_repetitions =
++      static_cast<uint64_t>(result.shape[0]) *
++      static_cast<uint64_t>(result.shape[1] / 128);
++  if (!loop_nest.leaf || loop_nest.leaf->stmts_.size() != 12 ||
++      loop_nest.repetitions != expected_repetitions) {
++    Reject("native SiLU-and-mul loops must cover [1,128] tiles exactly",
++           &scope->span_);
++  }
++  constexpr std::array<std::string_view, 11> kOps = {
++      "tile.load", "tile.load", "tile.cast", "tile.cast", "tile.muls",
++      "tile.exp",  "tile.adds", "tile.recip", "tile.mul",  "tile.mul",
++      "tile.cast"};
++  std::array<ir::AssignStmtPtr, kOps.size()> assignments;
++  std::array<ir::CallPtr, kOps.size()> calls;
++  for (size_t index = 0; index < kOps.size(); ++index) {
++    assignments[index] =
++        ir::As<ir::AssignStmt>(loop_nest.leaf->stmts_[index]);
++    calls[index] = assignments[index]
++                       ? ir::As<ir::Call>(assignments[index]->value_)
++                       : nullptr;
++    if (!assignments[index] || !assignments[index]->var_ || !calls[index] ||
++        !calls[index]->op_ ||
++        !ir::IsOp(calls[index], std::string(kOps[index]))) {
++      Reject("native SiLU-and-mul operation sequence is invalid",
++             &loop_nest.leaf->stmts_[index]->span_);
++    }
++  }
++  const auto require_source = [&](size_t call_index, size_t argument_index,
++                                  const ir::VarPtr& expected) {
++    if (argument_index >= calls[call_index]->args_.size()) return false;
++    const auto value =
++        ir::As<ir::Var>(calls[call_index]->args_[argument_index]);
++    return value && value.get() == expected.get();
++  };
++  if (!require_source(0, 0, function->params_[0]) ||
++      !require_source(1, 0, function->params_[1]) ||
++      !require_source(2, 0, assignments[0]->var_) ||
++      !require_source(3, 0, assignments[1]->var_) ||
++      !require_source(4, 0, assignments[2]->var_) ||
++      !require_source(5, 0, assignments[4]->var_) ||
++      !require_source(6, 0, assignments[5]->var_) ||
++      !require_source(7, 0, assignments[6]->var_) ||
++      !require_source(8, 0, assignments[2]->var_) ||
++      !require_source(8, 1, assignments[7]->var_) ||
++      !require_source(9, 0, assignments[8]->var_) ||
++      !require_source(9, 1, assignments[3]->var_) ||
++      !require_source(10, 0, assignments[9]->var_)) {
++    Reject("native SiLU-and-mul SSA dataflow is invalid", &scope->span_);
++  }
++  const StaticTensor bf16_tile{DataType::BF16, {1, 128}, {128, 1}};
++  const StaticTensor fp32_tile{DataType::FP32, {1, 128}, {128, 1}};
++  for (size_t index = 0; index < assignments.size(); ++index) {
++    const StaticTensor tile = ReadStaticTile(
++        assignments[index]->var_->GetType(), assignments[index]->span_,
++        "native SiLU-and-mul tile");
++    const bool expects_bf16 = index < 2 || index == assignments.size() - 1;
++    if (!SameTensor(tile, expects_bf16 ? bf16_tile : fp32_tile)) {
++      Reject("native SiLU-and-mul tile dtype or shape is invalid",
++             &assignments[index]->span_);
++    }
++  }
++  const auto store = ir::As<ir::EvalStmt>(loop_nest.leaf->stmts_.back());
++  const auto store_call = store ? ir::As<ir::Call>(store->expr_) : nullptr;
++  const auto stored = store_call && store_call->args_.size() == 3
++                          ? ir::As<ir::Var>(store_call->args_[0])
++                          : nullptr;
++  const auto target = store_call && store_call->args_.size() == 3
++                          ? ir::As<ir::Var>(store_call->args_[2])
++                          : nullptr;
++  if (!store_call || !ir::IsOp(store_call, "tile.store") || !stored ||
++      stored.get() != assignments.back()->var_.get() || !target ||
++      target.get() != function->params_[2].get()) {
++    Reject("native SiLU-and-mul store is invalid", &scope->span_);
++  }
++  return NativeTileSiluAndMulGraph{gate, up, result};
++}
++
+ FusedPointwiseGraph AnalyzeNativeTilePointwise(const ir::ProgramPtr& program) {
+   if (!program || program->functions_.size() != 1) {
+     Reject("native tile program must contain exactly one function",
+@@ -8992,7 +9173,8 @@ void TensorIrModule::Validate() const {
+   }
+   if (typed_module_spec_.has_value() &&
+       typed_module_spec_->kind != TypedTensorIrModuleKind::NativeGdnRecurrent &&
+-      typed_module_spec_->kind != TypedTensorIrModuleKind::StructuredMatmul) {
++      typed_module_spec_->kind != TypedTensorIrModuleKind::StructuredMatmul &&
++      typed_module_spec_->kind != TypedTensorIrModuleKind::NativeSiluAndMul) {
+     InternalReject("typed TensorIR module kind is invalid");
+   }
+   if (typed_module_spec_.has_value() &&
+@@ -9666,6 +9848,26 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+         EmitRowReductionEpilogueSource(input, /*square_input=*/true, steps),
+         std::move(metadata), /*input_count=*/1);
+   }
++  if (IsNativeTileSiluAndMulCandidate(program)) {
++    const NativeTileSiluAndMulGraph graph =
++        AnalyzeNativeTileSiluAndMul(program);
++    std::vector<TensorIrValueMetadata> metadata;
++    metadata.reserve(3);
++    const std::array<StaticTensor, 2> inputs = {graph.gate, graph.up};
++    for (uint32_t index = 0; index < inputs.size(); ++index) {
++      metadata.push_back(TensorIrValueMetadata(
++          TensorIrValueRole::Input, index, inputs[index].dtype,
++          inputs[index].shape, inputs[index].dense_strides,
++          /*has_explicit_strides=*/true));
++    }
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Result, 0, graph.result.dtype,
++        graph.result.shape, graph.result.dense_strides,
++        /*has_explicit_strides=*/true));
++    return TensorIrModule(TensorIrModuleKind::FusedPointwise,
++                          MakeNativeSiluAndMulTensorIrSpec(graph),
++                          std::move(metadata), /*input_count=*/2);
++  }
+   if (IsNativeTilePointwiseCandidate(program)) {
+     FusedPointwiseGraph graph = AnalyzeNativeTilePointwise(program);
+     std::vector<TensorIrValueMetadata> metadata;
+diff --git a/src/codegen/nvidia/typed_tensor_ir_module_spec.h b/src/codegen/nvidia/typed_tensor_ir_module_spec.h
+index fc6703dc7a673feab921a93335b9cbd7af303c6d..cdc2f2befd670f8261973bdc67cddb5a5e1a8b47 100644
+--- a/src/codegen/nvidia/typed_tensor_ir_module_spec.h
++++ b/src/codegen/nvidia/typed_tensor_ir_module_spec.h
+@@ -62,10 +62,19 @@ struct StructuredMatmulTensorIrSpec {
+   bool round_bf16_before_result = false;
+ };
+ 
++/** Typed BF16 packed-gate SiLU-and-multiply graph with FP32 intermediates. */
++struct NativeSiluAndMulTensorIrSpec {
++  static constexpr std::size_t kInputCount = 2;
++
++  std::array<TypedTensorIrTensorSpec, kInputCount> inputs;
++  TypedTensorIrTensorSpec result;
++};
++
+ /** Typed TensorIR builders available through the private NVIDIA bridge. */
+ enum class TypedTensorIrModuleKind : uint8_t {
+   NativeGdnRecurrent = 0,
+   StructuredMatmul = 1,
++  NativeSiluAndMul = 2,
+ };
+ 
+ /** One compiler-neutral request for typed MLIR/TensorIR construction. */
+@@ -73,6 +82,7 @@ struct TypedTensorIrModuleSpec {
+   TypedTensorIrModuleKind kind = TypedTensorIrModuleKind::NativeGdnRecurrent;
+   NativeGdnRecurrentTensorIrSpec native_gdn_recurrent;
+   StructuredMatmulTensorIrSpec structured_matmul;
++  NativeSiluAndMulTensorIrSpec native_silu_and_mul;
+ };
+ 
+ }  // namespace pypto::codegen::nvidia
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index 725178ce9c8173c27a572b22d3cdbd0715e2ff5c..4713c08fb5471a8c093cfe02947d9fc6f2370ee0 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -41,6 +41,7 @@ namespace {
+ namespace tir = mlir::nv_tensor_ir;
+ namespace tcg = mlir::nv_tensor_ir::tcutegen;
+ using codegen::nvidia::NativeGdnRecurrentTensorIrSpec;
++using codegen::nvidia::NativeSiluAndMulTensorIrSpec;
+ using codegen::nvidia::StructuredMatmulTensorIrSpec;
+ using codegen::nvidia::TypedTensorIrElementType;
+ using codegen::nvidia::TypedTensorIrModuleKind;
+@@ -236,6 +237,30 @@ bool ValidateStructuredMatmulSpec(const StructuredMatmulTensorIrSpec& spec,
+   return true;
+ }
+ 
++bool ValidateNativeSiluAndMulSpec(const NativeSiluAndMulTensorIrSpec& spec,
++                                  std::string& diagnostic) {
++  const auto reject = [&](std::string message) {
++    diagnostic = "typed TensorIR SiLU-and-mul specification rejected: " +
++                 std::move(message);
++    return false;
++  };
++  for (const auto& input : spec.inputs) {
++    if (!HasValidStaticMetadata(input) || input.shape.size() != 2 ||
++        input.element_type != TypedTensorIrElementType::BF16 ||
++        input.strides[1] != 1 || input.strides[0] < input.shape[1]) {
++      return reject("inputs must be row-pitched rank-2 BF16 tensors");
++    }
++  }
++  if (!HasValidStaticMetadata(spec.result) || !IsDense(spec.result) ||
++      spec.result.element_type != TypedTensorIrElementType::BF16 ||
++      spec.inputs[0].shape != spec.inputs[1].shape ||
++      spec.inputs[0].shape != spec.result.shape ||
++      spec.result.shape[1] % 128 != 0) {
++    return reject("result dtype, shape, or tile geometry is invalid");
++  }
++  return true;
++}
++
+ mlir::Type ElementType(mlir::OpBuilder& builder,
+                        TypedTensorIrElementType element_type) {
+   if (element_type == TypedTensorIrElementType::BF16) {
+@@ -306,6 +331,47 @@ mlir::Value BuildStructuredMatmul(
+   return result;
+ }
+ 
++mlir::Value BuildNativeSiluAndMul(
++    mlir::OpBuilder& builder, mlir::Location location,
++    const NativeSiluAndMulTensorIrSpec& spec, mlir::Block& entry) {
++  llvm::SmallVector<mlir::Value> arguments(entry.getArguments().begin(),
++                                           entry.getArguments().end());
++  const auto wide_type = TensorType(
++      builder, TypedTensorIrElementType::FP32, spec.result.shape);
++  const auto result_type = TensorType(
++      builder, TypedTensorIrElementType::BF16, spec.result.shape);
++  const mlir::Value gate =
++      tir::ConvertOp::create(builder, location, wide_type, arguments[0])
++          .getOutput();
++  const mlir::Value up =
++      tir::ConvertOp::create(builder, location, wide_type, arguments[1])
++          .getOutput();
++  const mlir::Value negative =
++      tir::NegOp::create(builder, location, wide_type, gate).getOutput();
++  const mlir::Value exponent =
++      tir::ExpOp::create(builder, location, wide_type, negative).getOutput();
++  const mlir::Value one =
++      tir::ConstantOp::create(builder, location, builder.getF32FloatAttr(1.0F))
++          .getResult();
++  const mlir::Value one_full =
++      tir::SplatOp::create(builder, location, wide_type, one,
++                           mlir::ValueRange{})
++          .getOutput();
++  const mlir::Value denominator =
++      tir::AddOp::create(builder, location, wide_type, exponent, one_full)
++          .getOutput();
++  const mlir::Value sigmoid =
++      tir::ReciprocalOp::create(builder, location, wide_type, denominator)
++          .getOutput();
++  const mlir::Value silu =
++      tir::MulOp::create(builder, location, wide_type, gate, sigmoid)
++          .getOutput();
++  const mlir::Value product =
++      tir::MulOp::create(builder, location, wide_type, silu, up).getOutput();
++  return tir::ConvertOp::create(builder, location, result_type, product)
++      .getOutput();
++}
++
+ class NativeGdnRecurrentBuilder {
+  public:
+   NativeGdnRecurrentBuilder(mlir::OpBuilder& builder, mlir::Location location,
+@@ -691,6 +757,10 @@ std::optional<BuiltTypedTensorIrModule> BuildTypedTensorIrModule(
+     if (!ValidateStructuredMatmulSpec(spec.structured_matmul, diagnostic)) {
+       return std::nullopt;
+     }
++  } else if (spec.kind == TypedTensorIrModuleKind::NativeSiluAndMul) {
++    if (!ValidateNativeSiluAndMulSpec(spec.native_silu_and_mul, diagnostic)) {
++      return std::nullopt;
++    }
+   } else {
+     diagnostic = "typed TensorIR module kind is unsupported";
+     return std::nullopt;
+@@ -718,11 +788,16 @@ std::optional<BuiltTypedTensorIrModule> BuildTypedTensorIrModule(
+                   spec.native_gdn_recurrent.inputs.end());
+     result = spec.native_gdn_recurrent.result;
+     entry_name = kEntryName;
+-  } else {
++  } else if (spec.kind == TypedTensorIrModuleKind::StructuredMatmul) {
+     inputs.assign(spec.structured_matmul.inputs.begin(),
+                   spec.structured_matmul.inputs.end());
+     result = spec.structured_matmul.result;
+     entry_name = kStructuredMatmulEntryName;
++  } else {
++    inputs.assign(spec.native_silu_and_mul.inputs.begin(),
++                  spec.native_silu_and_mul.inputs.end());
++    result = spec.native_silu_and_mul.result;
++    entry_name = kEntryName;
+   }
+   input_types.reserve(inputs.size());
+   for (const TypedTensorIrTensorSpec& input : inputs) {
+@@ -749,9 +824,12 @@ std::optional<BuiltTypedTensorIrModule> BuildTypedTensorIrModule(
+     NativeGdnRecurrentBuilder gdn_builder(
+         builder, location, spec.native_gdn_recurrent);
+     built_result = gdn_builder.Build(*entry);
+-  } else {
++  } else if (spec.kind == TypedTensorIrModuleKind::StructuredMatmul) {
+     built_result = BuildStructuredMatmul(
+         builder, location, spec.structured_matmul, *entry);
++  } else {
++    built_result = BuildNativeSiluAndMul(
++        builder, location, spec.native_silu_and_mul, *entry);
+   }
+   (void)tir::ResultsOp::create(builder, location,
+                                mlir::ValueRange{built_result});

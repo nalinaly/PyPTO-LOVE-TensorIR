@@ -1,0 +1,92 @@
+From e4c764bd2cd901f29692a90f3152eb240a3192a1 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 01:44:17 +0800
+Subject: [PATCH 123/212] Advance TensorIR rewrite-scoped loads
+
+---
+ ...cope-lazy-input-loads-to-one-rewrite.patch | 54 +++++++++++++++++++
+ 3rdparty/nvidia/tensor-ir                     |  2 +-
+ cmake/nvidia_backend.cmake                    |  2 +-
+ 3 files changed, 56 insertions(+), 2 deletions(-)
+ create mode 100644 3rdparty/nvidia/0016-Scope-lazy-input-loads-to-one-rewrite.patch
+
+diff --git a/3rdparty/nvidia/0016-Scope-lazy-input-loads-to-one-rewrite.patch b/3rdparty/nvidia/0016-Scope-lazy-input-loads-to-one-rewrite.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..c12bb256507337699ee3a49bb3163c240e5efc65
+--- /dev/null
++++ b/3rdparty/nvidia/0016-Scope-lazy-input-loads-to-one-rewrite.patch
+@@ -0,0 +1,54 @@
++From 2075d7addcf3e980d3bbc5696fdbcf9d5c9fed79 Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Fri, 28 Aug 2026 01:43:49 +0800
++Subject: [PATCH 16/16] Scope lazy input loads to one rewrite
++
++---
++ .../TensorToCudaTile/LayoutPropagationImpl.cpp  | 17 +++++++++++++++++
++ 1 file changed, 17 insertions(+)
++
++diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++index 4e00914..d736aa4 100644
++--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++@@ -141,6 +141,15 @@ private:
++   /// real SSA consumer instead of living only in this side table.
++   ConversionPatternRewriter *activeRewriter = nullptr;
++ 
+++  /// A cached load is only safe while one conversion pattern is being
+++  /// rewritten. Graph splitting may erase that pattern's replacement later,
+++  /// so never carry side-table Values into the next pattern.
+++  static void resetLoadedTileCache(IterationSpace &space) {
+++    for (auto &entry : space.loadedTiles) {
+++      entry.second = nullptr;
+++    }
+++  }
+++
++   /// Layouts for the current operation's operands.
++   using OperandLayouts = SmallVector<LayoutSourceAttrInterface>;
++   OperandLayouts layouts;
++@@ -736,6 +745,7 @@ public:
++     state.blockStructure = &state.blockStructures[resultsOp.getOperation()];
++     state.iterationSpace = &state.blockStructure->iterationSpaces[0];
++     state.activeRewriter = &rewriter;
+++    state.resetLoadedTileCache(*state.iterationSpace);
++     state.layouts.clear();
++     for (Value operand : resultsOp.getOperands()) {
++       auto layout = dyn_cast_or_null<LayoutSourceAttrInterface>(
++@@ -985,6 +995,13 @@ LogicalResult ConversionStateImpl::update(ConversionPatternRewriter &rewriter,
++   auto iterSpaceId =
++       op->getAttrOfType<IntegerAttr>(TensorIRDialect::getIterSpaceIdAttrName());
++   iterationSpace = iterationSpaces.find(iterSpaceId.getInt())->second;
+++  if (blockStructure) {
+++    for (IterationSpace &space : blockStructure->iterationSpaces) {
+++      resetLoadedTileCache(space);
+++    }
+++  } else {
+++    resetLoadedTileCache(*iterationSpace);
+++  }
++   rewriter.setInsertionPointToEnd(iterationSpace->insertionBlock);
++ 
++   // Reset the operand index.
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index a6a00b66fb59815a4c1652429750896a924cb87b..2075d7addcf3e980d3bbc5696fdbcf9d5c9fed79 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit a6a00b66fb59815a4c1652429750896a924cb87b
++Subproject commit 2075d7addcf3e980d3bbc5696fdbcf9d5c9fed79
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index a599abdbcde3fbb0b2a090b23876e6024749cd3f..bdfd9e3a20d12f77bf7a108217701ecf487473a2 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "a6a00b66fb59815a4c1652429750896a924cb87b")
++    "2075d7addcf3e980d3bbc5696fdbcf9d5c9fed79")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

@@ -1,0 +1,357 @@
+From 2d0ccd44640ba27e5d910af4ec8ee354c5b4f826 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Wed, 26 Aug 2026 14:03:37 +0800
+Subject: [PATCH 073/212] codegen: harden structured matmul bounds and goldens
+
+(cherry picked from commit d7551176ded1db74c3f185d443f1397a83029bb0)
+(cherry picked from commit b561c3a8baa3a8f089a2ab9c7b41b6678cc8f089)
+---
+ docs/en/dev/backend/01-nvidia-target-info.md  |  4 +-
+ docs/zh/dev/backend/01-nvidia-target-info.md  |  2 +
+ src/codegen/nvidia/tensor_ir_codegen.cpp      | 22 +++++
+ tests/ut/compiler/test_structured_compile.py  |  1 +
+ tests/ut/cpp/structured_compile_test.cpp      |  4 +-
+ .../structured_tensor_ir_build_spec_test.cpp  | 91 +++++++++++++++++++
+ tests/ut/cpp/tensor_ir_codegen_test.cpp       | 82 +++++++++++++++++
+ 7 files changed, 204 insertions(+), 2 deletions(-)
+
+diff --git a/docs/en/dev/backend/01-nvidia-target-info.md b/docs/en/dev/backend/01-nvidia-target-info.md
+index b841b8d0cf6af4f48e3fbfb9670d83b12e78dc1d..41c2c87d97ee8f2ea4f51b8b8b7243d1bd1b6c68 100644
+--- a/docs/en/dev/backend/01-nvidia-target-info.md
++++ b/docs/en/dev/backend/01-nvidia-target-info.md
+@@ -410,7 +410,9 @@ contiguous BF16 tensors of the same rank, either rank two or rank three. Rank-3
+ batch extents must match exactly; broadcasting is rejected. The result is a
+ plain contiguous BF16 tensor with the exact logical `[M,N]` or `[B,M,N]`
+ shape. The first bounded shape policy additionally requires `K` to be a
+-multiple of 128 and `N` to be a multiple of 16.
++multiple of 128 and `N` to be a multiple of 16. Checked multiplication also
++requires the conceptual work `B*M*N*K` (with `B=1` for rank two) to remain at
++or below `INT64_MAX`, even when each individual tensor element count fits.
+ 
+ Keyword arguments may be absent. If present, the only accepted values are
+ exact BF16 `out_dtype`, boolean `a_trans`/`b_trans`, and
+diff --git a/docs/zh/dev/backend/01-nvidia-target-info.md b/docs/zh/dev/backend/01-nvidia-target-info.md
+index 7169db4af378a3fb17484c4b2d87154e4da23b64..5c1aa8192aecf29deacf0782a9949e565690eb16 100644
+--- a/docs/zh/dev/backend/01-nvidia-target-info.md
++++ b/docs/zh/dev/backend/01-nvidia-target-info.md
+@@ -360,6 +360,8 @@ return。两个 input 必须是相同 rank 的 plain、完全 static、contiguou
+ 且只能为 rank two 或 rank three。rank-3 batch extent 必须精确相等，拒绝 broadcast。
+ result 必须是 exact logical `[M,N]` 或 `[B,M,N]` shape 的 plain contiguous BF16
+ tensor。首个 bounded shape policy 还要求 `K` 是 128 的倍数，`N` 是 16 的倍数。
++checked multiplication 还要求 conceptual work `B*M*N*K`（rank two 时 `B=1`）不超过
++`INT64_MAX`，即使每个独立 tensor 的 element count 都仍在范围内也不例外。
+ 
+ keyword argument 可以完全省略。若存在，则只接受 exact BF16 `out_dtype`、bool
+ `a_trans`/`b_trans` 与 `c_matrix_nz=false`；duplicate、unknown key、错误 type 或错误
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index a2be152b8ac58277da6049a1443733632a788939..5a3184de000664670217ed669e16cead0a0e59f7 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -13,6 +13,7 @@
+ 
+ #include <algorithm>
+ #include <any>
++#include <array>
+ #include <charconv>
+ #include <cmath>
+ #include <cstddef>
+@@ -820,6 +821,26 @@ StaticTensor TransposeMatrixDims(const StaticTensor& tensor) {
+   return transposed;
+ }
+ 
++void ValidateStructuredMatmulConceptualWork(int64_t batch, int64_t m, int64_t n,
++                                            int64_t k, const ir::Span& span) {
++  const std::array<int64_t, 4> extents = {batch, m, n, k};
++  uint64_t product = 1;
++  constexpr uint64_t kMaximumConceptualWork =
++      static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
++  for (int64_t extent : extents) {
++    if (extent <= 0) {
++      InternalReject("structured matmul conceptual-work extent is non-positive");
++    }
++    if (static_cast<uint64_t>(extent) > kMaximumConceptualWork / product) {
++      Reject("structured matmul conceptual work B*M*N*K exceeds the signed 64-bit bound for B=" +
++                 std::to_string(batch) + ", M=" + std::to_string(m) +
++                 ", N=" + std::to_string(n) + ", K=" + std::to_string(k),
++             &span);
++    }
++    product *= static_cast<uint64_t>(extent);
++  }
++}
++
+ StructuredMatmulGraph AnalyzeStructuredMatmulV4(const ir::ProgramPtr& program) {
+   if (!program) Reject("program must not be null");
+   if (program->functions_.size() != 1) {
+@@ -1011,6 +1032,7 @@ StructuredMatmulGraph AnalyzeStructuredMatmulV4(const ir::ProgramPtr& program) {
+     Reject("structured matmul N must be a multiple of 16, got " + std::to_string(n),
+            &call->span_);
+   }
++  ValidateStructuredMatmulConceptualWork(batch, m, n, lhs_k, call->span_);
+ 
+   StaticTensor expected_result{DataType::BF16,
+                                rank == 2 ? std::vector<int64_t>{m, n}
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index d58b2ef6ce0f24ddbb070404f75c2a9bdeac2103..25c32ffc9c58659c8d06313e52d607e951531a18 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -356,6 +356,7 @@ def test_compile_structured_strict_functional() -> None:
+         assert reduction.artifact.identities.kernel_build_spec_digest == reduction.build_spec.identity_digest
+ 
+     matmul_cases = (
++        ([128, 32], [128, 16], [32, 16], True, False, [32, 16], 1),
+         ([1, 1, 128], [1, 128, 16], [1, 1, 16], False, False, [16], 1),
+         ([1, 128, 32], [1, 128, 16], [1, 32, 16], True, False, [32, 16], 1),
+         ([2, 1, 128], [2, 16, 128], [2, 1, 16], False, True, [2, 16], 1),
+diff --git a/tests/ut/cpp/structured_compile_test.cpp b/tests/ut/cpp/structured_compile_test.cpp
+index d9418b26aaa5740842c802e294a44af26314d1de..8647b5c183e4f4bc51e423fa90cd67999fd88463 100644
+--- a/tests/ut/cpp/structured_compile_test.cpp
++++ b/tests/ut/cpp/structured_compile_test.cpp
+@@ -735,8 +735,10 @@ int TestRealStructuredMatmulProducerSuccess() {
+     uint32_t grid_x;
+   };
+   // Together these cases cover decode/prefill, B=1/B>1, and all four
+-  // transpose combinations while retaining physical descriptor shapes.
++  // transpose combinations while retaining physical descriptor shapes. The
++  // first case separately exercises a rank-2 transpose through the producer.
+   const std::vector<Case> cases = {
++      {{128, 32}, {128, 16}, {32, 16}, true, false, {32, 16}, 1},
+       {{1, 1, 128}, {1, 128, 16}, {1, 1, 16}, false, false, {16}, 1},
+       {{1, 128, 32}, {1, 128, 16}, {1, 32, 16}, true, false, {32, 16}, 1},
+       {{2, 1, 128}, {2, 16, 128}, {2, 1, 16}, false, true, {2, 16}, 1},
+diff --git a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+index 3d6a6aa47a408d8a21230d28194522025435c002..185a38cbdf497b29cf196a3399b13ef7c6b9d28b 100644
+--- a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
++++ b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+@@ -259,6 +259,33 @@ constexpr std::string_view kStructuredMatmulMutationGoldenHex =
+     "656666656374a9726561642d6f6e6c79a76f7264696e616c01a8636f6e7472616374be707970746f2e66726f6e74656e"
+     "642e6d75746174696f6e5f6162692e7634bb6d75746174696f6e5f6162695f736368656d615f76657273696f6e04ae72"
+     "6573756c745f616c696173657391c0";
++constexpr std::string_view kStructuredMatmulRankThreeStaticGoldenHex =
++    "83a8636f6e7472616374d927707970746f2e66726f6e74656e642e7374617469635f7370656369616c697a6174696f6e2e76"
++    "34d9247374617469635f7370656369616c697a6174696f6e5f736368656d615f76657273696f6e04a676616c7565739383a7"
++    "6f7264696e616c00a4726f6c65a8617267756d656e74a573686170659302cc802083a76f7264696e616c01a4726f6c65a861"
++    "7267756d656e74a57368617065930210cc8083a76f7264696e616c00a4726f6c65a6726573756c74a5736861706593022010";
++constexpr std::string_view kStructuredMatmulRankThreeSymbolicGoldenHex =
++    "84ab636f6e73747261696e747390a8636f6e7472616374d929707970746f2e66726f6e74656e642e73796d626f6c69635f73"
++    "70656369616c697a6174696f6e2e7634d92673796d626f6c69635f7370656369616c697a6174696f6e5f736368656d615f76"
++    "657273696f6e04a773796d626f6c7390";
++constexpr std::string_view kStructuredMatmulRankThreeArgumentGoldenHex =
++    "83bb617267756d656e745f6162695f736368656d615f76657273696f6e04a9617267756d656e74739289aa636f6e74696775"
++    "6f7573c3a9646972656374696f6ea2696eaa64747970655f636f646540aa64747970655f6e616d65a862666c6f61743136b0"
++    "6578706c696369745f73747269646573c3a76f7264696e616c00a472616e6b03a573686170659302cc8020a7737472696465"
++    "7393cd1000200189aa636f6e746967756f7573c3a9646972656374696f6ea2696eaa64747970655f636f646540aa64747970"
++    "655f6e616d65a862666c6f61743136b06578706c696369745f73747269646573c3a76f7264696e616c01a472616e6b03a573"
++    "68617065930210cc80a77374726964657393cd0800cc8001a8636f6e7472616374be707970746f2e66726f6e74656e642e61"
++    "7267756d656e745f6162692e7634";
++constexpr std::string_view kStructuredMatmulRankThreeResultGoldenHex =
++    "83a8636f6e7472616374bc707970746f2e66726f6e74656e642e726573756c745f6162692e7634b9726573756c745f616269"
++    "5f736368656d615f76657273696f6e04a7726573756c74739188aa636f6e746967756f7573c3aa64747970655f636f646540"
++    "aa64747970655f6e616d65a862666c6f61743136b06578706c696369745f73747269646573c3a76f7264696e616c00a47261"
++    "6e6b03a5736861706593022010a77374726964657393cd02001001";
++constexpr std::string_view kStructuredMatmulRankThreeMutationGoldenHex =
++    "84b0617267756d656e745f656666656374739282a6656666656374a9726561642d6f6e6c79a76f7264696e616c0082a66566"
++    "66656374a9726561642d6f6e6c79a76f7264696e616c01a8636f6e7472616374be707970746f2e66726f6e74656e642e6d75"
++    "746174696f6e5f6162692e7634bb6d75746174696f6e5f6162695f736368656d615f76657273696f6e04ae726573756c745f"
++    "616c696173657391c0";
+ 
+ const ir::Span& TestSpan() {
+   static const ir::Span span("structured_tensor_ir_build_spec_test.cpp", 7, 3);
+@@ -1181,6 +1208,12 @@ int TestStructuredMatmulV4ProjectionAndFinalization() {
+       "dbdcdbb1930ac708044f757a4863252944356a24d29534379f232b0e0f617c9b",
+       "1cc7aecc21f9e4d0208f3ff97ce98a91ee4a22ffe83e4b94aa07b2b0bd80e256",
+       "9c121cb6a8d8519e79449d4f0853608260d4e3913abb0a228b28d6a3e1e91014"};
++  constexpr ProjectionDigestGolden kRankThreeProjectionDigests = {
++      "574d0c1131c81884a08ce0c698efb7a4c235f072cdf12f826cec5059792e996d",
++      "d44e9c1e3ece544dc84deaea3fded8ec26b45b22cc9eafe0909e1e15d8f06ad7",
++      "4268f293516abdfb7e5324b50d8cb8965c55644240c129f3708dac559aa1e69d",
++      "722d83df3908749e5ed0828ff0fc9a1fa54fda8ff82893231853f9a18b5fea7f",
++      "9c121cb6a8d8519e79449d4f0853608260d4e3913abb0a228b28d6a3e1e91014"};
+   const CompileRequest request = ValidRequest();
+   const CanonicalSchedule schedule = ValidSchedule({32, 16});
+   const PreparedStructuredTensorIrCompilation prepared =
+@@ -1259,6 +1292,18 @@ int TestStructuredMatmulV4ProjectionAndFinalization() {
+   REQUIRE(transposed.GetCanonicalSource().size() == 714);
+   REQUIRE(transposed.GetSourceIrDigest() ==
+           "8c5059b9aba415eb8a7361ae1ce7ec65790a9dc8be789693bb5e059e73f0ebb5");
++  REQUIRE(transposed.GetStaticSpecialization().GetCanonicalBytes() ==
++          BytesFromHex(kStructuredMatmulRankThreeStaticGoldenHex));
++  REQUIRE(transposed.GetSymbolicSpecialization().GetCanonicalBytes() ==
++          BytesFromHex(kStructuredMatmulRankThreeSymbolicGoldenHex));
++  REQUIRE(transposed.GetArgumentAbi().GetCanonicalBytes() ==
++          BytesFromHex(kStructuredMatmulRankThreeArgumentGoldenHex));
++  REQUIRE(transposed.GetResultAbi().GetCanonicalBytes() ==
++          BytesFromHex(kStructuredMatmulRankThreeResultGoldenHex));
++  REQUIRE(transposed.GetMutationAbi().GetCanonicalBytes() ==
++          BytesFromHex(kStructuredMatmulRankThreeMutationGoldenHex));
++  REQUIRE(MatchesProjectionDigestGolden(transposed,
++                                        kRankThreeProjectionDigests));
+ 
+   struct ModeCase {
+     std::vector<int64_t> lhs_shape;
+@@ -1434,6 +1479,51 @@ int TestStructuredMatmulV4ScheduleRejections() {
+   return 0;
+ }
+ 
++int TestStructuredMatmulV4ConceptualWorkBounds() {
++  constexpr int64_t kExtent = int64_t{1} << 16;
++  constexpr int64_t kOutputElements = kExtent * kExtent;
++  constexpr int64_t kLargestAlignedK =
++      (std::numeric_limits<int64_t>::max() / kOutputElements / 128) * 128;
++  constexpr int64_t kOverflowK = kLargestAlignedK + 128;
++  static_assert(kLargestAlignedK == 2147483520LL);
++  static_assert(kOverflowK == 2147483648LL);
++
++  const CompileRequest request = ValidRequest();
++  const auto boundary = PrepareStructuredTensorIrCompilation(
++      MakeStructuredMatmulProgram({kExtent, kLargestAlignedK},
++                                  {kLargestAlignedK, kExtent},
++                                  {kExtent, kExtent}),
++      request, ValidSchedule({512, 256}));
++  const KernelBuildSpec boundary_spec = FinalizeStructuredTensorIrBuildSpec(
++      boundary,
++      MakeKernelAbi(StructuredMatmulKernelOptions(
++          {kExtent, kLargestAlignedK}, {kLargestAlignedK, kExtent},
++          {kExtent, kExtent}, {512, 256}, 32768)));
++  REQUIRE(!boundary_spec.GetIdentityDigest().empty());
++
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(
++            MakeStructuredMatmulProgram({kExtent, kOverflowK},
++                                        {kOverflowK, kExtent},
++                                        {kExtent, kExtent}),
++            request, ValidSchedule({512, 256}));
++      },
++      "conceptual work B*M*N*K exceeds the signed 64-bit bound for B=1, M=65536, N=65536, "
++      "K=2147483648"));
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(
++            MakeStructuredMatmulProgram({2, kExtent, kOverflowK / 2},
++                                        {2, kOverflowK / 2, kExtent},
++                                        {2, kExtent, kExtent}),
++            request, ValidSchedule({1, 512, 256}));
++      },
++      "conceptual work B*M*N*K exceeds the signed 64-bit bound for B=2, M=65536, N=65536, "
++      "K=1073741824"));
++  return 0;
++}
++
+ int TestRankOneBf16ImplicitStrideGoldenAndFinalization() {
+   const CompileRequest request = ValidRequest();
+   const PreparedStructuredTensorIrCompilation prepared =
+@@ -1782,6 +1872,7 @@ int main() {
+   if (const int result = TestRowReductionV3ScheduleRejections()) return result;
+   if (const int result = TestStructuredMatmulV4ProjectionAndFinalization()) return result;
+   if (const int result = TestStructuredMatmulV4ScheduleRejections()) return result;
++  if (const int result = TestStructuredMatmulV4ConceptualWorkBounds()) return result;
+   if (const int result = TestRankOneBf16ImplicitStrideGoldenAndFinalization()) return result;
+   if (const int result = TestStrictScheduleOverloadParity()) return result;
+   if (const int result = TestDeterminismAndIdentityChanges()) return result;
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index eebda3fc72617036297441a417548d3aee0d7f86..291ca790cfbeb6014e2e9dc8cc4be65167c7b2aa 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -626,6 +626,52 @@ int TestStructuredMatmulV4CanonicalSourcesAndMetadata() {
+     REQUIRE(metadata.HasExplicitStrides());
+   }
+ 
++  const TensorIrModule rank_two_a_trans = EmitTensorIr(
++      MakeStructuredMatmul({128, 32}, {128, 16}, {32, 16}, DataType::BF16,
++                           DataType::BF16, DataType::BF16,
++                           {{"a_trans", true}})
++          .program);
++  const std::string rank_two_a_trans_expected =
++      "module {\n"
++      "  nv_tensor_ir.graph @pypto_structured_matmul_v4(\n"
++      "    %arg0: tensor<128x32xbf16> {nv_tensor_ir.stride = \"(32,1)\"},\n"
++      "    %arg1: tensor<128x16xbf16> {nv_tensor_ir.stride = \"(16,1)\"}\n"
++      "  ) -> (tensor<32x16xbf16> {nv_tensor_ir.stride = \"(16,1)\"}) {\n"
++      "    %lhs0 = transpose %arg0 permutation = [1, 0] : "
++      "tensor<128x32xbf16> -> tensor<32x128xbf16>\n"
++      "    %accum0 = matmul(%lhs0, %arg1)\n"
++      "      : (tensor<32x128xbf16>, tensor<128x16xbf16>) -> tensor<32x16xf32>\n"
++      "    %result0 = convert %accum0 : tensor<32x16xf32> -> tensor<32x16xbf16>\n"
++      "    results %result0 : tensor<32x16xbf16>\n"
++      "  }\n"
++      "}\n";
++  REQUIRE(MatchesSourceAndSha256(
++      rank_two_a_trans, rank_two_a_trans_expected,
++      "773ac9cea0396e129ad22ffe535a8cfdd169b9613ac73783e0d44d4d856bb31b"));
++
++  const TensorIrModule rank_two_b_trans = EmitTensorIr(
++      MakeStructuredMatmul({32, 128}, {16, 128}, {32, 16}, DataType::BF16,
++                           DataType::BF16, DataType::BF16,
++                           {{"b_trans", true}})
++          .program);
++  const std::string rank_two_b_trans_expected =
++      "module {\n"
++      "  nv_tensor_ir.graph @pypto_structured_matmul_v4(\n"
++      "    %arg0: tensor<32x128xbf16> {nv_tensor_ir.stride = \"(128,1)\"},\n"
++      "    %arg1: tensor<16x128xbf16> {nv_tensor_ir.stride = \"(128,1)\"}\n"
++      "  ) -> (tensor<32x16xbf16> {nv_tensor_ir.stride = \"(16,1)\"}) {\n"
++      "    %rhs0 = transpose %arg1 permutation = [1, 0] : "
++      "tensor<16x128xbf16> -> tensor<128x16xbf16>\n"
++      "    %accum0 = matmul(%arg0, %rhs0)\n"
++      "      : (tensor<32x128xbf16>, tensor<128x16xbf16>) -> tensor<32x16xf32>\n"
++      "    %result0 = convert %accum0 : tensor<32x16xf32> -> tensor<32x16xbf16>\n"
++      "    results %result0 : tensor<32x16xbf16>\n"
++      "  }\n"
++      "}\n";
++  REQUIRE(MatchesSourceAndSha256(
++      rank_two_b_trans, rank_two_b_trans_expected,
++      "9735d531dafa10478bd173a62d5314feac38a21cfe584712e45ec74cb5cf68ca"));
++
+   const auto transpose_kwargs =
+       std::vector<std::pair<std::string, std::any>>{
+           {"out_dtype", DataType::BF16}, {"a_trans", true},
+@@ -692,6 +738,20 @@ int TestStructuredMatmulV4CanonicalSourcesAndMetadata() {
+       "z");
+   REQUIRE(EmitTensorIr(cosmetic.program).GetCanonicalSource() ==
+           rank_two_module.GetCanonicalSource());
++
++  constexpr int64_t kBoundaryExtent = int64_t{1} << 16;
++  constexpr int64_t kBoundaryOutputElements =
++      kBoundaryExtent * kBoundaryExtent;
++  constexpr int64_t kLargestAlignedBoundaryK =
++      (std::numeric_limits<int64_t>::max() / kBoundaryOutputElements / 128) * 128;
++  static_assert(kLargestAlignedBoundaryK == 2147483520LL);
++  const TensorIrModule conceptual_boundary = EmitTensorIr(
++      MakeStructuredMatmul({kBoundaryExtent, kLargestAlignedBoundaryK},
++                           {kLargestAlignedBoundaryK, kBoundaryExtent},
++                           {kBoundaryExtent, kBoundaryExtent})
++          .program);
++  REQUIRE(conceptual_boundary.GetContractionExtent() ==
++          static_cast<uint64_t>(kLargestAlignedBoundaryK));
+   return 0;
+ }
+ 
+@@ -1781,6 +1841,28 @@ int TestStructuredMatmulV4Rejections() {
+                                .program);
+       },
+       "dense BF16 with logical shape 32x16"));
++  constexpr int64_t kOverflowExtent = int64_t{1} << 16;
++  constexpr int64_t kOverflowK = int64_t{1} << 31;
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(
++            MakeStructuredMatmul({kOverflowExtent, kOverflowK},
++                                 {kOverflowK, kOverflowExtent},
++                                 {kOverflowExtent, kOverflowExtent})
++                .program);
++      },
++      "conceptual work B*M*N*K exceeds the signed 64-bit bound for B=1, M=65536, N=65536, "
++      "K=2147483648"));
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(MakeStructuredMatmul(
++                               {2, kOverflowExtent, kOverflowK / 2},
++                               {2, kOverflowK / 2, kOverflowExtent},
++                               {2, kOverflowExtent, kOverflowExtent})
++                               .program);
++      },
++      "conceptual work B*M*N*K exceeds the signed 64-bit bound for B=2, M=65536, N=65536, "
++      "K=1073741824"));
+   REQUIRE(Rejects(
+       [&] {
+         (void)EmitTensorIr(MakeStructuredMatmul(

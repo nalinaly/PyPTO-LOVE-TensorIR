@@ -1,0 +1,486 @@
+From 9307646232a3362b482f6dbb3763a6fc1ec2eacc Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Mon, 24 Aug 2026 22:09:13 +0800
+Subject: [PATCH 014/212] build: compose private NVIDIA compiler backend
+
+---
+ CMakeLists.txt                                |  11 ++
+ cmake/nvidia_backend.cmake                    | 129 ++++++++++++++++++
+ .../compiler/nvidia_backend_build_info.h      |  64 +++++++++
+ python/bindings/modules/compiler.cpp          |  19 +++
+ python/pypto/compiler/__init__.py             |   4 +
+ python/pypto/pypto_core/compiler.pyi          |  30 ++++
+ src/compiler/nvidia_backend_build_info.cpp    |  64 +++++++++
+ .../test_nvidia_backend_build_info.py         |  29 ++++
+ 8 files changed, 350 insertions(+)
+ create mode 100644 cmake/nvidia_backend.cmake
+ create mode 100644 include/pypto/compiler/nvidia_backend_build_info.h
+ create mode 100644 src/compiler/nvidia_backend_build_info.cpp
+ create mode 100644 tests/ut/compiler/test_nvidia_backend_build_info.py
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 001a027e73b15b464b945999622207c6fa36f860..e2bcfc16184482330225896c8d283c5687a5325d 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -30,6 +30,8 @@ endif()
+ 
+ set(LIBRARY_NAME "${PROJECT_NAME}_core")
+ set(COMPILER_OBJECT_LIBRARY_NAME "${PROJECT_NAME}_compiler_objects")
++option(PYPTO_ENABLE_NVIDIA_BACKEND
++       "Build the private TensorIR/CUDA Tile NVIDIA compiler backend" OFF)
+ 
+ set(CMAKE_C_STANDARD 11)
+ set(CMAKE_C_STANDARD_REQUIRED ON)
+@@ -77,6 +79,9 @@ include_directories(${CMAKE_SOURCE_DIR})
+ # External dependencies
+ include(${CMAKE_SOURCE_DIR}/cmake/libbacktrace.cmake)
+ include(${CMAKE_SOURCE_DIR}/cmake/msgpack.cmake)
++if(PYPTO_ENABLE_NVIDIA_BACKEND)
++    include(${CMAKE_SOURCE_DIR}/cmake/nvidia_backend.cmake)
++endif()
+ 
+ # PyPTO core sources
+ set(PYPTO_SOURCES
+@@ -84,6 +89,7 @@ set(PYPTO_SOURCES
+     src/compiler/compile_request.cpp
+     src/compiler/digest.cpp
+     src/compiler/kernel_build_spec.cpp
++    src/compiler/nvidia_backend_build_info.cpp
+     src/compiler/target_info.cpp
+ 
+     # Core
+@@ -353,6 +359,11 @@ target_link_libraries(${COMPILER_OBJECT_LIBRARY_NAME} PUBLIC
+     libbacktrace
+     msgpackc-cxx
+ )
++if(TARGET pypto_nvidia_backend_dependencies)
++    target_link_libraries(${COMPILER_OBJECT_LIBRARY_NAME} PUBLIC
++        pypto_nvidia_backend_dependencies
++    )
++endif()
+ set_target_properties(${COMPILER_OBJECT_LIBRARY_NAME} PROPERTIES
+     POSITION_INDEPENDENT_CODE ON
+     CXX_VISIBILITY_PRESET hidden
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+new file mode 100644
+index 0000000000000000000000000000000000000000..a92a874aabdb964e9cbc1e489b45c5524b83ca7d
+--- /dev/null
++++ b/cmake/nvidia_backend.cmake
+@@ -0,0 +1,129 @@
++# Private NVIDIA compiler composition for the single public PyPTO product.
++
++include_guard(GLOBAL)
++
++set(_pypto_nvidia_root "${CMAKE_SOURCE_DIR}/3rdparty/nvidia")
++set(_pypto_tensor_ir_source "${_pypto_nvidia_root}/tensor-ir")
++set(_pypto_cuda_tile_source "${_pypto_nvidia_root}/cuda-tile")
++set(_pypto_llvm_source "${_pypto_nvidia_root}/llvm-project")
++
++foreach(_required_source
++        "${_pypto_tensor_ir_source}/CMakeLists.txt"
++        "${_pypto_cuda_tile_source}/CMakeLists.txt"
++        "${_pypto_llvm_source}/llvm/CMakeLists.txt"
++        "${_pypto_llvm_source}/mlir/CMakeLists.txt")
++    if(NOT EXISTS "${_required_source}")
++        message(FATAL_ERROR
++                "PyPTO NVIDIA backend source is incomplete: ${_required_source}")
++    endif()
++endforeach()
++
++set(PYPTO_NVIDIA_TENSOR_IR_REVISION
++    "ca8640e71cd5a95a041f60d8e18672c806f38e42"
++    CACHE STRING "Exact private TensorIR revision")
++set(PYPTO_NVIDIA_CUDA_TILE_REVISION
++    "af2417041cc939b87ef56d92cfdcf61737c5457e"
++    CACHE STRING "Exact private CUDA Tile revision")
++set(PYPTO_NVIDIA_LLVM_REVISION
++    "57109befac92811d2253109242ca6fa69c961fb2"
++    CACHE STRING "Exact private LLVM revision")
++set(PYPTO_NVIDIA_CUDA_TOOLKIT_ROOT "/usr/local/cuda-13.3"
++    CACHE PATH "Canonical CUDA Toolkit root for the NVIDIA compiler")
++set(PYPTO_NVIDIA_CUDA_TOOLKIT_VERSION "13.3.73"
++    CACHE STRING "Exact CUDA Toolkit package version")
++set(PYPTO_NVIDIA_TILEIRAS_EXECUTABLE
++    "${PYPTO_NVIDIA_CUDA_TOOLKIT_ROOT}/bin/tileiras"
++    CACHE FILEPATH "Exact CUDA Tile IR assembler")
++set(PYPTO_NVIDIA_TILEIRAS_VERSION "13.3.36"
++    CACHE STRING "Exact tileiras executable version")
++set(PYPTO_NVIDIA_TILEIRAS_SHA256
++    "88737a8be5c56bf73fb885a567a950f247a8cfa1d146dbc7a65eff77e7d62bf0"
++    CACHE STRING "Exact tileiras executable SHA-256")
++
++file(REAL_PATH "${PYPTO_NVIDIA_CUDA_TOOLKIT_ROOT}"
++     _pypto_cuda_toolkit_real EXPAND_TILDE)
++if(NOT _pypto_cuda_toolkit_real STREQUAL PYPTO_NVIDIA_CUDA_TOOLKIT_ROOT)
++    message(FATAL_ERROR "CUDA Toolkit root must be canonical")
++endif()
++file(REAL_PATH "${PYPTO_NVIDIA_TILEIRAS_EXECUTABLE}"
++     _pypto_tileiras_real EXPAND_TILDE)
++if(NOT _pypto_tileiras_real STREQUAL PYPTO_NVIDIA_TILEIRAS_EXECUTABLE)
++    message(FATAL_ERROR "tileiras path must be canonical")
++endif()
++if(NOT EXISTS "${PYPTO_NVIDIA_TILEIRAS_EXECUTABLE}")
++    message(FATAL_ERROR "tileiras executable is absent")
++endif()
++file(SHA256 "${PYPTO_NVIDIA_TILEIRAS_EXECUTABLE}" _pypto_tileiras_sha256)
++if(NOT _pypto_tileiras_sha256 STREQUAL PYPTO_NVIDIA_TILEIRAS_SHA256)
++    message(FATAL_ERROR "tileiras SHA-256 differs from the locked producer")
++endif()
++execute_process(
++    COMMAND "${PYPTO_NVIDIA_TILEIRAS_EXECUTABLE}" --version
++    RESULT_VARIABLE _pypto_tileiras_status
++    OUTPUT_VARIABLE _pypto_tileiras_stdout
++    ERROR_VARIABLE _pypto_tileiras_stderr
++    TIMEOUT 10)
++string(CONCAT _pypto_tileiras_output
++       "${_pypto_tileiras_stdout}" "${_pypto_tileiras_stderr}")
++set(_pypto_tileiras_expected_version
++    "Cuda compilation tools, release 13.3, V${PYPTO_NVIDIA_TILEIRAS_VERSION}")
++string(FIND "${_pypto_tileiras_output}"
++       "${_pypto_tileiras_expected_version}" _pypto_tileiras_version_offset)
++if(NOT _pypto_tileiras_status EQUAL 0 OR
++   _pypto_tileiras_version_offset EQUAL -1)
++    message(FATAL_ERROR "tileiras version differs from the locked producer")
++endif()
++
++set(CUDAToolkit_ROOT "${PYPTO_NVIDIA_CUDA_TOOLKIT_ROOT}" CACHE PATH "" FORCE)
++find_package(CUDAToolkit REQUIRED)
++if(NOT "${CUDAToolkit_VERSION}" STREQUAL
++       "${PYPTO_NVIDIA_CUDA_TOOLKIT_VERSION}")
++    message(FATAL_ERROR
++            "CUDA Toolkit version ${CUDAToolkit_VERSION} differs from "
++            "${PYPTO_NVIDIA_CUDA_TOOLKIT_VERSION}")
++endif()
++set(TENSOR_IR_ENABLE_BINDINGS_PYTHON OFF CACHE BOOL "" FORCE)
++set(TENSOR_IR_INCLUDE_TESTS OFF CACHE BOOL "" FORCE)
++set(TENSOR_IR_INCLUDE_TOOLS OFF CACHE BOOL "" FORCE)
++set(TENSOR_IR_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
++set(TENSOR_IR_LLVM_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
++set(TENSOR_IR_ENABLE_CUDA_TILE_CAPI OFF CACHE BOOL "" FORCE)
++set(TENSOR_IR_DOWNLOAD_LLVM ON CACHE BOOL "" FORCE)
++set(TENSOR_IR_CUDART_LINKAGE DYNAMIC CACHE STRING "" FORCE)
++set(FETCHCONTENT_SOURCE_DIR_TENSOR_IR_LLVM_PROJECT
++    "${_pypto_llvm_source}" CACHE PATH "" FORCE)
++set(FETCHCONTENT_SOURCE_DIR_TENSOR_IR_CUDA_TILE
++    "${_pypto_cuda_tile_source}" CACHE PATH "" FORCE)
++
++add_subdirectory(
++    "${_pypto_tensor_ir_source}"
++    "${CMAKE_BINARY_DIR}/_pypto/nvidia/tensor-ir"
++    EXCLUDE_FROM_ALL)
++
++foreach(_required_target NVTensorIRCompiler CudaTileDialect
++                         CudaTileBytecodeWriter)
++    if(NOT TARGET "${_required_target}")
++        message(FATAL_ERROR
++                "PyPTO private NVIDIA target is absent: ${_required_target}")
++    endif()
++endforeach()
++foreach(_forbidden_target tensor_ir-compiler tensor_ir-opt cuda-tile-opt
++                          cuda-tile-translate cuda-tile-optimize)
++    if(TARGET "${_forbidden_target}")
++        message(FATAL_ERROR
++                "Standalone NVIDIA tool leaked into PyPTO: ${_forbidden_target}")
++    endif()
++endforeach()
++add_library(pypto_nvidia_backend_dependencies INTERFACE)
++target_link_libraries(pypto_nvidia_backend_dependencies INTERFACE
++    NVTensorIR::Compiler)
++target_compile_definitions(pypto_nvidia_backend_dependencies INTERFACE
++    PYPTO_ENABLE_NVIDIA_COMPILER_BACKEND=1
++    PYPTO_TENSOR_IR_REVISION="${PYPTO_NVIDIA_TENSOR_IR_REVISION}"
++    PYPTO_CUDA_TILE_REVISION="${PYPTO_NVIDIA_CUDA_TILE_REVISION}"
++    PYPTO_LLVM_REVISION="${PYPTO_NVIDIA_LLVM_REVISION}"
++    PYPTO_CUDA_TOOLKIT_ROOT="${PYPTO_NVIDIA_CUDA_TOOLKIT_ROOT}"
++    PYPTO_CUDA_TOOLKIT_VERSION="${PYPTO_NVIDIA_CUDA_TOOLKIT_VERSION}"
++    PYPTO_TILEIRAS_REAL_PATH="${PYPTO_NVIDIA_TILEIRAS_EXECUTABLE}"
++    PYPTO_TILEIRAS_VERSION="${PYPTO_NVIDIA_TILEIRAS_VERSION}"
++    PYPTO_TILEIRAS_SHA256="${PYPTO_NVIDIA_TILEIRAS_SHA256}")
+diff --git a/include/pypto/compiler/nvidia_backend_build_info.h b/include/pypto/compiler/nvidia_backend_build_info.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..1904dc88a31c96cfc7f63339ea3311d5d5ae4d90
+--- /dev/null
++++ b/include/pypto/compiler/nvidia_backend_build_info.h
+@@ -0,0 +1,64 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#ifndef PYPTO_COMPILER_NVIDIA_BACKEND_BUILD_INFO_H_
++#define PYPTO_COMPILER_NVIDIA_BACKEND_BUILD_INFO_H_
++
++#include <string>
++
++namespace pypto::compiler {
++
++/** Immutable diagnostic identity of the compiled-in private NVIDIA backend. */
++class NvidiaBackendBuildInfo {
++ public:
++  NvidiaBackendBuildInfo() = delete;
++  NvidiaBackendBuildInfo(bool compiled, bool compiler_factory_available, std::string tensor_ir_revision,
++                         std::string cuda_tile_revision, std::string llvm_revision,
++                         std::string cuda_toolkit_root, std::string cuda_toolkit_version,
++                         std::string tileiras_real_path, std::string tileiras_version,
++                         std::string tileiras_sha256, std::string sm120_target);
++  NvidiaBackendBuildInfo(const NvidiaBackendBuildInfo&) = default;
++  NvidiaBackendBuildInfo(NvidiaBackendBuildInfo&&) = default;
++  NvidiaBackendBuildInfo& operator=(const NvidiaBackendBuildInfo&) = delete;
++  NvidiaBackendBuildInfo& operator=(NvidiaBackendBuildInfo&&) = delete;
++
++  [[nodiscard]] bool IsCompiled() const noexcept { return compiled_; }
++  [[nodiscard]] bool IsCompilerFactoryAvailable() const noexcept { return compiler_factory_available_; }
++  [[nodiscard]] const std::string& GetTensorIrRevision() const noexcept { return tensor_ir_revision_; }
++  [[nodiscard]] const std::string& GetCudaTileRevision() const noexcept { return cuda_tile_revision_; }
++  [[nodiscard]] const std::string& GetLlvmRevision() const noexcept { return llvm_revision_; }
++  [[nodiscard]] const std::string& GetCudaToolkitRoot() const noexcept { return cuda_toolkit_root_; }
++  [[nodiscard]] const std::string& GetCudaToolkitVersion() const noexcept { return cuda_toolkit_version_; }
++  [[nodiscard]] const std::string& GetTileirasRealPath() const noexcept { return tileiras_real_path_; }
++  [[nodiscard]] const std::string& GetTileirasVersion() const noexcept { return tileiras_version_; }
++  [[nodiscard]] const std::string& GetTileirasSha256() const noexcept { return tileiras_sha256_; }
++  [[nodiscard]] const std::string& GetSm120Target() const noexcept { return sm120_target_; }
++
++ private:
++  bool compiled_;
++  bool compiler_factory_available_;
++  std::string tensor_ir_revision_;
++  std::string cuda_tile_revision_;
++  std::string llvm_revision_;
++  std::string cuda_toolkit_root_;
++  std::string cuda_toolkit_version_;
++  std::string tileiras_real_path_;
++  std::string tileiras_version_;
++  std::string tileiras_sha256_;
++  std::string sm120_target_;
++};
++
++/** Return compiled backend identity without querying a device or CUDA context. */
++[[nodiscard]] NvidiaBackendBuildInfo GetNvidiaBackendBuildInfo();
++
++}  // namespace pypto::compiler
++
++#endif  // PYPTO_COMPILER_NVIDIA_BACKEND_BUILD_INFO_H_
+diff --git a/python/bindings/modules/compiler.cpp b/python/bindings/modules/compiler.cpp
+index 74690d969bb4f2d49d3f0701b2a246343ebf5e4f..a45b0a571147458b02fd7e38edd7727f8c15fcae 100644
+--- a/python/bindings/modules/compiler.cpp
++++ b/python/bindings/modules/compiler.cpp
+@@ -17,6 +17,7 @@
+ #include "../module.h"
+ #include "pypto/compiler/compile_request.h"
+ #include "pypto/compiler/kernel_build_spec.h"
++#include "pypto/compiler/nvidia_backend_build_info.h"
+ #include "pypto/compiler/target_info.h"
+ 
+ namespace nb = nanobind;
+@@ -142,6 +143,24 @@ void BindCompiler(nb::module_& m) {
+           nb::arg("data"), "Deserialize canonical MessagePack and reject malformed or unknown data")
+       .def_prop_ro("identity_digest", &compiler::KernelBuildSpec::GetIdentityDigest);
+ 
++  nb::class_<compiler::NvidiaBackendBuildInfo>(
++      compiler_mod, "NvidiaBackendBuildInfo",
++      "Immutable diagnostic identity of the compiled-in private NVIDIA backend")
++      .def_prop_ro("compiled", &compiler::NvidiaBackendBuildInfo::IsCompiled)
++      .def_prop_ro("compiler_factory_available",
++                   &compiler::NvidiaBackendBuildInfo::IsCompilerFactoryAvailable)
++      .def_prop_ro("tensor_ir_revision", &compiler::NvidiaBackendBuildInfo::GetTensorIrRevision)
++      .def_prop_ro("cuda_tile_revision", &compiler::NvidiaBackendBuildInfo::GetCudaTileRevision)
++      .def_prop_ro("llvm_revision", &compiler::NvidiaBackendBuildInfo::GetLlvmRevision)
++      .def_prop_ro("cuda_toolkit_root", &compiler::NvidiaBackendBuildInfo::GetCudaToolkitRoot)
++      .def_prop_ro("cuda_toolkit_version", &compiler::NvidiaBackendBuildInfo::GetCudaToolkitVersion)
++      .def_prop_ro("tileiras_real_path", &compiler::NvidiaBackendBuildInfo::GetTileirasRealPath)
++      .def_prop_ro("tileiras_version", &compiler::NvidiaBackendBuildInfo::GetTileirasVersion)
++      .def_prop_ro("tileiras_sha256", &compiler::NvidiaBackendBuildInfo::GetTileirasSha256)
++      .def_prop_ro("sm120_target", &compiler::NvidiaBackendBuildInfo::GetSm120Target);
++  compiler_mod.def("get_nvidia_backend_build_info", &compiler::GetNvidiaBackendBuildInfo,
++                   "Return build identity without querying a CUDA device or context");
++
+   nb::class_<compiler::TargetTraits>(compiler_mod, "TargetTraits")
+       .def(nb::init<int, int, int, int, int, int, int, int, int, int, int, int, uint64_t,
+                     uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
+diff --git a/python/pypto/compiler/__init__.py b/python/pypto/compiler/__init__.py
+index 46ddc461a1808e59c041c47260fb6cdeae8ddf14..83e1960383beb2eb3218182a7d08043bb73b0c24 100644
+--- a/python/pypto/compiler/__init__.py
++++ b/python/pypto/compiler/__init__.py
+@@ -15,6 +15,7 @@ from pypto.pypto_core.compiler import (
+     CompileRequest,
+     CompilerPolicy,
+     KernelBuildSpec,
++    NvidiaBackendBuildInfo,
+     NvidiaTargetInfo,
+     RequestedArtifactPolicy,
+     ScheduleParameter,
+@@ -23,6 +24,7 @@ from pypto.pypto_core.compiler import (
+     TargetTraits,
+     ToolchainIdentity,
+     VerificationPolicy,
++    get_nvidia_backend_build_info,
+     is_supported_nvidia_compute_capability,
+ )
+ 
+@@ -32,6 +34,7 @@ __all__ = [
+     "CompileRequest",
+     "CompilerPolicy",
+     "KernelBuildSpec",
++    "NvidiaBackendBuildInfo",
+     "NvidiaTargetInfo",
+     "RequestedArtifactPolicy",
+     "ScheduleParameter",
+@@ -40,5 +43,6 @@ __all__ = [
+     "TargetTraits",
+     "ToolchainIdentity",
+     "VerificationPolicy",
++    "get_nvidia_backend_build_info",
+     "is_supported_nvidia_compute_capability",
+ ]
+diff --git a/python/pypto/pypto_core/compiler.pyi b/python/pypto/pypto_core/compiler.pyi
+index 7fc75546050ebc3692137a68a1f8f323182b79c7..24f7367ded887d03183919cb5f75afa8b7d14331 100644
+--- a/python/pypto/pypto_core/compiler.pyi
++++ b/python/pypto/pypto_core/compiler.pyi
+@@ -161,6 +161,36 @@ class KernelBuildSpec:
+     @property
+     def identity_digest(self) -> str: ...
+ 
++class NvidiaBackendBuildInfo:
++    """Immutable diagnostic identity of the compiled-in private NVIDIA backend."""
++
++    @property
++    def compiled(self) -> bool: ...
++    @property
++    def compiler_factory_available(self) -> bool: ...
++    @property
++    def tensor_ir_revision(self) -> str: ...
++    @property
++    def cuda_tile_revision(self) -> str: ...
++    @property
++    def llvm_revision(self) -> str: ...
++    @property
++    def cuda_toolkit_root(self) -> str: ...
++    @property
++    def cuda_toolkit_version(self) -> str: ...
++    @property
++    def tileiras_real_path(self) -> str: ...
++    @property
++    def tileiras_version(self) -> str: ...
++    @property
++    def tileiras_sha256(self) -> str: ...
++    @property
++    def sm120_target(self) -> str: ...
++
++def get_nvidia_backend_build_info() -> NvidiaBackendBuildInfo:
++    """Return build identity without querying a CUDA device or context."""
++    ...
++
+ class TargetTraits:
+     def __init__(
+         self,
+diff --git a/src/compiler/nvidia_backend_build_info.cpp b/src/compiler/nvidia_backend_build_info.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..32aadcf8bacf2f04a15956084ef867333fe47b14
+--- /dev/null
++++ b/src/compiler/nvidia_backend_build_info.cpp
+@@ -0,0 +1,64 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#include "pypto/compiler/nvidia_backend_build_info.h"
++
++#include <string>
++#include <utility>
++
++#include "pypto/core/error.h"
++
++#if defined(PYPTO_ENABLE_NVIDIA_COMPILER_BACKEND)
++#include "tensor_ir/Compiler/Compiler.h"
++#include "tensor_ir/Utils/ComputeCapability.h"
++
++#include "mlir/Support/LogicalResult.h"
++#endif
++
++namespace pypto::compiler {
++
++NvidiaBackendBuildInfo::NvidiaBackendBuildInfo(
++    bool compiled, bool compiler_factory_available, std::string tensor_ir_revision,
++    std::string cuda_tile_revision, std::string llvm_revision, std::string cuda_toolkit_root,
++    std::string cuda_toolkit_version, std::string tileiras_real_path, std::string tileiras_version,
++    std::string tileiras_sha256, std::string sm120_target)
++    : compiled_(compiled),
++      compiler_factory_available_(compiler_factory_available),
++      tensor_ir_revision_(std::move(tensor_ir_revision)),
++      cuda_tile_revision_(std::move(cuda_tile_revision)),
++      llvm_revision_(std::move(llvm_revision)),
++      cuda_toolkit_root_(std::move(cuda_toolkit_root)),
++      cuda_toolkit_version_(std::move(cuda_toolkit_version)),
++      tileiras_real_path_(std::move(tileiras_real_path)),
++      tileiras_version_(std::move(tileiras_version)),
++      tileiras_sha256_(std::move(tileiras_sha256)),
++      sm120_target_(std::move(sm120_target)) {}
++
++NvidiaBackendBuildInfo GetNvidiaBackendBuildInfo() {
++#if defined(PYPTO_ENABLE_NVIDIA_COMPILER_BACKEND)
++  auto target = mlir::nv_tensor_ir::SmTarget::fromCc(120);
++  if (mlir::failed(target)) {
++    throw InternalError("private TensorIR build does not recognize SM120");
++  }
++  auto compiler = mlir::nv_tensor_ir::ICompiler::create(mlir::nv_tensor_ir::CompilerBackend::CudaTile);
++  if (!compiler) {
++    throw InternalError("private TensorIR CUDA Tile compiler factory is unavailable");
++  }
++  return NvidiaBackendBuildInfo(true, true, PYPTO_TENSOR_IR_REVISION, PYPTO_CUDA_TILE_REVISION,
++                                PYPTO_LLVM_REVISION, PYPTO_CUDA_TOOLKIT_ROOT,
++                                PYPTO_CUDA_TOOLKIT_VERSION, PYPTO_TILEIRAS_REAL_PATH,
++                                PYPTO_TILEIRAS_VERSION, PYPTO_TILEIRAS_SHA256, target->toString());
++#else
++  return NvidiaBackendBuildInfo(false, false, "", "", "", "", "", "", "", "", "");
++#endif
++}
++
++}  // namespace pypto::compiler
+diff --git a/tests/ut/compiler/test_nvidia_backend_build_info.py b/tests/ut/compiler/test_nvidia_backend_build_info.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..5794f8356a8ee764b9b3ab239b432d20809dfd43
+--- /dev/null
++++ b/tests/ut/compiler/test_nvidia_backend_build_info.py
+@@ -0,0 +1,29 @@
++"""Private NVIDIA backend build identity without a device query."""
++
++import pytest
++from pypto.compiler import get_nvidia_backend_build_info
++
++
++def test_nvidia_backend_build_info_is_immutable_and_self_consistent() -> None:
++    info = get_nvidia_backend_build_info()
++    with pytest.raises(AttributeError):
++        setattr(info, "compiled", not info.compiled)
++
++    if not info.compiled:
++        assert not info.compiler_factory_available
++        assert info.tensor_ir_revision == ""
++        assert info.cuda_tile_revision == ""
++        assert info.llvm_revision == ""
++        assert info.sm120_target == ""
++        return
++
++    assert info.compiler_factory_available
++    assert info.tensor_ir_revision == "ca8640e71cd5a95a041f60d8e18672c806f38e42"
++    assert info.cuda_tile_revision == "af2417041cc939b87ef56d92cfdcf61737c5457e"
++    assert info.llvm_revision == "57109befac92811d2253109242ca6fa69c961fb2"
++    assert info.cuda_toolkit_root == "/usr/local/cuda-13.3"
++    assert info.cuda_toolkit_version == "13.3.73"
++    assert info.tileiras_real_path == "/usr/local/cuda-13.3/bin/tileiras"
++    assert info.tileiras_version == "13.3.36"
++    assert info.tileiras_sha256 == "88737a8be5c56bf73fb885a567a950f247a8cfa1d146dbc7a65eff77e7d62bf0"
++    assert info.sm120_target == "sm_120a"

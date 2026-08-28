@@ -1,0 +1,95 @@
+From 20367d1c5e10aa081ff1a0856c260aa18bdde871 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 02:15:53 +0800
+Subject: [PATCH 50/82] Anchor narrow loads before lazy broadcasts
+
+---
+ .../LayoutPropagationImpl.cpp                 | 52 +++++++++----------
+ 1 file changed, 25 insertions(+), 27 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index 879c9473f3c8c93b1e6363209d2ab60a5a04aed8..3b346b4384a0954a9d449e0b50732d68f974e4c2 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -516,11 +516,12 @@ public:
+           llvm::dbgs() << ")\n";
+         });
+ 
+-        // Validate the tensor sources now. Loads are emitted by getTile inside
+-        // the rewrite transaction that immediately consumes them; no Value is
+-        // retained across dialect-conversion rollback boundaries.
+-        for (auto &entry : iterationSpace.loadedTiles) {
+-          TensorSourceAttr source = entry.first;
++        // Materialize the side-effecting narrow loads while the graph skeleton
++        // is built. Pure zero-stride broadcasts are delayed until their first
++        // real consumer, so an unused broadcast cannot be reclaimed behind the
++        // side table while the load itself remains anchored in the skeleton.
++        rewriter.setInsertionPointToEnd(iterationSpace.insertionBlock);
++        for (auto &[source, loadedTile] : iterationSpace.loadedTiles) {
+           LLVM_DEBUG({
+             llvm::dbgs() << "Loading tensor #" << source.getTensorId()
+                          << " layout=" << source.getLayout()
+@@ -533,6 +534,10 @@ public:
+               state.inputDescriptors[tensorId].sizes.empty()) {
+             return graphOp.emitError("Invalid tensor ID: ") << tensorId;
+           }
++          auto layoutDesc =
++              applyLayout(rewriter, state.inputDescriptors[tensorId], source);
++          loadedTile = emitLoadMaybeBroadcast(rewriter, layoutDesc,
++                                              iterationSpace, state.zeroIndex);
+         }
+       }
+ 
+@@ -612,14 +617,10 @@ private:
+       indexValues[dim] = zeroIndex;
+     }
+ 
+-    // Emit load and broadcast in the same rewrite transaction.
++    // Keep only the side-effecting narrow load in the graph skeleton. The pure
++    // broadcast is emitted by getTile in the transaction that consumes it.
+     auto loadType = cast<ShapedType>(tileType).clone(tileShape);
+-    Value result = emitLoad(rewriter, desc, loadType, indexValues);
+-    if (loadType != tileType) {
+-      result = cuda_tile::BroadcastOp::create(rewriter, result.getLoc(),
+-                                              tileType, result);
+-    }
+-    return result;
++    return emitLoad(rewriter, desc, loadType, indexValues);
+   }
+ 
+   /// Update SSA values in the tensor descriptor (pointer and dynamic sizes).
+@@ -1028,22 +1029,19 @@ Value ConversionStateImpl::getTile(Value operand) {
+     auto it = iterationSpace->loadedTiles.find(tensorSource);
+     assert(it != iterationSpace->loadedTiles.end() &&
+            "layout has no associated value");
+-    (void)it;
+-    assert(activeRewriter && "missing active conversion rewriter");
+-    RewriterBase::InsertionGuard guard(*activeRewriter);
+-    Block *block = iterationSpace->insertionBlock;
+-    if (Operation *terminator = block->getTerminator()) {
+-      activeRewriter->setInsertionPoint(terminator);
+-    } else {
+-      activeRewriter->setInsertionPointToEnd(block);
++    Value tile = it->second;
++    auto tileType = cast<ShapedType>(tile.getType());
++    if (!llvm::equal(tileType.getShape(), iterationSpace->tileShape)) {
++      assert(activeRewriter && "missing active conversion rewriter");
++      Operation *definition = tile.getDefiningOp();
++      assert(definition && "loaded tile must have a defining operation");
++      RewriterBase::InsertionGuard guard(*activeRewriter);
++      activeRewriter->setInsertionPointAfter(definition);
++      tile = cuda_tile::BroadcastOp::create(
++          *activeRewriter, tile.getLoc(),
++          tileType.clone(iterationSpace->tileShape), tile);
+     }
+-    const size_t tensorId = tensorSource.getTensorId();
+-    assert(tensorId < inputDescriptors.size() &&
+-           "tensor source ID is out of bounds");
+-    auto layoutDesc =
+-        applyLayout(*activeRewriter, inputDescriptors[tensorId], tensorSource);
+-    return GraphOpConversion::emitLoadMaybeBroadcast(
+-        *activeRewriter, layoutDesc, *iterationSpace, zeroIndex);
++    return tile;
+   }
+ 
+   // The operand must have a tile type at this point.

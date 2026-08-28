@@ -1,0 +1,59 @@
+From 4789ae0f7c5647e792b32070e6d575f6403bd24f Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Mon, 24 Aug 2026 23:43:28 +0800
+Subject: [PATCH 019/212] test: bind cubin ABI target decoding
+
+---
+ 3rdparty/nvidia/tensor-ir                           | 2 +-
+ cmake/nvidia_backend.cmake                          | 2 +-
+ tests/ut/compiler/test_nvidia_backend_build_info.py | 2 +-
+ tests/ut/cpp/tensor_ir_artifact_seam_test.cpp       | 3 +++
+ 4 files changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 7a15076631b92e9d41964895181a2a8bac11b207..2677d1a99ae9e4c6627872f01a26a62bf6e832c8 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 7a15076631b92e9d41964895181a2a8bac11b207
++Subproject commit 2677d1a99ae9e4c6627872f01a26a62bf6e832c8
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 03fea1377e8de2d908f76373d64c95e192add51d..52e132e02ac9bbb70f880d6dd3711328fec75f50 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -24,7 +24,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "7a15076631b92e9d41964895181a2a8bac11b207")
++    "2677d1a99ae9e4c6627872f01a26a62bf6e832c8")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+diff --git a/tests/ut/compiler/test_nvidia_backend_build_info.py b/tests/ut/compiler/test_nvidia_backend_build_info.py
+index 140d5fa71583dce7a79618e78362b25c5ab5de53..f61a369f16cbb0acdd8fdd714c92ea6434f7c6d4 100644
+--- a/tests/ut/compiler/test_nvidia_backend_build_info.py
++++ b/tests/ut/compiler/test_nvidia_backend_build_info.py
+@@ -18,7 +18,7 @@ def test_nvidia_backend_build_info_is_immutable_and_self_consistent() -> None:
+         return
+ 
+     assert info.compiler_factory_available
+-    assert info.tensor_ir_revision == "7a15076631b92e9d41964895181a2a8bac11b207"
++    assert info.tensor_ir_revision == "2677d1a99ae9e4c6627872f01a26a62bf6e832c8"
+     assert info.cuda_tile_revision == "af2417041cc939b87ef56d92cfdcf61737c5457e"
+     assert info.llvm_revision == "57109befac92811d2253109242ca6fa69c961fb2"
+     assert info.cuda_toolkit_root == "/usr/local/cuda-13.3"
+diff --git a/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp b/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp
+index c5d188662b1c5957be1783e5c3f339ba565bd055..76a5a152b735618e623c54d66ab591c448df9595 100644
+--- a/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp
++++ b/tests/ut/cpp/tensor_ir_artifact_seam_test.cpp
+@@ -181,6 +181,9 @@ int TestDeterministicCubinArtifact(const SmTarget &target) {
+   headerOnly.deviceCode.assign(first->deviceCode.begin(),
+                                first->deviceCode.begin() + 64);
+   REQUIRE(!headerOnly.validate().ok());
++  CudaTileCompiledArtifact wrongAbi = *first;
++  wrongAbi.deviceCode[8] = 7;
++  REQUIRE(!wrongAbi.validate().ok());
+ 
+   auto detected = detectCudaTileArtifactKind(first->deviceCode);
+   REQUIRE(detected.ok());

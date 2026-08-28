@@ -1,0 +1,228 @@
+From 255ab5a2216ea0a0660010f7dfbc6d83221d2ff8 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 03:07:57 +0800
+Subject: [PATCH 14/82] Harden deterministic CUDA Tile production
+
+---
+ .../Compiler/CudaTile/CudaTileFrontend.h      |  2 +-
+ lib/Compiler/CudaTile/CudaTileCompiler.cpp    |  7 +-
+ lib/Compiler/CudaTile/CudaTileFrontend.cpp    |  9 ++-
+ lib/Compiler/CudaTile/TileIRAssembly.cpp      | 81 +++++++++++++++----
+ 4 files changed, 81 insertions(+), 18 deletions(-)
+
+diff --git a/include/tensor_ir/Compiler/CudaTile/CudaTileFrontend.h b/include/tensor_ir/Compiler/CudaTile/CudaTileFrontend.h
+index 6aabf0a935373bb1160da429f06c7984ae9d0dd8..0dc5299bd122943f606067976557eb1fa4c3fd6d 100644
+--- a/include/tensor_ir/Compiler/CudaTile/CudaTileFrontend.h
++++ b/include/tensor_ir/Compiler/CudaTile/CudaTileFrontend.h
+@@ -66,7 +66,7 @@ lowerTensorIRToCudaTile(ModuleOp module,
+                         const CudaTileFrontendOptions &options);
+ 
+ /// Compute a fixed grid for static-shape frontend results.
+-std::array<int32_t, 3>
++FailureOr<std::array<int32_t, 3>>
+ computeStaticGridSize(const CudaTileFrontendResult &result);
+ 
+ } // namespace mlir::nv_tensor_ir::compiler::cuda_tile
+diff --git a/lib/Compiler/CudaTile/CudaTileCompiler.cpp b/lib/Compiler/CudaTile/CudaTileCompiler.cpp
+index 1cb80aaec29e18e8ab09da6b3f30dfacf06f1d79..1c81f5f15e6a7ef5930979fc0bf0660aa782e67d 100644
+--- a/lib/Compiler/CudaTile/CudaTileCompiler.cpp
++++ b/lib/Compiler/CudaTile/CudaTileCompiler.cpp
+@@ -377,7 +377,12 @@ StatusOr<CudaTileCompiledArtifact> CudaTileCompiler::compileToArtifact(
+   artifact.actualArtifactKind = actualArtifactKind;
+   artifact.runtimeKernelName = std::move(frontend.runtimeKernelName);
+   artifact.entryFunctionName = std::move(frontend.entryFunctionName);
+-  artifact.staticGrid = compiler::cuda_tile::computeStaticGridSize(frontend);
++  auto staticGrid = compiler::cuda_tile::computeStaticGridSize(frontend);
++  if (failed(staticGrid)) {
++    return Status::CompilationError(
++        "Static grid size exceeds the CUDA int32 launch ABI");
++  }
++  artifact.staticGrid = *staticGrid;
+   artifact.argLayout = std::move(frontend.argLayout);
+   artifact.argumentPackingPolicy =
+       artifact.argLayout.uniformSignature ||
+diff --git a/lib/Compiler/CudaTile/CudaTileFrontend.cpp b/lib/Compiler/CudaTile/CudaTileFrontend.cpp
+index b4bf6f2e5800716387d79eed97a2514cb7dadf3f..df41e159a63dd667c1f8d4c6526ec9c6851e97e0 100644
+--- a/lib/Compiler/CudaTile/CudaTileFrontend.cpp
++++ b/lib/Compiler/CudaTile/CudaTileFrontend.cpp
+@@ -19,6 +19,7 @@
+ #include "llvm/Support/raw_ostream.h"
+ 
+ #include <algorithm>
++#include <limits>
+ 
+ static bool isSupportedTensorIrOp(mlir::Operation *op) {
+   using namespace mlir::nv_tensor_ir;
+@@ -365,7 +366,7 @@ lowerTensorIRToCudaTile(ModuleOp module,
+   return result;
+ }
+ 
+-std::array<int32_t, 3>
++FailureOr<std::array<int32_t, 3>>
+ computeStaticGridSize(const CudaTileFrontendResult &result) {
+   std::array<int32_t, 3> gridSize = {1, 1, 1};
+   ArrayRef<int64_t> gridShape = getStaticGridShape(result);
+@@ -381,7 +382,11 @@ computeStaticGridSize(const CudaTileFrontendResult &result) {
+     int64_t dimSize = gridShape[i];
+     int32_t tileSize = result.argLayout.tileSizes[i];
+     if (tileSize > 0 && dimSize > 0) {
+-      totalTiles *= llvm::divideCeil(dimSize, tileSize);
++      int64_t dimensionTiles = llvm::divideCeil(dimSize, tileSize);
++      if (dimensionTiles > std::numeric_limits<int32_t>::max() / totalTiles) {
++        return failure();
++      }
++      totalTiles *= dimensionTiles;
+     }
+   }
+   gridSize[0] = static_cast<int32_t>(totalTiles);
+diff --git a/lib/Compiler/CudaTile/TileIRAssembly.cpp b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+index 606d8a760e66989c8e35bd349f57acd29f9e355a..64fac025020018827ae8141458ea65f2d6b854db 100644
+--- a/lib/Compiler/CudaTile/TileIRAssembly.cpp
++++ b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+@@ -36,6 +36,12 @@ struct ProcessResult {
+   std::string error;
+ };
+ 
++constexpr uint64_t kMaximumDiagnosticBytes = 64 * 1024;
++constexpr uint64_t kMaximumCubinBytes = 64ULL * 1024ULL * 1024ULL;
++constexpr unsigned kMetadataCommandTimeoutSeconds = 30;
++constexpr unsigned kCompileCommandTimeoutSeconds = 300;
++constexpr unsigned kAssemblerMemoryLimitMiB = 4096;
++
+ StatusOr<TemporaryFile> createTemporaryFile(llvm::StringRef suffix) {
+   llvm::SmallString<128> path;
+   if (std::error_code error =
+@@ -47,20 +53,54 @@ StatusOr<TemporaryFile> createTemporaryFile(llvm::StringRef suffix) {
+ }
+ 
+ std::string readFile(llvm::StringRef path) {
+-  auto buffer = llvm::MemoryBuffer::getFile(path);
+-  return buffer ? (*buffer)->getBuffer().str() : std::string();
++  uint64_t size = 0;
++  if (llvm::sys::fs::file_size(path, size)) {
++    return {};
++  }
++  if (size == 0) {
++    return {};
++  }
++  uint64_t boundedSize = std::min(size, kMaximumDiagnosticBytes);
++  auto buffer = llvm::MemoryBuffer::getFileSlice(path, boundedSize, 0);
++  if (!buffer) {
++    return {};
++  }
++  std::string output = (*buffer)->getBuffer().str();
++  if (size > boundedSize) {
++    output += "\n[diagnostic output truncated]\n";
++  }
++  return output;
+ }
+ 
+ ProcessResult runProgram(llvm::StringRef program,
+                          llvm::ArrayRef<llvm::StringRef> args,
+                          llvm::StringRef stdoutPath,
+-                         llvm::StringRef stderrPath) {
++                         llvm::StringRef stderrPath,
++                         std::optional<llvm::StringRef> producerBinDirectory,
++                         unsigned timeoutSeconds) {
+   llvm::SmallVector<std::optional<llvm::StringRef>, 3> redirects{
+       llvm::StringRef(""), stdoutPath, stderrPath};
++  llvm::SmallVector<std::string, 8> environmentStorage;
++  llvm::SmallVector<llvm::StringRef, 8> environment;
++  std::optional<llvm::ArrayRef<llvm::StringRef>> environmentRef;
++  if (producerBinDirectory) {
++    environmentStorage.push_back("PATH=" + producerBinDirectory->str() +
++                                 ":/usr/bin:/bin");
++    environmentStorage.push_back("LANG=C");
++    environmentStorage.push_back("LC_ALL=C");
++    environmentStorage.push_back("TZ=UTC");
++    environmentStorage.push_back("HOME=/nonexistent");
++    environmentStorage.push_back("TMPDIR=/tmp");
++    environmentStorage.push_back("CUDA_CACHE_DISABLE=1");
++    for (const std::string &entry : environmentStorage) {
++      environment.push_back(entry);
++    }
++    environmentRef = llvm::ArrayRef<llvm::StringRef>(environment);
++  }
+   ProcessResult result{};
+   result.exitCode = llvm::sys::ExecuteAndWait(
+-      program, args, /*Env=*/std::nullopt, redirects, /*SecondsToWait=*/0,
+-      /*MemoryLimit=*/0, &result.error);
++      program, args, environmentRef, redirects, timeoutSeconds,
++      kAssemblerMemoryLimitMiB, &result.error);
+   return result;
+ }
+ 
+@@ -191,8 +231,13 @@ assembleWithExecutable(llvm::ArrayRef<char> bytecode, SmTarget target,
+     programStorage = assemblerPath.str();
+   }
+   std::unique_ptr<TemporaryFile> verifiedProgram;
++  std::string producerBinDirectoryStorage;
++  std::optional<llvm::StringRef> producerBinDirectory;
+   if (!assemblerVersion.empty() || !assemblerSha256.empty()) {
+     TIR_RETURN_IF_ERROR(validateCanonicalProgramPath(programStorage));
++    producerBinDirectoryStorage =
++        llvm::sys::path::parent_path(programStorage).str();
++    producerBinDirectory = producerBinDirectoryStorage;
+     TIR_ASSIGN_OR_RETURN(
+         auto copy,
+         materializeVerifiedProgram(programStorage, assemblerSha256));
+@@ -206,7 +251,8 @@ assembleWithExecutable(llvm::ArrayRef<char> bytecode, SmTarget target,
+   if (!assemblerVersion.empty()) {
+     llvm::SmallVector<llvm::StringRef, 2> versionArgs{program, "--version"};
+     ProcessResult version =
+-        runProgram(program, versionArgs, stdoutFile.path, stderrFile.path);
++        runProgram(program, versionArgs, stdoutFile.path, stderrFile.path,
++                   producerBinDirectory, kMetadataCommandTimeoutSeconds);
+     if (version.exitCode != 0) {
+       return processError("tileiras --version", version, stderrFile.path);
+     }
+@@ -221,18 +267,17 @@ assembleWithExecutable(llvm::ArrayRef<char> bytecode, SmTarget target,
+   llvm::SmallVector<llvm::StringRef, 2> versionArgs{program,
+                                                     "--list-versions"};
+   ProcessResult query =
+-      runProgram(program, versionArgs, stdoutFile.path, stderrFile.path);
++      runProgram(program, versionArgs, stdoutFile.path, stderrFile.path,
++                 producerBinDirectory, kMetadataCommandTimeoutSeconds);
+   if (query.exitCode != 0) {
+     return processError("tileiras --list-versions", query, stderrFile.path);
+   }
+ 
+-  auto stdoutBuffer = llvm::MemoryBuffer::getFile(stdoutFile.path);
++  std::string supportedVersions = readFile(stdoutFile.path);
+   std::string requested =
+       std::to_string(static_cast<unsigned>(bytecodeVersion.getMajor())) + "." +
+       std::to_string(static_cast<unsigned>(bytecodeVersion.getMinor()));
+-  if (!stdoutBuffer ||
+-      !llvm::is_contained(llvm::split((*stdoutBuffer)->getBuffer(), "\n"),
+-                          requested)) {
++  if (!llvm::is_contained(llvm::split(supportedVersions, "\n"), requested)) {
+     return Status::NotSupported("tileiras does not support TileIR " +
+                                 requested);
+   }
+@@ -257,15 +302,23 @@ assembleWithExecutable(llvm::ArrayRef<char> bytecode, SmTarget target,
+   llvm::SmallVector<llvm::StringRef, 4> args{program, gpuArg, outputArg,
+                                              inputFile.path};
+   ProcessResult compile =
+-      runProgram(program, args, stdoutFile.path, stderrFile.path);
++      runProgram(program, args, stdoutFile.path, stderrFile.path,
++                 producerBinDirectory, kCompileCommandTimeoutSeconds);
+   if (compile.exitCode != 0) {
+     return processError("tileiras compilation", compile, stderrFile.path);
+   }
+ 
+-  auto cubin = llvm::MemoryBuffer::getFile(outputFile.path);
+-  if (!cubin || (*cubin)->getBufferSize() == 0) {
++  uint64_t cubinSize = 0;
++  if (llvm::sys::fs::file_size(outputFile.path, cubinSize) || cubinSize == 0) {
+     return Status::CompilationError("tileiras produced no cubin");
+   }
++  if (cubinSize > kMaximumCubinBytes) {
++    return Status::CompilationError("tileiras cubin exceeds the 64 MiB limit");
++  }
++  auto cubin = llvm::MemoryBuffer::getFile(outputFile.path);
++  if (!cubin) {
++    return Status::CompilationError("failed to read tileiras cubin output");
++  }
+   TIR_RETURN_IF_ERROR(validateProgramSha256(program, assemblerSha256));
+   llvm::StringRef buffer = (*cubin)->getBuffer();
+   return llvm::SmallVector<char, 0>(buffer.begin(), buffer.end());

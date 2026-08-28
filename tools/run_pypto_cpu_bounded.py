@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run bounded PyPTO CPU builds/tests without the retired 22 GiB gate."""
+"""Run bounded release CPU builds/tests without the retired 22 GiB gate."""
 
 from __future__ import annotations
 
@@ -19,6 +19,11 @@ import stop_run
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ENVIRONMENT = (ROOT / "envs/pypto-nvidia").resolve()
+ALLOWED_ENVIRONMENT_PROFILES = {
+    "pypto-nvidia": "pypto",
+    "pypto-release": "pypto",
+    "sglang-baseline": "baseline",
+}
 PAUSE_MEMORY_KIB = 16 * 1024 * 1024
 RESUME_MEMORY_KIB = 17 * 1024 * 1024
 POLL_SECONDS = 0.2
@@ -117,15 +122,66 @@ def _ctest_directory(command: list[str]) -> pathlib.Path:
     return _workspace_build_directory(values[0])
 
 
-def validate_command(raw: list[str]) -> list[str]:
+def validate_environment_profile(environment: str, profile: str) -> pathlib.Path:
+    if ALLOWED_ENVIRONMENT_PROFILES.get(environment) != profile:
+        raise BoundedCpuError(
+            f"unsupported environment/profile pair: {environment}/{profile}"
+        )
+    return isolation.ENVIRONMENTS[environment].resolve()
+
+
+def _require_pytest_parallel_24(arguments: list[str]) -> None:
+    matches = 0
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument in {"-n", "--numprocesses"}:
+            if index + 1 >= len(arguments) or arguments[index + 1] != "24":
+                raise BoundedCpuError("pytest parallelism must be exactly 24")
+            matches += 1
+            index += 2
+            continue
+        if argument.startswith("-n") and argument != "-n24":
+            raise BoundedCpuError("pytest parallelism must be exactly 24")
+        if argument == "-n24":
+            matches += 1
+        if argument.startswith("--numprocesses="):
+            if argument != "--numprocesses=24":
+                raise BoundedCpuError("pytest parallelism must be exactly 24")
+            matches += 1
+        index += 1
+    if matches != 1:
+        raise BoundedCpuError("pytest requires one exact 24-way setting")
+
+
+def _validate_release_python(command: list[str], expected_python: pathlib.Path) -> None:
+    if pathlib.Path(command[0]).resolve(strict=True) != expected_python:
+        raise BoundedCpuError("Python child must use the selected release prefix")
+    arguments = command[1:]
+    if arguments[:1] == ["-B"]:
+        arguments = arguments[1:]
+    if arguments[:2] == ["-m", "pytest"]:
+        _require_pytest_parallel_24(arguments[2:])
+        return
+    if not arguments or arguments[0].startswith("-"):
+        raise BoundedCpuError("release Python child must be pytest or a script")
+    script = pathlib.Path(arguments[0]).resolve(strict=True)
+    if ROOT not in script.parents or script.suffix != ".py":
+        raise BoundedCpuError("release Python script must remain in the workspace")
+
+
+def validate_command(
+    raw: list[str], environment: pathlib.Path = ENVIRONMENT
+) -> list[str]:
     if not raw or raw[0] != "--":
         raise BoundedCpuError("bounded CPU controller requires `--` before command")
     command = raw[1:]
     if len(command) < 2:
         raise BoundedCpuError("bounded CPU command is incomplete")
     executable = pathlib.Path(command[0]).resolve(strict=True)
-    expected_cmake = (ENVIRONMENT / "bin/cmake").resolve(strict=True)
-    expected_ctest = (ENVIRONMENT / "bin/ctest").resolve(strict=True)
+    expected_cmake = (environment / "bin/cmake").resolve(strict=True)
+    expected_ctest = (environment / "bin/ctest").resolve(strict=True)
+    expected_python = (environment / "bin/python").resolve(strict=True)
     if executable == expected_cmake:
         if len(command) < 4 or command[1:2] != ["--build"]:
             raise BoundedCpuError("cmake child must be an explicit --build")
@@ -134,6 +190,8 @@ def validate_command(raw: list[str]) -> list[str]:
     elif executable == expected_ctest:
         _ctest_directory(command[1:])
         _require_parallel_24(command[1:], cmake=False)
+    elif environment != ENVIRONMENT and executable == expected_python:
+        _validate_release_python(command, expected_python)
     else:
         raise BoundedCpuError("child must be selected-prefix cmake or ctest")
     command[0] = str(executable)
@@ -167,8 +225,59 @@ def terminate_owned(
             pass
 
 
+def verify_formal_environment_identity(
+    environment_name: str,
+    framework_profile: str,
+    environment: dict[str, str],
+) -> None:
+    if environment_name == "pypto-nvidia":
+        return
+    prefix = isolation.ENVIRONMENTS[environment_name].resolve()
+    python = prefix / "bin" / "python"
+    identity_lock = isolation.ENVIRONMENT_LOCKS[environment_name]
+    if not identity_lock.is_file():
+        raise BoundedCpuError(
+            f"formal environment identity lock is missing: {identity_lock}"
+        )
+    for identity_command in (
+        [
+            str(python),
+            str(ROOT / "tools/environment_identity.py"),
+            "--prefix",
+            str(prefix),
+            "--lock",
+            str(identity_lock),
+            "--verify",
+        ],
+        [
+            str(python),
+            str(ROOT / "tools/audit_python_environment.py"),
+            "--prefix",
+            str(prefix),
+            "--profile",
+            framework_profile,
+        ],
+    ):
+        subprocess.run(
+            identity_command,
+            cwd=ROOT,
+            env=environment,
+            check=True,
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--environment",
+        choices=tuple(ALLOWED_ENVIRONMENT_PROFILES),
+        default="pypto-nvidia",
+    )
+    parser.add_argument(
+        "--framework-profile",
+        choices=("pypto", "baseline"),
+        default="pypto",
+    )
     parser.add_argument("--run-id-file", type=pathlib.Path, required=True)
     parser.add_argument("--timeout-seconds", type=int, default=3600)
     parser.add_argument("--minimum-free-disk-gib", type=int, default=64)
@@ -180,14 +289,17 @@ def main() -> int:
         and os.sys.flags.dont_write_bytecode
     ):
         parser.error("controller requires Python -E -B -S")
-    command = validate_command(args.command)
+    environment_prefix = validate_environment_profile(
+        args.environment, args.framework_profile
+    )
+    command = validate_command(args.command, environment_prefix)
     initial_available = mem_available_kib()
     if initial_available < PAUSE_MEMORY_KIB:
         raise BoundedCpuError(
             f"MemAvailable {initial_available} KiB is already below 16 GiB pause floor"
         )
 
-    lease = isolation.acquire_environment_lock("pypto-nvidia", "shared")
+    lease = isolation.acquire_environment_lock(args.environment, "shared")
     locked_available = mem_available_kib()
     if locked_available < PAUSE_MEMORY_KIB:
         lease.close()
@@ -203,8 +315,8 @@ def main() -> int:
     environment = isolation.isolated_environment(
         run_id,
         run_dir,
-        environment_prefix=ENVIRONMENT,
-        framework_profile="pypto",
+        environment_prefix=environment_prefix,
+        framework_profile=args.framework_profile,
         protected_cpu_only_coexistence_requested=True,
     )
     environment.update(isolation.environment_lock_markers(lease))
@@ -215,6 +327,13 @@ def main() -> int:
             "PYPTO_RUN_MODE": "cpu-bounded",
         }
     )
+    try:
+        verify_formal_environment_identity(
+            args.environment, args.framework_profile, environment
+        )
+    except BaseException:
+        lease.close()
+        raise
     minimum_disk = args.minimum_free_disk_gib << 30
     process = subprocess.Popen(
         command,
@@ -225,8 +344,11 @@ def main() -> int:
     )
     metadata: dict[str, object] = {
         "schema": 1,
+        "mode": "cpu-bounded",
         "run_id": run_id,
         "workspace": str(ROOT),
+        "environment": args.environment,
+        "framework_profile": args.framework_profile,
         "command": command,
         "pid": process.pid,
         "pgid": os.getpgid(process.pid),
@@ -239,6 +361,7 @@ def main() -> int:
             "resume_memory_floor_kib": RESUME_MEMORY_KIB,
             "parallelism": 24,
             "external_process_signals": False,
+            "formal_identity_verified": args.environment != "pypto-nvidia",
         },
         "environment_access_lock": {
             "path": str(lease.path),

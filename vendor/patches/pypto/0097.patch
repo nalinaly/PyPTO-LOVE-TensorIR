@@ -1,0 +1,36 @@
+From ca706bae6bbe94e2c0a7157ef1bac35fd1006cec Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 22:28:31 +0800
+Subject: [PATCH 097/212] Lock TensorIR multi-output revision
+
+---
+ cmake/nvidia_backend.cmake                          | 2 +-
+ tests/ut/compiler/test_nvidia_backend_build_info.py | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index e1922b4759aa919d2ac4c75c00e2e2d73954056a..4aa97107e48bd3d53e3c0a8aab297a93df5b69c6 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "f8e9272e14b7176ca10f43419db305cd46e88979")
++    "0449388f5499cd750dbfc0fb671a58a01271f163")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+diff --git a/tests/ut/compiler/test_nvidia_backend_build_info.py b/tests/ut/compiler/test_nvidia_backend_build_info.py
+index 4ff5b91856d9c993a7a6b2199d8ea23eda5fe429..61ab62ddc36da33986cf46cef75968f1e45a64e6 100644
+--- a/tests/ut/compiler/test_nvidia_backend_build_info.py
++++ b/tests/ut/compiler/test_nvidia_backend_build_info.py
+@@ -30,7 +30,7 @@ def test_nvidia_backend_build_info_is_immutable_and_self_consistent() -> None:
+     assert info.compiler_factory_available
+     assert len(info.pypto_revision) == 40
+     assert set(info.pypto_revision) <= set("0123456789abcdef")
+-    assert info.tensor_ir_revision == "f8e9272e14b7176ca10f43419db305cd46e88979"
++    assert info.tensor_ir_revision == "0449388f5499cd750dbfc0fb671a58a01271f163"
+     assert info.cuda_tile_revision == "af2417041cc939b87ef56d92cfdcf61737c5457e"
+     assert info.llvm_revision == "57109befac92811d2253109242ca6fa69c961fb2"
+     assert info.cuda_toolkit_root == "/usr/local/cuda-13.3"

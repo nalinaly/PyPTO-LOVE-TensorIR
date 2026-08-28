@@ -1,0 +1,76 @@
+From 5a4cf3dc0368bb22518fd37c24526403c1394e53 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 00:37:01 +0800
+Subject: [PATCH 115/212] Advance the TensorIR gather frontend
+
+---
+ ...ow-gathers-in-the-CUDA-Tile-frontend.patch | 24 +++++++++++++++++++
+ 3rdparty/nvidia/tensor-ir                     |  2 +-
+ cmake/nvidia_backend.cmake                    |  2 +-
+ .../test_nvidia_backend_build_info.py         |  2 +-
+ 4 files changed, 27 insertions(+), 3 deletions(-)
+ create mode 100644 3rdparty/nvidia/0010-Admit-row-gathers-in-the-CUDA-Tile-frontend.patch
+
+diff --git a/3rdparty/nvidia/0010-Admit-row-gathers-in-the-CUDA-Tile-frontend.patch b/3rdparty/nvidia/0010-Admit-row-gathers-in-the-CUDA-Tile-frontend.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..73546b82e530b737c2ff9bc2ffc19fe0782d4e7d
+--- /dev/null
++++ b/3rdparty/nvidia/0010-Admit-row-gathers-in-the-CUDA-Tile-frontend.patch
+@@ -0,0 +1,24 @@
++From 353850f736de4e0793d5f716b9733ab2ea6aa77f Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Fri, 28 Aug 2026 00:36:36 +0800
++Subject: [PATCH] Admit row gathers in the CUDA Tile frontend
++
++---
++ lib/Compiler/CudaTile/CudaTileFrontend.cpp | 1 +
++ 1 file changed, 1 insertion(+)
++
++diff --git a/lib/Compiler/CudaTile/CudaTileFrontend.cpp b/lib/Compiler/CudaTile/CudaTileFrontend.cpp
++index df41e15..18d262d 100644
++--- a/lib/Compiler/CudaTile/CudaTileFrontend.cpp
+++++ b/lib/Compiler/CudaTile/CudaTileFrontend.cpp
++@@ -29,6 +29,7 @@ static bool isSupportedTensorIrOp(mlir::Operation *op) {
++       GraphOp, ResultsOp,
++       // Data movement.
++       TransposeOp, ConcatenateOp, SliceOp, ReshapeOp, BroadcastOp,
+++      GatherRowsOp,
++       // Type conversion.
++       ConvertOp,
++       // Unary pointwise.
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index b61650ee4331a1841c43c39e8fa6d6d130652663..353850f736de4e0793d5f716b9733ab2ea6aa77f 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit b61650ee4331a1841c43c39e8fa6d6d130652663
++Subproject commit 353850f736de4e0793d5f716b9733ab2ea6aa77f
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index dbc78ac387063dbdba6fbd3938ca54e423283726..9dee93ef0aec3ac2be9a71206ef70db286a818fc 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "b61650ee4331a1841c43c39e8fa6d6d130652663")
++    "353850f736de4e0793d5f716b9733ab2ea6aa77f")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+diff --git a/tests/ut/compiler/test_nvidia_backend_build_info.py b/tests/ut/compiler/test_nvidia_backend_build_info.py
+index 712951ad960ed49aebd0cec5bdf7e95f5b1acc0a..754d65a6c7f78ec5c3d93e0d3894d6cc6a75db26 100644
+--- a/tests/ut/compiler/test_nvidia_backend_build_info.py
++++ b/tests/ut/compiler/test_nvidia_backend_build_info.py
+@@ -30,7 +30,7 @@ def test_nvidia_backend_build_info_is_immutable_and_self_consistent() -> None:
+     assert info.compiler_factory_available
+     assert len(info.pypto_revision) == 40
+     assert set(info.pypto_revision) <= set("0123456789abcdef")
+-    assert info.tensor_ir_revision == "b61650ee4331a1841c43c39e8fa6d6d130652663"
++    assert info.tensor_ir_revision == "353850f736de4e0793d5f716b9733ab2ea6aa77f"
+     assert info.cuda_tile_revision == "af2417041cc939b87ef56d92cfdcf61737c5457e"
+     assert info.llvm_revision == "57109befac92811d2253109242ca6fa69c961fb2"
+     assert info.cuda_toolkit_root == "/usr/local/cuda-13.3"

@@ -1,0 +1,30 @@
+From 2056a52c498c789cbd75d17b29e2c7226710440a Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 04:24:21 +0800
+Subject: [PATCH 20/82] Match tileiras soft file limit
+
+---
+ lib/Compiler/CudaTile/TileIRAssembly.cpp | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/lib/Compiler/CudaTile/TileIRAssembly.cpp b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+index 3876c3fcec4b4c15af846407dbf0a6f7b04e0344..9d2a37703c66296144711b3bce1c2dc5e0ab2f5b 100644
+--- a/lib/Compiler/CudaTile/TileIRAssembly.cpp
++++ b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+@@ -142,11 +142,15 @@ ProcessResult runProgramWithFileLimit(
+         static_cast<rlim_t>(kAssemblerMemoryLimitMiB) * 1024U * 1024U;
+     struct rlimit memoryLimit{};
+     const rlim_t fileBytes = static_cast<rlim_t>(kMaximumChildFileBytes);
+-    const struct rlimit fileLimit = {fileBytes, fileBytes};
++    struct rlimit fileLimit{};
+     if (::getrlimit(RLIMIT_DATA, &memoryLimit) != 0) {
+       _exit(126);
+     }
+     memoryLimit.rlim_cur = memoryBytes;
++    if (::getrlimit(RLIMIT_FSIZE, &fileLimit) != 0) {
++      _exit(126);
++    }
++    fileLimit.rlim_cur = fileBytes;
+     if (::setrlimit(RLIMIT_DATA, &memoryLimit) != 0 ||
+         ::setrlimit(RLIMIT_FSIZE, &fileLimit) != 0) {
+       _exit(126);

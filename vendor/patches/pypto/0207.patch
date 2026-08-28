@@ -1,0 +1,32 @@
+From 44f03f09555d9cca7a2fc1e9017b923b1ac7726f Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 17:41:15 +0800
+Subject: [PATCH 207/212] Accept integer tiles in native gather rows
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 12 +++++++++---
+ 1 file changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index ed88ce12a0c2a23863bd74a6218d11131776c9b4..91ddc9c918ffba4cc3c4461c0493f87046978a7a 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -4458,9 +4458,15 @@ NativeTileGatherRowsGraph AnalyzeNativeTileGatherRows(
+     Reject("native gather_rows operation sequence is invalid",
+            &loopNest.leaf->span_);
+   }
+-  const StaticTensor loaded = ReadStaticTile(
+-      loadAssignment->var_->GetType(), loadAssignment->span_,
+-      "native gather_rows loaded tile");
++  const StaticTensor loaded = integer_data
++                                  ? ReadStaticTileWithAnyDtype(
++                                        loadAssignment->var_->GetType(),
++                                        loadAssignment->span_,
++                                        "native gather_rows loaded tile")
++                                  : ReadStaticTile(
++                                        loadAssignment->var_->GetType(),
++                                        loadAssignment->span_,
++                                        "native gather_rows loaded tile");
+   if (loaded.dtype != result.dtype || loaded.shape.size() != 2 ||
+       loaded.shape[0] != 1 || loaded.shape[1] <= 0 ||
+       result.shape[1] % loaded.shape[1] != 0 ||

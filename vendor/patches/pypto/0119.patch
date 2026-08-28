@@ -1,0 +1,77 @@
+From 90dae9d16e446acdf45ff9ade6d12fe4e684b91b Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 01:09:32 +0800
+Subject: [PATCH 119/212] Advance TensorIR layout diagnostics
+
+---
+ .../0013-Name-layout-inference-failures.patch | 25 +++++++++++++++++++
+ 3rdparty/nvidia/tensor-ir                     |  2 +-
+ cmake/nvidia_backend.cmake                    |  2 +-
+ .../test_nvidia_backend_build_info.py         |  2 +-
+ 4 files changed, 28 insertions(+), 3 deletions(-)
+ create mode 100644 3rdparty/nvidia/0013-Name-layout-inference-failures.patch
+
+diff --git a/3rdparty/nvidia/0013-Name-layout-inference-failures.patch b/3rdparty/nvidia/0013-Name-layout-inference-failures.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..d91b6e86ec98bd38ad541ac45fb9e8832f418aa5
+--- /dev/null
++++ b/3rdparty/nvidia/0013-Name-layout-inference-failures.patch
+@@ -0,0 +1,25 @@
++From aa112b2a1ef54bd9a0ca0e512fb1cd2be442b8c3 Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Fri, 28 Aug 2026 01:08:55 +0800
++Subject: [PATCH] Name layout inference failures
++
++---
++ lib/Transform/LayoutAnnotation.cpp | 2 +-
++ 1 file changed, 1 insertion(+), 1 deletion(-)
++
++diff --git a/lib/Transform/LayoutAnnotation.cpp b/lib/Transform/LayoutAnnotation.cpp
++index 5c9a2d6..f0ce418 100644
++--- a/lib/Transform/LayoutAnnotation.cpp
+++++ b/lib/Transform/LayoutAnnotation.cpp
++@@ -122,7 +122,7 @@ LogicalResult processOperation(Operation *op) {
++ 
++   // Result may be invalid, e.g. if layout composition failed.
++   if (!result) {
++-    op->emitError("failed to compute layout");
+++    op->emitError() << "failed to compute layout for " << op->getName();
++     return failure();
++   }
++ 
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 9b6c0b293a32dc3fdcb2c20a05be1618ac33d084..aa112b2a1ef54bd9a0ca0e512fb1cd2be442b8c3 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 9b6c0b293a32dc3fdcb2c20a05be1618ac33d084
++Subproject commit aa112b2a1ef54bd9a0ca0e512fb1cd2be442b8c3
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 407457f4b6eb9232d481047258a34ca058bd842c..afc556244bd25571223235f441bd7c0adfcc1e99 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "9b6c0b293a32dc3fdcb2c20a05be1618ac33d084")
++    "aa112b2a1ef54bd9a0ca0e512fb1cd2be442b8c3")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+diff --git a/tests/ut/compiler/test_nvidia_backend_build_info.py b/tests/ut/compiler/test_nvidia_backend_build_info.py
+index 7ee498242a9ba31c9573407531535ae689b940e0..216cb72d27d259a9eea64696d7cfe1843d45bcb0 100644
+--- a/tests/ut/compiler/test_nvidia_backend_build_info.py
++++ b/tests/ut/compiler/test_nvidia_backend_build_info.py
+@@ -30,7 +30,7 @@ def test_nvidia_backend_build_info_is_immutable_and_self_consistent() -> None:
+     assert info.compiler_factory_available
+     assert len(info.pypto_revision) == 40
+     assert set(info.pypto_revision) <= set("0123456789abcdef")
+-    assert info.tensor_ir_revision == "9b6c0b293a32dc3fdcb2c20a05be1618ac33d084"
++    assert info.tensor_ir_revision == "aa112b2a1ef54bd9a0ca0e512fb1cd2be442b8c3"
+     assert info.cuda_tile_revision == "af2417041cc939b87ef56d92cfdcf61737c5457e"
+     assert info.llvm_revision == "57109befac92811d2253109242ca6fa69c961fb2"
+     assert info.cuda_toolkit_root == "/usr/local/cuda-13.3"

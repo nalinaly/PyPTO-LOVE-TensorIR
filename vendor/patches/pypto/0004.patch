@@ -1,0 +1,28 @@
+From dfbc4eeec14fd2b52e8dd7f3e714e269fa714452 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 23 Aug 2026 21:55:32 +0800
+Subject: [PATCH 004/212] tests: accept compact printed function signatures
+
+---
+ tests/ut/ir/transforms/test_declared_memref.py | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/tests/ut/ir/transforms/test_declared_memref.py b/tests/ut/ir/transforms/test_declared_memref.py
+index c42c581b70d0cc48a6caf94e8c40cc680c841ede..e424604db028312cb7c8c47151db9411f3409cc1 100644
+--- a/tests/ut/ir/transforms/test_declared_memref.py
++++ b/tests/ut/ir/transforms/test_declared_memref.py
+@@ -1531,7 +1531,13 @@ class TestLoopCarryRoundtrip:
+         """
+         after = _run_full_pipeline(self._carry_program(), "InitMemRef")
+         printed = after.as_python()
+-        param_line = next(line for line in printed.splitlines() if line.lstrip().startswith("seed"))
++        # The printer may keep the whole signature on one line or wrap each
++        # parameter. Match the actual parameter annotation in either form.
++        param_line = next(
++            line
++            for line in printed.splitlines()
++            if re.search(r"\bseed(?:__ssa_v\d+)?\s*:\s*pl\.Tile\[", line)
++        )
+         alloc_line = next(line for line in printed.splitlines() if ".alloc(pl.Mem.DDR" in line)
+ 
+         # The base really is allocated in the body, so the bare name would be a

@@ -1,0 +1,80 @@
+From 5c91d1e17e47502931c6be7a036f8b1902457e56 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 20:26:10 +0800
+Subject: [PATCH 082/212] nvidia: lift direct static tile loop nests
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp     | 28 +++++++++++---------
+ tests/ut/compiler/test_structured_compile.py |  6 ++---
+ 2 files changed, 19 insertions(+), 15 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 8760badfcd8922a1cf26175a616f0fa4fa7b4b6f..c263f15fa7588b23c92a4071e352db93e7069861 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -1349,14 +1349,21 @@ struct TileLoopNest {
+ };
+ 
+ TileLoopNest UnwrapStaticTileLoops(const ir::StmtPtr& body) {
+-  auto sequence = ir::As<ir::SeqStmts>(body);
+-  if (!sequence) {
+-    Reject("native tile scope body must be a sequence", body ? &body->span_ : nullptr);
+-  }
++  ir::StmtPtr current = body;
+   uint64_t repetitions = 1;
+-  while (sequence->stmts_.size() == 1) {
+-    const auto loop = ir::As<ir::ForStmt>(sequence->stmts_[0]);
+-    if (!loop) break;
++  while (current) {
++    if (const auto sequence = ir::As<ir::SeqStmts>(current)) {
++      if (sequence->stmts_.size() != 1 || !sequence->stmts_[0] ||
++          !ir::As<ir::ForStmt>(sequence->stmts_[0])) {
++        return TileLoopNest{sequence, repetitions};
++      }
++      current = sequence->stmts_[0];
++    }
++    const auto loop = ir::As<ir::ForStmt>(current);
++    if (!loop) {
++      Reject("native tile loop nest must end in a statement sequence",
++             &current->span_);
++    }
+     if (loop->kind_ != ir::ForKind::Sequential || !loop->iter_args_.empty() ||
+         !loop->return_vars_.empty() || !loop->attrs_.empty()) {
+       Reject("native tile lifting accepts only plain sequential pl.range loops",
+@@ -1376,12 +1383,9 @@ TileLoopNest UnwrapStaticTileLoops(const ir::StmtPtr& body) {
+       Reject("native tile loop trip-count product exceeds uint64", &loop->span_);
+     }
+     repetitions *= trip_count;
+-    sequence = ir::As<ir::SeqStmts>(loop->body_);
+-    if (!sequence) {
+-      Reject("native tile loop body must be a sequence", &loop->span_);
+-    }
++    current = loop->body_;
+   }
+-  return TileLoopNest{sequence, repetitions};
++  Reject("native tile scope body must not be null", body ? &body->span_ : nullptr);
+ }
+ 
+ bool IsNativeTilePointwiseCandidate(const ir::ProgramPtr& program) {
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index 20ef3260ab97cfdcd915876a74b5794193137ef9..2f1c4f04a9c8086d9f825cee55c5c976d48495b5 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -286,14 +286,14 @@ def _schedule(tile_size: int | list[int] = 16) -> CanonicalSchedule:
+ 
+ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+     native_tile = compile_structured_strict(
+-        _native_tile_add.specialize(), request, _schedule([32, 32])
++        _native_tile_add.specialize(), request, _schedule(128)
+     )
+     native_kernel = native_tile.artifact.kernel_abi
+     assert native_kernel.entry_function_name == "pypto_fused_pointwise_v2"
+     assert native_kernel.argument_packing_policy == ArtifactArgumentPackingPolicy.PointerOnly
+     assert native_kernel.grid_abi.policy == ArtifactGridPolicy.Static
+-    assert native_kernel.grid_abi.static_dimensions == [1, 1, 1]
+-    assert native_kernel.grid_abi.tile_sizes == [32, 32]
++    assert native_kernel.grid_abi.static_dimensions == [8, 1, 1]
++    assert native_kernel.grid_abi.tile_sizes == [128]
+     assert native_kernel.argument_layout.input_operand_count == 2
+     assert native_kernel.argument_layout.total_kernel_argument_count == 3
+     assert [d.shape for d in native_kernel.argument_layout.operand_descriptors] == [

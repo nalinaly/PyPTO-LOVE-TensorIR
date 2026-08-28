@@ -1,0 +1,1109 @@
+From 6361f110660a77f9a8dc542265575d8f7260b343 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 10:09:52 +0800
+Subject: [PATCH 044/212] Add parent NVIDIA runtime observation
+
+---
+ CMakeLists.txt                                |   1 +
+ docs/en/dev/backend/02-nvidia-executable.md   |  36 ++-
+ docs/zh/dev/backend/02-nvidia-executable.md   |  31 +-
+ include/pypto/runtime/nvidia/observation.h    |  84 ++++++
+ python/bindings/modules/nvidia_runtime.cpp    |  25 ++
+ python/pypto/pypto_core/nvidia_runtime.pyi    |  25 +-
+ python/pypto/runtime/nvidia.py                |   4 +
+ src/runtime/nvidia/driver_api.cpp             |  74 +++++
+ src/runtime/nvidia/driver_api.h               |  26 ++
+ src/runtime/nvidia/driver_api_stub.cpp        |   4 +
+ src/runtime/nvidia/observation.cpp            | 154 ++++++++++
+ tests/ut/cpp/nvidia_driver_stub_test.cpp      |  10 +
+ tests/ut/cpp/nvidia_executable_test.cpp       | 282 +++++++++++++++++-
+ .../test_nvidia_executable_public_api.py      |  11 +
+ 14 files changed, 754 insertions(+), 13 deletions(-)
+ create mode 100644 include/pypto/runtime/nvidia/observation.h
+ create mode 100644 src/runtime/nvidia/observation.cpp
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 1de83dfa17755299b1b9599a3f16368aa91cd2e7..4a78917c637581f430005aec5963438bf2889462 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -351,6 +351,7 @@ set(PYPTO_SOURCES
+ # fail-closed data/lifecycle surface and never compiles a CUDA driver resolver.
+ set(PYPTO_NVIDIA_RUNTIME_SOURCES
+     src/runtime/nvidia/executable.cpp
++    src/runtime/nvidia/observation.cpp
+ )
+ if(PYPTO_ENABLE_NVIDIA_BACKEND)
+     list(APPEND PYPTO_NVIDIA_RUNTIME_SOURCES
+diff --git a/docs/en/dev/backend/02-nvidia-executable.md b/docs/en/dev/backend/02-nvidia-executable.md
+index bf1a4aaa78c797c845c98fd669483a096f9da907..4bf31cd0c1507dd25a819119e9b53e321408e53c 100644
+--- a/docs/en/dev/backend/02-nvidia-executable.md
++++ b/docs/en/dev/backend/02-nvidia-executable.md
+@@ -8,8 +8,33 @@ checks, and cannot establish the PyPTO process/device/context lifetime law.
+ The public type belongs to `pypto.runtime.nvidia`; CUDA types remain private.
+ Construction takes one already validated `Artifact` and its `CompileRequest`,
+ checks their byte-compile identity, and performs no CUDA call, file access,
+-compilation, cache lookup, allocation or stream query. `KernelBuildSpec` is no
+-longer needed after it has been transitively bound into the immutable Artifact.
++compilation, cache lookup, CUDA/device allocation or stream query. It may
++allocate ordinary host ownership state. `KernelBuildSpec` is no longer needed
++after it has been transitively bound into the immutable Artifact.
++
++## Parent runtime observation
++
++`observe_current_nvidia_runtime(cuda_driver_version,
++expected_cuda_runtime_library_path)` is the explicit parent-only discovery seam
++used before creating a `CompileRequest`. It requires an already current regular
++CUDA context, queries the complete live device identity/resource set through
++PyPTO's private Driver boundary, and returns an immutable
++`NvidiaRuntimeObservation` containing `NvidiaTargetInfo`, numeric Driver and
++Runtime API versions, the canonical Runtime-provider path, and diagnostic
++context address/ID values.
++
++The release-form `cuda_driver_version` string is caller-supplied provenance;
++the numeric Driver API version is queried independently. The CUDA Runtime must
++already have been loaded globally by the parent framework. PyPTO resolves only
++`cudaRuntimeGetVersion` from the existing process symbol table, uses `dladdr`
++to require that its canonical provider equals the caller-audited expected
++library, and fails if either check is absent; it never opens a `libcudart`
++soname. The caller remains responsible for establishing why that expected file
++belongs to the selected framework environment. Observation loads no Cubin,
++retains no context or stream handle, and does not replace the independent live
++checks performed by executable prewarm and launch. A fork child must use
++spawn/exec before observation; the PID latch covers PyPTO's private Driver use,
++not arbitrary CUDA initialization by other libraries.
+ 
+ ## Prewarm and loader compatibility
+ 
+@@ -94,6 +119,7 @@ driver loading. Neither product links `libcuda`, `libcudart`, TensorIR runtime,
+ NVRTC or an external compute library.
+ 
+ CPU fake-driver tests prove lifecycle, packing, arithmetic, failure and lease
+-behavior separately from the required exclusive RTX 5090 non-default-stream
+-smoke. They do not prove real Cubin loading, numerical correctness, CUDA Graph,
+-framework integration, Qwen coverage or performance.
++behavior plus the value-only observation seam separately from the required
++exclusive RTX 5090 non-default-stream smoke. They do not prove real Cubin
++loading, numerical correctness, CUDA Graph, framework integration, Qwen
++coverage or performance.
+diff --git a/docs/zh/dev/backend/02-nvidia-executable.md b/docs/zh/dev/backend/02-nvidia-executable.md
+index bdac6b41f13be4bcee016ffcc482cf50e445e63c..8187a42585c86a031f9d2ae2a2d1eec753233115 100644
+--- a/docs/zh/dev/backend/02-nvidia-executable.md
++++ b/docs/zh/dev/backend/02-nvidia-executable.md
+@@ -7,9 +7,27 @@ handle，support/workspace 检查尚不完整，也不能建立 PyPTO 所需的
+ 
+ 公开类型属于 `pypto.runtime.nvidia`，CUDA 类型全部留在私有实现中。构造函数
+ 接收一个已验证的 `Artifact` 及对应 `CompileRequest`，核对 byte-compile
+-identity，但不调用 CUDA、不访问文件、不编译、不查询 cache、不分配内存、也不
+-查询 stream。`KernelBuildSpec` 已经被完整绑定进不可变 Artifact，加载阶段不再
+-需要它。
++identity，但不调用 CUDA、不访问文件、不编译、不查询 cache、不分配 CUDA/device
++内存、也不查询 stream；构造普通 host ownership state 时仍可能进行 host 分配。
++`KernelBuildSpec` 已经被完整绑定进不可变 Artifact，加载阶段不再需要它。
++
++## 父 runtime observation
++
++`observe_current_nvidia_runtime(cuda_driver_version,
++expected_cuda_runtime_library_path)` 是创建 `CompileRequest` 前由父进程显式调用的
++discovery seam。它要求一个已经成为 current 的普通 CUDA context，通过 PyPTO 私有
++Driver boundary 查询完整 live device identity/resource，并返回不可变
++`NvidiaRuntimeObservation`，其中包含 `NvidiaTargetInfo`、数值形式的 Driver/Runtime
++API 版本、canonical Runtime provider 路径，以及只用于诊断的 context address/ID。
++
++release 形式的 `cuda_driver_version` 字符串是调用方提供的 provenance；数值 Driver
++API 版本会独立查询。CUDA Runtime 必须已由父 framework 全局加载。PyPTO 只从现有
++进程符号表解析 `cudaRuntimeGetVersion`，并通过 `dladdr` 要求其 canonical provider
++等于调用方已审计的 expected library；任一步缺失都会 fail closed，绝不按 soname
++打开 `libcudart`。调用方仍需证明 expected file 属于所选 framework environment。
++Observation 不加载 Cubin、不保留 context/stream handle，也不能取代 executable
++prewarm 与 launch 各自进行的 live 校验。Fork child 必须先经过 spawn/exec；PID
++latch 只覆盖 PyPTO private Driver 的使用，不能探测其它 library 的 CUDA 初始化。
+ 
+ ## Prewarm 与 loader compatibility
+ 
+@@ -84,6 +102,7 @@ DSO。Backend-ON 动态解析 Driver；backend-OFF 保留不调用 CUDA 的公
+ 周期接口，并在加载 Driver 之前 fail closed。两个产品都不链接 `libcuda`、
+ `libcudart`、TensorIR runtime、NVRTC 或外部 compute library。
+ 
+-CPU fake-driver 测试把生命周期、packing、算术、失败与 lease 行为和必须独占执行的
+-RTX 5090 non-default-stream smoke 分开证明。它们不证明真实 Cubin load、数值正确
+-性、CUDA Graph、framework integration、Qwen coverage 或 performance。
++CPU fake-driver 测试把生命周期、packing、算术、失败、lease 与值型 observation
++seam，和必须独占执行的 RTX 5090 non-default-stream smoke 分开证明。它们不证明
++真实 Cubin load、数值正确性、CUDA Graph、framework integration、Qwen coverage
++或 performance。
+diff --git a/include/pypto/runtime/nvidia/observation.h b/include/pypto/runtime/nvidia/observation.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..047d443fa2f4d6321b3d6e6191b75774357fa1d8
+--- /dev/null
++++ b/include/pypto/runtime/nvidia/observation.h
+@@ -0,0 +1,84 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#ifndef PYPTO_RUNTIME_NVIDIA_OBSERVATION_H_
++#define PYPTO_RUNTIME_NVIDIA_OBSERVATION_H_
++
++#include <cstdint>
++#include <string>
++
++#include "pypto/compiler/target_info.h"
++
++namespace pypto::runtime::nvidia {
++
++/**
++ * Immutable parent-process observation of one regular current NVIDIA context.
++ *
++ * This value contains no CUDA handle ownership.  The context address and ID
++ * are diagnostic identity only; NvidiaExecutable independently re-observes and
++ * binds the current context during prewarm.
++ */
++class NvidiaRuntimeObservation {
++ public:
++  NvidiaRuntimeObservation(compiler::NvidiaTargetInfo target_info,
++                           uint32_t cuda_driver_api_version,
++                           uint32_t cuda_runtime_api_version,
++                           std::string cuda_runtime_library_path,
++                           uintptr_t context_address, uint64_t context_id);
++  NvidiaRuntimeObservation(const NvidiaRuntimeObservation&) = default;
++  NvidiaRuntimeObservation(NvidiaRuntimeObservation&&) = default;
++  NvidiaRuntimeObservation& operator=(const NvidiaRuntimeObservation&) = delete;
++  NvidiaRuntimeObservation& operator=(NvidiaRuntimeObservation&&) = delete;
++
++  [[nodiscard]] const compiler::NvidiaTargetInfo& GetTargetInfo() const noexcept {
++    return target_info_;
++  }
++  [[nodiscard]] uint32_t GetCudaDriverApiVersion() const noexcept {
++    return cuda_driver_api_version_;
++  }
++  [[nodiscard]] uint32_t GetCudaRuntimeApiVersion() const noexcept {
++    return cuda_runtime_api_version_;
++  }
++  [[nodiscard]] const std::string& GetCudaRuntimeLibraryPath() const noexcept {
++    return cuda_runtime_library_path_;
++  }
++  [[nodiscard]] uintptr_t GetContextAddress() const noexcept {
++    return context_address_;
++  }
++  [[nodiscard]] uint64_t GetContextId() const noexcept { return context_id_; }
++
++ private:
++  compiler::NvidiaTargetInfo target_info_;
++  uint32_t cuda_driver_api_version_;
++  uint32_t cuda_runtime_api_version_;
++  std::string cuda_runtime_library_path_;
++  uintptr_t context_address_;
++  uint64_t context_id_;
++};
++
++/**
++ * Observe the caller's current regular CUDA context without retaining it.
++ *
++ * The CUDA Runtime must already be loaded by the parent framework.  PyPTO
++ * resolves cudaRuntimeGetVersion only from the process-global symbol table,
++ * verifies its dladdr provider against expected_cuda_runtime_library_path, and
++ * never opens a libcudart soname.  cuda_driver_version is a caller-provided
++ * release/provenance label; the numeric Driver API version is observed
++ * independently and returned in NvidiaRuntimeObservation.  A fork child must
++ * use spawn/exec before calling this function.
++ */
++[[nodiscard]] NvidiaRuntimeObservation ObserveCurrentNvidiaRuntime(
++    std::string cuda_driver_version,
++    std::string expected_cuda_runtime_library_path);
++
++}  // namespace pypto::runtime::nvidia
++
++#endif  // PYPTO_RUNTIME_NVIDIA_OBSERVATION_H_
+diff --git a/python/bindings/modules/nvidia_runtime.cpp b/python/bindings/modules/nvidia_runtime.cpp
+index 6845a0c864b5b98070ffb39c114571a259cb9f20..73b322510c5031dd2d33ce17772a5cf9e39aa0f6 100644
+--- a/python/bindings/modules/nvidia_runtime.cpp
++++ b/python/bindings/modules/nvidia_runtime.cpp
+@@ -18,6 +18,7 @@
+ 
+ #include "../module.h"
+ #include "pypto/runtime/nvidia/executable.h"
++#include "pypto/runtime/nvidia/observation.h"
+ 
+ namespace nb = nanobind;
+ 
+@@ -44,6 +45,8 @@ void BindNvidiaRuntime(nb::module_& m) {
+   using runtime::nvidia::NvidiaLaunchArgument;
+   using runtime::nvidia::NvidiaLaunchArgumentKind;
+   using runtime::nvidia::NvidiaLaunchPacket;
++  using runtime::nvidia::NvidiaRuntimeObservation;
++  using runtime::nvidia::ObserveCurrentNvidiaRuntime;
+ 
+   nb::module_ runtime_mod =
+       m.def_submodule("nvidia_runtime", "PyPTO process/context-owned NVIDIA executable runtime");
+@@ -61,6 +64,28 @@ void BindNvidiaRuntime(nb::module_& m) {
+       .value("Tensor", NvidiaLaunchArgumentKind::Tensor)
+       .value("Scalar", NvidiaLaunchArgumentKind::Scalar);
+ 
++  nb::class_<NvidiaRuntimeObservation>(
++      runtime_mod, "NvidiaRuntimeObservation",
++      "Immutable parent observation of one regular current NVIDIA context")
++      .def_prop_ro("target_info", &NvidiaRuntimeObservation::GetTargetInfo,
++                   nb::rv_policy::reference_internal)
++      .def_prop_ro("cuda_driver_api_version",
++                   &NvidiaRuntimeObservation::GetCudaDriverApiVersion)
++      .def_prop_ro("cuda_runtime_api_version",
++                   &NvidiaRuntimeObservation::GetCudaRuntimeApiVersion)
++      .def_prop_ro("cuda_runtime_library_path",
++                   &NvidiaRuntimeObservation::GetCudaRuntimeLibraryPath)
++      .def_prop_ro("context_address",
++                   &NvidiaRuntimeObservation::GetContextAddress)
++      .def_prop_ro("context_id", &NvidiaRuntimeObservation::GetContextId);
++
++  runtime_mod.def(
++      "observe_current_nvidia_runtime", &ObserveCurrentNvidiaRuntime,
++      nb::arg("cuda_driver_version"),
++      nb::arg("expected_cuda_runtime_library_path"),
++      nb::call_guard<nb::gil_scoped_release>(),
++      "Observe the live target and an already-loaded CUDA Runtime without retaining handles");
++
+   nb::class_<NvidiaLaunchArgument>(
+       runtime_mod, "NvidiaLaunchArgument",
+       "Immutable framework-neutral tensor address or by-value scalar operand")
+diff --git a/python/pypto/pypto_core/nvidia_runtime.pyi b/python/pypto/pypto_core/nvidia_runtime.pyi
+index 2a2ffd07c0b1f196c68d2eb8af6890b22a62e6dd..d59c7c292c433398d2b561384808b5343a81d691 100644
+--- a/python/pypto/pypto_core/nvidia_runtime.pyi
++++ b/python/pypto/pypto_core/nvidia_runtime.pyi
+@@ -9,7 +9,7 @@
+ 
+ from enum import Enum
+ 
+-from .compiler import Artifact, CompileRequest
++from .compiler import Artifact, CompileRequest, NvidiaTargetInfo
+ 
+ class NvidiaExecutableState(Enum):
+     """Host-side lifecycle of one NVIDIA executable."""
+@@ -26,6 +26,29 @@ class NvidiaLaunchArgumentKind(Enum):
+     Tensor = ...
+     Scalar = ...
+ 
++class NvidiaRuntimeObservation:
++    """Immutable parent observation of one regular current NVIDIA context."""
++
++    @property
++    def target_info(self) -> NvidiaTargetInfo: ...
++    @property
++    def cuda_driver_api_version(self) -> int: ...
++    @property
++    def cuda_runtime_api_version(self) -> int: ...
++    @property
++    def cuda_runtime_library_path(self) -> str: ...
++    @property
++    def context_address(self) -> int: ...
++    @property
++    def context_id(self) -> int: ...
++
++def observe_current_nvidia_runtime(
++    cuda_driver_version: str,
++    expected_cuda_runtime_library_path: str,
++) -> NvidiaRuntimeObservation:
++    """Observe the live target and already-loaded CUDA Runtime."""
++    ...
++
+ class NvidiaLaunchArgument:
+     """Immutable framework-neutral tensor address or by-value scalar operand."""
+ 
+diff --git a/python/pypto/runtime/nvidia.py b/python/pypto/runtime/nvidia.py
+index 8f3d9d0e65f7973a4d8347213e0cc47b4e796be2..faa8c881bfcaeb29ab6fc860006c185db1ff711c 100644
+--- a/python/pypto/runtime/nvidia.py
++++ b/python/pypto/runtime/nvidia.py
+@@ -16,6 +16,8 @@ from pypto.pypto_core.nvidia_runtime import (
+     NvidiaLaunchArgument,
+     NvidiaLaunchArgumentKind,
+     NvidiaLaunchPacket,
++    NvidiaRuntimeObservation,
++    observe_current_nvidia_runtime,
+ )
+ 
+ __all__ = [
+@@ -25,4 +27,6 @@ __all__ = [
+     "NvidiaLaunchArgument",
+     "NvidiaLaunchArgumentKind",
+     "NvidiaLaunchPacket",
++    "NvidiaRuntimeObservation",
++    "observe_current_nvidia_runtime",
+ ]
+diff --git a/src/runtime/nvidia/driver_api.cpp b/src/runtime/nvidia/driver_api.cpp
+index a1033cea70cd74f988160e969cc0af2f9b9bab0b..4680c90107ded3593476e6c5f4c3d1ab95ea6ffc 100644
+--- a/src/runtime/nvidia/driver_api.cpp
++++ b/src/runtime/nvidia/driver_api.cpp
+@@ -19,6 +19,7 @@
+ #include <array>
+ #include <atomic>
+ #include <cstring>
++#include <filesystem>
+ #include <limits>
+ #include <mutex>
+ #include <sstream>
+@@ -88,6 +89,28 @@ void ClaimDriverProcess() {
+   return std::string(text, length);
+ }
+ 
++[[nodiscard]] std::string CanonicalRuntimeLibraryPath(
++    const std::string& path, const char* description) {
++  constexpr size_t kMaximumPathBytes = 4096;
++  if (path.empty() || path.size() > kMaximumPathBytes ||
++      !std::filesystem::path(path).is_absolute()) {
++    throw RuntimeError(std::string(description) +
++                       " must be a bounded absolute path");
++  }
++  try {
++    const std::filesystem::path canonical =
++        std::filesystem::canonical(path);
++    if (!std::filesystem::is_regular_file(canonical)) {
++      throw RuntimeError(std::string(description) +
++                         " is not a regular file");
++    }
++    return canonical.string();
++  } catch (const std::filesystem::filesystem_error& error) {
++    throw RuntimeError(BoundText(std::string("cannot resolve ") + description +
++                                 ": " + error.what()));
++  }
++}
++
+ template <typename Function>
+ [[nodiscard]] Function FunctionFromAddress(void* address) noexcept {
+   static_assert(std::is_pointer_v<Function>,
+@@ -191,6 +214,27 @@ class DynamicNvidiaDriver final : public NvidiaDriverApi {
+     return driver_api_version_;
+   }
+ 
++  [[nodiscard]] NvidiaCudaRuntimeProperties GetLoadedCudaRuntimeProperties(
++      const std::string& expected_library_path) override {
++    RequireCallable();
++    (void)::dlerror();
++    void* address = ::dlsym(RTLD_DEFAULT, "cudaRuntimeGetVersion");
++    const char* lookup_error = ::dlerror();
++    if (lookup_error != nullptr || address == nullptr) {
++      throw RuntimeError(BoundText(
++          std::string("cudaRuntimeGetVersion is not present in the process-global symbol table: ") +
++          CopyBoundedCString(lookup_error)));
++    }
++    Dl_info provider{};
++    if (::dladdr(address, &provider) == 0 || provider.dli_fname == nullptr) {
++      throw RuntimeError(
++          "dladdr could not identify the cudaRuntimeGetVersion provider");
++    }
++    return ValidateLoadedCudaRuntime(
++        FunctionFromAddress<CudaRuntimeGetVersionFunction>(address),
++        provider.dli_fname, expected_library_path);
++  }
++
+   [[nodiscard]] uintptr_t GetCurrentContext() override {
+     RequireCallable();
+     CUcontext context = nullptr;
+@@ -747,6 +791,36 @@ class DynamicNvidiaDriver final : public NvidiaDriverApi {
+ 
+ }  // namespace
+ 
++NvidiaCudaRuntimeProperties ValidateLoadedCudaRuntime(
++    CudaRuntimeGetVersionFunction get_version,
++    const std::string& provider_library_path,
++    const std::string& expected_library_path) {
++  if (get_version == nullptr) {
++    throw RuntimeError("cudaRuntimeGetVersion function pointer is null");
++  }
++  const std::string provider = CanonicalRuntimeLibraryPath(
++      provider_library_path, "cudaRuntimeGetVersion provider");
++  const std::string expected = CanonicalRuntimeLibraryPath(
++      expected_library_path, "expected CUDA Runtime library");
++  if (provider != expected) {
++    throw RuntimeError(
++        "cudaRuntimeGetVersion provider differs from the expected CUDA Runtime library");
++  }
++  int version = 0;
++  const int status = get_version(&version);
++  if (status != 0) {
++    throw RuntimeError("cudaRuntimeGetVersion failed with CUDA Runtime status " +
++                       std::to_string(status));
++  }
++  if (version <= 0) {
++    throw RuntimeError(
++        "cudaRuntimeGetVersion returned a non-positive API version");
++  }
++  return NvidiaCudaRuntimeProperties{static_cast<uint32_t>(version), provider};
++}
++
++void NvidiaDriverProcessTestAccess::ClaimProcess() { ClaimDriverProcess(); }
++
+ std::shared_ptr<NvidiaDriverApi> GetProductionNvidiaDriver() {
+   // Each executable receives fresh, CUDA-free process state. Initialize's
+   // lock-free process latch rejects a child only after parent Driver use.
+diff --git a/src/runtime/nvidia/driver_api.h b/src/runtime/nvidia/driver_api.h
+index 827ee513fa614798a2e40530afda74bc45fa060f..364c39ca8b8677f3bb5168b91aba62b9632fbf75 100644
+--- a/src/runtime/nvidia/driver_api.h
++++ b/src/runtime/nvidia/driver_api.h
+@@ -21,6 +21,7 @@
+ #include <vector>
+ 
+ #include "pypto/runtime/nvidia/executable.h"
++#include "pypto/runtime/nvidia/observation.h"
+ 
+ namespace pypto::runtime::nvidia::detail {
+ 
+@@ -75,6 +76,13 @@ struct NvidiaStreamBinding {
+   uintptr_t green_context_address = 0;
+ };
+ 
++struct NvidiaCudaRuntimeProperties {
++  uint32_t api_version = 0;
++  std::string library_path;
++};
++
++using CudaRuntimeGetVersionFunction = int (*)(int*);
++
+ struct NvidiaDriverLaunchConfig {
+   std::array<uint32_t, 3> grid_dimensions{1, 1, 1};
+   std::array<uint32_t, 3> block_dimensions{1, 1, 1};
+@@ -91,6 +99,9 @@ class NvidiaDriverApi {
+ 
+   virtual void Initialize() = 0;
+   [[nodiscard]] virtual uint32_t GetDriverApiVersion() = 0;
++  [[nodiscard]] virtual NvidiaCudaRuntimeProperties
++  GetLoadedCudaRuntimeProperties(
++      const std::string& expected_library_path) = 0;
+   [[nodiscard]] virtual uintptr_t GetCurrentContext() = 0;
+   [[nodiscard]] virtual NvidiaStreamBinding GetCurrentContextBinding() = 0;
+   [[nodiscard]] virtual uint64_t GetContextId(uintptr_t context_address) = 0;
+@@ -121,6 +132,21 @@ class NvidiaDriverApi {
+ /** Lazy process-owned production driver; backend-OFF returns a fail-closed stub. */
+ [[nodiscard]] std::shared_ptr<NvidiaDriverApi> GetProductionNvidiaDriver();
+ 
++[[nodiscard]] NvidiaCudaRuntimeProperties ValidateLoadedCudaRuntime(
++    CudaRuntimeGetVersionFunction get_version,
++    const std::string& provider_library_path,
++    const std::string& expected_library_path);
++
++[[nodiscard]] NvidiaRuntimeObservation ObserveCurrentNvidiaRuntimeWithDriver(
++    std::string cuda_driver_version,
++    std::string expected_cuda_runtime_library_path,
++    const std::shared_ptr<NvidiaDriverApi>& driver);
++
++class NvidiaDriverProcessTestAccess {
++ public:
++  static void ClaimProcess();
++};
++
+ /** Internal-only constructor access for deterministic CPU fake-driver tests. */
+ class NvidiaExecutableTestAccess {
+  public:
+diff --git a/src/runtime/nvidia/driver_api_stub.cpp b/src/runtime/nvidia/driver_api_stub.cpp
+index dbabfc1b485ce913c13174800b891e16bd63a457..aa8b4d26d5e79e008ff0b005353e13a0d3cc60de 100644
+--- a/src/runtime/nvidia/driver_api_stub.cpp
++++ b/src/runtime/nvidia/driver_api_stub.cpp
+@@ -35,6 +35,10 @@ class DisabledNvidiaDriver final : public NvidiaDriverApi {
+   void Initialize() override { FailClosed(); }
+ 
+   [[nodiscard]] uint32_t GetDriverApiVersion() override { FailClosed(); }
++  [[nodiscard]] NvidiaCudaRuntimeProperties GetLoadedCudaRuntimeProperties(
++      const std::string&) override {
++    FailClosed();
++  }
+   [[nodiscard]] uintptr_t GetCurrentContext() override { FailClosed(); }
+   [[nodiscard]] NvidiaStreamBinding GetCurrentContextBinding() override {
+     FailClosed();
+diff --git a/src/runtime/nvidia/observation.cpp b/src/runtime/nvidia/observation.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..35d36a898a08b4736d57ff5001b41f3397717924
+--- /dev/null
++++ b/src/runtime/nvidia/observation.cpp
+@@ -0,0 +1,154 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#include "pypto/runtime/nvidia/observation.h"
++
++#include <cctype>
++#include <cstdint>
++#include <filesystem>
++#include <memory>
++#include <string>
++#include <utility>
++
++#include "pypto/compiler/nvidia_backend_build_info.h"
++#include "pypto/core/dtype.h"
++#include "pypto/core/error.h"
++#include "runtime/nvidia/driver_api.h"
++
++namespace pypto::runtime::nvidia {
++namespace {
++
++constexpr int kCudaComputeModeProhibited = 2;
++
++}  // namespace
++
++NvidiaRuntimeObservation::NvidiaRuntimeObservation(
++    compiler::NvidiaTargetInfo target_info, uint32_t cuda_driver_api_version,
++    uint32_t cuda_runtime_api_version,
++    std::string cuda_runtime_library_path, uintptr_t context_address,
++    uint64_t context_id)
++    : target_info_(std::move(target_info)),
++      cuda_driver_api_version_(cuda_driver_api_version),
++      cuda_runtime_api_version_(cuda_runtime_api_version),
++      cuda_runtime_library_path_(std::move(cuda_runtime_library_path)),
++      context_address_(context_address),
++      context_id_(context_id) {
++  if (cuda_driver_api_version_ == 0) {
++    throw ValueError("observed CUDA Driver API version must be positive");
++  }
++  if (cuda_runtime_api_version_ == 0) {
++    throw ValueError("observed CUDA Runtime API version must be positive");
++  }
++  if (context_address_ == 0) {
++    throw ValueError("observed CUDA context address must be non-null");
++  }
++  if (cuda_runtime_library_path_.empty() ||
++      !std::filesystem::path(cuda_runtime_library_path_).is_absolute()) {
++    throw ValueError(
++        "observed CUDA Runtime library path must be absolute");
++  }
++}
++
++namespace detail {
++
++NvidiaRuntimeObservation ObserveCurrentNvidiaRuntimeWithDriver(
++    std::string cuda_driver_version,
++    std::string expected_cuda_runtime_library_path,
++    const std::shared_ptr<NvidiaDriverApi>& driver) {
++  if (!driver) {
++    throw ValueError("NVIDIA runtime observation driver boundary must not be null");
++  }
++  if (cuda_driver_version.empty() ||
++      std::isspace(static_cast<unsigned char>(cuda_driver_version.front())) ||
++      std::isspace(static_cast<unsigned char>(cuda_driver_version.back()))) {
++    throw ValueError("cuda_driver_version must be non-empty and trimmed");
++  }
++  if (expected_cuda_runtime_library_path.empty() ||
++      !std::filesystem::path(expected_cuda_runtime_library_path)
++           .is_absolute()) {
++    throw ValueError(
++        "expected CUDA Runtime library path must be absolute");
++  }
++  driver->Initialize();
++  const uint32_t driver_api_version = driver->GetDriverApiVersion();
++  const NvidiaCudaRuntimeProperties runtime =
++      driver->GetLoadedCudaRuntimeProperties(
++          expected_cuda_runtime_library_path);
++  const uintptr_t context_address = driver->GetCurrentContext();
++  if (context_address == 0) {
++    throw RuntimeError(
++        "NVIDIA runtime observation requires a non-null current CUDA context");
++  }
++  const NvidiaStreamBinding binding = driver->GetCurrentContextBinding();
++  if (binding.green_context_address != 0 ||
++      binding.context_address != context_address) {
++    throw RuntimeError(
++        "NVIDIA runtime observation requires a regular current CUDA context");
++  }
++  const uint64_t context_id = driver->GetContextId(context_address);
++  const int device_ordinal =
++      driver->GetContextDeviceOrdinal(context_address);
++  const NvidiaDeviceProperties properties =
++      driver->GetDeviceProperties(device_ordinal);
++  if (properties.device_ordinal != device_ordinal) {
++    throw RuntimeError(
++        "CUDA device properties ordinal differs from the current context");
++  }
++  if (properties.compute_mode == kCudaComputeModeProhibited) {
++    throw RuntimeError("current NVIDIA device is in prohibited compute mode");
++  }
++  if (properties.compute_mode < 0 || properties.compute_mode > 3) {
++    throw RuntimeError("CUDA Driver returned an invalid compute mode");
++  }
++
++  const compiler::NvidiaBackendBuildInfo build_info =
++      compiler::GetNvidiaBackendBuildInfo();
++  if (!build_info.IsCompiled()) {
++    throw RuntimeError(
++        "NVIDIA runtime observation requires a backend-ON PyPTO product");
++  }
++  compiler::TargetTraits traits(
++      properties.compute_capability, properties.multiprocessor_count,
++      properties.warp_size, properties.max_threads_per_block,
++      properties.max_threads_per_multiprocessor,
++      properties.max_blocks_per_multiprocessor, properties.max_block_dim_x,
++      properties.max_block_dim_y, properties.max_block_dim_z,
++      properties.max_grid_dim_x, properties.max_grid_dim_y,
++      properties.max_grid_dim_z, properties.l1_cache_line_bytes,
++      properties.default_shared_memory_per_cta_bytes,
++      properties.max_shared_memory_per_cta_bytes,
++      properties.shared_memory_per_multiprocessor_bytes,
++      properties.registers_per_cta, properties.max_registers_per_thread,
++      properties.registers_per_multiprocessor,
++      properties.l2_cache_size_bytes, properties.total_global_memory_bytes);
++  compiler::NvidiaTargetInfo target_info(
++      device_ordinal, properties.name, properties.uuid,
++      properties.pci_device_id, std::move(traits),
++      build_info.GetCudaToolkitVersion(), std::move(cuda_driver_version),
++      build_info.GetTensorIrRevision(), build_info.GetCudaTileRevision(),
++      {DataType::BF16, DataType::FP32});
++  return NvidiaRuntimeObservation(
++      std::move(target_info), driver_api_version, runtime.api_version,
++      runtime.library_path, context_address, context_id);
++}
++
++}  // namespace detail
++
++NvidiaRuntimeObservation ObserveCurrentNvidiaRuntime(
++    std::string cuda_driver_version,
++    std::string expected_cuda_runtime_library_path) {
++  return detail::ObserveCurrentNvidiaRuntimeWithDriver(
++      std::move(cuda_driver_version),
++      std::move(expected_cuda_runtime_library_path),
++      detail::GetProductionNvidiaDriver());
++}
++
++}  // namespace pypto::runtime::nvidia
+diff --git a/tests/ut/cpp/nvidia_driver_stub_test.cpp b/tests/ut/cpp/nvidia_driver_stub_test.cpp
+index 57ec400858a0d11a44cbbda5f0001df45534e53e..30ed3a8415867d7f5a8a19e8fa08ec850a2c5e6e 100644
+--- a/tests/ut/cpp/nvidia_driver_stub_test.cpp
++++ b/tests/ut/cpp/nvidia_driver_stub_test.cpp
+@@ -41,6 +41,16 @@ int main() {
+   }
+   REQUIRE(rejected);
+ 
++  const auto runtime_driver = GetProductionNvidiaDriver();
++  rejected = false;
++  try {
++    (void)runtime_driver->GetLoadedCudaRuntimeProperties("/proc/self/exe");
++  } catch (const RuntimeError& error) {
++    rejected = std::string(error.what()).find(
++                   "PYPTO_ENABLE_NVIDIA_BACKEND=OFF") != std::string::npos;
++  }
++  REQUIRE(rejected);
++
+ #if defined(__linux__)
+   const pid_t child = ::fork();
+   REQUIRE(child >= 0);
+diff --git a/tests/ut/cpp/nvidia_executable_test.cpp b/tests/ut/cpp/nvidia_executable_test.cpp
+index d6dafbbb8546dd4bca7723929d5cef8dd258067f..5a746ef8238dbc5d43fc26cd6b6e6c353bfeb3fb 100644
+--- a/tests/ut/cpp/nvidia_executable_test.cpp
++++ b/tests/ut/cpp/nvidia_executable_test.cpp
+@@ -42,6 +42,7 @@
+ #include "pypto/core/dtype.h"
+ #include "pypto/core/error.h"
+ #include "pypto/runtime/nvidia/executable.h"
++#include "pypto/runtime/nvidia/observation.h"
+ #include "runtime/nvidia/driver_api.h"
+ 
+ using pypto::RuntimeError;
+@@ -75,13 +76,18 @@ using pypto::runtime::nvidia::NvidiaExecutable;
+ using pypto::runtime::nvidia::NvidiaExecutableState;
+ using pypto::runtime::nvidia::NvidiaLaunchArgument;
+ using pypto::runtime::nvidia::NvidiaLaunchPacket;
++using pypto::runtime::nvidia::NvidiaRuntimeObservation;
+ using pypto::runtime::nvidia::detail::NvidiaDeviceProperties;
++using pypto::runtime::nvidia::detail::NvidiaCudaRuntimeProperties;
+ using pypto::runtime::nvidia::detail::NvidiaDriverApi;
+ using pypto::runtime::nvidia::detail::NvidiaDriverLaunchConfig;
+ using pypto::runtime::nvidia::detail::NvidiaExecutableTestAccess;
+ using pypto::runtime::nvidia::detail::NvidiaFunctionParameterInfo;
+ using pypto::runtime::nvidia::detail::NvidiaFunctionProperties;
+ using pypto::runtime::nvidia::detail::NvidiaStreamBinding;
++using pypto::runtime::nvidia::detail::ObserveCurrentNvidiaRuntimeWithDriver;
++using pypto::runtime::nvidia::detail::NvidiaDriverProcessTestAccess;
++using pypto::runtime::nvidia::detail::ValidateLoadedCudaRuntime;
+ 
+ namespace {
+ thread_local bool g_count_host_allocations = false;
+@@ -150,6 +156,8 @@ static_assert(!std::is_copy_constructible_v<NvidiaLaunchPacket>);
+ static_assert(std::is_nothrow_move_constructible_v<NvidiaLaunchPacket>);
+ static_assert(!std::is_copy_constructible_v<NvidiaCudaGraphLease>);
+ static_assert(std::is_nothrow_move_constructible_v<NvidiaCudaGraphLease>);
++static_assert(std::is_copy_constructible_v<NvidiaRuntimeObservation>);
++static_assert(!std::is_copy_assignable_v<NvidiaRuntimeObservation>);
+ 
+ constexpr uintptr_t kContextAddress = 0xcafe0000U;
+ constexpr uint64_t kContextId = 0x12345678U;
+@@ -158,6 +166,21 @@ constexpr uintptr_t kFunctionAddress = 0xb000U;
+ constexpr uintptr_t kStreamAddress = 0xd000U;
+ constexpr uint32_t kRuntimeApiVersion = Artifact::kMinimumCudaRuntimeApiVersion;
+ 
++int SuccessfulRuntimeVersion(int* version) {
++  *version = static_cast<int>(kRuntimeApiVersion);
++  return 0;
++}
++
++int FailingRuntimeVersion(int* version) {
++  *version = static_cast<int>(kRuntimeApiVersion);
++  return 17;
++}
++
++int NonpositiveRuntimeVersion(int* version) {
++  *version = 0;
++  return 0;
++}
++
+ class HostAllocationCounterGuard {
+  public:
+   HostAllocationCounterGuard() {
+@@ -453,6 +476,38 @@ NvidiaDeviceProperties MakeDeviceProperties(const NvidiaTargetInfo& target) {
+   return properties;
+ }
+ 
++NvidiaDeviceProperties MakeDistinctObservationProperties() {
++  NvidiaDeviceProperties properties;
++  properties.device_ordinal = 3;
++  properties.name = "Distinct SM120 observation device";
++  properties.uuid = "GPU-fedcba98-7654-3210-fedc-ba9876543210";
++  properties.pci_device_id = "00000000:7a:03.1";
++  properties.compute_capability = 120;
++  properties.multiprocessor_count = 83;
++  properties.warp_size = 32;
++  properties.max_threads_per_block = 512;
++  properties.max_threads_per_multiprocessor = 1024;
++  properties.max_blocks_per_multiprocessor = 17;
++  properties.max_block_dim_x = 768;
++  properties.max_block_dim_y = 384;
++  properties.max_block_dim_z = 48;
++  properties.max_grid_dim_x = 1000003;
++  properties.max_grid_dim_y = 50021;
++  properties.max_grid_dim_z = 30011;
++  properties.l1_cache_line_bytes = 256;
++  properties.default_shared_memory_per_cta_bytes = 32768;
++  properties.max_shared_memory_per_cta_bytes = 65536;
++  properties.shared_memory_per_multiprocessor_bytes = 98304;
++  properties.registers_per_cta = 32768;
++  properties.max_registers_per_thread = 127;
++  properties.registers_per_multiprocessor = 65536;
++  properties.l2_cache_size_bytes = 100ULL * 1024 * 1024;
++  properties.total_global_memory_bytes =
++      23ULL * 1024 * 1024 * 1024 + 123456;
++  properties.compute_mode = 0;
++  return properties;
++}
++
+ struct LaunchRecord {
+   uintptr_t function_address = 0;
+   NvidiaDriverLaunchConfig config;
+@@ -480,6 +535,9 @@ class FakeDriver final : public NvidiaDriverApi {
+   }
+ 
+   void Initialize() override {
++    if (claim_process_on_initialize) {
++      NvidiaDriverProcessTestAccess::ClaimProcess();
++    }
+     std::lock_guard<std::mutex> lock(mutex_);
+     RecordLocked("Initialize");
+     if (initialize_failure) throw RuntimeError("fake initialize failure");
+@@ -491,6 +549,15 @@ class FakeDriver final : public NvidiaDriverApi {
+     return driver_api_version;
+   }
+ 
++  NvidiaCudaRuntimeProperties GetLoadedCudaRuntimeProperties(
++      const std::string& expected_library_path) override {
++    std::lock_guard<std::mutex> lock(mutex_);
++    RecordLocked("GetLoadedCudaRuntimeProperties");
++    last_expected_runtime_library_path = expected_library_path;
++    return NvidiaCudaRuntimeProperties{runtime_api_version,
++                                       runtime_library_path};
++  }
++
+   uintptr_t GetCurrentContext() override {
+     if (allocation_free_launch_mode) return current_context_address;
+     std::lock_guard<std::mutex> lock(mutex_);
+@@ -711,6 +778,8 @@ class FakeDriver final : public NvidiaDriverApi {
+   }
+ 
+   uint32_t driver_api_version = Artifact::kMinimumCudaDriverApiVersion;
++  uint32_t runtime_api_version = Artifact::kMinimumCudaRuntimeApiVersion;
++  std::string runtime_library_path = "/proc/self/exe";
+   uintptr_t current_context_address = kContextAddress;
+   uintptr_t current_binding_context_address = kContextAddress;
+   uintptr_t current_green_context_address = 0;
+@@ -728,6 +797,7 @@ class FakeDriver final : public NvidiaDriverApi {
+   uintptr_t stream_context_address = kContextAddress;
+   uintptr_t stream_green_context_address = 0;
+   bool initialize_failure = false;
++  bool claim_process_on_initialize = false;
+   bool launch_failure = false;
+   bool unload_failure = false;
+   bool allocation_free_launch_mode = false;
+@@ -746,6 +816,7 @@ class FakeDriver final : public NvidiaDriverApi {
+   uintptr_t last_context_id_query = 0;
+   uintptr_t last_context_device_query = 0;
+   int last_device_properties_query = -1;
++  std::string last_expected_runtime_library_path;
+   std::vector<uint8_t> loaded_cubin;
+   uintptr_t function_lookup_module = 0;
+   std::string function_lookup_entry;
+@@ -818,6 +889,194 @@ bool RejectsWith(Function&& function, std::string_view expected_fragment,
+   return false;
+ }
+ 
++int TestRuntimeObservation(const ArtifactSet& artifacts) {
++  {
++    const NvidiaCudaRuntimeProperties runtime = ValidateLoadedCudaRuntime(
++        &SuccessfulRuntimeVersion, "/proc/self/exe", "/proc/self/exe");
++    REQUIRE(runtime.api_version == kRuntimeApiVersion);
++    REQUIRE(!runtime.library_path.empty());
++  }
++  REQUIRE(RejectsWith<RuntimeError>(
++      [&]() {
++        (void)ValidateLoadedCudaRuntime(nullptr, "/proc/self/exe",
++                                        "/proc/self/exe");
++      },
++      "function pointer is null"));
++  REQUIRE(RejectsWith<RuntimeError>(
++      [&]() {
++        (void)ValidateLoadedCudaRuntime(
++            &SuccessfulRuntimeVersion, "/proc/self/exe", "/bin/sh");
++      },
++      "provider differs"));
++  REQUIRE(RejectsWith<RuntimeError>(
++      [&]() {
++        (void)ValidateLoadedCudaRuntime(
++            &FailingRuntimeVersion, "/proc/self/exe", "/proc/self/exe");
++      },
++      "status 17"));
++  REQUIRE(RejectsWith<RuntimeError>(
++      [&]() {
++        (void)ValidateLoadedCudaRuntime(
++            &NonpositiveRuntimeVersion, "/proc/self/exe", "/proc/self/exe");
++      },
++      "non-positive API version"));
++
++  {
++    auto driver = MakeFakeDriver(artifacts.request, {});
++    driver->context_device_ordinal = 3;
++    driver->device_properties = MakeDistinctObservationProperties();
++    driver->driver_api_version = 13123;
++    driver->runtime_api_version = 13096;
++    const NvidiaRuntimeObservation observation =
++        ObserveCurrentNvidiaRuntimeWithDriver("610.74", "/proc/self/exe",
++                                              driver);
++    const NvidiaTargetInfo& actual = observation.GetTargetInfo();
++    const TargetTraits& traits = actual.GetTraits();
++    const NvidiaBackendBuildInfo build_info = GetNvidiaBackendBuildInfo();
++    REQUIRE(actual.GetDeviceOrdinal() == 3);
++    REQUIRE(actual.GetDeviceName() == "Distinct SM120 observation device");
++    REQUIRE(actual.GetDeviceUuid() ==
++            "GPU-fedcba98-7654-3210-fedc-ba9876543210");
++    REQUIRE(actual.GetPciDeviceId() == "00000000:7a:03.1");
++    REQUIRE(actual.GetCudaDriverVersion() == "610.74");
++    REQUIRE(actual.GetCudaToolkitVersion() ==
++            build_info.GetCudaToolkitVersion());
++    REQUIRE(actual.GetTensorIrRevision() == build_info.GetTensorIrRevision());
++    REQUIRE(actual.GetCudaTileRevision() ==
++            build_info.GetCudaTileRevision());
++    REQUIRE(actual.GetTargetName() == "nvidia:sm_120");
++    REQUIRE(actual.GetArchitecture() == "sm_120");
++    REQUIRE(actual.GetArchConditionalArchitecture() == "sm_120a");
++    REQUIRE(actual.GetSupportedComputeDtypes().size() == 2);
++    REQUIRE(actual.SupportsComputeDtype(pypto::DataType::BF16));
++    REQUIRE(actual.SupportsComputeDtype(pypto::DataType::FP32));
++    REQUIRE(traits.GetComputeCapability() == 120);
++    REQUIRE(traits.GetMultiprocessorCount() == 83);
++    REQUIRE(traits.GetWarpSize() == 32);
++    REQUIRE(traits.GetMaxThreadsPerBlock() == 512);
++    REQUIRE(traits.GetMaxThreadsPerMultiprocessor() == 1024);
++    REQUIRE(traits.GetMaxBlocksPerMultiprocessor() == 17);
++    REQUIRE(traits.GetMaxBlockDimX() == 768);
++    REQUIRE(traits.GetMaxBlockDimY() == 384);
++    REQUIRE(traits.GetMaxBlockDimZ() == 48);
++    REQUIRE(traits.GetMaxGridDimX() == 1000003);
++    REQUIRE(traits.GetMaxGridDimY() == 50021);
++    REQUIRE(traits.GetMaxGridDimZ() == 30011);
++    REQUIRE(traits.GetL1CacheLineBytes() == 256);
++    REQUIRE(traits.GetDefaultSharedMemoryPerCtaBytes() == 32768);
++    REQUIRE(traits.GetMaxSharedMemoryPerCtaBytes() == 65536);
++    REQUIRE(traits.GetSharedMemoryPerMultiprocessorBytes() == 98304);
++    REQUIRE(traits.GetRegistersPerCta() == 32768);
++    REQUIRE(traits.GetMaxRegistersPerThread() == 127);
++    REQUIRE(traits.GetRegistersPerMultiprocessor() == 65536);
++    REQUIRE(traits.GetL2CacheSizeBytes() == 100ULL * 1024 * 1024);
++    REQUIRE(traits.GetTotalGlobalMemoryBytes() ==
++            23ULL * 1024 * 1024 * 1024 + 123456);
++    REQUIRE(observation.GetCudaDriverApiVersion() == 13123);
++    REQUIRE(observation.GetCudaRuntimeApiVersion() == 13096);
++    REQUIRE(observation.GetContextAddress() == kContextAddress);
++    REQUIRE(observation.GetContextId() == kContextId);
++    REQUIRE(driver->CountCalls("Initialize") == 1);
++    REQUIRE(driver->CountCalls("GetLoadedCudaRuntimeProperties") == 1);
++    REQUIRE(driver->last_expected_runtime_library_path == "/proc/self/exe");
++    REQUIRE(observation.GetCudaRuntimeLibraryPath() == "/proc/self/exe");
++    REQUIRE(driver->CountCalls("LoadModule") == 0);
++    REQUIRE(driver->last_context_device_query == kContextAddress);
++    REQUIRE(driver->last_device_properties_query == 3);
++  }
++
++  REQUIRE(RejectsWith<ValueError>(
++      [&]() {
++        (void)ObserveCurrentNvidiaRuntimeWithDriver(
++            "610.74", "/proc/self/exe",
++            std::shared_ptr<NvidiaDriverApi>{});
++      },
++      "must not be null"));
++
++  {
++    auto driver = MakeFakeDriver(artifacts.request, {});
++    REQUIRE(RejectsWith<ValueError>(
++        [&]() {
++          (void)ObserveCurrentNvidiaRuntimeWithDriver(
++              "", "/proc/self/exe", driver);
++        },
++        "non-empty and trimmed"));
++    REQUIRE(driver->GetCalls().empty());
++  }
++  {
++    auto driver = MakeFakeDriver(artifacts.request, {});
++    REQUIRE(RejectsWith<ValueError>(
++        [&]() {
++          (void)ObserveCurrentNvidiaRuntimeWithDriver(
++              "610.74", "relative/libcudart.so.13", driver);
++        },
++        "path must be absolute"));
++    REQUIRE(driver->GetCalls().empty());
++  }
++
++  {
++    auto driver = MakeFakeDriver(artifacts.request, {});
++    driver->runtime_api_version = 0;
++    REQUIRE(RejectsWith<ValueError>(
++        [&]() {
++          (void)ObserveCurrentNvidiaRuntimeWithDriver(
++              "610.74", "/proc/self/exe", driver);
++        },
++        "Runtime API version must be positive"));
++  }
++  {
++    auto driver = MakeFakeDriver(artifacts.request, {});
++    driver->current_context_address = 0;
++    REQUIRE(RejectsWith<RuntimeError>(
++        [&]() {
++          (void)ObserveCurrentNvidiaRuntimeWithDriver(
++              "610.74", "/proc/self/exe", driver);
++        },
++        "non-null current CUDA context"));
++  }
++  {
++    auto driver = MakeFakeDriver(artifacts.request, {});
++    driver->current_green_context_address = 0x1234U;
++    REQUIRE(RejectsWith<RuntimeError>(
++        [&]() {
++          (void)ObserveCurrentNvidiaRuntimeWithDriver(
++              "610.74", "/proc/self/exe", driver);
++        },
++        "regular current CUDA context"));
++  }
++  {
++    auto driver = MakeFakeDriver(artifacts.request, {});
++    driver->device_properties.device_ordinal = 1;
++    REQUIRE(RejectsWith<RuntimeError>(
++        [&]() {
++          (void)ObserveCurrentNvidiaRuntimeWithDriver(
++              "610.74", "/proc/self/exe", driver);
++        },
++        "properties ordinal"));
++  }
++  {
++    auto driver = MakeFakeDriver(artifacts.request, {});
++    driver->device_properties.compute_mode = 2;
++    REQUIRE(RejectsWith<RuntimeError>(
++        [&]() {
++          (void)ObserveCurrentNvidiaRuntimeWithDriver(
++              "610.74", "/proc/self/exe", driver);
++        },
++        "prohibited compute mode"));
++  }
++  {
++    auto driver = MakeFakeDriver(artifacts.request, {});
++    driver->device_properties.compute_mode = -1;
++    REQUIRE(RejectsWith<RuntimeError>(
++        [&]() {
++          (void)ObserveCurrentNvidiaRuntimeWithDriver(
++              "610.74", "/proc/self/exe", driver);
++        },
++        "invalid compute mode"));
++  }
++  return 0;
++}
++
+ uint64_t ReadUint64(const std::vector<uint8_t>& bytes) {
+   if (bytes.size() != sizeof(uint64_t)) return 0;
+   uint64_t value = 0;
+@@ -1626,6 +1885,25 @@ int TestForkRejection(const ArtifactSet& artifacts) {
+   lease->Release();
+   lease.reset();
+   ready->Unload();
++
++  auto observation_driver = MakeFakeDriver(artifacts.request, {});
++  observation_driver->claim_process_on_initialize = true;
++  (void)ObserveCurrentNvidiaRuntimeWithDriver(
++      "610.74", "/proc/self/exe", observation_driver);
++  const pid_t observation_child = ::fork();
++  REQUIRE(observation_child >= 0);
++  if (observation_child == 0) {
++    const bool observation_rejected = RejectsWith<RuntimeError>(
++        [&]() {
++          (void)ObserveCurrentNvidiaRuntimeWithDriver(
++              "610.74", "/proc/self/exe", observation_driver);
++        },
++        "initialized before fork");
++    _exit(observation_rejected ? 0 : 1);
++  }
++  exit_code = -1;
++  REQUIRE(WaitForOwnedChild(observation_child, &exit_code));
++  REQUIRE(exit_code == 0);
+ #else
+   (void)artifacts;
+ #endif
+@@ -1636,7 +1914,9 @@ int TestForkRejection(const ArtifactSet& artifacts) {
+ 
+ int main() {
+   const ArtifactSet artifacts = MakeArtifactSet();
+-  int result = TestConstructionDoesNotTouchDriver(artifacts);
++  int result = TestRuntimeObservation(artifacts);
++  if (result != 0) return result;
++  result = TestConstructionDoesNotTouchDriver(artifacts);
+   if (result != 0) return result;
+   result = TestSuccessfulPrewarmAndConcurrentLaunch(artifacts);
+   if (result != 0) return result;
+diff --git a/tests/ut/runtime/test_nvidia_executable_public_api.py b/tests/ut/runtime/test_nvidia_executable_public_api.py
+index a8e3ed30228bd7d109b429c0325d8e5278bdf8b6..ffb3544e0d15857b662ff43e4121037b7a53a511 100644
+--- a/tests/ut/runtime/test_nvidia_executable_public_api.py
++++ b/tests/ut/runtime/test_nvidia_executable_public_api.py
+@@ -223,6 +223,8 @@ def test_public_wrapper_exports_exact_native_types() -> None:
+         "NvidiaLaunchArgument",
+         "NvidiaLaunchArgumentKind",
+         "NvidiaLaunchPacket",
++        "NvidiaRuntimeObservation",
++        "observe_current_nvidia_runtime",
+     }
+     assert set(runtime_api.__all__) == expected
+     for name in expected:
+@@ -282,6 +284,15 @@ def test_move_only_lease_types_have_no_public_constructor() -> None:
+         runtime_api.NvidiaLaunchPacket()
+     with pytest.raises(TypeError):
+         runtime_api.NvidiaCudaGraphLease()
++    with pytest.raises(TypeError):
++        runtime_api.NvidiaRuntimeObservation()
++
++
++def test_backend_off_runtime_observation_fails_before_cuda_loading() -> None:
++    if get_nvidia_backend_build_info().compiled:
++        pytest.skip("backend-ON observation requires the exclusive real-runtime gate")
++    with pytest.raises(RuntimeError, match="PYPTO_ENABLE_NVIDIA_BACKEND=OFF"):
++        runtime_api.observe_current_nvidia_runtime("610.74", "/proc/self/exe")
+ 
+ 
+ def test_executable_construction_is_cuda_free_and_exposes_initial_state() -> None:

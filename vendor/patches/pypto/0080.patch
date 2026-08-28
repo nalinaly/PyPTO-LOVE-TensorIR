@@ -1,0 +1,39 @@
+From d762737b3e387cc8eb5ca14ec0f9f1b79d72330f Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 20:22:34 +0800
+Subject: [PATCH 080/212] test: exercise native NVIDIA tiles in BF16
+
+---
+ tests/ut/compiler/test_structured_compile.py | 12 ++++++------
+ 1 file changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index d9bdd238d3ee6d5ec56bd248bc9fd37beec58558..20ef3260ab97cfdcd915876a74b5794193137ef9 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -34,9 +34,9 @@ from pypto.pypto_core import ir
+ 
+ @pl.jit
+ def _native_tile_add(
+-    lhs: pl.Tensor[[32, 32], pl.FP32],
+-    rhs: pl.Tensor[[32, 32], pl.FP32],
+-    out: pl.Out[pl.Tensor[[32, 32], pl.FP32]],
++    lhs: pl.Tensor[[32, 32], pl.BF16],
++    rhs: pl.Tensor[[32, 32], pl.BF16],
++    out: pl.Out[pl.Tensor[[32, 32], pl.BF16]],
+ ):
+     with pl.at(level=pl.Level.CORE_GROUP):
+         lhs_tile = pl.load(lhs, [0, 0], [32, 32])
+@@ -49,9 +49,9 @@ def _native_tile_add(
+ 
+ @pl.jit
+ def _native_tiled_add(
+-    lhs: pl.Tensor[[64, 128], pl.FP32],
+-    rhs: pl.Tensor[[64, 128], pl.FP32],
+-    out: pl.Out[pl.Tensor[[64, 128], pl.FP32]],
++    lhs: pl.Tensor[[64, 128], pl.BF16],
++    rhs: pl.Tensor[[64, 128], pl.BF16],
++    out: pl.Out[pl.Tensor[[64, 128], pl.BF16]],
+ ):
+     with pl.at(level=pl.Level.CORE_GROUP):
+         for tile_row in pl.range(2):

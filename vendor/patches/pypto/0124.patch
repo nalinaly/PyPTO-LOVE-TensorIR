@@ -1,0 +1,114 @@
+From c754a4a01edd201f92fe388266650ddf2df471fa Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 01:47:50 +0800
+Subject: [PATCH 124/212] Advance TensorIR rewrite-owned loads
+
+---
+ ...ey-lazy-input-loads-by-rewrite-owner.patch | 76 +++++++++++++++++++
+ 3rdparty/nvidia/tensor-ir                     |  2 +-
+ cmake/nvidia_backend.cmake                    |  2 +-
+ 3 files changed, 78 insertions(+), 2 deletions(-)
+ create mode 100644 3rdparty/nvidia/0017-Key-lazy-input-loads-by-rewrite-owner.patch
+
+diff --git a/3rdparty/nvidia/0017-Key-lazy-input-loads-by-rewrite-owner.patch b/3rdparty/nvidia/0017-Key-lazy-input-loads-by-rewrite-owner.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..45e311c5d533339bc1805b1b31d783ce1a542356
+--- /dev/null
++++ b/3rdparty/nvidia/0017-Key-lazy-input-loads-by-rewrite-owner.patch
+@@ -0,0 +1,76 @@
++From 4c3f0821f8ffe33ca1f6995e5c6943889a19e816 Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Fri, 28 Aug 2026 01:47:24 +0800
++Subject: [PATCH 17/17] Key lazy input loads by rewrite owner
++
++---
++ .../TensorToCudaTile/LayoutPropagationImpl.cpp | 18 ++++++++++--------
++ 1 file changed, 10 insertions(+), 8 deletions(-)
++
++diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++index d736aa4..b7b259a 100644
++--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++@@ -140,6 +140,8 @@ private:
++   /// materialized lazily from getTile so each new load immediately gains a
++   /// real SSA consumer instead of living only in this side table.
++   ConversionPatternRewriter *activeRewriter = nullptr;
+++  Operation *activeOperation = nullptr;
+++  DenseMap<IterationSpace *, Operation *> loadedTileCacheOwner;
++ 
++   /// A cached load is only safe while one conversion pattern is being
++   /// rewritten. Graph splitting may erase that pattern's replacement later,
++@@ -745,7 +747,7 @@ public:
++     state.blockStructure = &state.blockStructures[resultsOp.getOperation()];
++     state.iterationSpace = &state.blockStructure->iterationSpaces[0];
++     state.activeRewriter = &rewriter;
++-    state.resetLoadedTileCache(*state.iterationSpace);
+++    state.activeOperation = resultsOp.getOperation();
++     state.layouts.clear();
++     for (Value operand : resultsOp.getOperands()) {
++       auto layout = dyn_cast_or_null<LayoutSourceAttrInterface>(
++@@ -929,6 +931,8 @@ LogicalResult ConversionStateImpl::start(GraphOp graphOp) {
++   blockStructure = nullptr;
++   iterationSpace = nullptr;
++   activeRewriter = nullptr;
+++  activeOperation = nullptr;
+++  loadedTileCacheOwner.clear();
++   layouts.clear();
++   operandIndex = 0;
++ 
++@@ -942,6 +946,7 @@ LogicalResult ConversionStateImpl::update(ConversionPatternRewriter &rewriter,
++                                           Operation *op) {
++   LLVM_DEBUG(llvm::dbgs() << "Converting: " << op->getName() << "\n");
++   activeRewriter = &rewriter;
+++  activeOperation = op;
++ 
++   // Verify the attribute-level legality (layout / iteration-space-id presence
++   // and validity). This is shared with the pre-flight feasibility check. Here,
++@@ -995,13 +1000,6 @@ LogicalResult ConversionStateImpl::update(ConversionPatternRewriter &rewriter,
++   auto iterSpaceId =
++       op->getAttrOfType<IntegerAttr>(TensorIRDialect::getIterSpaceIdAttrName());
++   iterationSpace = iterationSpaces.find(iterSpaceId.getInt())->second;
++-  if (blockStructure) {
++-    for (IterationSpace &space : blockStructure->iterationSpaces) {
++-      resetLoadedTileCache(space);
++-    }
++-  } else {
++-    resetLoadedTileCache(*iterationSpace);
++-  }
++   rewriter.setInsertionPointToEnd(iterationSpace->insertionBlock);
++ 
++   // Reset the operand index.
++@@ -1043,6 +1041,10 @@ Value ConversionStateImpl::getTile(Value operand) {
++       iterationSpace = &blockStructure->iterationSpaces[idx];
++     }
++ 
+++    if (loadedTileCacheOwner.lookup(iterationSpace) != activeOperation) {
+++      resetLoadedTileCache(*iterationSpace);
+++      loadedTileCacheOwner[iterationSpace] = activeOperation;
+++    }
++     auto it = iterationSpace->loadedTiles.find(tensorSource);
++     assert(it != iterationSpace->loadedTiles.end() &&
++            "layout has no associated value");
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 2075d7addcf3e980d3bbc5696fdbcf9d5c9fed79..4c3f0821f8ffe33ca1f6995e5c6943889a19e816 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 2075d7addcf3e980d3bbc5696fdbcf9d5c9fed79
++Subproject commit 4c3f0821f8ffe33ca1f6995e5c6943889a19e816
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index bdfd9e3a20d12f77bf7a108217701ecf487473a2..c04ed953590671ab9fd6ed7c628e328c5ccd554a 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "2075d7addcf3e980d3bbc5696fdbcf9d5c9fed79")
++    "4c3f0821f8ffe33ca1f6995e5c6943889a19e816")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

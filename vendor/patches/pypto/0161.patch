@@ -1,0 +1,74 @@
+From 441dae13b56dd9e5a81c7f3c58051149d7a992f9 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 08:58:53 +0800
+Subject: [PATCH 161/212] Unroll batched paged request gathers
+
+---
+ 3rdparty/nvidia/tensor-ir                |  2 +-
+ cmake/nvidia_backend.cmake               |  2 +-
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 20 +++++++++++---------
+ 3 files changed, 13 insertions(+), 11 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index d6cfe933f9fa30492912400fe537dda3a39ce9a9..ee75208b1fde213e731baffb935bf8ba91c335a3 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit d6cfe933f9fa30492912400fe537dda3a39ce9a9
++Subproject commit ee75208b1fde213e731baffb935bf8ba91c335a3
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index e7cd6b24ec0ae77e81e3887e6b4020183a2e21d4..29c8d29b1c59d493d514d19e1c87d1a77c4ef100 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "d6cfe933f9fa30492912400fe537dda3a39ce9a9")
++    "ee75208b1fde213e731baffb935bf8ba91c335a3")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index fa54009ae3338f6fe4a1cfc9dc4794ea049f3e81..182b481d2ea92e6ec13db9dc3a3a5319daa29a76 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -7458,13 +7458,6 @@ std::string EmitNativeTilePagedDecodeSource(
+   source += request_table_type;
+   source += " -> ";
+   source += request_prefix_type;
+-  source += "\n    %request_row = gather_rows %request_prefix, "
+-            "%request_index32 : (";
+-  source += request_prefix_type;
+-  source += ", ";
+-  source += request_matrix_type;
+-  source += ") -> ";
+-  source += request_matrix_type;
+   source += "\n    %valid_tokens32 = convert %arg5 : ";
+   source += valid_tokens_type;
+   source += " -> ";
+@@ -7485,13 +7478,22 @@ std::string EmitNativeTilePagedDecodeSource(
+   const int64_t queries_per_kv = graph.q_heads / graph.kv_heads;
+   for (int64_t batch = 0; batch < graph.batch_size; ++batch) {
+     const std::string batch_suffix = std::to_string(batch);
+-    source += "\n    %request_row_" + batch_suffix +
+-              " = slice %request_row starts = [" + std::to_string(batch) +
++    source += "\n    %request_index_row_" + batch_suffix +
++              " = slice %request_index32 starts = [" +
++              std::to_string(batch) +
+               ", 0] limits = [" + std::to_string(batch + 1) + ", " +
+               std::to_string(graph.tokens) + "] strides = [1, 1] : ";
+     source += request_matrix_type;
+     source += " -> ";
+     source += index_row_type;
++    source += "\n    %request_row_" + batch_suffix +
++              " = gather_rows %request_prefix, %request_index_row_" +
++              batch_suffix + " : (";
++    source += request_prefix_type;
++    source += ", ";
++    source += index_row_type;
++    source += ") -> ";
++    source += index_row_type;
+     source += "\n    %virtual_column_" + batch_suffix +
+               " = transpose %request_row_" + batch_suffix +
+               " permutation = [1, 0] : ";

@@ -1,0 +1,50 @@
+From cec97941dac592933186a94fc59370fa80c694ac Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 08:55:21 +0800
+Subject: [PATCH 160/212] Align paged attention projected layouts
+
+---
+ 3rdparty/nvidia/tensor-ir                    | 2 +-
+ cmake/nvidia_backend.cmake                   | 2 +-
+ tests/ut/compiler/test_structured_compile.py | 4 ++--
+ 3 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 7f6c6cd62975560423127a252371b87b1a86893c..d6cfe933f9fa30492912400fe537dda3a39ce9a9 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 7f6c6cd62975560423127a252371b87b1a86893c
++Subproject commit d6cfe933f9fa30492912400fe537dda3a39ce9a9
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 564a3ee4599e449a16d441480928de13103b94bb..e7cd6b24ec0ae77e81e3887e6b4020183a2e21d4 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "7f6c6cd62975560423127a252371b87b1a86893c")
++    "d6cfe933f9fa30492912400fe537dda3a39ce9a9")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index acee776e32bf963e1676b8124a20b43702aee6cc..63a4ac8a5a811a0eb6a3acd2b82382f5f8bfbff1 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -767,12 +767,12 @@ def _assert_native_paged_decode_compilation(request: CompileRequest) -> None:
+     paged_decode = compile_structured_strict(
+         _native_tile_paged_decode.specialize(scale=0.0625),
+         request,
+-        _schedule([1, 1, 64]),
++        _schedule([1, 64]),
+     )
+     kernel = paged_decode.artifact.kernel_abi
+     assert kernel.entry_function_name == "pypto_fused_pointwise"
+     assert kernel.grid_abi.static_dimensions == [32, 1, 1]
+-    assert kernel.grid_abi.tile_sizes == [1, 1, 64]
++    assert kernel.grid_abi.tile_sizes == [1, 64]
+     assert kernel.argument_layout.input_operand_count == 7
+     assert kernel.argument_layout.total_kernel_argument_count == 8
+     descriptors = kernel.argument_layout.operand_descriptors

@@ -1,0 +1,352 @@
+From 1b47d71415c100791e57bb48d350c538b27f69fe Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 19:20:26 +0800
+Subject: [PATCH 076/212] nvidia: fuse BF16 RMSNorm reduction epilogue
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 94 ++++++++++++++++++++----
+ tests/ut/cpp/structured_compile_test.cpp | 75 +++++++++++++++++++
+ tests/ut/cpp/tensor_ir_codegen_test.cpp  | 51 +++++++++++++
+ 3 files changed, 206 insertions(+), 14 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 39746ac08870a25269b4ca0b792683983416e48d..a4cc3163541fec897ef2a7db71ebdf3f5e8f867d 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -476,12 +476,13 @@ struct RowReductionEpilogueStep {
+ // is what norm chains (sum -> scale -> shift -> rsqrt -> multiply) need.
+ bool AnalyzeRowReductionV4(const ir::ProgramPtr& program,
+                            StaticTensor& input_out,
++                           bool& square_input_out,
+                            std::vector<RowReductionEpilogueStep>& steps_out) {
+   if (!program || program->functions_.size() != 1) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+   if (!function || !function->body_) return false;
+   const auto sequence = ir::As<ir::SeqStmts>(function->body_);
+-  if (!sequence || sequence->stmts_.size() < 3 || sequence->stmts_.size() > 6) {
++  if (!sequence || sequence->stmts_.size() < 3 || sequence->stmts_.size() > 7) {
+     return false;
+   }
+   if (function->params_.size() != 1 ||
+@@ -492,14 +493,40 @@ bool AnalyzeRowReductionV4(const ir::ProgramPtr& program,
+   const StaticTensor input = ReadStaticTensor(
+       function->params_[0]->GetType(), function->params_[0]->span_,
+       "row reduction epilogue parameter");
+-  if (input.shape.size() != 2 || input.dtype != DataType::FP32) return false;
++  if (input.shape.size() != 2 ||
++      (input.dtype != DataType::FP32 && input.dtype != DataType::BF16)) {
++    return false;
++  }
+   StaticTensor row = input;
+   row.shape[1] = 1;
+   row.dense_strides = {1, 1};
+ 
+   std::vector<ir::VarPtr> chain;
+   std::vector<RowReductionEpilogueStep> steps;
+-  for (size_t index = 0; index + 1 < sequence->stmts_.size(); ++index) {
++  bool square_input = false;
++  size_t reduction_index = 0;
++  ir::VarPtr reduction_operand = function->params_[0];
++  if (const auto square_assignment =
++          ir::As<ir::AssignStmt>(sequence->stmts_[0])) {
++    const auto square_call = ir::As<ir::Call>(square_assignment->value_);
++    if (square_call && ir::IsOp(square_call, "tensor.mul") &&
++        square_call->args_.size() == 2) {
++      const auto lhs = ir::As<ir::Var>(square_call->args_[0]);
++      const auto rhs = ir::As<ir::Var>(square_call->args_[1]);
++      const StaticTensor square_result = ReadStaticTensor(
++          square_assignment->var_->GetType(), square_assignment->var_->span_,
++          "row reduction square result");
++      if (lhs && rhs && lhs.get() == function->params_[0].get() &&
++          rhs.get() == function->params_[0].get() &&
++          SameTensor(input, square_result)) {
++        square_input = true;
++        reduction_index = 1;
++        reduction_operand = square_assignment->var_;
++      }
++    }
++  }
++  for (size_t index = reduction_index;
++       index + 1 < sequence->stmts_.size(); ++index) {
+     const auto assignment = ir::As<ir::AssignStmt>(sequence->stmts_[index]);
+     if (!assignment) return false;
+     const auto call = ir::As<ir::Call>(assignment->value_);
+@@ -507,12 +534,12 @@ bool AnalyzeRowReductionV4(const ir::ProgramPtr& program,
+     const StaticTensor result = ReadStaticTensor(
+         assignment->var_->GetType(), assignment->var_->span_,
+         "row reduction epilogue result");
+-    if (index == 0) {
++    if (index == reduction_index) {
+       if (!ir::IsOp(call, "tensor.row_sum") || call->args_.size() != 1) {
+         return false;
+       }
+       const auto operand = ir::As<ir::Var>(call->args_[0]);
+-      if (!operand || operand.get() != function->params_[0].get()) return false;
++      if (!operand || operand.get() != reduction_operand.get()) return false;
+       if (!SameTensor(row, result)) return false;
+       chain.push_back(assignment->var_);
+       continue;
+@@ -568,17 +595,23 @@ bool AnalyzeRowReductionV4(const ir::ProgramPtr& program,
+       function->return_types_[0], function->span_, "declared row reduction epilogue result");
+   if (!SameTensor(input, declared)) return false;
+   input_out = input;
++  square_input_out = square_input;
+   steps_out = std::move(steps);
+   return true;
+ }
+ 
+ std::string EmitRowReductionEpilogueSource(
+-    const StaticTensor& input, const std::vector<RowReductionEpilogueStep>& steps) {
+-  StaticTensor row = input;
++    const StaticTensor& input, bool square_input,
++    const std::vector<RowReductionEpilogueStep>& steps) {
++  const bool widen = input.dtype == DataType::BF16;
++  StaticTensor compute = input;
++  if (widen) compute.dtype = DataType::FP32;
++  StaticTensor row = compute;
+   row.shape[1] = 1;
+   row.dense_strides = {1, 1};
+   const std::string input_type = TensorTypeText(input);
+   const std::string input_with_stride = TensorWithStrideText(input);
++  const std::string compute_type = TensorTypeText(compute);
+   const std::string row_type = TensorTypeText(row);
+   std::string source;
+   source += "module {\n  nv_tensor_ir.graph @";
+@@ -588,8 +621,30 @@ std::string EmitRowReductionEpilogueSource(
+   source += "\n  ) -> (";
+   source += input_with_stride;
+   source += ") {\n";
+-  source += "    %reduce0 = reduce(%arg0) <dimensions = [1], reduction_mode = <add>> : ";
+-  source += input_type;
++  std::string full_value = "%arg0";
++  if (widen) {
++    source += "    %wide0 = convert %arg0 : ";
++    source += input_type;
++    source += " -> ";
++    source += compute_type;
++    source += "\n";
++    full_value = "%wide0";
++  }
++  std::string reduction_value = full_value;
++  if (square_input) {
++    source += "    %square0 = mul ";
++    source += full_value;
++    source += ", ";
++    source += full_value;
++    source += " : ";
++    source += compute_type;
++    source += "\n";
++    reduction_value = "%square0";
++  }
++  source += "    %reduce0 = reduce(";
++  source += reduction_value;
++  source += ") <dimensions = [1], reduction_mode = <add>> : ";
++  source += compute_type;
+   source += " -> ";
+   source += row_type;
+   source += "\n";
+@@ -643,9 +698,18 @@ std::string EmitRowReductionEpilogueSource(
+   source += " : ";
+   source += row_type;
+   source += " -> ";
+-  source += input_type;
+-  source += "\n    %result0 = mul %arg0, %bcast0 : ";
+-  source += input_type;
++  source += compute_type;
++  if (widen) {
++    source += "\n    %scaled0 = mul %wide0, %bcast0 : ";
++    source += compute_type;
++    source += "\n    %result0 = convert %scaled0 : ";
++    source += compute_type;
++    source += " -> ";
++    source += input_type;
++  } else {
++    source += "\n    %result0 = mul %arg0, %bcast0 : ";
++    source += input_type;
++  }
+   source += "\n    results %result0 : ";
+   source += input_type;
+   source += "\n  }\n}\n";
+@@ -1946,8 +2010,9 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+   }
+   {
+     StaticTensor reduction_input;
++    bool square_input = false;
+     std::vector<RowReductionEpilogueStep> steps;
+-    if (AnalyzeRowReductionV4(program, reduction_input, steps)) {
++    if (AnalyzeRowReductionV4(program, reduction_input, square_input, steps)) {
+       std::vector<TensorIrValueMetadata> metadata;
+       metadata.reserve(2);
+       metadata.push_back(TensorIrValueMetadata(
+@@ -1959,7 +2024,8 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+           reduction_input.shape, reduction_input.dense_strides,
+           reduction_input.shape.size() >= 2));
+       return TensorIrModule(TensorIrModuleKind::FusedPointwiseV2,
+-                            EmitRowReductionEpilogueSource(reduction_input, steps),
++                            EmitRowReductionEpilogueSource(
++                                reduction_input, square_input, steps),
+                             std::move(metadata), /*input_count=*/1);
+     }
+   }
+diff --git a/tests/ut/cpp/structured_compile_test.cpp b/tests/ut/cpp/structured_compile_test.cpp
+index 966538750f4a091aa21d5f67c91d058e20ab9ec1..ae6a7728e5de9740609204bb8c213aefc60c42dc 100644
+--- a/tests/ut/cpp/structured_compile_test.cpp
++++ b/tests/ut/cpp/structured_compile_test.cpp
+@@ -182,6 +182,64 @@ ir::ProgramPtr MakeBroadcastIntoPointwiseProgram(DataType dtype) {
+       std::vector<ir::FunctionPtr>{function}, "test", TestSpan());
+ }
+ 
++ir::ProgramPtr MakeFusedRmsNormProgram() {
++  auto full_type = std::make_shared<ir::TensorType>(
++      std::vector<int64_t>{8, 16}, DataType::BF16,
++      std::optional<ir::MemRefPtr>{});
++  auto row_type = std::make_shared<ir::TensorType>(
++      std::vector<int64_t>{8, 1}, DataType::BF16,
++      std::optional<ir::MemRefPtr>{});
++  auto x = std::make_shared<ir::Var>("x", full_type, TestSpan());
++  auto square = std::make_shared<ir::Var>("square", full_type, TestSpan());
++  auto sum = std::make_shared<ir::Var>("sum", row_type, TestSpan());
++  auto mean = std::make_shared<ir::Var>("mean", row_type, TestSpan());
++  auto shifted = std::make_shared<ir::Var>("shifted", row_type, TestSpan());
++  auto inverse = std::make_shared<ir::Var>("inverse", row_type, TestSpan());
++  auto result = std::make_shared<ir::Var>("result", full_type, TestSpan());
++  const auto call = [](const std::string& name,
++                       const std::vector<ir::ExprPtr>& arguments,
++                       const ir::TypePtr& type) {
++    return std::make_shared<ir::Call>(
++        ir::OpRegistry::GetInstance().GetOp(name), arguments,
++        std::vector<std::pair<std::string, std::any>>{},
++        std::vector<std::pair<std::string, std::any>>{}, type, TestSpan());
++  };
++  auto body = std::make_shared<ir::SeqStmts>(
++      std::vector<ir::StmtPtr>{
++          std::make_shared<ir::AssignStmt>(
++              square, call("tensor.mul", {x, x}, full_type), TestSpan()),
++          std::make_shared<ir::AssignStmt>(
++              sum, call("tensor.row_sum", {square}, row_type), TestSpan()),
++          std::make_shared<ir::AssignStmt>(
++              mean,
++              call("tensor.muls",
++                   {sum, std::make_shared<ir::ConstFloat>(
++                             1.0 / 16.0, DataType::BF16, TestSpan())},
++                   row_type),
++              TestSpan()),
++          std::make_shared<ir::AssignStmt>(
++              shifted,
++              call("tensor.adds",
++                   {mean, std::make_shared<ir::ConstFloat>(
++                              1.0e-6, DataType::BF16, TestSpan())},
++                   row_type),
++              TestSpan()),
++          std::make_shared<ir::AssignStmt>(
++              inverse, call("tensor.rsqrt", {shifted}, row_type), TestSpan()),
++          std::make_shared<ir::AssignStmt>(
++              result, call("tensor.row_expand_mul", {x, inverse}, full_type),
++              TestSpan()),
++          std::make_shared<ir::ReturnStmt>(
++              std::vector<ir::ExprPtr>{result}, TestSpan())},
++      TestSpan());
++  auto function = std::make_shared<ir::Function>(
++      "ignored", std::vector<ir::VarPtr>{x},
++      std::vector<ir::ParamDirection>{ir::ParamDirection::In},
++      std::vector<ir::TypePtr>{full_type}, body, TestSpan());
++  return std::make_shared<ir::Program>(
++      std::vector<ir::FunctionPtr>{function}, "test", TestSpan());
++}
++
+ ir::ProgramPtr MakeRowReductionProgram(
+     const std::vector<int64_t>& shape, DataType dtype,
+     const std::string& op_name) {
+@@ -670,6 +728,23 @@ int TestRealFusedPointwiseProducerSuccess() {
+   REQUIRE(!broadcast_artifact.GetDeviceCode().empty());
+   REQUIRE(!broadcast_artifact.GetDeviceCodeSha256().empty());
+ 
++  const uint64_t before_rmsnorm =
++      GetStrictNvidiaProducerInvocationCountForTesting();
++  const StructuredCompileResult rmsnorm = CompileStructuredStrict(
++      MakeFusedRmsNormProgram(), request,
++      MakeSchedule(std::vector<uint32_t>{8, 16}));
++  REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() ==
++          before_rmsnorm + 1);
++  const auto& rmsnorm_kernel = rmsnorm.GetArtifact().GetKernelAbi();
++  REQUIRE(rmsnorm_kernel.GetEntryFunctionName() ==
++          "pypto_fused_pointwise_v2");
++  REQUIRE(rmsnorm_kernel.GetArgumentLayout().GetInputOperandCount() == 1);
++  REQUIRE(rmsnorm_kernel.GetArgumentLayout().GetOperandDescriptors().size() ==
++          2);
++  REQUIRE(rmsnorm_kernel.GetGridAbi().GetTileSizes() ==
++          std::vector<uint32_t>({8, 16}));
++  REQUIRE(!rmsnorm.GetArtifact().GetDeviceCode().empty());
++
+   const uint64_t before_maximum =
+       GetStrictNvidiaProducerInvocationCountForTesting();
+   const StructuredCompileResult maximum = CompileStructuredStrict(
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index fced5ce7b11ee6b3ad0e4dca4d9866c25e2958e2..044836e585adf63ffbb1c706ed10988d34974632 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -2284,6 +2284,56 @@ int TestFusedPointwiseV2RowBroadcast() {
+   return 0;
+ }
+ 
++int TestFusedRmsNormBf16Source() {
++  auto full_type = PlainTensor({4, 8}, DataType::BF16);
++  auto row_type = PlainTensor({4, 1}, DataType::BF16);
++  auto x = std::make_shared<ir::Var>("x", full_type, TestSpan());
++  auto square = std::make_shared<ir::Var>("square", full_type, TestSpan());
++  auto sum = std::make_shared<ir::Var>("sum", row_type, TestSpan());
++  auto mean = std::make_shared<ir::Var>("mean", row_type, TestSpan());
++  auto shifted = std::make_shared<ir::Var>("shifted", row_type, TestSpan());
++  auto inverse = std::make_shared<ir::Var>("inverse", row_type, TestSpan());
++  auto result = std::make_shared<ir::Var>("result", full_type, TestSpan());
++  auto scale = std::make_shared<ir::ConstFloat>(1.0 / 8.0, DataType::BF16,
++                                                TestSpan());
++  auto epsilon =
++      std::make_shared<ir::ConstFloat>(1.0e-6, DataType::BF16, TestSpan());
++  auto program = MakeProgram(
++      "ignored_rmsnorm", {x}, {ir::ParamDirection::In}, {full_type},
++      {std::make_shared<ir::AssignStmt>(
++           square, OpCall("tensor.mul", {x, x}, full_type), TestSpan()),
++       std::make_shared<ir::AssignStmt>(
++           sum, OpCall("tensor.row_sum", {square}, row_type), TestSpan()),
++       std::make_shared<ir::AssignStmt>(
++           mean, OpCall("tensor.muls", {sum, scale}, row_type), TestSpan()),
++       std::make_shared<ir::AssignStmt>(
++           shifted, OpCall("tensor.adds", {mean, epsilon}, row_type),
++           TestSpan()),
++       std::make_shared<ir::AssignStmt>(
++           inverse, OpCall("tensor.rsqrt", {shifted}, row_type), TestSpan()),
++       std::make_shared<ir::AssignStmt>(
++           result, OpCall("tensor.row_expand_mul", {x, inverse}, full_type),
++           TestSpan()),
++       std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{result},
++                                        TestSpan())});
++  const TensorIrModule module = EmitTensorIr(program);
++  REQUIRE(module.GetKind() == TensorIrModuleKind::FusedPointwiseV2);
++  REQUIRE(module.GetValueMetadata().size() == 2);
++  REQUIRE(module.GetValueMetadata()[0].GetDtypeCode() == DataType::BF16.Code());
++  REQUIRE(module.GetValueMetadata()[0].GetShape() ==
++          std::vector<int64_t>({4, 8}));
++  const std::string& source = module.GetCanonicalSource();
++  REQUIRE(source.find("%wide0 = convert %arg0 : tensor<4x8xbf16> -> "
++                      "tensor<4x8xf32>") != std::string::npos);
++  REQUIRE(source.find("%square0 = mul %wide0, %wide0 : tensor<4x8xf32>") !=
++          std::string::npos);
++  REQUIRE(source.find("%reduce0 = reduce(%square0)") != std::string::npos);
++  REQUIRE(source.find("%bcast0 = broadcast") != std::string::npos);
++  REQUIRE(source.find("%result0 = convert %scaled0 : tensor<4x8xf32> -> "
++                      "tensor<4x8xbf16>") != std::string::npos);
++  return 0;
++}
++
+ }  // namespace
+ 
+ int main() {
+@@ -2302,6 +2352,7 @@ int main() {
+   if (const int result = TestFp32CanonicalSourceAndMetadata()) return result;
+   if (const int result = TestFusedPointwiseV2CanonicalSourceAndMetadata()) return result;
+   if (const int result = TestFusedPointwiseV2RowBroadcast()) return result;
++  if (const int result = TestFusedRmsNormBf16Source()) return result;
+   if (const int result = TestRowReductionV3CanonicalSourcesAndMetadata()) return result;
+   if (const int result = TestStructuredMatmulV4CanonicalSourcesAndMetadata()) return result;
+   if (const int result = TestRankOneExactCanonicalSources()) return result;

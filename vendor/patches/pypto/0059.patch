@@ -1,0 +1,43 @@
+From 397c946c48ebe4adef3babfe622dbcf174feb1f1 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 11:49:17 +0800
+Subject: [PATCH 059/212] codegen: refresh pointwise op-table rejection list,
+ retarget fmod fixture
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 4 +++-
+ tests/ut/cpp/tensor_ir_codegen_test.cpp  | 4 ++--
+ 2 files changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 32a1e85a44e54be4824e58defbab447470dd9f1f..c25b652f9414d6e7ac66d07e7306ee65a9ba7b53 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -753,7 +753,9 @@ FusedPointwiseGraph AnalyzeFusedPointwiseV2(const ir::ProgramPtr& program) {
+     }
+     const std::optional<FusedOperationSpec> spec = GetFusedOperationSpec(call);
+     if (!spec.has_value()) {
+-      Reject("fused pointwise v2 supports only tensor add/adds/sub/subs/mul/muls/neg/exp/recip/rsqrt",
++      Reject("fused pointwise v2 supports only tensor "
++             "add/adds/sub/subs/mul/muls/div/divs/neg/exp/recip/rsqrt/abs/sqrt/log/sin/cos/"
++             "maximum/minimum",
+              &call->span_);
+     }
+     const size_t expected_argument_count = spec->tensor_operand_count + (spec->has_scalar ? 1 : 0);
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index 31cc0af684a3fb46b6922524312641364228d4ca..ae4b01a135cfd1b9594f1f482d3519befe83051f 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -880,10 +880,10 @@ int TestTypeAndExpressionRejections() {
+       [&] { (void)EmitTensorIr(nested_program); },
+       "nested expressions are unsupported"));
+ 
+-  const ir::OpPtr& div = ir::OpRegistry::GetInstance().GetOp("tensor.div");
++  const ir::OpPtr& fmod = ir::OpRegistry::GetInstance().GetOp("tensor.fmod");
+   REQUIRE(Rejects(
+       [&] {
+-        (void)EmitTensorIr(MakeCustomProgram(fp32, fp32, fp32, fp32, fp32, div));
++        (void)EmitTensorIr(MakeCustomProgram(fp32, fp32, fp32, fp32, fp32, fmod));
+       },
+       "supports only tensor"));
+ 

@@ -1,0 +1,169 @@
+From 206447cf8c68b9cff1b86e01f0b40bfd689cd7a7 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 14:37:34 +0800
+Subject: [PATCH 046/212] Validate CUDA parameter widths independent of
+ enumeration
+
+---
+ docs/en/dev/backend/02-nvidia-executable.md |  8 ++--
+ docs/zh/dev/backend/02-nvidia-executable.md |  5 ++-
+ src/runtime/nvidia/executable.cpp           | 21 +++++++----
+ tests/ut/cpp/nvidia_executable_test.cpp     | 42 +++++++++++++++++++--
+ 4 files changed, 61 insertions(+), 15 deletions(-)
+
+diff --git a/docs/en/dev/backend/02-nvidia-executable.md b/docs/en/dev/backend/02-nvidia-executable.md
+index 3f48f74c1ae3000bb7d449a460a36e5653d69467..c426ca0f8a8c040a174cabef6f4bbbe673923751 100644
+--- a/docs/en/dev/backend/02-nvidia-executable.md
++++ b/docs/en/dev/backend/02-nvidia-executable.md
+@@ -55,9 +55,11 @@ Prewarm is once-only and failure-latched. It:
+ 6. loads the exact Cubin with context-bound `cuModule*` APIs and resolves only
+    `entry_function_name`;
+ 7. forces lazy function loading before capture;
+-8. validates every flattened parameter width plus bounded non-overlapping
+-   device parameter ranges without assuming the Driver returns offsets in
+-   signature order. Every range must end within
++8. validates the complete flattened parameter-width multiset plus bounded
++   non-overlapping device parameter ranges without assuming the Driver
++   enumerates metadata records or offsets in signature order. Exact Cubin
++   validation already binds every KPARAM ordinal to its signature width. Every
++   range must end within
+    `argument_count * kernel_argument_slot_bytes`; offsets never reorder the
+    signature-ordered host pointer array. It then validates binary target,
+    block/shared-memory/register/cluster limits and nonzero occupancy; and
+diff --git a/docs/zh/dev/backend/02-nvidia-executable.md b/docs/zh/dev/backend/02-nvidia-executable.md
+index 4ba7118d98d63f0789a08b68f99c544df3bfdee6..5dfcfaf4bae0907b7f91c1b4d9b7c900b7fbae3f 100644
+--- a/docs/zh/dev/backend/02-nvidia-executable.md
++++ b/docs/zh/dev/backend/02-nvidia-executable.md
+@@ -47,8 +47,9 @@ Prewarm 只执行一次并锁存失败。它会：
+ 6. 使用绑定 context 的 `cuModule*` API 加载精确 Cubin，并且只解析
+    `entry_function_name`；
+ 7. 在 capture 之前强制完成 lazy function load；
+-8. 验证每个扁平参数宽度以及有界、互不重叠的 device 参数区间，不假设 Driver
+-   按 signature 顺序返回 offset；每个区间的末端都必须位于
++8. 验证完整的扁平参数宽度 multiset 以及有界、互不重叠的 device 参数区间，
++   不假设 Driver 按 signature 顺序枚举 metadata record 或返回 offset；完整 Cubin
++   校验已经把每个 KPARAM ordinal 绑定到对应 signature 宽度；每个区间的末端都必须位于
+    `argument_count * kernel_argument_slot_bytes` 内，offset 也不会改变按 signature
+    排列的 host 参数指针数组；随后验证 binary target、block/shared-memory/register/
+    cluster 资源与非零 occupancy；
+diff --git a/src/runtime/nvidia/executable.cpp b/src/runtime/nvidia/executable.cpp
+index fe29fd647b96207bf5eb669cb2081237ee92ea4b..81caacc7764f7403548524a14f8421825f24aab7 100644
+--- a/src/runtime/nvidia/executable.cpp
++++ b/src/runtime/nvidia/executable.cpp
+@@ -136,6 +136,8 @@ void ValidateLoadedParameterAbi(
+   };
+   std::vector<ParameterRange> ranges;
+   ranges.reserve(expected_widths.size());
++  std::vector<uint64_t> actual_widths;
++  actual_widths.reserve(expected_widths.size());
+   for (size_t index = 0; index < expected_widths.size(); ++index) {
+     const auto info = driver.GetFunctionParameterInfo(
+         function_address, static_cast<uint32_t>(index));
+@@ -143,13 +145,6 @@ void ValidateLoadedParameterAbi(
+       throw RuntimeError("loaded CUDA function parameter ABI differs from Artifact at index " +
+                          std::to_string(index) + ": parameter is absent");
+     }
+-    if (info->size_bytes != expected_widths[index]) {
+-      throw RuntimeError("loaded CUDA function parameter ABI differs from Artifact at index " +
+-                         std::to_string(index) + ": expected size " +
+-                         std::to_string(expected_widths[index]) + ", actual size " +
+-                         std::to_string(info->size_bytes) + ", actual offset " +
+-                         std::to_string(info->offset_bytes));
+-    }
+     if (info->offset_bytes >
+         std::numeric_limits<uint64_t>::max() - info->size_bytes) {
+       throw RuntimeError("loaded CUDA function parameter ABI differs from Artifact at index " +
+@@ -162,6 +157,7 @@ void ValidateLoadedParameterAbi(
+           std::to_string(index) + ": parameter range exceeds the bounded "
+                                   "Artifact frame");
+     }
++    actual_widths.push_back(info->size_bytes);
+     ranges.push_back(ParameterRange{info->offset_bytes, end, index});
+   }
+   if (driver.GetFunctionParameterInfo(
+@@ -169,6 +165,17 @@ void ValidateLoadedParameterAbi(
+           .has_value()) {
+     throw RuntimeError("loaded CUDA function has parameters absent from Artifact ABI");
+   }
++  // Runtime-free Cubin validation already binds each KPARAM ordinal to its
++  // signature width. The Driver may enumerate metadata records in another
++  // order, so this live check validates the complete width multiset instead of
++  // imposing a second, undocumented enumeration-order contract.
++  std::vector<uint64_t> sorted_expected_widths = expected_widths;
++  std::sort(sorted_expected_widths.begin(), sorted_expected_widths.end());
++  std::sort(actual_widths.begin(), actual_widths.end());
++  if (actual_widths != sorted_expected_widths) {
++    throw RuntimeError(
++        "loaded CUDA function parameter width multiset differs from Artifact ABI");
++  }
+   std::sort(ranges.begin(), ranges.end(),
+             [](const ParameterRange& lhs, const ParameterRange& rhs) {
+               if (lhs.offset != rhs.offset) return lhs.offset < rhs.offset;
+diff --git a/tests/ut/cpp/nvidia_executable_test.cpp b/tests/ut/cpp/nvidia_executable_test.cpp
+index fd9df6c872b15b30ba479de5d3de0990be00d2b1..d164e491d6e0f4228f817289c7b9acc7a99f3bc1 100644
+--- a/tests/ut/cpp/nvidia_executable_test.cpp
++++ b/tests/ut/cpp/nvidia_executable_test.cpp
+@@ -1367,16 +1367,52 @@ int TestDynamicAndScalarPacking(const ArtifactSet& artifacts) {
+     std::string first_failure;
+     REQUIRE(RejectsWith<RuntimeError>(
+         [&]() { executable->Prewarm(kRuntimeApiVersion); },
+-        "expected size 4, actual size 8", &first_failure));
++        "width multiset differs", &first_failure));
+     REQUIRE(executable->GetState() == NvidiaExecutableState::Failed);
+     REQUIRE(driver->CountCalls("UnloadModule") == 1);
+     std::string repeated_failure;
+     REQUIRE(RejectsWith<RuntimeError>(
+         [&]() { executable->Prewarm(kRuntimeApiVersion); },
+-        "expected size 4, actual size 8", &repeated_failure));
++        "width multiset differs", &repeated_failure));
+     REQUIRE(repeated_failure == first_failure);
+   }
+ 
++  {
++    auto driver = MakeFakeDriver(
++        artifacts.request, {8, 4, 4, 4, 8, 4, 4, 4, 8, 4, 4, 4});
++    driver->parameter_info = {
++        NvidiaFunctionParameterInfo{64, 4},
++        NvidiaFunctionParameterInfo{60, 4},
++        NvidiaFunctionParameterInfo{56, 4},
++        NvidiaFunctionParameterInfo{48, 8},
++        NvidiaFunctionParameterInfo{40, 4},
++        NvidiaFunctionParameterInfo{36, 4},
++        NvidiaFunctionParameterInfo{32, 4},
++        NvidiaFunctionParameterInfo{24, 8},
++        NvidiaFunctionParameterInfo{16, 4},
++        NvidiaFunctionParameterInfo{12, 4},
++        NvidiaFunctionParameterInfo{8, 4},
++        NvidiaFunctionParameterInfo{0, 8},
++    };
++    auto executable =
++        MakeExecutable(artifacts.dynamic_artifact, artifacts.request, driver);
++    executable->Prewarm(kRuntimeApiVersion);
++    {
++      NvidiaLaunchPacket packet =
++          executable->PrepareLaunch(MakeDynamicArguments());
++      executable->Launch(packet, kStreamAddress);
++      const std::vector<LaunchRecord> launches = driver->GetLaunches();
++      REQUIRE(launches.size() == 1);
++      REQUIRE(ReadUint64(launches[0].parameter_bytes[0]) == 0x4000U);
++      REQUIRE(ReadUint32(launches[0].parameter_bytes[1]) == 17);
++      REQUIRE(ReadUint32(launches[0].parameter_bytes[2]) == 9);
++      REQUIRE(ReadUint32(launches[0].parameter_bytes[3]) == 18);
++      REQUIRE(ReadUint64(launches[0].parameter_bytes[4]) == 0x5000U);
++      REQUIRE(ReadUint64(launches[0].parameter_bytes[8]) == 0x6000U);
++    }
++    executable->Unload();
++  }
++
+   {
+     auto driver = MakeFakeDriver(artifacts.request, {8, 4, 8});
+     driver->parameter_info[0]->offset_bytes = 16;
+@@ -1569,7 +1605,7 @@ int TestParameterAndResourceValidation(const ArtifactSet& artifacts) {
+   result = ExpectLatchedPrewarmFailure(
+       artifacts,
+       [](FakeDriver& driver) { driver.parameter_info[1]->size_bytes = 4; },
+-      "parameter ABI differs", 1);
++      "width multiset differs", 1);
+   if (result != 0) return result;
+   result = ExpectLatchedPrewarmFailure(
+       artifacts,

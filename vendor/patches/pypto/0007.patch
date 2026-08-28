@@ -1,0 +1,40 @@
+From f550d4c33e8fef03e7dabcbf60c3db38b0f0a215 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 23 Aug 2026 23:09:22 +0800
+Subject: [PATCH 007/212] docs: generalize model-specific compiler comments
+
+---
+ src/ir/transforms/memory_reuse_pass.cpp | 2 +-
+ src/ir/transforms/simplify_pass.cpp     | 6 +++---
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/src/ir/transforms/memory_reuse_pass.cpp b/src/ir/transforms/memory_reuse_pass.cpp
+index 643afe9bd3dfabdb3eb4455233e34caf46b79d85..35bd784b2b0f9cb5b0dc7745485dfff20e743e1b 100644
+--- a/src/ir/transforms/memory_reuse_pass.cpp
++++ b/src/ir/transforms/memory_reuse_pass.cpp
+@@ -880,7 +880,7 @@ class RetypeApplier : public IRMutator {
+   /// input (e.g. a tile.load) is retargeted onto a reused buffer, the view's
+   /// declared MemRef is left pointing at the now-orphaned original buffer.  Codegen
+   /// then emits the view's alloc_tile at the stale address while the load writes the
+-  /// reused one — the consumer reads an uninitialised buffer (qwen3 b_trans
++  /// reused one — the consumer reads an uninitialised buffer (transposed-matmul
+   /// regression, issue #1776; the sub-region tile.slice case has the same shape).
+   /// Re-derive the view's MemRef from its (retargeted) input, mirroring InitMemRef's
+   /// ShareMemRefFrom.
+diff --git a/src/ir/transforms/simplify_pass.cpp b/src/ir/transforms/simplify_pass.cpp
+index 613f7a3a91940f99ffe4dd4881bd1687d1c4c39c..329551dbdf7f58af9b4bbec8d1517bcfe65128df 100644
+--- a/src/ir/transforms/simplify_pass.cpp
++++ b/src/ir/transforms/simplify_pass.cpp
+@@ -303,9 +303,9 @@ class SimplifyMutator : public arith::IRMutatorWithAnalyzer {
+         // (e.g. another sibling Fold B that DeepClones a different body). A
+         // recycled address would silently match the stale entry and substitute
+         // the new Var with an unrelated value — producing AssignStmts whose
+-        // LHS Var has the wrong type for the RHS (observed on qwen3_decode's
+-        // q_proj/up_proj as a `pto.textract` whose dst aliases the matmul Acc
+-        // tile of an earlier iteration).
++        // LHS Var has the wrong type for the RHS (observed in a decode graph
++        // with sibling projection loops as a `pto.textract` whose dst aliases
++        // the matmul Acc tile of an earlier iteration).
+         //
+         // The lift's own additions (return_vars[i] → yielded_values[i]) are
+         // applied to the restored baseline below, so subsequent siblings that

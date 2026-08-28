@@ -1,0 +1,1423 @@
+From 07ab9ea1feb5f5cc5557c7b7c67e7ad33d15974e Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 17:10:33 +0800
+Subject: [PATCH 047/212] codegen: emit canonical TensorIR from static add HIR
+
+---
+ CMakeLists.txt                           |   1 +
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 467 ++++++++++++++
+ src/codegen/nvidia/tensor_ir_codegen.h   | 124 ++++
+ tests/ut/cpp/CMakeLists.txt              |  27 +
+ tests/ut/cpp/tensor_ir_codegen_test.cpp  | 748 +++++++++++++++++++++++
+ 5 files changed, 1367 insertions(+)
+ create mode 100644 src/codegen/nvidia/tensor_ir_codegen.cpp
+ create mode 100644 src/codegen/nvidia/tensor_ir_codegen.h
+ create mode 100644 tests/ut/cpp/tensor_ir_codegen_test.cpp
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 4a78917c637581f430005aec5963438bf2889462..9e00bf83b2335098e2c632dbea27d9d0388866ca 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -309,6 +309,7 @@ set(PYPTO_SOURCES
+     src/codegen/code_emitter.cpp
+     src/codegen/codegen_preconditions.cpp
+     src/codegen/codegen_base.cpp
++    src/codegen/nvidia/tensor_ir_codegen.cpp
+     src/codegen/orchestration/orchestration_analysis.cpp
+     src/codegen/orchestration/orchestration_codegen.cpp
+     src/codegen/orchestration_op_registry.cpp
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..68ec7bc9772bce0158350a0ba7e0a1b734cb5071
+--- /dev/null
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -0,0 +1,467 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#include "tensor_ir_codegen.h"
++
++#include <algorithm>
++#include <charconv>
++#include <cstddef>
++#include <cstdint>
++#include <limits>
++#include <string>
++#include <string_view>
++#include <unordered_map>
++#include <utility>
++#include <vector>
++
++#include "pypto/core/dtype.h"
++#include "pypto/core/error.h"
++#include "pypto/ir/expr.h"
++#include "pypto/ir/kind_traits.h"
++#include "pypto/ir/op_registry.h"
++#include "pypto/ir/scalar_expr.h"
++#include "pypto/ir/stmt.h"
++#include "pypto/ir/type.h"
++
++namespace pypto::codegen::nvidia {
++namespace {
++
++constexpr size_t kMaximumDiagnosticBytes = 4096;
++constexpr size_t kMaximumDiagnosticNameBytes = 96;
++constexpr size_t kMaximumCanonicalSourceBytes = 16ULL * 1024ULL * 1024ULL;
++constexpr size_t kMaximumRank = 32;
++constexpr std::string_view kCanonicalEntryName = "pypto_vector_add";
++
++struct StaticTensor {
++  DataType dtype;
++  std::vector<int64_t> shape;
++  std::vector<int64_t> dense_strides;
++};
++
++std::string BoundedDisplay(std::string_view value) {
++  std::string output;
++  const size_t count = std::min(value.size(), kMaximumDiagnosticNameBytes);
++  output.reserve(count + 3);
++  for (size_t index = 0; index < count; ++index) {
++    const unsigned char character = static_cast<unsigned char>(value[index]);
++    output.push_back(character >= 0x20 && character <= 0x7e ? static_cast<char>(character) : '?');
++  }
++  if (value.size() > count) output += "...";
++  return output;
++}
++
++[[noreturn]] void Reject(std::string message, const ir::Span* span = nullptr) {
++  std::string diagnostic = "TensorIR emission rejected: " + std::move(message);
++  if (span != nullptr && span->is_valid()) {
++    diagnostic += " at " + BoundedDisplay(span->filename_) + ":" +
++                  std::to_string(span->begin_line_) + ":" +
++                  std::to_string(span->begin_column_);
++  }
++  if (diagnostic.size() > kMaximumDiagnosticBytes) {
++    diagnostic.resize(kMaximumDiagnosticBytes - 3);
++    diagnostic += "...";
++  }
++  throw ValueError(diagnostic);
++}
++
++[[noreturn]] void InternalReject(std::string_view message) {
++  throw InternalError("TensorIR emission internal error: " + std::string(message));
++}
++
++std::vector<int64_t> MakeDenseStrides(const std::vector<int64_t>& shape,
++                                      const ir::Span& span) {
++  std::vector<int64_t> strides(shape.size());
++  int64_t running = 1;
++  for (size_t reverse_index = shape.size(); reverse_index > 0; --reverse_index) {
++    const size_t index = reverse_index - 1;
++    strides[index] = running;
++    if (shape[index] > std::numeric_limits<int64_t>::max() / running) {
++      Reject("static tensor element count exceeds the signed 64-bit metadata bound", &span);
++    }
++    running *= shape[index];
++  }
++  return strides;
++}
++
++std::vector<int64_t> MakeDenseStridesForMetadata(const std::vector<int64_t>& shape) {
++  std::vector<int64_t> strides(shape.size());
++  int64_t running = 1;
++  for (size_t reverse_index = shape.size(); reverse_index > 0; --reverse_index) {
++    const size_t index = reverse_index - 1;
++    strides[index] = running;
++    if (shape[index] > std::numeric_limits<int64_t>::max() / running) {
++      InternalReject("value metadata element count exceeds the signed 64-bit bound");
++    }
++    running *= shape[index];
++  }
++  return strides;
++}
++
++StaticTensor ReadStaticTensor(const ir::TypePtr& type, const ir::Span& span,
++                              std::string_view location) {
++  const auto tensor_type = ir::As<ir::TensorType>(type);
++  if (!tensor_type) {
++    Reject(std::string(location) + " must have plain TensorType", &span);
++  }
++  if (tensor_type->memref_.has_value()) {
++    Reject(std::string(location) + " must not carry a MemRef", &span);
++  }
++  if (tensor_type->tensor_view_.has_value()) {
++    Reject(std::string(location) + " must not carry a TensorView", &span);
++  }
++  if (tensor_type->dtype_ != DataType::BF16 && tensor_type->dtype_ != DataType::FP32) {
++    Reject(std::string(location) + " dtype must be BF16 or FP32, got " +
++               tensor_type->dtype_.ToString(),
++           &span);
++  }
++  if (tensor_type->shape_.empty() || tensor_type->shape_.size() > kMaximumRank) {
++    Reject(std::string(location) + " rank must be between 1 and 32", &span);
++  }
++
++  std::vector<int64_t> shape;
++  shape.reserve(tensor_type->shape_.size());
++  for (const ir::ExprPtr& dimension : tensor_type->shape_) {
++    const auto constant = ir::As<ir::ConstInt>(dimension);
++    if (!constant) {
++      Reject(std::string(location) + " shape must be fully static", &span);
++    }
++    if (constant->dtype() != DataType::INDEX) {
++      Reject(std::string(location) + " static shape dimensions must have INDEX dtype", &span);
++    }
++    if (constant->value_ <= 0) {
++      Reject(std::string(location) + " contains a non-positive dimension", &span);
++    }
++    shape.push_back(constant->value_);
++  }
++  return StaticTensor{tensor_type->dtype_, shape, MakeDenseStrides(shape, span)};
++}
++
++bool SameTensor(const StaticTensor& left, const StaticTensor& right) {
++  return left.dtype == right.dtype && left.shape == right.shape &&
++         left.dense_strides == right.dense_strides;
++}
++
++const char* TensorIrDtype(DataType dtype) {
++  if (dtype == DataType::BF16) return "bf16";
++  if (dtype == DataType::FP32) return "f32";
++  InternalReject("unsupported dtype reached source emission");
++}
++
++void AppendInteger(std::string& output, int64_t value) {
++  char buffer[32];
++  const auto result = std::to_chars(buffer, buffer + sizeof(buffer), value);
++  if (result.ec != std::errc{}) InternalReject("integer formatting failed");
++  output.append(buffer, result.ptr);
++}
++
++void AppendIndex(std::string& output, size_t value) {
++  char buffer[32];
++  const auto result = std::to_chars(buffer, buffer + sizeof(buffer), value);
++  if (result.ec != std::errc{}) InternalReject("index formatting failed");
++  output.append(buffer, result.ptr);
++}
++
++std::string JoinIntegers(const std::vector<int64_t>& values, char separator) {
++  std::string output;
++  output.reserve(values.size() * 4);
++  for (size_t index = 0; index < values.size(); ++index) {
++    if (index != 0) output.push_back(separator);
++    AppendInteger(output, values[index]);
++  }
++  return output;
++}
++
++std::string TensorTypeText(const StaticTensor& tensor) {
++  return "tensor<" + JoinIntegers(tensor.shape, 'x') + "x" +
++         TensorIrDtype(tensor.dtype) + ">";
++}
++
++std::string TensorWithStrideText(const StaticTensor& tensor) {
++  const std::string type = TensorTypeText(tensor);
++  if (tensor.shape.size() == 1) return type;
++  return type + " {nv_tensor_ir.stride = \"(" + JoinIntegers(tensor.dense_strides, ',') +
++         ")\"}";
++}
++
++std::string EmitSource(const StaticTensor& tensor, size_t lhs_index, size_t rhs_index) {
++  const std::string type = TensorTypeText(tensor);
++  const std::string type_with_stride = TensorWithStrideText(tensor);
++  std::string source;
++  source.reserve(256 + type_with_stride.size() * 3 + type.size() * 2);
++  source += "module {\n  nv_tensor_ir.graph @";
++  source += kCanonicalEntryName;
++  source += "(\n    %arg0: ";
++  source += type_with_stride;
++  source += ",\n    %arg1: ";
++  source += type_with_stride;
++  source += "\n  ) -> ";
++  if (tensor.shape.size() == 1) {
++    source += type;
++  } else {
++    source += "(";
++    source += type_with_stride;
++    source += ")";
++  }
++  source += " {\n    %result0 = add %arg";
++  AppendIndex(source, lhs_index);
++  source += ", %arg";
++  AppendIndex(source, rhs_index);
++  source += " : ";
++  source += type;
++  source += "\n    results %result0 : ";
++  source += type;
++  source += "\n  }\n}\n";
++  if (source.size() > kMaximumCanonicalSourceBytes) {
++    Reject("canonical TensorIR source exceeds 16 MiB");
++  }
++  return source;
++}
++
++std::vector<ir::StmtPtr> BodyStatements(const ir::StmtPtr& body,
++                                        const ir::Span& function_span) {
++  if (!body) Reject("function body must not be null", &function_span);
++  const auto sequence = ir::As<ir::SeqStmts>(body);
++  if (!sequence) {
++    Reject("function body must be a top-level sequence containing one add and one return",
++           &body->span_);
++  }
++  if (sequence->stmts_.size() != 2) {
++    Reject("function body must contain exactly one assignment and one return",
++           &sequence->span_);
++  }
++  if (!sequence->stmts_[0] || !sequence->stmts_[1]) {
++    Reject("function body must not contain null statements", &sequence->span_);
++  }
++  return sequence->stmts_;
++}
++
++}  // namespace
++
++TensorIrValueMetadata::TensorIrValueMetadata(TensorIrValueRole role, uint32_t ordinal,
++                                             DataType dtype, std::vector<int64_t> shape,
++                                             std::vector<int64_t> logical_dense_strides,
++                                             bool has_explicit_strides)
++    : role_(role),
++      ordinal_(ordinal),
++      dtype_code_(dtype.Code()),
++      dtype_name_(dtype.ToString()),
++      shape_(std::move(shape)),
++      logical_dense_strides_(std::move(logical_dense_strides)),
++      has_explicit_strides_(has_explicit_strides) {
++  if (role_ != TensorIrValueRole::Input && role_ != TensorIrValueRole::Result) {
++    InternalReject("value metadata role is invalid");
++  }
++  if ((role_ == TensorIrValueRole::Input && ordinal_ > 1) ||
++      (role_ == TensorIrValueRole::Result && ordinal_ != 0)) {
++    InternalReject("value metadata ordinal is invalid for its role");
++  }
++  if (dtype != DataType::BF16 && dtype != DataType::FP32) {
++    InternalReject("value metadata dtype must be BF16 or FP32");
++  }
++  if (dtype_name_.empty() || shape_.empty() || shape_.size() > kMaximumRank ||
++      shape_.size() != logical_dense_strides_.size() ||
++      std::any_of(shape_.begin(), shape_.end(), [](int64_t dimension) {
++        return dimension <= 0;
++      })) {
++    InternalReject("value metadata is incomplete");
++  }
++  if (has_explicit_strides_ != (shape_.size() >= 2)) {
++    InternalReject("value metadata explicit-stride state does not match canonical rank policy");
++  }
++  if (logical_dense_strides_ != MakeDenseStridesForMetadata(shape_)) {
++    InternalReject("value metadata logical dense strides do not match its shape");
++  }
++}
++
++TensorIrModule::TensorIrModule(std::string canonical_source,
++                               std::vector<TensorIrValueMetadata> value_metadata,
++                               uint32_t input_count)
++    : canonical_source_(std::move(canonical_source)),
++      entry_name_(kCanonicalEntryName),
++      value_metadata_(std::move(value_metadata)),
++      input_count_(input_count) {
++  if (canonical_source_.empty() || canonical_source_.size() > kMaximumCanonicalSourceBytes) {
++    InternalReject("canonical source metadata is empty or exceeds 16 MiB");
++  }
++  if (input_count_ != 2 || value_metadata_.size() != 3) {
++    InternalReject("tensor.add module metadata must contain Input0, Input1, and Result0");
++  }
++  if (value_metadata_[0].GetRole() != TensorIrValueRole::Input ||
++      value_metadata_[0].GetOrdinal() != 0 ||
++      value_metadata_[1].GetRole() != TensorIrValueRole::Input ||
++      value_metadata_[1].GetOrdinal() != 1 ||
++      value_metadata_[2].GetRole() != TensorIrValueRole::Result ||
++      value_metadata_[2].GetOrdinal() != 0) {
++    InternalReject("tensor.add module metadata roles and ordinals are invalid");
++  }
++  const auto same_value_type = [](const TensorIrValueMetadata& left,
++                                  const TensorIrValueMetadata& right) {
++    return left.GetDtypeCode() == right.GetDtypeCode() &&
++           left.GetDtypeName() == right.GetDtypeName() && left.GetShape() == right.GetShape() &&
++           left.GetLogicalDenseStrides() == right.GetLogicalDenseStrides() &&
++           left.HasExplicitStrides() == right.HasExplicitStrides();
++  };
++  if (!same_value_type(value_metadata_[0], value_metadata_[1]) ||
++      !same_value_type(value_metadata_[0], value_metadata_[2])) {
++    InternalReject("tensor.add module value metadata must have identical types and layouts");
++  }
++}
++
++TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
++  if (!program) Reject("program must not be null");
++  if (program->functions_.size() != 1) {
++    Reject("program must contain exactly one function", &program->span_);
++  }
++
++  const auto& [global, function] = *program->functions_.begin();
++  if (!global || !function) Reject("program contains a null function binding", &program->span_);
++  if (global->name_ != function->name_) {
++    Reject("global function name does not match the bound function name", &function->span_);
++  }
++  if (function->requires_runtime_binding_) {
++    Reject("runtime-bound functions are not supported", &function->span_);
++  }
++  if (function->func_type_ != ir::FunctionType::Opaque || function->level_.has_value() ||
++      function->role_.has_value()) {
++    Reject("function must be Opaque with no hierarchy level or role", &function->span_);
++  }
++  if (!function->attrs_.empty()) {
++    Reject("function attributes are not supported", &function->span_);
++  }
++  if (function->params_.size() != 2 || function->param_directions_.size() != 2) {
++    Reject("tensor.add v1 requires exactly two function parameters", &function->span_);
++  }
++  if (!std::all_of(function->param_directions_.begin(), function->param_directions_.end(),
++                   [](ir::ParamDirection direction) {
++                     return direction == ir::ParamDirection::In;
++                   })) {
++    Reject("all tensor.add parameters must have direction In", &function->span_);
++  }
++  if (function->return_types_.size() != 1) {
++    Reject("tensor.add v1 requires exactly one declared return", &function->span_);
++  }
++
++  std::vector<StaticTensor> inputs;
++  inputs.reserve(function->params_.size());
++  std::unordered_map<const ir::Var*, size_t> parameter_indices;
++  for (size_t index = 0; index < function->params_.size(); ++index) {
++    const ir::VarPtr& parameter = function->params_[index];
++    if (!parameter) Reject("function contains a null parameter", &function->span_);
++    if (parameter->GetKind() != ir::ObjectKind::Var) {
++      Reject("function parameters must be exact Var nodes", &parameter->span_);
++    }
++    if (!parameter_indices.emplace(parameter.get(), index).second) {
++      Reject("function parameters must have distinct IR identities", &parameter->span_);
++    }
++    inputs.push_back(ReadStaticTensor(parameter->GetType(), parameter->span_,
++                                      "function parameter"));
++  }
++  if (!SameTensor(inputs[0], inputs[1])) {
++    Reject("tensor.add input types and shapes must be identical", &function->span_);
++  }
++
++  const StaticTensor declared_result =
++      ReadStaticTensor(function->return_types_[0], function->span_, "declared result");
++  if (!SameTensor(inputs[0], declared_result)) {
++    Reject("tensor.add result type and shape must match its inputs", &function->span_);
++  }
++
++  const std::vector<ir::StmtPtr> statements = BodyStatements(function->body_, function->span_);
++  const auto assignment = ir::As<ir::AssignStmt>(statements[0]);
++  if (!assignment) {
++    Reject("first function statement must assign tensor.add", &statements[0]->span_);
++  }
++  if (!assignment->var_ || !assignment->value_) {
++    Reject("tensor.add assignment must have a non-null target and value", &assignment->span_);
++  }
++  if (assignment->var_->GetKind() != ir::ObjectKind::Var) {
++    Reject("tensor.add assignment result must be an exact Var node", &assignment->var_->span_);
++  }
++  if (parameter_indices.count(assignment->var_.get()) != 0) {
++    Reject("tensor.add result must not reuse a parameter IR identity", &assignment->span_);
++  }
++
++  const auto call = ir::As<ir::Call>(assignment->value_);
++  if (!call || !call->op_) {
++    Reject("assigned value must be a tensor.add call", &assignment->value_->span_);
++  }
++  if (!ir::IsOp(call, "tensor.add")) {
++    Reject("only tensor.add is supported", &call->span_);
++  }
++  if (!call->attrs_.empty() || !call->kwargs_.empty()) {
++    Reject("tensor.add attributes and keyword arguments are not supported", &call->span_);
++  }
++  if (call->args_.size() != 2) {
++    Reject("tensor.add must have exactly two operands", &call->span_);
++  }
++
++  std::vector<size_t> operand_indices;
++  operand_indices.reserve(call->args_.size());
++  for (const ir::ExprPtr& argument : call->args_) {
++    const auto variable = ir::As<ir::Var>(argument);
++    if (!variable) {
++      Reject("tensor.add operands must be direct function parameters; nested expressions are unsupported",
++             argument ? &argument->span_ : &call->span_);
++    }
++    if (variable->GetKind() != ir::ObjectKind::Var) {
++      Reject("tensor.add operands must be exact Var nodes", &variable->span_);
++    }
++    const auto found = parameter_indices.find(variable.get());
++    if (found == parameter_indices.end()) {
++      Reject("tensor.add operand is not a function parameter", &variable->span_);
++    }
++    const StaticTensor operand =
++        ReadStaticTensor(variable->GetType(), variable->span_, "tensor.add operand");
++    if (!SameTensor(inputs[0], operand)) {
++      Reject("tensor.add operand types and shapes must be identical", &variable->span_);
++    }
++    operand_indices.push_back(found->second);
++  }
++  if (operand_indices[0] == operand_indices[1]) {
++    Reject("tensor.add operands must cover both distinct function parameters", &call->span_);
++  }
++
++  const StaticTensor call_result =
++      ReadStaticTensor(call->GetType(), call->span_, "tensor.add call result");
++  const StaticTensor assigned_result = ReadStaticTensor(
++      assignment->var_->GetType(), assignment->var_->span_, "tensor.add assignment result");
++  if (!SameTensor(declared_result, call_result) ||
++      !SameTensor(declared_result, assigned_result)) {
++    Reject("tensor.add call, assignment, and declared result types must match", &call->span_);
++  }
++
++  const auto return_statement = ir::As<ir::ReturnStmt>(statements[1]);
++  if (!return_statement || return_statement->value_.size() != 1) {
++    Reject("second function statement must be exactly one return", &statements[1]->span_);
++  }
++  const auto returned_variable = ir::As<ir::Var>(return_statement->value_[0]);
++  if (!returned_variable || returned_variable->GetKind() != ir::ObjectKind::Var ||
++      returned_variable.get() != assignment->var_.get()) {
++    Reject("return must directly reference the tensor.add assignment result",
++           &return_statement->span_);
++  }
++
++  std::vector<TensorIrValueMetadata> metadata;
++  metadata.reserve(3);
++  for (size_t index = 0; index < inputs.size(); ++index) {
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Input, static_cast<uint32_t>(index), inputs[index].dtype,
++        inputs[index].shape, inputs[index].dense_strides, inputs[index].shape.size() >= 2));
++  }
++  metadata.push_back(TensorIrValueMetadata(
++      TensorIrValueRole::Result, 0, declared_result.dtype, declared_result.shape,
++      declared_result.dense_strides, declared_result.shape.size() >= 2));
++
++  return TensorIrModule(EmitSource(declared_result, operand_indices[0], operand_indices[1]),
++                        std::move(metadata), /*input_count=*/2);
++}
++
++}  // namespace pypto::codegen::nvidia
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.h b/src/codegen/nvidia/tensor_ir_codegen.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..b2f2ef9293c8ea35efcbc47b09207d5ea4b283b8
+--- /dev/null
++++ b/src/codegen/nvidia/tensor_ir_codegen.h
+@@ -0,0 +1,124 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#ifndef PYPTO_SRC_CODEGEN_NVIDIA_TENSOR_IR_CODEGEN_H_
++#define PYPTO_SRC_CODEGEN_NVIDIA_TENSOR_IR_CODEGEN_H_
++
++#include <cstdint>
++#include <string>
++#include <vector>
++
++#include "pypto/core/dtype.h"
++#include "pypto/ir/program.h"
++
++namespace pypto::codegen::nvidia {
++
++class TensorIrModule;
++[[nodiscard]] TensorIrModule EmitTensorIr(const ir::ProgramPtr& program);
++
++/** Position of a value in the compile-free TensorIR graph ABI. */
++enum class TensorIrValueRole : uint8_t {
++  Input = 0,
++  Result = 1,
++};
++
++/**
++ * Compiler-neutral metadata for one statically shaped contiguous graph value.
++ *
++ * The dtype code is the stable PyPTO DataType code and dtype_name is its
++ * canonical PyPTO spelling.  No TensorIR or Artifact type crosses this seam.
++ */
++class TensorIrValueMetadata {
++ public:
++  TensorIrValueMetadata() = delete;
++  TensorIrValueMetadata(const TensorIrValueMetadata&) = default;
++  TensorIrValueMetadata(TensorIrValueMetadata&&) = default;
++  TensorIrValueMetadata& operator=(const TensorIrValueMetadata&) = delete;
++  TensorIrValueMetadata& operator=(TensorIrValueMetadata&&) = delete;
++
++  [[nodiscard]] TensorIrValueRole GetRole() const noexcept { return role_; }
++  [[nodiscard]] uint32_t GetOrdinal() const noexcept { return ordinal_; }
++  [[nodiscard]] uint8_t GetDtypeCode() const noexcept { return dtype_code_; }
++  [[nodiscard]] const std::string& GetDtypeName() const noexcept { return dtype_name_; }
++  [[nodiscard]] const std::vector<int64_t>& GetShape() const noexcept { return shape_; }
++  [[nodiscard]] const std::vector<int64_t>& GetLogicalDenseStrides() const noexcept {
++    return logical_dense_strides_;
++  }
++  [[nodiscard]] constexpr bool IsContiguous() const noexcept { return true; }
++  [[nodiscard]] bool HasExplicitStrides() const noexcept { return has_explicit_strides_; }
++
++ private:
++  TensorIrValueMetadata(TensorIrValueRole role, uint32_t ordinal, DataType dtype,
++                        std::vector<int64_t> shape,
++                        std::vector<int64_t> logical_dense_strides,
++                        bool has_explicit_strides);
++  friend TensorIrModule EmitTensorIr(const ir::ProgramPtr& program);
++
++  TensorIrValueRole role_;
++  uint32_t ordinal_;
++  uint8_t dtype_code_;
++  std::string dtype_name_;
++  std::vector<int64_t> shape_;
++  std::vector<int64_t> logical_dense_strides_;
++  bool has_explicit_strides_;
++};
++
++/** Exact TensorIR source bytes and the metadata used to construct them. */
++class TensorIrModule {
++ public:
++  static constexpr uint32_t kMetadataSchemaVersion = 1;
++
++  TensorIrModule() = delete;
++  TensorIrModule(const TensorIrModule&) = default;
++  TensorIrModule(TensorIrModule&&) = default;
++  TensorIrModule& operator=(const TensorIrModule&) = delete;
++  TensorIrModule& operator=(TensorIrModule&&) = delete;
++
++  [[nodiscard]] constexpr uint32_t GetMetadataSchemaVersion() const noexcept {
++    return kMetadataSchemaVersion;
++  }
++  [[nodiscard]] const std::string& GetCanonicalSource() const noexcept {
++    return canonical_source_;
++  }
++  [[nodiscard]] const std::string& GetEntryName() const noexcept { return entry_name_; }
++  [[nodiscard]] const std::vector<TensorIrValueMetadata>& GetValueMetadata() const noexcept {
++    return value_metadata_;
++  }
++  [[nodiscard]] uint32_t GetInputCount() const noexcept { return input_count_; }
++  [[nodiscard]] uint32_t GetResultCount() const noexcept {
++    return static_cast<uint32_t>(value_metadata_.size()) - input_count_;
++  }
++
++ private:
++  TensorIrModule(std::string canonical_source,
++                 std::vector<TensorIrValueMetadata> value_metadata, uint32_t input_count);
++  friend TensorIrModule EmitTensorIr(const ir::ProgramPtr& program);
++
++  std::string canonical_source_;
++  std::string entry_name_;
++  std::vector<TensorIrValueMetadata> value_metadata_;
++  uint32_t input_count_;
++};
++
++/**
++ * Emit the first strict PyPTO HIR subset as deterministic TensorIR text.
++ *
++ * V1 accepts exactly one Opaque function whose body is exactly a SeqStmts with
++ * two children: AssignStmt(result, Call(tensor.add, {param0, param1})) followed
++ * by ReturnStmt({result}). Inputs and the result must be plain, static,
++ * contiguous BF16 or FP32 tensors with identical types and shapes. Rejected HIR
++ * raises ValueError; this function never invokes TensorIR or any device compiler.
++ */
++[[nodiscard]] TensorIrModule EmitTensorIr(const ir::ProgramPtr& program);
++
++}  // namespace pypto::codegen::nvidia
++
++#endif  // PYPTO_SRC_CODEGEN_NVIDIA_TENSOR_IR_CODEGEN_H_
+diff --git a/tests/ut/cpp/CMakeLists.txt b/tests/ut/cpp/CMakeLists.txt
+index 88b9a6ec9dc91f6d16a819951562949bc80d45df..2c467868373ee15c8c71c6cd7086b792aef57933 100644
+--- a/tests/ut/cpp/CMakeLists.txt
++++ b/tests/ut/cpp/CMakeLists.txt
+@@ -133,6 +133,33 @@ add_test(
+     COMMAND pypto_nvidia_kernel_build_spec_test
+ )
+ 
++add_executable(pypto_tensor_ir_codegen_test
++    tensor_ir_codegen_test.cpp
++)
++
++target_include_directories(pypto_tensor_ir_codegen_test PRIVATE
++    ${CMAKE_SOURCE_DIR}/include
++    ${CMAKE_SOURCE_DIR}/src
++    ${LIBBACKTRACE_INSTALL_DIR}/include
++)
++
++target_link_libraries(pypto_tensor_ir_codegen_test PRIVATE
++    ${COMPILER_OBJECT_LIBRARY_NAME}
++    libbacktrace
++    msgpackc-cxx
++)
++if(PYPTO_ENABLE_NVIDIA_BACKEND)
++    target_link_libraries(pypto_tensor_ir_codegen_test PRIVATE
++        pypto_nvidia_bridge_objects
++        pypto_nvidia_backend_dependencies
++    )
++endif()
++
++add_test(
++    NAME pypto_tensor_ir_codegen_test
++    COMMAND pypto_tensor_ir_codegen_test
++)
++
+ if(NOT PYPTO_ENABLE_NVIDIA_BACKEND)
+     add_executable(pypto_nvidia_driver_stub_test
+         nvidia_driver_stub_test.cpp
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..e73c18c34c284299065704aca464a18fcc78d4cb
+--- /dev/null
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -0,0 +1,748 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#include <any>
++#include <cstdint>
++#include <functional>
++#include <limits>
++#include <locale>
++#include <map>
++#include <memory>
++#include <optional>
++#include <string>
++#include <string_view>
++#include <type_traits>
++#include <utility>
++#include <vector>
++
++#include "codegen/nvidia/tensor_ir_codegen.h"
++#include "pypto/core/dtype.h"
++#include "pypto/core/error.h"
++#include "pypto/ir/expr.h"
++#include "pypto/ir/function.h"
++#include "pypto/ir/kind_traits.h"
++#include "pypto/ir/memref.h"
++#include "pypto/ir/op_registry.h"
++#include "pypto/ir/program.h"
++#include "pypto/ir/scalar_expr.h"
++#include "pypto/ir/span.h"
++#include "pypto/ir/stmt.h"
++#include "pypto/ir/type.h"
++
++using pypto::DataType;
++using pypto::ValueError;
++using pypto::codegen::nvidia::EmitTensorIr;
++using pypto::codegen::nvidia::TensorIrModule;
++using pypto::codegen::nvidia::TensorIrValueMetadata;
++using pypto::codegen::nvidia::TensorIrValueRole;
++
++namespace ir = pypto::ir;
++
++#define REQUIRE(condition) \
++  do {                     \
++    if (!(condition)) {    \
++      return __LINE__;     \
++    }                      \
++  } while (false)
++
++namespace {
++
++const ir::Span& TestSpan() {
++  static const ir::Span span("tensor_ir_codegen_test.py", 7, 3);
++  return span;
++}
++
++ir::TensorTypePtr PlainTensor(const std::vector<int64_t>& shape, DataType dtype) {
++  return std::make_shared<ir::TensorType>(shape, dtype, std::optional<ir::MemRefPtr>{});
++}
++
++ir::CallPtr CallWith(const ir::OpPtr& op, const std::vector<ir::ExprPtr>& arguments,
++                     const ir::TypePtr& type,
++                     std::vector<std::pair<std::string, std::any>> kwargs = {},
++                     std::vector<std::pair<std::string, std::any>> attrs = {}) {
++  return std::make_shared<ir::Call>(op, arguments, std::move(kwargs), std::move(attrs), type,
++                                    TestSpan());
++}
++
++ir::CallPtr AddCall(const ir::ExprPtr& lhs, const ir::ExprPtr& rhs,
++                    const ir::TypePtr& type) {
++  return CallWith(ir::OpRegistry::GetInstance().GetOp("tensor.add"), {lhs, rhs}, type);
++}
++
++ir::ProgramPtr MakeProgram(const std::string& function_name,
++                           const std::vector<ir::VarPtr>& parameters,
++                           const std::vector<ir::ParamDirection>& directions,
++                           const std::vector<ir::TypePtr>& return_types,
++                           const std::vector<ir::StmtPtr>& statements,
++                           std::vector<std::pair<std::string, std::any>> function_attrs = {}) {
++  auto body = std::make_shared<ir::SeqStmts>(statements, TestSpan());
++  auto function = std::make_shared<ir::Function>(
++      function_name, parameters, directions, return_types, body, TestSpan(),
++      ir::FunctionType::Opaque, std::nullopt, std::nullopt, std::move(function_attrs));
++  return std::make_shared<ir::Program>(std::vector<ir::FunctionPtr>{function}, "test",
++                                      TestSpan());
++}
++
++ir::ProgramPtr MakeRawProgram(
++    const std::vector<ir::VarPtr>& parameters,
++    const std::vector<ir::ParamDirection>& directions,
++    const std::vector<ir::TypePtr>& return_types, const ir::StmtPtr& body,
++    std::vector<std::pair<std::string, std::any>> function_attrs = {},
++    bool requires_runtime_binding = false,
++    ir::FunctionType function_type = ir::FunctionType::Opaque,
++    const std::string& function_name = "add_main") {
++  auto function = std::make_shared<ir::Function>(
++      function_name, parameters, directions, return_types, body, TestSpan(), function_type,
++      std::nullopt, std::nullopt, std::move(function_attrs), requires_runtime_binding);
++  return std::make_shared<ir::Program>(std::vector<ir::FunctionPtr>{function}, "test",
++                                      TestSpan());
++}
++
++struct ValidProgram {
++  ir::ProgramPtr program;
++  ir::VarPtr lhs;
++  ir::VarPtr rhs;
++  ir::VarPtr result;
++  ir::TensorTypePtr tensor_type;
++};
++
++ValidProgram MakeValid(const std::vector<int64_t>& shape = {2, 3},
++                       DataType dtype = DataType::FP32,
++                       const std::string& function_name = "add_main",
++                       const std::string& lhs_name = "lhs",
++                       const std::string& rhs_name = "rhs",
++                       const std::string& result_name = "sum") {
++  auto type = PlainTensor(shape, dtype);
++  auto lhs = std::make_shared<ir::Var>(lhs_name, type, TestSpan());
++  auto rhs = std::make_shared<ir::Var>(rhs_name, type, TestSpan());
++  auto result = std::make_shared<ir::Var>(result_name, type, TestSpan());
++  auto assignment = std::make_shared<ir::AssignStmt>(result, AddCall(lhs, rhs, type), TestSpan());
++  auto return_statement =
++      std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{result}, TestSpan());
++  return {MakeProgram(function_name, {lhs, rhs},
++                      {ir::ParamDirection::In, ir::ParamDirection::In}, {type},
++                      {assignment, return_statement}),
++          lhs, rhs, result, type};
++}
++
++std::vector<ir::StmtPtr> ValidStatements(const ValidProgram& valid) {
++  return std::static_pointer_cast<const ir::SeqStmts>(
++             valid.program->functions_.begin()->second->body_)
++      ->stmts_;
++}
++
++ir::ProgramPtr MakeCustomProgram(
++    const ir::TensorTypePtr& lhs_type, const ir::TensorTypePtr& rhs_type,
++    const ir::TensorTypePtr& assignment_type, const ir::TypePtr& call_type,
++    const ir::TypePtr& declared_type, const ir::OpPtr& op,
++    std::vector<std::pair<std::string, std::any>> kwargs = {},
++    std::vector<std::pair<std::string, std::any>> attrs = {}) {
++  auto lhs = std::make_shared<ir::Var>("lhs", lhs_type, TestSpan());
++  auto rhs = std::make_shared<ir::Var>("rhs", rhs_type, TestSpan());
++  auto result = std::make_shared<ir::Var>("sum", assignment_type, TestSpan());
++  auto call = CallWith(op, {lhs, rhs}, call_type, std::move(kwargs), std::move(attrs));
++  auto assignment = std::make_shared<ir::AssignStmt>(result, call, TestSpan());
++  auto returned =
++      std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{result}, TestSpan());
++  return MakeProgram("add_main", {lhs, rhs},
++                     {ir::ParamDirection::In, ir::ParamDirection::In}, {declared_type},
++                     {assignment, returned});
++}
++
++class GroupedNumpunct : public std::numpunct<char> {
++ protected:
++  [[nodiscard]] char do_thousands_sep() const override { return '_'; }
++  [[nodiscard]] std::string do_grouping() const override { return "\3"; }
++};
++
++bool Rejects(const std::function<void()>& action, std::string_view expected) {
++  try {
++    action();
++  } catch (const ValueError& error) {
++    const std::string_view diagnostic(error.what());
++    return diagnostic.find(expected) != std::string_view::npos && diagnostic.size() <= 4096;
++  }
++  return false;
++}
++
++int TestFp32CanonicalSourceAndMetadata() {
++  const ValidProgram valid = MakeValid();
++  const TensorIrModule module = EmitTensorIr(valid.program);
++  const std::string expected =
++      "module {\n"
++      "  nv_tensor_ir.graph @pypto_vector_add(\n"
++      "    %arg0: tensor<2x3xf32> {nv_tensor_ir.stride = \"(3,1)\"},\n"
++      "    %arg1: tensor<2x3xf32> {nv_tensor_ir.stride = \"(3,1)\"}\n"
++      "  ) -> (tensor<2x3xf32> {nv_tensor_ir.stride = \"(3,1)\"}) {\n"
++      "    %result0 = add %arg0, %arg1 : tensor<2x3xf32>\n"
++      "    results %result0 : tensor<2x3xf32>\n"
++      "  }\n"
++      "}\n";
++  REQUIRE(module.GetCanonicalSource() == expected);
++  REQUIRE(module.GetMetadataSchemaVersion() == 1);
++  REQUIRE(module.GetEntryName() == "pypto_vector_add");
++  REQUIRE(module.GetInputCount() == 2);
++  REQUIRE(module.GetResultCount() == 1);
++  REQUIRE(module.GetValueMetadata().size() == 3);
++
++  const auto& input0 = module.GetValueMetadata()[0];
++  REQUIRE(input0.GetRole() == TensorIrValueRole::Input);
++  REQUIRE(input0.GetOrdinal() == 0);
++  REQUIRE(input0.GetDtypeCode() == DataType::FP32.Code());
++  REQUIRE(input0.GetDtypeName() == "fp32");
++  REQUIRE(input0.GetShape() == std::vector<int64_t>({2, 3}));
++  REQUIRE(input0.GetLogicalDenseStrides() == std::vector<int64_t>({3, 1}));
++  REQUIRE(input0.IsContiguous());
++  REQUIRE(input0.HasExplicitStrides());
++
++  const auto& result = module.GetValueMetadata()[2];
++  REQUIRE(result.GetRole() == TensorIrValueRole::Result);
++  REQUIRE(result.GetOrdinal() == 0);
++  REQUIRE(result.GetDtypeCode() == DataType::FP32.Code());
++  REQUIRE(result.GetDtypeName() == "fp32");
++  REQUIRE(result.GetShape() == input0.GetShape());
++  REQUIRE(result.GetLogicalDenseStrides() == input0.GetLogicalDenseStrides());
++  REQUIRE(result.HasExplicitStrides());
++  return 0;
++}
++
++int TestRankOneExactCanonicalSources() {
++  const ValidProgram valid = MakeValid({7}, DataType::BF16, "bf16_add");
++  const TensorIrModule module = EmitTensorIr(valid.program);
++  const std::string expected =
++      "module {\n"
++      "  nv_tensor_ir.graph @pypto_vector_add(\n"
++      "    %arg0: tensor<7xbf16>,\n"
++      "    %arg1: tensor<7xbf16>\n"
++      "  ) -> tensor<7xbf16> {\n"
++      "    %result0 = add %arg0, %arg1 : tensor<7xbf16>\n"
++      "    results %result0 : tensor<7xbf16>\n"
++      "  }\n"
++      "}\n";
++  REQUIRE(module.GetCanonicalSource() == expected);
++  REQUIRE(module.GetCanonicalSource().find("nv_tensor_ir.stride") == std::string::npos);
++  REQUIRE(module.GetValueMetadata()[0].GetDtypeCode() == DataType::BF16.Code());
++  REQUIRE(module.GetValueMetadata()[0].GetDtypeName() == "bfloat16");
++  REQUIRE(module.GetValueMetadata()[0].GetLogicalDenseStrides() ==
++          std::vector<int64_t>({1}));
++  REQUIRE(!module.GetValueMetadata()[0].HasExplicitStrides());
++
++  const ValidProgram fp32_valid =
++      MakeValid({128}, DataType::FP32, "fp32_vector_add");
++  const TensorIrModule fp32_module = EmitTensorIr(fp32_valid.program);
++  const std::string fp32_expected =
++      "module {\n"
++      "  nv_tensor_ir.graph @pypto_vector_add(\n"
++      "    %arg0: tensor<128xf32>,\n"
++      "    %arg1: tensor<128xf32>\n"
++      "  ) -> tensor<128xf32> {\n"
++      "    %result0 = add %arg0, %arg1 : tensor<128xf32>\n"
++      "    results %result0 : tensor<128xf32>\n"
++      "  }\n"
++      "}\n";
++  REQUIRE(fp32_module.GetCanonicalSource() == fp32_expected);
++  REQUIRE(!fp32_module.GetValueMetadata()[2].HasExplicitStrides());
++  return 0;
++}
++
++int TestDeterministicGeneratedNamesAndOperandIdentity() {
++  const ValidProgram first =
++      MakeValid({4, 5}, DataType::FP32, "first_hir_name", "alpha", "beta", "gamma");
++  const ValidProgram second =
++      MakeValid({4, 5}, DataType::FP32, "second_hir_name", "x", "y", "z");
++  const TensorIrModule first_module = EmitTensorIr(first.program);
++  const TensorIrModule second_module = EmitTensorIr(second.program);
++  REQUIRE(first_module.GetCanonicalSource() == second_module.GetCanonicalSource());
++  REQUIRE(first_module.GetEntryName() == second_module.GetEntryName());
++
++  auto reversed_assignment = std::make_shared<ir::AssignStmt>(
++      first.result, AddCall(first.rhs, first.lhs, first.tensor_type), TestSpan());
++  auto return_statement =
++      std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{first.result}, TestSpan());
++  auto reversed = MakeProgram("first_hir_name", {first.lhs, first.rhs},
++                              {ir::ParamDirection::In, ir::ParamDirection::In},
++                              {first.tensor_type}, {reversed_assignment, return_statement});
++  REQUIRE(EmitTensorIr(reversed).GetCanonicalSource().find(
++              "%result0 = add %arg1, %arg0") != std::string::npos);
++  return 0;
++}
++
++int TestCanonicalSourceIgnoresGlobalLocale() {
++  const ValidProgram valid = MakeValid({1234, 5678}, DataType::FP32, "locale_test");
++  const std::string baseline = EmitTensorIr(valid.program).GetCanonicalSource();
++  const std::locale previous = std::locale();
++  std::locale::global(std::locale(std::locale::classic(), new GroupedNumpunct));
++  const std::string under_hostile_locale =
++      EmitTensorIr(valid.program).GetCanonicalSource();
++  std::locale::global(previous);
++  REQUIRE(under_hostile_locale == baseline);
++  REQUIRE(under_hostile_locale.find("1_234") == std::string::npos);
++  REQUIRE(under_hostile_locale.find("5_678") == std::string::npos);
++  REQUIRE(under_hostile_locale.find("tensor<1234x5678xf32>") != std::string::npos);
++  return 0;
++}
++
++int TestStructuralRejections() {
++  const ValidProgram valid = MakeValid();
++  const ir::FunctionPtr valid_function = valid.program->functions_.begin()->second;
++  const std::vector<ir::StmtPtr> valid_statements = ValidStatements(valid);
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(nullptr); }, "program must not be null"));
++
++  auto empty = std::make_shared<ir::Program>(std::vector<ir::FunctionPtr>{}, "empty", TestSpan());
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(empty); }, "exactly one function"));
++
++  std::map<ir::GlobalVarPtr, ir::FunctionPtr, ir::GlobalVarPtrLess> null_binding;
++  null_binding.emplace(std::make_shared<ir::GlobalVar>("add_main"), ir::FunctionPtr{});
++  auto null_function_program =
++      std::make_shared<ir::Program>(std::move(null_binding), "null", TestSpan());
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(null_function_program); },
++                  "null function binding"));
++
++  std::map<ir::GlobalVarPtr, ir::FunctionPtr, ir::GlobalVarPtrLess> mismatched_binding;
++  mismatched_binding.emplace(std::make_shared<ir::GlobalVar>("different"), valid_function);
++  auto mismatched_global =
++      std::make_shared<ir::Program>(std::move(mismatched_binding), "mismatch", TestSpan());
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(mismatched_global); },
++                  "global function name does not match"));
++
++  auto second = MakeValid({2, 3}, DataType::FP32, "second");
++  std::vector<ir::FunctionPtr> functions;
++  functions.push_back(valid.program->functions_.begin()->second);
++  functions.push_back(second.program->functions_.begin()->second);
++  auto multi = std::make_shared<ir::Program>(functions, "multi", TestSpan());
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(multi); }, "exactly one function"));
++
++  auto out_direction = MakeProgram(
++      "add_main", {valid.lhs, valid.rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::Out}, {valid.tensor_type},
++      ValidStatements(valid));
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(out_direction); }, "direction In"));
++
++  auto wrong_parameter_count = MakeRawProgram(
++      {valid.lhs}, {ir::ParamDirection::In}, {valid.tensor_type}, valid_function->body_);
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(wrong_parameter_count); },
++                  "exactly two function parameters"));
++
++  auto wrong_return_count = MakeRawProgram(
++      {valid.lhs, valid.rhs}, {ir::ParamDirection::In, ir::ParamDirection::In}, {},
++      valid_function->body_);
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(wrong_return_count); },
++                  "exactly one declared return"));
++
++  auto null_parameter = MakeRawProgram(
++      {ir::VarPtr{}, valid.rhs}, {ir::ParamDirection::In, ir::ParamDirection::In},
++      {valid.tensor_type}, valid_function->body_);
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(null_parameter); },
++                  "null parameter"));
++
++  auto iter_parameter = std::make_shared<ir::IterArg>(
++      "iter", valid.tensor_type, valid.lhs, TestSpan());
++  auto subclass_parameter = MakeRawProgram(
++      {iter_parameter, valid.rhs}, {ir::ParamDirection::In, ir::ParamDirection::In},
++      {valid.tensor_type}, valid_function->body_);
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(subclass_parameter); },
++                  "parameters must be exact Var nodes"));
++
++  auto duplicate_parameter = MakeRawProgram(
++      {valid.lhs, valid.lhs}, {ir::ParamDirection::In, ir::ParamDirection::In},
++      {valid.tensor_type}, valid_function->body_);
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(duplicate_parameter); },
++                  "distinct IR identities"));
++
++  auto runtime_bound = MakeRawProgram(
++      {valid.lhs, valid.rhs}, {ir::ParamDirection::In, ir::ParamDirection::In},
++      {valid.tensor_type}, valid_function->body_, {}, true);
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(runtime_bound); },
++                  "runtime-bound functions"));
++
++  auto attributed_function = MakeRawProgram(
++      {valid.lhs, valid.rhs}, {ir::ParamDirection::In, ir::ParamDirection::In},
++      {valid.tensor_type}, valid_function->body_, {{"ignored", true}});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(attributed_function); },
++                  "function attributes"));
++
++  auto assignment = std::make_shared<ir::AssignStmt>(
++      valid.result, AddCall(valid.lhs, valid.rhs, valid.tensor_type), TestSpan());
++  auto returned = std::make_shared<ir::ReturnStmt>(
++      std::vector<ir::ExprPtr>{valid.result}, TestSpan());
++  auto multiple_returns = MakeProgram(
++      "add_main", {valid.lhs, valid.rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {valid.tensor_type},
++      {assignment, returned, returned});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(multiple_returns); },
++                  "exactly one assignment and one return"));
++
++  auto incore_function = std::make_shared<ir::Function>(
++      "add_main", std::vector<ir::VarPtr>{valid.lhs, valid.rhs},
++      std::vector<ir::ParamDirection>{ir::ParamDirection::In, ir::ParamDirection::In},
++      std::vector<ir::TypePtr>{valid.tensor_type},
++      valid.program->functions_.begin()->second->body_, TestSpan(), ir::FunctionType::InCore);
++  auto incore_program = std::make_shared<ir::Program>(
++      std::vector<ir::FunctionPtr>{incore_function}, "incore", TestSpan());
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(incore_program); },
++                  "must be Opaque with no hierarchy"));
++
++  auto null_statement_body = std::make_shared<ir::SeqStmts>(
++      std::vector<ir::StmtPtr>{ir::StmtPtr{}, ir::StmtPtr{}}, TestSpan());
++  auto null_function = std::make_shared<ir::Function>(
++      "add_main", std::vector<ir::VarPtr>{valid.lhs, valid.rhs},
++      std::vector<ir::ParamDirection>{ir::ParamDirection::In, ir::ParamDirection::In},
++      std::vector<ir::TypePtr>{valid.tensor_type}, null_statement_body, TestSpan());
++  auto null_program = std::make_shared<ir::Program>(
++      std::vector<ir::FunctionPtr>{null_function}, "null_body", TestSpan());
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(null_program); },
++                  "must not contain null statements"));
++
++  auto null_body_program = MakeRawProgram(
++      {valid.lhs, valid.rhs}, {ir::ParamDirection::In, ir::ParamDirection::In},
++      {valid.tensor_type}, ir::StmtPtr{});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(null_body_program); },
++                  "body must not be null"));
++
++  auto non_sequence = MakeRawProgram(
++      {valid.lhs, valid.rhs}, {ir::ParamDirection::In, ir::ParamDirection::In},
++      {valid.tensor_type}, valid_statements[0]);
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(non_sequence); },
++                  "top-level sequence"));
++
++  auto eval_body = MakeProgram(
++      "add_main", {valid.lhs, valid.rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {valid.tensor_type},
++      {std::make_shared<ir::EvalStmt>(AddCall(valid.lhs, valid.rhs, valid.tensor_type), TestSpan()),
++       returned});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(eval_body); },
++                  "first function statement must assign"));
++
++  auto return_call = MakeProgram(
++      "add_main", {valid.lhs, valid.rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {valid.tensor_type},
++      {assignment,
++       std::make_shared<ir::ReturnStmt>(
++           std::vector<ir::ExprPtr>{AddCall(valid.lhs, valid.rhs, valid.tensor_type)},
++           TestSpan())});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(return_call); },
++                  "return must directly reference"));
++
++  auto null_target_assignment = std::make_shared<ir::AssignStmt>(
++      ir::VarPtr{}, AddCall(valid.lhs, valid.rhs, valid.tensor_type), TestSpan());
++  auto null_target = MakeProgram(
++      "add_main", {valid.lhs, valid.rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {valid.tensor_type},
++      {null_target_assignment, returned});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(null_target); },
++                  "non-null target and value"));
++
++  auto null_value_assignment =
++      std::make_shared<ir::AssignStmt>(valid.result, ir::ExprPtr{}, TestSpan());
++  auto null_value = MakeProgram(
++      "add_main", {valid.lhs, valid.rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {valid.tensor_type},
++      {null_value_assignment, returned});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(null_value); },
++                  "non-null target and value"));
++
++  auto non_call_assignment =
++      std::make_shared<ir::AssignStmt>(valid.result, valid.lhs, TestSpan());
++  auto non_call = MakeProgram(
++      "add_main", {valid.lhs, valid.rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {valid.tensor_type},
++      {non_call_assignment, returned});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(non_call); },
++                  "assigned value must be a tensor.add call"));
++
++  auto eval_second = MakeProgram(
++      "add_main", {valid.lhs, valid.rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {valid.tensor_type},
++      {assignment, std::make_shared<ir::EvalStmt>(valid.lhs, TestSpan())});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(eval_second); },
++                  "second function statement must be exactly one return"));
++  return 0;
++}
++
++int TestTypeAndExpressionRejections() {
++  const ValidProgram valid = MakeValid();
++  auto fp32 = PlainTensor({2, 3}, DataType::FP32);
++  auto bf16 = PlainTensor({2, 3}, DataType::BF16);
++  auto rank_one = PlainTensor({3}, DataType::FP32);
++  const ir::OpPtr& add = ir::OpRegistry::GetInstance().GetOp("tensor.add");
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(MakeCustomProgram(fp32, rank_one, fp32, fp32, fp32, add));
++      },
++      "input types and shapes must be identical"));
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(MakeCustomProgram(fp32, bf16, fp32, fp32, fp32, add));
++      },
++      "input types and shapes must be identical"));
++
++  auto fp16 = PlainTensor({2, 3}, DataType::FP16);
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(MakeCustomProgram(fp16, fp16, fp16, fp16, fp16, add));
++      },
++      "dtype must be BF16 or FP32"));
++
++  auto dynamic_extent = std::make_shared<ir::Var>(
++      "extent", std::make_shared<ir::ScalarType>(DataType::INDEX), TestSpan());
++  auto dynamic = std::make_shared<ir::TensorType>(
++      std::vector<ir::ExprPtr>{dynamic_extent}, DataType::FP32);
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(
++            MakeCustomProgram(dynamic, dynamic, dynamic, dynamic, dynamic, add));
++      },
++      "shape must be fully static"));
++
++  auto non_index_shape = std::make_shared<ir::TensorType>(
++      std::vector<ir::ExprPtr>{
++          std::make_shared<ir::ConstInt>(7, DataType::INT64, TestSpan())},
++      DataType::FP32);
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(MakeCustomProgram(
++            non_index_shape, non_index_shape, non_index_shape, non_index_shape,
++            non_index_shape, add));
++      },
++      "dimensions must have INDEX dtype"));
++
++  auto view = std::make_shared<ir::TensorType>(
++      std::vector<int64_t>{2, 3}, DataType::FP32, std::optional<ir::MemRefPtr>{},
++      std::optional<ir::TensorView>{
++          ir::TensorView(std::vector<int64_t>{1, 2}, ir::TensorLayout::DN)});
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(MakeCustomProgram(view, view, view, view, view, add));
++      },
++      "must not carry a TensorView"));
++
++  auto base = std::make_shared<ir::Var>("base", ir::GetPtrType(), TestSpan());
++  auto memref = std::make_shared<ir::MemRef>(base, 0, 24, TestSpan());
++  auto with_memref = std::make_shared<ir::TensorType>(
++      std::vector<int64_t>{2, 3}, DataType::FP32,
++      std::optional<ir::MemRefPtr>{memref});
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(MakeCustomProgram(with_memref, with_memref, with_memref,
++                                             with_memref, with_memref, add));
++      },
++      "must not carry a MemRef"));
++
++  auto lhs = std::make_shared<ir::Var>("lhs", fp32, TestSpan());
++  auto rhs = std::make_shared<ir::Var>("rhs", fp32, TestSpan());
++  auto nested = AddCall(lhs, rhs, fp32);
++  auto nested_result = std::make_shared<ir::Var>("sum", fp32, TestSpan());
++  auto nested_assignment = std::make_shared<ir::AssignStmt>(
++      nested_result, AddCall(nested, rhs, fp32), TestSpan());
++  auto nested_return = std::make_shared<ir::ReturnStmt>(
++      std::vector<ir::ExprPtr>{nested_result}, TestSpan());
++  auto nested_program = MakeProgram(
++      "add_main", {lhs, rhs}, {ir::ParamDirection::In, ir::ParamDirection::In}, {fp32},
++      {nested_assignment, nested_return});
++  REQUIRE(Rejects(
++      [&] { (void)EmitTensorIr(nested_program); },
++      "nested expressions are unsupported"));
++
++  auto sub = std::make_shared<ir::Op>("tensor.sub");
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(MakeCustomProgram(fp32, fp32, fp32, fp32, fp32, sub));
++      },
++      "only tensor.add"));
++
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(MakeCustomProgram(fp32, fp32, fp32, fp32, fp32, add, {},
++                                             {{"effect", true}}));
++      },
++      "attributes and keyword arguments are not supported"));
++
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(MakeCustomProgram(fp32, fp32, fp32, fp32, fp32, add,
++                                             {{"ignored", true}}, {}));
++      },
++      "attributes and keyword arguments are not supported"));
++
++  auto different = PlainTensor({2, 4}, DataType::FP32);
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(
++            MakeCustomProgram(fp32, fp32, fp32, fp32, different, add));
++      },
++      "result type and shape must match its inputs"));
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(
++            MakeCustomProgram(fp32, fp32, fp32, different, fp32, add));
++      },
++      "call, assignment, and declared result types must match"));
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(
++            MakeCustomProgram(fp32, fp32, different, fp32, fp32, add));
++      },
++      "call, assignment, and declared result types must match"));
++
++  auto identity_lhs = std::make_shared<ir::Var>("lhs", fp32, TestSpan());
++  auto identity_rhs = std::make_shared<ir::Var>("rhs", fp32, TestSpan());
++  auto external = std::make_shared<ir::Var>("external", fp32, TestSpan());
++  auto identity_result = std::make_shared<ir::Var>("sum", fp32, TestSpan());
++  auto identity_return = std::make_shared<ir::ReturnStmt>(
++      std::vector<ir::ExprPtr>{identity_result}, TestSpan());
++
++  auto iter_result =
++      std::make_shared<ir::IterArg>("iter_result", fp32, identity_lhs, TestSpan());
++  auto subclass_result = MakeProgram(
++      "add_main", {identity_lhs, identity_rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {fp32},
++      {std::make_shared<ir::AssignStmt>(
++           iter_result, AddCall(identity_lhs, identity_rhs, fp32), TestSpan()),
++       std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{iter_result}, TestSpan())});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(subclass_result); },
++                  "assignment result must be an exact Var node"));
++
++  auto iter_operand =
++      std::make_shared<ir::IterArg>("iter_operand", fp32, identity_lhs, TestSpan());
++  auto subclass_operand = MakeProgram(
++      "add_main", {identity_lhs, identity_rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {fp32},
++      {std::make_shared<ir::AssignStmt>(
++           identity_result, AddCall(iter_operand, identity_rhs, fp32), TestSpan()),
++       identity_return});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(subclass_operand); },
++                  "operands must be"));
++
++  auto returned_iter =
++      std::make_shared<ir::IterArg>("returned_iter", fp32, identity_result, TestSpan());
++  auto subclass_return = MakeProgram(
++      "add_main", {identity_lhs, identity_rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {fp32},
++      {std::make_shared<ir::AssignStmt>(
++           identity_result, AddCall(identity_lhs, identity_rhs, fp32), TestSpan()),
++       std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{returned_iter}, TestSpan())});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(subclass_return); },
++                  "return must directly reference"));
++
++  auto external_operand = MakeProgram(
++      "add_main", {identity_lhs, identity_rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {fp32},
++      {std::make_shared<ir::AssignStmt>(
++           identity_result, AddCall(external, identity_rhs, fp32), TestSpan()),
++       identity_return});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(external_operand); },
++                  "operand is not a function parameter"));
++
++  auto reused_result = MakeProgram(
++      "add_main", {identity_lhs, identity_rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {fp32},
++      {std::make_shared<ir::AssignStmt>(
++           identity_lhs, AddCall(identity_lhs, identity_rhs, fp32), TestSpan()),
++       std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{identity_lhs}, TestSpan())});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(reused_result); },
++                  "result must not reuse a parameter"));
++
++  for (const ir::VarPtr& repeated : std::vector<ir::VarPtr>{identity_lhs, identity_rhs}) {
++    auto same_operand = MakeProgram(
++        "add_main", {identity_lhs, identity_rhs},
++        {ir::ParamDirection::In, ir::ParamDirection::In}, {fp32},
++        {std::make_shared<ir::AssignStmt>(
++             identity_result, AddCall(repeated, repeated, fp32), TestSpan()),
++         identity_return});
++    REQUIRE(Rejects([&] { (void)EmitTensorIr(same_operand); },
++                    "cover both distinct function parameters"));
++  }
++
++  auto short_call = CallWith(add, {identity_lhs}, fp32);
++  auto wrong_arity = MakeProgram(
++      "add_main", {identity_lhs, identity_rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {fp32},
++      {std::make_shared<ir::AssignStmt>(identity_result, short_call, TestSpan()),
++       identity_return});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(wrong_arity); },
++                  "must have exactly two operands"));
++  return 0;
++}
++
++int TestStaticShapeRejections() {
++  const ir::OpPtr& add = ir::OpRegistry::GetInstance().GetOp("tensor.add");
++  const auto reject_shape = [&](const std::vector<int64_t>& shape,
++                                std::string_view expected) {
++    auto type = PlainTensor(shape, DataType::FP32);
++    return Rejects(
++        [&] {
++          (void)EmitTensorIr(MakeCustomProgram(type, type, type, type, type, add));
++        },
++        expected);
++  };
++
++  REQUIRE(reject_shape({}, "rank must be between 1 and 32"));
++  REQUIRE(reject_shape(std::vector<int64_t>(33, 1), "rank must be between 1 and 32"));
++  REQUIRE(reject_shape({0}, "non-positive dimension"));
++  REQUIRE(reject_shape({-1}, "non-positive dimension"));
++  REQUIRE(reject_shape({2, std::numeric_limits<int64_t>::max()},
++                       "element count exceeds the signed 64-bit"));
++  return 0;
++}
++
++int TestCosmeticNamesAndDiagnosticBounds() {
++  const ValidProgram valid = MakeValid();
++  const std::string oversized_function(5000, 'x');
++  const ValidProgram cosmetic = MakeValid({2, 3}, DataType::FP32, oversized_function,
++                                          "same\nname", "same\nname", "same\nname");
++  const TensorIrModule cosmetic_module = EmitTensorIr(cosmetic.program);
++  REQUIRE(cosmetic_module.GetCanonicalSource() ==
++          EmitTensorIr(valid.program).GetCanonicalSource());
++  REQUIRE(cosmetic_module.GetCanonicalSource().find("xxxxxxxx") == std::string::npos);
++  REQUIRE(cosmetic_module.GetCanonicalSource().find("same") == std::string::npos);
++
++  const ir::Span oversized_span(std::string(10000, 'p'), 1, 1);
++  auto fp16 = PlainTensor({2, 3}, DataType::FP16);
++  auto lhs = std::make_shared<ir::Var>("lhs", fp16, oversized_span);
++  auto rhs = std::make_shared<ir::Var>("rhs", fp16, oversized_span);
++  auto result = std::make_shared<ir::Var>("result", fp16, oversized_span);
++  auto assignment = std::make_shared<ir::AssignStmt>(
++      result, AddCall(lhs, rhs, fp16), oversized_span);
++  auto returned = std::make_shared<ir::ReturnStmt>(
++      std::vector<ir::ExprPtr>{result}, oversized_span);
++  auto diagnostic_program = MakeProgram(
++      "ignored", {lhs, rhs}, {ir::ParamDirection::In, ir::ParamDirection::In}, {fp16},
++      {assignment, returned});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(diagnostic_program); },
++                  "dtype must be BF16 or FP32"));
++  return 0;
++}
++
++}  // namespace
++
++int main() {
++  static_assert(!std::is_default_constructible_v<TensorIrValueMetadata>);
++  static_assert(!std::is_default_constructible_v<TensorIrModule>);
++  static_assert(!std::is_copy_assignable_v<TensorIrValueMetadata>);
++  static_assert(!std::is_move_assignable_v<TensorIrValueMetadata>);
++  static_assert(!std::is_copy_assignable_v<TensorIrModule>);
++  static_assert(!std::is_move_assignable_v<TensorIrModule>);
++  static_assert(!std::is_constructible_v<
++                TensorIrValueMetadata, TensorIrValueRole, uint32_t, DataType,
++                std::vector<int64_t>, std::vector<int64_t>, bool>);
++  static_assert(!std::is_constructible_v<TensorIrModule, std::string,
++                                         std::vector<TensorIrValueMetadata>, uint32_t>);
++
++  if (const int result = TestFp32CanonicalSourceAndMetadata()) return result;
++  if (const int result = TestRankOneExactCanonicalSources()) return result;
++  if (const int result = TestDeterministicGeneratedNamesAndOperandIdentity()) return result;
++  if (const int result = TestCanonicalSourceIgnoresGlobalLocale()) return result;
++  if (const int result = TestStructuralRejections()) return result;
++  if (const int result = TestTypeAndExpressionRejections()) return result;
++  if (const int result = TestStaticShapeRejections()) return result;
++  if (const int result = TestCosmeticNamesAndDiagnosticBounds()) return result;
++  return 0;
++}

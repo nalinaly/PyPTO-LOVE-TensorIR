@@ -1,0 +1,193 @@
+From f3bcaaccdfb169080628d56e461653b0ba3e0ad5 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 05:46:00 +0800
+Subject: [PATCH 039/212] Bind every strict compiler input gitlink
+
+---
+ cmake/nvidia_backend.cmake                    | 24 ++++++++++++++++++-
+ cmake/verify_nvidia_source_provenance.cmake   |  8 +++++++
+ docs/en/dev/backend/01-nvidia-target-info.md  |  9 ++++++-
+ docs/zh/dev/backend/01-nvidia-target-info.md  |  8 ++++++-
+ include/pypto/compiler/artifact.h             |  2 +-
+ .../structured_tensorir_explicit_v1.json      |  9 +++++++
+ tests/ut/compiler/test_artifact.py            |  2 +-
+ 7 files changed, 57 insertions(+), 5 deletions(-)
+
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 4b7659ddd57c50689ba9f211c4691813f0f408bb..921dcaa818e1e25350802575667c470e33a125e9 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -20,6 +20,9 @@ set(_pypto_nvidia_root "${CMAKE_SOURCE_DIR}/3rdparty/nvidia")
+ set(_pypto_tensor_ir_source "${_pypto_nvidia_root}/tensor-ir")
+ set(_pypto_cuda_tile_source "${_pypto_nvidia_root}/cuda-tile")
+ set(_pypto_llvm_source "${_pypto_nvidia_root}/llvm-project")
++set(_pypto_msgpack_source "${CMAKE_SOURCE_DIR}/3rdparty/msgpack-c")
++set(_pypto_libbacktrace_source "${CMAKE_SOURCE_DIR}/3rdparty/libbacktrace")
++set(_pypto_runtime_source "${CMAKE_SOURCE_DIR}/runtime")
+ 
+ foreach(_required_source
+         "${_pypto_tensor_ir_source}/CMakeLists.txt"
+@@ -38,6 +41,12 @@ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+     "57109befac92811d2253109242ca6fa69c961fb2")
++set(PYPTO_MSGPACK_REVISION
++    "919908742b4fdbc575e77fe1a8657e70c9573c44")
++set(PYPTO_LIBBACKTRACE_REVISION
++    "6f8310e238fc3ce68f42f391cbe93fd156bb2c23")
++set(PYPTO_RUNTIME_REVISION
++    "93adc3865e65fd72655f571f2e4165cf5ac02616")
+ set(PYPTO_NVIDIA_CUDA_TOOLKIT_ROOT "/usr/local/cuda-13.3"
+     CACHE PATH "Canonical CUDA Toolkit root for the NVIDIA compiler")
+ set(PYPTO_NVIDIA_CUDA_TOOLKIT_VERSION "13.3.73")
+@@ -49,7 +58,7 @@ set(PYPTO_NVIDIA_TILEIRAS_SHA256
+ set(PYPTO_NVIDIA_STRUCTURED_PIPELINE_SPEC
+     "${CMAKE_SOURCE_DIR}/src/compiler/nvidia/structured_tensorir_explicit_v1.json")
+ set(PYPTO_NVIDIA_STRUCTURED_PIPELINE_REVISION
+-    "c9a61d276851e93f285c430d2833d900cf0e3b81")
++    "46610e0415598d010981e4bd07d0660c592401ac")
+ 
+ find_package(Git REQUIRED)
+ 
+@@ -211,6 +220,13 @@ _pypto_require_git_revision(
+     "CUDA Tile")
+ _pypto_require_git_revision(
+     "${_pypto_llvm_source}" "${PYPTO_NVIDIA_LLVM_REVISION}" "LLVM")
++_pypto_require_git_revision(
++    "${_pypto_msgpack_source}" "${PYPTO_MSGPACK_REVISION}" "msgpack-c")
++_pypto_require_git_revision(
++    "${_pypto_libbacktrace_source}" "${PYPTO_LIBBACKTRACE_REVISION}"
++    "libbacktrace")
++_pypto_require_git_revision(
++    "${_pypto_runtime_source}" "${PYPTO_RUNTIME_REVISION}" "PyPTO runtime")
+ 
+ file(REAL_PATH "${PYPTO_NVIDIA_CUDA_TOOLKIT_ROOT}"
+      _pypto_cuda_toolkit_real EXPAND_TILDE)
+@@ -298,6 +314,12 @@ add_custom_target(pypto_nvidia_provenance_guard
+             "-DCUDA_TILE_EXPECTED_REVISION=${PYPTO_NVIDIA_CUDA_TILE_REVISION}"
+             "-DLLVM_SOURCE_DIR=${_pypto_llvm_source}"
+             "-DLLVM_EXPECTED_REVISION=${PYPTO_NVIDIA_LLVM_REVISION}"
++            "-DMSGPACK_SOURCE_DIR=${_pypto_msgpack_source}"
++            "-DMSGPACK_EXPECTED_REVISION=${PYPTO_MSGPACK_REVISION}"
++            "-DLIBBACKTRACE_SOURCE_DIR=${_pypto_libbacktrace_source}"
++            "-DLIBBACKTRACE_EXPECTED_REVISION=${PYPTO_LIBBACKTRACE_REVISION}"
++            "-DPYPTO_RUNTIME_SOURCE_DIR=${_pypto_runtime_source}"
++            "-DPYPTO_RUNTIME_EXPECTED_REVISION=${PYPTO_RUNTIME_REVISION}"
+             -P "${CMAKE_SOURCE_DIR}/cmake/verify_nvidia_source_provenance.cmake"
+     VERBATIM)
+ foreach(_guarded_target NVTensorIRCompiler CudaTileDialect
+diff --git a/cmake/verify_nvidia_source_provenance.cmake b/cmake/verify_nvidia_source_provenance.cmake
+index fb2090abefa02012d2a660dec7f5011b0316f97f..93ab611d2c9b8428c77f0c42f080e5ff09b9b135 100644
+--- a/cmake/verify_nvidia_source_provenance.cmake
++++ b/cmake/verify_nvidia_source_provenance.cmake
+@@ -98,3 +98,11 @@ _pypto_verify_locked_source(
+     "${CUDA_TILE_SOURCE_DIR}" "${CUDA_TILE_EXPECTED_REVISION}" "CUDA Tile")
+ _pypto_verify_locked_source(
+     "${LLVM_SOURCE_DIR}" "${LLVM_EXPECTED_REVISION}" "LLVM")
++_pypto_verify_locked_source(
++    "${MSGPACK_SOURCE_DIR}" "${MSGPACK_EXPECTED_REVISION}" "msgpack-c")
++_pypto_verify_locked_source(
++    "${LIBBACKTRACE_SOURCE_DIR}" "${LIBBACKTRACE_EXPECTED_REVISION}"
++    "libbacktrace")
++_pypto_verify_locked_source(
++    "${PYPTO_RUNTIME_SOURCE_DIR}" "${PYPTO_RUNTIME_EXPECTED_REVISION}"
++    "PyPTO runtime")
+diff --git a/docs/en/dev/backend/01-nvidia-target-info.md b/docs/en/dev/backend/01-nvidia-target-info.md
+index 9809ad896510903a15f5580a818debaec8fbce8a..64b756fc84a6ed0ad624046abe1c7e28ef22ba05 100644
+--- a/docs/en/dev/backend/01-nvidia-target-info.md
++++ b/docs/en/dev/backend/01-nvidia-target-info.md
+@@ -234,7 +234,7 @@ The assembler CLI spelling and semantic target are separate identity fields:
+ `assembler_gpu_name=sm_120`, while TensorIR's exact-architecture policy is
+ `tensor_ir_target=sm_120a`. The canonical pipeline specification is
+ [`structured_tensorir_explicit_v1.json`](../../../../src/compiler/nvidia/structured_tensorir_explicit_v1.json).
+-Its Git-blob identity is `c9a61d276851e93f285c430d2833d900cf0e3b81`;
++Its Git-blob identity is `46610e0415598d010981e4bd07d0660c592401ac`;
+ CMake verifies that identity so the pipeline revision cannot be an unexplained
+ placeholder.
+ 
+@@ -257,6 +257,13 @@ disabled and are checked again at the private bridge boundary. The pinned
+ source-entry compiler also consumes in-process MLIR diagnostics in strict mode;
+ only a bounded, sanitized status crosses the bridge.
+ 
++Strict source provenance covers every Git submodule compiled into the product,
++not only the NVIDIA lowering stack. Configure- and build-time guards require
++exact clean gitlinks for TensorIR, CUDA Tile, LLVM, msgpack-c, libbacktrace and
++the PyPTO runtime headers; tracked, untracked and ignored changes all fail
++closed. The clean parent PyPTO revision therefore binds the complete compiler
++source closure represented by those gitlinks.
++
+ Resolved schedule metadata is cross-checked against the reconstructed kernel
+ ABI. In particular, grid tile sizes must equal the schedule tile sizes, and
+ the argument layout must agree with `uniform_signature=false`. The complete
+diff --git a/docs/zh/dev/backend/01-nvidia-target-info.md b/docs/zh/dev/backend/01-nvidia-target-info.md
+index db7a840ede198bb482a05965896ca130aad4e811..3aa67dcc6ad04264fd732d301db2b158eefaf369 100644
+--- a/docs/zh/dev/backend/01-nvidia-target-info.md
++++ b/docs/zh/dev/backend/01-nvidia-target-info.md
+@@ -210,7 +210,7 @@ assembler CLI spelling 与 semantic target 是两个不同 identity field：
+ `assembler_gpu_name=sm_120`，TensorIR exact-architecture policy 则是
+ `tensor_ir_target=sm_120a`。canonical pipeline specification 位于
+ [`structured_tensorir_explicit_v1.json`](../../../../src/compiler/nvidia/structured_tensorir_explicit_v1.json)，
+-其 Git-blob identity 为 `c9a61d276851e93f285c430d2833d900cf0e3b81`。
++其 Git-blob identity 为 `46610e0415598d010981e4bd07d0660c592401ac`。
+ CMake 会验证该 identity，避免 pipeline revision 变成无法解释的 placeholder。
+ 
+ 固定 resource/producer policy 也被显式记录：occupancy 为 `1`、SM count 来自
+@@ -230,6 +230,12 @@ scratch scan 对 permission、I/O 和其他持久错误 fail closed；仅 `ENOEN
+ 并在 private bridge boundary 再次核对。pinned source-entry compiler 在 strict mode
+ 还会消费进程内 MLIR diagnostic；跨 bridge 的只有 bounded、sanitized status。
+ 
++strict source provenance 覆盖所有会被编译进产品的 Git submodule，而不只 NVIDIA
++lowering stack。configure-time 与 build-time guard 都要求 TensorIR、CUDA Tile、
++LLVM、msgpack-c、libbacktrace 和 PyPTO runtime header 对应精确且干净的 gitlink；
++tracked、untracked 或 ignored change 都会 fail closed。因此干净的父 PyPTO
++revision 能绑定这些 gitlink 所表示的完整 compiler source closure。
++
+ resolved schedule metadata 会与重建出的 kernel ABI 交叉检查。特别是 grid tile size
+ 必须等于 schedule tile size，argument layout 也必须与
+ `uniform_signature=false` 一致。完整 kernel ABI 还会被
+diff --git a/include/pypto/compiler/artifact.h b/include/pypto/compiler/artifact.h
+index b4ac0f749e5b32808ab44f2b44e9a40ec0b9c77f..1b3dee423f7457b5755c93ad8b0a479fbbf6149a 100644
+--- a/include/pypto/compiler/artifact.h
++++ b/include/pypto/compiler/artifact.h
+@@ -473,7 +473,7 @@ class Artifact {
+   static constexpr std::string_view kProducerOptionsContract =
+       "pypto.nvidia.tensorir_options.v1";
+   static constexpr std::string_view kStructuredTensorIrPipelineRevision =
+-      "c9a61d276851e93f285c430d2833d900cf0e3b81";
++      "46610e0415598d010981e4bd07d0660c592401ac";
+   static constexpr uint32_t kArtifactSchemaVersion = 1;
+   static constexpr uint32_t kCompilerAbiVersion = CompileRequest::kCompilerAbiVersion;
+   static constexpr int32_t kRequiredComputeCapability = 120;
+diff --git a/src/compiler/nvidia/structured_tensorir_explicit_v1.json b/src/compiler/nvidia/structured_tensorir_explicit_v1.json
+index c9a61d276851e93f285c430d2833d900cf0e3b81..46610e0415598d010981e4bd07d0660c592401ac 100644
+--- a/src/compiler/nvidia/structured_tensorir_explicit_v1.json
++++ b/src/compiler/nvidia/structured_tensorir_explicit_v1.json
+@@ -38,6 +38,15 @@
+   "semantic_route": "structured-tensorir",
+   "sm_count": "NvidiaTargetInfo.traits.multiprocessor_count",
+   "stage_parameters": [],
++  "source_provenance_contract": "clean-pypto-and-all-compiler-input-gitlinks-v2",
++  "source_provenance_direct_submodules": [
++    "3rdparty/libbacktrace",
++    "3rdparty/msgpack-c",
++    "3rdparty/nvidia/cuda-tile",
++    "3rdparty/nvidia/llvm-project",
++    "3rdparty/nvidia/tensor-ir",
++    "runtime"
++  ],
+   "tensor_ir_portability": "arch-conditional",
+   "tensor_ir_target": "sm_120a",
+   "uniform_signature": false,
+diff --git a/tests/ut/compiler/test_artifact.py b/tests/ut/compiler/test_artifact.py
+index c06e55ba1163cee8eeb1c4095364c7d383bde1df..d3dd52d7b9653c3cccad1cb465574f485359ea3b 100644
+--- a/tests/ut/compiler/test_artifact.py
++++ b/tests/ut/compiler/test_artifact.py
+@@ -45,7 +45,7 @@ from pypto.compiler import (
+     get_nvidia_backend_build_info,
+ )
+ 
+-PIPELINE_REVISION = "c9a61d276851e93f285c430d2833d900cf0e3b81"
++PIPELINE_REVISION = "46610e0415598d010981e4bd07d0660c592401ac"
+ ARTIFACT_PAYLOAD_LIMIT = 68 * 1024 * 1024
+ CANONICAL_SOURCE = b"""module {
+   nv_tensor_ir.graph @add_op_simple(

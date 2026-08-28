@@ -1,0 +1,147 @@
+From ee75208b1fde213e731baffb935bf8ba91c335a3 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 08:58:26 +0800
+Subject: [PATCH 68/82] Accept compatible composite index projections
+
+---
+ .../LayoutPropagationImpl.cpp                 | 71 ++++++++-----------
+ .../TensorToCudaTile/gather_rows_layout.mlir  |  2 +-
+ 2 files changed, 30 insertions(+), 43 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index 5f552341e7889c8a71b3438c27d822158587ecd3..764c41ffe9b43157e5d7a794293cab3bfc49ad18 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -7,7 +7,6 @@
+ #include "tensor_ir/Utils/Utils.h"
+ 
+ #include <limits>
+-#include <optional>
+ 
+ #include "llvm/Support/Debug.h"
+ 
+@@ -54,16 +53,27 @@ namespace mlir::nv_tensor_ir {
+ namespace tensor_to_cuda_tile {
+ namespace {
+ 
+-bool mergeConsistentStaticProjection(
+-    LayoutSourceAttrInterface source,
+-    std::optional<tcg::Layout> &projection) {
++bool validateProjectedIndices(LayoutSourceAttrInterface source,
++                              size_t iterationRank, size_t rowDim,
++                              bool scalarRowProjection,
++                              bool &sawExplicitRow) {
+   if (auto tensorSource = dyn_cast<TensorSourceAttr>(source)) {
+     tcg::Layout candidate = tensorSource.getCuteLayout();
+     if (!tcg::is_static(candidate) ||
+-        (projection && *projection != candidate)) {
++        tcg::rank(candidate) != iterationRank) {
+       return false;
+     }
+-    projection = std::move(candidate);
++    for (size_t dim = 0; dim < iterationRank; ++dim) {
++      int64_t stride =
++          tcg::static_size(tcg::get(candidate.stride(), dim));
++      int64_t expected = !scalarRowProjection && dim == rowDim ? 1 : 0;
++      if (stride != 0 && stride != expected) {
++        return false;
++      }
++      if (expected == 1 && stride == 1) {
++        sawExplicitRow = true;
++      }
++    }
+     return true;
+   }
+   if (auto composite = dyn_cast<CompositeSourceAttr>(source)) {
+@@ -71,19 +81,20 @@ bool mergeConsistentStaticProjection(
+       return false;
+     }
+     return llvm::all_of(composite.getSources(), [&](auto child) {
+-      return mergeConsistentStaticProjection(child, projection);
++      return validateProjectedIndices(child, iterationRank, rowDim,
++                                      scalarRowProjection, sawExplicitRow);
+     });
+   }
+   return false;
+ }
+ 
+-std::optional<tcg::Layout>
+-getConsistentStaticProjection(LayoutSourceAttrInterface source) {
+-  std::optional<tcg::Layout> projection;
+-  if (!mergeConsistentStaticProjection(source, projection)) {
+-    return std::nullopt;
+-  }
+-  return projection;
++bool hasValidProjectedIndices(LayoutSourceAttrInterface source,
++                              size_t iterationRank, size_t rowDim,
++                              bool scalarRowProjection) {
++  bool sawExplicitRow = scalarRowProjection;
++  return validateProjectedIndices(source, iterationRank, rowDim,
++                                  scalarRowProjection, sawExplicitRow) &&
++         sawExplicitRow;
+ }
+ 
+ class ConversionStateImpl : public ConversionState {
+@@ -319,22 +330,10 @@ public:
+           "data layout may omit the row axis only for a single-row gather");
+     }
+ 
+-    auto indicesProjection = getConsistentStaticProjection(state.layouts[1]);
+-    if (!indicesProjection || tcg::rank(*indicesProjection) != iterationRank) {
++    if (!hasValidProjectedIndices(state.layouts[1], iterationRank, rowDim,
++                                  scalarRowProjection)) {
+       return op.emitError("indices layout must be a static fused projection");
+     }
+-    const tcg::Layout &indicesLayout = *indicesProjection;
+-    for (size_t dim = 0; dim < iterationRank; ++dim) {
+-      int64_t layoutStride =
+-          tcg::static_size(tcg::get(indicesLayout.stride(), dim));
+-      const int64_t expectedStride =
+-          !scalarRowProjection && dim == rowDim ? 1 : 0;
+-      if (layoutStride != expectedStride) {
+-        return op.emitError(
+-            "indices layout must vary contiguously only along an explicit "
+-            "row axis");
+-      }
+-    }
+ 
+     int64_t rowTileSize =
+         scalarRowProjection ? 1 : iterationTileShape[rowDim];
+@@ -508,22 +507,10 @@ public:
+           "data layout may omit the row axis only for a single-row scatter");
+     }
+ 
+-    auto indicesProjection = getConsistentStaticProjection(state.layouts[1]);
+-    if (!indicesProjection || tcg::rank(*indicesProjection) != iterationRank) {
++    if (!hasValidProjectedIndices(state.layouts[1], iterationRank, rowDim,
++                                  scalarRowProjection)) {
+       return op.emitError("indices layout must be a static fused projection");
+     }
+-    const tcg::Layout &indicesLayout = *indicesProjection;
+-    for (size_t dim = 0; dim < iterationRank; ++dim) {
+-      int64_t layoutStride =
+-          tcg::static_size(tcg::get(indicesLayout.stride(), dim));
+-      const int64_t expectedStride =
+-          !scalarRowProjection && dim == rowDim ? 1 : 0;
+-      if (layoutStride != expectedStride) {
+-        return op.emitError(
+-            "indices layout must vary contiguously only along an explicit "
+-            "row axis");
+-      }
+-    }
+ 
+     int64_t rowTileSize =
+         scalarRowProjection ? 1 : iterationTileShape[rowDim];
+diff --git a/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
+index 2e7c5dda9d0f6f922acd5f738476e100f83f4c72..7bb192d0e7af30dede8afc6b6f16d6f372778ff5 100644
+--- a/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
++++ b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
+@@ -71,7 +71,7 @@ module {
+   nv_tensor_ir.graph @gather_composite_indices(
+       %data: tensor<1024x128xbf16>,
+       %indices0: tensor<32x128xsi32> {nv_tensor_ir.stride = "(1,0)"},
+-      %indices1: tensor<32x128xsi32> {nv_tensor_ir.stride = "(1,0)"})
++      %indices1: tensor<32x128xsi32> {nv_tensor_ir.stride = "(0,0)"})
+       -> tensor<32x128xbf16>
+       attributes {tile_size = array<i32: 8, 128>} {
+     %indices = add %indices0, %indices1 : tensor<32x128xsi32>

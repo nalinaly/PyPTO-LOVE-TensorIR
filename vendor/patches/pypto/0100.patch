@@ -1,0 +1,119 @@
+From 39ac068670263e2d944ff7c60465c047e06b5315 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 22:37:26 +0800
+Subject: [PATCH 100/212] Vendor TensorIR multi-output stores
+
+---
+ ...tore-every-layout-propagation-result.patch | 67 +++++++++++++++++++
+ 3rdparty/nvidia/tensor-ir                     |  2 +-
+ cmake/nvidia_backend.cmake                    |  2 +-
+ .../test_nvidia_backend_build_info.py         |  2 +-
+ 4 files changed, 70 insertions(+), 3 deletions(-)
+ create mode 100644 3rdparty/nvidia/0005-Store-every-layout-propagation-result.patch
+
+diff --git a/3rdparty/nvidia/0005-Store-every-layout-propagation-result.patch b/3rdparty/nvidia/0005-Store-every-layout-propagation-result.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..46601b043a03cffcebf4795e2370da5487331809
+--- /dev/null
++++ b/3rdparty/nvidia/0005-Store-every-layout-propagation-result.patch
+@@ -0,0 +1,67 @@
++From a2aa598600989008665fa2b2cc5c8c89ecc093b6 Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Thu, 27 Aug 2026 22:37:09 +0800
++Subject: [PATCH] Store every layout-propagation result
++
++---
++ .../LayoutPropagationImpl.cpp                 | 39 ++++++++++++-------
++ 1 file changed, 26 insertions(+), 13 deletions(-)
++
++diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++index ed7ba6b..eeaccc4 100644
++--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++@@ -631,24 +631,37 @@ public:
++     // updated here instead of calling the `update` method.
++     state.blockStructure = &state.blockStructures[resultsOp.getOperation()];
++     state.iterationSpace = &state.blockStructure->iterationSpaces[0];
++-    state.layouts = ConversionStateImpl::OperandLayouts{state.normalizedLayout};
+++    state.layouts.clear();
+++    for (Value operand : resultsOp.getOperands()) {
+++      auto layout = dyn_cast_or_null<LayoutSourceAttrInterface>(
+++          getLayoutSourceAttr(operand));
+++      if (!layout) {
+++        return resultsOp.emitError("Result operand is missing layout data");
+++      }
+++      state.layouts.push_back(layout);
+++    }
++     state.operandIndex = 0;
++ 
++     rewriter.setInsertionPointToEnd(state.iterationSpace->insertionBlock);
++ 
++-    // Reshape the output to the iteration space shape.
++-    const TensorDescriptor &desc = state.outputDescriptors[0];
++-    TensorSourceAttr outputSource = buildTensorSource(desc);
++-    outputSource = dyn_cast_if_present<TensorSourceAttr>(
++-        outputSource.reshape(state.normalizedLayout.getShape()));
++-    if (!outputSource) {
++-      return resultsOp.emitError("Failed to calculate the output layout");
+++    // Emit one store per ordered result. Every result shares Result0's launch
+++    // domain, but may carry a subset layout produced by graph splitting.
+++    if (state.outputDescriptors.size() != adaptor.getOperands().size()) {
+++      return resultsOp.emitError(
+++          "Output descriptor count does not match result count");
+++    }
+++    for (auto [index, operand] : llvm::enumerate(adaptor.getOperands())) {
+++      const TensorDescriptor &desc = state.outputDescriptors[index];
+++      TensorSourceAttr outputSource = buildTensorSource(desc);
+++      outputSource = dyn_cast_if_present<TensorSourceAttr>(
+++          outputSource.reshape(state.layouts[index].getShape()));
+++      if (!outputSource) {
+++        return resultsOp.emitError("Failed to calculate an output layout");
+++      }
+++      auto layoutDesc = applyLayout(rewriter, desc, outputSource);
+++      Value tile = state.getTile(operand);
+++      emitStore(rewriter, layoutDesc, tile, state.iterationSpace->indexValues);
++     }
++-
++-    // Emit store for the output tensor.
++-    auto layoutDesc = applyLayout(rewriter, desc, outputSource);
++-    Value tile = state.getTile(adaptor.getOperands()[0]);
++-    emitStore(rewriter, layoutDesc, tile, state.iterationSpace->indexValues);
++ 
++     // Remove the zero index if it has no users.
++     if (state.zeroIndex.use_empty()) {
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index a55333d4ef52169cdcf6a899ddfd288908f43de9..a2aa598600989008665fa2b2cc5c8c89ecc093b6 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit a55333d4ef52169cdcf6a899ddfd288908f43de9
++Subproject commit a2aa598600989008665fa2b2cc5c8c89ecc093b6
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 0c0d5065bbce5af707680d7d12c5d0a074ded095..59892f5d4bf1659752ba8f31f6fb3a33334093cb 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "a55333d4ef52169cdcf6a899ddfd288908f43de9")
++    "a2aa598600989008665fa2b2cc5c8c89ecc093b6")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+diff --git a/tests/ut/compiler/test_nvidia_backend_build_info.py b/tests/ut/compiler/test_nvidia_backend_build_info.py
+index 38708c80ba285dafdf30501c78be488253778dd8..5587159d9bd93a404ef30535130f52ef6c9587b1 100644
+--- a/tests/ut/compiler/test_nvidia_backend_build_info.py
++++ b/tests/ut/compiler/test_nvidia_backend_build_info.py
+@@ -30,7 +30,7 @@ def test_nvidia_backend_build_info_is_immutable_and_self_consistent() -> None:
+     assert info.compiler_factory_available
+     assert len(info.pypto_revision) == 40
+     assert set(info.pypto_revision) <= set("0123456789abcdef")
+-    assert info.tensor_ir_revision == "a55333d4ef52169cdcf6a899ddfd288908f43de9"
++    assert info.tensor_ir_revision == "a2aa598600989008665fa2b2cc5c8c89ecc093b6"
+     assert info.cuda_tile_revision == "af2417041cc939b87ef56d92cfdcf61737c5457e"
+     assert info.llvm_revision == "57109befac92811d2253109242ca6fa69c961fb2"
+     assert info.cuda_toolkit_root == "/usr/local/cuda-13.3"

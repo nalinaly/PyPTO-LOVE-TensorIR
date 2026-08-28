@@ -1,0 +1,50 @@
+From e86e3ef4543b8f6b660350d78a42b5b689f35ceb Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 00:32:41 +0800
+Subject: [PATCH 114/212] Allow integer zero-stride TensorIR inputs
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 23 +++++++++++++++++++----
+ 1 file changed, 19 insertions(+), 4 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 5a1a27f640f22599b583b7972e35077e571d38a1..2246335c2c4351109ae2a711634ad8645b9373cf 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -5216,8 +5216,13 @@ TensorIrValueMetadata::TensorIrValueMetadata(TensorIrValueRole role, uint32_t or
+        ordinal_ >= kMaximumFusedPointwiseResults)) {
+     InternalReject("value metadata ordinal is invalid for its role");
+   }
+-  if (dtype != DataType::BF16 && dtype != DataType::FP32) {
+-    InternalReject("value metadata dtype must be BF16 or FP32");
++  const bool computeDtype = dtype == DataType::BF16 || dtype == DataType::FP32;
++  const bool integerInput =
++      role_ == TensorIrValueRole::Input &&
++      (dtype == DataType::INT32 || dtype == DataType::INT64);
++  if (!computeDtype && !integerInput) {
++    InternalReject(
++        "value metadata dtype must be a compute dtype or an integer input");
+   }
+   if (dtype_name_.empty() || shape_.empty() || shape_.size() > kMaximumRank ||
+       shape_.size() != logical_dense_strides_.size() ||
+@@ -5229,8 +5234,18 @@ TensorIrValueMetadata::TensorIrValueMetadata(TensorIrValueRole role, uint32_t or
+   if (has_explicit_strides_ != (shape_.size() >= 2)) {
+     InternalReject("value metadata explicit-stride state does not match canonical rank policy");
+   }
+-  if (logical_dense_strides_ != MakeDenseStridesForMetadata(shape_)) {
+-    InternalReject("value metadata logical dense strides do not match its shape");
++  const bool zeroStrideInput =
++      role_ == TensorIrValueRole::Input && has_explicit_strides_ &&
++      std::any_of(logical_dense_strides_.begin(),
++                  logical_dense_strides_.end(),
++                  [](int64_t stride) { return stride == 0; }) &&
++      std::all_of(logical_dense_strides_.begin(),
++                  logical_dense_strides_.end(),
++                  [](int64_t stride) { return stride >= 0; });
++  if (logical_dense_strides_ != MakeDenseStridesForMetadata(shape_) &&
++      !zeroStrideInput) {
++    InternalReject(
++        "value metadata strides must be dense or a zero-stride input view");
+   }
+ }
+ 

@@ -1,0 +1,24 @@
+From 6245d2baeb6f815b61464f63759c251a9a6abac0 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 12:31:54 +0800
+Subject: [PATCH 79/82] Construct permuted scatter tile types explicitly
+
+---
+ lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index 8e8b3bb36a3f514db18b18cac0add819586da70e..9cdd05c23597f8240e9cbe973b0814b95d62cc1f 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -645,7 +645,9 @@ public:
+     if (permutationNeeded) {
+       auto projectedType = cast<cuda_tile::TileType>(tileToStore.getType());
+       tileToStore = cuda_tile::PermuteOp::create(
+-          rewriter, op.getLoc(), projectedType.clone(storeShape), tileToStore,
++          rewriter, op.getLoc(),
++          cuda_tile::TileType::get(storeShape, projectedType.getElementType()),
++          tileToStore,
+           physicalPermutation);
+     }
+     if (!llvm::equal(storeShape, scatterTileShape)) {

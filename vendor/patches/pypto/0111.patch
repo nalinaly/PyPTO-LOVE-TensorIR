@@ -1,0 +1,86 @@
+From 3fd3c3ac493e94e229690965aa6150509393a5d0 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 00:18:52 +0800
+Subject: [PATCH 111/212] Advance the TensorIR gather lowering
+
+---
+ ...t-gather-index-tile-types-explicitly.patch | 34 +++++++++++++++++++
+ 3rdparty/nvidia/tensor-ir                     |  2 +-
+ cmake/nvidia_backend.cmake                    |  2 +-
+ .../test_nvidia_backend_build_info.py         |  2 +-
+ 4 files changed, 37 insertions(+), 3 deletions(-)
+ create mode 100644 3rdparty/nvidia/0008-Construct-gather-index-tile-types-explicitly.patch
+
+diff --git a/3rdparty/nvidia/0008-Construct-gather-index-tile-types-explicitly.patch b/3rdparty/nvidia/0008-Construct-gather-index-tile-types-explicitly.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..19f0d927c849e7cc8b24b391dab244697c8eb0bb
+--- /dev/null
++++ b/3rdparty/nvidia/0008-Construct-gather-index-tile-types-explicitly.patch
+@@ -0,0 +1,34 @@
++From c05ab8fe2832ec46d72eb43ca9afb90b378c0ad6 Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Fri, 28 Aug 2026 00:18:14 +0800
++Subject: [PATCH] Construct gather index tile types explicitly
++
++---
++ lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp | 8 +++++---
++ 1 file changed, 5 insertions(+), 3 deletions(-)
++
++diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++index b9f9758..94c5ab2 100644
++--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++@@ -246,12 +246,14 @@ public:
++ 
++     auto indicesType = cast<cuda_tile::TileType>(indicesTile.getType());
++     SmallVector<int64_t> narrowShape{state.getTileShape()[0], 1};
++-    auto narrowType = indicesType.clone(narrowShape);
+++    auto narrowType = cuda_tile::TileType::get(
+++        narrowShape, indicesType.getElementType());
++     SmallVector<Value> zeroIndices{state.zeroIndex, state.zeroIndex};
++     Value narrowIndices = cuda_tile::ExtractOp::create(
++         rewriter, op.getLoc(), narrowType, indicesTile, zeroIndices);
++-    auto rowIndicesType = indicesType.clone(
++-        SmallVector<int64_t>{state.getTileShape()[0]});
+++    auto rowIndicesType = cuda_tile::TileType::get(
+++        SmallVector<int64_t>{state.getTileShape()[0]},
+++        indicesType.getElementType());
++     Value rowIndices = cuda_tile::ReshapeOp::create(
++         rewriter, op.getLoc(), rowIndicesType, narrowIndices);
++ 
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 6cdb50c69008ce99af1d8cd88f6ff2852b76573f..c05ab8fe2832ec46d72eb43ca9afb90b378c0ad6 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 6cdb50c69008ce99af1d8cd88f6ff2852b76573f
++Subproject commit c05ab8fe2832ec46d72eb43ca9afb90b378c0ad6
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index c0fe7286a57d915f7cb3e21a13d2216c7b6ec28b..5f87e36c157c8ef8b0fbe96cab2b21c66f4cd858 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "6cdb50c69008ce99af1d8cd88f6ff2852b76573f")
++    "c05ab8fe2832ec46d72eb43ca9afb90b378c0ad6")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+diff --git a/tests/ut/compiler/test_nvidia_backend_build_info.py b/tests/ut/compiler/test_nvidia_backend_build_info.py
+index 480e157c2ab1b94529e437e4ee5efef71b7a4fa8..e70ece8e84c36f465586cb0d0f1ab6ab09313bfe 100644
+--- a/tests/ut/compiler/test_nvidia_backend_build_info.py
++++ b/tests/ut/compiler/test_nvidia_backend_build_info.py
+@@ -30,7 +30,7 @@ def test_nvidia_backend_build_info_is_immutable_and_self_consistent() -> None:
+     assert info.compiler_factory_available
+     assert len(info.pypto_revision) == 40
+     assert set(info.pypto_revision) <= set("0123456789abcdef")
+-    assert info.tensor_ir_revision == "6cdb50c69008ce99af1d8cd88f6ff2852b76573f"
++    assert info.tensor_ir_revision == "c05ab8fe2832ec46d72eb43ca9afb90b378c0ad6"
+     assert info.cuda_tile_revision == "af2417041cc939b87ef56d92cfdcf61737c5457e"
+     assert info.llvm_revision == "57109befac92811d2253109242ca6fa69c961fb2"
+     assert info.cuda_toolkit_root == "/usr/local/cuda-13.3"

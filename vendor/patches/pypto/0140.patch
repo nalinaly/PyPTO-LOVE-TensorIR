@@ -1,0 +1,265 @@
+From 91b3feec1b6164ccd3170ec3c29f9354474a5860 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 04:21:46 +0800
+Subject: [PATCH 140/212] Advance TensorIR fused unit dimensions
+
+---
+ ...t-dimensions-in-fused-matmul-layouts.patch | 227 ++++++++++++++++++
+ 3rdparty/nvidia/tensor-ir                     |   2 +-
+ cmake/nvidia_backend.cmake                    |   2 +-
+ 3 files changed, 229 insertions(+), 2 deletions(-)
+ create mode 100644 3rdparty/nvidia/0033-Handle-unit-dimensions-in-fused-matmul-layouts.patch
+
+diff --git a/3rdparty/nvidia/0033-Handle-unit-dimensions-in-fused-matmul-layouts.patch b/3rdparty/nvidia/0033-Handle-unit-dimensions-in-fused-matmul-layouts.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..a7d5329e0bf93c856b816624eec87ec05bd78578
+--- /dev/null
++++ b/3rdparty/nvidia/0033-Handle-unit-dimensions-in-fused-matmul-layouts.patch
+@@ -0,0 +1,227 @@
++From 4407530b39307866e7d6cc032dcf711c5954f086 Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Fri, 28 Aug 2026 04:08:55 +0800
++Subject: [PATCH] Handle unit dimensions in fused matmul layouts
++
++---
++ include/tensor_ir/Dialect/TensorAttrs.td      |  7 ++-
++ .../TensorToCudaTile/StructureBuilder.cpp     | 22 +++++++-
++ lib/Dialect/TensorAttrs.cpp                   | 23 +++++++-
++ .../paged_decode_attention_layout.mlir        | 55 +++++++++++++++++++
++ 4 files changed, 100 insertions(+), 7 deletions(-)
++ create mode 100644 test/Conversion/TensorToCudaTile/paged_decode_attention_layout.mlir
++
++diff --git a/include/tensor_ir/Dialect/TensorAttrs.td b/include/tensor_ir/Dialect/TensorAttrs.td
++index 19f31e1..3d14338 100644
++--- a/include/tensor_ir/Dialect/TensorAttrs.td
+++++ b/include/tensor_ir/Dialect/TensorAttrs.td
++@@ -175,10 +175,11 @@ def MatmulSourceAttr : TensorIRAttr<"MatmulSource", "matmul_source",
++     /// Get the contracting shape.
++     SmallVector<int64_t> getContractingShape() const;
++ 
++-    /// Get LHS dimension mapping.
+++    /// Get LHS dimension mapping. Explicit unit dimensions absent from the
+++    /// normalized view are represented by static_cast<size_t>(-1).
++     llvm::FailureOr<SmallVector<size_t>> getLhsDimensionMap() const;
++ 
++-    /// Get RHS dimension mapping.
+++    /// Get RHS dimension mapping with the same unit-dimension sentinel.
++     llvm::FailureOr<SmallVector<size_t>> getRhsDimensionMap() const;
++   }];
++ }
++@@ -201,4 +202,4 @@ def TensorIR_FloatAttr : Attr<CPred<"::llvm::isa<::mlir::FloatAttr>($_self)">, "
++   let constBuilderCall = "::mlir::FloatAttr::get($_builder.getF32Type(), $0)";
++ }
++ 
++-#endif // TENSOR_ATTRS
++\ No newline at end of file
+++#endif // TENSOR_ATTRS
++diff --git a/lib/Conversion/TensorToCudaTile/StructureBuilder.cpp b/lib/Conversion/TensorToCudaTile/StructureBuilder.cpp
++index 49bce72..59e9d3d 100644
++--- a/lib/Conversion/TensorToCudaTile/StructureBuilder.cpp
+++++ b/lib/Conversion/TensorToCudaTile/StructureBuilder.cpp
++@@ -17,6 +17,10 @@ namespace {
++ 
++ namespace tcg = mlir::nv_tensor_ir::tcutegen;
++ 
+++// Matmul dimension-map sentinel for an explicit unit operand dimension that
+++// is absent from the normalized output view.
+++constexpr size_t kUnitDimension = static_cast<size_t>(-1);
+++
++ /// Helper for extracting the tensor sources from a layout attribute.
++ /// Only process the layouts within the iteration space boundary.
++ void extractTensorSources(LayoutSourceAttrInterface layout,
++@@ -427,9 +431,20 @@ buildMatmulBlockStructure(RewriterBase &rewriter, MatmulOp matmulOp,
++   SmallVector<int64_t> lhsTileShape;
++   SmallVector<Value> lhsIndexValues;
++   SmallVector<size_t> lhsContractingDims;
+++  Value unitIndex;
+++
+++  auto getUnitIndex = [&]() {
+++    if (!unitIndex) {
+++      unitIndex = createIndex(0);
+++    }
+++    return unitIndex;
+++  };
++ 
++   for (size_t idx : *lhsDimensionMap) {
++-    if (idx < iterSpaceRank) {
+++    if (idx == kUnitDimension) {
+++      lhsTileShape.push_back(1);
+++      lhsIndexValues.push_back(getUnitIndex());
+++    } else if (idx < iterSpaceRank) {
++       lhsTileShape.push_back(iterSpace.tileShape[idx]);
++       lhsIndexValues.push_back(iterSpace.indexValues[idx]);
++     } else {
++@@ -445,7 +460,10 @@ buildMatmulBlockStructure(RewriterBase &rewriter, MatmulOp matmulOp,
++   SmallVector<size_t> rhsContractingDims;
++ 
++   for (size_t idx : *rhsDimensionMap) {
++-    if (idx < iterSpaceRank) {
+++    if (idx == kUnitDimension) {
+++      rhsTileShape.push_back(1);
+++      rhsIndexValues.push_back(getUnitIndex());
+++    } else if (idx < iterSpaceRank) {
++       rhsTileShape.push_back(iterSpace.tileShape[idx]);
++       rhsIndexValues.push_back(iterSpace.indexValues[idx]);
++     } else {
++diff --git a/lib/Dialect/TensorAttrs.cpp b/lib/Dialect/TensorAttrs.cpp
++index 98caee3..2dfaf8b 100644
++--- a/lib/Dialect/TensorAttrs.cpp
+++++ b/lib/Dialect/TensorAttrs.cpp
++@@ -24,6 +24,9 @@ namespace tcg = mlir::nv_tensor_ir::tcutegen;
++ namespace {
++ 
++ constexpr int64_t kDynamic = mlir::ShapedType::kDynamic;
+++// Explicit unit operand dimensions may be absent from a normalized matmul
+++// view; the conversion restores them with extent one and index zero.
+++constexpr size_t kUnitDimension = static_cast<size_t>(-1);
++ 
++ bool isValidTensorElementType(Type type) {
++   if (auto intTy = dyn_cast<IntegerType>(type)) {
++@@ -1547,6 +1550,7 @@ llvm::FailureOr<SmallVector<size_t>>
++ MatmulSourceAttr::getLhsDimensionMap() const {
++   // Collect expected strides of LHS dimensions in the output view.
++   SmallVector<int64_t> ident;
+++  SmallVector<int64_t> dimensionSizes;
++   SmallVector<int64_t> lhsShape = getLhs().getShape();
++   auto lhsM = findDimensionWithSuffixProduct(lhsShape, getM() * getK());
++   auto lhsK = findDimensionWithSuffixProduct(lhsShape, getK());
++@@ -1561,6 +1565,7 @@ MatmulSourceAttr::getLhsDimensionMap() const {
++       stride *= size;
++     }
++     ident.append(strides.rbegin(), strides.rend());
+++    dimensionSizes.append(shape.begin(), shape.end());
++   };
++   appendStrides(ArrayRef(lhsShape).take_front(*lhsM), getM() * getN() * getK());
++   appendStrides(ArrayRef(lhsShape).slice(*lhsM, *lhsK - *lhsM),
++@@ -1570,7 +1575,15 @@ MatmulSourceAttr::getLhsDimensionMap() const {
++   // Map strides to output dimensions.
++   SmallVector<size_t> result;
++   auto dimensionMap = buildDimensionMap(getCuteLayout());
++-  for (int64_t stride : ident) {
+++  for (auto [stride, size] : llvm::zip_equal(ident, dimensionSizes)) {
+++    // Normalization is allowed to remove unit dimensions from the matmul
+++    // view. Keep an explicit unit dimension in the operand iteration space,
+++    // but mark it for a fixed tile extent of one and a zero index rather than
+++    // requiring a non-existent output-view stride.
+++    if (size == 1) {
+++      result.push_back(kUnitDimension);
+++      continue;
+++    }
++     auto it = dimensionMap.find(stride);
++     if (it == dimensionMap.end()) {
++       LLVM_DEBUG(llvm::dbgs() << "Cannot find output dimension for stride "
++@@ -1586,6 +1599,7 @@ llvm::FailureOr<SmallVector<size_t>>
++ MatmulSourceAttr::getRhsDimensionMap() const {
++   // Collect expected strides of RHS dimensions in the output view.
++   SmallVector<int64_t> ident;
+++  SmallVector<int64_t> dimensionSizes;
++   SmallVector<int64_t> rhsShape = getRhs().getShape();
++   auto rhsK = findDimensionWithSuffixProduct(rhsShape, getK() * getN());
++   auto rhsN = findDimensionWithSuffixProduct(rhsShape, getN());
++@@ -1600,6 +1614,7 @@ MatmulSourceAttr::getRhsDimensionMap() const {
++       stride *= size;
++     }
++     ident.append(strides.rbegin(), strides.rend());
+++    dimensionSizes.append(shape.begin(), shape.end());
++   };
++   appendStrides(ArrayRef(rhsShape).take_front(*rhsK), getM() * getN() * getK());
++   appendStrides(ArrayRef(rhsShape).slice(*rhsK, *rhsN - *rhsK), 1);
++@@ -1608,7 +1623,11 @@ MatmulSourceAttr::getRhsDimensionMap() const {
++   // Map strides to output dimensions.
++   SmallVector<size_t> result;
++   auto dimensionMap = buildDimensionMap(getCuteLayout());
++-  for (int64_t stride : ident) {
+++  for (auto [stride, size] : llvm::zip_equal(ident, dimensionSizes)) {
+++    if (size == 1) {
+++      result.push_back(kUnitDimension);
+++      continue;
+++    }
++     auto it = dimensionMap.find(stride);
++     if (it == dimensionMap.end()) {
++       LLVM_DEBUG(llvm::dbgs() << "Cannot find output dimension for stride "
++diff --git a/test/Conversion/TensorToCudaTile/paged_decode_attention_layout.mlir b/test/Conversion/TensorToCudaTile/paged_decode_attention_layout.mlir
++new file mode 100644
++index 0000000..142d26d
++--- /dev/null
+++++ b/test/Conversion/TensorToCudaTile/paged_decode_attention_layout.mlir
++@@ -0,0 +1,55 @@
+++// RUN: tensor_ir-opt --layout-propagation-pipeline %s | FileCheck %s
+++
+++// A decode attention head keeps an explicit unit-M query source after graph
+++// splitting because QK feeds reductions and the resulting probabilities feed
+++// a second matmul. The normalized matmul view omits that unit dimension; the
+++// operand iteration space must restore it as extent one with index zero.
+++//
+++// CHECK-LABEL: entry @paged_decode_attention
+++// CHECK: make_gather_scatter_view
+++// CHECK: load_view_tko weak
+++// CHECK: mmaf
+++// CHECK: reduce
+++// CHECK: exp
+++// CHECK: mmaf
+++// CHECK: store_view_tko weak
+++module {
+++  nv_tensor_ir.graph @paged_decode_attention(
+++      %query: tensor<1x256xbf16> {nv_tensor_ir.stride = "(256,1)"},
+++      %key_cache: tensor<1024x256xbf16> {nv_tensor_ir.stride = "(256,1)"},
+++      %value_cache: tensor<1024x256xbf16> {nv_tensor_ir.stride = "(256,1)"},
+++      %physical_indices: tensor<16x256xsi32>
+++          {nv_tensor_ir.stride = "(1,0)"}) -> tensor<1x256xbf16>
+++      attributes {tile_size = array<i32: 64>} {
+++    %scale = constant 0.0625 : f32
+++    %scale_splat = splat %scale : tensor<1x16xf32>
+++    %key = gather_rows %key_cache, %physical_indices
+++        : (tensor<1024x256xbf16>, tensor<16x256xsi32>)
+++       -> tensor<16x256xbf16>
+++    %key_t = transpose %key permutation = [1, 0]
+++        : tensor<16x256xbf16> -> tensor<256x16xbf16>
+++    %scores = matmul(%query, %key_t)
+++        : (tensor<1x256xbf16>, tensor<256x16xbf16>) -> tensor<1x16xf32>
+++    %scaled = mul %scores, %scale_splat : tensor<1x16xf32>
+++    %rowmax = reduce(%scaled) <dimensions = [1], reduction_mode = <max>>
+++        : tensor<1x16xf32> -> tensor<1x1xf32>
+++    %max_full = broadcast %rowmax : tensor<1x1xf32> -> tensor<1x16xf32>
+++    %centered = sub %scaled, %max_full : tensor<1x16xf32>
+++    %exponent = exp %centered : tensor<1x16xf32>
+++    %rowsum = reduce(%exponent) <dimensions = [1], reduction_mode = <add>>
+++        : tensor<1x16xf32> -> tensor<1x1xf32>
+++    %inverse = reciprocal %rowsum : tensor<1x1xf32>
+++    %inverse_full = broadcast %inverse
+++        : tensor<1x1xf32> -> tensor<1x16xf32>
+++    %probability_f32 = mul %exponent, %inverse_full : tensor<1x16xf32>
+++    %probability = convert %probability_f32
+++        : tensor<1x16xf32> -> tensor<1x16xbf16>
+++    %value = gather_rows %value_cache, %physical_indices
+++        : (tensor<1024x256xbf16>, tensor<16x256xsi32>)
+++       -> tensor<16x256xbf16>
+++    %mixed = matmul(%probability, %value)
+++        : (tensor<1x16xbf16>, tensor<16x256xbf16>) -> tensor<1x256xf32>
+++    %output = convert %mixed : tensor<1x256xf32> -> tensor<1x256xbf16>
+++    results %output : tensor<1x256xbf16>
+++  }
+++}
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index a48606b88c7fdce4b31ebdf33cd3e6af113cf985..4407530b39307866e7d6cc032dcf711c5954f086 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit a48606b88c7fdce4b31ebdf33cd3e6af113cf985
++Subproject commit 4407530b39307866e7d6cc032dcf711c5954f086
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 34b3bf849e8851f9266c66a8b399f3b62bf9aea5..c16d1fdb86012f81d8bb32a4cb82998c6f2bcc0f 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "a48606b88c7fdce4b31ebdf33cd3e6af113cf985")
++    "4407530b39307866e7d6cc032dcf711c5954f086")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

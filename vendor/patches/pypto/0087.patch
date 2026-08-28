@@ -1,0 +1,122 @@
+From 500598765009743cf56c3c2235804483100654b3 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 21:09:31 +0800
+Subject: [PATCH 087/212] nvidia: retain strict producer diagnostics
+
+---
+ ...-diagnostics-in-strict-compilation-e.patch | 77 +++++++++++++++++++
+ 3rdparty/nvidia/tensor-ir                     |  2 +-
+ tests/ut/compiler/test_structured_compile.py  |  6 +-
+ 3 files changed, 81 insertions(+), 4 deletions(-)
+ create mode 100644 3rdparty/nvidia/0001-Preserve-bounded-diagnostics-in-strict-compilation-e.patch
+
+diff --git a/3rdparty/nvidia/0001-Preserve-bounded-diagnostics-in-strict-compilation-e.patch b/3rdparty/nvidia/0001-Preserve-bounded-diagnostics-in-strict-compilation-e.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..2970fafb304826b9612b4f8eb336c53d7422cba3
+--- /dev/null
++++ b/3rdparty/nvidia/0001-Preserve-bounded-diagnostics-in-strict-compilation-e.patch
+@@ -0,0 +1,77 @@
++From f8e9272e14b7176ca10f43419db305cd46e88979 Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Thu, 27 Aug 2026 21:09:09 +0800
++Subject: [PATCH] Preserve bounded diagnostics in strict compilation errors
++
++---
++ lib/Compiler/CudaTile/CudaTileCompiler.cpp | 35 ++++++++++++++++++++--
++ 1 file changed, 32 insertions(+), 3 deletions(-)
++
++diff --git a/lib/Compiler/CudaTile/CudaTileCompiler.cpp b/lib/Compiler/CudaTile/CudaTileCompiler.cpp
++index da85bc1..5aeec83 100644
++--- a/lib/Compiler/CudaTile/CudaTileCompiler.cpp
+++++ b/lib/Compiler/CudaTile/CudaTileCompiler.cpp
++@@ -25,9 +25,11 @@
++ #include "cuda_tile/Bytecode/Writer/BytecodeWriter.h"
++ #include "mlir/IR/Diagnostics.h"
++ #include "mlir/Parser/Parser.h"
+++#include <algorithm>
++ #include <cstdlib>
++ #include <memory>
++ #include <optional>
+++#include <string>
++ 
++ namespace {
++ 
++@@ -288,18 +290,45 @@ StatusOr<CudaTileCompiledArtifact> CudaTileCompiler::compileToArtifact(
++   mlir::MLIRContext context(registry);
++   context.loadAllAvailableDialects();
++ 
+++  constexpr size_t kMaximumCapturedDiagnosticBytes = 64 * 1024;
+++  std::string capturedDiagnostics;
++   std::unique_ptr<mlir::ScopedDiagnosticHandler> diagnosticHandler;
++   if (!options.allowEnvironmentOverrides) {
++     diagnosticHandler = std::make_unique<mlir::ScopedDiagnosticHandler>(
++-        &context, [](mlir::Diagnostic &) {});
+++        &context, [&](mlir::Diagnostic &diagnostic) {
+++          if (capturedDiagnostics.size() >=
+++              kMaximumCapturedDiagnosticBytes) {
+++            return;
+++          }
+++          std::string rendered;
+++          llvm::raw_string_ostream stream(rendered);
+++          diagnostic.print(stream);
+++          stream.flush();
+++          const size_t remaining = kMaximumCapturedDiagnosticBytes -
+++                                   capturedDiagnostics.size();
+++          capturedDiagnostics.append(rendered.data(),
+++                                     std::min(rendered.size(), remaining));
+++          if (capturedDiagnostics.size() <
+++              kMaximumCapturedDiagnosticBytes) {
+++            capturedDiagnostics.push_back('\n');
+++          }
+++        });
++   }
++ 
++   mlir::ParserConfig parserConfig(&context);
++   auto module = mlir::parseSourceString<mlir::ModuleOp>(source, parserConfig);
++   if (!module) {
++-    return Status::CompilationError("Failed to parse MLIR source string");
+++    return Status::CompilationError(
+++        "Failed to parse MLIR source string" +
+++        (capturedDiagnostics.empty() ? std::string()
+++                                     : "\n" + capturedDiagnostics));
+++  }
+++  auto compiled = compileToArtifact(*module, options);
+++  if (!compiled.ok() && !capturedDiagnostics.empty()) {
+++    return Status::CompilationError(compiled.status().message() + "\n" +
+++                                    capturedDiagnostics);
++   }
++-  return compileToArtifact(*module, options);
+++  return compiled;
++ }
++ 
++ StatusOr<CudaTileCompiledArtifact> CudaTileCompiler::compileToArtifact(
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index d540d54760de9ed5e112088d27cc0eded9ccbb14..f8e9272e14b7176ca10f43419db305cd46e88979 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit d540d54760de9ed5e112088d27cc0eded9ccbb14
++Subproject commit f8e9272e14b7176ca10f43419db305cd46e88979
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index cb16c4375f36586fbcffdfb6b70289668c2766e4..390464db8c091472ec7e04725cefa2b1c1927f53 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -373,12 +373,12 @@ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+     assert not rmsnorm.artifact.fallback_used
+ 
+     rope = compile_structured_strict(
+-        _native_tile_rope.specialize(), request, _schedule([1, 128])
++        _native_tile_rope.specialize(), request, _schedule([1, 64])
+     )
+     rope_kernel = rope.artifact.kernel_abi
+     assert rope_kernel.entry_function_name == "pypto_fused_pointwise_v2"
+-    assert rope_kernel.grid_abi.static_dimensions == [2, 1, 1]
+-    assert rope_kernel.grid_abi.tile_sizes == [1, 128]
++    assert rope_kernel.grid_abi.static_dimensions == [4, 1, 1]
++    assert rope_kernel.grid_abi.tile_sizes == [1, 64]
+     assert rope_kernel.argument_layout.input_operand_count == 3
+     assert rope_kernel.argument_layout.total_kernel_argument_count == 4
+     assert [d.shape for d in rope_kernel.argument_layout.operand_descriptors] == [

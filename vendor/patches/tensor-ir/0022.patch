@@ -1,0 +1,206 @@
+From 0216fbf81f59b6bd7cae60eeb96143c6dfac0eef Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 04:33:22 +0800
+Subject: [PATCH 22/82] Bound tileiras private scratch space
+
+---
+ lib/Compiler/CudaTile/TileIRAssembly.cpp | 103 ++++++++++++++++++++---
+ 1 file changed, 93 insertions(+), 10 deletions(-)
+
+diff --git a/lib/Compiler/CudaTile/TileIRAssembly.cpp b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+index d5cdd4d4d8e73bc118df258e00c1a1231783db30..3ed2a700233b976b2ef893e6101d0f1586d91749 100644
+--- a/lib/Compiler/CudaTile/TileIRAssembly.cpp
++++ b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+@@ -46,6 +46,24 @@ struct TemporaryFile {
+   std::unique_ptr<llvm::FileRemover> remover;
+ };
+ 
++struct TemporaryDirectory {
++  explicit TemporaryDirectory(llvm::StringRef path) : path(path.str()) {}
++  ~TemporaryDirectory() {
++    if (!path.empty()) {
++      (void)llvm::sys::fs::remove_directories(path);
++    }
++  }
++
++  TemporaryDirectory(const TemporaryDirectory &) = delete;
++  TemporaryDirectory &operator=(const TemporaryDirectory &) = delete;
++  TemporaryDirectory(TemporaryDirectory &&other) noexcept
++      : path(std::move(other.path)) {
++    other.path.clear();
++  }
++
++  std::string path;
++};
++
+ struct ProcessResult {
+   int exitCode;
+   std::string error;
+@@ -54,10 +72,37 @@ struct ProcessResult {
+ constexpr uint64_t kMaximumDiagnosticBytes = 64 * 1024;
+ constexpr uint64_t kMaximumCubinBytes = 64ULL * 1024ULL * 1024ULL;
+ constexpr uint64_t kMaximumChildFileBytes = 4096ULL * 1024ULL * 1024ULL;
++constexpr uint64_t kMaximumChildScratchBytes = 4096ULL * 1024ULL * 1024ULL;
+ constexpr unsigned kMetadataCommandTimeoutSeconds = 30;
+ constexpr unsigned kCompileCommandTimeoutSeconds = 300;
+ constexpr unsigned kAssemblerMemoryLimitMiB = 4096;
+ 
++bool scratchDirectoryWithinLimit(llvm::StringRef path) {
++  std::error_code error;
++  llvm::sys::fs::recursive_directory_iterator iterator(
++      path, error, /*follow_symlinks=*/false);
++  llvm::sys::fs::recursive_directory_iterator end;
++  if (error) {
++    return false;
++  }
++  uint64_t totalBytes = 0;
++  while (iterator != end) {
++    if (iterator->type() == llvm::sys::fs::file_type::regular_file) {
++      uint64_t fileBytes = 0;
++      if (llvm::sys::fs::file_size(iterator->path(), fileBytes) ||
++          fileBytes > kMaximumChildScratchBytes - totalBytes) {
++        return false;
++      }
++      totalBytes += fileBytes;
++    }
++    iterator.increment(error);
++    if (error) {
++      return false;
++    }
++  }
++  return true;
++}
++
+ ProcessResult runProgramWithFileLimit(
+     llvm::StringRef program, llvm::ArrayRef<llvm::StringRef> args,
+     llvm::StringRef stdoutPath, llvm::StringRef stderrPath,
+@@ -90,6 +135,8 @@ ProcessResult runProgramWithFileLimit(
+   const std::string programPath = program.str();
+   const std::string stdoutFile = stdoutPath.str();
+   const std::string stderrFile = stderrPath.str();
++  const std::string scratchDirectory =
++      llvm::sys::path::parent_path(stdoutPath).str();
+   int stdoutFd = ::open(stdoutFile.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+   if (stdoutFd < 0) {
+     return {-1, "failed to open bounded child stdout: " +
+@@ -200,8 +247,18 @@ ProcessResult runProgramWithFileLimit(
+       }
+       return {-2, "tileiras child exceeded the bounded timeout"};
+     }
++    if (!scratchDirectoryWithinLimit(scratchDirectory)) {
++      (void)::kill(-child, SIGKILL);
++      (void)::kill(child, SIGKILL);
++      while (::waitpid(child, &status, 0) == -1 && errno == EINTR) {
++      }
++      return {-3, "tileiras child exceeded the bounded scratch quota"};
++    }
+     std::this_thread::sleep_for(std::chrono::milliseconds(10));
+   }
++  if (!scratchDirectoryWithinLimit(scratchDirectory)) {
++    return {-3, "tileiras child exceeded the bounded scratch quota"};
++  }
+   if (WIFEXITED(status)) {
+     return {WEXITSTATUS(status), {}};
+   }
+@@ -222,10 +279,23 @@ ProcessResult runProgramWithFileLimit(
+ #endif
+ }
+ 
+-StatusOr<TemporaryFile> createTemporaryFile(llvm::StringRef suffix) {
++StatusOr<TemporaryDirectory> createTemporaryDirectory() {
+   llvm::SmallString<128> path;
+   if (std::error_code error =
+-          llvm::sys::fs::createTemporaryFile("tensor-ir", suffix, path)) {
++          llvm::sys::fs::createUniqueDirectory("tensor-ir", path)) {
++    return Status::CompilationError("failed to create temporary directory: " +
++                                    error.message());
++  }
++  return TemporaryDirectory(path);
++}
++
++StatusOr<TemporaryFile> createTemporaryFile(llvm::StringRef suffix,
++                                            llvm::StringRef directory) {
++  llvm::SmallString<128> path;
++  llvm::SmallString<128> model(directory);
++  llvm::sys::path::append(model,
++                          "tensor-ir-%%%%%%." + suffix.str());
++  if (std::error_code error = llvm::sys::fs::createUniqueFile(model, path)) {
+     return Status::CompilationError("failed to create temporary file: " +
+                                     error.message());
+   }
+@@ -274,7 +344,8 @@ ProcessResult runProgram(llvm::StringRef program,
+     environmentStorage.push_back("LC_ALL=C");
+     environmentStorage.push_back("TZ=UTC");
+     environmentStorage.push_back("HOME=/nonexistent");
+-    environmentStorage.push_back("TMPDIR=/tmp");
++    environmentStorage.push_back(
++        "TMPDIR=" + llvm::sys::path::parent_path(stdoutPath).str());
+     environmentStorage.push_back("CUDA_CACHE_DISABLE=1");
+     for (const std::string &entry : environmentStorage) {
+       environment.push_back(entry);
+@@ -321,7 +392,8 @@ StatusOr<std::string> sha256File(llvm::StringRef path) {
+ 
+ StatusOr<TemporaryFile>
+ materializeVerifiedProgram(llvm::StringRef sourcePath,
+-                           llvm::StringRef expectedSha256) {
++                           llvm::StringRef expectedSha256,
++                           llvm::StringRef temporaryDirectory) {
+   auto source = llvm::MemoryBuffer::getFile(sourcePath, /*IsText=*/false);
+   if (!source) {
+     return Status::NotFound("failed to read tileiras for verified copy: " +
+@@ -338,7 +410,8 @@ materializeVerifiedProgram(llvm::StringRef sourcePath,
+         "tileiras SHA-256 differs from the expected producer identity");
+   }
+ 
+-  TIR_ASSIGN_OR_RETURN(auto copy, createTemporaryFile("tileiras"));
++  TIR_ASSIGN_OR_RETURN(
++      auto copy, createTemporaryFile("tileiras", temporaryDirectory));
+   std::error_code error;
+   llvm::raw_fd_ostream output(copy.path, error, llvm::sys::fs::OF_None);
+   if (error) {
+@@ -404,6 +477,7 @@ assembleWithExecutable(llvm::ArrayRef<char> bytecode, SmTarget target,
+     return Status::CompilationError(
+         "TileIR assembler input must contain at most 64 MiB");
+   }
++  TIR_ASSIGN_OR_RETURN(auto temporaryDirectory, createTemporaryDirectory());
+   std::string programStorage;
+   if (assemblerPath.empty()) {
+     auto program = llvm::sys::findProgramByName("tileiras");
+@@ -432,14 +506,19 @@ assembleWithExecutable(llvm::ArrayRef<char> bytecode, SmTarget target,
+     producerBinDirectory = producerBinDirectoryStorage;
+     TIR_ASSIGN_OR_RETURN(
+         auto copy,
+-        materializeVerifiedProgram(programStorage, assemblerSha256));
++        materializeVerifiedProgram(programStorage, assemblerSha256,
++                                   temporaryDirectory.path));
+     verifiedProgram = std::make_unique<TemporaryFile>(std::move(copy));
+     programStorage = verifiedProgram->path;
+   }
+   llvm::StringRef program(programStorage);
+ 
+-  TIR_ASSIGN_OR_RETURN(auto stdoutFile, createTemporaryFile("stdout"));
+-  TIR_ASSIGN_OR_RETURN(auto stderrFile, createTemporaryFile("stderr"));
++  TIR_ASSIGN_OR_RETURN(
++      auto stdoutFile,
++      createTemporaryFile("stdout", temporaryDirectory.path));
++  TIR_ASSIGN_OR_RETURN(
++      auto stderrFile,
++      createTemporaryFile("stderr", temporaryDirectory.path));
+   if (!assemblerVersion.empty()) {
+     llvm::SmallVector<llvm::StringRef, 2> versionArgs{program, "--version"};
+     ProcessResult version =
+@@ -474,8 +553,12 @@ assembleWithExecutable(llvm::ArrayRef<char> bytecode, SmTarget target,
+                                 requested);
+   }
+ 
+-  TIR_ASSIGN_OR_RETURN(auto inputFile, createTemporaryFile("tilebc"));
+-  TIR_ASSIGN_OR_RETURN(auto outputFile, createTemporaryFile("cubin"));
++  TIR_ASSIGN_OR_RETURN(
++      auto inputFile,
++      createTemporaryFile("tilebc", temporaryDirectory.path));
++  TIR_ASSIGN_OR_RETURN(
++      auto outputFile,
++      createTemporaryFile("cubin", temporaryDirectory.path));
+   std::error_code error;
+   llvm::raw_fd_ostream input(inputFile.path, error);
+   if (error) {

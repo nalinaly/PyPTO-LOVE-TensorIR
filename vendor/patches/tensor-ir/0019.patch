@@ -1,0 +1,37 @@
+From ee94ad1bf23f22ded1427b72158f343afa0c8c93 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 04:22:46 +0800
+Subject: [PATCH 19/82] Match tileiras soft memory limits
+
+---
+ lib/Compiler/CudaTile/TileIRAssembly.cpp | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/lib/Compiler/CudaTile/TileIRAssembly.cpp b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+index e7c5c464ac13e8b2aaeb3d2f282f4ed77faf0889..3876c3fcec4b4c15af846407dbf0a6f7b04e0344 100644
+--- a/lib/Compiler/CudaTile/TileIRAssembly.cpp
++++ b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+@@ -140,14 +140,22 @@ ProcessResult runProgramWithFileLimit(
+ 
+     const rlim_t memoryBytes =
+         static_cast<rlim_t>(kAssemblerMemoryLimitMiB) * 1024U * 1024U;
+-    const struct rlimit memoryLimit = {memoryBytes, memoryBytes};
++    struct rlimit memoryLimit{};
+     const rlim_t fileBytes = static_cast<rlim_t>(kMaximumChildFileBytes);
+     const struct rlimit fileLimit = {fileBytes, fileBytes};
++    if (::getrlimit(RLIMIT_DATA, &memoryLimit) != 0) {
++      _exit(126);
++    }
++    memoryLimit.rlim_cur = memoryBytes;
+     if (::setrlimit(RLIMIT_DATA, &memoryLimit) != 0 ||
+         ::setrlimit(RLIMIT_FSIZE, &fileLimit) != 0) {
+       _exit(126);
+     }
+ #if defined(RLIMIT_RSS)
++    if (::getrlimit(RLIMIT_RSS, &memoryLimit) != 0) {
++      _exit(126);
++    }
++    memoryLimit.rlim_cur = memoryBytes;
+     if (::setrlimit(RLIMIT_RSS, &memoryLimit) != 0) {
+       _exit(126);
+     }

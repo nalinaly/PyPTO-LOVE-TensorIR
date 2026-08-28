@@ -1,0 +1,21 @@
+From adba10c47f804142d374a7ea9a93e04c8dfee093 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 12:56:58 +0800
+Subject: [PATCH 070/212] test: dump row-broadcast source
+
+---
+ tests/ut/cpp/tensor_ir_codegen_test.cpp | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index b15825673e4903badecbb10bd00b7ea73cefc843..4c9f31b577988563c2ede5dc0b040af35a300660 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -1650,6 +1650,7 @@ int TestFusedPointwiseV2RowBroadcast() {
+ 
+   REQUIRE(module.GetKind() == TensorIrModuleKind::FusedPointwiseV2);
+   const std::string source = module.GetCanonicalSource();
++  std::fprintf(stderr, "ROWBC source:\n%s\n", source.c_str());
+   REQUIRE(source.find("%arg1: tensor<4x6xf32> {nv_tensor_ir.stride = \"(1,0)\"}") !=
+           std::string::npos);
+   REQUIRE(source.find("%value0 = mul %arg0, %arg1 : tensor<4x6xf32>") !=

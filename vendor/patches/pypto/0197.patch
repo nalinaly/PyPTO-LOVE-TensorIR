@@ -1,0 +1,124 @@
+From a8a5072e3337e541f9a42a6788cb1d8390a6292f Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 14:26:54 +0800
+Subject: [PATCH 197/212] Lower native BF16 GDN dt bias
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 39 +++++++++++++++++++-----
+ 1 file changed, 31 insertions(+), 8 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 292167ba2edab3e29de786ff2e47d5d2edb624d8..420cacc7911c24fdf97c585833b66b4e9fe9a783 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -5069,7 +5069,8 @@ NativeTileGdnRecurrentGraph AnalyzeNativeTileGdnRecurrent(
+       a.dtype != DataType::BF16 || b.dtype != DataType::BF16 ||
+       a.shape.size() != 4 || a.shape != b.shape ||
+       a.dense_strides != b.dense_strides || a_log.dtype != DataType::FP32 ||
+-      dt_bias.dtype != DataType::FP32 || !SameTensor(a_log, dt_bias) ||
++      dt_bias.dtype != DataType::BF16 || a_log.shape != dt_bias.shape ||
++      a_log.dense_strides != dt_bias.dense_strides ||
+       state.dtype != DataType::FP32 || state.shape.size() != 2 ||
+       state.dense_strides[1] != 1 ||
+       state.dense_strides[0] < state.shape[1] ||
+@@ -5169,7 +5170,7 @@ NativeTileGdnRecurrentGraph AnalyzeNativeTileGdnRecurrent(
+       {25, "tile.load"},         {26, "tile.load"},
+       {27, "tile.load"},         {28, "tile.cast"},
+       {29, "tile.cast"},         {30, "tile.reshape"},
+-      {31, "tile.reshape"},      {32, "tile.add"},
++      {31, "tile.cast"},         {32, "tile.add"},
+       {33, "tile.abs"},          {34, "tile.exp"},
+       {35, "tile.log"},          {36, "tile.add"},
+       {37, "tile.neg"},          {38, "tile.exp"},
+@@ -8588,6 +8589,10 @@ std::string EmitNativeTileGdnRecurrentSource(
+   StaticTensor parameter_column{DataType::FP32, {graph.value_dim, 1}, {}};
+   parameter_column.dense_strides =
+       MakeDenseStridesForMetadata(parameter_column.shape);
++  StaticTensor dt_parameter_row = parameter_row;
++  dt_parameter_row.dtype = DataType::BF16;
++  StaticTensor dt_parameter_column = parameter_column;
++  dt_parameter_column.dtype = DataType::BF16;
+   StaticTensor norm{DataType::FP32, {1, 1}, {1, 1}};
+   StaticTensor output_wide{DataType::FP32, {1, graph.value_dim}, {}};
+   output_wide.dense_strides =
+@@ -8613,6 +8618,7 @@ std::string EmitNativeTileGdnRecurrentSource(
+   const std::string mixed_type = TensorTypeText(graph.mixed_qkv);
+   const std::string a_type = TensorTypeText(graph.a);
+   const std::string parameter_type = TensorTypeText(graph.a_log);
++  const std::string dt_type = TensorTypeText(graph.dt_bias);
+   const std::string state_type = TensorTypeText(graph.state);
+   const std::string indices_type = TensorTypeText(graph.state_indices);
+   const std::string indices_i32_type = TensorTypeText(indices_i32);
+@@ -8637,6 +8643,9 @@ std::string EmitNativeTileGdnRecurrentSource(
+       TensorTypeText(wide_gate_column);
+   const std::string parameter_row_type = TensorTypeText(parameter_row);
+   const std::string parameter_column_type = TensorTypeText(parameter_column);
++  const std::string dt_parameter_row_type = TensorTypeText(dt_parameter_row);
++  const std::string dt_parameter_column_type =
++      TensorTypeText(dt_parameter_column);
+   const std::string norm_type = TensorTypeText(norm);
+   const std::string output_wide_type = TensorTypeText(output_wide);
+   const std::string output_type = TensorTypeText(output);
+@@ -8758,12 +8767,17 @@ std::string EmitNativeTileGdnRecurrentSource(
+                 " = slice %arg4 starts = [" + std::to_string(head) +
+                 ", 0] limits = [" + std::to_string(head + 1) + ", " +
+                 std::to_string(graph.value_dim) + "] strides = [1, 1] : ";
+-      source += parameter_type;
++      source += dt_type;
+       source += " -> ";
+-      source += parameter_row_type;
+-      source += "\n    %dt_" + head_suffix + " = reshape %dt_row_" +
++      source += dt_parameter_row_type;
++      source += "\n    %dt_bf16_" + head_suffix + " = reshape %dt_row_" +
+                 head_suffix + " : ";
+-      source += parameter_row_type;
++      source += dt_parameter_row_type;
++      source += " -> ";
++      source += dt_parameter_column_type;
++      source += "\n    %dt_" + head_suffix + " = convert %dt_bf16_" +
++                head_suffix + " : ";
++      source += dt_parameter_column_type;
+       source += " -> ";
+       source += parameter_column_type;
+ 
+@@ -9187,6 +9201,8 @@ std::string EmitNativeTileGdnRecurrentBatchedSource(
+                         {1, 1, graph.value_heads, graph.value_dim}, {}};
+   gate_box.dense_strides = MakeDenseStridesForMetadata(gate_box.shape);
+   StaticTensor parameter_group = wide_value_group;
++  StaticTensor dt_parameter_group = parameter_group;
++  dt_parameter_group.dtype = DataType::BF16;
+   StaticTensor output_group{DataType::FP32,
+                             {graph.q_heads, heads_per_query, 1,
+                              graph.value_dim}, {}};
+@@ -9204,6 +9220,7 @@ std::string EmitNativeTileGdnRecurrentBatchedSource(
+   const std::string mixed_type = TensorTypeText(graph.mixed_qkv);
+   const std::string gate_type = TensorTypeText(graph.a);
+   const std::string parameter_type = TensorTypeText(graph.a_log);
++  const std::string dt_type = TensorTypeText(graph.dt_bias);
+   const std::string state_type = TensorTypeText(graph.state);
+   const std::string indices_type = TensorTypeText(graph.state_indices);
+   const std::string indices_i32_type = TensorTypeText(indices_i32);
+@@ -9223,6 +9240,8 @@ std::string EmitNativeTileGdnRecurrentBatchedSource(
+   const std::string wide_value_group_type = TensorTypeText(wide_value_group);
+   const std::string gate_box_type = TensorTypeText(gate_box);
+   const std::string parameter_group_type = TensorTypeText(parameter_group);
++  const std::string dt_parameter_group_type =
++      TensorTypeText(dt_parameter_group);
+   const std::string output_group_type = TensorTypeText(output_group);
+   const std::string output_group_bf16_type = TensorTypeText(output_group_bf16);
+   const std::string output_box_type = TensorTypeText(output_box);
+@@ -9266,8 +9285,12 @@ std::string EmitNativeTileGdnRecurrentBatchedSource(
+   source += parameter_group_type;
+   source += "\n    %expA_group = exp %A_group : ";
+   source += parameter_group_type;
+-  source += "\n    %dt_group = reshape %arg4 : ";
+-  source += parameter_type;
++  source += "\n    %dt_group_bf16 = reshape %arg4 : ";
++  source += dt_type;
++  source += " -> ";
++  source += dt_parameter_group_type;
++  source += "\n    %dt_group = convert %dt_group_bf16 : ";
++  source += dt_parameter_group_type;
+   source += " -> ";
+   source += parameter_group_type;
+   source += "\n    %epsilon = constant 9.999999974752427e-07 : f32";

@@ -1,0 +1,26 @@
+From a259794aa4b40146073e3a064c723110e56ffeae Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 02:31:39 +0800
+Subject: [PATCH 56/82] Append lazy loads with their consumers
+
+---
+ lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp | 6 +-----
+ 1 file changed, 1 insertion(+), 5 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index adc1a7770b9db78767bc609d4a64421fa2e44298..4c31f20ffc6c765b8f48d42f99a7f175d48f1686 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -1057,11 +1057,7 @@ Value ConversionStateImpl::getTile(Value operand) {
+     // them out of dialect-conversion's cross-block transaction bookkeeping.
+     OpBuilder builder(activeRewriter->getContext());
+     Block *block = iterationSpace->insertionBlock;
+-    if (Operation *terminator = block->getTerminator()) {
+-      builder.setInsertionPoint(terminator);
+-    } else {
+-      builder.setInsertionPointToEnd(block);
+-    }
++    builder.setInsertionPointToEnd(block);
+     const size_t tensorId = tensorSource.getTensorId();
+     assert(tensorId < inputDescriptors.size() &&
+            "tensor source ID is out of bounds");

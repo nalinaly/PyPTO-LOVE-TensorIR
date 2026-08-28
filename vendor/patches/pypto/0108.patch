@@ -1,0 +1,210 @@
+From 5cbd9d641277b12724e9eef26bd582833892cba0 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 23:56:56 +0800
+Subject: [PATCH 108/212] Refresh canonical producer source goldens
+
+---
+ .../structured_tensor_ir_build_spec_test.cpp  | 30 +++++++++----------
+ tests/ut/cpp/tensor_ir_codegen_test.cpp       | 22 +++++++-------
+ 2 files changed, 26 insertions(+), 26 deletions(-)
+
+diff --git a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+index 5537a3703e0bb73797cc4e73d1f1bdc6c9fcb782..633fba9d0e7b0e64bfe0822d0d6e558ef1c37040 100644
+--- a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
++++ b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+@@ -781,9 +781,9 @@ int TestFusedPointwiseProjectionAndFinalization() {
+           PreparedStructuredTensorIrModuleKind::FusedPointwise);
+   REQUIRE(prepared.GetFrontendMetadataSchemaVersion() == 2);
+   REQUIRE(prepared.GetEntryName() == "pypto_fused_pointwise");
+-  REQUIRE(prepared.GetCanonicalSource().size() == 577);
++  REQUIRE(prepared.GetCanonicalSource().size() == 574);
+   REQUIRE(prepared.GetSourceIrDigest() ==
+-          "5ada2305f0647621547be97d9e53e0d12f1e44b4ebbd464f4bd84cc5a835b4cd");
++          "09fbde39fd015b40ba58c078eb6d0c2e7b24d19e2cc34efb3b870a699ed44789");
+   REQUIRE(prepared.GetInputCount() == 3);
+   REQUIRE(prepared.GetResultCount() == 1);
+   REQUIRE(prepared.GetValueMetadata().size() == 4);
+@@ -991,9 +991,9 @@ int TestRowReductionProjectionAndFinalization() {
+           PreparedStructuredTensorIrModuleKind::RowReduction);
+   REQUIRE(prepared.GetFrontendMetadataSchemaVersion() == 3);
+   REQUIRE(prepared.GetEntryName() == "pypto_row_reduction");
+-  REQUIRE(prepared.GetCanonicalSource().size() == 467);
++  REQUIRE(prepared.GetCanonicalSource().size() == 464);
+   REQUIRE(prepared.GetSourceIrDigest() ==
+-          "b943b5aaed18bf107ff66341b02417a94c5f2abf93f8e35afe9396f68bcb2e5c");
++          "28b55fbc4f195679803be6147c1f5c710530bf1aa3711d86f1db9a37e671795a");
+   REQUIRE(prepared.GetInputCount() == 1);
+   REQUIRE(prepared.GetResultCount() == 1);
+   REQUIRE(prepared.GetValueMetadata().size() == 2);
+@@ -1067,7 +1067,7 @@ int TestRowReductionProjectionAndFinalization() {
+           MakeRowReductionProgram({2, 3}, DataType::FP32, "tensor.row_max"),
+           request, schedule);
+   REQUIRE(maximum.GetSourceIrDigest() ==
+-          "6c2fbe5e64e69c8349b6ec7adb28ab5ff921f3f9e7698d2b0d8e23cc75413902");
++          "c43354a92d45edb1c23b4e6f76af025fa0550aa1ed1dc8f1b5c0f7f2722802ce");
+   REQUIRE(maximum.GetStaticSpecialization().GetIdentityDigest() ==
+           prepared.GetStaticSpecialization().GetIdentityDigest());
+   REQUIRE(maximum.GetArgumentAbi().GetIdentityDigest() ==
+@@ -1083,9 +1083,9 @@ int TestRowReductionProjectionAndFinalization() {
+           request, schedule);
+   const std::string bf16_source(bf16.GetCanonicalSource().begin(),
+                                 bf16.GetCanonicalSource().end());
+-  REQUIRE(bf16_source.size() == 466);
++  REQUIRE(bf16_source.size() == 463);
+   REQUIRE(bf16.GetSourceIrDigest() ==
+-          "8b238ef9574e20f017fd588252a282f1b9342de737fa87887434185dc94279d1");
++          "d39716d799dec2faa5b62ded941850489d119f44701d13f76c055d475b162d58");
+   REQUIRE(MatchesProjectionDigestGolden(bf16, kRankTwoBf16ProjectionDigests));
+   REQUIRE(bf16.GetStaticSpecialization().GetCanonicalBytes() ==
+           BytesFromHex(kRowReductionStaticGoldenHex));
+@@ -1107,9 +1107,9 @@ int TestRowReductionProjectionAndFinalization() {
+       ValidSchedule({1}));
+   const KernelBuildSpec rank_one_spec = FinalizeStructuredTensorIrBuildSpec(
+       rank_one, MakeKernelAbi(RowReductionKernelOptions({7}, {1}, 1)));
+-  REQUIRE(rank_one.GetCanonicalSource().size() == 387);
++  REQUIRE(rank_one.GetCanonicalSource().size() == 384);
+   REQUIRE(rank_one.GetSourceIrDigest() ==
+-          "5010b426978fe9dfb4067f291077d698c30ba9fbc4666f81656809e2397e276e");
++          "108439634ea41c9f10224896c8df2ac63c5dd2ca4f281fe446173ef3e735bbc6");
+   REQUIRE(MatchesProjectionDigestGolden(rank_one, kRankOneFp32ProjectionDigests));
+   REQUIRE(rank_one.GetStaticSpecialization().GetCanonicalBytes() ==
+           BytesFromHex(kRowReductionRankOneStaticGoldenHex));
+@@ -1131,9 +1131,9 @@ int TestRowReductionProjectionAndFinalization() {
+   const KernelBuildSpec rank_three_spec = FinalizeStructuredTensorIrBuildSpec(
+       rank_three,
+       MakeKernelAbi(RowReductionKernelOptions({2, 3, 5}, {2}, 3)));
+-  REQUIRE(rank_three.GetCanonicalSource().size() == 476);
++  REQUIRE(rank_three.GetCanonicalSource().size() == 473);
+   REQUIRE(rank_three.GetSourceIrDigest() ==
+-          "65fec3c5d12136a6848be93f11148808f0b4f3dc2f0e025ff657035128c5fb85");
++          "60b98cb738a77e3b3866a8f872469f0d4e1f8ad87f8886bfedb00cb07b712f21");
+   REQUIRE(MatchesProjectionDigestGolden(rank_three,
+                                         kRankThreeFp32ProjectionDigests));
+   REQUIRE(rank_three.GetStaticSpecialization().GetCanonicalBytes() ==
+@@ -1263,9 +1263,9 @@ int TestStructuredMatmulProjectionAndFinalization() {
+           PreparedStructuredTensorIrModuleKind::StructuredMatmul);
+   REQUIRE(prepared.GetFrontendMetadataSchemaVersion() == 4);
+   REQUIRE(prepared.GetEntryName() == "pypto_structured_matmul");
+-  REQUIRE(prepared.GetCanonicalSource().size() == 480);
++  REQUIRE(prepared.GetCanonicalSource().size() == 477);
+   REQUIRE(prepared.GetSourceIrDigest() ==
+-          "672946aecd134ee938be30cf05e4aca058a40e14798bbaa1f0fde9eb2fe9b267");
++          "a1fb45dd6a28f1e0aeb868beedae6c13786a7ad02b9f51b1157cacb69e2d3b16");
+   REQUIRE(prepared.GetInputCount() == 2);
+   REQUIRE(prepared.GetResultCount() == 1);
+   REQUIRE(prepared.GetValueMetadata().size() == 3);
+@@ -1325,9 +1325,9 @@ int TestStructuredMatmulProjectionAndFinalization() {
+           std::vector<int64_t>({2, 16, 128}));
+   REQUIRE(transposed.GetValueMetadata()[2].GetShape() ==
+           std::vector<int64_t>({2, 32, 16}));
+-  REQUIRE(transposed.GetCanonicalSource().size() == 714);
++  REQUIRE(transposed.GetCanonicalSource().size() == 711);
+   REQUIRE(transposed.GetSourceIrDigest() ==
+-          "8c5059b9aba415eb8a7361ae1ce7ec65790a9dc8be789693bb5e059e73f0ebb5");
++          "a8ad64c1f01763a1cae232e329c2a9e7149404d7ed83ceea8ba00e6f5e1f170e");
+   REQUIRE(transposed.GetStaticSpecialization().GetCanonicalBytes() ==
+           BytesFromHex(kStructuredMatmulRankThreeStaticGoldenHex));
+   REQUIRE(transposed.GetSymbolicSpecialization().GetCanonicalBytes() ==
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index 318275a39218b9c49211773080c20b7526db235c..4466f2e63094d58b8ef4f5da3cc8b1f008cb55dd 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -412,7 +412,7 @@ int TestRowReductionCanonicalSourcesAndMetadata() {
+       "}\n";
+   REQUIRE(MatchesSourceAndSha256(
+       sum_module, sum_expected,
+-      "964f12e003e0e9a5e563f716279d839d12303908a94a8925f2e20bb0d71bf887"));
++      "888914beb5ed3ac58084dfe0d219356401ea5546888aa1477abbd77603aa0556"));
+   REQUIRE(sum_module.GetKind() == TensorIrModuleKind::RowReduction);
+   REQUIRE(sum_module.GetMetadataSchemaVersion() == 3);
+   REQUIRE(sum_module.GetEntryName() == "pypto_row_reduction");
+@@ -449,7 +449,7 @@ int TestRowReductionCanonicalSourcesAndMetadata() {
+       "}\n";
+   REQUIRE(MatchesSourceAndSha256(
+       rank_one, rank_one_expected,
+-      "40f7578e49cdc92ce6acc8bab428db8f37cd6c5aeffc75cc61bf89c46a0b45f8"));
++      "26f481601bc88a0d49bfff60609e070f9159f1b7bd962923de5d2dc87fcffa88"));
+   REQUIRE(rank_one.GetValueMetadata()[0].GetShape() == std::vector<int64_t>({7}));
+   REQUIRE(rank_one.GetValueMetadata()[1].GetShape() == std::vector<int64_t>({1}));
+   REQUIRE(!rank_one.GetValueMetadata()[0].HasExplicitStrides());
+@@ -476,7 +476,7 @@ int TestRowReductionCanonicalSourcesAndMetadata() {
+       "}\n";
+   REQUIRE(MatchesSourceAndSha256(
+       rank_one_bf16, rank_one_bf16_expected,
+-      "84fca0270f36bf1811c5e633a89c3b8cd2514eed4146ef60fe4d16b01af23be3"));
++      "26293f30ed404254e6a143ab63a64f4acbeca032a42a23c28df6d6fe8b53be70"));
+   REQUIRE(rank_one_bf16.GetCanonicalSource().find("reduce(%arg0)") ==
+           std::string::npos);
+ 
+@@ -498,7 +498,7 @@ int TestRowReductionCanonicalSourcesAndMetadata() {
+       "}\n";
+   REQUIRE(MatchesSourceAndSha256(
+       rank_three, rank_three_expected,
+-      "65fec3c5d12136a6848be93f11148808f0b4f3dc2f0e025ff657035128c5fb85"));
++      "60b98cb738a77e3b3866a8f872469f0d4e1f8ad87f8886bfedb00cb07b712f21"));
+   REQUIRE(rank_three.GetValueMetadata()[0].GetShape() ==
+           std::vector<int64_t>({2, 3, 5}));
+   REQUIRE(rank_three.GetValueMetadata()[0].GetLogicalDenseStrides() ==
+@@ -527,7 +527,7 @@ int TestRowReductionCanonicalSourcesAndMetadata() {
+       "}\n";
+   REQUIRE(MatchesSourceAndSha256(
+       bf16, bf16_expected,
+-      "3714060f007e8c225d35b773d2f9cc7b36ef26c46fc203847dc68adf85bd30df"));
++      "5a6ec4c601f42a01094714f08def05e093d6ebcffac4c8ce8b9b15d4719590c8"));
+   REQUIRE(bf16.GetCanonicalSource().find("reduce(%arg0)") == std::string::npos);
+   REQUIRE(bf16.GetCanonicalSource().find("reduce(%wide0)") != std::string::npos);
+   REQUIRE(bf16.GetValueMetadata()[0].GetDtypeName() == "bfloat16");
+@@ -550,7 +550,7 @@ int TestRowReductionCanonicalSourcesAndMetadata() {
+       "}\n";
+   REQUIRE(MatchesSourceAndSha256(
+       bf16_max, bf16_max_expected,
+-      "8b238ef9574e20f017fd588252a282f1b9342de737fa87887434185dc94279d1"));
++      "d39716d799dec2faa5b62ded941850489d119f44701d13f76c055d475b162d58"));
+   REQUIRE(bf16_max.GetCanonicalSource().find("reduce(%arg0)") ==
+           std::string::npos);
+   const TensorIrModule bf16_rank_three =
+@@ -577,7 +577,7 @@ int TestRowReductionCanonicalSourcesAndMetadata() {
+       "}\n";
+   REQUIRE(MatchesSourceAndSha256(
+       bf16_rank_three, bf16_rank_three_expected,
+-      "8e02b4b81f38e5eca7a0878cdee5a15ec3049fb105003b74485a2086dabce5ee"));
++      "ddde1ddbf751b483c1f88e382e524052c63904ac148dcb1ac0164a164e77eeed"));
+   REQUIRE(bf16_rank_three_source.find("reduce(%arg0)") == std::string::npos);
+ 
+   const RowReductionProgram cosmetic =
+@@ -604,7 +604,7 @@ int TestStructuredMatmulCanonicalSourcesAndMetadata() {
+       "  }\n"
+       "}\n";
+   REQUIRE(MatchesSourceAndSha256(rank_two_module, rank_two_expected,
+-                                 "672946aecd134ee938be30cf05e4aca058a40e14798bbaa1f0fde9eb2fe9b267"));
++                                 "a1fb45dd6a28f1e0aeb868beedae6c13786a7ad02b9f51b1157cacb69e2d3b16"));
+   REQUIRE(rank_two_module.GetKind() == TensorIrModuleKind::StructuredMatmul);
+   REQUIRE(rank_two_module.GetMetadataSchemaVersion() == 4);
+   REQUIRE(rank_two_module.GetEntryName() == "pypto_structured_matmul");
+@@ -647,7 +647,7 @@ int TestStructuredMatmulCanonicalSourcesAndMetadata() {
+       "}\n";
+   REQUIRE(MatchesSourceAndSha256(
+       rank_two_a_trans, rank_two_a_trans_expected,
+-      "773ac9cea0396e129ad22ffe535a8cfdd169b9613ac73783e0d44d4d856bb31b"));
++      "4768ee1ccc88748374ef44ca45b0b9272b335412c253dad3af47a4497fe4fa88"));
+ 
+   const TensorIrModule rank_two_b_trans = EmitTensorIr(
+       MakeStructuredMatmul({32, 128}, {16, 128}, {32, 16}, DataType::BF16,
+@@ -670,7 +670,7 @@ int TestStructuredMatmulCanonicalSourcesAndMetadata() {
+       "}\n";
+   REQUIRE(MatchesSourceAndSha256(
+       rank_two_b_trans, rank_two_b_trans_expected,
+-      "9735d531dafa10478bd173a62d5314feac38a21cfe584712e45ec74cb5cf68ca"));
++      "b795d532fc074ea9a8d2d2c41b4683e0a0fda618baa70549e1c47c389d064e03"));
+ 
+   const auto transpose_kwargs =
+       std::vector<std::pair<std::string, std::any>>{
+@@ -700,7 +700,7 @@ int TestStructuredMatmulCanonicalSourcesAndMetadata() {
+       "  }\n"
+       "}\n";
+   REQUIRE(MatchesSourceAndSha256(rank_three, rank_three_expected,
+-                                 "8c5059b9aba415eb8a7361ae1ce7ec65790a9dc8be789693bb5e059e73f0ebb5"));
++                                 "a8ad64c1f01763a1cae232e329c2a9e7149404d7ed83ceea8ba00e6f5e1f170e"));
+   REQUIRE(rank_three.GetValueMetadata()[0].GetShape() ==
+           std::vector<int64_t>({2, 128, 32}));
+   REQUIRE(rank_three.GetValueMetadata()[1].GetShape() ==

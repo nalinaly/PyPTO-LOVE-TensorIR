@@ -1,0 +1,148 @@
+From 35f3ca835a8ad470f7e2d943b2b94b64ef784be5 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 10:47:44 +0800
+Subject: [PATCH 171/212] Fix stateful GDN and convolution TensorIR lowering
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp      | 56 +++++++++----------
+ .../structured_tensor_ir_build_spec.cpp       |  6 +-
+ 2 files changed, 31 insertions(+), 31 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 967ed60f89ebc8565f529e65d4f5e64746eb1b4d..4efe1bff50c286652322ebfc656ebd886072307c 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -48,7 +48,7 @@ constexpr size_t kMaximumDiagnosticNameBytes = 96;
+ constexpr size_t kMaximumCanonicalSourceBytes = 16ULL * 1024ULL * 1024ULL;
+ constexpr size_t kMaximumRank = 32;
+ constexpr size_t kMaximumFusedPointwiseInputs = 16;
+-constexpr size_t kMaximumFusedPointwiseResults = 2;
++constexpr size_t kMaximumFusedPointwiseResults = 4;
+ constexpr size_t kMaximumFusedPointwiseAssignments = 64;
+ constexpr std::string_view kLegacyStaticAddEntryName = "pypto_vector_add";
+ constexpr std::string_view kFusedPointwiseEntryName = "pypto_fused_pointwise";
+@@ -1241,6 +1241,9 @@ std::string EmitNativeTileStatefulCausalConvSource(
+   StaticTensor state_block_flat{DataType::BF16, {1, 128 * 3}, {}};
+   state_block_flat.dense_strides =
+       MakeDenseStridesForMetadata(state_block_flat.shape);
++  StaticTensor state_history_row{DataType::BF16, {1, 128}, {}};
++  state_history_row.dense_strides =
++      MakeDenseStridesForMetadata(state_history_row.shape);
+   StaticTensor state_block{DataType::BF16, {128, 3}, {}};
+   state_block.dense_strides = MakeDenseStridesForMetadata(state_block.shape);
+   StaticTensor wide_state_block = state_block;
+@@ -1276,6 +1279,7 @@ std::string EmitNativeTileStatefulCausalConvSource(
+   const std::string indices_full_type = TensorTypeText(indices_full);
+   const std::string state_rows_type = TensorTypeText(state_rows);
+   const std::string state_block_flat_type = TensorTypeText(state_block_flat);
++  const std::string state_history_row_type = TensorTypeText(state_history_row);
+   const std::string state_block_type = TensorTypeText(state_block);
+   const std::string wide_state_block_type =
+       TensorTypeText(wide_state_block);
+@@ -1346,33 +1350,29 @@ std::string EmitNativeTileStatefulCausalConvSource(
+       const int64_t state_offset = block * 128 * 3;
+       const std::string block_suffix =
+           "b" + std::to_string(batch) + "_c" + std::to_string(block);
+-      source += "\n    %state_flat_" + block_suffix +
+-                " = slice %state_rows starts = [" + std::to_string(batch) +
+-                ", " + std::to_string(state_offset) + "] limits = [" +
+-                std::to_string(batch + 1) + ", " +
+-                std::to_string(state_offset + 128 * 3) +
+-                "] strides = [1, 1] : ";
+-      source += state_rows_type;
+-      source += " -> ";
+-      source += state_block_flat_type;
+-      source += "\n    %state_block_" + block_suffix +
+-                " = reshape %state_flat_" + block_suffix + " : ";
+-      source += state_block_flat_type;
+-      source += " -> ";
+-      source += state_block_type;
+-      source += "\n    %state_wide_" + block_suffix +
+-                " = convert %state_block_" + block_suffix + " : ";
+-      source += state_block_type;
+-      source += " -> ";
+-      source += wide_state_block_type;
+       std::array<std::string, 3> history;
+       for (size_t index = 0; index < history.size(); ++index) {
+         history[index] = "%history" + std::to_string(index) + "_" + block_suffix;
+-        source += "\n    " + history[index] + " = slice %state_wide_" +
+-                  block_suffix + " starts = [0, " + std::to_string(index) +
+-                  "] limits = [128, " + std::to_string(index + 1) +
+-                  "] strides = [1, 1] : ";
+-        source += wide_state_block_type;
++        const std::string row =
++            "%history_row" + std::to_string(index) + "_" + block_suffix;
++        const std::string bf16 =
++            "%history_bf16_" + std::to_string(index) + "_" + block_suffix;
++        source += "\n    " + row + " = slice %state_rows starts = [" +
++                  std::to_string(batch) + ", " +
++                  std::to_string(state_offset + static_cast<int64_t>(index)) +
++                  "] limits = [" + std::to_string(batch + 1) + ", " +
++                  std::to_string(state_offset + 128 * 3) +
++                  "] strides = [1, 3] : ";
++        source += state_rows_type;
++        source += " -> ";
++        source += state_history_row_type;
++        source += "\n    " + bf16 + " = transpose " + row +
++                  " permutation = [1, 0] : ";
++        source += state_history_row_type;
++        source += " -> ";
++        source += bf16_column_type;
++        source += "\n    " + history[index] + " = convert " + bf16 + " : ";
++        source += bf16_column_type;
+         source += " -> ";
+         source += column_type;
+       }
+@@ -8783,7 +8783,7 @@ std::string EmitNativeTileGdnRecurrentSource(
+         source += "\n    %gate_tail_" + suffix + " = log %gate_tail_shift_" +
+                   suffix + " : ";
+         source += parameter_column_type;
+-        source += "\n    %gate_positive_" + suffix + " = maximum %gate_x_" +
++        source += "\n    %gate_positive_" + suffix + " = max %gate_x_" +
+                   suffix + ", %zero_gate : ";
+         source += parameter_column_type;
+         source += "\n    %softplus_" + suffix + " = add %gate_positive_" +
+@@ -8821,7 +8821,7 @@ std::string EmitNativeTileGdnRecurrentSource(
+         source += "\n    %beta_tail_" + suffix + " = log %beta_tail_shift_" +
+                   suffix + " : ";
+         source += parameter_column_type;
+-        source += "\n    %beta_positive_" + suffix + " = maximum %beta_x_" +
++        source += "\n    %beta_positive_" + suffix + " = max %beta_x_" +
+                   suffix + ", %zero_gate : ";
+         source += parameter_column_type;
+         source += "\n    %beta_softplus_" + suffix +
+@@ -9351,7 +9351,7 @@ TensorIrModule::TensorIrModule(TensorIrModuleKind kind, std::string canonical_so
+     if (input_count_ == 0 || input_count_ > kMaximumFusedPointwiseInputs ||
+         result_count == 0 || result_count > kMaximumFusedPointwiseResults) {
+       InternalReject(
+-          "fused pointwise module metadata must contain 1-16 inputs and 1-2 results");
++          "fused pointwise module metadata must contain 1-16 inputs and 1-4 results");
+     }
+   } else if (kind_ == TensorIrModuleKind::RowReduction) {
+     if (input_count_ != 1 || value_metadata_.size() != 2) {
+diff --git a/src/compiler/structured_tensor_ir_build_spec.cpp b/src/compiler/structured_tensor_ir_build_spec.cpp
+index efb825d2e55e6b0e028af85943d89c8e874e9f3e..42c5c0edee54913cb16e8140d0e8d38537c167c5 100644
+--- a/src/compiler/structured_tensor_ir_build_spec.cpp
++++ b/src/compiler/structured_tensor_ir_build_spec.cpp
+@@ -695,7 +695,7 @@ void ValidateKernelAbi(const PreparedStructuredTensorIrCompilation& prepared,
+   const auto& descriptors = layout.GetOperandDescriptors();
+   const auto& metadata = prepared.GetValueMetadata();
+   const uint32_t input_count = prepared.GetInputCount();
+-  if (prepared.GetResultCount() == 0 || prepared.GetResultCount() > 2 ||
++  if (prepared.GetResultCount() == 0 || prepared.GetResultCount() > 4 ||
+       metadata.size() !=
+           static_cast<size_t>(input_count) + prepared.GetResultCount() ||
+       descriptors.size() != metadata.size()) {
+@@ -890,10 +890,10 @@ PreparedStructuredTensorIrCompilation PrepareStructuredTensorIrCompilation(
+     module_kind = PreparedStructuredTensorIrModuleKind::FusedPointwise;
+     INTERNAL_CHECK(module.GetMetadataSchemaVersion() == 2 && module.GetInputCount() >= 1 &&
+                    module.GetInputCount() <= 16 && module.GetResultCount() >= 1 &&
+-                   module.GetResultCount() <= 2 &&
++                   module.GetResultCount() <= 4 &&
+                    module.GetValueMetadata().size() ==
+                        module.GetInputCount() + module.GetResultCount())
+-        << "prepared fused pointwise TensorIR module must use schema 2 with 1-16 inputs and 1-2 results";
++        << "prepared fused pointwise TensorIR module must use schema 2 with 1-16 inputs and 1-4 results";
+   } else if (module.GetKind() == codegen::nvidia::TensorIrModuleKind::RowReduction) {
+     module_kind = PreparedStructuredTensorIrModuleKind::RowReduction;
+     INTERNAL_CHECK(module.GetMetadataSchemaVersion() == 3 && module.GetInputCount() == 1 &&

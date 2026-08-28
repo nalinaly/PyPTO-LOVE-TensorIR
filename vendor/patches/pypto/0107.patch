@@ -1,0 +1,1552 @@
+From 9e40c5f24bddce612d2f978b6fd70b4c0d9b5cba Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 23:50:40 +0800
+Subject: [PATCH 107/212] Canonicalize native TensorIR producer names
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp      |  98 ++++++------
+ src/codegen/nvidia/tensor_ir_codegen.h        |  16 +-
+ .../structured_tensor_ir_build_spec.cpp       | 148 +++++++++---------
+ .../structured_tensor_ir_build_spec.h         |   6 +-
+ tests/ut/compiler/test_structured_compile.py  |  26 +--
+ tests/ut/cpp/structured_compile_test.cpp      |  12 +-
+ .../structured_tensor_ir_build_spec_test.cpp  |  52 +++---
+ tests/ut/cpp/tensor_ir_codegen_test.cpp       |  74 ++++-----
+ 8 files changed, 216 insertions(+), 216 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index f5b0bd4cee743f41c461f4b4d95a0bd86c1e3bef..1a47fb6e2560589ef80e947f12b8794265145e67 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -50,10 +50,10 @@ constexpr size_t kMaximumFusedPointwiseInputs = 16;
+ constexpr size_t kMaximumFusedPointwiseResults = 2;
+ constexpr size_t kMaximumFusedPointwiseAssignments = 64;
+ constexpr std::string_view kLegacyStaticAddEntryName = "pypto_vector_add";
+-constexpr std::string_view kFusedPointwiseEntryName = "pypto_fused_pointwise_v2";
+-constexpr std::string_view kRowReductionEntryName = "pypto_row_reduction_v3";
++constexpr std::string_view kFusedPointwiseEntryName = "pypto_fused_pointwise";
++constexpr std::string_view kRowReductionEntryName = "pypto_row_reduction";
+ constexpr std::string_view kStructuredMatmulEntryName =
+-    "pypto_structured_matmul_v4";
++    "pypto_structured_matmul";
+ 
+ struct StaticTensor {
+   DataType dtype;
+@@ -389,7 +389,7 @@ std::vector<ir::StmtPtr> LegacyBodyStatements(const ir::StmtPtr& body,
+   return sequence->stmts_;
+ }
+ 
+-RowReductionGraph AnalyzeRowReductionV3(const ir::ProgramPtr& program) {
++RowReductionGraph AnalyzeRowReduction(const ir::ProgramPtr& program) {
+   if (!program) Reject("program must not be null");
+   if (program->functions_.size() != 1) {
+     Reject("program must contain exactly one function", &program->span_);
+@@ -411,13 +411,13 @@ RowReductionGraph AnalyzeRowReductionV3(const ir::ProgramPtr& program) {
+     Reject("function attributes are not supported", &function->span_);
+   }
+   if (function->params_.size() != 1 || function->param_directions_.size() != 1) {
+-    Reject("row reduction v3 requires exactly one function parameter", &function->span_);
++    Reject("row reduction requires exactly one function parameter", &function->span_);
+   }
+   if (function->param_directions_[0] != ir::ParamDirection::In) {
+     Reject("the row reduction parameter must have direction In", &function->span_);
+   }
+   if (function->return_types_.size() != 1) {
+-    Reject("row reduction v3 requires exactly one declared return", &function->span_);
++    Reject("row reduction requires exactly one declared return", &function->span_);
+   }
+ 
+   const ir::VarPtr& parameter = function->params_[0];
+@@ -476,7 +476,7 @@ RowReductionGraph AnalyzeRowReductionV3(const ir::ProgramPtr& program) {
+   } else if (ir::IsOp(call, "tensor.row_max")) {
+     mode = RowReductionMode::Max;
+   } else {
+-    Reject("row reduction v3 supports only tensor.row_sum and tensor.row_max", &call->span_);
++    Reject("row reduction supports only tensor.row_sum and tensor.row_max", &call->span_);
+   }
+   if (call->args_.size() != 1) {
+     Reject("row reduction operator expects exactly one operand, got " +
+@@ -1572,7 +1572,7 @@ void ValidateStructuredMatmulConceptualWork(int64_t batch, int64_t m, int64_t n,
+   }
+ }
+ 
+-StructuredMatmulGraph AnalyzeStructuredMatmulV4(const ir::ProgramPtr& program) {
++StructuredMatmulGraph AnalyzeStructuredMatmul(const ir::ProgramPtr& program) {
+   if (!program) Reject("program must not be null");
+   if (program->functions_.size() != 1) {
+     Reject("program must contain exactly one function", &program->span_);
+@@ -1594,12 +1594,12 @@ StructuredMatmulGraph AnalyzeStructuredMatmulV4(const ir::ProgramPtr& program) {
+     Reject("function attributes are not supported", &function->span_);
+   }
+   if (function->params_.size() != 2) {
+-    Reject("structured matmul v4 requires exactly two function parameters, got " +
++    Reject("structured matmul requires exactly two function parameters, got " +
+                std::to_string(function->params_.size()),
+            &function->span_);
+   }
+   if (function->param_directions_.size() != 2) {
+-    Reject("structured matmul v4 parameter-direction count must be 2, got " +
++    Reject("structured matmul parameter-direction count must be 2, got " +
+                std::to_string(function->param_directions_.size()),
+            &function->span_);
+   }
+@@ -1610,7 +1610,7 @@ StructuredMatmulGraph AnalyzeStructuredMatmulV4(const ir::ProgramPtr& program) {
+     Reject("both structured matmul parameters must have direction In", &function->span_);
+   }
+   if (function->return_types_.size() != 1) {
+-    Reject("structured matmul v4 requires exactly one declared return, got " +
++    Reject("structured matmul requires exactly one declared return, got " +
+                std::to_string(function->return_types_.size()),
+            &function->span_);
+   }
+@@ -1675,7 +1675,7 @@ StructuredMatmulGraph AnalyzeStructuredMatmulV4(const ir::ProgramPtr& program) {
+            &assignment->value_->span_);
+   }
+   if (!ir::IsOp(call, "tensor.matmul")) {
+-    Reject("structured matmul v4 supports only tensor.matmul, not " +
++    Reject("structured matmul supports only tensor.matmul, not " +
+                BoundedDisplay(call->op_->name_),
+            &call->span_);
+   }
+@@ -4193,7 +4193,7 @@ FusedPointwiseGraph AnalyzeNativeTilePointwise(const ir::ProgramPtr& program) {
+                              std::move(inputs), std::move(broadcast_inputs)};
+ }
+ 
+-FusedPointwiseGraph AnalyzeFusedPointwiseV2(const ir::ProgramPtr& program) {
++FusedPointwiseGraph AnalyzeFusedPointwise(const ir::ProgramPtr& program) {
+   if (!program) Reject("program must not be null");
+   if (program->functions_.size() != 1) {
+     Reject("program must contain exactly one function", &program->span_);
+@@ -4216,7 +4216,7 @@ FusedPointwiseGraph AnalyzeFusedPointwiseV2(const ir::ProgramPtr& program) {
+   }
+   if (function->params_.empty() ||
+       function->params_.size() > kMaximumFusedPointwiseInputs) {
+-    Reject("fused pointwise v2 requires between 1 and 16 function parameters",
++    Reject("fused pointwise requires between 1 and 16 function parameters",
+            &function->span_);
+   }
+   if (function->param_directions_.size() != function->params_.size()) {
+@@ -4232,7 +4232,7 @@ FusedPointwiseGraph AnalyzeFusedPointwiseV2(const ir::ProgramPtr& program) {
+     Reject("all fused pointwise parameters must have direction In", &function->span_);
+   }
+   if (function->return_types_.size() != 1) {
+-    Reject("fused pointwise v2 requires exactly one declared return", &function->span_);
++    Reject("fused pointwise requires exactly one declared return", &function->span_);
+   }
+ 
+   std::vector<StaticTensor> inputs;
+@@ -4344,7 +4344,7 @@ FusedPointwiseGraph AnalyzeFusedPointwiseV2(const ir::ProgramPtr& program) {
+     }
+     const std::optional<FusedOperationSpec> spec = GetFusedOperationSpec(call);
+     if (!spec.has_value()) {
+-      Reject("fused pointwise v2 supports only tensor "
++      Reject("fused pointwise supports only tensor "
+              "add/adds/sub/subs/mul/muls/div/divs/neg/exp/recip/rsqrt/abs/sqrt/log/sin/cos/"
+              "maximum/minimum",
+              &call->span_);
+@@ -4949,7 +4949,7 @@ bool IsLegacyStaticAddV1Candidate(const ir::ProgramPtr& program) {
+   return call && call->op_ && ir::IsOp(call, "tensor.add");
+ }
+ 
+-bool IsRowReductionV3Candidate(const ir::ProgramPtr& program) {
++bool IsRowReductionCandidate(const ir::ProgramPtr& program) {
+   if (!program || program->functions_.size() != 1) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+   if (!function || !function->body_) return false;
+@@ -4962,7 +4962,7 @@ bool IsRowReductionV3Candidate(const ir::ProgramPtr& program) {
+          (ir::IsOp(call, "tensor.row_sum") || ir::IsOp(call, "tensor.row_max"));
+ }
+ 
+-bool IsStructuredMatmulV4Candidate(const ir::ProgramPtr& program) {
++bool IsStructuredMatmulCandidate(const ir::ProgramPtr& program) {
+   if (!program || program->functions_.size() != 1) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+   if (!function || !function->body_) return false;
+@@ -4977,9 +4977,9 @@ bool IsStructuredMatmulV4Candidate(const ir::ProgramPtr& program) {
+ 
+ std::string_view EntryNameForKind(TensorIrModuleKind kind) {
+   if (kind == TensorIrModuleKind::LegacyStaticAddV1) return kLegacyStaticAddEntryName;
+-  if (kind == TensorIrModuleKind::FusedPointwiseV2) return kFusedPointwiseEntryName;
+-  if (kind == TensorIrModuleKind::RowReductionV3) return kRowReductionEntryName;
+-  if (kind == TensorIrModuleKind::StructuredMatmulV4) {
++  if (kind == TensorIrModuleKind::FusedPointwise) return kFusedPointwiseEntryName;
++  if (kind == TensorIrModuleKind::RowReduction) return kRowReductionEntryName;
++  if (kind == TensorIrModuleKind::StructuredMatmul) {
+     return kStructuredMatmulEntryName;
+   }
+   InternalReject("TensorIR module kind is invalid");
+@@ -5036,25 +5036,25 @@ TensorIrModule::TensorIrModule(TensorIrModuleKind kind, std::string canonical_so
+   if (canonical_source_.empty() || canonical_source_.size() > kMaximumCanonicalSourceBytes) {
+     InternalReject("canonical source metadata is empty or exceeds 16 MiB");
+   }
+-  if (kind_ != TensorIrModuleKind::StructuredMatmulV4 && contraction_extent_ != 0) {
++  if (kind_ != TensorIrModuleKind::StructuredMatmul && contraction_extent_ != 0) {
+     InternalReject("non-matmul TensorIR module unexpectedly carries a contraction extent");
+   }
+   if (kind_ == TensorIrModuleKind::LegacyStaticAddV1) {
+     if (input_count_ != 2 || value_metadata_.size() != 3) {
+       InternalReject("tensor.add module metadata must contain Input0, Input1, and Result0");
+     }
+-  } else if (kind_ == TensorIrModuleKind::FusedPointwiseV2) {
++  } else if (kind_ == TensorIrModuleKind::FusedPointwise) {
+     const size_t result_count = value_metadata_.size() - input_count_;
+     if (input_count_ == 0 || input_count_ > kMaximumFusedPointwiseInputs ||
+         result_count == 0 || result_count > kMaximumFusedPointwiseResults) {
+       InternalReject(
+           "fused pointwise module metadata must contain 1-16 inputs and 1-2 results");
+     }
+-  } else if (kind_ == TensorIrModuleKind::RowReductionV3) {
++  } else if (kind_ == TensorIrModuleKind::RowReduction) {
+     if (input_count_ != 1 || value_metadata_.size() != 2) {
+       InternalReject("row reduction module metadata must contain Input0 and Result0");
+     }
+-  } else if (kind_ == TensorIrModuleKind::StructuredMatmulV4) {
++  } else if (kind_ == TensorIrModuleKind::StructuredMatmul) {
+     if (input_count_ != 2 || value_metadata_.size() != 3 ||
+         contraction_extent_ == 0) {
+       InternalReject(
+@@ -5082,8 +5082,8 @@ TensorIrModule::TensorIrModule(TensorIrModuleKind kind, std::string canonical_so
+            left.GetLogicalDenseStrides() == right.GetLogicalDenseStrides() &&
+            left.HasExplicitStrides() == right.HasExplicitStrides();
+   };
+-  if (kind_ != TensorIrModuleKind::RowReductionV3 &&
+-      kind_ != TensorIrModuleKind::StructuredMatmulV4) {
++  if (kind_ != TensorIrModuleKind::RowReduction &&
++      kind_ != TensorIrModuleKind::StructuredMatmul) {
+     const auto broadcast_compatible = [](const TensorIrValueMetadata& source,
+                                          const TensorIrValueMetadata& full) {
+       if (source.GetDtypeCode() != full.GetDtypeCode() ||
+@@ -5118,7 +5118,7 @@ TensorIrModule::TensorIrModule(TensorIrModuleKind kind, std::string canonical_so
+                      })) {
+       InternalReject("TensorIR module value metadata must have identical types and layouts");
+     }
+-  } else if (kind_ == TensorIrModuleKind::RowReductionV3) {
++  } else if (kind_ == TensorIrModuleKind::RowReduction) {
+     const TensorIrValueMetadata& input = value_metadata_[0];
+     const TensorIrValueMetadata& result = value_metadata_[1];
+     std::vector<int64_t> expected_result_shape = input.GetShape();
+@@ -5316,7 +5316,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+     metadata.push_back(TensorIrValueMetadata(
+         TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
+         graph.result.dense_strides, graph.result.shape.size() >= 2));
+-    return TensorIrModule(TensorIrModuleKind::RowReductionV3,
++    return TensorIrModule(TensorIrModuleKind::RowReduction,
+                           EmitRowReductionSource(graph), std::move(metadata),
+                           /*input_count=*/1);
+   }
+@@ -5333,7 +5333,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+     metadata.push_back(TensorIrValueMetadata(
+         TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
+         graph.result.dense_strides, /*has_explicit_strides=*/true));
+-    return TensorIrModule(TensorIrModuleKind::FusedPointwiseV2,
++    return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+                           EmitNativeTileCausalConvSegmentedSource(graph),
+                           std::move(metadata), /*input_count=*/2);
+   }
+@@ -5350,7 +5350,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+     metadata.push_back(TensorIrValueMetadata(
+         TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
+         graph.result.dense_strides, /*has_explicit_strides=*/true));
+-    return TensorIrModule(TensorIrModuleKind::StructuredMatmulV4,
++    return TensorIrModule(TensorIrModuleKind::StructuredMatmul,
+                           EmitStructuredMatmulSource(graph), std::move(metadata),
+                           /*input_count=*/2,
+                           /*contraction_extent=*/static_cast<uint64_t>(graph.k));
+@@ -5370,7 +5370,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+     metadata.push_back(TensorIrValueMetadata(
+         TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
+         graph.result.dense_strides, /*has_explicit_strides=*/true));
+-    return TensorIrModule(TensorIrModuleKind::FusedPointwiseV2,
++    return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+                           EmitNativeTileGdnUpdateSource(graph),
+                           std::move(metadata), /*input_count=*/4);
+   }
+@@ -5393,7 +5393,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+     metadata.push_back(TensorIrValueMetadata(
+         TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
+         graph.result.dense_strides, /*has_explicit_strides=*/true));
+-    return TensorIrModule(TensorIrModuleKind::FusedPointwiseV2,
++    return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+                           EmitNativeTileGdnReadSource(graph),
+                           std::move(metadata), /*input_count=*/6);
+   }
+@@ -5412,7 +5412,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+     metadata.push_back(TensorIrValueMetadata(
+         TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
+         graph.result.dense_strides, /*has_explicit_strides=*/true));
+-    return TensorIrModule(TensorIrModuleKind::FusedPointwiseV2,
++    return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+                           EmitNativeTileAttentionSource(graph),
+                           std::move(metadata), /*input_count=*/3);
+   }
+@@ -5432,7 +5432,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+     metadata.push_back(TensorIrValueMetadata(
+         TensorIrValueRole::Result, 0, graph.input.dtype, graph.input.shape,
+         graph.input.dense_strides, /*has_explicit_strides=*/true));
+-    return TensorIrModule(TensorIrModuleKind::FusedPointwiseV2,
++    return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+                           EmitNativeTileRopeSource(graph), std::move(metadata),
+                           /*input_count=*/3);
+   }
+@@ -5453,7 +5453,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+     metadata.push_back(TensorIrValueMetadata(
+         TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
+         graph.result.dense_strides, /*has_explicit_strides=*/true));
+-    return TensorIrModule(TensorIrModuleKind::FusedPointwiseV2,
++    return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+                           EmitNativeTileGatedRmsNormSource(graph),
+                           std::move(metadata), /*input_count=*/3);
+   }
+@@ -5477,7 +5477,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+           graph.result.shape, graph.result.dense_strides,
+           /*has_explicit_strides=*/true));
+     }
+-    return TensorIrModule(TensorIrModuleKind::FusedPointwiseV2,
++    return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+                           EmitNativeTileFusedAddRmsNormSource(graph),
+                           std::move(metadata), /*input_count=*/3);
+   }
+@@ -5495,7 +5495,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+     metadata.push_back(TensorIrValueMetadata(
+         TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
+         graph.result.dense_strides, /*has_explicit_strides=*/true));
+-    return TensorIrModule(TensorIrModuleKind::FusedPointwiseV2,
++    return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+                           EmitNativeTileWeightedRmsNormSource(graph),
+                           std::move(metadata), /*input_count=*/2);
+   }
+@@ -5512,7 +5512,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+         TensorIrValueRole::Result, 0, input.dtype, input.shape,
+         input.dense_strides, input.shape.size() >= 2));
+     return TensorIrModule(
+-        TensorIrModuleKind::FusedPointwiseV2,
++        TensorIrModuleKind::FusedPointwise,
+         EmitRowReductionEpilogueSource(input, /*square_input=*/true, steps),
+         std::move(metadata), /*input_count=*/1);
+   }
+@@ -5529,7 +5529,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+     metadata.push_back(TensorIrValueMetadata(
+         TensorIrValueRole::Result, 0, graph.tensor.dtype, graph.tensor.shape,
+         graph.tensor.dense_strides, graph.tensor.shape.size() >= 2));
+-    return TensorIrModule(TensorIrModuleKind::FusedPointwiseV2,
++    return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+                           EmitFusedPointwiseSource(graph), std::move(metadata),
+                           static_cast<uint32_t>(graph.input_count));
+   }
+@@ -5551,14 +5551,14 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+           TensorIrValueRole::Result, 0, reduction_input.dtype,
+           reduction_input.shape, reduction_input.dense_strides,
+           reduction_input.shape.size() >= 2));
+-      return TensorIrModule(TensorIrModuleKind::FusedPointwiseV2,
++      return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+                             EmitRowReductionEpilogueSource(
+                                 reduction_input, square_input, steps),
+                             std::move(metadata), /*input_count=*/1);
+     }
+   }
+-  if (IsRowReductionV3Candidate(program)) {
+-    const RowReductionGraph graph = AnalyzeRowReductionV3(program);
++  if (IsRowReductionCandidate(program)) {
++    const RowReductionGraph graph = AnalyzeRowReduction(program);
+     std::vector<TensorIrValueMetadata> metadata;
+     metadata.reserve(2);
+     metadata.push_back(TensorIrValueMetadata(
+@@ -5567,12 +5567,12 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+     metadata.push_back(TensorIrValueMetadata(
+         TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
+         graph.result.dense_strides, graph.result.shape.size() >= 2));
+-    return TensorIrModule(TensorIrModuleKind::RowReductionV3,
++    return TensorIrModule(TensorIrModuleKind::RowReduction,
+                           EmitRowReductionSource(graph), std::move(metadata),
+                           /*input_count=*/1);
+   }
+-  if (IsStructuredMatmulV4Candidate(program)) {
+-    const StructuredMatmulGraph graph = AnalyzeStructuredMatmulV4(program);
++  if (IsStructuredMatmulCandidate(program)) {
++    const StructuredMatmulGraph graph = AnalyzeStructuredMatmul(program);
+     std::vector<TensorIrValueMetadata> metadata;
+     metadata.reserve(3);
+     metadata.push_back(TensorIrValueMetadata(
+@@ -5584,13 +5584,13 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+     metadata.push_back(TensorIrValueMetadata(
+         TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
+         graph.result.dense_strides, /*has_explicit_strides=*/true));
+-    return TensorIrModule(TensorIrModuleKind::StructuredMatmulV4,
++    return TensorIrModule(TensorIrModuleKind::StructuredMatmul,
+                           EmitStructuredMatmulSource(graph), std::move(metadata),
+                           /*input_count=*/2,
+                           /*contraction_extent=*/static_cast<uint64_t>(graph.k));
+   }
+ 
+-  FusedPointwiseGraph graph = AnalyzeFusedPointwiseV2(program);
++  FusedPointwiseGraph graph = AnalyzeFusedPointwise(program);
+   std::vector<TensorIrValueMetadata> metadata;
+   metadata.reserve(graph.input_count + 1);
+   for (size_t index = 0; index < graph.input_count; ++index) {
+@@ -5603,7 +5603,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+       TensorIrValueRole::Result, 0, graph.tensor.dtype, graph.tensor.shape,
+       graph.tensor.dense_strides, graph.tensor.shape.size() >= 2));
+   const uint32_t input_count = static_cast<uint32_t>(graph.input_count);
+-  return TensorIrModule(TensorIrModuleKind::FusedPointwiseV2,
++  return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+                         EmitFusedPointwiseSource(graph), std::move(metadata), input_count);
+ }
+ 
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.h b/src/codegen/nvidia/tensor_ir_codegen.h
+index fafe64f674c6cf0090ad4f0fbd59f6508bf3c6af..3969c51773dbd84d1a2a13305d14ee377e265702 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.h
++++ b/src/codegen/nvidia/tensor_ir_codegen.h
+@@ -30,9 +30,9 @@ namespace detail {
+ /** Private frontend family selected by deterministic HIR analysis. */
+ enum class TensorIrModuleKind : uint8_t {
+   LegacyStaticAddV1 = 0,
+-  FusedPointwiseV2 = 1,
+-  RowReductionV3 = 2,
+-  StructuredMatmulV4 = 3,
++  FusedPointwise = 1,
++  RowReduction = 2,
++  StructuredMatmul = 3,
+ };
+ 
+ /** Position of a value in the compile-free TensorIR graph ABI. */
+@@ -102,10 +102,10 @@ class TensorIrModule {
+     if (kind_ == TensorIrModuleKind::LegacyStaticAddV1) {
+       return kLegacyStaticAddMetadataSchemaVersion;
+     }
+-    if (kind_ == TensorIrModuleKind::FusedPointwiseV2) {
++    if (kind_ == TensorIrModuleKind::FusedPointwise) {
+       return kFusedPointwiseMetadataSchemaVersion;
+     }
+-    if (kind_ == TensorIrModuleKind::RowReductionV3) {
++    if (kind_ == TensorIrModuleKind::RowReduction) {
+       return kRowReductionMetadataSchemaVersion;
+     }
+     return kStructuredMatmulMetadataSchemaVersion;
+@@ -144,14 +144,14 @@ class TensorIrModule {
+  * Emit a strict PyPTO HIR tensor subset as deterministic TensorIR text.
+  *
+  * The accepted legacy two-input tensor.add form remains LegacyStaticAddV1.
+- * FusedPointwiseV2 accepts a bounded linear SSA chain over registered tensor
++ * FusedPointwise accepts a bounded linear SSA chain over registered tensor
+  * add/adds/sub/subs/mul/muls/neg/exp/recip/rsqrt operations. Inputs and the
+  * result must be plain, static, contiguous BF16 or FP32 tensors with identical
+- * types and shapes. RowReductionV3 accepts one direct tensor.row_sum or
++ * types and shapes. RowReduction accepts one direct tensor.row_sum or
+  * tensor.row_max over the last axis of one plain, static, contiguous BF16 or
+  * FP32 tensor. It preserves rank and dtype while setting the last result extent
+  * to one; BF16 is explicitly widened to FP32 around the TensorIR reduction.
+- * StructuredMatmulV4 accepts one direct rank-2 or equal-batch rank-3 BF16
++ * StructuredMatmul accepts one direct rank-2 or equal-batch rank-3 BF16
+  * tensor.matmul, optionally transposes either physical input through an
+  * explicit TensorIR view, computes BF16xBF16 to F32, and converts the logical
+  * result back to BF16. Its physical input metadata remains unchanged.
+diff --git a/src/compiler/structured_tensor_ir_build_spec.cpp b/src/compiler/structured_tensor_ir_build_spec.cpp
+index f3e25053cc970c79b69ad677ca897d24e2054f04..37a5c060ac1c27e55365eb2c01a02ae9b6e53cf7 100644
+--- a/src/compiler/structured_tensor_ir_build_spec.cpp
++++ b/src/compiler/structured_tensor_ir_build_spec.cpp
+@@ -84,19 +84,19 @@ FrontendProjectionSchema ProjectionSchemaFor(
+                                     kSymbolicSpecializationContract, kArgumentAbiContract,
+                                     kResultAbiContract, kMutationAbiContract};
+   }
+-  if (module_kind == PreparedStructuredTensorIrModuleKind::FusedPointwiseV2) {
++  if (module_kind == PreparedStructuredTensorIrModuleKind::FusedPointwise) {
+     return FrontendProjectionSchema{2, kStaticSpecializationV2Contract,
+                                     kSymbolicSpecializationV2Contract,
+                                     kArgumentAbiV2Contract, kResultAbiV2Contract,
+                                     kMutationAbiV2Contract};
+   }
+-  if (module_kind == PreparedStructuredTensorIrModuleKind::RowReductionV3) {
++  if (module_kind == PreparedStructuredTensorIrModuleKind::RowReduction) {
+     return FrontendProjectionSchema{3, kStaticSpecializationV3Contract,
+                                     kSymbolicSpecializationV3Contract,
+                                     kArgumentAbiV3Contract, kResultAbiV3Contract,
+                                     kMutationAbiV3Contract};
+   }
+-  if (module_kind == PreparedStructuredTensorIrModuleKind::StructuredMatmulV4) {
++  if (module_kind == PreparedStructuredTensorIrModuleKind::StructuredMatmul) {
+     return FrontendProjectionSchema{4, kStaticSpecializationV4Contract,
+                                     kSymbolicSpecializationV4Contract,
+                                     kArgumentAbiV4Contract, kResultAbiV4Contract,
+@@ -272,21 +272,21 @@ std::vector<std::optional<int64_t>> StaticValues(const std::vector<int64_t>& val
+ uint64_t FusedPointwiseGridX(const std::vector<int64_t>& shape,
+                              const std::vector<uint32_t>& tile_sizes) {
+   INTERNAL_CHECK(!shape.empty())
+-      << "fused pointwise v2 shape must have rank between 1 and 32";
++      << "fused pointwise shape must have rank between 1 and 32";
+   INTERNAL_CHECK(!tile_sizes.empty())
+-      << "fused pointwise v2 schedule must contain at least one tile";
++      << "fused pointwise schedule must contain at least one tile";
+   if (tile_sizes.size() == 1) {
+     uint64_t element_count = 1;
+     for (int64_t dimension : shape) {
+       INTERNAL_CHECK(dimension > 0)
+-          << "fused pointwise v2 shape contains a non-positive dimension";
++          << "fused pointwise shape contains a non-positive dimension";
+       INTERNAL_CHECK(static_cast<uint64_t>(dimension) <=
+                      std::numeric_limits<uint64_t>::max() / element_count)
+-          << "fused pointwise v2 element count overflows uint64";
++          << "fused pointwise element count overflows uint64";
+       element_count *= static_cast<uint64_t>(dimension);
+     }
+     const uint64_t tile_size = tile_sizes[0];
+-    INTERNAL_CHECK(tile_size > 0) << "fused pointwise v2 tile size is zero";
++    INTERNAL_CHECK(tile_size > 0) << "fused pointwise tile size is zero";
+     return element_count / tile_size +
+            (element_count % tile_size == 0 ? 0 : 1);
+   }
+@@ -297,7 +297,7 @@ uint64_t FusedPointwiseGridX(const std::vector<int64_t>& shape,
+       INTERNAL_CHECK(dimension > 0 &&
+                      static_cast<uint64_t>(dimension) <=
+                          std::numeric_limits<uint64_t>::max() / element_count)
+-          << "fused pointwise v2 factored iteration element count overflows uint64";
++          << "fused pointwise factored iteration element count overflows uint64";
+       element_count *= static_cast<uint64_t>(dimension);
+     }
+     uint64_t tile_element_count = 1;
+@@ -305,11 +305,11 @@ uint64_t FusedPointwiseGridX(const std::vector<int64_t>& shape,
+       INTERNAL_CHECK(tile_size > 0 &&
+                      static_cast<uint64_t>(tile_size) <=
+                          std::numeric_limits<uint64_t>::max() / tile_element_count)
+-          << "fused pointwise v2 factored tile element count overflows uint64";
++          << "fused pointwise factored tile element count overflows uint64";
+       tile_element_count *= static_cast<uint64_t>(tile_size);
+     }
+     INTERNAL_CHECK(tile_element_count <= element_count)
+-        << "fused pointwise v2 factored tile exceeds the static element count";
++        << "fused pointwise factored tile exceeds the static element count";
+     return element_count / tile_element_count +
+            (element_count % tile_element_count == 0 ? 0 : 1);
+   }
+@@ -317,14 +317,14 @@ uint64_t FusedPointwiseGridX(const std::vector<int64_t>& shape,
+   uint64_t grid_x = 1;
+   for (size_t index = 0; index < shape.size(); ++index) {
+     INTERNAL_CHECK(shape[index] > 0 && tile_sizes[index] > 0)
+-        << "fused pointwise v2 multidimensional shape/tile is non-positive";
++        << "fused pointwise multidimensional shape/tile is non-positive";
+     const uint64_t dimension = static_cast<uint64_t>(shape[index]);
+     const uint64_t tile_size = tile_sizes[index];
+     const uint64_t dimension_tiles =
+         dimension / tile_size + (dimension % tile_size == 0 ? 0 : 1);
+     INTERNAL_CHECK(dimension_tiles <=
+                    std::numeric_limits<uint64_t>::max() / grid_x)
+-        << "fused pointwise v2 multidimensional grid overflows uint64";
++        << "fused pointwise multidimensional grid overflows uint64";
+     grid_x *= dimension_tiles;
+   }
+   return grid_x;
+@@ -357,7 +357,7 @@ uint64_t RowReductionContractionTile(
+   INTERNAL_CHECK(!shape.empty() && shape.back() > 0)
+       << "prepared row reduction shape must have a positive last extent";
+   INTERNAL_CHECK(resolved_options.reduction_tile_size == 128)
+-      << "row reduction v3 requires the pinned reduction tile budget 128";
++      << "row reduction requires the pinned reduction tile budget 128";
+   const uint64_t last_extent = static_cast<uint64_t>(shape.back());
+   return std::min(static_cast<uint64_t>(resolved_options.reduction_tile_size),
+                   LargestPowerOfTwoDivisor(last_extent));
+@@ -367,39 +367,39 @@ void ValidateFusedPointwiseSchedule(
+     const codegen::nvidia::TensorIrModule& module,
+     const StrictTensorIrProducerOptions& resolved_options,
+     const CompileRequest& request) {
+-  if (module.GetKind() != codegen::nvidia::TensorIrModuleKind::FusedPointwiseV2) return;
++  if (module.GetKind() != codegen::nvidia::TensorIrModuleKind::FusedPointwise) return;
+   INTERNAL_CHECK(!module.GetValueMetadata().empty())
+-      << "fused pointwise v2 module has no value metadata";
++      << "fused pointwise module has no value metadata";
+   const std::vector<int64_t>& shape =
+       module.GetValueMetadata()[module.GetInputCount()].GetShape();
+   const std::vector<uint32_t>& tile_sizes = resolved_options.tile_sizes;
+   CHECK(!tile_sizes.empty())
+-      << "fused pointwise v2 requires at least one tile dimension";
++      << "fused pointwise requires at least one tile dimension";
+   for (size_t index = 0; index < tile_sizes.size(); ++index) {
+     const uint32_t tile_size = tile_sizes[index];
+     CHECK(tile_size != 0 && (tile_size & (tile_size - 1)) == 0)
+-        << "fused pointwise v2 tile dim_" << index
++        << "fused pointwise tile dim_" << index
+         << " must be a positive power of two, got " << tile_size;
+   }
+   if (tile_sizes.size() == 1) {
+     uint64_t element_count = 1;
+     for (int64_t dimension : shape) {
+       INTERNAL_CHECK(dimension > 0)
+-          << "fused pointwise v2 metadata contains a non-positive shape dimension";
++          << "fused pointwise metadata contains a non-positive shape dimension";
+       INTERNAL_CHECK(static_cast<uint64_t>(dimension) <=
+                      std::numeric_limits<uint64_t>::max() / element_count)
+-          << "fused pointwise v2 element count overflows uint64";
++          << "fused pointwise element count overflows uint64";
+       element_count *= static_cast<uint64_t>(dimension);
+     }
+     CHECK(static_cast<uint64_t>(tile_sizes[0]) <= element_count)
+-        << "fused pointwise v2 tile dim_000 must not exceed the flattened "
++        << "fused pointwise tile dim_000 must not exceed the flattened "
+            "static element count "
+         << element_count << ", got " << tile_sizes[0];
+   } else if (tile_sizes.size() == shape.size()) {
+     for (size_t index = 0; index < shape.size(); ++index) {
+       CHECK(static_cast<uint64_t>(tile_sizes[index]) <=
+             static_cast<uint64_t>(shape[index]))
+-          << "fused pointwise v2 tile dim_" << index
++          << "fused pointwise tile dim_" << index
+           << " must not exceed static extent " << shape[index] << ", got "
+           << tile_sizes[index];
+     }
+@@ -409,25 +409,25 @@ void ValidateFusedPointwiseSchedule(
+       INTERNAL_CHECK(dimension > 0 &&
+                      static_cast<uint64_t>(dimension) <=
+                          std::numeric_limits<uint64_t>::max() / element_count)
+-          << "fused pointwise v2 factored iteration element count overflows uint64";
++          << "fused pointwise factored iteration element count overflows uint64";
+       element_count *= static_cast<uint64_t>(dimension);
+     }
+     uint64_t tile_element_count = 1;
+     for (uint32_t tile_size : tile_sizes) {
+       CHECK(static_cast<uint64_t>(tile_size) <=
+             std::numeric_limits<uint64_t>::max() / tile_element_count)
+-          << "fused pointwise v2 factored tile element count overflows uint64";
++          << "fused pointwise factored tile element count overflows uint64";
+       tile_element_count *= static_cast<uint64_t>(tile_size);
+     }
+     CHECK(tile_element_count <= element_count)
+-        << "fused pointwise v2 factored tile has " << tile_element_count
++        << "fused pointwise factored tile has " << tile_element_count
+         << " elements, exceeding static tensor element count " << element_count;
+   }
+   const uint64_t expected_grid_x = FusedPointwiseGridX(shape, tile_sizes);
+   const int64_t max_grid_x = request.GetTargetInfo().GetTraits().GetMaxGridDimX();
+   CHECK(expected_grid_x <= static_cast<uint64_t>(std::numeric_limits<int32_t>::max()) &&
+         expected_grid_x <= static_cast<uint64_t>(max_grid_x))
+-      << "fused pointwise v2 normalized grid x=" << expected_grid_x
++      << "fused pointwise normalized grid x=" << expected_grid_x
+       << " exceeds the prepared target limit " << max_grid_x;
+ }
+ 
+@@ -435,21 +435,21 @@ void ValidateRowReductionSchedule(
+     const codegen::nvidia::TensorIrModule& module,
+     const StrictTensorIrProducerOptions& resolved_options,
+     const CompileRequest& request) {
+-  if (module.GetKind() != codegen::nvidia::TensorIrModuleKind::RowReductionV3) return;
++  if (module.GetKind() != codegen::nvidia::TensorIrModuleKind::RowReduction) return;
+   CHECK(resolved_options.tile_sizes.size() == 1)
+-      << "row reduction v3 requires exactly one row tile size dim_000, got "
++      << "row reduction requires exactly one row tile size dim_000, got "
+       << resolved_options.tile_sizes.size();
+   const uint32_t tile_size = resolved_options.tile_sizes[0];
+   CHECK(tile_size != 0 && (tile_size & (tile_size - 1)) == 0)
+-      << "row reduction v3 tile dim_000 must be a positive power of two, got "
++      << "row reduction tile dim_000 must be a positive power of two, got "
+       << tile_size;
+ 
+   INTERNAL_CHECK(module.GetValueMetadata().size() == 2)
+-      << "row reduction v3 module must contain one input and one result";
++      << "row reduction module must contain one input and one result";
+   const std::vector<int64_t>& input_shape = module.GetValueMetadata()[0].GetShape();
+   const uint64_t rows = StaticRowCount(input_shape);
+   CHECK(static_cast<uint64_t>(tile_size) <= rows)
+-      << "row reduction v3 tile dim_000 must not exceed the checked row count "
++      << "row reduction tile dim_000 must not exceed the checked row count "
+       << rows << ", got " << tile_size;
+   const uint64_t last_extent = static_cast<uint64_t>(input_shape.back());
+   const uint64_t contraction_tile =
+@@ -459,21 +459,21 @@ void ValidateRowReductionSchedule(
+       (last_extent % contraction_tile == 0 ? 0 : 1);
+   CHECK(static_cast<uint64_t>(tile_size) <=
+         kCudaTileCompilerMaximumTileElements / contraction_tile)
+-      << "row reduction v3 resolved tile T*r="
++      << "row reduction resolved tile T*r="
+       << static_cast<uint64_t>(tile_size) * contraction_tile
+       << " (T=" << tile_size << ", r=" << contraction_tile
+       << ") exceeds the pinned CUDA Tile compiler maximum tile elements "
+       << kCudaTileCompilerMaximumTileElements;
+   CHECK(reduction_chunks <=
+         static_cast<uint64_t>(std::numeric_limits<int32_t>::max()))
+-      << "row reduction v3 reduction chunk count ceil(N/r)=" << reduction_chunks
++      << "row reduction reduction chunk count ceil(N/r)=" << reduction_chunks
+       << " (N=" << last_extent << ", r=" << contraction_tile
+       << ") exceeds INT32_MAX because TensorIR lowering materializes an i32 loop bound";
+   const uint64_t expected_grid_x = rows / tile_size + (rows % tile_size == 0 ? 0 : 1);
+   const int64_t max_grid_x = request.GetTargetInfo().GetTraits().GetMaxGridDimX();
+   CHECK(expected_grid_x <= static_cast<uint64_t>(std::numeric_limits<int32_t>::max()) &&
+         expected_grid_x <= static_cast<uint64_t>(max_grid_x))
+-      << "row reduction v3 static grid x=" << expected_grid_x
++      << "row reduction static grid x=" << expected_grid_x
+       << " exceeds the prepared target limit " << max_grid_x;
+ }
+ 
+@@ -501,7 +501,7 @@ uint64_t StructuredMatmulContractionTile(
+   INTERNAL_CHECK(contraction_extent > 0)
+       << "prepared structured matmul contraction extent must be positive";
+   INTERNAL_CHECK(resolved_options.reduction_tile_size == 128)
+-      << "structured matmul v4 requires the pinned contraction tile budget 128";
++      << "structured matmul requires the pinned contraction tile budget 128";
+   return std::min(static_cast<uint64_t>(resolved_options.reduction_tile_size),
+                   contraction_extent & (~contraction_extent + uint64_t{1}));
+ }
+@@ -511,17 +511,17 @@ void ValidateStructuredMatmulSchedule(
+     const StrictTensorIrProducerOptions& resolved_options,
+     const CompileRequest& request) {
+   if (module.GetKind() !=
+-      codegen::nvidia::TensorIrModuleKind::StructuredMatmulV4) {
++      codegen::nvidia::TensorIrModuleKind::StructuredMatmul) {
+     return;
+   }
+   INTERNAL_CHECK(module.GetValueMetadata().size() == 3 &&
+                  module.GetInputCount() == 2 && module.GetResultCount() == 1)
+-      << "structured matmul v4 module must contain two inputs and one result";
++      << "structured matmul module must contain two inputs and one result";
+   const auto& result_shape = module.GetValueMetadata()[2].GetShape();
+   const std::vector<uint64_t> extents =
+       StructuredMatmulIterationExtents(result_shape);
+   CHECK(resolved_options.tile_sizes.size() == extents.size())
+-      << "structured matmul v4 requires " << extents.size()
++      << "structured matmul requires " << extents.size()
+       << " normalized tile dimensions, got " << resolved_options.tile_sizes.size();
+ 
+   uint64_t tile_product = 1;
+@@ -529,28 +529,28 @@ void ValidateStructuredMatmulSchedule(
+   for (size_t index = 0; index < extents.size(); ++index) {
+     const uint32_t tile = resolved_options.tile_sizes[index];
+     CHECK(tile != 0 && (tile & (tile - 1)) == 0)
+-        << "structured matmul v4 tile dim_" << index
++        << "structured matmul tile dim_" << index
+         << " must be a positive power of two, got " << tile;
+     CHECK(static_cast<uint64_t>(tile) <= extents[index])
+-        << "structured matmul v4 tile dim_" << index
++        << "structured matmul tile dim_" << index
+         << " must not exceed bit_floor(normalized extent " << extents[index]
+         << "), got " << tile;
+     CHECK(static_cast<uint64_t>(tile) <=
+           std::numeric_limits<uint64_t>::max() / tile_product)
+-        << "structured matmul v4 tile product overflows uint64";
++        << "structured matmul tile product overflows uint64";
+     tile_product *= static_cast<uint64_t>(tile);
+     const uint64_t grid_extent =
+         extents[index] / tile + (extents[index] % tile == 0 ? 0 : 1);
+     CHECK(grid_extent <= std::numeric_limits<uint64_t>::max() / grid_product)
+-        << "structured matmul v4 grid product overflows uint64";
++        << "structured matmul grid product overflows uint64";
+     grid_product *= grid_extent;
+   }
+ 
+   const uint64_t contraction_extent = module.GetContractionExtent();
+   INTERNAL_CHECK(contraction_extent != 0 && contraction_extent % 128 == 0)
+-      << "structured matmul v4 contraction extent must be a positive multiple of 128";
++      << "structured matmul contraction extent must be a positive multiple of 128";
+   INTERNAL_CHECK(result_shape.back() % 16 == 0)
+-      << "structured matmul v4 N must be a multiple of 16";
++      << "structured matmul N must be a multiple of 16";
+   const uint64_t contraction_tile =
+       StructuredMatmulContractionTile(contraction_extent, resolved_options);
+   const uint64_t contraction_chunks =
+@@ -558,13 +558,13 @@ void ValidateStructuredMatmulSchedule(
+       (contraction_extent % contraction_tile == 0 ? 0 : 1);
+   CHECK(tile_product <=
+         kCudaTileCompilerMaximumTileElements / contraction_tile)
+-      << "structured matmul v4 resolved tile product*r exceeds the pinned CUDA Tile compiler "
++      << "structured matmul resolved tile product*r exceeds the pinned CUDA Tile compiler "
+          "maximum tile elements "
+       << kCudaTileCompilerMaximumTileElements << " (tile product=" << tile_product
+       << ", r=" << contraction_tile << ")";
+   CHECK(contraction_chunks <=
+         static_cast<uint64_t>(std::numeric_limits<int32_t>::max()))
+-      << "structured matmul v4 contraction chunk count ceil(K/r)="
++      << "structured matmul contraction chunk count ceil(K/r)="
+       << contraction_chunks << " (K=" << contraction_extent
+       << ", r=" << contraction_tile
+       << ") exceeds INT32_MAX because TensorIR lowering materializes an i32 loop bound";
+@@ -572,62 +572,62 @@ void ValidateStructuredMatmulSchedule(
+   CHECK(grid_product <=
+             static_cast<uint64_t>(std::numeric_limits<int32_t>::max()) &&
+         grid_product <= static_cast<uint64_t>(max_grid_x))
+-      << "structured matmul v4 static grid x=" << grid_product
++      << "structured matmul static grid x=" << grid_product
+       << " exceeds the prepared target limit " << max_grid_x;
+ }
+ 
+ uint32_t ExpectedFusedPointwiseGridX(
+     const PreparedStructuredTensorIrCompilation& prepared) {
+   INTERNAL_CHECK(prepared.GetModuleKind() ==
+-                 PreparedStructuredTensorIrModuleKind::FusedPointwiseV2)
+-      << "expected-grid calculation requires a fused pointwise v2 preparation";
++                 PreparedStructuredTensorIrModuleKind::FusedPointwise)
++      << "expected-grid calculation requires a fused pointwise preparation";
+   INTERNAL_CHECK(!prepared.GetValueMetadata().empty())
+-      << "fused pointwise v2 preparation has no value metadata";
++      << "fused pointwise preparation has no value metadata";
+   const uint64_t grid_x = FusedPointwiseGridX(
+       prepared.GetValueMetadata().back().GetShape(),
+       prepared.GetResolvedOptions().tile_sizes);
+   INTERNAL_CHECK(grid_x <= std::numeric_limits<uint32_t>::max())
+-      << "fused pointwise v2 grid exceeds uint32 after preparation";
++      << "fused pointwise grid exceeds uint32 after preparation";
+   return static_cast<uint32_t>(grid_x);
+ }
+ 
+ uint32_t ExpectedRowReductionGridX(
+     const PreparedStructuredTensorIrCompilation& prepared) {
+   INTERNAL_CHECK(prepared.GetModuleKind() ==
+-                 PreparedStructuredTensorIrModuleKind::RowReductionV3)
+-      << "expected-grid calculation requires a row reduction v3 preparation";
++                 PreparedStructuredTensorIrModuleKind::RowReduction)
++      << "expected-grid calculation requires a row reduction preparation";
+   INTERNAL_CHECK(prepared.GetValueMetadata().size() == 2)
+-      << "row reduction v3 preparation must contain one input and one result";
++      << "row reduction preparation must contain one input and one result";
+   INTERNAL_CHECK(prepared.GetResolvedOptions().tile_sizes.size() == 1)
+-      << "row reduction v3 preparation does not contain one row tile";
++      << "row reduction preparation does not contain one row tile";
+   const uint64_t rows = StaticRowCount(prepared.GetValueMetadata()[0].GetShape());
+   const uint32_t tile_size = prepared.GetResolvedOptions().tile_sizes[0];
+-  INTERNAL_CHECK(tile_size != 0) << "row reduction v3 tile size is zero";
++  INTERNAL_CHECK(tile_size != 0) << "row reduction tile size is zero";
+   const uint64_t grid_x = rows / tile_size + (rows % tile_size == 0 ? 0 : 1);
+   INTERNAL_CHECK(grid_x <= std::numeric_limits<uint32_t>::max())
+-      << "row reduction v3 grid exceeds uint32 after preparation";
++      << "row reduction grid exceeds uint32 after preparation";
+   return static_cast<uint32_t>(grid_x);
+ }
+ 
+ uint32_t ExpectedStructuredMatmulGridX(
+     const PreparedStructuredTensorIrCompilation& prepared) {
+   INTERNAL_CHECK(prepared.GetModuleKind() ==
+-                 PreparedStructuredTensorIrModuleKind::StructuredMatmulV4)
+-      << "expected-grid calculation requires a structured matmul v4 preparation";
++                 PreparedStructuredTensorIrModuleKind::StructuredMatmul)
++      << "expected-grid calculation requires a structured matmul preparation";
+   INTERNAL_CHECK(prepared.GetValueMetadata().size() == 3)
+-      << "structured matmul v4 preparation must contain two inputs and one result";
++      << "structured matmul preparation must contain two inputs and one result";
+   const std::vector<uint64_t> extents = StructuredMatmulIterationExtents(
+       prepared.GetValueMetadata()[2].GetShape());
+   INTERNAL_CHECK(prepared.GetResolvedOptions().tile_sizes.size() == extents.size())
+-      << "structured matmul v4 preparation tile arity differs";
++      << "structured matmul preparation tile arity differs";
+   uint64_t grid_x = 1;
+   for (size_t index = 0; index < extents.size(); ++index) {
+     const uint32_t tile = prepared.GetResolvedOptions().tile_sizes[index];
+-    INTERNAL_CHECK(tile != 0) << "structured matmul v4 tile size is zero";
++    INTERNAL_CHECK(tile != 0) << "structured matmul tile size is zero";
+     const uint64_t extent_grid =
+         extents[index] / tile + (extents[index] % tile == 0 ? 0 : 1);
+     INTERNAL_CHECK(extent_grid <= std::numeric_limits<uint32_t>::max() / grid_x)
+-        << "structured matmul v4 grid exceeds uint32 after preparation";
++        << "structured matmul grid exceeds uint32 after preparation";
+     grid_x *= extent_grid;
+   }
+   return static_cast<uint32_t>(grid_x);
+@@ -710,14 +710,14 @@ void ValidateKernelAbi(const PreparedStructuredTensorIrCompilation& prepared,
+ 
+   const ArtifactGridAbi& grid = kernel_abi.GetGridAbi();
+   if (prepared.GetModuleKind() ==
+-      PreparedStructuredTensorIrModuleKind::StructuredMatmulV4) {
++      PreparedStructuredTensorIrModuleKind::StructuredMatmul) {
+     if (grid.GetPolicy() != ArtifactGridPolicy::Static ||
+         grid.GetShapeOperandIndex() != 2) {
+       RejectFinalization(
+           "structured matmul grid ABI must be static and selected by Result0");
+     }
+   } else if (prepared.GetModuleKind() ==
+-             PreparedStructuredTensorIrModuleKind::FusedPointwiseV2) {
++             PreparedStructuredTensorIrModuleKind::FusedPointwise) {
+     const uint32_t shape_operand = grid.GetShapeOperandIndex();
+     const uint32_t result_operand = prepared.GetInputCount();
+     if (grid.GetPolicy() != ArtifactGridPolicy::Static ||
+@@ -747,19 +747,19 @@ void ValidateKernelAbi(const PreparedStructuredTensorIrCompilation& prepared,
+     RejectFinalization("static grid must use the producer-shaped one-dimensional y=z=1 layout");
+   }
+   if (prepared.GetModuleKind() ==
+-          PreparedStructuredTensorIrModuleKind::FusedPointwiseV2 &&
++          PreparedStructuredTensorIrModuleKind::FusedPointwise &&
+       dimensions[0] != ExpectedFusedPointwiseGridX(prepared)) {
+     RejectFinalization(
+         "fused pointwise static grid x differs from the normalized shape and tiles");
+   }
+   if (prepared.GetModuleKind() ==
+-          PreparedStructuredTensorIrModuleKind::RowReductionV3 &&
++          PreparedStructuredTensorIrModuleKind::RowReduction &&
+       dimensions[0] != ExpectedRowReductionGridX(prepared)) {
+     RejectFinalization(
+         "row reduction static grid x differs from the checked rows and row tile");
+   }
+   if (prepared.GetModuleKind() ==
+-          PreparedStructuredTensorIrModuleKind::StructuredMatmulV4 &&
++          PreparedStructuredTensorIrModuleKind::StructuredMatmul &&
+       dimensions[0] != ExpectedStructuredMatmulGridX(prepared)) {
+     RejectFinalization(
+         "structured matmul static grid x differs from normalized output extents and tiles");
+@@ -849,22 +849,22 @@ PreparedStructuredTensorIrCompilation PrepareStructuredTensorIrCompilation(
+     INTERNAL_CHECK(module.GetMetadataSchemaVersion() == 1 && module.GetInputCount() == 2 &&
+                    module.GetResultCount() == 1 && module.GetValueMetadata().size() == 3)
+         << "prepared legacy TensorIR module must use schema 1 with two inputs and one result";
+-  } else if (module.GetKind() == codegen::nvidia::TensorIrModuleKind::FusedPointwiseV2) {
+-    module_kind = PreparedStructuredTensorIrModuleKind::FusedPointwiseV2;
++  } else if (module.GetKind() == codegen::nvidia::TensorIrModuleKind::FusedPointwise) {
++    module_kind = PreparedStructuredTensorIrModuleKind::FusedPointwise;
+     INTERNAL_CHECK(module.GetMetadataSchemaVersion() == 2 && module.GetInputCount() >= 1 &&
+                    module.GetInputCount() <= 16 && module.GetResultCount() >= 1 &&
+                    module.GetResultCount() <= 2 &&
+                    module.GetValueMetadata().size() ==
+                        module.GetInputCount() + module.GetResultCount())
+         << "prepared fused pointwise TensorIR module must use schema 2 with 1-16 inputs and 1-2 results";
+-  } else if (module.GetKind() == codegen::nvidia::TensorIrModuleKind::RowReductionV3) {
+-    module_kind = PreparedStructuredTensorIrModuleKind::RowReductionV3;
++  } else if (module.GetKind() == codegen::nvidia::TensorIrModuleKind::RowReduction) {
++    module_kind = PreparedStructuredTensorIrModuleKind::RowReduction;
+     INTERNAL_CHECK(module.GetMetadataSchemaVersion() == 3 && module.GetInputCount() == 1 &&
+                    module.GetResultCount() == 1 && module.GetValueMetadata().size() == 2)
+         << "prepared row reduction TensorIR module must use schema 3 with one input and one result";
+   } else if (module.GetKind() ==
+-             codegen::nvidia::TensorIrModuleKind::StructuredMatmulV4) {
+-    module_kind = PreparedStructuredTensorIrModuleKind::StructuredMatmulV4;
++             codegen::nvidia::TensorIrModuleKind::StructuredMatmul) {
++    module_kind = PreparedStructuredTensorIrModuleKind::StructuredMatmul;
+     INTERNAL_CHECK(module.GetMetadataSchemaVersion() == 4 &&
+                    module.GetInputCount() == 2 && module.GetResultCount() == 1 &&
+                    module.GetValueMetadata().size() == 3 &&
+diff --git a/src/compiler/structured_tensor_ir_build_spec.h b/src/compiler/structured_tensor_ir_build_spec.h
+index 500c30f05e0bcd452f95d110568cabd12b5253da..1d975ab64f20721e72b86a988565c51351498776 100644
+--- a/src/compiler/structured_tensor_ir_build_spec.h
++++ b/src/compiler/structured_tensor_ir_build_spec.h
+@@ -42,9 +42,9 @@ enum class PreparedStructuredTensorIrValueRole : uint8_t {
+ /** Frontend family retained after TensorIrModule is copied away. */
+ enum class PreparedStructuredTensorIrModuleKind : uint8_t {
+   LegacyStaticAddV1 = 0,
+-  FusedPointwiseV2 = 1,
+-  RowReductionV3 = 2,
+-  StructuredMatmulV4 = 3,
++  FusedPointwise = 1,
++  RowReduction = 2,
++  StructuredMatmul = 3,
+ };
+ 
+ /** Owned metadata copied out of TensorIR source emission. */
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index 432beeeee033242f595cc655ce137c770262caf6..190d6aad51fe229845f4bd9a83a672c0ded9c4d4 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -534,7 +534,7 @@ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+         _native_tile_add.specialize(), request, _schedule(128)
+     )
+     native_kernel = native_tile.artifact.kernel_abi
+-    assert native_kernel.entry_function_name == "pypto_fused_pointwise_v2"
++    assert native_kernel.entry_function_name == "pypto_fused_pointwise"
+     assert native_kernel.argument_packing_policy == ArtifactArgumentPackingPolicy.PointerOnly
+     assert native_kernel.grid_abi.policy == ArtifactGridPolicy.Static
+     assert native_kernel.grid_abi.static_dimensions == [1, 1, 1]
+@@ -551,7 +551,7 @@ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+     tiled = compile_structured_strict(
+         _native_tiled_add.specialize(), request, _schedule(128)
+     )
+-    assert tiled.artifact.kernel_abi.entry_function_name == "pypto_fused_pointwise_v2"
++    assert tiled.artifact.kernel_abi.entry_function_name == "pypto_fused_pointwise"
+     assert tiled.artifact.kernel_abi.grid_abi.static_dimensions == [64, 1, 1]
+     assert tiled.artifact.kernel_abi.grid_abi.tile_sizes == [128]
+     assert not tiled.artifact.fallback_used
+@@ -560,7 +560,7 @@ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+         _native_tile_row_sum.specialize(), request, _schedule(128)
+     )
+     row_sum_kernel = row_sum.artifact.kernel_abi
+-    assert row_sum_kernel.entry_function_name == "pypto_row_reduction_v3"
++    assert row_sum_kernel.entry_function_name == "pypto_row_reduction"
+     assert row_sum_kernel.grid_abi.static_dimensions == [2, 1, 1]
+     assert row_sum_kernel.grid_abi.tile_sizes == [128]
+     assert row_sum_kernel.argument_layout.input_operand_count == 1
+@@ -575,7 +575,7 @@ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+         _native_tile_rmsnorm.specialize(), request, _schedule([1, 128])
+     )
+     rms_kernel = rmsnorm.artifact.kernel_abi
+-    assert rms_kernel.entry_function_name == "pypto_fused_pointwise_v2"
++    assert rms_kernel.entry_function_name == "pypto_fused_pointwise"
+     assert rms_kernel.grid_abi.static_dimensions == [4, 1, 1]
+     assert rms_kernel.grid_abi.tile_sizes == [1, 128]
+     assert rms_kernel.argument_layout.input_operand_count == 2
+@@ -593,7 +593,7 @@ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+         _schedule([1, 128]),
+     )
+     fused_rms_kernel = fused_rmsnorm.artifact.kernel_abi
+-    assert fused_rms_kernel.entry_function_name == "pypto_fused_pointwise_v2"
++    assert fused_rms_kernel.entry_function_name == "pypto_fused_pointwise"
+     assert fused_rms_kernel.grid_abi.static_dimensions == [4, 1, 1]
+     assert fused_rms_kernel.grid_abi.tile_sizes == [1, 128]
+     assert fused_rms_kernel.argument_layout.input_operand_count == 3
+@@ -613,7 +613,7 @@ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+         _schedule([1, 128]),
+     )
+     gated_rms_kernel = gated_rmsnorm.artifact.kernel_abi
+-    assert gated_rms_kernel.entry_function_name == "pypto_fused_pointwise_v2"
++    assert gated_rms_kernel.entry_function_name == "pypto_fused_pointwise"
+     assert gated_rms_kernel.grid_abi.static_dimensions == [2, 1, 1]
+     assert gated_rms_kernel.grid_abi.tile_sizes == [1, 128]
+     assert gated_rms_kernel.argument_layout.input_operand_count == 3
+@@ -632,7 +632,7 @@ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+         _schedule([128, 1]),
+     )
+     causal_conv_kernel = causal_conv.artifact.kernel_abi
+-    assert causal_conv_kernel.entry_function_name == "pypto_fused_pointwise_v2"
++    assert causal_conv_kernel.entry_function_name == "pypto_fused_pointwise"
+     assert causal_conv_kernel.grid_abi.static_dimensions == [8, 1, 1]
+     assert causal_conv_kernel.grid_abi.tile_sizes == [128, 1]
+     assert causal_conv_kernel.argument_layout.input_operand_count == 2
+@@ -648,7 +648,7 @@ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+         _native_tile_rope.specialize(), request, _schedule([1, 1, 64])
+     )
+     rope_kernel = rope.artifact.kernel_abi
+-    assert rope_kernel.entry_function_name == "pypto_fused_pointwise_v2"
++    assert rope_kernel.entry_function_name == "pypto_fused_pointwise"
+     assert rope_kernel.grid_abi.static_dimensions == [4, 1, 1]
+     assert rope_kernel.grid_abi.tile_sizes == [1, 1, 64]
+     assert rope_kernel.argument_layout.input_operand_count == 3
+@@ -667,7 +667,7 @@ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+         _schedule([1, 64]),
+     )
+     attention_kernel = attention.artifact.kernel_abi
+-    assert attention_kernel.entry_function_name == "pypto_fused_pointwise_v2"
++    assert attention_kernel.entry_function_name == "pypto_fused_pointwise"
+     assert attention_kernel.grid_abi.static_dimensions == [4, 1, 1]
+     assert attention_kernel.grid_abi.tile_sizes == [1, 64]
+     assert attention_kernel.argument_layout.input_operand_count == 3
+@@ -681,7 +681,7 @@ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+         _native_tile_linear.specialize(), request, _schedule([1, 128])
+     )
+     linear_kernel = linear.artifact.kernel_abi
+-    assert linear_kernel.entry_function_name == "pypto_structured_matmul_v4"
++    assert linear_kernel.entry_function_name == "pypto_structured_matmul"
+     assert linear_kernel.grid_abi.static_dimensions == [4, 1, 1]
+     assert linear_kernel.grid_abi.tile_sizes == [1, 128]
+     assert linear_kernel.argument_layout.input_operand_count == 2
+@@ -762,7 +762,7 @@ def test_compile_structured_strict_functional() -> None:
+ 
+     fused = compile_structured_strict(_fused_program(), request, schedule)
+     fused_kernel = fused.artifact.kernel_abi
+-    assert fused_kernel.entry_function_name == "pypto_fused_pointwise_v2"
++    assert fused_kernel.entry_function_name == "pypto_fused_pointwise"
+     assert fused_kernel.argument_packing_policy == ArtifactArgumentPackingPolicy.PointerOnly
+     assert fused_kernel.grid_abi.policy == ArtifactGridPolicy.Static
+     assert fused_kernel.grid_abi.shape_operand_index == 0
+@@ -791,7 +791,7 @@ def test_compile_structured_strict_functional() -> None:
+             _row_reduction_program(input_shape, dtype, op_name), request, schedule
+         )
+         reduction_kernel = reduction.artifact.kernel_abi
+-        assert reduction_kernel.entry_function_name == "pypto_row_reduction_v3"
++        assert reduction_kernel.entry_function_name == "pypto_row_reduction"
+         assert reduction_kernel.argument_packing_policy == ArtifactArgumentPackingPolicy.PointerOnly
+         assert reduction_kernel.grid_abi.policy == ArtifactGridPolicy.Static
+         assert reduction_kernel.grid_abi.shape_operand_index == 0
+@@ -837,7 +837,7 @@ def test_compile_structured_strict_functional() -> None:
+             _schedule(tiles),
+         )
+         matmul_kernel = matmul.artifact.kernel_abi
+-        assert matmul_kernel.entry_function_name == "pypto_structured_matmul_v4"
++        assert matmul_kernel.entry_function_name == "pypto_structured_matmul"
+         assert matmul_kernel.argument_packing_policy == ArtifactArgumentPackingPolicy.PointerOnly
+         assert matmul_kernel.grid_abi.policy == ArtifactGridPolicy.Static
+         assert matmul_kernel.grid_abi.shape_operand_index == 2
+diff --git a/tests/ut/cpp/structured_compile_test.cpp b/tests/ut/cpp/structured_compile_test.cpp
+index ae6a7728e5de9740609204bb8c213aefc60c42dc..f61bf2309d25484e724e9ba9271f47389706b9af 100644
+--- a/tests/ut/cpp/structured_compile_test.cpp
++++ b/tests/ut/cpp/structured_compile_test.cpp
+@@ -688,7 +688,7 @@ int TestRealFusedPointwiseProducerSuccess() {
+     const Artifact& artifact = result.GetArtifact();
+     const KernelBuildSpec& build_spec = result.GetBuildSpec();
+     const auto& kernel = artifact.GetKernelAbi();
+-    REQUIRE(kernel.GetEntryFunctionName() == "pypto_fused_pointwise_v2");
++    REQUIRE(kernel.GetEntryFunctionName() == "pypto_fused_pointwise");
+     REQUIRE(kernel.GetArgumentLayout().GetInputOperandCount() == 2);
+     REQUIRE(kernel.GetArgumentLayout().GetOperandDescriptors().size() == 3);
+     REQUIRE(kernel.GetArgumentLayout().GetTotalKernelArgumentCount() == 3);
+@@ -719,7 +719,7 @@ int TestRealFusedPointwiseProducerSuccess() {
+   const auto& broadcast_artifact = broadcast.GetArtifact();
+   const auto& broadcast_kernel = broadcast_artifact.GetKernelAbi();
+   REQUIRE(broadcast_kernel.GetEntryFunctionName() ==
+-          "pypto_fused_pointwise_v2");
++          "pypto_fused_pointwise");
+   REQUIRE(broadcast_kernel.GetArgumentLayout().GetInputOperandCount() == 2);
+   REQUIRE(broadcast_kernel.GetArgumentLayout().GetOperandDescriptors().size() ==
+           3);
+@@ -737,7 +737,7 @@ int TestRealFusedPointwiseProducerSuccess() {
+           before_rmsnorm + 1);
+   const auto& rmsnorm_kernel = rmsnorm.GetArtifact().GetKernelAbi();
+   REQUIRE(rmsnorm_kernel.GetEntryFunctionName() ==
+-          "pypto_fused_pointwise_v2");
++          "pypto_fused_pointwise");
+   REQUIRE(rmsnorm_kernel.GetArgumentLayout().GetInputOperandCount() == 1);
+   REQUIRE(rmsnorm_kernel.GetArgumentLayout().GetOperandDescriptors().size() ==
+           2);
+@@ -751,7 +751,7 @@ int TestRealFusedPointwiseProducerSuccess() {
+       MakeMaximumFusedProgram(), request, MakeSchedule());
+   REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before_maximum + 1);
+   const auto& maximum_kernel = maximum.GetArtifact().GetKernelAbi();
+-  REQUIRE(maximum_kernel.GetEntryFunctionName() == "pypto_fused_pointwise_v2");
++  REQUIRE(maximum_kernel.GetEntryFunctionName() == "pypto_fused_pointwise");
+   REQUIRE(maximum_kernel.GetArgumentLayout().GetInputOperandCount() == 16);
+   REQUIRE(maximum_kernel.GetArgumentLayout().GetOperandDescriptors().size() == 17);
+   REQUIRE(maximum_kernel.GetArgumentLayout().GetTotalKernelArgumentCount() == 17);
+@@ -797,7 +797,7 @@ int TestRealRowReductionProducerSuccess() {
+     const Artifact& artifact = result.GetArtifact();
+     const KernelBuildSpec& build_spec = result.GetBuildSpec();
+     const auto& kernel = artifact.GetKernelAbi();
+-    REQUIRE(kernel.GetEntryFunctionName() == "pypto_row_reduction_v3");
++    REQUIRE(kernel.GetEntryFunctionName() == "pypto_row_reduction");
+     REQUIRE(kernel.GetArgumentLayout().GetInputOperandCount() == 1);
+     REQUIRE(kernel.GetArgumentLayout().GetOperandDescriptors().size() == 2);
+     REQUIRE(kernel.GetArgumentLayout().GetTotalKernelArgumentCount() == 2);
+@@ -894,7 +894,7 @@ int TestRealStructuredMatmulProducerSuccess() {
+     const Artifact& artifact = result.GetArtifact();
+     const KernelBuildSpec& build_spec = result.GetBuildSpec();
+     const auto& kernel = artifact.GetKernelAbi();
+-    REQUIRE(kernel.GetEntryFunctionName() == "pypto_structured_matmul_v4");
++    REQUIRE(kernel.GetEntryFunctionName() == "pypto_structured_matmul");
+     REQUIRE(kernel.GetArgumentPackingPolicy() ==
+             pypto::compiler::ArtifactArgumentPackingPolicy::PointerOnly);
+     REQUIRE(kernel.GetArgumentLayout().GetInputOperandCount() == 2);
+diff --git a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+index def1d39ff70c9c19dd0d7e1bdc36961571f9a791..5537a3703e0bb73797cc4e73d1f1bdc6c9fcb782 100644
+--- a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
++++ b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+@@ -589,7 +589,7 @@ KernelOptions FusedKernelOptions(const std::vector<int64_t>& shape = {8, 8},
+                                  const std::vector<uint32_t>& tile_sizes = {16},
+                                  uint32_t grid_x = 4) {
+   KernelOptions options = ValidKernelOptions(shape, tile_sizes, grid_x);
+-  options.entry_function_name = "pypto_fused_pointwise_v2";
++  options.entry_function_name = "pypto_fused_pointwise";
+   options.input_count = input_count;
+   std::vector<int64_t> strides(shape.size());
+   int64_t running = 1;
+@@ -623,7 +623,7 @@ KernelOptions RowReductionKernelOptions(
+     return strides;
+   };
+   KernelOptions options;
+-  options.entry_function_name = "pypto_row_reduction_v3";
++  options.entry_function_name = "pypto_row_reduction";
+   options.input_count = 1;
+   options.static_grid = {grid_x, 1, 1};
+   options.tile_sizes = tile_sizes;
+@@ -651,7 +651,7 @@ KernelOptions StructuredMatmulKernelOptions(
+     return strides;
+   };
+   KernelOptions options;
+-  options.entry_function_name = "pypto_structured_matmul_v4";
++  options.entry_function_name = "pypto_structured_matmul";
+   options.input_count = 2;
+   options.grid_shape_operand_index = 2;
+   options.static_grid = {grid_x, 1, 1};
+@@ -769,7 +769,7 @@ int TestPreparationGoldenAndOwnership() {
+   return 0;
+ }
+ 
+-int TestFusedPointwiseV2ProjectionAndFinalization() {
++int TestFusedPointwiseProjectionAndFinalization() {
+   const CompileRequest request = ValidRequest();
+   const CanonicalSchedule schedule = ValidSchedule({16});
+   const PreparedStructuredTensorIrCompilation prepared =
+@@ -778,9 +778,9 @@ int TestFusedPointwiseV2ProjectionAndFinalization() {
+       PrepareStructuredTensorIrCompilation(MakeFusedProgram(), request, schedule);
+ 
+   REQUIRE(prepared.GetModuleKind() ==
+-          PreparedStructuredTensorIrModuleKind::FusedPointwiseV2);
++          PreparedStructuredTensorIrModuleKind::FusedPointwise);
+   REQUIRE(prepared.GetFrontendMetadataSchemaVersion() == 2);
+-  REQUIRE(prepared.GetEntryName() == "pypto_fused_pointwise_v2");
++  REQUIRE(prepared.GetEntryName() == "pypto_fused_pointwise");
+   REQUIRE(prepared.GetCanonicalSource().size() == 577);
+   REQUIRE(prepared.GetSourceIrDigest() ==
+           "5ada2305f0647621547be97d9e53e0d12f1e44b4ebbd464f4bd84cc5a835b4cd");
+@@ -839,7 +839,7 @@ int TestFusedPointwiseV2ProjectionAndFinalization() {
+ 
+   const ArtifactKernelAbi kernel = MakeKernelAbi(FusedKernelOptions());
+   const KernelBuildSpec build_spec = FinalizeStructuredTensorIrBuildSpec(prepared, kernel);
+-  REQUIRE(kernel.GetEntryFunctionName() == "pypto_fused_pointwise_v2");
++  REQUIRE(kernel.GetEntryFunctionName() == "pypto_fused_pointwise");
+   REQUIRE(kernel.GetArgumentLayout().GetInputOperandCount() == 3);
+   REQUIRE(kernel.GetArgumentLayout().GetOperandDescriptors().size() == 4);
+   REQUIRE(kernel.GetArgumentLayout().GetTotalKernelArgumentCount() == 4);
+@@ -879,7 +879,7 @@ int TestFusedPointwiseV2ProjectionAndFinalization() {
+   return 0;
+ }
+ 
+-int TestFusedPointwiseV2ScheduleRejections() {
++int TestFusedPointwiseScheduleRejections() {
+   const CompileRequest request = ValidRequest();
+   const PreparedStructuredTensorIrCompilation multidimensional =
+       PrepareStructuredTensorIrCompilation(MakeFusedProgram(), request,
+@@ -951,7 +951,7 @@ int TestFusedPointwiseV2ScheduleRejections() {
+   return 0;
+ }
+ 
+-int TestRowReductionV3ProjectionAndFinalization() {
++int TestRowReductionProjectionAndFinalization() {
+   constexpr ProjectionDigestGolden kRankTwoFp32ProjectionDigests = {
+       "2b9415ef4caea1741dcca58364758b7573f680c6f7360d20a10df127272da686",
+       "1a15dd749119bfc3409192aa4a88560c8071a5b1f56cd8746da507a660464862",
+@@ -988,9 +988,9 @@ int TestRowReductionV3ProjectionAndFinalization() {
+           request, schedule);
+ 
+   REQUIRE(prepared.GetModuleKind() ==
+-          PreparedStructuredTensorIrModuleKind::RowReductionV3);
++          PreparedStructuredTensorIrModuleKind::RowReduction);
+   REQUIRE(prepared.GetFrontendMetadataSchemaVersion() == 3);
+-  REQUIRE(prepared.GetEntryName() == "pypto_row_reduction_v3");
++  REQUIRE(prepared.GetEntryName() == "pypto_row_reduction");
+   REQUIRE(prepared.GetCanonicalSource().size() == 467);
+   REQUIRE(prepared.GetSourceIrDigest() ==
+           "b943b5aaed18bf107ff66341b02417a94c5f2abf93f8e35afe9396f68bcb2e5c");
+@@ -1042,7 +1042,7 @@ int TestRowReductionV3ProjectionAndFinalization() {
+       MakeKernelAbi(RowReductionKernelOptions({2, 3}, {2}, 1));
+   const KernelBuildSpec build_spec =
+       FinalizeStructuredTensorIrBuildSpec(prepared, kernel);
+-  REQUIRE(kernel.GetEntryFunctionName() == "pypto_row_reduction_v3");
++  REQUIRE(kernel.GetEntryFunctionName() == "pypto_row_reduction");
+   REQUIRE(kernel.GetArgumentLayout().GetInputOperandCount() == 1);
+   REQUIRE(kernel.GetArgumentLayout().GetOperandDescriptors().size() == 2);
+   REQUIRE(kernel.GetArgumentLayout().GetTotalKernelArgumentCount() == 2);
+@@ -1184,7 +1184,7 @@ int TestRowReductionV3ProjectionAndFinalization() {
+   return 0;
+ }
+ 
+-int TestRowReductionV3ScheduleRejections() {
++int TestRowReductionScheduleRejections() {
+   const CompileRequest request = ValidRequest();
+   const int64_t odd_extent_beyond_i32 =
+       static_cast<int64_t>(std::numeric_limits<int32_t>::max()) + 2;
+@@ -1237,7 +1237,7 @@ int TestRowReductionV3ScheduleRejections() {
+   return 0;
+ }
+ 
+-int TestStructuredMatmulV4ProjectionAndFinalization() {
++int TestStructuredMatmulProjectionAndFinalization() {
+   constexpr ProjectionDigestGolden kProjectionDigests = {
+       "b8090aa5d28365dcba509e756d69cceb008d556766cabe5c6389bb425c931885",
+       "d44e9c1e3ece544dc84deaea3fded8ec26b45b22cc9eafe0909e1e15d8f06ad7",
+@@ -1260,9 +1260,9 @@ int TestStructuredMatmulV4ProjectionAndFinalization() {
+                                            schedule);
+ 
+   REQUIRE(prepared.GetModuleKind() ==
+-          PreparedStructuredTensorIrModuleKind::StructuredMatmulV4);
++          PreparedStructuredTensorIrModuleKind::StructuredMatmul);
+   REQUIRE(prepared.GetFrontendMetadataSchemaVersion() == 4);
+-  REQUIRE(prepared.GetEntryName() == "pypto_structured_matmul_v4");
++  REQUIRE(prepared.GetEntryName() == "pypto_structured_matmul");
+   REQUIRE(prepared.GetCanonicalSource().size() == 480);
+   REQUIRE(prepared.GetSourceIrDigest() ==
+           "672946aecd134ee938be30cf05e4aca058a40e14798bbaa1f0fde9eb2fe9b267");
+@@ -1297,7 +1297,7 @@ int TestStructuredMatmulV4ProjectionAndFinalization() {
+       MakeKernelAbi(StructuredMatmulKernelOptions());
+   const KernelBuildSpec build_spec =
+       FinalizeStructuredTensorIrBuildSpec(prepared, kernel);
+-  REQUIRE(kernel.GetEntryFunctionName() == "pypto_structured_matmul_v4");
++  REQUIRE(kernel.GetEntryFunctionName() == "pypto_structured_matmul");
+   REQUIRE(kernel.GetArgumentLayout().GetInputOperandCount() == 2);
+   REQUIRE(kernel.GetArgumentLayout().GetOperandDescriptors().size() == 3);
+   REQUIRE(kernel.GetArgumentLayout().GetTotalKernelArgumentCount() == 3);
+@@ -1436,7 +1436,7 @@ int TestStructuredMatmulV4ProjectionAndFinalization() {
+   return 0;
+ }
+ 
+-int TestStructuredMatmulV4ScheduleRejections() {
++int TestStructuredMatmulScheduleRejections() {
+   const CompileRequest request = ValidRequest();
+   REQUIRE(RejectsPreparation(
+       [&] {
+@@ -1519,7 +1519,7 @@ int TestStructuredMatmulV4ScheduleRejections() {
+   return 0;
+ }
+ 
+-int TestStructuredMatmulV4ConceptualWorkBounds() {
++int TestStructuredMatmulConceptualWorkBounds() {
+   constexpr int64_t kExtent = int64_t{1} << 16;
+   constexpr int64_t kOutputElements = kExtent * kExtent;
+   constexpr int64_t kLargestAlignedK =
+@@ -1906,13 +1906,13 @@ int main() {
+                                          CanonicalSchedule>);
+ 
+   if (const int result = TestPreparationGoldenAndOwnership()) return result;
+-  if (const int result = TestFusedPointwiseV2ProjectionAndFinalization()) return result;
+-  if (const int result = TestFusedPointwiseV2ScheduleRejections()) return result;
+-  if (const int result = TestRowReductionV3ProjectionAndFinalization()) return result;
+-  if (const int result = TestRowReductionV3ScheduleRejections()) return result;
+-  if (const int result = TestStructuredMatmulV4ProjectionAndFinalization()) return result;
+-  if (const int result = TestStructuredMatmulV4ScheduleRejections()) return result;
+-  if (const int result = TestStructuredMatmulV4ConceptualWorkBounds()) return result;
++  if (const int result = TestFusedPointwiseProjectionAndFinalization()) return result;
++  if (const int result = TestFusedPointwiseScheduleRejections()) return result;
++  if (const int result = TestRowReductionProjectionAndFinalization()) return result;
++  if (const int result = TestRowReductionScheduleRejections()) return result;
++  if (const int result = TestStructuredMatmulProjectionAndFinalization()) return result;
++  if (const int result = TestStructuredMatmulScheduleRejections()) return result;
++  if (const int result = TestStructuredMatmulConceptualWorkBounds()) return result;
+   if (const int result = TestRankOneBf16ImplicitStrideGoldenAndFinalization()) return result;
+   if (const int result = TestStrictScheduleOverloadParity()) return result;
+   if (const int result = TestDeterminismAndIdentityChanges()) return result;
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index 2911471f3d4f4734e1b8335206c9403a305fa751..318275a39218b9c49211773080c20b7526db235c 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -310,7 +310,7 @@ int TestFp32CanonicalSourceAndMetadata() {
+   return 0;
+ }
+ 
+-int TestFusedPointwiseV2CanonicalSourceAndMetadata() {
++int TestFusedPointwiseCanonicalSourceAndMetadata() {
+   auto type = PlainTensor({2, 3}, DataType::FP32);
+   auto x = std::make_shared<ir::Var>("x", type, TestSpan());
+   auto y = std::make_shared<ir::Var>("y", type, TestSpan());
+@@ -350,7 +350,7 @@ int TestFusedPointwiseV2CanonicalSourceAndMetadata() {
+ 
+   const std::string expected =
+       "module {\n"
+-      "  nv_tensor_ir.graph @pypto_fused_pointwise_v2(\n"
++      "  nv_tensor_ir.graph @pypto_fused_pointwise(\n"
+       "    %arg0: tensor<2x3xf32> {nv_tensor_ir.stride = \"(3,1)\"},\n"
+       "    %arg1: tensor<2x3xf32> {nv_tensor_ir.stride = \"(3,1)\"},\n"
+       "    %arg2: tensor<2x3xf32> {nv_tensor_ir.stride = \"(3,1)\"}\n"
+@@ -375,10 +375,10 @@ int TestFusedPointwiseV2CanonicalSourceAndMetadata() {
+       "    results %value10 : tensor<2x3xf32>\n"
+       "  }\n"
+       "}\n";
+-  REQUIRE(module.GetKind() == TensorIrModuleKind::FusedPointwiseV2);
++  REQUIRE(module.GetKind() == TensorIrModuleKind::FusedPointwise);
+   REQUIRE(module.GetMetadataSchemaVersion() == 2);
+   REQUIRE(module.GetContractionExtent() == 0);
+-  REQUIRE(module.GetEntryName() == "pypto_fused_pointwise_v2");
++  REQUIRE(module.GetEntryName() == "pypto_fused_pointwise");
+   REQUIRE(module.GetCanonicalSource() == expected);
+   REQUIRE(module.GetInputCount() == 3);
+   REQUIRE(module.GetResultCount() == 1);
+@@ -392,14 +392,14 @@ int TestFusedPointwiseV2CanonicalSourceAndMetadata() {
+   return 0;
+ }
+ 
+-int TestRowReductionV3CanonicalSourcesAndMetadata() {
++int TestRowReductionCanonicalSourcesAndMetadata() {
+   const RowReductionProgram fp32_sum =
+       MakeRowReduction({3, 5}, DataType::FP32, "tensor.row_sum", {}, {},
+                        "cosmetic_sum_name", "lhs", "sum");
+   const TensorIrModule sum_module = EmitTensorIr(fp32_sum.program);
+   const std::string sum_expected =
+       "module {\n"
+-      "  nv_tensor_ir.graph @pypto_row_reduction_v3(\n"
++      "  nv_tensor_ir.graph @pypto_row_reduction(\n"
+       "    %arg0: tensor<3x5xf32> {nv_tensor_ir.stride = \"(5,1)\"}\n"
+       "  ) -> (tensor<3x1xf32> {nv_tensor_ir.stride = \"(1,1)\"}) {\n"
+       "    %reduce0 = reduce(%arg0) <dimensions = [1], reduction_mode = <add>> : "
+@@ -413,9 +413,9 @@ int TestRowReductionV3CanonicalSourcesAndMetadata() {
+   REQUIRE(MatchesSourceAndSha256(
+       sum_module, sum_expected,
+       "964f12e003e0e9a5e563f716279d839d12303908a94a8925f2e20bb0d71bf887"));
+-  REQUIRE(sum_module.GetKind() == TensorIrModuleKind::RowReductionV3);
++  REQUIRE(sum_module.GetKind() == TensorIrModuleKind::RowReduction);
+   REQUIRE(sum_module.GetMetadataSchemaVersion() == 3);
+-  REQUIRE(sum_module.GetEntryName() == "pypto_row_reduction_v3");
++  REQUIRE(sum_module.GetEntryName() == "pypto_row_reduction");
+   REQUIRE(sum_module.GetInputCount() == 1);
+   REQUIRE(sum_module.GetResultCount() == 1);
+   REQUIRE(sum_module.GetContractionExtent() == 0);
+@@ -439,7 +439,7 @@ int TestRowReductionV3CanonicalSourcesAndMetadata() {
+       EmitTensorIr(MakeRowReduction({7}, DataType::FP32, "tensor.row_max").program);
+   const std::string rank_one_expected =
+       "module {\n"
+-      "  nv_tensor_ir.graph @pypto_row_reduction_v3(\n"
++      "  nv_tensor_ir.graph @pypto_row_reduction(\n"
+       "    %arg0: tensor<7xf32>\n"
+       "  ) -> tensor<1xf32> {\n"
+       "    %result0 = reduce(%arg0) <dimensions = [0], reduction_mode = <max>> : "
+@@ -461,7 +461,7 @@ int TestRowReductionV3CanonicalSourcesAndMetadata() {
+                        .program);
+   const std::string rank_one_bf16_expected =
+       "module {\n"
+-      "  nv_tensor_ir.graph @pypto_row_reduction_v3(\n"
++      "  nv_tensor_ir.graph @pypto_row_reduction(\n"
+       "    %arg0: tensor<128xbf16>\n"
+       "  ) -> tensor<1xbf16> {\n"
+       "    %wide0 = convert %arg0 : tensor<128xbf16> -> tensor<128xf32>\n"
+@@ -486,7 +486,7 @@ int TestRowReductionV3CanonicalSourcesAndMetadata() {
+                        .program);
+   const std::string rank_three_expected =
+       "module {\n"
+-      "  nv_tensor_ir.graph @pypto_row_reduction_v3(\n"
++      "  nv_tensor_ir.graph @pypto_row_reduction(\n"
+       "    %arg0: tensor<2x3x5xf32> {nv_tensor_ir.stride = \"(15,5,1)\"}\n"
+       "  ) -> (tensor<2x3x1xf32> {nv_tensor_ir.stride = \"(3,1,1)\"}) {\n"
+       "    %flat0 = reshape %arg0 : tensor<2x3x5xf32> -> tensor<6x5xf32>\n"
+@@ -512,7 +512,7 @@ int TestRowReductionV3CanonicalSourcesAndMetadata() {
+       EmitTensorIr(MakeRowReduction({2, 3}, DataType::BF16).program);
+   const std::string bf16_expected =
+       "module {\n"
+-      "  nv_tensor_ir.graph @pypto_row_reduction_v3(\n"
++      "  nv_tensor_ir.graph @pypto_row_reduction(\n"
+       "    %arg0: tensor<2x3xbf16> {nv_tensor_ir.stride = \"(3,1)\"}\n"
+       "  ) -> (tensor<2x1xbf16> {nv_tensor_ir.stride = \"(1,1)\"}) {\n"
+       "    %wide0 = convert %arg0 : tensor<2x3xbf16> -> tensor<2x3xf32>\n"
+@@ -538,7 +538,7 @@ int TestRowReductionV3CanonicalSourcesAndMetadata() {
+                        .program);
+   const std::string bf16_max_expected =
+       "module {\n"
+-      "  nv_tensor_ir.graph @pypto_row_reduction_v3(\n"
++      "  nv_tensor_ir.graph @pypto_row_reduction(\n"
+       "    %arg0: tensor<2x3xbf16> {nv_tensor_ir.stride = \"(3,1)\"}\n"
+       "  ) -> (tensor<2x1xbf16> {nv_tensor_ir.stride = \"(1,1)\"}) {\n"
+       "    %wide0 = convert %arg0 : tensor<2x3xbf16> -> tensor<2x3xf32>\n"
+@@ -560,7 +560,7 @@ int TestRowReductionV3CanonicalSourcesAndMetadata() {
+   const std::string& bf16_rank_three_source = bf16_rank_three.GetCanonicalSource();
+   const std::string bf16_rank_three_expected =
+       "module {\n"
+-      "  nv_tensor_ir.graph @pypto_row_reduction_v3(\n"
++      "  nv_tensor_ir.graph @pypto_row_reduction(\n"
+       "    %arg0: tensor<2x3x5xbf16> {nv_tensor_ir.stride = \"(15,5,1)\"}\n"
+       "  ) -> (tensor<2x3x1xbf16> {nv_tensor_ir.stride = \"(3,1,1)\"}) {\n"
+       "    %wide0 = convert %arg0 : tensor<2x3x5xbf16> -> tensor<2x3x5xf32>\n"
+@@ -588,12 +588,12 @@ int TestRowReductionV3CanonicalSourcesAndMetadata() {
+   return 0;
+ }
+ 
+-int TestStructuredMatmulV4CanonicalSourcesAndMetadata() {
++int TestStructuredMatmulCanonicalSourcesAndMetadata() {
+   const StructuredMatmulProgram rank_two = MakeStructuredMatmul();
+   const TensorIrModule rank_two_module = EmitTensorIr(rank_two.program);
+   const std::string rank_two_expected =
+       "module {\n"
+-      "  nv_tensor_ir.graph @pypto_structured_matmul_v4(\n"
++      "  nv_tensor_ir.graph @pypto_structured_matmul(\n"
+       "    %arg0: tensor<32x128xbf16> {nv_tensor_ir.stride = \"(128,1)\"},\n"
+       "    %arg1: tensor<128x16xbf16> {nv_tensor_ir.stride = \"(16,1)\"}\n"
+       "  ) -> (tensor<32x16xbf16> {nv_tensor_ir.stride = \"(16,1)\"}) {\n"
+@@ -605,9 +605,9 @@ int TestStructuredMatmulV4CanonicalSourcesAndMetadata() {
+       "}\n";
+   REQUIRE(MatchesSourceAndSha256(rank_two_module, rank_two_expected,
+                                  "672946aecd134ee938be30cf05e4aca058a40e14798bbaa1f0fde9eb2fe9b267"));
+-  REQUIRE(rank_two_module.GetKind() == TensorIrModuleKind::StructuredMatmulV4);
++  REQUIRE(rank_two_module.GetKind() == TensorIrModuleKind::StructuredMatmul);
+   REQUIRE(rank_two_module.GetMetadataSchemaVersion() == 4);
+-  REQUIRE(rank_two_module.GetEntryName() == "pypto_structured_matmul_v4");
++  REQUIRE(rank_two_module.GetEntryName() == "pypto_structured_matmul");
+   REQUIRE(rank_two_module.GetInputCount() == 2);
+   REQUIRE(rank_two_module.GetResultCount() == 1);
+   REQUIRE(rank_two_module.GetContractionExtent() == 128);
+@@ -633,7 +633,7 @@ int TestStructuredMatmulV4CanonicalSourcesAndMetadata() {
+           .program);
+   const std::string rank_two_a_trans_expected =
+       "module {\n"
+-      "  nv_tensor_ir.graph @pypto_structured_matmul_v4(\n"
++      "  nv_tensor_ir.graph @pypto_structured_matmul(\n"
+       "    %arg0: tensor<128x32xbf16> {nv_tensor_ir.stride = \"(32,1)\"},\n"
+       "    %arg1: tensor<128x16xbf16> {nv_tensor_ir.stride = \"(16,1)\"}\n"
+       "  ) -> (tensor<32x16xbf16> {nv_tensor_ir.stride = \"(16,1)\"}) {\n"
+@@ -656,7 +656,7 @@ int TestStructuredMatmulV4CanonicalSourcesAndMetadata() {
+           .program);
+   const std::string rank_two_b_trans_expected =
+       "module {\n"
+-      "  nv_tensor_ir.graph @pypto_structured_matmul_v4(\n"
++      "  nv_tensor_ir.graph @pypto_structured_matmul(\n"
+       "    %arg0: tensor<32x128xbf16> {nv_tensor_ir.stride = \"(128,1)\"},\n"
+       "    %arg1: tensor<16x128xbf16> {nv_tensor_ir.stride = \"(128,1)\"}\n"
+       "  ) -> (tensor<32x16xbf16> {nv_tensor_ir.stride = \"(16,1)\"}) {\n"
+@@ -683,7 +683,7 @@ int TestStructuredMatmulV4CanonicalSourcesAndMetadata() {
+           .program);
+   const std::string rank_three_expected =
+       "module {\n"
+-      "  nv_tensor_ir.graph @pypto_structured_matmul_v4(\n"
++      "  nv_tensor_ir.graph @pypto_structured_matmul(\n"
+       "    %arg0: tensor<2x128x32xbf16> {nv_tensor_ir.stride = \"(4096,32,1)\"},\n"
+       "    %arg1: tensor<2x16x128xbf16> {nv_tensor_ir.stride = \"(2048,128,1)\"}\n"
+       "  ) -> (tensor<2x32x16xbf16> {nv_tensor_ir.stride = \"(512,16,1)\"}) {\n"
+@@ -1213,7 +1213,7 @@ int TestTypeAndExpressionRejections() {
+   return 0;
+ }
+ 
+-int TestFusedPointwiseV2BoundsAndScalarFormatting() {
++int TestFusedPointwiseBoundsAndScalarFormatting() {
+   auto type = PlainTensor({64}, DataType::FP32);
+   std::vector<ir::VarPtr> parameters;
+   std::vector<ir::ParamDirection> directions;
+@@ -1242,7 +1242,7 @@ int TestFusedPointwiseV2BoundsAndScalarFormatting() {
+       std::vector<ir::ExprPtr>{previous}, TestSpan()));
+   const TensorIrModule maximum = EmitTensorIr(
+       MakeProgram("ignored", parameters, directions, {type}, statements));
+-  REQUIRE(maximum.GetKind() == TensorIrModuleKind::FusedPointwiseV2);
++  REQUIRE(maximum.GetKind() == TensorIrModuleKind::FusedPointwise);
+   REQUIRE(maximum.GetInputCount() == 16);
+   REQUIRE(maximum.GetValueMetadata().size() == 17);
+   REQUIRE(maximum.GetCanonicalSource().find("%arg15") != std::string::npos);
+@@ -1271,7 +1271,7 @@ int TestFusedPointwiseV2BoundsAndScalarFormatting() {
+   return 0;
+ }
+ 
+-int TestFusedPointwiseV2Rejections() {
++int TestFusedPointwiseRejections() {
+   auto type = PlainTensor({8}, DataType::FP32);
+   auto x = std::make_shared<ir::Var>("x", type, TestSpan());
+   auto y = std::make_shared<ir::Var>("y", type, TestSpan());
+@@ -1585,7 +1585,7 @@ int TestFusedPointwiseV2Rejections() {
+   return 0;
+ }
+ 
+-int TestRowReductionV3Rejections() {
++int TestRowReductionRejections() {
+   const auto make_custom = [](
+                                const ir::TensorTypePtr& input_type,
+                                const ir::TypePtr& assignment_type,
+@@ -1792,7 +1792,7 @@ int TestRowReductionV3Rejections() {
+   return 0;
+ }
+ 
+-int TestStructuredMatmulV4Rejections() {
++int TestStructuredMatmulRejections() {
+   REQUIRE(Rejects(
+       [&] {
+         (void)EmitTensorIr(
+@@ -2180,7 +2180,7 @@ int TestCosmeticNamesAndDiagnosticBounds() {
+   return 0;
+ }
+ 
+-int TestFusedPointwiseV2RowBroadcast() {
++int TestFusedPointwiseRowBroadcast() {
+   auto type = PlainTensor({4, 6}, DataType::FP32);
+   auto row_type = PlainTensor({4, 1}, DataType::FP32);
+   auto x = std::make_shared<ir::Var>("x", type, TestSpan());
+@@ -2196,7 +2196,7 @@ int TestFusedPointwiseV2RowBroadcast() {
+       {ir::ParamDirection::In, ir::ParamDirection::In}, {type},
+       {assignment, returned}));
+ 
+-  REQUIRE(module.GetKind() == TensorIrModuleKind::FusedPointwiseV2);
++  REQUIRE(module.GetKind() == TensorIrModuleKind::FusedPointwise);
+   const std::string source = module.GetCanonicalSource();
+   std::fprintf(stderr, "ROWBC source:\n%s\n", source.c_str());
+   REQUIRE(source.find("%arg1: tensor<4x1xf32> {nv_tensor_ir.stride = \"(1,1)\"}") !=
+@@ -2345,7 +2345,7 @@ int TestFusedRmsNormBf16Source() {
+        std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{result},
+                                         TestSpan())});
+   const TensorIrModule module = EmitTensorIr(program);
+-  REQUIRE(module.GetKind() == TensorIrModuleKind::FusedPointwiseV2);
++  REQUIRE(module.GetKind() == TensorIrModuleKind::FusedPointwise);
+   REQUIRE(module.GetValueMetadata().size() == 2);
+   REQUIRE(module.GetValueMetadata()[0].GetDtypeCode() == DataType::BF16.Code());
+   REQUIRE(module.GetValueMetadata()[0].GetShape() ==
+@@ -2378,20 +2378,20 @@ int main() {
+                                          std::vector<TensorIrValueMetadata>, uint32_t>);
+ 
+   if (const int result = TestFp32CanonicalSourceAndMetadata()) return result;
+-  if (const int result = TestFusedPointwiseV2CanonicalSourceAndMetadata()) return result;
+-  if (const int result = TestFusedPointwiseV2RowBroadcast()) return result;
++  if (const int result = TestFusedPointwiseCanonicalSourceAndMetadata()) return result;
++  if (const int result = TestFusedPointwiseRowBroadcast()) return result;
+   if (const int result = TestFusedRmsNormBf16Source()) return result;
+-  if (const int result = TestRowReductionV3CanonicalSourcesAndMetadata()) return result;
+-  if (const int result = TestStructuredMatmulV4CanonicalSourcesAndMetadata()) return result;
++  if (const int result = TestRowReductionCanonicalSourcesAndMetadata()) return result;
++  if (const int result = TestStructuredMatmulCanonicalSourcesAndMetadata()) return result;
+   if (const int result = TestRankOneExactCanonicalSources()) return result;
+   if (const int result = TestDeterministicGeneratedNamesAndOperandIdentity()) return result;
+   if (const int result = TestCanonicalSourceIgnoresGlobalLocale()) return result;
+   if (const int result = TestStructuralRejections()) return result;
+   if (const int result = TestTypeAndExpressionRejections()) return result;
+-  if (const int result = TestFusedPointwiseV2BoundsAndScalarFormatting()) return result;
+-  if (const int result = TestFusedPointwiseV2Rejections()) return result;
+-  if (const int result = TestRowReductionV3Rejections()) return result;
+-  if (const int result = TestStructuredMatmulV4Rejections()) return result;
++  if (const int result = TestFusedPointwiseBoundsAndScalarFormatting()) return result;
++  if (const int result = TestFusedPointwiseRejections()) return result;
++  if (const int result = TestRowReductionRejections()) return result;
++  if (const int result = TestStructuredMatmulRejections()) return result;
+   if (const int result = TestStaticShapeRejections()) return result;
+   if (const int result = TestCosmeticNamesAndDiagnosticBounds()) return result;
+   return 0;

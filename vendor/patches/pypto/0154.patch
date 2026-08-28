@@ -1,0 +1,937 @@
+From 564099691f35b944bd35542ba56bad0f70edd611 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 07:30:38 +0800
+Subject: [PATCH 154/212] Add single-graph GDN recurrent emitter
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 896 +++++++++++++++++++++++
+ 1 file changed, 896 insertions(+)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 89fce3d4ca7759e465e95bc31dcce783b9cc50e3..b6653323e8780c803d306031257b89cbcd1b008f 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -3925,6 +3925,25 @@ struct NativeTileGdnUpdateGraph {
+   StaticTensor result;
+ };
+ 
++struct NativeTileGdnRecurrentGraph {
++  StaticTensor mixed_qkv;
++  StaticTensor a;
++  StaticTensor b;
++  StaticTensor a_log;
++  StaticTensor dt_bias;
++  StaticTensor state;
++  StaticTensor state_indices;
++  StaticTensor result;
++  int64_t batch_size;
++  int64_t tokens_per_request;
++  int64_t q_heads;
++  int64_t value_heads;
++  int64_t key_dim;
++  int64_t value_dim;
++  int64_t state_slots;
++  double scale;
++};
++
+ bool IsNativeTileMatmulCandidate(const ir::ProgramPtr& program) {
+   if (!IsNativeTilePointwiseCandidate(program)) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+@@ -4104,6 +4123,252 @@ StructuredMatmulGraph AnalyzeNativeTileMatmul(
+                                /*b_trans=*/true, lhs.shape[1]};
+ }
+ 
++bool IsNativeTileGdnRecurrentCandidate(const ir::ProgramPtr& program) {
++  if (!IsNativeTilePointwiseCandidate(program)) return false;
++  const ir::FunctionPtr& function = program->functions_.begin()->second;
++  if (function->params_.size() != 10) return false;
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = top && !top->stmts_.empty()
++                         ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
++                         : nullptr;
++  const auto batch_loop = scope ? ir::As<ir::ForStmt>(scope->body_) : nullptr;
++  const auto batch_body =
++      batch_loop ? ir::As<ir::SeqStmts>(batch_loop->body_) : nullptr;
++  const auto head_loop = batch_body && batch_body->stmts_.size() == 5
++                             ? ir::As<ir::ForStmt>(batch_body->stmts_[4])
++                             : nullptr;
++  const auto head_body =
++      head_loop ? ir::As<ir::SeqStmts>(head_loop->body_) : nullptr;
++  const auto token_loop = head_body && head_body->stmts_.size() == 7
++                              ? ir::As<ir::ForStmt>(head_body->stmts_[4])
++                              : nullptr;
++  const auto token_body =
++      token_loop ? ir::As<ir::SeqStmts>(token_loop->body_) : nullptr;
++  return token_body && token_body->stmts_.size() == 61;
++}
++
++NativeTileGdnRecurrentGraph AnalyzeNativeTileGdnRecurrent(
++    const ir::ProgramPtr& program) {
++  const auto& [global, function] = *program->functions_.begin();
++  if (!global || !function || global->name_ != function->name_ ||
++      function->requires_runtime_binding_ ||
++      function->func_type_ != ir::FunctionType::Orchestration ||
++      !function->level_.has_value() || *function->level_ != ir::Level::CHIP ||
++      !function->role_.has_value() ||
++      *function->role_ != ir::Role::Orchestrator || !function->attrs_.empty()) {
++    Reject("native GDN recurrent must be one canonical CHIP @pl.jit function",
++           function ? &function->span_ : &program->span_);
++  }
++  if (function->params_.size() != 10 ||
++      function->param_directions_.size() != 10 ||
++      function->return_types_.size() != 1) {
++    Reject("native GDN recurrent parameter contract is invalid",
++           &function->span_);
++  }
++  for (size_t index : {size_t{0}, size_t{1}, size_t{2}, size_t{3},
++                       size_t{4}, size_t{6}, size_t{7}, size_t{8}}) {
++    if (function->param_directions_[index] != ir::ParamDirection::In) {
++      Reject("native GDN recurrent inputs must have direction In",
++             &function->span_);
++    }
++  }
++  if (function->param_directions_[5] != ir::ParamDirection::InOut ||
++      function->param_directions_[9] != ir::ParamDirection::Out) {
++    Reject("native GDN recurrent state/output directions are invalid",
++           &function->span_);
++  }
++
++  const StaticTensor mixed_qkv = ReadStaticTensor(
++      function->params_[0]->GetType(), function->params_[0]->span_,
++      "native GDN packed QKV");
++  const StaticTensor a = ReadStaticNdStridedTensor(
++      function->params_[1]->GetType(), function->params_[1]->span_,
++      "native GDN a gate");
++  const StaticTensor b = ReadStaticNdStridedTensor(
++      function->params_[2]->GetType(), function->params_[2]->span_,
++      "native GDN b gate");
++  const StaticTensor a_log = ReadStaticNdStridedTensor(
++      function->params_[3]->GetType(), function->params_[3]->span_,
++      "native GDN A_log");
++  const StaticTensor dt_bias = ReadStaticNdStridedTensor(
++      function->params_[4]->GetType(), function->params_[4]->span_,
++      "native GDN dt_bias");
++  const StaticTensor state = ReadStaticNdStridedTensor(
++      function->params_[5]->GetType(), function->params_[5]->span_,
++      "native GDN recurrent state");
++  const StaticTensor state_indices = ReadStaticIntegerTensor(
++      function->params_[6]->GetType(), function->params_[6]->span_,
++      "native GDN state indices");
++  const StaticTensor result = ReadStaticTensor(
++      function->params_[9]->GetType(), function->params_[9]->span_,
++      "native GDN recurrent output");
++  const StaticTensor declared = ReadStaticTensor(
++      function->return_types_[0], function->span_,
++      "native GDN recurrent declared output");
++  if (mixed_qkv.dtype != DataType::BF16 || mixed_qkv.shape.size() != 3 ||
++      a.dtype != DataType::BF16 || b.dtype != DataType::BF16 ||
++      a.shape.size() != 4 || a.shape != b.shape ||
++      a.dense_strides != b.dense_strides || a_log.dtype != DataType::FP32 ||
++      dt_bias.dtype != DataType::FP32 || !SameTensor(a_log, dt_bias) ||
++      state.dtype != DataType::FP32 || state.shape.size() != 2 ||
++      state.dense_strides[1] != 1 ||
++      state.dense_strides[0] < state.shape[1] ||
++      (state_indices.dtype != DataType::INT32 &&
++       state_indices.dtype != DataType::INT64) ||
++      state_indices.shape.size() != 2 || result.dtype != DataType::BF16 ||
++      result.shape.size() != 4 || !SameTensor(result, declared)) {
++    Reject("native GDN recurrent tensor types or ranks are invalid",
++           &function->span_);
++  }
++
++  const int64_t batch_size = result.shape[0];
++  const int64_t tokens_per_request = result.shape[1];
++  const int64_t value_heads = result.shape[2];
++  const int64_t value_dim = result.shape[3];
++  if (batch_size <= 0 || tokens_per_request <= 0 || value_heads <= 0 ||
++      value_dim <= 0 || value_dim % 16 != 0 || state.shape[0] <= 0 ||
++      value_heads > std::numeric_limits<int64_t>::max() / value_dim) {
++    Reject("native GDN recurrent static geometry is invalid", &function->span_);
++  }
++  const int64_t state_value_width = value_heads * value_dim;
++  if (state.shape[1] % state_value_width != 0) {
++    Reject("native GDN state width is incompatible with value heads",
++           &function->span_);
++  }
++  const int64_t key_dim = state.shape[1] / state_value_width;
++  if (key_dim <= 0 || key_dim % 128 != 0 ||
++      mixed_qkv.shape[0] != batch_size ||
++      mixed_qkv.shape[1] != tokens_per_request ||
++      a.shape != result.shape || a_log.shape != std::vector<int64_t>{value_heads, value_dim} ||
++      state_indices.shape != std::vector<int64_t>{batch_size, 1}) {
++    Reject("native GDN recurrent shared shapes are incompatible",
++           &function->span_);
++  }
++  const int64_t qk_width = mixed_qkv.shape[2] - state_value_width;
++  if (qk_width <= 0 || qk_width % (2 * key_dim) != 0) {
++    Reject("native GDN packed QK width is invalid", &function->span_);
++  }
++  const int64_t q_heads = qk_width / (2 * key_dim);
++  if (q_heads <= 0 || value_heads % q_heads != 0) {
++    Reject("native GDN Q/value head grouping is invalid", &function->span_);
++  }
++
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = top && top->stmts_.size() == 2
++                         ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
++                         : nullptr;
++  const auto returned = top && top->stmts_.size() == 2
++                            ? ir::As<ir::ReturnStmt>(top->stmts_[1])
++                            : nullptr;
++  const auto returned_var =
++      returned && returned->value_.size() == 1
++          ? ir::As<ir::Var>(returned->value_[0])
++          : nullptr;
++  const auto batch_loop = scope ? ir::As<ir::ForStmt>(scope->body_) : nullptr;
++  const auto batch_stop =
++      batch_loop ? ir::As<ir::ConstInt>(batch_loop->stop_) : nullptr;
++  const auto batch_body =
++      batch_loop ? ir::As<ir::SeqStmts>(batch_loop->body_) : nullptr;
++  const auto head_loop = batch_body && batch_body->stmts_.size() == 5
++                             ? ir::As<ir::ForStmt>(batch_body->stmts_[4])
++                             : nullptr;
++  const auto head_stop =
++      head_loop ? ir::As<ir::ConstInt>(head_loop->stop_) : nullptr;
++  const auto head_body =
++      head_loop ? ir::As<ir::SeqStmts>(head_loop->body_) : nullptr;
++  const auto token_loop = head_body && head_body->stmts_.size() == 7
++                              ? ir::As<ir::ForStmt>(head_body->stmts_[4])
++                              : nullptr;
++  const auto token_stop =
++      token_loop ? ir::As<ir::ConstInt>(token_loop->stop_) : nullptr;
++  const auto token_body =
++      token_loop ? ir::As<ir::SeqStmts>(token_loop->body_) : nullptr;
++  if (!scope || scope->split_ != ir::SplitMode::None ||
++      !scope->attrs_.empty() || !returned_var ||
++      returned_var.get() != function->params_[9].get() || !batch_loop ||
++      !batch_stop || batch_stop->value_ != batch_size || !batch_body ||
++      !head_loop || !head_stop || head_stop->value_ != value_heads ||
++      !head_body || !token_loop || !token_stop ||
++      token_stop->value_ != tokens_per_request || !token_body ||
++      token_body->stmts_.size() != 61) {
++    Reject("native GDN recurrent loop structure is invalid", &function->span_);
++  }
++
++  constexpr std::array<std::pair<size_t, std::string_view>, 57> kExpectedOps = {{
++      {3, "tile.load"},          {4, "tile.load"},
++      {5, "tile.load"},          {6, "tile.reshape"},
++      {7, "tile.reshape"},       {8, "tile.reshape"},
++      {9, "tile.cast"},          {10, "tile.mul"},
++      {11, "tile.create"},       {12, "tile.row_sum"},
++      {13, "tile.adds"},         {14, "tile.rsqrt"},
++      {15, "tile.row_expand_mul"}, {16, "tile.muls"},
++      {17, "tile.cast"},         {18, "tile.mul"},
++      {19, "tile.create"},       {20, "tile.row_sum"},
++      {21, "tile.adds"},         {22, "tile.rsqrt"},
++      {23, "tile.row_expand_mul"}, {24, "tile.load"},
++      {25, "tile.load"},         {26, "tile.load"},
++      {27, "tile.load"},         {28, "tile.cast"},
++      {29, "tile.cast"},         {30, "tile.reshape"},
++      {31, "tile.reshape"},      {32, "tile.add"},
++      {33, "tile.abs"},          {34, "tile.exp"},
++      {35, "tile.log"},          {36, "tile.add"},
++      {37, "tile.neg"},          {38, "tile.exp"},
++      {39, "tile.row_expand_mul"}, {40, "tile.neg"},
++      {41, "tile.abs"},          {42, "tile.exp"},
++      {43, "tile.log"},          {44, "tile.add"},
++      {45, "tile.exp"},          {46, "tile.cast"},
++      {47, "tile.cast"},         {48, "tile.transpose_view"},
++      {49, "tile.matmul"},       {50, "tile.cast"},
++      {51, "tile.sub"},          {52, "tile.mul"},
++      {53, "tile.row_expand"},   {54, "tile.col_expand_mul"},
++      {55, "tile.add"},          {56, "tile.transpose_view"},
++      {57, "tile.matmul"},       {58, "tile.cast"},
++      {59, "tile.reshape"},
++  }};
++  for (const auto& [index, expected] : kExpectedOps) {
++    const auto assignment = ir::As<ir::AssignStmt>(token_body->stmts_[index]);
++    const auto call = assignment ? ir::As<ir::Call>(assignment->value_) : nullptr;
++    if (!call || !ir::IsOp(call, std::string(expected))) {
++      Reject("native GDN recurrent operation sequence is invalid",
++             &token_body->stmts_[index]->span_);
++    }
++  }
++  const auto token_store = ir::As<ir::EvalStmt>(token_body->stmts_[60]);
++  const auto token_store_call =
++      token_store ? ir::As<ir::Call>(token_store->expr_) : nullptr;
++  const auto state_store = ir::As<ir::EvalStmt>(head_body->stmts_[6]);
++  const auto state_store_call =
++      state_store ? ir::As<ir::Call>(state_store->expr_) : nullptr;
++  if (!token_store_call || !ir::IsOp(token_store_call, "tile.store") ||
++      token_store_call->args_.size() != 3 ||
++      token_store_call->args_[2].get() != function->params_[9].get() ||
++      !state_store_call || !ir::IsOp(state_store_call, "tile.store") ||
++      state_store_call->args_.size() != 3 ||
++      state_store_call->args_[2].get() != function->params_[5].get()) {
++    Reject("native GDN recurrent stores are invalid", &head_body->span_);
++  }
++  const auto scale_assignment =
++      ir::As<ir::AssignStmt>(token_body->stmts_[16]);
++  const auto scale_call = scale_assignment
++                              ? ir::As<ir::Call>(scale_assignment->value_)
++                              : nullptr;
++  const auto scale = scale_call && scale_call->args_.size() == 2
++                         ? ir::As<ir::ConstFloat>(scale_call->args_[1])
++                         : nullptr;
++  const double expected_scale = 1.0 / std::sqrt(static_cast<double>(key_dim));
++  if (!scale || !std::isfinite(scale->value_) ||
++      std::fabs(scale->value_ - expected_scale) >
++          std::numeric_limits<double>::epsilon()) {
++    Reject("native GDN recurrent scale must equal 1/sqrt(key_dim)",
++           scale_call ? &scale_call->span_ : &token_body->span_);
++  }
++
++  return NativeTileGdnRecurrentGraph{
++      mixed_qkv, a, b, a_log, dt_bias, state, state_indices, result,
++      batch_size, tokens_per_request, q_heads, value_heads, key_dim,
++      value_dim, state.shape[0], scale->value_};
++}
++
+ bool IsNativeTileGdnUpdateCandidate(const ir::ProgramPtr& program) {
+   if (!IsNativeTilePointwiseCandidate(program)) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+@@ -7264,6 +7529,613 @@ std::string EmitNativeTileAttentionSource(
+   return source;
+ }
+ 
++std::string EmitNativeTileGdnRecurrentSource(
++    const NativeTileGdnRecurrentGraph& graph) {
++  const int64_t state_width = graph.value_heads * graph.value_dim * graph.key_dim;
++  StaticTensor indices_i32 = graph.state_indices;
++  indices_i32.dtype = DataType::INT32;
++  StaticTensor indices_full{DataType::INT32,
++                            {graph.batch_size, state_width}, {}};
++  indices_full.dense_strides =
++      MakeDenseStridesForMetadata(indices_full.shape);
++  StaticTensor state_rows{DataType::FP32,
++                          {graph.batch_size, state_width}, {}};
++  state_rows.dense_strides = MakeDenseStridesForMetadata(state_rows.shape);
++  StaticTensor state_head_flat{DataType::FP32,
++                               {1, graph.value_dim * graph.key_dim}, {}};
++  state_head_flat.dense_strides =
++      MakeDenseStridesForMetadata(state_head_flat.shape);
++  StaticTensor state_matrix{DataType::FP32,
++                            {graph.value_dim, graph.key_dim}, {}};
++  state_matrix.dense_strides =
++      MakeDenseStridesForMetadata(state_matrix.shape);
++  StaticTensor query_box{DataType::BF16, {1, 1, graph.key_dim}, {}};
++  query_box.dense_strides = MakeDenseStridesForMetadata(query_box.shape);
++  StaticTensor query{DataType::BF16, {1, graph.key_dim}, {}};
++  query.dense_strides = MakeDenseStridesForMetadata(query.shape);
++  StaticTensor wide_query = query;
++  wide_query.dtype = DataType::FP32;
++  StaticTensor key_column{DataType::FP32, {graph.key_dim, 1}, {}};
++  key_column.dense_strides = MakeDenseStridesForMetadata(key_column.shape);
++  StaticTensor state_transposed{DataType::FP32,
++                                {graph.key_dim, graph.value_dim}, {}};
++  state_transposed.dense_strides =
++      MakeDenseStridesForMetadata(state_transposed.shape);
++  StaticTensor value_box{DataType::BF16, {1, 1, graph.value_dim}, {}};
++  value_box.dense_strides = MakeDenseStridesForMetadata(value_box.shape);
++  StaticTensor value_column{DataType::BF16, {graph.value_dim, 1}, {}};
++  value_column.dense_strides =
++      MakeDenseStridesForMetadata(value_column.shape);
++  StaticTensor wide_value_column = value_column;
++  wide_value_column.dtype = DataType::FP32;
++  StaticTensor gate_box{DataType::BF16,
++                        {1, 1, 1, graph.value_dim}, {}};
++  gate_box.dense_strides = MakeDenseStridesForMetadata(gate_box.shape);
++  StaticTensor gate_column{DataType::BF16, {graph.value_dim, 1}, {}};
++  gate_column.dense_strides = MakeDenseStridesForMetadata(gate_column.shape);
++  StaticTensor wide_gate_column = gate_column;
++  wide_gate_column.dtype = DataType::FP32;
++  StaticTensor parameter_row{DataType::FP32, {1, graph.value_dim}, {}};
++  parameter_row.dense_strides =
++      MakeDenseStridesForMetadata(parameter_row.shape);
++  StaticTensor parameter_column{DataType::FP32, {graph.value_dim, 1}, {}};
++  parameter_column.dense_strides =
++      MakeDenseStridesForMetadata(parameter_column.shape);
++  StaticTensor norm{DataType::FP32, {1, 1}, {1, 1}};
++  StaticTensor output_wide{DataType::FP32, {1, graph.value_dim}, {}};
++  output_wide.dense_strides =
++      MakeDenseStridesForMetadata(output_wide.shape);
++  StaticTensor output = output_wide;
++  output.dtype = DataType::BF16;
++  StaticTensor output_box{DataType::BF16,
++                          {1, 1, 1, graph.value_dim}, {}};
++  output_box.dense_strides = MakeDenseStridesForMetadata(output_box.shape);
++  StaticTensor head_sequence{DataType::BF16,
++                             {1, graph.tokens_per_request, 1,
++                              graph.value_dim}, {}};
++  head_sequence.dense_strides =
++      MakeDenseStridesForMetadata(head_sequence.shape);
++  StaticTensor batch_result{DataType::BF16,
++                            {1, graph.tokens_per_request, graph.value_heads,
++                             graph.value_dim}, {}};
++  batch_result.dense_strides =
++      MakeDenseStridesForMetadata(batch_result.shape);
++  StaticTensor batch_state{DataType::FP32, {1, state_width}, {}};
++  batch_state.dense_strides = MakeDenseStridesForMetadata(batch_state.shape);
++
++  const std::string mixed_type = TensorTypeText(graph.mixed_qkv);
++  const std::string a_type = TensorTypeText(graph.a);
++  const std::string parameter_type = TensorTypeText(graph.a_log);
++  const std::string state_type = TensorTypeText(graph.state);
++  const std::string indices_type = TensorTypeText(graph.state_indices);
++  const std::string indices_i32_type = TensorTypeText(indices_i32);
++  const std::string indices_full_type = TensorTypeText(indices_full);
++  const std::string state_rows_type = TensorTypeText(state_rows);
++  const std::string state_head_flat_type = TensorTypeText(state_head_flat);
++  const std::string state_matrix_type = TensorTypeText(state_matrix);
++  const std::string query_box_type = TensorTypeText(query_box);
++  const std::string query_type = TensorTypeText(query);
++  const std::string wide_query_type = TensorTypeText(wide_query);
++  const std::string key_column_type = TensorTypeText(key_column);
++  const std::string state_transposed_type =
++      TensorTypeText(state_transposed);
++  const std::string value_box_type = TensorTypeText(value_box);
++  const std::string value_column_type = TensorTypeText(value_column);
++  const std::string wide_value_column_type =
++      TensorTypeText(wide_value_column);
++  const std::string gate_box_type = TensorTypeText(gate_box);
++  const std::string gate_column_type = TensorTypeText(gate_column);
++  const std::string wide_gate_column_type =
++      TensorTypeText(wide_gate_column);
++  const std::string parameter_row_type = TensorTypeText(parameter_row);
++  const std::string parameter_column_type = TensorTypeText(parameter_column);
++  const std::string norm_type = TensorTypeText(norm);
++  const std::string output_wide_type = TensorTypeText(output_wide);
++  const std::string output_type = TensorTypeText(output);
++  const std::string output_box_type = TensorTypeText(output_box);
++  const std::string head_sequence_type = TensorTypeText(head_sequence);
++  const std::string batch_result_type = TensorTypeText(batch_result);
++  const std::string batch_state_type = TensorTypeText(batch_state);
++  const std::string result_type = TensorTypeText(graph.result);
++
++  std::string source;
++  source.reserve(8192);
++  source += "module {\n  nv_tensor_ir.graph @";
++  source += kFusedPointwiseEntryName;
++  source += "(\n    %arg0: ";
++  source += TensorWithStrideText(graph.mixed_qkv);
++  source += ",\n    %arg1: ";
++  source += TensorWithStrideText(graph.a);
++  source += ",\n    %arg2: ";
++  source += TensorWithStrideText(graph.b);
++  source += ",\n    %arg3: ";
++  source += TensorWithStrideText(graph.a_log);
++  source += ",\n    %arg4: ";
++  source += TensorWithStrideText(graph.dt_bias);
++  source += ",\n    %arg5: ";
++  source += TensorWithStrideText(graph.state);
++  source += ",\n    %arg6: ";
++  source += TensorWithStrideText(graph.state_indices);
++  source += "\n  ) -> (";
++  source += TensorWithStrideText(graph.result);
++  source += ") {\n";
++  std::string indices_value = "%arg6";
++  if (graph.state_indices.dtype == DataType::INT64) {
++    source += "    %state_indices32 = convert %arg6 : ";
++    source += indices_type;
++    source += " -> ";
++    source += indices_i32_type;
++    source += "\n";
++    indices_value = "%state_indices32";
++  }
++  source += "    %state_indices_full = broadcast ";
++  source += indices_value;
++  source += " : ";
++  source += indices_i32_type;
++  source += " -> ";
++  source += indices_full_type;
++  source += "\n    %state_rows = gather_rows %arg5, %state_indices_full : (";
++  source += state_type;
++  source += ", ";
++  source += indices_full_type;
++  source += ") -> ";
++  source += state_rows_type;
++  source += "\n    %epsilon = constant 9.999999974752427e-07 : f32";
++  source += "\n    %epsilon_splat = splat %epsilon : ";
++  source += norm_type;
++  source += "\n    %one = constant 1.0 : f32";
++  source += "\n    %one_gate = splat %one : ";
++  source += parameter_column_type;
++  source += "\n    %zero = constant 0.0 : f32";
++  source += "\n    %zero_gate = splat %zero : ";
++  source += parameter_column_type;
++  source += "\n    %scale = constant ";
++  AppendFloat(source, graph.scale);
++  source += " : f32\n    %scale_splat = splat %scale : ";
++  source += wide_query_type;
++
++  std::vector<std::string> batch_outputs;
++  std::vector<std::string> batch_states;
++  batch_outputs.reserve(static_cast<size_t>(graph.batch_size));
++  batch_states.reserve(static_cast<size_t>(graph.batch_size));
++  const int64_t value_heads_per_q = graph.value_heads / graph.q_heads;
++  for (int64_t batch = 0; batch < graph.batch_size; ++batch) {
++    std::vector<std::string> head_outputs;
++    std::vector<std::string> head_states;
++    head_outputs.reserve(static_cast<size_t>(graph.value_heads));
++    head_states.reserve(static_cast<size_t>(graph.value_heads));
++    for (int64_t head = 0; head < graph.value_heads; ++head) {
++      const int64_t query_head = head / value_heads_per_q;
++      const int64_t state_offset = head * graph.value_dim * graph.key_dim;
++      const std::string head_suffix =
++          "b" + std::to_string(batch) + "_h" + std::to_string(head);
++      source += "\n    %state_flat_" + head_suffix +
++                " = slice %state_rows starts = [" + std::to_string(batch) +
++                ", " + std::to_string(state_offset) + "] limits = [" +
++                std::to_string(batch + 1) + ", " +
++                std::to_string(state_offset + graph.value_dim * graph.key_dim) +
++                "] strides = [1, 1] : ";
++      source += state_rows_type;
++      source += " -> ";
++      source += state_head_flat_type;
++      source += "\n    %state_" + head_suffix + " = reshape %state_flat_" +
++                head_suffix + " : ";
++      source += state_head_flat_type;
++      source += " -> ";
++      source += state_matrix_type;
++      source += "\n    %A_row_" + head_suffix +
++                " = slice %arg3 starts = [" + std::to_string(head) +
++                ", 0] limits = [" + std::to_string(head + 1) + ", " +
++                std::to_string(graph.value_dim) + "] strides = [1, 1] : ";
++      source += parameter_type;
++      source += " -> ";
++      source += parameter_row_type;
++      source += "\n    %A_" + head_suffix + " = reshape %A_row_" +
++                head_suffix + " : ";
++      source += parameter_row_type;
++      source += " -> ";
++      source += parameter_column_type;
++      source += "\n    %expA_" + head_suffix + " = exp %A_" + head_suffix +
++                " : ";
++      source += parameter_column_type;
++      source += "\n    %dt_row_" + head_suffix +
++                " = slice %arg4 starts = [" + std::to_string(head) +
++                ", 0] limits = [" + std::to_string(head + 1) + ", " +
++                std::to_string(graph.value_dim) + "] strides = [1, 1] : ";
++      source += parameter_type;
++      source += " -> ";
++      source += parameter_row_type;
++      source += "\n    %dt_" + head_suffix + " = reshape %dt_row_" +
++                head_suffix + " : ";
++      source += parameter_row_type;
++      source += " -> ";
++      source += parameter_column_type;
++
++      std::string current_state = "%state_" + head_suffix;
++      std::vector<std::string> token_outputs;
++      token_outputs.reserve(static_cast<size_t>(graph.tokens_per_request));
++      for (int64_t token = 0; token < graph.tokens_per_request; ++token) {
++        const int64_t query_offset = query_head * graph.key_dim;
++        const int64_t key_offset = graph.q_heads * graph.key_dim + query_offset;
++        const int64_t value_offset =
++            2 * graph.q_heads * graph.key_dim + head * graph.value_dim;
++        const std::string suffix =
++            head_suffix + "_t" + std::to_string(token);
++        auto append_mixed_slice = [&](std::string_view name, int64_t offset,
++                                      const std::string &box_type,
++                                      const std::string &flat_type,
++                                      int64_t width) {
++          source += "\n    %" + std::string(name) + "_box_" + suffix +
++                    " = slice %arg0 starts = [" + std::to_string(batch) +
++                    ", " + std::to_string(token) + ", " +
++                    std::to_string(offset) + "] limits = [" +
++                    std::to_string(batch + 1) + ", " +
++                    std::to_string(token + 1) + ", " +
++                    std::to_string(offset + width) + "] strides = [1, 1, 1] : ";
++          source += mixed_type;
++          source += " -> ";
++          source += box_type;
++          source += "\n    %" + std::string(name) + "_" + suffix +
++                    " = reshape %" + std::string(name) + "_box_" + suffix +
++                    " : ";
++          source += box_type;
++          source += " -> ";
++          source += flat_type;
++        };
++        append_mixed_slice("q", query_offset, query_box_type, query_type,
++                           graph.key_dim);
++        append_mixed_slice("k", key_offset, query_box_type, query_type,
++                           graph.key_dim);
++        append_mixed_slice("v", value_offset, value_box_type,
++                           value_column_type, graph.value_dim);
++        source += "\n    %qwide_" + suffix + " = convert %q_" + suffix + " : ";
++        source += query_type;
++        source += " -> ";
++        source += wide_query_type;
++        source += "\n    %qsquare_" + suffix + " = mul %qwide_" + suffix +
++                  ", %qwide_" + suffix + " : ";
++        source += wide_query_type;
++        source += "\n    %qsum_" + suffix + " = reduce(%qsquare_" + suffix +
++                  ") <dimensions = [1], reduction_mode = <add>> : ";
++        source += wide_query_type;
++        source += " -> ";
++        source += norm_type;
++        source += "\n    %qnorm2_" + suffix + " = add %qsum_" + suffix +
++                  ", %epsilon_splat : ";
++        source += norm_type;
++        source += "\n    %qinv_" + suffix + " = rsqrt %qnorm2_" + suffix + " : ";
++        source += norm_type;
++        source += "\n    %qinv_full_" + suffix + " = broadcast %qinv_" +
++                  suffix + " : ";
++        source += norm_type;
++        source += " -> ";
++        source += wide_query_type;
++        source += "\n    %qnorm_" + suffix + " = mul %qwide_" + suffix +
++                  ", %qinv_full_" + suffix + " : ";
++        source += wide_query_type;
++        source += "\n    %qscaled_" + suffix + " = mul %qnorm_" + suffix +
++                  ", %scale_splat : ";
++        source += wide_query_type;
++        source += "\n    %kwide_" + suffix + " = convert %k_" + suffix + " : ";
++        source += query_type;
++        source += " -> ";
++        source += wide_query_type;
++        source += "\n    %ksquare_" + suffix + " = mul %kwide_" + suffix +
++                  ", %kwide_" + suffix + " : ";
++        source += wide_query_type;
++        source += "\n    %ksum_" + suffix + " = reduce(%ksquare_" + suffix +
++                  ") <dimensions = [1], reduction_mode = <add>> : ";
++        source += wide_query_type;
++        source += " -> ";
++        source += norm_type;
++        source += "\n    %knorm2_" + suffix + " = add %ksum_" + suffix +
++                  ", %epsilon_splat : ";
++        source += norm_type;
++        source += "\n    %kinv_" + suffix + " = rsqrt %knorm2_" + suffix + " : ";
++        source += norm_type;
++        source += "\n    %kinv_full_" + suffix + " = broadcast %kinv_" +
++                  suffix + " : ";
++        source += norm_type;
++        source += " -> ";
++        source += wide_query_type;
++        source += "\n    %knorm_" + suffix + " = mul %kwide_" + suffix +
++                  ", %kinv_full_" + suffix + " : ";
++        source += wide_query_type;
++
++        auto append_gate_slice = [&](std::string_view name, int argument) {
++          source += "\n    %" + std::string(name) + "_box_" + suffix +
++                    " = slice %arg" + std::to_string(argument) + " starts = [" +
++                    std::to_string(batch) + ", " + std::to_string(token) +
++                    ", " + std::to_string(head) + ", 0] limits = [" +
++                    std::to_string(batch + 1) + ", " +
++                    std::to_string(token + 1) + ", " +
++                    std::to_string(head + 1) + ", " +
++                    std::to_string(graph.value_dim) +
++                    "] strides = [1, 1, 1, 1] : ";
++          source += a_type;
++          source += " -> ";
++          source += gate_box_type;
++          source += "\n    %" + std::string(name) + "_bf16_" + suffix +
++                    " = reshape %" + std::string(name) + "_box_" + suffix +
++                    " : ";
++          source += gate_box_type;
++          source += " -> ";
++          source += gate_column_type;
++          source += "\n    %" + std::string(name) + "_" + suffix +
++                    " = convert %" + std::string(name) + "_bf16_" + suffix +
++                    " : ";
++          source += gate_column_type;
++          source += " -> ";
++          source += wide_gate_column_type;
++        };
++        append_gate_slice("a", 1);
++        append_gate_slice("b", 2);
++        source += "\n    %gate_x_" + suffix + " = add %a_" + suffix +
++                  ", %dt_" + head_suffix + " : ";
++        source += parameter_column_type;
++        source += "\n    %gate_abs_" + suffix + " = abs %gate_x_" + suffix +
++                  " : ";
++        source += parameter_column_type;
++        source += "\n    %gate_neg_abs_" + suffix + " = neg %gate_abs_" +
++                  suffix + " : ";
++        source += parameter_column_type;
++        source += "\n    %gate_tail_exp_" + suffix + " = exp %gate_neg_abs_" +
++                  suffix + " : ";
++        source += parameter_column_type;
++        source += "\n    %gate_tail_shift_" + suffix +
++                  " = add %gate_tail_exp_" + suffix + ", %one_gate : ";
++        source += parameter_column_type;
++        source += "\n    %gate_tail_" + suffix + " = log %gate_tail_shift_" +
++                  suffix + " : ";
++        source += parameter_column_type;
++        source += "\n    %gate_positive_" + suffix + " = maximum %gate_x_" +
++                  suffix + ", %zero_gate : ";
++        source += parameter_column_type;
++        source += "\n    %softplus_" + suffix + " = add %gate_positive_" +
++                  suffix + ", %gate_tail_" + suffix + " : ";
++        source += parameter_column_type;
++        source += "\n    %gpositive_" + suffix + " = mul %expA_" +
++                  head_suffix + ", %softplus_" + suffix + " : ";
++        source += parameter_column_type;
++        source += "\n    %g_" + suffix + " = neg %gpositive_" + suffix + " : ";
++        source += parameter_column_type;
++        source += "\n    %decay_" + suffix + " = exp %g_" + suffix + " : ";
++        source += parameter_column_type;
++        source += "\n    %decay_full_" + suffix + " = broadcast %decay_" +
++                  suffix + " : ";
++        source += parameter_column_type;
++        source += " -> ";
++        source += state_matrix_type;
++        source += "\n    %decayed_" + suffix + " = mul " + current_state +
++                  ", %decay_full_" + suffix + " : ";
++        source += state_matrix_type;
++        source += "\n    %beta_x_" + suffix + " = neg %b_" + suffix + " : ";
++        source += parameter_column_type;
++        source += "\n    %beta_abs_" + suffix + " = abs %beta_x_" + suffix +
++                  " : ";
++        source += parameter_column_type;
++        source += "\n    %beta_neg_abs_" + suffix + " = neg %beta_abs_" +
++                  suffix + " : ";
++        source += parameter_column_type;
++        source += "\n    %beta_tail_exp_" + suffix + " = exp %beta_neg_abs_" +
++                  suffix + " : ";
++        source += parameter_column_type;
++        source += "\n    %beta_tail_shift_" + suffix +
++                  " = add %beta_tail_exp_" + suffix + ", %one_gate : ";
++        source += parameter_column_type;
++        source += "\n    %beta_tail_" + suffix + " = log %beta_tail_shift_" +
++                  suffix + " : ";
++        source += parameter_column_type;
++        source += "\n    %beta_positive_" + suffix + " = maximum %beta_x_" +
++                  suffix + ", %zero_gate : ";
++        source += parameter_column_type;
++        source += "\n    %beta_softplus_" + suffix +
++                  " = add %beta_positive_" + suffix + ", %beta_tail_" +
++                  suffix + " : ";
++        source += parameter_column_type;
++        source += "\n    %beta_neg_softplus_" + suffix +
++                  " = neg %beta_softplus_" + suffix + " : ";
++        source += parameter_column_type;
++        source += "\n    %beta_" + suffix + " = exp %beta_neg_softplus_" +
++                  suffix + " : ";
++        source += parameter_column_type;
++        source += "\n    %beta_bf16_" + suffix + " = convert %beta_" + suffix +
++                  " : ";
++        source += parameter_column_type;
++        source += " -> ";
++        source += gate_column_type;
++        source += "\n    %beta_rounded_" + suffix +
++                  " = convert %beta_bf16_" + suffix + " : ";
++        source += gate_column_type;
++        source += " -> ";
++        source += parameter_column_type;
++        source += "\n    %kcol_" + suffix + " = transpose %knorm_" + suffix +
++                  " permutation = [1, 0] : ";
++        source += wide_query_type;
++        source += " -> ";
++        source += key_column_type;
++        source += "\n    %state_key_" + suffix + " = matmul(%decayed_" +
++                  suffix + ", %kcol_" + suffix + ") : (";
++        source += state_matrix_type;
++        source += ", ";
++        source += key_column_type;
++        source += ") -> ";
++        source += parameter_column_type;
++        source += "\n    %vwide_" + suffix + " = convert %v_" + suffix + " : ";
++        source += value_column_type;
++        source += " -> ";
++        source += wide_value_column_type;
++        source += "\n    %residual_" + suffix + " = sub %vwide_" + suffix +
++                  ", %state_key_" + suffix + " : ";
++        source += parameter_column_type;
++        source += "\n    %delta_" + suffix + " = mul %residual_" + suffix +
++                  ", %beta_rounded_" + suffix + " : ";
++        source += parameter_column_type;
++        source += "\n    %delta_full_" + suffix + " = broadcast %delta_" +
++                  suffix + " : ";
++        source += parameter_column_type;
++        source += " -> ";
++        source += state_matrix_type;
++        source += "\n    %kfull_" + suffix + " = broadcast %knorm_" + suffix +
++                  " : ";
++        source += wide_query_type;
++        source += " -> ";
++        source += state_matrix_type;
++        source += "\n    %outer_" + suffix + " = mul %delta_full_" + suffix +
++                  ", %kfull_" + suffix + " : ";
++        source += state_matrix_type;
++        source += "\n    %updated_" + suffix + " = add %decayed_" + suffix +
++                  ", %outer_" + suffix + " : ";
++        source += state_matrix_type;
++        current_state = "%updated_" + suffix;
++        source += "\n    %state_t_" + suffix + " = transpose " + current_state +
++                  " permutation = [1, 0] : ";
++        source += state_matrix_type;
++        source += " -> ";
++        source += state_transposed_type;
++        source += "\n    %output_wide_" + suffix + " = matmul(%qscaled_" +
++                  suffix + ", %state_t_" + suffix + ") : (";
++        source += wide_query_type;
++        source += ", ";
++        source += state_transposed_type;
++        source += ") -> ";
++        source += output_wide_type;
++        source += "\n    %output_" + suffix + " = convert %output_wide_" +
++                  suffix + " : ";
++        source += output_wide_type;
++        source += " -> ";
++        source += output_type;
++        source += "\n    %output_box_" + suffix + " = reshape %output_" +
++                  suffix + " : ";
++        source += output_type;
++        source += " -> ";
++        source += output_box_type;
++        token_outputs.push_back("%output_box_" + suffix);
++      }
++      std::string head_output;
++      if (graph.tokens_per_request == 1) {
++        head_output = token_outputs[0];
++      } else {
++        head_output = "%head_output_" + head_suffix;
++        source += "\n    " + head_output + " = concatenate ";
++        for (size_t index = 0; index < token_outputs.size(); ++index) {
++          if (index != 0) source += ", ";
++          source += token_outputs[index];
++        }
++        source += " dimension = 1 : (";
++        for (size_t index = 0; index < token_outputs.size(); ++index) {
++          if (index != 0) source += ", ";
++          source += output_box_type;
++        }
++        source += ") -> ";
++        source += head_sequence_type;
++      }
++      head_outputs.push_back(head_output);
++      const std::string state_flat = "%state_result_" + head_suffix;
++      source += "\n    " + state_flat + " = reshape " + current_state + " : ";
++      source += state_matrix_type;
++      source += " -> ";
++      source += state_head_flat_type;
++      head_states.push_back(state_flat);
++    }
++
++    std::string batch_output;
++    if (graph.value_heads == 1) {
++      batch_output = head_outputs[0];
++    } else {
++      batch_output = "%batch_output_" + std::to_string(batch);
++      source += "\n    " + batch_output + " = concatenate ";
++      for (size_t index = 0; index < head_outputs.size(); ++index) {
++        if (index != 0) source += ", ";
++        source += head_outputs[index];
++      }
++      source += " dimension = 2 : (";
++      for (size_t index = 0; index < head_outputs.size(); ++index) {
++        if (index != 0) source += ", ";
++        source += head_sequence_type;
++      }
++      source += ") -> ";
++      source += batch_result_type;
++    }
++    batch_outputs.push_back(batch_output);
++    std::string batch_state_name;
++    if (graph.value_heads == 1) {
++      batch_state_name = head_states[0];
++    } else {
++      batch_state_name = "%batch_state_" + std::to_string(batch);
++      source += "\n    " + batch_state_name + " = concatenate ";
++      for (size_t index = 0; index < head_states.size(); ++index) {
++        if (index != 0) source += ", ";
++        source += head_states[index];
++      }
++      source += " dimension = 1 : (";
++      for (size_t index = 0; index < head_states.size(); ++index) {
++        if (index != 0) source += ", ";
++        source += state_head_flat_type;
++      }
++      source += ") -> ";
++      source += batch_state_type;
++    }
++    batch_states.push_back(batch_state_name);
++  }
++
++  std::string result_value;
++  if (graph.batch_size == 1) {
++    result_value = batch_outputs[0];
++  } else {
++    result_value = "%result0";
++    source += "\n    %result0 = concatenate ";
++    for (size_t index = 0; index < batch_outputs.size(); ++index) {
++      if (index != 0) source += ", ";
++      source += batch_outputs[index];
++    }
++    source += " dimension = 0 : (";
++    for (size_t index = 0; index < batch_outputs.size(); ++index) {
++      if (index != 0) source += ", ";
++      source += batch_result_type;
++    }
++    source += ") -> ";
++    source += result_type;
++  }
++  std::string updated_states;
++  if (graph.batch_size == 1) {
++    updated_states = batch_states[0];
++  } else {
++    updated_states = "%updated_states";
++    source += "\n    %updated_states = concatenate ";
++    for (size_t index = 0; index < batch_states.size(); ++index) {
++      if (index != 0) source += ", ";
++      source += batch_states[index];
++    }
++    source += " dimension = 0 : (";
++    for (size_t index = 0; index < batch_states.size(); ++index) {
++      if (index != 0) source += ", ";
++      source += batch_state_type;
++    }
++    source += ") -> ";
++    source += state_rows_type;
++  }
++  source += "\n    %stored_state = scatter_rows %arg5, %state_indices_full, ";
++  source += updated_states;
++  source += " : (";
++  source += state_type;
++  source += ", ";
++  source += indices_full_type;
++  source += ", ";
++  source += state_rows_type;
++  source += ") -> ";
++  source += state_rows_type;
++  source += "\n    results ";
++  source += result_value;
++  source += " : ";
++  source += result_type;
++  source += "\n  }\n}\n";
++  if (source.size() > kMaximumCanonicalSourceBytes) {
++    Reject("canonical TensorIR source exceeds 16 MiB");
++  }
++  return source;
++}
++
+ std::string EmitNativeTileGdnReadSource(
+     const NativeTileGdnReadGraph& graph) {
+   StaticTensor query_batched = graph.query;
+@@ -7914,6 +8786,30 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+                           /*input_count=*/2,
+                           /*contraction_extent=*/static_cast<uint64_t>(graph.k));
+   }
++  if (IsNativeTileGdnRecurrentCandidate(program)) {
++    const NativeTileGdnRecurrentGraph graph =
++        AnalyzeNativeTileGdnRecurrent(program);
++    std::vector<TensorIrValueMetadata> metadata;
++    metadata.reserve(8);
++    const std::array<StaticTensor, 7> inputs = {
++        graph.mixed_qkv, graph.a,     graph.b,       graph.a_log,
++        graph.dt_bias,   graph.state, graph.state_indices};
++    for (uint32_t index = 0; index < inputs.size(); ++index) {
++      metadata.push_back(TensorIrValueMetadata(
++          TensorIrValueRole::Input, index, inputs[index].dtype,
++          inputs[index].shape, inputs[index].dense_strides,
++          /*has_explicit_strides=*/true,
++          index == 5 ? TensorIrArgumentEffect::ReadWrite
++                     : TensorIrArgumentEffect::ReadOnly));
++    }
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Result, 0, graph.result.dtype,
++        graph.result.shape, graph.result.dense_strides,
++        /*has_explicit_strides=*/true));
++    return TensorIrModule(TensorIrModuleKind::FusedPointwise,
++                          EmitNativeTileGdnRecurrentSource(graph),
++                          std::move(metadata), /*input_count=*/7);
++  }
+   if (IsNativeTileGdnUpdateCandidate(program)) {
+     const NativeTileGdnUpdateGraph graph = AnalyzeNativeTileGdnUpdate(program);
+     std::vector<TensorIrValueMetadata> metadata;

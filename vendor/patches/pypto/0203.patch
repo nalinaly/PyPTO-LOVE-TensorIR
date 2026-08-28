@@ -1,0 +1,26 @@
+From 8d57bf96f65a9a19a6f247c162c315de9b0350e9 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 16:02:36 +0800
+Subject: [PATCH 203/212] Preserve pointwise input strides in TensorIR
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 6 +-----
+ 1 file changed, 1 insertion(+), 5 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 6ecca40ead2c54b3991c7e000adf06f559fa3f44..097f2c5aa849cfacb39a1f7f3ec680289f5d1306 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -7366,11 +7366,7 @@ std::string EmitFusedPointwiseSource(const FusedPointwiseGraph& graph) {
+     source += "    %arg";
+     AppendIndex(source, input_index);
+     source += ": ";
+-    if (graph.broadcast_inputs[input_index]) {
+-      source += TensorWithStrideText(graph.input_tensors[input_index]);
+-    } else {
+-      source += type_with_stride;
+-    }
++    source += TensorWithStrideText(graph.input_tensors[input_index]);
+     source += input_index + 1 == graph.input_count ? "\n" : ",\n";
+   }
+   source += "  ) -> ";

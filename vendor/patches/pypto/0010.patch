@@ -1,0 +1,2068 @@
+From 09e014ceac2d2cac2f667d182bd7de8f0d0bd259 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Mon, 24 Aug 2026 16:57:42 +0800
+Subject: [PATCH 010/212] compiler: add canonical CompileRequest v1 contract
+
+---
+ CMakeLists.txt                               |   1 +
+ docs/en/dev/backend/01-nvidia-target-info.md |  50 +-
+ docs/en/dev/backend/index.md                 |   2 +-
+ docs/zh/dev/backend/01-nvidia-target-info.md |  42 +-
+ docs/zh/dev/backend/index.md                 |   2 +-
+ include/pypto/compiler/compile_request.h     | 144 ++++
+ python/bindings/modules/compiler.cpp         |  95 +++
+ python/pypto/compiler/__init__.py            |  10 +
+ python/pypto/pypto_core/compiler.pyi         | 101 +++
+ src/compiler/compile_request.cpp             | 768 +++++++++++++++++++
+ tests/ut/compiler/test_compile_request.py    | 291 +++++++
+ tests/ut/cpp/CMakeLists.txt                  |  23 +
+ tests/ut/cpp/nvidia_compile_request_test.cpp | 361 +++++++++
+ 13 files changed, 1886 insertions(+), 4 deletions(-)
+ create mode 100644 include/pypto/compiler/compile_request.h
+ create mode 100644 src/compiler/compile_request.cpp
+ create mode 100644 tests/ut/compiler/test_compile_request.py
+ create mode 100644 tests/ut/cpp/nvidia_compile_request_test.cpp
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 5bad55b5d46760a28e158ca275dd1a28f257bf5f..eefa749a1c1bf2336d410bc2c99b03a5ae20b70c 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -81,6 +81,7 @@ include(${CMAKE_SOURCE_DIR}/cmake/msgpack.cmake)
+ # PyPTO core sources
+ set(PYPTO_SOURCES
+     # Compiler target contracts
++    src/compiler/compile_request.cpp
+     src/compiler/target_info.cpp
+ 
+     # Core
+diff --git a/docs/en/dev/backend/01-nvidia-target-info.md b/docs/en/dev/backend/01-nvidia-target-info.md
+index 0c55ef15adfa0aa331cee0a0908fc279e0d3e008..1497523e9fe18f9f57c91b861ccb4265eb04c07f 100644
+--- a/docs/en/dev/backend/01-nvidia-target-info.md
++++ b/docs/en/dev/backend/01-nvidia-target-info.md
+@@ -1,4 +1,4 @@
+-# NVIDIA target identity (Phase 1)
++# NVIDIA target and compile request contracts (Phase 1)
+ 
+ `BackendType::Nvidia` identifies the NVIDIA compiler target but deliberately
+ does not create an Ascend-style `Backend`, `BackendHandler`, or synthetic SoC.
+@@ -30,3 +30,51 @@ not proof that a generated launch is legal.
+ 
+ This contract does not query CUDA, link TensorIR/CUDA Tile, compile an
+ artifact, or launch a kernel.
++
++## CompileRequest v1
++
++`CompileRequest` is the immutable, pointer-free worker payload for program and
++target policy. It value-owns `NvidiaTargetInfo` and `ToolchainIdentity`; the
++latter records the exact PyPTO, TensorIR, CUDA Tile, and LLVM revisions, a
++normalized CUDA toolkit root/version, and the parent-resolved `tileiras` real
++path/version/executable SHA-256. Duplicate target/toolchain revision or toolkit
++fields must agree. The value object requires already-canonical absolute paths;
++the parent remains responsible for resolving symlinks/`realpath` and hashing
++the selected executable before construction. Deserialization performs no
++filesystem lookup.
++
++V1 fixes all three policies to fail-closed values:
++
++- `RequestedArtifactPolicy.CubinOnly` requests native Cubin and permits no
++  fallback artifact;
++- `CompilerPolicy.DeterministicStrict` requires the later compiler bridge to
++  reject ambient or nondeterministic compiler overrides;
++- `VerificationPolicy.Strict` requires strict validation at the later producer
++  and artifact boundaries.
++
++`serialize()` emits canonical MessagePack. `deserialize()` accepts that exact
++form only: malformed input, trailing bytes, missing/duplicate/unknown fields,
++unsupported versions, noncanonical field order, and noncanonical path spelling
++are rejected. V1 caps the payload at 1 MiB and applies schema-sized
++container/string/depth limits before MessagePack allocation. The schema and
++compiler ABI versions are both explicit.
++
++Three domain-separated canonical SHA-256 identities keep unrelated concerns
++out of the byte cache key:
++
++- `byte_compile_identity_digest` includes all codegen resource traits and the
++  exact compiler toolchain, but excludes device ordinal/name/UUID/PCI identity
++  as well as driver version and total global-memory capacity;
++- `loader_compatibility_input_digest` is request-side policy input containing
++  the requested kind, target architecture, and CUDA driver/toolkit versions.
++  It is not a compatibility result; a later artifact must add its actual kind,
++  target, and runtime requirements;
++- `device_autotune_identity_digest` additionally binds physical device
++  identity, driver, and the complete measured resource/capacity traits to the
++  byte identity.
++
++The request has no IR/source region, route switch, schedule or tile constants,
++model/operator identity, compiled bytes, CUDA module/context/stream/handle,
++tensor/workspace pointer, cache, runtime, or plugin state. This data contract
++does not change legacy `ir.compile`, link TensorIR/CUDA Tile, register a
++backend, compile an artifact, or initialize CUDA.
+diff --git a/docs/en/dev/backend/index.md b/docs/en/dev/backend/index.md
+index 62a4e029964ddb49e1a345acf15f15f379379b2b..1fe407836d94c2e2acae7557d34b236a1fc6bb4d 100644
+--- a/docs/en/dev/backend/index.md
++++ b/docs/en/dev/backend/index.md
+@@ -10,7 +10,7 @@ A target-only compiler pipeline such as NVIDIA has an explicit immutable
+ | Page | What it covers |
+ | ---- | -------------- |
+ | [BackendHandler: principled backend dispatch](00-backend_handler.md) | The virtual interface, how passes query it, and what adding a new backend requires |
+-| [NVIDIA target identity](01-nvidia-target-info.md) | Immutable SM120 device/toolchain traits without a fake legacy backend |
++| [NVIDIA target and compile request contracts](01-nvidia-target-info.md) | Immutable SM120 target and canonical pointer-free request identities without a fake legacy backend |
+ 
+ ## See Also
+ 
+diff --git a/docs/zh/dev/backend/01-nvidia-target-info.md b/docs/zh/dev/backend/01-nvidia-target-info.md
+index 3228e2471843bfad75f2fcbc903bd745d62a1334..44b8796da0035c42475ccef06ea1711a2997dcfc 100644
+--- a/docs/zh/dev/backend/01-nvidia-target-info.md
++++ b/docs/zh/dev/backend/01-nvidia-target-info.md
+@@ -1,4 +1,4 @@
+-# NVIDIA 目标身份（第一阶段）
++# NVIDIA 目标与编译请求契约（第一阶段）
+ 
+ `BackendType::Nvidia` 表示 NVIDIA 编译目标，但不会伪造 Ascend 风格的
+ `Backend`、`BackendHandler` 或 SoC。旧路径在请求 singleton 前必须调用
+@@ -25,3 +25,43 @@ cc>=100 硬编码了 shared-memory 假设；bridge 必须先改为消费这些 t
+ 只是 target identity/capability 数据，不是 launch 合法性证明。
+ 
+ 本契约不会查询 CUDA、链接 TensorIR/CUDA Tile、编译 artifact 或启动 kernel。
++
++## CompileRequest v1
++
++`CompileRequest` 是供 worker 使用的不可变、无指针 program/target policy
++payload。它按值拥有 `NvidiaTargetInfo` 与 `ToolchainIdentity`；后者记录精确的
++PyPTO、TensorIR、CUDA Tile、LLVM revision，规范化的 CUDA toolkit root/version，
++以及由 parent 解析完成的 `tileiras` real path/version/可执行文件 SHA-256。target
++与 toolchain 中重复的 revision 或 toolkit 字段必须一致。该 value object 要求输入
++已经是 canonical absolute path；parent 仍负责在构造前完成 symlink/`realpath`
++解析并对选定 executable 计算 hash。反序列化不会查询 filesystem。
++
++V1 将三项 policy 固定为 fail-closed 值：
++
++- `RequestedArtifactPolicy.CubinOnly` 只请求原生 Cubin，不允许 fallback artifact；
++- `CompilerPolicy.DeterministicStrict` 要求后续 compiler bridge 拒绝 ambient 或不确定的
++  compiler override；
++- `VerificationPolicy.Strict` 要求后续 producer 与 artifact 边界执行严格验证。
++
++`serialize()` 生成 canonical MessagePack。`deserialize()` 只接受该精确形式：
++malformed input、trailing bytes、缺失/重复/未知字段、不支持的版本、非 canonical
++字段顺序以及非 canonical 路径写法都会被拒绝。V1 将 payload 限制为 1 MiB，
++并在 MessagePack allocation 前应用符合 schema 上限的 container/string/depth
++限制。schema 与 compiler ABI version 均显式记录。
++
++三个 domain-separated canonical SHA-256 identity 将无关信息排除在 byte cache
++key 之外：
++
++- `byte_compile_identity_digest` 包含所有 codegen resource trait 与精确 compiler
++  toolchain，但排除 device ordinal/name/UUID/PCI identity、driver version 与 total
++  global-memory capacity；
++- `loader_compatibility_input_digest` 是 request 侧 policy input，包含 requested
++  kind、target architecture 以及 CUDA driver/toolkit version。它不是 compatibility
++  结果；后续 artifact 仍必须加入 actual kind、target 与 runtime requirement；
++- `device_autotune_identity_digest` 在 byte identity 基础上额外绑定物理 device
++  identity、driver 与完整实测 resource/capacity trait。
++
++该 request 不含 IR/source region、route switch、schedule/tile 常量、model/operator
++identity、compiled bytes、CUDA module/context/stream/handle、tensor/workspace pointer、
++cache、runtime 或 plugin state。此数据契约不会修改旧 `ir.compile`，不会链接
++TensorIR/CUDA Tile、注册 backend、编译 artifact 或初始化 CUDA。
+diff --git a/docs/zh/dev/backend/index.md b/docs/zh/dev/backend/index.md
+index c0ac13d5f454d6f53bf5a407a8f36872fe0b579b..23cdd86f488a897d473d80b298445546e06e1c06 100644
+--- a/docs/zh/dev/backend/index.md
++++ b/docs/zh/dev/backend/index.md
+@@ -9,7 +9,7 @@
+ | 页面 | 内容 |
+ | ---- | ---- |
+ | [BackendHandler：有原则的后端分派](00-backend_handler.md) | 该虚接口、pass 如何查询它，以及新增后端需要做什么 |
+-| [NVIDIA 目标身份](01-nvidia-target-info.md) | 不伪造旧 backend 的 SM120 设备与工具链 traits |
++| [NVIDIA 目标与编译请求契约](01-nvidia-target-info.md) | 不伪造旧 backend 的 SM120 target 与 canonical 无指针 request identity |
+ 
+ ## 另请参阅
+ 
+diff --git a/include/pypto/compiler/compile_request.h b/include/pypto/compiler/compile_request.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..1d63508833db5eb31d0798f67113381c39f82c16
+--- /dev/null
++++ b/include/pypto/compiler/compile_request.h
+@@ -0,0 +1,144 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#ifndef PYPTO_COMPILER_COMPILE_REQUEST_H_
++#define PYPTO_COMPILER_COMPILE_REQUEST_H_
++
++#include <cstdint>
++#include <string>
++#include <vector>
++
++#include "pypto/backend/common/backend_type.h"
++#include "pypto/compiler/target_info.h"
++
++namespace pypto::compiler {
++
++/** Requested output policy. V1 deliberately accepts native Cubin only. */
++enum class RequestedArtifactPolicy : uint8_t {
++  CubinOnly = 0,
++};
++
++/** Compiler option policy. V1 requires rejection of ambient and nondeterministic overrides. */
++enum class CompilerPolicy : uint8_t {
++  DeterministicStrict = 0,
++};
++
++/** Validation policy for request, producer, and eventual artifact boundaries. */
++enum class VerificationPolicy : uint8_t {
++  Strict = 0,
++};
++
++/**
++ * Exact, filesystem-independent identity of the compiler toolchain selected by the parent.
++ *
++ * Paths must already be canonical absolute values. In particular, the parent must resolve
++ * tileiras_real_path and hash that executable; this value object performs no filesystem query.
++ */
++class ToolchainIdentity {
++ public:
++  ToolchainIdentity() = delete;
++  ToolchainIdentity(std::string pypto_revision, std::string tensor_ir_revision,
++                    std::string cuda_tile_revision, std::string llvm_revision, std::string cuda_toolkit_root,
++                    std::string cuda_toolkit_version, std::string tileiras_real_path,
++                    std::string tileiras_version, std::string tileiras_sha256);
++  ToolchainIdentity(const ToolchainIdentity&) = default;
++  ToolchainIdentity(ToolchainIdentity&&) = default;
++  ToolchainIdentity& operator=(const ToolchainIdentity&) = delete;
++  ToolchainIdentity& operator=(ToolchainIdentity&&) = delete;
++
++  [[nodiscard]] const std::string& GetPyptoRevision() const noexcept { return pypto_revision_; }
++  [[nodiscard]] const std::string& GetTensorIrRevision() const noexcept { return tensor_ir_revision_; }
++  [[nodiscard]] const std::string& GetCudaTileRevision() const noexcept { return cuda_tile_revision_; }
++  [[nodiscard]] const std::string& GetLlvmRevision() const noexcept { return llvm_revision_; }
++  [[nodiscard]] const std::string& GetCudaToolkitRoot() const noexcept { return cuda_toolkit_root_; }
++  [[nodiscard]] const std::string& GetCudaToolkitVersion() const noexcept { return cuda_toolkit_version_; }
++  [[nodiscard]] const std::string& GetTileirasRealPath() const noexcept { return tileiras_real_path_; }
++  [[nodiscard]] const std::string& GetTileirasVersion() const noexcept { return tileiras_version_; }
++  [[nodiscard]] const std::string& GetTileirasSha256() const noexcept { return tileiras_sha256_; }
++
++ private:
++  std::string pypto_revision_;
++  std::string tensor_ir_revision_;
++  std::string cuda_tile_revision_;
++  std::string llvm_revision_;
++  std::string cuda_toolkit_root_;
++  std::string cuda_toolkit_version_;
++  std::string tileiras_real_path_;
++  std::string tileiras_version_;
++  std::string tileiras_sha256_;
++};
++
++/**
++ * Immutable, pointer-free CompileRequest v1.
++ *
++ * The request value-owns its target and toolchain identities. It contains no source region,
++ * schedule, compiled bytes, CUDA handle, stream, pointer, or runtime state.
++ */
++class CompileRequest {
++ public:
++  static constexpr uint32_t kRequestSchemaVersion = 1;
++  static constexpr uint32_t kCompilerAbiVersion = 1;
++
++  CompileRequest() = delete;
++  CompileRequest(NvidiaTargetInfo target_info, ToolchainIdentity toolchain_identity,
++                 RequestedArtifactPolicy requested_artifact_policy = RequestedArtifactPolicy::CubinOnly,
++                 CompilerPolicy compiler_policy = CompilerPolicy::DeterministicStrict,
++                 VerificationPolicy verification_policy = VerificationPolicy::Strict);
++  CompileRequest(const CompileRequest&) = default;
++  CompileRequest(CompileRequest&&) = default;
++  CompileRequest& operator=(const CompileRequest&) = delete;
++  CompileRequest& operator=(CompileRequest&&) = delete;
++
++  [[nodiscard]] constexpr uint32_t GetRequestSchemaVersion() const noexcept { return kRequestSchemaVersion; }
++  [[nodiscard]] constexpr uint32_t GetCompilerAbiVersion() const noexcept { return kCompilerAbiVersion; }
++  [[nodiscard]] backend::BackendType GetBackendType() const noexcept { return backend::BackendType::Nvidia; }
++  [[nodiscard]] const NvidiaTargetInfo& GetTargetInfo() const noexcept { return target_info_; }
++  [[nodiscard]] const ToolchainIdentity& GetToolchainIdentity() const noexcept { return toolchain_identity_; }
++  [[nodiscard]] RequestedArtifactPolicy GetRequestedArtifactPolicy() const noexcept {
++    return requested_artifact_policy_;
++  }
++  [[nodiscard]] CompilerPolicy GetCompilerPolicy() const noexcept { return compiler_policy_; }
++  [[nodiscard]] VerificationPolicy GetVerificationPolicy() const noexcept { return verification_policy_; }
++
++  /** Serialize the complete request as canonical MessagePack. */
++  [[nodiscard]] std::vector<uint8_t> SerializeCanonical() const;
++
++  /** Deserialize canonical MessagePack, rejecting malformed, noncanonical, and unknown data. */
++  [[nodiscard]] static CompileRequest DeserializeCanonical(const std::vector<uint8_t>& data);
++
++  /** Canonical byte identity, excluding physical-device, driver-only, and capacity fields. */
++  [[nodiscard]] std::vector<uint8_t> SerializeByteCompileIdentity() const;
++  [[nodiscard]] std::string GetByteCompileIdentityDigest() const;
++
++  /**
++   * Canonical request-side loader compatibility input.
++   *
++   * This is not an artifact compatibility result: the eventual artifact must add its actual
++   * kind, target, and runtime requirements before load.
++   */
++  [[nodiscard]] std::vector<uint8_t> SerializeLoaderCompatibilityInput() const;
++  [[nodiscard]] std::string GetLoaderCompatibilityInputDigest() const;
++
++  /** Canonical identity for device-specific autotuning and measurement records. */
++  [[nodiscard]] std::vector<uint8_t> SerializeDeviceAutotuneIdentity() const;
++  [[nodiscard]] std::string GetDeviceAutotuneIdentityDigest() const;
++
++ private:
++  NvidiaTargetInfo target_info_;
++  ToolchainIdentity toolchain_identity_;
++  RequestedArtifactPolicy requested_artifact_policy_;
++  CompilerPolicy compiler_policy_;
++  VerificationPolicy verification_policy_;
++};
++
++}  // namespace pypto::compiler
++
++#endif  // PYPTO_COMPILER_COMPILE_REQUEST_H_
+diff --git a/python/bindings/modules/compiler.cpp b/python/bindings/modules/compiler.cpp
+index 2a7d80fff135748b6486ed146ad4d6a85e2c1396..997995d48d5e82df28a81562b800b08c6d019f92 100644
+--- a/python/bindings/modules/compiler.cpp
++++ b/python/bindings/modules/compiler.cpp
+@@ -14,15 +14,42 @@
+ #include <nanobind/stl/vector.h>
+ 
+ #include "../module.h"
++#include "pypto/compiler/compile_request.h"
+ #include "pypto/compiler/target_info.h"
+ 
+ namespace nb = nanobind;
+ 
+ namespace pypto::python {
++namespace {
++
++nb::bytes ToPythonBytes(const std::vector<uint8_t>& data) {
++  return nb::bytes(reinterpret_cast<const char*>(data.data()), data.size());
++}
++
++std::vector<uint8_t> FromPythonBytes(const nb::bytes& data) {
++  const auto* begin = static_cast<const uint8_t*>(data.data());
++  return std::vector<uint8_t>(begin, begin + data.size());
++}
++
++}  // namespace
+ 
+ void BindCompiler(nb::module_& m) {
+   nb::module_ compiler_mod = m.def_submodule("compiler", "PyPTO compiler target contracts");
+ 
++  nb::enum_<compiler::RequestedArtifactPolicy>(compiler_mod, "RequestedArtifactPolicy",
++                                               "Requested compiler output policy")
++      .value("CubinOnly", compiler::RequestedArtifactPolicy::CubinOnly,
++             "Require later artifact validation to reject non-Cubin output");
++
++  nb::enum_<compiler::CompilerPolicy>(compiler_mod, "CompilerPolicy", "Deterministic compiler option policy")
++      .value("DeterministicStrict", compiler::CompilerPolicy::DeterministicStrict,
++             "Require a later compiler to reject ambient and nondeterministic overrides");
++
++  nb::enum_<compiler::VerificationPolicy>(compiler_mod, "VerificationPolicy",
++                                          "Compile request verification policy")
++      .value("Strict", compiler::VerificationPolicy::Strict,
++             "Require strict request, producer, and artifact verification");
++
+   nb::class_<compiler::TargetTraits>(compiler_mod, "TargetTraits")
+       .def(nb::init<int, int, int, int, int, int, int, int, int, int, int, int, uint64_t,
+                     uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
+@@ -96,6 +123,74 @@ void BindCompiler(nb::module_& m) {
+       .def("supports_compute_dtype", &compiler::NvidiaTargetInfo::SupportsComputeDtype,
+            nb::arg("dtype"));
+ 
++  nb::class_<compiler::ToolchainIdentity>(
++      compiler_mod, "ToolchainIdentity",
++      "Exact source, CUDA toolkit, and tileiras identity selected by the parent process")
++      .def(nb::init<std::string, std::string, std::string, std::string, std::string, std::string, std::string,
++                    std::string, std::string>(),
++           nb::arg("pypto_revision"), nb::arg("tensor_ir_revision"), nb::arg("cuda_tile_revision"),
++           nb::arg("llvm_revision"), nb::arg("cuda_toolkit_root"), nb::arg("cuda_toolkit_version"),
++           nb::arg("tileiras_real_path"), nb::arg("tileiras_version"), nb::arg("tileiras_sha256"))
++      .def_prop_ro("pypto_revision", &compiler::ToolchainIdentity::GetPyptoRevision)
++      .def_prop_ro("tensor_ir_revision", &compiler::ToolchainIdentity::GetTensorIrRevision)
++      .def_prop_ro("cuda_tile_revision", &compiler::ToolchainIdentity::GetCudaTileRevision)
++      .def_prop_ro("llvm_revision", &compiler::ToolchainIdentity::GetLlvmRevision)
++      .def_prop_ro("cuda_toolkit_root", &compiler::ToolchainIdentity::GetCudaToolkitRoot)
++      .def_prop_ro("cuda_toolkit_version", &compiler::ToolchainIdentity::GetCudaToolkitVersion)
++      .def_prop_ro("tileiras_real_path", &compiler::ToolchainIdentity::GetTileirasRealPath)
++      .def_prop_ro("tileiras_version", &compiler::ToolchainIdentity::GetTileirasVersion)
++      .def_prop_ro("tileiras_sha256", &compiler::ToolchainIdentity::GetTileirasSha256);
++
++  nb::class_<compiler::CompileRequest>(
++      compiler_mod, "CompileRequest",
++      "Immutable pointer-free v1 compiler policy and target worker payload")
++      .def(
++          nb::init<compiler::NvidiaTargetInfo, compiler::ToolchainIdentity, compiler::RequestedArtifactPolicy,
++                   compiler::CompilerPolicy, compiler::VerificationPolicy>(),
++          nb::arg("target_info"), nb::arg("toolchain_identity"),
++          nb::arg("requested_artifact_policy") = compiler::RequestedArtifactPolicy::CubinOnly,
++          nb::arg("compiler_policy") = compiler::CompilerPolicy::DeterministicStrict,
++          nb::arg("verification_policy") = compiler::VerificationPolicy::Strict)
++      .def_prop_ro("request_schema_version", &compiler::CompileRequest::GetRequestSchemaVersion)
++      .def_prop_ro("compiler_abi_version", &compiler::CompileRequest::GetCompilerAbiVersion)
++      .def_prop_ro("backend_type", &compiler::CompileRequest::GetBackendType)
++      .def_prop_ro("target_info", &compiler::CompileRequest::GetTargetInfo, nb::rv_policy::reference_internal)
++      .def_prop_ro("toolchain_identity", &compiler::CompileRequest::GetToolchainIdentity,
++                   nb::rv_policy::reference_internal)
++      .def_prop_ro("requested_artifact_policy", &compiler::CompileRequest::GetRequestedArtifactPolicy)
++      .def_prop_ro("compiler_policy", &compiler::CompileRequest::GetCompilerPolicy)
++      .def_prop_ro("verification_policy", &compiler::CompileRequest::GetVerificationPolicy)
++      .def(
++          "serialize",
++          [](const compiler::CompileRequest& request) { return ToPythonBytes(request.SerializeCanonical()); },
++          "Serialize the complete request as canonical MessagePack bytes")
++      .def_static("deserialize",
++                  [](const nb::bytes& data) {
++                    return compiler::CompileRequest::DeserializeCanonical(FromPythonBytes(data));
++                  },
++                  nb::arg("data"),
++                  "Deserialize canonical MessagePack and reject malformed or unknown data")
++      .def("serialize_byte_compile_identity",
++           [](const compiler::CompileRequest& request) {
++             return ToPythonBytes(request.SerializeByteCompileIdentity());
++           },
++           "Serialize the byte-producing identity projection")
++      .def_prop_ro("byte_compile_identity_digest", &compiler::CompileRequest::GetByteCompileIdentityDigest)
++      .def("serialize_loader_compatibility_input",
++           [](const compiler::CompileRequest& request) {
++             return ToPythonBytes(request.SerializeLoaderCompatibilityInput());
++           },
++           "Serialize request-side loader compatibility policy input")
++      .def_prop_ro("loader_compatibility_input_digest",
++                   &compiler::CompileRequest::GetLoaderCompatibilityInputDigest)
++      .def("serialize_device_autotune_identity",
++           [](const compiler::CompileRequest& request) {
++             return ToPythonBytes(request.SerializeDeviceAutotuneIdentity());
++           },
++           "Serialize the physical-device and autotuning identity projection")
++      .def_prop_ro("device_autotune_identity_digest",
++                   &compiler::CompileRequest::GetDeviceAutotuneIdentityDigest);
++
+   compiler_mod.def("is_supported_nvidia_compute_capability",
+                    &compiler::IsSupportedNvidiaComputeCapability, nb::arg("compute_capability"));
+ }
+diff --git a/python/pypto/compiler/__init__.py b/python/pypto/compiler/__init__.py
+index 0d1ca046bc791d5bf60ace6d29538115fdcee233..e5bf21645c431d850066e99e5d3f03bb7e31896d 100644
+--- a/python/pypto/compiler/__init__.py
++++ b/python/pypto/compiler/__init__.py
+@@ -10,13 +10,23 @@
+ """Immutable compiler target identities and resource traits."""
+ 
+ from pypto.pypto_core.compiler import (
++    CompileRequest,
++    CompilerPolicy,
+     NvidiaTargetInfo,
++    RequestedArtifactPolicy,
+     TargetTraits,
++    ToolchainIdentity,
++    VerificationPolicy,
+     is_supported_nvidia_compute_capability,
+ )
+ 
+ __all__ = [
++    "CompileRequest",
++    "CompilerPolicy",
+     "NvidiaTargetInfo",
++    "RequestedArtifactPolicy",
+     "TargetTraits",
++    "ToolchainIdentity",
++    "VerificationPolicy",
+     "is_supported_nvidia_compute_capability",
+ ]
+diff --git a/python/pypto/pypto_core/compiler.pyi b/python/pypto/pypto_core/compiler.pyi
+index 9a98065ed0fe25a2f68d712af74e9fbd5a9752c8..1a4460955ae5f71f98a8aa19b9d192b2683c74d6 100644
+--- a/python/pypto/pypto_core/compiler.pyi
++++ b/python/pypto/pypto_core/compiler.pyi
+@@ -9,9 +9,26 @@
+ 
+ """Type stubs for compiler target contracts."""
+ 
++from enum import Enum
++
+ from . import DataType
+ from .backend import BackendType
+ 
++class RequestedArtifactPolicy(Enum):
++    """Requested compiler output policy."""
++
++    CubinOnly = ...
++
++class CompilerPolicy(Enum):
++    """Deterministic compiler option policy."""
++
++    DeterministicStrict = ...
++
++class VerificationPolicy(Enum):
++    """Compile request verification policy."""
++
++    Strict = ...
++
+ class TargetTraits:
+     def __init__(
+         self,
+@@ -130,4 +147,88 @@ class NvidiaTargetInfo:
+     def arch_conditional_architecture(self) -> str: ...
+     def supports_compute_dtype(self, dtype: DataType) -> bool: ...
+ 
++class ToolchainIdentity:
++    """Exact source, CUDA toolkit, and tileiras identity selected by the parent."""
++
++    def __init__(
++        self,
++        pypto_revision: str,
++        tensor_ir_revision: str,
++        cuda_tile_revision: str,
++        llvm_revision: str,
++        cuda_toolkit_root: str,
++        cuda_toolkit_version: str,
++        tileiras_real_path: str,
++        tileiras_version: str,
++        tileiras_sha256: str,
++    ) -> None: ...
++    @property
++    def pypto_revision(self) -> str: ...
++    @property
++    def tensor_ir_revision(self) -> str: ...
++    @property
++    def cuda_tile_revision(self) -> str: ...
++    @property
++    def llvm_revision(self) -> str: ...
++    @property
++    def cuda_toolkit_root(self) -> str: ...
++    @property
++    def cuda_toolkit_version(self) -> str: ...
++    @property
++    def tileiras_real_path(self) -> str: ...
++    @property
++    def tileiras_version(self) -> str: ...
++    @property
++    def tileiras_sha256(self) -> str: ...
++
++class CompileRequest:
++    """Immutable pointer-free v1 compiler policy and target worker payload."""
++
++    def __init__(
++        self,
++        target_info: NvidiaTargetInfo,
++        toolchain_identity: ToolchainIdentity,
++        requested_artifact_policy: RequestedArtifactPolicy = RequestedArtifactPolicy.CubinOnly,
++        compiler_policy: CompilerPolicy = CompilerPolicy.DeterministicStrict,
++        verification_policy: VerificationPolicy = VerificationPolicy.Strict,
++    ) -> None: ...
++    @property
++    def request_schema_version(self) -> int: ...
++    @property
++    def compiler_abi_version(self) -> int: ...
++    @property
++    def backend_type(self) -> BackendType: ...
++    @property
++    def target_info(self) -> NvidiaTargetInfo: ...
++    @property
++    def toolchain_identity(self) -> ToolchainIdentity: ...
++    @property
++    def requested_artifact_policy(self) -> RequestedArtifactPolicy: ...
++    @property
++    def compiler_policy(self) -> CompilerPolicy: ...
++    @property
++    def verification_policy(self) -> VerificationPolicy: ...
++    def serialize(self) -> bytes:
++        """Serialize the complete request as canonical MessagePack bytes."""
++        ...
++    @staticmethod
++    def deserialize(data: bytes) -> CompileRequest:
++        """Deserialize canonical MessagePack and reject malformed or unknown data."""
++        ...
++    def serialize_byte_compile_identity(self) -> bytes:
++        """Serialize the byte-producing identity projection."""
++        ...
++    @property
++    def byte_compile_identity_digest(self) -> str: ...
++    def serialize_loader_compatibility_input(self) -> bytes:
++        """Serialize request-side loader compatibility policy input."""
++        ...
++    @property
++    def loader_compatibility_input_digest(self) -> str: ...
++    def serialize_device_autotune_identity(self) -> bytes:
++        """Serialize the physical-device and autotuning identity projection."""
++        ...
++    @property
++    def device_autotune_identity_digest(self) -> str: ...
++
+ def is_supported_nvidia_compute_capability(compute_capability: int) -> bool: ...
+diff --git a/src/compiler/compile_request.cpp b/src/compiler/compile_request.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..dd9f746726893f78330bf08b00b7ade0a704298c
+--- /dev/null
++++ b/src/compiler/compile_request.cpp
+@@ -0,0 +1,768 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#include "pypto/compiler/compile_request.h"
++
++#include <algorithm>
++#include <array>
++#include <cstdint>
++#include <initializer_list>
++#include <limits>
++#include <map>
++#include <msgpack.hpp>
++#include <string>
++#include <string_view>
++#include <utility>
++#include <vector>
++
++#include "pypto/core/dtype.h"
++#include "pypto/core/error.h"
++
++namespace pypto::compiler {
++namespace {
++
++using CanonicalPacker = msgpack::packer<msgpack::sbuffer>;
++
++constexpr std::string_view kCompileRequestContract = "pypto.compile_request.v1";
++constexpr std::string_view kByteCompileIdentityContract = "pypto.compile_request.byte_compile_identity.v1";
++constexpr std::string_view kLoaderCompatibilityInputContract =
++    "pypto.compile_request.loader_compatibility_input.v1";
++constexpr std::string_view kDeviceAutotuneIdentityContract =
++    "pypto.compile_request.device_autotune_identity.v1";
++constexpr size_t kMaximumSerializedRequestBytes = 1024 * 1024;
++constexpr size_t kMaximumArrayItems = 8;
++constexpr size_t kMaximumMapItems = 32;
++constexpr size_t kMaximumStringBytes = 64 * 1024;
++constexpr size_t kMaximumNestingDepth = 8;
++
++constexpr std::array<uint32_t, 64> kSha256RoundConstants = {
++    0x428a2f98U, 0x71374491U, 0xb5c0fbcfU, 0xe9b5dba5U, 0x3956c25bU, 0x59f111f1U, 0x923f82a4U, 0xab1c5ed5U,
++    0xd807aa98U, 0x12835b01U, 0x243185beU, 0x550c7dc3U, 0x72be5d74U, 0x80deb1feU, 0x9bdc06a7U, 0xc19bf174U,
++    0xe49b69c1U, 0xefbe4786U, 0x0fc19dc6U, 0x240ca1ccU, 0x2de92c6fU, 0x4a7484aaU, 0x5cb0a9dcU, 0x76f988daU,
++    0x983e5152U, 0xa831c66dU, 0xb00327c8U, 0xbf597fc7U, 0xc6e00bf3U, 0xd5a79147U, 0x06ca6351U, 0x14292967U,
++    0x27b70a85U, 0x2e1b2138U, 0x4d2c6dfcU, 0x53380d13U, 0x650a7354U, 0x766a0abbU, 0x81c2c92eU, 0x92722c85U,
++    0xa2bfe8a1U, 0xa81a664bU, 0xc24b8b70U, 0xc76c51a3U, 0xd192e819U, 0xd6990624U, 0xf40e3585U, 0x106aa070U,
++    0x19a4c116U, 0x1e376c08U, 0x2748774cU, 0x34b0bcb5U, 0x391c0cb3U, 0x4ed8aa4aU, 0x5b9cca4fU, 0x682e6ff3U,
++    0x748f82eeU, 0x78a5636fU, 0x84c87814U, 0x8cc70208U, 0x90befffaU, 0xa4506cebU, 0xbef9a3f7U, 0xc67178f2U,
++};
++
++uint32_t RotateRight(uint32_t value, uint32_t count) { return (value >> count) | (value << (32U - count)); }
++
++std::string Sha256Hex(const std::vector<uint8_t>& data) {
++  std::vector<uint8_t> padded(data);
++  const uint64_t bit_length = static_cast<uint64_t>(padded.size()) * 8U;
++  padded.push_back(0x80U);
++  while (padded.size() % 64U != 56U) padded.push_back(0U);
++  for (int shift = 56; shift >= 0; shift -= 8) {
++    padded.push_back(static_cast<uint8_t>(bit_length >> shift));
++  }
++
++  std::array<uint32_t, 8> state = {
++      0x6a09e667U, 0xbb67ae85U, 0x3c6ef372U, 0xa54ff53aU, 0x510e527fU, 0x9b05688cU, 0x1f83d9abU, 0x5be0cd19U,
++  };
++  for (size_t offset = 0; offset < padded.size(); offset += 64U) {
++    std::array<uint32_t, 64> words{};
++    for (size_t i = 0; i < 16; ++i) {
++      const size_t word_offset = offset + i * 4U;
++      words[i] = (static_cast<uint32_t>(padded[word_offset]) << 24U) |
++                 (static_cast<uint32_t>(padded[word_offset + 1U]) << 16U) |
++                 (static_cast<uint32_t>(padded[word_offset + 2U]) << 8U) |
++                 static_cast<uint32_t>(padded[word_offset + 3U]);
++    }
++    for (size_t i = 16; i < words.size(); ++i) {
++      const uint32_t sigma0 =
++          RotateRight(words[i - 15U], 7U) ^ RotateRight(words[i - 15U], 18U) ^ (words[i - 15U] >> 3U);
++      const uint32_t sigma1 =
++          RotateRight(words[i - 2U], 17U) ^ RotateRight(words[i - 2U], 19U) ^ (words[i - 2U] >> 10U);
++      words[i] = words[i - 16U] + sigma0 + words[i - 7U] + sigma1;
++    }
++
++    uint32_t a = state[0];
++    uint32_t b = state[1];
++    uint32_t c = state[2];
++    uint32_t d = state[3];
++    uint32_t e = state[4];
++    uint32_t f = state[5];
++    uint32_t g = state[6];
++    uint32_t h = state[7];
++    for (size_t i = 0; i < words.size(); ++i) {
++      const uint32_t sum1 = RotateRight(e, 6U) ^ RotateRight(e, 11U) ^ RotateRight(e, 25U);
++      const uint32_t choose = (e & f) ^ ((~e) & g);
++      const uint32_t temporary1 = h + sum1 + choose + kSha256RoundConstants[i] + words[i];
++      const uint32_t sum0 = RotateRight(a, 2U) ^ RotateRight(a, 13U) ^ RotateRight(a, 22U);
++      const uint32_t majority = (a & b) ^ (a & c) ^ (b & c);
++      const uint32_t temporary2 = sum0 + majority;
++      h = g;
++      g = f;
++      f = e;
++      e = d + temporary1;
++      d = c;
++      c = b;
++      b = a;
++      a = temporary1 + temporary2;
++    }
++    state[0] += a;
++    state[1] += b;
++    state[2] += c;
++    state[3] += d;
++    state[4] += e;
++    state[5] += f;
++    state[6] += g;
++    state[7] += h;
++  }
++
++  constexpr char kHexDigits[] = "0123456789abcdef";
++  std::string result;
++  result.reserve(64);
++  for (uint32_t word : state) {
++    for (int shift = 28; shift >= 0; shift -= 4) {
++      result.push_back(kHexDigits[(word >> shift) & 0x0fU]);
++    }
++  }
++  return result;
++}
++
++void RequireText(const std::string& value, const std::string& field_name) {
++  const auto is_ascii_whitespace = [](unsigned char character) {
++    return character == ' ' || character == '\t' || character == '\n' || character == '\r' ||
++           character == '\f' || character == '\v';
++  };
++  if (value.empty() || is_ascii_whitespace(static_cast<unsigned char>(value.front())) ||
++      is_ascii_whitespace(static_cast<unsigned char>(value.back())) ||
++      value.find('\0') != std::string::npos) {
++    throw ValueError(field_name + " must be non-empty, trimmed, and contain no NUL bytes");
++  }
++  if (value.size() > kMaximumStringBytes) {
++    throw ValueError(field_name + " exceeds the CompileRequest v1 string-size limit");
++  }
++}
++
++void RequireFullRevision(const std::string& value, const std::string& field_name) {
++  if (value.size() != 40 || !std::all_of(value.begin(), value.end(), [](unsigned char character) {
++        return (character >= '0' && character <= '9') || (character >= 'a' && character <= 'f');
++      })) {
++    throw ValueError(field_name + " must be a full 40-character lowercase hexadecimal revision");
++  }
++}
++
++void RequireSha256(const std::string& value, const std::string& field_name) {
++  if (value.size() != 64 || !std::all_of(value.begin(), value.end(), [](unsigned char character) {
++        return (character >= '0' && character <= '9') || (character >= 'a' && character <= 'f');
++      })) {
++    throw ValueError(field_name + " must be a 64-character lowercase hexadecimal SHA-256");
++  }
++}
++
++std::string LexicallyNormalizeAbsolutePath(const std::string& value) {
++  std::vector<std::string> components;
++  size_t begin = 1;
++  while (begin <= value.size()) {
++    const size_t end = value.find('/', begin);
++    const std::string component = value.substr(begin, end - begin);
++    if (!component.empty() && component != ".") {
++      if (component == "..") {
++        if (!components.empty()) components.pop_back();
++      } else {
++        components.push_back(component);
++      }
++    }
++    if (end == std::string::npos) break;
++    begin = end + 1;
++  }
++  std::string normalized;
++  for (const auto& component : components) normalized += "/" + component;
++  if (normalized.empty()) normalized = "/";
++  return normalized;
++}
++
++void RequireCanonicalAbsolutePath(const std::string& value, const std::string& field_name) {
++  RequireText(value, field_name);
++  if (value.front() != '/') throw ValueError(field_name + " must be an absolute path");
++  const std::string normalized = LexicallyNormalizeAbsolutePath(value);
++  if (normalized == "/") throw ValueError(field_name + " must not resolve to the filesystem root");
++  if (normalized != value) {
++    throw ValueError(field_name +
++                     " must already be a canonical absolute path; resolve it in the parent process");
++  }
++}
++
++std::string_view RequestedArtifactPolicyName(RequestedArtifactPolicy policy) {
++  if (policy == RequestedArtifactPolicy::CubinOnly) return "cubin-only";
++  throw ValueError("unsupported requested_artifact_policy value " +
++                   std::to_string(static_cast<unsigned int>(policy)));
++}
++
++std::string_view CompilerPolicyName(CompilerPolicy policy) {
++  if (policy == CompilerPolicy::DeterministicStrict) return "deterministic-strict";
++  throw ValueError("unsupported compiler_policy value " + std::to_string(static_cast<unsigned int>(policy)));
++}
++
++std::string_view VerificationPolicyName(VerificationPolicy policy) {
++  if (policy == VerificationPolicy::Strict) return "strict";
++  throw ValueError("unsupported verification_policy value " +
++                   std::to_string(static_cast<unsigned int>(policy)));
++}
++
++void PackText(CanonicalPacker& packer, std::string_view value) {
++  packer.pack_str(static_cast<uint32_t>(value.size()));
++  packer.pack_str_body(value.data(), static_cast<uint32_t>(value.size()));
++}
++
++void PackKey(CanonicalPacker& packer, std::string_view key) { PackText(packer, key); }
++
++void PackTargetTraits(CanonicalPacker& packer, const TargetTraits& traits, bool include_device_capacity) {
++  packer.pack_map(include_device_capacity ? 21 : 20);
++  PackKey(packer, "compute_capability");
++  packer.pack(traits.GetComputeCapability());
++  PackKey(packer, "default_shared_memory_per_cta_bytes");
++  packer.pack(traits.GetDefaultSharedMemoryPerCtaBytes());
++  PackKey(packer, "l1_cache_line_bytes");
++  packer.pack(traits.GetL1CacheLineBytes());
++  PackKey(packer, "l2_cache_size_bytes");
++  packer.pack(traits.GetL2CacheSizeBytes());
++  PackKey(packer, "max_block_dim_x");
++  packer.pack(traits.GetMaxBlockDimX());
++  PackKey(packer, "max_block_dim_y");
++  packer.pack(traits.GetMaxBlockDimY());
++  PackKey(packer, "max_block_dim_z");
++  packer.pack(traits.GetMaxBlockDimZ());
++  PackKey(packer, "max_blocks_per_multiprocessor");
++  packer.pack(traits.GetMaxBlocksPerMultiprocessor());
++  PackKey(packer, "max_grid_dim_x");
++  packer.pack(traits.GetMaxGridDimX());
++  PackKey(packer, "max_grid_dim_y");
++  packer.pack(traits.GetMaxGridDimY());
++  PackKey(packer, "max_grid_dim_z");
++  packer.pack(traits.GetMaxGridDimZ());
++  PackKey(packer, "max_registers_per_thread");
++  packer.pack(traits.GetMaxRegistersPerThread());
++  PackKey(packer, "max_shared_memory_per_cta_bytes");
++  packer.pack(traits.GetMaxSharedMemoryPerCtaBytes());
++  PackKey(packer, "max_threads_per_block");
++  packer.pack(traits.GetMaxThreadsPerBlock());
++  PackKey(packer, "max_threads_per_multiprocessor");
++  packer.pack(traits.GetMaxThreadsPerMultiprocessor());
++  PackKey(packer, "multiprocessor_count");
++  packer.pack(traits.GetMultiprocessorCount());
++  PackKey(packer, "registers_per_cta");
++  packer.pack(traits.GetRegistersPerCta());
++  PackKey(packer, "registers_per_multiprocessor");
++  packer.pack(traits.GetRegistersPerMultiprocessor());
++  PackKey(packer, "shared_memory_per_multiprocessor_bytes");
++  packer.pack(traits.GetSharedMemoryPerMultiprocessorBytes());
++  if (include_device_capacity) {
++    PackKey(packer, "total_global_memory_bytes");
++    packer.pack(traits.GetTotalGlobalMemoryBytes());
++  }
++  PackKey(packer, "warp_size");
++  packer.pack(traits.GetWarpSize());
++}
++
++void PackDtypes(CanonicalPacker& packer, const std::vector<DataType>& dtypes) {
++  packer.pack_array(static_cast<uint32_t>(dtypes.size()));
++  for (DataType dtype : dtypes) packer.pack(dtype.Code());
++}
++
++void PackCompleteTarget(CanonicalPacker& packer, const NvidiaTargetInfo& target) {
++  packer.pack_map(10);
++  PackKey(packer, "cuda_driver_version");
++  PackText(packer, target.GetCudaDriverVersion());
++  PackKey(packer, "cuda_tile_revision");
++  PackText(packer, target.GetCudaTileRevision());
++  PackKey(packer, "cuda_toolkit_version");
++  PackText(packer, target.GetCudaToolkitVersion());
++  PackKey(packer, "device_name");
++  PackText(packer, target.GetDeviceName());
++  PackKey(packer, "device_ordinal");
++  packer.pack(target.GetDeviceOrdinal());
++  PackKey(packer, "device_uuid");
++  PackText(packer, target.GetDeviceUuid());
++  PackKey(packer, "pci_device_id");
++  PackText(packer, target.GetPciDeviceId());
++  PackKey(packer, "supported_compute_dtypes");
++  PackDtypes(packer, target.GetSupportedComputeDtypes());
++  PackKey(packer, "tensor_ir_revision");
++  PackText(packer, target.GetTensorIrRevision());
++  PackKey(packer, "traits");
++  PackTargetTraits(packer, target.GetTraits(), true);
++}
++
++void PackByteCompileTarget(CanonicalPacker& packer, const NvidiaTargetInfo& target) {
++  packer.pack_map(5);
++  PackKey(packer, "arch_conditional_architecture");
++  PackText(packer, target.GetArchConditionalArchitecture());
++  PackKey(packer, "architecture");
++  PackText(packer, target.GetArchitecture());
++  PackKey(packer, "cuda_toolkit_version");
++  PackText(packer, target.GetCudaToolkitVersion());
++  PackKey(packer, "supported_compute_dtypes");
++  PackDtypes(packer, target.GetSupportedComputeDtypes());
++  PackKey(packer, "traits");
++  PackTargetTraits(packer, target.GetTraits(), false);
++}
++
++void PackLoaderTarget(CanonicalPacker& packer, const NvidiaTargetInfo& target) {
++  packer.pack_map(4);
++  PackKey(packer, "arch_conditional_architecture");
++  PackText(packer, target.GetArchConditionalArchitecture());
++  PackKey(packer, "architecture");
++  PackText(packer, target.GetArchitecture());
++  PackKey(packer, "cuda_driver_version");
++  PackText(packer, target.GetCudaDriverVersion());
++  PackKey(packer, "cuda_toolkit_version");
++  PackText(packer, target.GetCudaToolkitVersion());
++}
++
++void PackDeviceTarget(CanonicalPacker& packer, const NvidiaTargetInfo& target) {
++  packer.pack_map(6);
++  PackKey(packer, "cuda_driver_version");
++  PackText(packer, target.GetCudaDriverVersion());
++  PackKey(packer, "device_name");
++  PackText(packer, target.GetDeviceName());
++  PackKey(packer, "device_ordinal");
++  packer.pack(target.GetDeviceOrdinal());
++  PackKey(packer, "device_uuid");
++  PackText(packer, target.GetDeviceUuid());
++  PackKey(packer, "pci_device_id");
++  PackText(packer, target.GetPciDeviceId());
++  PackKey(packer, "traits");
++  PackTargetTraits(packer, target.GetTraits(), true);
++}
++
++void PackToolchain(CanonicalPacker& packer, const ToolchainIdentity& toolchain) {
++  packer.pack_map(9);
++  PackKey(packer, "cuda_tile_revision");
++  PackText(packer, toolchain.GetCudaTileRevision());
++  PackKey(packer, "cuda_toolkit_root");
++  PackText(packer, toolchain.GetCudaToolkitRoot());
++  PackKey(packer, "cuda_toolkit_version");
++  PackText(packer, toolchain.GetCudaToolkitVersion());
++  PackKey(packer, "llvm_revision");
++  PackText(packer, toolchain.GetLlvmRevision());
++  PackKey(packer, "pypto_revision");
++  PackText(packer, toolchain.GetPyptoRevision());
++  PackKey(packer, "tensor_ir_revision");
++  PackText(packer, toolchain.GetTensorIrRevision());
++  PackKey(packer, "tileiras_real_path");
++  PackText(packer, toolchain.GetTileirasRealPath());
++  PackKey(packer, "tileiras_sha256");
++  PackText(packer, toolchain.GetTileirasSha256());
++  PackKey(packer, "tileiras_version");
++  PackText(packer, toolchain.GetTileirasVersion());
++}
++
++std::vector<uint8_t> FinishBuffer(const msgpack::sbuffer& buffer) {
++  const auto* begin = reinterpret_cast<const uint8_t*>(buffer.data());
++  return std::vector<uint8_t>(begin, begin + buffer.size());
++}
++
++class StrictMap {
++ public:
++  StrictMap(const msgpack::object& object, std::string context,
++            std::initializer_list<std::string_view> allowed_fields)
++      : context_(std::move(context)) {
++    if (object.type != msgpack::type::MAP) {
++      throw ValueError(context_ + " must be a map");
++    }
++    std::map<std::string, bool> allowed;
++    for (std::string_view field : allowed_fields) allowed.emplace(field, true);
++    for (uint32_t i = 0; i < object.via.map.size; ++i) {
++      const auto& entry = object.via.map.ptr[i];
++      if (entry.key.type != msgpack::type::STR) {
++        throw ValueError(context_ + " field names must be strings");
++      }
++      std::string key(entry.key.via.str.ptr, entry.key.via.str.size);
++      if (allowed.find(key) == allowed.end()) {
++        throw ValueError(context_ + " contains unknown field '" + key + "'");
++      }
++      if (!fields_.emplace(std::move(key), &entry.val).second) {
++        throw ValueError(context_ + " contains a duplicate field");
++      }
++    }
++  }
++
++  [[nodiscard]] const msgpack::object& Get(const std::string& field) const {
++    const auto iterator = fields_.find(field);
++    if (iterator == fields_.end()) throw ValueError(context_ + " is missing required field '" + field + "'");
++    return *iterator->second;
++  }
++
++ private:
++  std::string context_;
++  std::map<std::string, const msgpack::object*> fields_;
++};
++
++std::string ReadText(const msgpack::object& object, const std::string& context) {
++  if (object.type != msgpack::type::STR) throw ValueError(context + " must be a string");
++  return std::string(object.via.str.ptr, object.via.str.size);
++}
++
++uint64_t ReadUint64(const msgpack::object& object, const std::string& context) {
++  if (object.type != msgpack::type::POSITIVE_INTEGER) {
++    throw ValueError(context + " must be an unsigned integer");
++  }
++  return object.via.u64;
++}
++
++uint32_t ReadUint32(const msgpack::object& object, const std::string& context) {
++  const uint64_t value = ReadUint64(object, context);
++  if (value > std::numeric_limits<uint32_t>::max()) {
++    throw ValueError(context + " exceeds uint32 range");
++  }
++  return static_cast<uint32_t>(value);
++}
++
++int ReadInt(const msgpack::object& object, const std::string& context) {
++  if (object.type == msgpack::type::POSITIVE_INTEGER) {
++    if (object.via.u64 > static_cast<uint64_t>(std::numeric_limits<int>::max())) {
++      throw ValueError(context + " exceeds int range");
++    }
++    return static_cast<int>(object.via.u64);
++  }
++  if (object.type == msgpack::type::NEGATIVE_INTEGER) {
++    if (object.via.i64 < std::numeric_limits<int>::min()) {
++      throw ValueError(context + " exceeds int range");
++    }
++    return static_cast<int>(object.via.i64);
++  }
++  throw ValueError(context + " must be an integer");
++}
++
++TargetTraits ParseTargetTraits(const msgpack::object& object) {
++  StrictMap fields(object, "CompileRequest.target.traits",
++                   {"compute_capability",
++                    "default_shared_memory_per_cta_bytes",
++                    "l1_cache_line_bytes",
++                    "l2_cache_size_bytes",
++                    "max_block_dim_x",
++                    "max_block_dim_y",
++                    "max_block_dim_z",
++                    "max_blocks_per_multiprocessor",
++                    "max_grid_dim_x",
++                    "max_grid_dim_y",
++                    "max_grid_dim_z",
++                    "max_registers_per_thread",
++                    "max_shared_memory_per_cta_bytes",
++                    "max_threads_per_block",
++                    "max_threads_per_multiprocessor",
++                    "multiprocessor_count",
++                    "registers_per_cta",
++                    "registers_per_multiprocessor",
++                    "shared_memory_per_multiprocessor_bytes",
++                    "total_global_memory_bytes",
++                    "warp_size"});
++  return TargetTraits(
++      ReadInt(fields.Get("compute_capability"), "target.traits.compute_capability"),
++      ReadInt(fields.Get("multiprocessor_count"), "target.traits.multiprocessor_count"),
++      ReadInt(fields.Get("warp_size"), "target.traits.warp_size"),
++      ReadInt(fields.Get("max_threads_per_block"), "target.traits.max_threads_per_block"),
++      ReadInt(fields.Get("max_threads_per_multiprocessor"), "target.traits.max_threads_per_multiprocessor"),
++      ReadInt(fields.Get("max_blocks_per_multiprocessor"), "target.traits.max_blocks_per_multiprocessor"),
++      ReadInt(fields.Get("max_block_dim_x"), "target.traits.max_block_dim_x"),
++      ReadInt(fields.Get("max_block_dim_y"), "target.traits.max_block_dim_y"),
++      ReadInt(fields.Get("max_block_dim_z"), "target.traits.max_block_dim_z"),
++      ReadInt(fields.Get("max_grid_dim_x"), "target.traits.max_grid_dim_x"),
++      ReadInt(fields.Get("max_grid_dim_y"), "target.traits.max_grid_dim_y"),
++      ReadInt(fields.Get("max_grid_dim_z"), "target.traits.max_grid_dim_z"),
++      ReadUint64(fields.Get("l1_cache_line_bytes"), "target.traits.l1_cache_line_bytes"),
++      ReadUint64(fields.Get("default_shared_memory_per_cta_bytes"),
++                 "target.traits.default_shared_memory_per_cta_bytes"),
++      ReadUint64(fields.Get("max_shared_memory_per_cta_bytes"),
++                 "target.traits.max_shared_memory_per_cta_bytes"),
++      ReadUint64(fields.Get("shared_memory_per_multiprocessor_bytes"),
++                 "target.traits.shared_memory_per_multiprocessor_bytes"),
++      ReadUint64(fields.Get("registers_per_cta"), "target.traits.registers_per_cta"),
++      ReadUint64(fields.Get("max_registers_per_thread"), "target.traits.max_registers_per_thread"),
++      ReadUint64(fields.Get("registers_per_multiprocessor"), "target.traits.registers_per_multiprocessor"),
++      ReadUint64(fields.Get("l2_cache_size_bytes"), "target.traits.l2_cache_size_bytes"),
++      ReadUint64(fields.Get("total_global_memory_bytes"), "target.traits.total_global_memory_bytes"));
++}
++
++std::vector<DataType> ParseDtypes(const msgpack::object& object) {
++  if (object.type != msgpack::type::ARRAY) {
++    throw ValueError("CompileRequest.target.supported_compute_dtypes must be an array");
++  }
++  std::vector<DataType> dtypes;
++  dtypes.reserve(object.via.array.size);
++  for (uint32_t i = 0; i < object.via.array.size; ++i) {
++    const uint64_t code = ReadUint64(object.via.array.ptr[i], "target.supported_compute_dtypes item");
++    if (code > std::numeric_limits<uint8_t>::max()) {
++      throw ValueError("target.supported_compute_dtypes item exceeds uint8 range");
++    }
++    dtypes.emplace_back(static_cast<uint8_t>(code));
++  }
++  return dtypes;
++}
++
++NvidiaTargetInfo ParseTarget(const msgpack::object& object) {
++  StrictMap fields(
++      object, "CompileRequest.target",
++      {"cuda_driver_version", "cuda_tile_revision", "cuda_toolkit_version", "device_name", "device_ordinal",
++       "device_uuid", "pci_device_id", "supported_compute_dtypes", "tensor_ir_revision", "traits"});
++  return NvidiaTargetInfo(ReadInt(fields.Get("device_ordinal"), "target.device_ordinal"),
++                          ReadText(fields.Get("device_name"), "target.device_name"),
++                          ReadText(fields.Get("device_uuid"), "target.device_uuid"),
++                          ReadText(fields.Get("pci_device_id"), "target.pci_device_id"),
++                          ParseTargetTraits(fields.Get("traits")),
++                          ReadText(fields.Get("cuda_toolkit_version"), "target.cuda_toolkit_version"),
++                          ReadText(fields.Get("cuda_driver_version"), "target.cuda_driver_version"),
++                          ReadText(fields.Get("tensor_ir_revision"), "target.tensor_ir_revision"),
++                          ReadText(fields.Get("cuda_tile_revision"), "target.cuda_tile_revision"),
++                          ParseDtypes(fields.Get("supported_compute_dtypes")));
++}
++
++ToolchainIdentity ParseToolchain(const msgpack::object& object) {
++  StrictMap fields(
++      object, "CompileRequest.toolchain",
++      {"cuda_tile_revision", "cuda_toolkit_root", "cuda_toolkit_version", "llvm_revision", "pypto_revision",
++       "tensor_ir_revision", "tileiras_real_path", "tileiras_sha256", "tileiras_version"});
++  return ToolchainIdentity(ReadText(fields.Get("pypto_revision"), "toolchain.pypto_revision"),
++                           ReadText(fields.Get("tensor_ir_revision"), "toolchain.tensor_ir_revision"),
++                           ReadText(fields.Get("cuda_tile_revision"), "toolchain.cuda_tile_revision"),
++                           ReadText(fields.Get("llvm_revision"), "toolchain.llvm_revision"),
++                           ReadText(fields.Get("cuda_toolkit_root"), "toolchain.cuda_toolkit_root"),
++                           ReadText(fields.Get("cuda_toolkit_version"), "toolchain.cuda_toolkit_version"),
++                           ReadText(fields.Get("tileiras_real_path"), "toolchain.tileiras_real_path"),
++                           ReadText(fields.Get("tileiras_version"), "toolchain.tileiras_version"),
++                           ReadText(fields.Get("tileiras_sha256"), "toolchain.tileiras_sha256"));
++}
++
++RequestedArtifactPolicy ParseRequestedArtifactPolicy(const msgpack::object& object) {
++  const std::string value = ReadText(object, "requested_artifact_policy");
++  if (value == RequestedArtifactPolicyName(RequestedArtifactPolicy::CubinOnly)) {
++    return RequestedArtifactPolicy::CubinOnly;
++  }
++  throw ValueError("unsupported requested_artifact_policy '" + value + "'; v1 requires cubin-only");
++}
++
++CompilerPolicy ParseCompilerPolicy(const msgpack::object& object) {
++  const std::string value = ReadText(object, "compiler_policy");
++  if (value == CompilerPolicyName(CompilerPolicy::DeterministicStrict)) {
++    return CompilerPolicy::DeterministicStrict;
++  }
++  throw ValueError("unsupported compiler_policy '" + value + "'; v1 requires deterministic-strict");
++}
++
++VerificationPolicy ParseVerificationPolicy(const msgpack::object& object) {
++  const std::string value = ReadText(object, "verification_policy");
++  if (value == VerificationPolicyName(VerificationPolicy::Strict)) {
++    return VerificationPolicy::Strict;
++  }
++  throw ValueError("unsupported verification_policy '" + value + "'; v1 requires strict");
++}
++
++msgpack::object_handle UnpackOne(const std::vector<uint8_t>& data) {
++  if (data.empty()) throw ValueError("CompileRequest payload must not be empty");
++  if (data.size() > kMaximumSerializedRequestBytes) {
++    throw ValueError("CompileRequest payload exceeds the 1 MiB v1 limit");
++  }
++  size_t offset = 0;
++  const msgpack::unpack_limit limits(kMaximumArrayItems, kMaximumMapItems, kMaximumStringBytes, 0, 0,
++                                     kMaximumNestingDepth);
++  msgpack::object_handle handle = [&]() {
++    try {
++      return msgpack::unpack(reinterpret_cast<const char*>(data.data()), data.size(), offset, nullptr,
++                             nullptr, limits);
++    } catch (const msgpack::unpack_error& error) {
++      throw ValueError("malformed CompileRequest MessagePack: " + std::string(error.what()));
++    }
++  }();
++  if (offset != data.size()) {
++    throw ValueError("CompileRequest payload contains trailing bytes");
++  }
++  return handle;
++}
++
++}  // namespace
++
++ToolchainIdentity::ToolchainIdentity(std::string pypto_revision, std::string tensor_ir_revision,
++                                     std::string cuda_tile_revision, std::string llvm_revision,
++                                     std::string cuda_toolkit_root, std::string cuda_toolkit_version,
++                                     std::string tileiras_real_path, std::string tileiras_version,
++                                     std::string tileiras_sha256)
++    : pypto_revision_(std::move(pypto_revision)),
++      tensor_ir_revision_(std::move(tensor_ir_revision)),
++      cuda_tile_revision_(std::move(cuda_tile_revision)),
++      llvm_revision_(std::move(llvm_revision)),
++      cuda_toolkit_root_(std::move(cuda_toolkit_root)),
++      cuda_toolkit_version_(std::move(cuda_toolkit_version)),
++      tileiras_real_path_(std::move(tileiras_real_path)),
++      tileiras_version_(std::move(tileiras_version)),
++      tileiras_sha256_(std::move(tileiras_sha256)) {
++  RequireFullRevision(pypto_revision_, "pypto_revision");
++  RequireFullRevision(tensor_ir_revision_, "tensor_ir_revision");
++  RequireFullRevision(cuda_tile_revision_, "cuda_tile_revision");
++  RequireFullRevision(llvm_revision_, "llvm_revision");
++  RequireCanonicalAbsolutePath(cuda_toolkit_root_, "cuda_toolkit_root");
++  RequireText(cuda_toolkit_version_, "cuda_toolkit_version");
++  RequireCanonicalAbsolutePath(tileiras_real_path_, "tileiras_real_path");
++  RequireText(tileiras_version_, "tileiras_version");
++  RequireSha256(tileiras_sha256_, "tileiras_sha256");
++}
++
++CompileRequest::CompileRequest(NvidiaTargetInfo target_info, ToolchainIdentity toolchain_identity,
++                               RequestedArtifactPolicy requested_artifact_policy,
++                               CompilerPolicy compiler_policy, VerificationPolicy verification_policy)
++    : target_info_(std::move(target_info)),
++      toolchain_identity_(std::move(toolchain_identity)),
++      requested_artifact_policy_(requested_artifact_policy),
++      compiler_policy_(compiler_policy),
++      verification_policy_(verification_policy) {
++  (void)RequestedArtifactPolicyName(requested_artifact_policy_);
++  (void)CompilerPolicyName(compiler_policy_);
++  (void)VerificationPolicyName(verification_policy_);
++  if (target_info_.GetTensorIrRevision() != toolchain_identity_.GetTensorIrRevision()) {
++    throw ValueError("target tensor_ir_revision must match toolchain tensor_ir_revision");
++  }
++  if (target_info_.GetCudaTileRevision() != toolchain_identity_.GetCudaTileRevision()) {
++    throw ValueError("target cuda_tile_revision must match toolchain cuda_tile_revision");
++  }
++  if (target_info_.GetCudaToolkitVersion() != toolchain_identity_.GetCudaToolkitVersion()) {
++    throw ValueError("target cuda_toolkit_version must match toolchain cuda_toolkit_version");
++  }
++  RequireText(target_info_.GetDeviceName(), "target.device_name");
++  RequireText(target_info_.GetDeviceUuid(), "target.device_uuid");
++  RequireText(target_info_.GetPciDeviceId(), "target.pci_device_id");
++  RequireText(target_info_.GetCudaToolkitVersion(), "target.cuda_toolkit_version");
++  RequireText(target_info_.GetCudaDriverVersion(), "target.cuda_driver_version");
++  if (SerializeCanonical().size() > kMaximumSerializedRequestBytes) {
++    throw ValueError("CompileRequest canonical payload exceeds the 1 MiB v1 limit");
++  }
++}
++
++std::vector<uint8_t> CompileRequest::SerializeCanonical() const {
++  msgpack::sbuffer buffer;
++  CanonicalPacker packer(buffer);
++  packer.pack_map(9);
++  PackKey(packer, "backend");
++  PackText(packer, "nvidia");
++  PackKey(packer, "compiler_abi_version");
++  packer.pack(kCompilerAbiVersion);
++  PackKey(packer, "compiler_policy");
++  PackText(packer, CompilerPolicyName(compiler_policy_));
++  PackKey(packer, "contract");
++  PackText(packer, kCompileRequestContract);
++  PackKey(packer, "request_schema_version");
++  packer.pack(kRequestSchemaVersion);
++  PackKey(packer, "requested_artifact_policy");
++  PackText(packer, RequestedArtifactPolicyName(requested_artifact_policy_));
++  PackKey(packer, "target");
++  PackCompleteTarget(packer, target_info_);
++  PackKey(packer, "toolchain");
++  PackToolchain(packer, toolchain_identity_);
++  PackKey(packer, "verification_policy");
++  PackText(packer, VerificationPolicyName(verification_policy_));
++  return FinishBuffer(buffer);
++}
++
++CompileRequest CompileRequest::DeserializeCanonical(const std::vector<uint8_t>& data) {
++  auto handle = UnpackOne(data);
++  StrictMap fields(
++      handle.get(), "CompileRequest",
++      {"backend", "compiler_abi_version", "compiler_policy", "contract", "request_schema_version",
++       "requested_artifact_policy", "target", "toolchain", "verification_policy"});
++  const std::string contract = ReadText(fields.Get("contract"), "contract");
++  if (contract != kCompileRequestContract) {
++    throw ValueError("unsupported CompileRequest contract '" + contract + "'");
++  }
++  const uint32_t request_schema_version =
++      ReadUint32(fields.Get("request_schema_version"), "request_schema_version");
++  if (request_schema_version != kRequestSchemaVersion) {
++    throw ValueError("unsupported CompileRequest request_schema_version " +
++                     std::to_string(request_schema_version));
++  }
++  const uint32_t compiler_abi_version =
++      ReadUint32(fields.Get("compiler_abi_version"), "compiler_abi_version");
++  if (compiler_abi_version != kCompilerAbiVersion) {
++    throw ValueError("unsupported CompileRequest compiler_abi_version " +
++                     std::to_string(compiler_abi_version));
++  }
++  const std::string backend = ReadText(fields.Get("backend"), "backend");
++  if (backend != "nvidia") throw ValueError("unsupported CompileRequest backend '" + backend + "'");
++
++  CompileRequest request(ParseTarget(fields.Get("target")), ParseToolchain(fields.Get("toolchain")),
++                         ParseRequestedArtifactPolicy(fields.Get("requested_artifact_policy")),
++                         ParseCompilerPolicy(fields.Get("compiler_policy")),
++                         ParseVerificationPolicy(fields.Get("verification_policy")));
++  if (request.SerializeCanonical() != data) {
++    throw ValueError("CompileRequest payload is valid MessagePack but is not in canonical form");
++  }
++  return request;
++}
++
++std::vector<uint8_t> CompileRequest::SerializeByteCompileIdentity() const {
++  msgpack::sbuffer buffer;
++  CanonicalPacker packer(buffer);
++  packer.pack_map(7);
++  PackKey(packer, "backend");
++  PackText(packer, "nvidia");
++  PackKey(packer, "compiler_abi_version");
++  packer.pack(kCompilerAbiVersion);
++  PackKey(packer, "compiler_policy");
++  PackText(packer, CompilerPolicyName(compiler_policy_));
++  PackKey(packer, "contract");
++  PackText(packer, kByteCompileIdentityContract);
++  PackKey(packer, "requested_artifact_policy");
++  PackText(packer, RequestedArtifactPolicyName(requested_artifact_policy_));
++  PackKey(packer, "target");
++  PackByteCompileTarget(packer, target_info_);
++  PackKey(packer, "toolchain");
++  PackToolchain(packer, toolchain_identity_);
++  return FinishBuffer(buffer);
++}
++
++std::string CompileRequest::GetByteCompileIdentityDigest() const {
++  return Sha256Hex(SerializeByteCompileIdentity());
++}
++
++std::vector<uint8_t> CompileRequest::SerializeLoaderCompatibilityInput() const {
++  msgpack::sbuffer buffer;
++  CanonicalPacker packer(buffer);
++  packer.pack_map(6);
++  PackKey(packer, "backend");
++  PackText(packer, "nvidia");
++  PackKey(packer, "compiler_abi_version");
++  packer.pack(kCompilerAbiVersion);
++  PackKey(packer, "contract");
++  PackText(packer, kLoaderCompatibilityInputContract);
++  PackKey(packer, "requested_artifact_policy");
++  PackText(packer, RequestedArtifactPolicyName(requested_artifact_policy_));
++  PackKey(packer, "target");
++  PackLoaderTarget(packer, target_info_);
++  PackKey(packer, "verification_policy");
++  PackText(packer, VerificationPolicyName(verification_policy_));
++  return FinishBuffer(buffer);
++}
++
++std::string CompileRequest::GetLoaderCompatibilityInputDigest() const {
++  return Sha256Hex(SerializeLoaderCompatibilityInput());
++}
++
++std::vector<uint8_t> CompileRequest::SerializeDeviceAutotuneIdentity() const {
++  msgpack::sbuffer buffer;
++  CanonicalPacker packer(buffer);
++  packer.pack_map(4);
++  PackKey(packer, "backend");
++  PackText(packer, "nvidia");
++  PackKey(packer, "byte_compile_identity_digest");
++  PackText(packer, GetByteCompileIdentityDigest());
++  PackKey(packer, "contract");
++  PackText(packer, kDeviceAutotuneIdentityContract);
++  PackKey(packer, "target");
++  PackDeviceTarget(packer, target_info_);
++  return FinishBuffer(buffer);
++}
++
++std::string CompileRequest::GetDeviceAutotuneIdentityDigest() const {
++  return Sha256Hex(SerializeDeviceAutotuneIdentity());
++}
++
++}  // namespace pypto::compiler
+diff --git a/tests/ut/compiler/test_compile_request.py b/tests/ut/compiler/test_compile_request.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..db60f961f4b834c39b90e91031dc6a7429e1ce54
+--- /dev/null
++++ b/tests/ut/compiler/test_compile_request.py
+@@ -0,0 +1,291 @@
++"""Canonical, pointer-free NVIDIA CompileRequest v1 contract."""
++
++import hashlib
++
++import pytest
++
++import pypto
++from pypto import backend
++from pypto.compiler import (
++    CompileRequest,
++    CompilerPolicy,
++    NvidiaTargetInfo,
++    RequestedArtifactPolicy,
++    TargetTraits,
++    ToolchainIdentity,
++    VerificationPolicy,
++)
++
++PYPTO_REVISION = "042878dd6825bb65ed03f22db7b067fb96277623"
++TENSOR_IR_REVISION = "3b5a8bebc00510b46a1e8b97229d06dd0d006215"
++CUDA_TILE_REVISION = "af2417041cc939b87ef56d92cfdcf61737c5457e"
++LLVM_REVISION = "1111111111111111111111111111111111111111"
++TILEIRAS_SHA256 = "2" * 64
++
++
++def traits(**overrides: object) -> TargetTraits:
++    values = dict(
++        compute_capability=120,
++        multiprocessor_count=82,
++        warp_size=32,
++        max_threads_per_block=1024,
++        max_threads_per_multiprocessor=1536,
++        max_blocks_per_multiprocessor=24,
++        max_block_dim_x=1024,
++        max_block_dim_y=1024,
++        max_block_dim_z=64,
++        max_grid_dim_x=(1 << 31) - 1,
++        max_grid_dim_y=65535,
++        max_grid_dim_z=65535,
++        l1_cache_line_bytes=128,
++        default_shared_memory_per_cta_bytes=48 * 1024,
++        max_shared_memory_per_cta_bytes=101376,
++        shared_memory_per_multiprocessor_bytes=131072,
++        registers_per_cta=65536,
++        max_registers_per_thread=255,
++        registers_per_multiprocessor=65536,
++        l2_cache_size_bytes=96 * 1024 * 1024,
++        total_global_memory_bytes=24_463 * 1024 * 1024,
++    )
++    values.update(overrides)
++    return TargetTraits(**values)
++
++
++def target(**overrides: object) -> NvidiaTargetInfo:
++    values = dict(
++        device_ordinal=0,
++        device_name="NVIDIA test device",
++        device_uuid="GPU-test",
++        pci_device_id="0000:01:00.0",
++        traits=traits(),
++        cuda_toolkit_version="13.3",
++        cuda_driver_version="610.74",
++        tensor_ir_revision=TENSOR_IR_REVISION,
++        cuda_tile_revision=CUDA_TILE_REVISION,
++        supported_compute_dtypes=[pypto.DataType.FP32, pypto.DataType.BF16],
++    )
++    values.update(overrides)
++    return NvidiaTargetInfo(**values)
++
++
++def toolchain(**overrides: object) -> ToolchainIdentity:
++    values = dict(
++        pypto_revision=PYPTO_REVISION,
++        tensor_ir_revision=TENSOR_IR_REVISION,
++        cuda_tile_revision=CUDA_TILE_REVISION,
++        llvm_revision=LLVM_REVISION,
++        cuda_toolkit_root="/opt/cuda-13.3",
++        cuda_toolkit_version="13.3",
++        tileiras_real_path="/opt/cuda-13.3/bin/tileiras",
++        tileiras_version="13.3.73",
++        tileiras_sha256=TILEIRAS_SHA256,
++    )
++    values.update(overrides)
++    return ToolchainIdentity(**values)
++
++
++def request(
++    *,
++    target_overrides: dict[str, object] | None = None,
++    toolchain_overrides: dict[str, object] | None = None,
++) -> CompileRequest:
++    return CompileRequest(
++        target(**(target_overrides or {})),
++        toolchain(**(toolchain_overrides or {})),
++    )
++
++
++def test_compile_request_round_trip_is_canonical_and_value_owned() -> None:
++    value = request()
++    canonical = value.serialize()
++    restored = CompileRequest.deserialize(canonical)
++
++    assert restored.serialize() == canonical
++    assert restored.request_schema_version == 1
++    assert restored.compiler_abi_version == 1
++    assert restored.backend_type == backend.BackendType.Nvidia
++    assert restored.target_info.device_uuid == "GPU-test"
++    assert restored.toolchain_identity.tileiras_real_path == "/opt/cuda-13.3/bin/tileiras"
++    assert restored.requested_artifact_policy == RequestedArtifactPolicy.CubinOnly
++    assert restored.compiler_policy == CompilerPolicy.DeterministicStrict
++    assert restored.verification_policy == VerificationPolicy.Strict
++    assert restored.target_info is not value.target_info
++    assert restored.toolchain_identity is not value.toolchain_identity
++    with pytest.raises(AttributeError):
++        restored.target_info = target()
++    with pytest.raises(AttributeError):
++        restored.toolchain_identity.cuda_toolkit_root = "/changed"
++
++
++def test_toolchain_paths_must_be_parent_canonicalized_before_identity() -> None:
++    value = toolchain()
++    assert value.cuda_toolkit_root == "/opt/cuda-13.3"
++    assert value.tileiras_real_path == "/opt/cuda-13.3/bin/tileiras"
++    with pytest.raises(ValueError, match="already be a canonical absolute path"):
++        toolchain(cuda_toolkit_root="/opt/cuda/../cuda-13.3/")
++    with pytest.raises(ValueError, match="already be a canonical absolute path"):
++        toolchain(tileiras_real_path="/opt/cuda-13.3/lib/../bin/tileiras")
++
++
++@pytest.mark.parametrize(
++    ("field", "value", "message"),
++    [
++        ("pypto_revision", "short", "40-character"),
++        ("tensor_ir_revision", "A" * 40, "lowercase"),
++        ("llvm_revision", "1" * 39, "40-character"),
++        ("cuda_toolkit_root", "relative/cuda", "absolute"),
++        ("tileiras_real_path", "/", "filesystem root"),
++        ("tileiras_sha256", "f" * 63, "64-character"),
++        ("tileiras_sha256", "F" * 64, "lowercase"),
++    ],
++)
++def test_exact_toolchain_identity_rejects_ambiguous_values(
++    field: str, value: str, message: str
++) -> None:
++    with pytest.raises(ValueError, match=message):
++        toolchain(**{field: value})
++
++
++@pytest.mark.parametrize(
++    ("target_field", "toolchain_field", "target_value", "toolchain_value"),
++    [
++        ("tensor_ir_revision", "tensor_ir_revision", TENSOR_IR_REVISION, "3" * 40),
++        ("cuda_tile_revision", "cuda_tile_revision", CUDA_TILE_REVISION, "4" * 40),
++        ("cuda_toolkit_version", "cuda_toolkit_version", "13.3", "13.4"),
++    ],
++)
++def test_target_and_toolchain_identity_must_agree(
++    target_field: str,
++    toolchain_field: str,
++    target_value: str,
++    toolchain_value: str,
++) -> None:
++    with pytest.raises(ValueError, match="must match"):
++        CompileRequest(
++            target(**{target_field: target_value}),
++            toolchain(**{toolchain_field: toolchain_value}),
++        )
++
++
++def test_projection_digests_are_sha256_of_distinct_canonical_domains() -> None:
++    value = request()
++    byte_projection = value.serialize_byte_compile_identity()
++    loader_projection = value.serialize_loader_compatibility_input()
++    device_projection = value.serialize_device_autotune_identity()
++
++    assert value.byte_compile_identity_digest == hashlib.sha256(byte_projection).hexdigest()
++    assert value.loader_compatibility_input_digest == hashlib.sha256(loader_projection).hexdigest()
++    assert value.device_autotune_identity_digest == hashlib.sha256(device_projection).hexdigest()
++    # Fixed vectors lock both the canonical projection schema and the in-tree C++ SHA-256.
++    assert value.byte_compile_identity_digest == (
++        "4f2d7a90b70af99e56362d650aa93f164821be00a4c0220375eacb208b98e436"
++    )
++    assert value.loader_compatibility_input_digest == (
++        "d8c39f9ca5fe309425867f0b82ca21677d5d2fd5bac06b773d8ec7c6c0ad5807"
++    )
++    assert value.device_autotune_identity_digest == (
++        "0b5469b93172e567cade8b77ed5d621261bf4aa4b6f259598e8719ec71061d4c"
++    )
++    assert len(
++        {
++            value.byte_compile_identity_digest,
++            value.loader_compatibility_input_digest,
++            value.device_autotune_identity_digest,
++        }
++    ) == 3
++
++
++@pytest.mark.parametrize(
++    "physical_identity",
++    [
++        {"device_ordinal": 7},
++        {"device_name": "NVIDIA other device"},
++        {"device_uuid": "GPU-other"},
++        {"pci_device_id": "0000:02:00.0"},
++    ],
++)
++def test_physical_device_identity_is_excluded_from_byte_and_loader_identity(
++    physical_identity: dict[str, object],
++) -> None:
++    baseline = request()
++    changed = request(target_overrides=physical_identity)
++
++    assert changed.serialize() != baseline.serialize()
++    assert changed.byte_compile_identity_digest == baseline.byte_compile_identity_digest
++    assert changed.loader_compatibility_input_digest == baseline.loader_compatibility_input_digest
++    assert changed.device_autotune_identity_digest != baseline.device_autotune_identity_digest
++
++
++def test_driver_is_loader_and_device_input_but_not_byte_compile_identity() -> None:
++    baseline = request()
++    changed = request(target_overrides={"cuda_driver_version": "611.01"})
++
++    assert changed.byte_compile_identity_digest == baseline.byte_compile_identity_digest
++    assert changed.loader_compatibility_input_digest != baseline.loader_compatibility_input_digest
++    assert changed.device_autotune_identity_digest != baseline.device_autotune_identity_digest
++
++
++@pytest.mark.parametrize(
++    ("field", "value"),
++    [
++        ("multiprocessor_count", 81),
++        ("max_shared_memory_per_cta_bytes", 98_304),
++        ("registers_per_cta", 32_768),
++        ("max_threads_per_block", 512),
++    ],
++)
++def test_codegen_resources_change_byte_and_device_identity_only(field: str, value: int) -> None:
++    baseline = request()
++    changed = request(target_overrides={"traits": traits(**{field: value})})
++
++    assert changed.byte_compile_identity_digest != baseline.byte_compile_identity_digest
++    assert changed.loader_compatibility_input_digest == baseline.loader_compatibility_input_digest
++    assert changed.device_autotune_identity_digest != baseline.device_autotune_identity_digest
++
++
++def test_toolchain_changes_byte_and_device_identity_only() -> None:
++    baseline = request()
++    changed = request(toolchain_overrides={"cuda_toolkit_root": "/opt/cuda-13.3-alt"})
++
++    assert changed.byte_compile_identity_digest != baseline.byte_compile_identity_digest
++    assert changed.loader_compatibility_input_digest == baseline.loader_compatibility_input_digest
++    assert changed.device_autotune_identity_digest != baseline.device_autotune_identity_digest
++
++
++def test_device_capacity_is_excluded_from_byte_and_loader_identity() -> None:
++    baseline = request()
++    changed = request(
++        target_overrides={"traits": traits(total_global_memory_bytes=23_000 * 1024 * 1024)}
++    )
++
++    assert changed.byte_compile_identity_digest == baseline.byte_compile_identity_digest
++    assert changed.loader_compatibility_input_digest == baseline.loader_compatibility_input_digest
++    assert changed.device_autotune_identity_digest != baseline.device_autotune_identity_digest
++
++
++@pytest.mark.parametrize(
++    "payload",
++    [
++        b"",
++        b"\xc1",
++        b"\xdd\xff\xff\xff\xff",
++        b"\xdf\xff\xff\xff\xff",
++        b"\x91" * 16 + b"\xc0",
++        b"\x81\xadunknown_field\x01",
++    ],
++)
++def test_malformed_or_unknown_payloads_are_rejected(payload: bytes) -> None:
++    with pytest.raises(ValueError):
++        CompileRequest.deserialize(payload)
++
++
++def test_trailing_and_truncated_canonical_payloads_are_rejected() -> None:
++    canonical = request().serialize()
++    with pytest.raises(ValueError, match="trailing"):
++        CompileRequest.deserialize(canonical + b"\x00")
++    with pytest.raises(ValueError, match="malformed"):
++        CompileRequest.deserialize(canonical[:-1])
++
++
++if __name__ == "__main__":
++    pytest.main([__file__, "-v"])
+diff --git a/tests/ut/cpp/CMakeLists.txt b/tests/ut/cpp/CMakeLists.txt
+index 5a710a1f5075098012fedaa969eca2b1b4a8989a..6a8d8ce0056a0b8bcce58fb0b06e55feefdc39d8 100644
+--- a/tests/ut/cpp/CMakeLists.txt
++++ b/tests/ut/cpp/CMakeLists.txt
+@@ -39,3 +39,26 @@ add_test(
+     NAME pypto_nvidia_target_info_test
+     COMMAND pypto_nvidia_target_info_test
+ )
++
++add_executable(pypto_nvidia_compile_request_test
++    nvidia_compile_request_test.cpp
++    ${CMAKE_SOURCE_DIR}/src/compiler/compile_request.cpp
++    ${CMAKE_SOURCE_DIR}/src/compiler/target_info.cpp
++    ${CMAKE_SOURCE_DIR}/src/core/backtrace.cpp
++    ${CMAKE_SOURCE_DIR}/src/core/error.cpp
++)
++
++target_include_directories(pypto_nvidia_compile_request_test PRIVATE
++    ${CMAKE_SOURCE_DIR}/include
++    ${LIBBACKTRACE_INSTALL_DIR}/include
++)
++
++target_link_libraries(pypto_nvidia_compile_request_test PRIVATE
++    libbacktrace
++    msgpackc-cxx
++)
++
++add_test(
++    NAME pypto_nvidia_compile_request_test
++    COMMAND pypto_nvidia_compile_request_test
++)
+diff --git a/tests/ut/cpp/nvidia_compile_request_test.cpp b/tests/ut/cpp/nvidia_compile_request_test.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..6e4e3ca3f07c8733102ebb98d1693e1fba818b37
+--- /dev/null
++++ b/tests/ut/cpp/nvidia_compile_request_test.cpp
+@@ -0,0 +1,361 @@
++/*
++ * Copyright (c) PyPTO Contributors.
++ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
++ * CANN Open Software License Agreement Version 2.0 (the "License").
++ * Please refer to the License for details. You may not use this file except in compliance with the License.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
++ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
++ * See LICENSE in the root of the software repository for the full text of the License.
++ * -----------------------------------------------------------------------------------------------------------
++ */
++
++#include <cstdint>
++#include <msgpack.hpp>
++#include <string>
++#include <string_view>
++#include <type_traits>
++#include <utility>
++#include <vector>
++
++#include "pypto/compiler/compile_request.h"
++#include "pypto/core/dtype.h"
++#include "pypto/core/error.h"
++
++using pypto::DataType;
++using pypto::ValueError;
++using pypto::compiler::CompileRequest;
++using pypto::compiler::CompilerPolicy;
++using pypto::compiler::NvidiaTargetInfo;
++using pypto::compiler::RequestedArtifactPolicy;
++using pypto::compiler::TargetTraits;
++using pypto::compiler::ToolchainIdentity;
++using pypto::compiler::VerificationPolicy;
++
++#define REQUIRE(condition) \
++  do {                     \
++    if (!(condition)) {    \
++      return __LINE__;     \
++    }                      \
++  } while (false)
++
++namespace {
++
++constexpr std::string_view kPyptoRevision = "042878dd6825bb65ed03f22db7b067fb96277623";
++constexpr std::string_view kTensorIrRevision = "3b5a8bebc00510b46a1e8b97229d06dd0d006215";
++constexpr std::string_view kCudaTileRevision = "af2417041cc939b87ef56d92cfdcf61737c5457e";
++constexpr std::string_view kLlvmRevision = "1111111111111111111111111111111111111111";
++constexpr std::string_view kTileirasSha256 =
++    "2222222222222222222222222222222222222222222222222222222222222222";
++
++TargetTraits ValidTraits(int multiprocessor_count = 82,
++                         uint64_t total_global_memory_bytes = 24463ULL * 1024 * 1024) {
++  return TargetTraits(120, multiprocessor_count, 32, 1024, 1536, 24, 1024, 1024, 64, 2147483647, 65535, 65535,
++                      128, 48 * 1024, 101376, 131072, 65536, 255, 65536, 96ULL * 1024 * 1024,
++                      total_global_memory_bytes);
++}
++
++NvidiaTargetInfo ValidTarget(int device_ordinal = 0, std::string device_uuid = "GPU-test",
++                             std::string cuda_driver_version = "610.74", int multiprocessor_count = 82,
++                             uint64_t total_global_memory_bytes = 24463ULL * 1024 * 1024) {
++  return NvidiaTargetInfo(device_ordinal, "NVIDIA test device", std::move(device_uuid), "0000:01:00.0",
++                          ValidTraits(multiprocessor_count, total_global_memory_bytes), "13.3",
++                          std::move(cuda_driver_version), std::string(kTensorIrRevision),
++                          std::string(kCudaTileRevision),
++                          std::vector<DataType>{DataType::FP32, DataType::BF16});
++}
++
++ToolchainIdentity ValidToolchain(std::string cuda_toolkit_root = "/opt/cuda-13.3") {
++  return ToolchainIdentity(std::string(kPyptoRevision), std::string(kTensorIrRevision),
++                           std::string(kCudaTileRevision), std::string(kLlvmRevision),
++                           std::move(cuda_toolkit_root), "13.3", "/opt/cuda-13.3/bin/tileiras", "13.3.73",
++                           std::string(kTileirasSha256));
++}
++
++CompileRequest ValidRequest(int device_ordinal = 0, std::string device_uuid = "GPU-test",
++                            std::string cuda_driver_version = "610.74", int multiprocessor_count = 82,
++                            std::string cuda_toolkit_root = "/opt/cuda-13.3",
++                            uint64_t total_global_memory_bytes = 24463ULL * 1024 * 1024) {
++  return CompileRequest(ValidTarget(device_ordinal, std::move(device_uuid), std::move(cuda_driver_version),
++                                    multiprocessor_count, total_global_memory_bytes),
++                        ValidToolchain(std::move(cuda_toolkit_root)));
++}
++
++void PackText(msgpack::packer<msgpack::sbuffer>& packer, std::string_view text) {
++  packer.pack_str(static_cast<uint32_t>(text.size()));
++  packer.pack_str_body(text.data(), static_cast<uint32_t>(text.size()));
++}
++
++std::string ObjectKey(const msgpack::object& object) {
++  return std::string(object.via.str.ptr, object.via.str.size);
++}
++
++std::vector<uint8_t> BufferBytes(const msgpack::sbuffer& buffer) {
++  const auto* begin = reinterpret_cast<const uint8_t*>(buffer.data());
++  return std::vector<uint8_t>(begin, begin + buffer.size());
++}
++
++std::vector<uint8_t> AddUnknownField(const std::vector<uint8_t>& canonical) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size + 1);
++  for (uint32_t i = 0; i < root.get().via.map.size; ++i) {
++    packer.pack(root.get().via.map.ptr[i].key);
++    packer.pack(root.get().via.map.ptr[i].val);
++  }
++  PackText(packer, "unknown_field");
++  packer.pack(1);
++  return BufferBytes(buffer);
++}
++
++std::vector<uint8_t> AddUnknownTargetField(const std::vector<uint8_t>& canonical) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size);
++  for (uint32_t i = 0; i < root.get().via.map.size; ++i) {
++    const auto& entry = root.get().via.map.ptr[i];
++    packer.pack(entry.key);
++    if (ObjectKey(entry.key) != "target") {
++      packer.pack(entry.val);
++      continue;
++    }
++    packer.pack_map(entry.val.via.map.size + 1);
++    for (uint32_t j = 0; j < entry.val.via.map.size; ++j) {
++      packer.pack(entry.val.via.map.ptr[j].key);
++      packer.pack(entry.val.via.map.ptr[j].val);
++    }
++    PackText(packer, "unknown_target_field");
++    packer.pack(1);
++  }
++  return BufferBytes(buffer);
++}
++
++std::vector<uint8_t> AddDuplicateBackendField(const std::vector<uint8_t>& canonical) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size + 1);
++  for (uint32_t i = 0; i < root.get().via.map.size; ++i) {
++    packer.pack(root.get().via.map.ptr[i].key);
++    packer.pack(root.get().via.map.ptr[i].val);
++  }
++  PackText(packer, "backend");
++  PackText(packer, "nvidia");
++  return BufferBytes(buffer);
++}
++
++std::vector<uint8_t> ReplaceFirstDtypeWithUnknown(const std::vector<uint8_t>& canonical) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size);
++  for (uint32_t i = 0; i < root.get().via.map.size; ++i) {
++    const auto& entry = root.get().via.map.ptr[i];
++    packer.pack(entry.key);
++    if (ObjectKey(entry.key) != "target") {
++      packer.pack(entry.val);
++      continue;
++    }
++    packer.pack_map(entry.val.via.map.size);
++    for (uint32_t j = 0; j < entry.val.via.map.size; ++j) {
++      const auto& target_entry = entry.val.via.map.ptr[j];
++      packer.pack(target_entry.key);
++      if (ObjectKey(target_entry.key) != "supported_compute_dtypes") {
++        packer.pack(target_entry.val);
++        continue;
++      }
++      packer.pack_array(target_entry.val.via.array.size);
++      packer.pack(255);
++      for (uint32_t k = 1; k < target_entry.val.via.array.size; ++k) {
++        packer.pack(target_entry.val.via.array.ptr[k]);
++      }
++    }
++  }
++  return BufferBytes(buffer);
++}
++
++std::vector<uint8_t> DropVerificationPolicy(const std::vector<uint8_t>& canonical) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size - 1);
++  for (uint32_t i = 0; i < root.get().via.map.size; ++i) {
++    const auto& entry = root.get().via.map.ptr[i];
++    if (ObjectKey(entry.key) == "verification_policy") continue;
++    packer.pack(entry.key);
++    packer.pack(entry.val);
++  }
++  return BufferBytes(buffer);
++}
++
++std::vector<uint8_t> ReplaceVersion(const std::vector<uint8_t>& canonical, std::string_view field_name) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size);
++  for (uint32_t i = 0; i < root.get().via.map.size; ++i) {
++    const auto& entry = root.get().via.map.ptr[i];
++    packer.pack(entry.key);
++    if (ObjectKey(entry.key) == field_name) {
++      packer.pack(2);
++    } else {
++      packer.pack(entry.val);
++    }
++  }
++  return BufferBytes(buffer);
++}
++
++std::vector<uint8_t> ReverseRootOrder(const std::vector<uint8_t>& canonical) {
++  auto root = msgpack::unpack(reinterpret_cast<const char*>(canonical.data()), canonical.size());
++  msgpack::sbuffer buffer;
++  msgpack::packer<msgpack::sbuffer> packer(buffer);
++  packer.pack_map(root.get().via.map.size);
++  for (uint32_t i = root.get().via.map.size; i > 0; --i) {
++    packer.pack(root.get().via.map.ptr[i - 1].key);
++    packer.pack(root.get().via.map.ptr[i - 1].val);
++  }
++  return BufferBytes(buffer);
++}
++
++bool Rejects(const std::vector<uint8_t>& data) {
++  try {
++    (void)CompileRequest::DeserializeCanonical(data);
++  } catch (const ValueError&) {
++    return true;
++  }
++  return false;
++}
++
++template <typename Function>
++bool RejectsConstruction(Function&& function) {
++  try {
++    std::forward<Function>(function)();
++  } catch (const ValueError&) {
++    return true;
++  }
++  return false;
++}
++
++}  // namespace
++
++int main() {
++  static_assert(!std::is_default_constructible_v<ToolchainIdentity>);
++  static_assert(!std::is_copy_assignable_v<ToolchainIdentity>);
++  static_assert(!std::is_move_assignable_v<ToolchainIdentity>);
++  static_assert(!std::is_default_constructible_v<CompileRequest>);
++  static_assert(!std::is_copy_assignable_v<CompileRequest>);
++  static_assert(!std::is_move_assignable_v<CompileRequest>);
++
++  const auto target = ValidTarget();
++  const CompileRequest owned_request(target, ValidToolchain());
++  REQUIRE(&owned_request.GetTargetInfo() != &target);
++  REQUIRE(owned_request.GetRequestSchemaVersion() == 1);
++  REQUIRE(owned_request.GetCompilerAbiVersion() == 1);
++  REQUIRE(owned_request.GetRequestedArtifactPolicy() == RequestedArtifactPolicy::CubinOnly);
++  REQUIRE(owned_request.GetCompilerPolicy() == CompilerPolicy::DeterministicStrict);
++  REQUIRE(owned_request.GetVerificationPolicy() == VerificationPolicy::Strict);
++
++  const std::vector<uint8_t> canonical = owned_request.SerializeCanonical();
++  const CompileRequest round_trip = CompileRequest::DeserializeCanonical(canonical);
++  REQUIRE(round_trip.SerializeCanonical() == canonical);
++  REQUIRE(round_trip.GetTargetInfo().GetDeviceUuid() == "GPU-test");
++  REQUIRE(round_trip.GetToolchainIdentity().GetTileirasRealPath() == "/opt/cuda-13.3/bin/tileiras");
++  REQUIRE(round_trip.GetByteCompileIdentityDigest().size() == 64);
++  REQUIRE(round_trip.GetLoaderCompatibilityInputDigest().size() == 64);
++  REQUIRE(round_trip.GetDeviceAutotuneIdentityDigest().size() == 64);
++  REQUIRE(round_trip.GetByteCompileIdentityDigest() ==
++          "4f2d7a90b70af99e56362d650aa93f164821be00a4c0220375eacb208b98e436");
++  REQUIRE(round_trip.GetLoaderCompatibilityInputDigest() ==
++          "d8c39f9ca5fe309425867f0b82ca21677d5d2fd5bac06b773d8ec7c6c0ad5807");
++  REQUIRE(round_trip.GetDeviceAutotuneIdentityDigest() ==
++          "0b5469b93172e567cade8b77ed5d621261bf4aa4b6f259598e8719ec71061d4c");
++  REQUIRE(round_trip.GetByteCompileIdentityDigest() != round_trip.GetLoaderCompatibilityInputDigest());
++  REQUIRE(round_trip.GetByteCompileIdentityDigest() != round_trip.GetDeviceAutotuneIdentityDigest());
++
++  const CompileRequest other_device = ValidRequest(7, "GPU-other");
++  REQUIRE(other_device.GetByteCompileIdentityDigest() == owned_request.GetByteCompileIdentityDigest());
++  REQUIRE(other_device.GetLoaderCompatibilityInputDigest() ==
++          owned_request.GetLoaderCompatibilityInputDigest());
++  REQUIRE(other_device.GetDeviceAutotuneIdentityDigest() != owned_request.GetDeviceAutotuneIdentityDigest());
++
++  const CompileRequest other_driver = ValidRequest(0, "GPU-test", "611.01");
++  REQUIRE(other_driver.GetByteCompileIdentityDigest() == owned_request.GetByteCompileIdentityDigest());
++  REQUIRE(other_driver.GetLoaderCompatibilityInputDigest() !=
++          owned_request.GetLoaderCompatibilityInputDigest());
++  REQUIRE(other_driver.GetDeviceAutotuneIdentityDigest() != owned_request.GetDeviceAutotuneIdentityDigest());
++
++  const CompileRequest other_resources = ValidRequest(0, "GPU-test", "610.74", 81);
++  REQUIRE(other_resources.GetByteCompileIdentityDigest() != owned_request.GetByteCompileIdentityDigest());
++  REQUIRE(other_resources.GetLoaderCompatibilityInputDigest() ==
++          owned_request.GetLoaderCompatibilityInputDigest());
++
++  const CompileRequest other_toolkit_root = ValidRequest(0, "GPU-test", "610.74", 82, "/opt/cuda-13.3-alt");
++  REQUIRE(other_toolkit_root.GetByteCompileIdentityDigest() != owned_request.GetByteCompileIdentityDigest());
++  REQUIRE(other_toolkit_root.GetLoaderCompatibilityInputDigest() ==
++          owned_request.GetLoaderCompatibilityInputDigest());
++
++  const CompileRequest other_device_capacity =
++      ValidRequest(0, "GPU-test", "610.74", 82, "/opt/cuda-13.3", 23000ULL * 1024 * 1024);
++  REQUIRE(other_device_capacity.GetByteCompileIdentityDigest() ==
++          owned_request.GetByteCompileIdentityDigest());
++  REQUIRE(other_device_capacity.GetLoaderCompatibilityInputDigest() ==
++          owned_request.GetLoaderCompatibilityInputDigest());
++  REQUIRE(other_device_capacity.GetDeviceAutotuneIdentityDigest() !=
++          owned_request.GetDeviceAutotuneIdentityDigest());
++
++  REQUIRE(RejectsConstruction([] {
++    (void)ToolchainIdentity(std::string(kPyptoRevision), std::string(kTensorIrRevision),
++                            std::string(kCudaTileRevision), std::string(kLlvmRevision),
++                            "/opt/cuda/../cuda-13.3/", "13.3", "/opt/cuda-13.3/bin/tileiras", "13.3.73",
++                            std::string(kTileirasSha256));
++  }));
++  REQUIRE(RejectsConstruction([] {
++    (void)ToolchainIdentity(std::string(kPyptoRevision), std::string(kTensorIrRevision),
++                            std::string(kCudaTileRevision), std::string(kLlvmRevision), "/opt/cuda-13.3",
++                            "13.3", "/opt/cuda-13.3/lib/../bin/tileiras", "13.3.73",
++                            std::string(kTileirasSha256));
++  }));
++
++  REQUIRE(Rejects({}));
++  REQUIRE(Rejects(std::vector<uint8_t>{0xc1}));
++  REQUIRE(Rejects(std::vector<uint8_t>{0xdd, 0xff, 0xff, 0xff, 0xff}));
++  REQUIRE(Rejects(std::vector<uint8_t>{0xdf, 0xff, 0xff, 0xff, 0xff}));
++  std::vector<uint8_t> depth_bomb(17, 0x91);
++  depth_bomb.back() = 0xc0;
++  REQUIRE(Rejects(depth_bomb));
++  REQUIRE(Rejects(AddUnknownField(canonical)));
++  REQUIRE(Rejects(AddUnknownTargetField(canonical)));
++  REQUIRE(Rejects(AddDuplicateBackendField(canonical)));
++  REQUIRE(Rejects(ReplaceFirstDtypeWithUnknown(canonical)));
++  REQUIRE(Rejects(DropVerificationPolicy(canonical)));
++  REQUIRE(Rejects(ReplaceVersion(canonical, "request_schema_version")));
++  REQUIRE(Rejects(ReplaceVersion(canonical, "compiler_abi_version")));
++  REQUIRE(Rejects(ReverseRootOrder(canonical)));
++  auto trailing = canonical;
++  trailing.push_back(0);
++  REQUIRE(Rejects(trailing));
++  auto truncated = canonical;
++  truncated.pop_back();
++  REQUIRE(Rejects(truncated));
++
++  REQUIRE(RejectsConstruction([] {
++    (void)CompileRequest(
++        ValidTarget(),
++        ToolchainIdentity(std::string(kPyptoRevision), "3333333333333333333333333333333333333333",
++                          std::string(kCudaTileRevision), std::string(kLlvmRevision), "/opt/cuda-13.3",
++                          "13.3", "/opt/cuda-13.3/bin/tileiras", "13.3.73", std::string(kTileirasSha256)));
++  }));
++  REQUIRE(RejectsConstruction([] {
++    (void)CompileRequest(ValidTarget(), ValidToolchain(), static_cast<RequestedArtifactPolicy>(99));
++  }));
++  REQUIRE(RejectsConstruction([] {
++    (void)CompileRequest(ValidTarget(), ValidToolchain(), RequestedArtifactPolicy::CubinOnly,
++                         static_cast<CompilerPolicy>(99));
++  }));
++  REQUIRE(RejectsConstruction([] {
++    (void)CompileRequest(ValidTarget(), ValidToolchain(), RequestedArtifactPolicy::CubinOnly,
++                         CompilerPolicy::DeterministicStrict, static_cast<VerificationPolicy>(99));
++  }));
++  return 0;
++}

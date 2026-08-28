@@ -1,0 +1,119 @@
+From a00ce66873ec6404839a3bb2140720ffcfc9d255 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 01:13:17 +0800
+Subject: [PATCH 120/212] Advance TensorIR reduction slice lowering
+
+---
+ ...ort-slicing-reduction-result-layouts.patch | 67 +++++++++++++++++++
+ 3rdparty/nvidia/tensor-ir                     |  2 +-
+ cmake/nvidia_backend.cmake                    |  2 +-
+ .../test_nvidia_backend_build_info.py         |  2 +-
+ 4 files changed, 70 insertions(+), 3 deletions(-)
+ create mode 100644 3rdparty/nvidia/0014-Support-slicing-reduction-result-layouts.patch
+
+diff --git a/3rdparty/nvidia/0014-Support-slicing-reduction-result-layouts.patch b/3rdparty/nvidia/0014-Support-slicing-reduction-result-layouts.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..ad1fedc1a66ec9ecdc2df7965aa68f1e153a20b9
+--- /dev/null
++++ b/3rdparty/nvidia/0014-Support-slicing-reduction-result-layouts.patch
+@@ -0,0 +1,67 @@
++From 2777ef23ad24580854b732e62fb462dea6ba6ef0 Mon Sep 17 00:00:00 2001
++From: zhaosiying12138 <neucszhaopeng2016@163.com>
++Date: Fri, 28 Aug 2026 01:12:45 +0800
++Subject: [PATCH] Support slicing reduction result layouts
++
++---
++ lib/Dialect/TensorAttrs.cpp                   | 19 +++++++++++++++++--
++ .../reduction_slice_layout.mlir               | 17 +++++++++++++++++
++ 2 files changed, 34 insertions(+), 2 deletions(-)
++ create mode 100644 test/Conversion/TensorToCudaTile/reduction_slice_layout.mlir
++
++diff --git a/lib/Dialect/TensorAttrs.cpp b/lib/Dialect/TensorAttrs.cpp
++index 63b1f9c..98caee3 100644
++--- a/lib/Dialect/TensorAttrs.cpp
+++++ b/lib/Dialect/TensorAttrs.cpp
++@@ -1182,8 +1182,23 @@ ReductionSourceAttr::transpose(ArrayRef<int64_t> permutation) const {
++ LayoutSourceAttrInterface
++ ReductionSourceAttr::slice(ArrayRef<int64_t> starts, ArrayRef<int64_t> limits,
++                            ArrayRef<int64_t> strides) const {
++-  LLVM_DEBUG(llvm::dbgs() << "Reduction slice is not supported\n");
++-  return nullptr;
+++  if (starts.size() != getShape().size() || limits.size() != starts.size() ||
+++      strides.size() != starts.size()) {
+++    return nullptr;
+++  }
+++  auto viewAttr = TensorSourceAttr::get(getContext(), 0, 0, getView(), {});
+++  SmallVector<int64_t> extendedStarts(starts.begin(), starts.end());
+++  SmallVector<int64_t> extendedLimits(limits.begin(), limits.end());
+++  SmallVector<int64_t> extendedStrides(strides.begin(), strides.end());
+++  extendedStarts.push_back(0);
+++  extendedLimits.push_back(getReductionSize());
+++  extendedStrides.push_back(1);
+++  auto newAttr = dyn_cast_or_null<TensorSourceAttr>(viewAttr.slice(
+++      extendedStarts, extendedLimits, extendedStrides));
+++  return newAttr ? ReductionSourceAttr::get(getContext(),
+++                                            newAttr.getCuteLayout().toString(),
+++                                            getSource())
+++                 : nullptr;
++ }
++ 
++ LayoutSourceAttrInterface ReductionSourceAttr::normalize() const {
++diff --git a/test/Conversion/TensorToCudaTile/reduction_slice_layout.mlir b/test/Conversion/TensorToCudaTile/reduction_slice_layout.mlir
++new file mode 100644
++index 0000000..c4cb606
++--- /dev/null
+++++ b/test/Conversion/TensorToCudaTile/reduction_slice_layout.mlir
++@@ -0,0 +1,17 @@
+++// RUN: tensor_ir-opt --layout-propagation-pipeline %s | FileCheck %s
+++
+++// CHECK-LABEL: entry @reduction_broadcast_slice
+++// CHECK: reduce
+++// CHECK: store_view_tko weak
+++module {
+++  nv_tensor_ir.graph @reduction_broadcast_slice(
+++      %input: tensor<2x8x256xf32>) -> tensor<2x8x32xf32>
+++      attributes {tile_size = array<i32: 1, 32>} {
+++    %sum = reduce(%input) <dimensions = [2], reduction_mode = <add>> :
+++      tensor<2x8x256xf32> -> tensor<2x8x1xf32>
+++    %full = broadcast %sum : tensor<2x8x1xf32> -> tensor<2x8x256xf32>
+++    %part = slice %full starts = [0, 0, 0] limits = [2, 8, 32]
+++      strides = [1, 1, 1] : tensor<2x8x256xf32> -> tensor<2x8x32xf32>
+++    results %part : tensor<2x8x32xf32>
+++  }
+++}
++-- 
++2.53.0
++
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index aa112b2a1ef54bd9a0ca0e512fb1cd2be442b8c3..2777ef23ad24580854b732e62fb462dea6ba6ef0 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit aa112b2a1ef54bd9a0ca0e512fb1cd2be442b8c3
++Subproject commit 2777ef23ad24580854b732e62fb462dea6ba6ef0
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index afc556244bd25571223235f441bd7c0adfcc1e99..a3ab5d5465f77b6278ed2994c94a56876a7bc90b 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "aa112b2a1ef54bd9a0ca0e512fb1cd2be442b8c3")
++    "2777ef23ad24580854b732e62fb462dea6ba6ef0")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION
+diff --git a/tests/ut/compiler/test_nvidia_backend_build_info.py b/tests/ut/compiler/test_nvidia_backend_build_info.py
+index 216cb72d27d259a9eea64696d7cfe1843d45bcb0..3e5b0c1f26e7aeba2d0c2d6fc33d261f2a68bb08 100644
+--- a/tests/ut/compiler/test_nvidia_backend_build_info.py
++++ b/tests/ut/compiler/test_nvidia_backend_build_info.py
+@@ -30,7 +30,7 @@ def test_nvidia_backend_build_info_is_immutable_and_self_consistent() -> None:
+     assert info.compiler_factory_available
+     assert len(info.pypto_revision) == 40
+     assert set(info.pypto_revision) <= set("0123456789abcdef")
+-    assert info.tensor_ir_revision == "aa112b2a1ef54bd9a0ca0e512fb1cd2be442b8c3"
++    assert info.tensor_ir_revision == "2777ef23ad24580854b732e62fb462dea6ba6ef0"
+     assert info.cuda_tile_revision == "af2417041cc939b87ef56d92cfdcf61737c5457e"
+     assert info.llvm_revision == "57109befac92811d2253109242ca6fa69c961fb2"
+     assert info.cuda_toolkit_root == "/usr/local/cuda-13.3"

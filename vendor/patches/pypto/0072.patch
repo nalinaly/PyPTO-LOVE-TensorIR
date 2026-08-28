@@ -1,0 +1,2330 @@
+From add6c0b4991154df199727938343b08481f63f45 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Wed, 26 Aug 2026 13:43:42 +0800
+Subject: [PATCH 072/212] codegen: add bounded structured matmul TensorIR
+ frontend
+
+(cherry picked from commit 6ee412a751fe684c5977828f2d526e9c28d3e787)
+(cherry picked from commit 914e94035a3c26c7020c164990c00c164eacb4ad)
+---
+ docs/en/dev/backend/01-nvidia-target-info.md  |  81 ++-
+ docs/zh/dev/backend/01-nvidia-target-info.md  |  72 ++-
+ src/codegen/nvidia/tensor_ir_codegen.cpp      | 407 ++++++++++++++-
+ src/codegen/nvidia/tensor_ir_codegen.h        |  18 +-
+ .../structured_tensor_ir_build_spec.cpp       | 161 +++++-
+ .../structured_tensor_ir_build_spec.h         |   1 +
+ tests/ut/compiler/test_structured_compile.py  | 112 ++++-
+ tests/ut/cpp/structured_compile_test.cpp      | 152 ++++++
+ .../structured_tensor_ir_build_spec_test.cpp  | 358 +++++++++++++-
+ tests/ut/cpp/tensor_ir_codegen_test.cpp       | 466 ++++++++++++++++++
+ 10 files changed, 1766 insertions(+), 62 deletions(-)
+
+diff --git a/docs/en/dev/backend/01-nvidia-target-info.md b/docs/en/dev/backend/01-nvidia-target-info.md
+index bce53f111fe4ab29e66ceb8ea21b58e062be5854..b841b8d0cf6af4f48e3fbfb9670d83b12e78dc1d 100644
+--- a/docs/en/dev/backend/01-nvidia-target-info.md
++++ b/docs/en/dev/backend/01-nvidia-target-info.md
+@@ -259,16 +259,16 @@ publication, provisional key, or key rewrite.
+ Every projection is canonical MessagePack in lexical map-key order, capped at
+ 1 MiB, and contains no binary, extension, or floating-point value. The frozen
+ legacy add module uses the existing v1 contracts, fused pointwise uses
+-domain-separated v2 contracts, and row reduction uses domain-separated v3
+-contracts:
++domain-separated v2 contracts, row reduction uses domain-separated v3
++contracts, and structured matmul uses domain-separated v4 contracts:
+ 
+-| KernelBuildSpec input | Legacy contract | Fused contract | Row-reduction contract | Contents |
+-| --------------------- | --------------- | -------------- | ---------------------- | -------- |
+-| static specialization | `pypto.frontend.static_specialization.v1` | `pypto.frontend.static_specialization.v2` | `pypto.frontend.static_specialization.v3` | ordered argument/result roles, ordinals, and positive static HIR shapes |
+-| symbolic specialization | `pypto.frontend.symbolic_specialization.v1` | `pypto.frontend.symbolic_specialization.v2` | `pypto.frontend.symbolic_specialization.v3` | explicit empty `constraints` and `symbols` arrays |
+-| argument ABI | `pypto.frontend.argument_abi.v1` | `pypto.frontend.argument_abi.v2` | `pypto.frontend.argument_abi.v3` | all ordered inputs with `direction=in`, dtype code/name, rank, static shape, logical dense strides, contiguous and explicit-stride state |
+-| result ABI | `pypto.frontend.result_abi.v1` | `pypto.frontend.result_abi.v2` | `pypto.frontend.result_abi.v3` | the one ordered result with dtype/layout metadata, without an input direction |
+-| mutation ABI | `pypto.frontend.mutation_abi.v1` | `pypto.frontend.mutation_abi.v2` | `pypto.frontend.mutation_abi.v3` | one read-only effect per input and one `nil` result alias |
++| KernelBuildSpec input | Legacy contract | Fused contract | Row-reduction contract | Matmul contract | Contents |
++| --------------------- | --------------- | -------------- | ---------------------- | --------------- | -------- |
++| static specialization | `pypto.frontend.static_specialization.v1` | `pypto.frontend.static_specialization.v2` | `pypto.frontend.static_specialization.v3` | `pypto.frontend.static_specialization.v4` | ordered argument/result roles, ordinals, and positive static HIR shapes |
++| symbolic specialization | `pypto.frontend.symbolic_specialization.v1` | `pypto.frontend.symbolic_specialization.v2` | `pypto.frontend.symbolic_specialization.v3` | `pypto.frontend.symbolic_specialization.v4` | explicit empty `constraints` and `symbols` arrays |
++| argument ABI | `pypto.frontend.argument_abi.v1` | `pypto.frontend.argument_abi.v2` | `pypto.frontend.argument_abi.v3` | `pypto.frontend.argument_abi.v4` | all ordered inputs with `direction=in`, dtype code/name, rank, static shape, logical dense strides, contiguous and explicit-stride state |
++| result ABI | `pypto.frontend.result_abi.v1` | `pypto.frontend.result_abi.v2` | `pypto.frontend.result_abi.v3` | `pypto.frontend.result_abi.v4` | the one ordered result with dtype/layout metadata, without an input direction |
++| mutation ABI | `pypto.frontend.mutation_abi.v1` | `pypto.frontend.mutation_abi.v2` | `pypto.frontend.mutation_abi.v3` | `pypto.frontend.mutation_abi.v4` | one read-only effect per input and one `nil` result alias |
+ 
+ The sixth identity domain remains the SHA-256 of the raw canonical TensorIR
+ source bytes, without a MessagePack envelope. A `nil` result alias means that
+@@ -279,14 +279,15 @@ non-overlap, C/C++ `restrict`, or a loader-side alias check.
+ caller-provided callable digest. It validates the returned kernel ABI against
+ the prepared metadata and schedule, then uses only
+ `ArtifactKernelAbi.identity_digest` as `KernelBuildSpec.callable_abi_digest`.
+-All three module kinds require the fixed runtime name; the prepared entry name;
++All four module kinds require the fixed runtime name; the prepared entry name;
+ exactly ordered tensor descriptors for every input followed by `Result0`;
+ fully static matching shapes and strides with no dynamic metadata; `N` inputs,
+ `N+1` kernel pointer arguments, `uniform_signature=false`, and pointer-only
+-packing; static grid policy driven by descriptor zero; exact schedule tile
+-sizes; zero workspace; and the fixed launch and CUDA 13.0-minimum loader ABI.
+-The legacy module remains exactly two inputs, entry `pypto_vector_add`, and
+-three pointers.
++packing; exact schedule tile sizes; zero workspace; and the fixed launch and
++CUDA 13.0-minimum loader ABI. Legacy, fused pointwise, and row reduction select
++descriptor zero as the static-grid shape source. Structured matmul selects its
++output descriptor at index two. The legacy module remains exactly two inputs,
++entry `pypto_vector_add`, and three pointers.
+ 
+ The producer ABI descriptors do not contain dtype or source-role fields. Dtype
+ is bound by the exact TensorIR source and frontend argument/result projections;
+@@ -315,6 +316,16 @@ Finalization requires exactly `{ceil(rows / T), 1, 1}`. The reduced last-axis
+ extent does not multiply the launch grid; it is consumed inside each CTA using
+ the fixed producer reduction tile size `128`.
+ 
++`StructuredMatmulV4` normalizes the logical output into the ordered list
++`S=[B if B>1, M if M>1, N if N>1]` for rank three or
++`S=[M if M>1, N if N>1]` for rank two, using `S=[1]` if every extent is one.
++The schedule contains exactly one tile for each member of `S`; every tile is a
++positive power of two no larger than its corresponding extent. Finalization
++requires static grid
++`{product_i(ceil(S[i] / tile[i])), 1, 1}` selected by output descriptor two.
++The contraction extent `K` does not appear in `S`: its resolved tile is
++`r=min(128, lowbit(K))` and is checked separately.
++
+ ### Bounded fused pointwise frontend v2
+ 
+ `FusedPointwiseV2` is private compiler analysis, not a new public compiler
+@@ -388,6 +399,48 @@ separately versioned frontend and real-SM120 acceptance gates. The V1 and V2
+ canonical sources, projection bytes, identities, and producer behavior remain
+ unchanged.
+ 
++### Bounded structured-matmul frontend v4
++
++`StructuredMatmulV4` is private compiler analysis, not a new public operator,
++compiler facade, or wire type. It emits entry `pypto_structured_matmul_v4` and
++metadata schema 4. It accepts one Opaque function with exactly two distinct
++exact `In` parameters, one direct registered `tensor.matmul` assignment, and
++one direct return of that assignment. Both inputs must be plain, fully static,
++contiguous BF16 tensors of the same rank, either rank two or rank three. Rank-3
++batch extents must match exactly; broadcasting is rejected. The result is a
++plain contiguous BF16 tensor with the exact logical `[M,N]` or `[B,M,N]`
++shape. The first bounded shape policy additionally requires `K` to be a
++multiple of 128 and `N` to be a multiple of 16.
++
++Keyword arguments may be absent. If present, the only accepted values are
++exact BF16 `out_dtype`, boolean `a_trans`/`b_trans`, and
++`c_matrix_nz=false`; duplicates, unknown keys, wrong types, and wrong values
++are rejected. Attributes, `tensor.matmul_acc`, mixed dtype/rank, batch
++broadcast, dynamic extents, MemRef/TensorView metadata, nested calls, operand
++reordering, mutation, and extra statements are rejected.
++
++Transpose flags do not become TensorIR matmul attributes. The canonical source
++emits an explicit `transpose` view on the physical dense argument with
++permutation `[1,0]` for rank two or `[0,2,1]` for rank three. It then emits
++BF16-by-BF16 TensorIR `matmul` with an FP32 result and a nearest-even TensorIR
++`convert` from FP32 to the BF16 HIR result. Frontend projections and the
++producer ABI retain the original physical input shapes and dense strides.
++
++For the normalized extents `S` above, preparation requires exactly `len(S)`
++power-of-two tiles no larger than their extents. With
++`r=min(128, lowbit(K))`, it rejects `product(tile)*r > 16,777,216`,
++`ceil(K/r) > INT32_MAX`, or a grid product outside signed-int32 or target
++limits. Finalization requires exactly two input descriptors followed by
++`Result0`, three pointer arguments, output-descriptor-two static grid
++selection, exact tiles and grid, pointer-only packing, and zero workspace.
++
++This source/compiler layer establishes bounded HIR acceptance, deterministic
++TensorIR and frontend identities, and producer ABI checks. It does not claim a
++successful TensorIR/CUDA Tile build for every accepted case, GPU numerical
++correctness, CUDA launch, or performance until separate CPU/compiler and
++real-SM120 gates run. V1/V2/V3 canonical source, projection bytes, callable ABI,
++and producer behavior remain unchanged.
++
+ ## NVIDIA Artifact v1
+ 
+ `Artifact` is the immutable, pointer-free output envelope for the first strict
+diff --git a/docs/zh/dev/backend/01-nvidia-target-info.md b/docs/zh/dev/backend/01-nvidia-target-info.md
+index 22e3a2a4e24d8f9020d453c7abed3e590d6aaa45..7169db4af378a3fb17484c4b2d87154e4da23b64 100644
+--- a/docs/zh/dev/backend/01-nvidia-target-info.md
++++ b/docs/zh/dev/backend/01-nvidia-target-info.md
+@@ -229,15 +229,16 @@ provisional key 或 key rewrite。
+ 每个 projection 都是按 map key 词法顺序编码的 canonical MessagePack，上限为
+ 1 MiB，并且不包含 binary、extension 或 floating-point value。冻结的 legacy add
+ module 继续使用现有 v1 contract，fused pointwise 使用 domain-separated v2 contract，
+-row reduction 使用 domain-separated v3 contract：
++row reduction 使用 domain-separated v3 contract，structured matmul 使用
++domain-separated v4 contract：
+ 
+-| KernelBuildSpec input | Legacy contract | Fused contract | Row-reduction contract | Contents |
+-| --------------------- | --------------- | -------------- | ---------------------- | -------- |
+-| static specialization | `pypto.frontend.static_specialization.v1` | `pypto.frontend.static_specialization.v2` | `pypto.frontend.static_specialization.v3` | 有序 argument/result role、ordinal 与正数 static HIR shape |
+-| symbolic specialization | `pypto.frontend.symbolic_specialization.v1` | `pypto.frontend.symbolic_specialization.v2` | `pypto.frontend.symbolic_specialization.v3` | 显式为空的 `constraints` 与 `symbols` array |
+-| argument ABI | `pypto.frontend.argument_abi.v1` | `pypto.frontend.argument_abi.v2` | `pypto.frontend.argument_abi.v3` | 全部有序 input，包括 `direction=in`、dtype code/name、rank、static shape、logical dense stride、contiguous 与 explicit-stride state |
+-| result ABI | `pypto.frontend.result_abi.v1` | `pypto.frontend.result_abi.v2` | `pypto.frontend.result_abi.v3` | 唯一有序 result，包含 dtype/layout metadata，但不含 input direction |
+-| mutation ABI | `pypto.frontend.mutation_abi.v1` | `pypto.frontend.mutation_abi.v2` | `pypto.frontend.mutation_abi.v3` | 每个 input 一个 read-only effect，以及一个 `nil` result alias |
++| KernelBuildSpec input | Legacy contract | Fused contract | Row-reduction contract | Matmul contract | Contents |
++| --------------------- | --------------- | -------------- | ---------------------- | --------------- | -------- |
++| static specialization | `pypto.frontend.static_specialization.v1` | `pypto.frontend.static_specialization.v2` | `pypto.frontend.static_specialization.v3` | `pypto.frontend.static_specialization.v4` | 有序 argument/result role、ordinal 与正数 static HIR shape |
++| symbolic specialization | `pypto.frontend.symbolic_specialization.v1` | `pypto.frontend.symbolic_specialization.v2` | `pypto.frontend.symbolic_specialization.v3` | `pypto.frontend.symbolic_specialization.v4` | 显式为空的 `constraints` 与 `symbols` array |
++| argument ABI | `pypto.frontend.argument_abi.v1` | `pypto.frontend.argument_abi.v2` | `pypto.frontend.argument_abi.v3` | `pypto.frontend.argument_abi.v4` | 全部有序 input，包括 `direction=in`、dtype code/name、rank、static shape、logical dense stride、contiguous 与 explicit-stride state |
++| result ABI | `pypto.frontend.result_abi.v1` | `pypto.frontend.result_abi.v2` | `pypto.frontend.result_abi.v3` | `pypto.frontend.result_abi.v4` | 唯一有序 result，包含 dtype/layout metadata，但不含 input direction |
++| mutation ABI | `pypto.frontend.mutation_abi.v1` | `pypto.frontend.mutation_abi.v2` | `pypto.frontend.mutation_abi.v3` | `pypto.frontend.mutation_abi.v4` | 每个 input 一个 read-only effect，以及一个 `nil` result alias |
+ 
+ 第六个 identity domain 仍然是 raw canonical TensorIR source bytes 的 SHA-256，不添加
+ MessagePack envelope。`nil` result alias 表示 HIR/SSA result 没有 input-alias lineage；
+@@ -246,13 +247,14 @@ MessagePack envelope。`nil` result alias 表示 HIR/SSA result 没有 input-ali
+ `FinalizeStructuredTensorIrBuildSpec(prepared, real_kernel_abi)` 不接受 caller 提供的
+ callable digest。它先根据 prepared metadata 与 schedule 验证返回的 kernel ABI，之后
+ 只使用 `ArtifactKernelAbi.identity_digest` 作为
+-`KernelBuildSpec.callable_abi_digest`。三种 module kind 都要求固定 runtime name、
++`KernelBuildSpec.callable_abi_digest`。四种 module kind 都要求固定 runtime name、
+ prepared entry name、严格按全部 input 后接 `Result0` 排列的 tensor descriptor、完全
+ static 且匹配的 shape/stride、无 dynamic metadata、`N` 个 input 与 `N+1` 个 kernel
+-pointer argument、`uniform_signature=false` 与 pointer-only packing、由 descriptor
+-zero 驱动的 static grid policy、精确 schedule tile size、zero workspace，以及固定
+-launch ABI 与 CUDA 13.0 minimum loader ABI。legacy module 仍严格为两个 input、entry
+-`pypto_vector_add` 与三个 pointer。
++pointer argument、`uniform_signature=false` 与 pointer-only packing、精确 schedule
++tile size、zero workspace，以及固定 launch ABI 与 CUDA 13.0 minimum loader ABI。
++legacy、fused pointwise 与 row reduction 由 descriptor zero 选择 static-grid shape；
++structured matmul 则选择 index two 的 output descriptor。legacy module 仍严格为两个
++input、entry `pypto_vector_add` 与三个 pointer。
+ 
+ producer ABI descriptor 不含 dtype 或 source-role field。dtype 由精确 TensorIR source
+ 以及 frontend argument/result projection 绑定；input 与 `Result0` role 根据 descriptor
+@@ -276,6 +278,14 @@ subprocess、CUDA API 或 GPU。facade 可以调用 CPU compiler 与 assembler s
+ `{ceil(rows / T), 1, 1}`。被规约的最后一轴 extent 不会乘入 launch grid；它在每个 CTA
+ 内部由固定 producer reduction tile size `128` 消费。
+ 
++`StructuredMatmulV4` 把 logical output 归一化为有序列表：rank three 使用
++`S=[B if B>1, M if M>1, N if N>1]`，rank two 使用
++`S=[M if M>1, N if N>1]`；若全部 extent 都为一，则使用 `S=[1]`。schedule 对 `S`
++中的每个成员恰好包含一个 tile，每个 tile 都必须是正数 2 的幂且不大于对应 extent。
++finalization 严格要求由 output descriptor two 选择的 static grid
++`{product_i(ceil(S[i] / tile[i])), 1, 1}`。contraction extent `K` 不属于 `S`；其
++resolved tile 为 `r=min(128, lowbit(K))`，并单独检查。
++
+ ### 有界 fused pointwise frontend v2
+ 
+ `FusedPointwiseV2` 是 private compiler analysis，不是新的 public compiler facade 或
+@@ -340,6 +350,42 @@ correctness 或 performance。这些能力需要单独 version 的 frontend 与
+ acceptance gate。V1/V2 canonical source、projection bytes、identity 与 producer behavior
+ 保持不变。
+ 
++### 有界 structured-matmul frontend v4
++
++`StructuredMatmulV4` 是 private compiler analysis，不是新的 public operator、compiler
++facade 或 wire type。它生成 entry `pypto_structured_matmul_v4` 与 metadata schema 4。
++它接受一个 Opaque function，其中恰好包含两个身份不同的 exact `In` parameter、一个
++direct registered `tensor.matmul` assignment，以及一个直接返回该 assignment 结果的
++return。两个 input 必须是相同 rank 的 plain、完全 static、contiguous BF16 tensor，
++且只能为 rank two 或 rank three。rank-3 batch extent 必须精确相等，拒绝 broadcast。
++result 必须是 exact logical `[M,N]` 或 `[B,M,N]` shape 的 plain contiguous BF16
++tensor。首个 bounded shape policy 还要求 `K` 是 128 的倍数，`N` 是 16 的倍数。
++
++keyword argument 可以完全省略。若存在，则只接受 exact BF16 `out_dtype`、bool
++`a_trans`/`b_trans` 与 `c_matrix_nz=false`；duplicate、unknown key、错误 type 或错误
++value 都会被拒绝。attribute、`tensor.matmul_acc`、mixed dtype/rank、batch broadcast、
++dynamic extent、MemRef/TensorView metadata、nested call、operand reorder、mutation 与
++多余 statement 均不被接受。
++
++transpose flag 不会变成 TensorIR matmul attribute。canonical source 会在 physical dense
++argument 上显式生成 `transpose` view：rank two 使用 permutation `[1,0]`，rank three
++使用 `[0,2,1]`。之后生成 BF16-by-BF16 TensorIR `matmul`，其 result 为 FP32，再通过
++nearest-even TensorIR `convert` 把 FP32 转成 HIR 的 BF16 result。frontend projection 与
++producer ABI 始终保留原始 physical input shape 和 dense stride。
++
++对于上述 normalized extent `S`，preparation 要求恰好 `len(S)` 个不大于对应 extent 的
++power-of-two tile。令 `r=min(128, lowbit(K))`，它会拒绝
++`product(tile)*r > 16,777,216`、`ceil(K/r) > INT32_MAX`，以及超出 signed-int32 或
++target limit 的 grid product。finalization 严格要求两个 input descriptor 后接
++`Result0`、三个 pointer argument、由 output descriptor two 选择 static grid、精确
++tile 与 grid、pointer-only packing 和 zero workspace。
++
++本 source/compiler layer 只建立 bounded HIR acceptance、deterministic TensorIR/frontend
++identity 与 producer ABI check。在单独的 CPU/compiler 与 real-SM120 gate 完成前，不声明
++所有 accepted case 都成功通过 TensorIR/CUDA Tile build，也不声明 GPU numerical
++correctness、CUDA launch 或 performance。V1/V2/V3 canonical source、projection bytes、
++callable ABI 与 producer behavior 保持不变。
++
+ ## NVIDIA Artifact v1
+ 
+ `Artifact` 是第一条 strict structured TensorIR 路径的不可变、无指针输出封装。
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index e65665d8b8f3b5a89802f946e10cb861a50fbc02..a2be152b8ac58277da6049a1443733632a788939 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -12,6 +12,7 @@
+ #include "tensor_ir_codegen.h"
+ 
+ #include <algorithm>
++#include <any>
+ #include <charconv>
+ #include <cmath>
+ #include <cstddef>
+@@ -24,6 +25,7 @@
+ #include <string>
+ #include <string_view>
+ #include <unordered_map>
++#include <unordered_set>
+ #include <utility>
+ #include <vector>
+ 
+@@ -48,6 +50,8 @@ constexpr size_t kMaximumFusedPointwiseAssignments = 64;
+ constexpr std::string_view kLegacyStaticAddEntryName = "pypto_vector_add";
+ constexpr std::string_view kFusedPointwiseEntryName = "pypto_fused_pointwise_v2";
+ constexpr std::string_view kRowReductionEntryName = "pypto_row_reduction_v3";
++constexpr std::string_view kStructuredMatmulEntryName =
++    "pypto_structured_matmul_v4";
+ 
+ struct StaticTensor {
+   DataType dtype;
+@@ -92,6 +96,15 @@ struct RowReductionGraph {
+   int64_t rows;
+ };
+ 
++struct StructuredMatmulGraph {
++  StaticTensor lhs;
++  StaticTensor rhs;
++  StaticTensor result;
++  bool a_trans;
++  bool b_trans;
++  int64_t k;
++};
++
+ std::string BoundedDisplay(std::string_view value) {
+   std::string output;
+   const size_t count = std::min(value.size(), kMaximumDiagnosticNameBytes);
+@@ -800,6 +813,309 @@ std::string EmitRowReductionSource(const RowReductionGraph& graph) {
+   return source;
+ }
+ 
++StaticTensor TransposeMatrixDims(const StaticTensor& tensor) {
++  StaticTensor transposed = tensor;
++  std::swap(transposed.shape[transposed.shape.size() - 2], transposed.shape.back());
++  transposed.dense_strides = MakeDenseStridesForMetadata(transposed.shape);
++  return transposed;
++}
++
++StructuredMatmulGraph AnalyzeStructuredMatmulV4(const ir::ProgramPtr& program) {
++  if (!program) Reject("program must not be null");
++  if (program->functions_.size() != 1) {
++    Reject("program must contain exactly one function", &program->span_);
++  }
++
++  const auto& [global, function] = *program->functions_.begin();
++  if (!global || !function) Reject("program contains a null function binding", &program->span_);
++  if (global->name_ != function->name_) {
++    Reject("global function name does not match the bound function name", &function->span_);
++  }
++  if (function->requires_runtime_binding_) {
++    Reject("runtime-bound functions are not supported", &function->span_);
++  }
++  if (function->func_type_ != ir::FunctionType::Opaque || function->level_.has_value() ||
++      function->role_.has_value()) {
++    Reject("function must be Opaque with no hierarchy level or role", &function->span_);
++  }
++  if (!function->attrs_.empty()) {
++    Reject("function attributes are not supported", &function->span_);
++  }
++  if (function->params_.size() != 2) {
++    Reject("structured matmul v4 requires exactly two function parameters, got " +
++               std::to_string(function->params_.size()),
++           &function->span_);
++  }
++  if (function->param_directions_.size() != 2) {
++    Reject("structured matmul v4 parameter-direction count must be 2, got " +
++               std::to_string(function->param_directions_.size()),
++           &function->span_);
++  }
++  if (!std::all_of(function->param_directions_.begin(), function->param_directions_.end(),
++                   [](ir::ParamDirection direction) {
++                     return direction == ir::ParamDirection::In;
++                   })) {
++    Reject("both structured matmul parameters must have direction In", &function->span_);
++  }
++  if (function->return_types_.size() != 1) {
++    Reject("structured matmul v4 requires exactly one declared return, got " +
++               std::to_string(function->return_types_.size()),
++           &function->span_);
++  }
++
++  std::vector<StaticTensor> inputs;
++  inputs.reserve(2);
++  std::unordered_set<const ir::Var*> parameter_identities;
++  for (size_t index = 0; index < function->params_.size(); ++index) {
++    const ir::VarPtr& parameter = function->params_[index];
++    if (!parameter) Reject("function contains a null parameter", &function->span_);
++    if (parameter->GetKind() != ir::ObjectKind::Var) {
++      Reject("structured matmul parameters must be exact Var nodes", &parameter->span_);
++    }
++    if (!parameter_identities.insert(parameter.get()).second) {
++      Reject("structured matmul parameters must have distinct IR identities",
++             &parameter->span_);
++    }
++    inputs.push_back(ReadStaticTensor(parameter->GetType(), parameter->span_,
++                                      "structured matmul parameter"));
++    if (inputs.back().dtype != DataType::BF16) {
++      Reject("structured matmul parameters must have BF16 dtype, got " +
++                 inputs.back().dtype.ToString(),
++             &parameter->span_);
++    }
++    if (inputs.back().shape.size() != 2 && inputs.back().shape.size() != 3) {
++      Reject("structured matmul parameters must both have rank 2 or rank 3, got rank " +
++                 std::to_string(inputs.back().shape.size()),
++             &parameter->span_);
++    }
++  }
++  if (inputs[0].shape.size() != inputs[1].shape.size()) {
++    Reject("structured matmul parameters must have the same rank, got " +
++               std::to_string(inputs[0].shape.size()) + " and " +
++               std::to_string(inputs[1].shape.size()),
++           &function->span_);
++  }
++
++  if (!function->body_) Reject("function body must not be null", &function->span_);
++  const auto sequence = ir::As<ir::SeqStmts>(function->body_);
++  if (!sequence || sequence->stmts_.size() != 2 || !sequence->stmts_[0] ||
++      !sequence->stmts_[1]) {
++    Reject("structured matmul body must contain exactly one assignment and one return",
++           &function->body_->span_);
++  }
++  const auto assignment = ir::As<ir::AssignStmt>(sequence->stmts_[0]);
++  if (!assignment || !assignment->var_ || !assignment->value_) {
++    Reject("first structured matmul statement must be one complete assignment",
++           &sequence->stmts_[0]->span_);
++  }
++  if (assignment->var_->GetKind() != ir::ObjectKind::Var) {
++    Reject("structured matmul assignment result must be an exact Var node",
++           &assignment->var_->span_);
++  }
++  if (parameter_identities.count(assignment->var_.get()) != 0) {
++    Reject("structured matmul result must not reuse a parameter IR identity",
++           &assignment->span_);
++  }
++
++  const auto call = ir::As<ir::Call>(assignment->value_);
++  if (!call || !call->op_) {
++    Reject("structured matmul assignment value must be a direct registered tensor call",
++           &assignment->value_->span_);
++  }
++  if (!ir::IsOp(call, "tensor.matmul")) {
++    Reject("structured matmul v4 supports only tensor.matmul, not " +
++               BoundedDisplay(call->op_->name_),
++           &call->span_);
++  }
++  if (!call->attrs_.empty()) {
++    Reject("structured matmul call attributes are not supported", &call->span_);
++  }
++  if (call->args_.size() != 2) {
++    Reject("tensor.matmul expects exactly two operands, got " +
++               std::to_string(call->args_.size()),
++           &call->span_);
++  }
++
++  bool a_trans = false;
++  bool b_trans = false;
++  std::unordered_set<std::string> seen_kwargs;
++  for (const auto& [key, value] : call->kwargs_) {
++    if (!seen_kwargs.insert(key).second) {
++      Reject("structured matmul keyword argument " + BoundedDisplay(key) +
++                 " appears more than once",
++             &call->span_);
++    }
++    if (key == "out_dtype") {
++      const auto* out_dtype = std::any_cast<DataType>(&value);
++      if (out_dtype == nullptr || *out_dtype != DataType::BF16) {
++        Reject("structured matmul out_dtype must be exact BF16", &call->span_);
++      }
++    } else if (key == "a_trans" || key == "b_trans" || key == "c_matrix_nz") {
++      const auto* flag = std::any_cast<bool>(&value);
++      if (flag == nullptr) {
++        Reject("structured matmul keyword argument " + BoundedDisplay(key) +
++                   " must have bool type",
++               &call->span_);
++      }
++      if (key == "a_trans") {
++        a_trans = *flag;
++      } else if (key == "b_trans") {
++        b_trans = *flag;
++      } else if (*flag) {
++        Reject("structured matmul c_matrix_nz must be false", &call->span_);
++      }
++    } else {
++      Reject("structured matmul keyword argument " + BoundedDisplay(key) +
++                 " is not supported",
++             &call->span_);
++    }
++  }
++
++  for (size_t index = 0; index < call->args_.size(); ++index) {
++    const ir::ExprPtr& argument = call->args_[index];
++    const auto variable = ir::As<ir::Var>(argument);
++    if (!variable || variable->GetKind() != ir::ObjectKind::Var ||
++        variable.get() != function->params_[index].get()) {
++      Reject("tensor.matmul operands must directly reference Input0 then Input1",
++             argument ? &argument->span_ : &call->span_);
++    }
++    const StaticTensor operand = ReadStaticTensor(
++        variable->GetType(), variable->span_, "structured matmul operand");
++    if (!SameTensor(inputs[index], operand)) {
++      Reject("tensor.matmul operand type and shape must match its physical parameter",
++             &variable->span_);
++    }
++  }
++
++  const size_t rank = inputs[0].shape.size();
++  const int64_t batch = rank == 3 ? inputs[0].shape[0] : 1;
++  if (rank == 3 && inputs[1].shape[0] != batch) {
++    Reject("structured matmul rank-3 batch extents must be exactly equal; broadcasting is unsupported",
++           &call->span_);
++  }
++  const int64_t m = a_trans ? inputs[0].shape.back() : inputs[0].shape[rank - 2];
++  const int64_t lhs_k = a_trans ? inputs[0].shape[rank - 2] : inputs[0].shape.back();
++  const int64_t rhs_k = b_trans ? inputs[1].shape.back() : inputs[1].shape[rank - 2];
++  const int64_t n = b_trans ? inputs[1].shape[rank - 2] : inputs[1].shape.back();
++  if (lhs_k != rhs_k) {
++    Reject("structured matmul contraction extents must match, got lhs K=" +
++               std::to_string(lhs_k) + " and rhs K=" + std::to_string(rhs_k),
++           &call->span_);
++  }
++  if (lhs_k % 128 != 0) {
++    Reject("structured matmul K must be a multiple of 128, got " +
++               std::to_string(lhs_k),
++           &call->span_);
++  }
++  if (n % 16 != 0) {
++    Reject("structured matmul N must be a multiple of 16, got " + std::to_string(n),
++           &call->span_);
++  }
++
++  StaticTensor expected_result{DataType::BF16,
++                               rank == 2 ? std::vector<int64_t>{m, n}
++                                         : std::vector<int64_t>{batch, m, n},
++                               {}};
++  expected_result.dense_strides =
++      MakeDenseStrides(expected_result.shape, function->span_);
++  const StaticTensor declared_result = ReadStaticTensor(
++      function->return_types_[0], function->span_, "declared structured matmul result");
++  const StaticTensor call_result =
++      ReadStaticTensor(call->GetType(), call->span_, "structured matmul call result");
++  const StaticTensor assigned_result = ReadStaticTensor(
++      assignment->var_->GetType(), assignment->var_->span_,
++      "structured matmul assignment result");
++  if (!SameTensor(expected_result, declared_result) ||
++      !SameTensor(expected_result, call_result) ||
++      !SameTensor(expected_result, assigned_result)) {
++    Reject("structured matmul call, assignment, and declared result must be dense BF16 with logical shape " +
++               JoinIntegers(expected_result.shape, 'x'),
++           &call->span_);
++  }
++
++  const auto returned = ir::As<ir::ReturnStmt>(sequence->stmts_[1]);
++  if (!returned || returned->value_.size() != 1) {
++    Reject("second structured matmul statement must be exactly one return",
++           &sequence->stmts_[1]->span_);
++  }
++  const auto returned_variable = ir::As<ir::Var>(returned->value_[0]);
++  if (!returned_variable || returned_variable->GetKind() != ir::ObjectKind::Var ||
++      returned_variable.get() != assignment->var_.get()) {
++    Reject("return must directly reference the structured matmul assignment result",
++           &returned->span_);
++  }
++  return StructuredMatmulGraph{inputs[0], inputs[1], expected_result, a_trans,
++                               b_trans, lhs_k};
++}
++
++std::string EmitStructuredMatmulSource(const StructuredMatmulGraph& graph) {
++  const std::string lhs_physical = TensorTypeText(graph.lhs);
++  const std::string rhs_physical = TensorTypeText(graph.rhs);
++  const std::string result_type = TensorTypeText(graph.result);
++  const StaticTensor lhs_logical =
++      graph.a_trans ? TransposeMatrixDims(graph.lhs) : graph.lhs;
++  const StaticTensor rhs_logical =
++      graph.b_trans ? TransposeMatrixDims(graph.rhs) : graph.rhs;
++  StaticTensor accumulation = graph.result;
++  accumulation.dtype = DataType::FP32;
++  const std::string lhs_logical_type = TensorTypeText(lhs_logical);
++  const std::string rhs_logical_type = TensorTypeText(rhs_logical);
++  const std::string accumulation_type = TensorTypeText(accumulation);
++  const std::string permutation =
++      graph.lhs.shape.size() == 2 ? "[1, 0]" : "[0, 2, 1]";
++
++  std::string source;
++  source.reserve(1024 + lhs_physical.size() * 3 + rhs_physical.size() * 3 +
++                 result_type.size() * 3);
++  source += "module {\n  nv_tensor_ir.graph @";
++  source += kStructuredMatmulEntryName;
++  source += "(\n    %arg0: ";
++  source += TensorWithStrideText(graph.lhs);
++  source += ",\n    %arg1: ";
++  source += TensorWithStrideText(graph.rhs);
++  source += "\n  ) -> (";
++  source += TensorWithStrideText(graph.result);
++  source += ") {\n";
++  if (graph.a_trans) {
++    source += "    %lhs0 = transpose %arg0 permutation = ";
++    source += permutation;
++    source += " : ";
++    source += lhs_physical;
++    source += " -> ";
++    source += lhs_logical_type;
++    source += "\n";
++  }
++  if (graph.b_trans) {
++    source += "    %rhs0 = transpose %arg1 permutation = ";
++    source += permutation;
++    source += " : ";
++    source += rhs_physical;
++    source += " -> ";
++    source += rhs_logical_type;
++    source += "\n";
++  }
++  source += "    %accum0 = matmul(";
++  source += graph.a_trans ? "%lhs0, " : "%arg0, ";
++  source += graph.b_trans ? "%rhs0)\n" : "%arg1)\n";
++  source += "      : (";
++  source += lhs_logical_type;
++  source += ", ";
++  source += rhs_logical_type;
++  source += ") -> ";
++  source += accumulation_type;
++  source += "\n    %result0 = convert %accum0 : ";
++  source += accumulation_type;
++  source += " -> ";
++  source += result_type;
++  source += "\n    results %result0 : ";
++  source += result_type;
++  source += "\n  }\n}\n";
++  if (source.size() > kMaximumCanonicalSourceBytes) {
++    Reject("canonical TensorIR source exceeds 16 MiB");
++  }
++  return source;
++}
++
+ struct FusedOperationSpec {
+   std::string_view tensor_ir_op;
+   size_t tensor_operand_count;
+@@ -1278,10 +1594,26 @@ bool IsRowReductionV3Candidate(const ir::ProgramPtr& program) {
+          (ir::IsOp(call, "tensor.row_sum") || ir::IsOp(call, "tensor.row_max"));
+ }
+ 
++bool IsStructuredMatmulV4Candidate(const ir::ProgramPtr& program) {
++  if (!program || program->functions_.size() != 1) return false;
++  const ir::FunctionPtr& function = program->functions_.begin()->second;
++  if (!function || !function->body_) return false;
++  const auto sequence = ir::As<ir::SeqStmts>(function->body_);
++  if (!sequence || sequence->stmts_.empty() || !sequence->stmts_[0]) return false;
++  const auto assignment = ir::As<ir::AssignStmt>(sequence->stmts_[0]);
++  if (!assignment || !assignment->value_) return false;
++  const auto call = ir::As<ir::Call>(assignment->value_);
++  return call && call->op_ &&
++         (ir::IsOp(call, "tensor.matmul") || ir::IsOp(call, "tensor.matmul_acc"));
++}
++
+ std::string_view EntryNameForKind(TensorIrModuleKind kind) {
+   if (kind == TensorIrModuleKind::LegacyStaticAddV1) return kLegacyStaticAddEntryName;
+   if (kind == TensorIrModuleKind::FusedPointwiseV2) return kFusedPointwiseEntryName;
+   if (kind == TensorIrModuleKind::RowReductionV3) return kRowReductionEntryName;
++  if (kind == TensorIrModuleKind::StructuredMatmulV4) {
++    return kStructuredMatmulEntryName;
++  }
+   InternalReject("TensorIR module kind is invalid");
+ }
+ 
+@@ -1325,15 +1657,19 @@ TensorIrValueMetadata::TensorIrValueMetadata(TensorIrValueRole role, uint32_t or
+ 
+ TensorIrModule::TensorIrModule(TensorIrModuleKind kind, std::string canonical_source,
+                                std::vector<TensorIrValueMetadata> value_metadata,
+-                               uint32_t input_count)
++                               uint32_t input_count, uint64_t contraction_extent)
+     : kind_(kind),
+       canonical_source_(std::move(canonical_source)),
+       entry_name_(EntryNameForKind(kind)),
+       value_metadata_(std::move(value_metadata)),
+-      input_count_(input_count) {
++      input_count_(input_count),
++      contraction_extent_(contraction_extent) {
+   if (canonical_source_.empty() || canonical_source_.size() > kMaximumCanonicalSourceBytes) {
+     InternalReject("canonical source metadata is empty or exceeds 16 MiB");
+   }
++  if (kind_ != TensorIrModuleKind::StructuredMatmulV4 && contraction_extent_ != 0) {
++    InternalReject("non-matmul TensorIR module unexpectedly carries a contraction extent");
++  }
+   if (kind_ == TensorIrModuleKind::LegacyStaticAddV1) {
+     if (input_count_ != 2 || value_metadata_.size() != 3) {
+       InternalReject("tensor.add module metadata must contain Input0, Input1, and Result0");
+@@ -1347,6 +1683,12 @@ TensorIrModule::TensorIrModule(TensorIrModuleKind kind, std::string canonical_so
+     if (input_count_ != 1 || value_metadata_.size() != 2) {
+       InternalReject("row reduction module metadata must contain Input0 and Result0");
+     }
++  } else if (kind_ == TensorIrModuleKind::StructuredMatmulV4) {
++    if (input_count_ != 2 || value_metadata_.size() != 3 ||
++        contraction_extent_ == 0) {
++      InternalReject(
++          "structured matmul module metadata must contain Input0, Input1, Result0, and K");
++    }
+   } else {
+     InternalReject("TensorIR module kind is invalid");
+   }
+@@ -1367,19 +1709,8 @@ TensorIrModule::TensorIrModule(TensorIrModuleKind kind, std::string canonical_so
+            left.GetLogicalDenseStrides() == right.GetLogicalDenseStrides() &&
+            left.HasExplicitStrides() == right.HasExplicitStrides();
+   };
+-  if (kind_ == TensorIrModuleKind::RowReductionV3) {
+-    const TensorIrValueMetadata& input = value_metadata_[0];
+-    const TensorIrValueMetadata& result = value_metadata_[1];
+-    std::vector<int64_t> expected_result_shape = input.GetShape();
+-    expected_result_shape.back() = 1;
+-    if (input.GetDtypeCode() != result.GetDtypeCode() ||
+-        input.GetDtypeName() != result.GetDtypeName() ||
+-        input.GetShape().size() != result.GetShape().size() ||
+-        input.HasExplicitStrides() != result.HasExplicitStrides() ||
+-        result.GetShape() != expected_result_shape) {
+-      InternalReject("row reduction module result metadata must preserve dtype and rank and reduce the last extent");
+-    }
+-  } else {
++  if (kind_ != TensorIrModuleKind::RowReductionV3 &&
++      kind_ != TensorIrModuleKind::StructuredMatmulV4) {
+     const auto row_broadcast_compatible = [](const TensorIrValueMetadata& row,
+                                              const TensorIrValueMetadata& full) {
+       if (row.GetDtypeCode() != full.GetDtypeCode() ||
+@@ -1408,6 +1739,34 @@ TensorIrModule::TensorIrModule(TensorIrModuleKind kind, std::string canonical_so
+                      })) {
+       InternalReject("TensorIR module value metadata must have identical types and layouts");
+     }
++  } else if (kind_ == TensorIrModuleKind::RowReductionV3) {
++    const TensorIrValueMetadata& input = value_metadata_[0];
++    const TensorIrValueMetadata& result = value_metadata_[1];
++    std::vector<int64_t> expected_result_shape = input.GetShape();
++    expected_result_shape.back() = 1;
++    if (input.GetDtypeCode() != result.GetDtypeCode() ||
++        input.GetDtypeName() != result.GetDtypeName() ||
++        input.GetShape().size() != result.GetShape().size() ||
++        input.HasExplicitStrides() != result.HasExplicitStrides() ||
++        result.GetShape() != expected_result_shape) {
++      InternalReject("row reduction module result metadata must preserve dtype and rank and reduce the last extent");
++    }
++  } else {
++    const TensorIrValueMetadata& lhs = value_metadata_[0];
++    const TensorIrValueMetadata& rhs = value_metadata_[1];
++    const TensorIrValueMetadata& result = value_metadata_[2];
++    if (lhs.GetDtypeCode() != DataType::BF16.Code() ||
++        rhs.GetDtypeCode() != DataType::BF16.Code() ||
++        result.GetDtypeCode() != DataType::BF16.Code() ||
++        (lhs.GetShape().size() != 2 && lhs.GetShape().size() != 3) ||
++        rhs.GetShape().size() != lhs.GetShape().size() ||
++        result.GetShape().size() != lhs.GetShape().size() ||
++        (lhs.GetShape().size() == 3 &&
++         (lhs.GetShape()[0] != rhs.GetShape()[0] ||
++          lhs.GetShape()[0] != result.GetShape()[0]))) {
++      InternalReject(
++          "structured matmul module metadata must preserve rank, BF16 dtype, and exact batch");
++    }
+   }
+ }
+ 
+@@ -1604,6 +1963,24 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+                           EmitRowReductionSource(graph), std::move(metadata),
+                           /*input_count=*/1);
+   }
++  if (IsStructuredMatmulV4Candidate(program)) {
++    const StructuredMatmulGraph graph = AnalyzeStructuredMatmulV4(program);
++    std::vector<TensorIrValueMetadata> metadata;
++    metadata.reserve(3);
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Input, 0, graph.lhs.dtype, graph.lhs.shape,
++        graph.lhs.dense_strides, /*has_explicit_strides=*/true));
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Input, 1, graph.rhs.dtype, graph.rhs.shape,
++        graph.rhs.dense_strides, /*has_explicit_strides=*/true));
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
++        graph.result.dense_strides, /*has_explicit_strides=*/true));
++    return TensorIrModule(TensorIrModuleKind::StructuredMatmulV4,
++                          EmitStructuredMatmulSource(graph), std::move(metadata),
++                          /*input_count=*/2,
++                          /*contraction_extent=*/static_cast<uint64_t>(graph.k));
++  }
+ 
+   FusedPointwiseGraph graph = AnalyzeFusedPointwiseV2(program);
+   std::vector<TensorIrValueMetadata> metadata;
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.h b/src/codegen/nvidia/tensor_ir_codegen.h
+index 6b1fecd7193a6dfc08c043cca8035d0800df53bc..fafe64f674c6cf0090ad4f0fbd59f6508bf3c6af 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.h
++++ b/src/codegen/nvidia/tensor_ir_codegen.h
+@@ -32,6 +32,7 @@ enum class TensorIrModuleKind : uint8_t {
+   LegacyStaticAddV1 = 0,
+   FusedPointwiseV2 = 1,
+   RowReductionV3 = 2,
++  StructuredMatmulV4 = 3,
+ };
+ 
+ /** Position of a value in the compile-free TensorIR graph ABI. */
+@@ -88,6 +89,7 @@ class TensorIrModule {
+   static constexpr uint32_t kLegacyStaticAddMetadataSchemaVersion = 1;
+   static constexpr uint32_t kFusedPointwiseMetadataSchemaVersion = 2;
+   static constexpr uint32_t kRowReductionMetadataSchemaVersion = 3;
++  static constexpr uint32_t kStructuredMatmulMetadataSchemaVersion = 4;
+ 
+   TensorIrModule() = delete;
+   TensorIrModule(const TensorIrModule&) = default;
+@@ -103,7 +105,10 @@ class TensorIrModule {
+     if (kind_ == TensorIrModuleKind::FusedPointwiseV2) {
+       return kFusedPointwiseMetadataSchemaVersion;
+     }
+-    return kRowReductionMetadataSchemaVersion;
++    if (kind_ == TensorIrModuleKind::RowReductionV3) {
++      return kRowReductionMetadataSchemaVersion;
++    }
++    return kStructuredMatmulMetadataSchemaVersion;
+   }
+   [[nodiscard]] const std::string& GetCanonicalSource() const noexcept {
+     return canonical_source_;
+@@ -116,10 +121,14 @@ class TensorIrModule {
+   [[nodiscard]] uint32_t GetResultCount() const noexcept {
+     return static_cast<uint32_t>(value_metadata_.size()) - input_count_;
+   }
++  [[nodiscard]] uint64_t GetContractionExtent() const noexcept {
++    return contraction_extent_;
++  }
+ 
+  private:
+   TensorIrModule(TensorIrModuleKind kind, std::string canonical_source,
+-                 std::vector<TensorIrValueMetadata> value_metadata, uint32_t input_count);
++                 std::vector<TensorIrValueMetadata> value_metadata, uint32_t input_count,
++                 uint64_t contraction_extent = 0);
+   friend TensorIrModule EmitTensorIr(const ir::ProgramPtr& program);
+   friend TensorIrModule detail::EmitLegacyStaticAddV1(const ir::ProgramPtr& program);
+ 
+@@ -128,6 +137,7 @@ class TensorIrModule {
+   std::string entry_name_;
+   std::vector<TensorIrValueMetadata> value_metadata_;
+   uint32_t input_count_;
++  uint64_t contraction_extent_;
+ };
+ 
+ /**
+@@ -141,6 +151,10 @@ class TensorIrModule {
+  * tensor.row_max over the last axis of one plain, static, contiguous BF16 or
+  * FP32 tensor. It preserves rank and dtype while setting the last result extent
+  * to one; BF16 is explicitly widened to FP32 around the TensorIR reduction.
++ * StructuredMatmulV4 accepts one direct rank-2 or equal-batch rank-3 BF16
++ * tensor.matmul, optionally transposes either physical input through an
++ * explicit TensorIR view, computes BF16xBF16 to F32, and converts the logical
++ * result back to BF16. Its physical input metadata remains unchanged.
+  * Rejected HIR raises ValueError; this function never invokes TensorIR or any
+  * device compiler.
+  */
+diff --git a/src/compiler/structured_tensor_ir_build_spec.cpp b/src/compiler/structured_tensor_ir_build_spec.cpp
+index a3be867af35c4e83002783daed1e910a5c0c6ae6..8e08a433a96c0b7cf6c392b4e9f987f6ad6bfb3d 100644
+--- a/src/compiler/structured_tensor_ir_build_spec.cpp
++++ b/src/compiler/structured_tensor_ir_build_spec.cpp
+@@ -55,6 +55,13 @@ constexpr std::string_view kSymbolicSpecializationV3Contract =
+ constexpr std::string_view kArgumentAbiV3Contract = "pypto.frontend.argument_abi.v3";
+ constexpr std::string_view kResultAbiV3Contract = "pypto.frontend.result_abi.v3";
+ constexpr std::string_view kMutationAbiV3Contract = "pypto.frontend.mutation_abi.v3";
++constexpr std::string_view kStaticSpecializationV4Contract =
++    "pypto.frontend.static_specialization.v4";
++constexpr std::string_view kSymbolicSpecializationV4Contract =
++    "pypto.frontend.symbolic_specialization.v4";
++constexpr std::string_view kArgumentAbiV4Contract = "pypto.frontend.argument_abi.v4";
++constexpr std::string_view kResultAbiV4Contract = "pypto.frontend.result_abi.v4";
++constexpr std::string_view kMutationAbiV4Contract = "pypto.frontend.mutation_abi.v4";
+ constexpr std::string_view kRuntimeKernelName = "tensor_ir_rtk";
+ // Pinned compiler-infrastructure bound from CUDA Tile: one materialized tile may
+ // contain at most 2^24 elements. This is a frontend safety bound, not a model or
+@@ -89,6 +96,12 @@ FrontendProjectionSchema ProjectionSchemaFor(
+                                     kArgumentAbiV3Contract, kResultAbiV3Contract,
+                                     kMutationAbiV3Contract};
+   }
++  if (module_kind == PreparedStructuredTensorIrModuleKind::StructuredMatmulV4) {
++    return FrontendProjectionSchema{4, kStaticSpecializationV4Contract,
++                                    kSymbolicSpecializationV4Contract,
++                                    kArgumentAbiV4Contract, kResultAbiV4Contract,
++                                    kMutationAbiV4Contract};
++  }
+   INTERNAL_UNREACHABLE << "prepared structured TensorIR module kind is invalid";
+ }
+ 
+@@ -379,6 +392,105 @@ void ValidateRowReductionSchedule(
+       << " exceeds the prepared target limit " << max_grid_x;
+ }
+ 
++std::vector<uint64_t> StructuredMatmulIterationExtents(
++    const std::vector<int64_t>& result_shape) {
++  INTERNAL_CHECK(result_shape.size() == 2 || result_shape.size() == 3)
++      << "prepared structured matmul result must have rank 2 or rank 3";
++  std::vector<uint64_t> extents;
++  extents.reserve(result_shape.size());
++  const auto append_non_unit = [&](int64_t extent) {
++    INTERNAL_CHECK(extent > 0)
++        << "prepared structured matmul result contains a non-positive extent";
++    if (extent > 1) extents.push_back(static_cast<uint64_t>(extent));
++  };
++  if (result_shape.size() == 3) append_non_unit(result_shape[0]);
++  append_non_unit(result_shape[result_shape.size() - 2]);
++  append_non_unit(result_shape.back());
++  if (extents.empty()) extents.push_back(1);
++  return extents;
++}
++
++uint64_t StructuredMatmulContractionTile(
++    uint64_t contraction_extent,
++    const StrictTensorIrProducerOptions& resolved_options) {
++  INTERNAL_CHECK(contraction_extent > 0)
++      << "prepared structured matmul contraction extent must be positive";
++  INTERNAL_CHECK(resolved_options.reduction_tile_size == 128)
++      << "structured matmul v4 requires the pinned contraction tile budget 128";
++  return std::min(static_cast<uint64_t>(resolved_options.reduction_tile_size),
++                  contraction_extent & (~contraction_extent + uint64_t{1}));
++}
++
++void ValidateStructuredMatmulSchedule(
++    const codegen::nvidia::TensorIrModule& module,
++    const StrictTensorIrProducerOptions& resolved_options,
++    const CompileRequest& request) {
++  if (module.GetKind() !=
++      codegen::nvidia::TensorIrModuleKind::StructuredMatmulV4) {
++    return;
++  }
++  INTERNAL_CHECK(module.GetValueMetadata().size() == 3 &&
++                 module.GetInputCount() == 2 && module.GetResultCount() == 1)
++      << "structured matmul v4 module must contain two inputs and one result";
++  const auto& result_shape = module.GetValueMetadata()[2].GetShape();
++  const std::vector<uint64_t> extents =
++      StructuredMatmulIterationExtents(result_shape);
++  CHECK(resolved_options.tile_sizes.size() == extents.size())
++      << "structured matmul v4 requires " << extents.size()
++      << " normalized tile dimensions, got " << resolved_options.tile_sizes.size();
++
++  uint64_t tile_product = 1;
++  uint64_t grid_product = 1;
++  for (size_t index = 0; index < extents.size(); ++index) {
++    const uint32_t tile = resolved_options.tile_sizes[index];
++    CHECK(tile != 0 && (tile & (tile - 1)) == 0)
++        << "structured matmul v4 tile dim_" << index
++        << " must be a positive power of two, got " << tile;
++    CHECK(static_cast<uint64_t>(tile) <= extents[index])
++        << "structured matmul v4 tile dim_" << index
++        << " must not exceed bit_floor(normalized extent " << extents[index]
++        << "), got " << tile;
++    CHECK(static_cast<uint64_t>(tile) <=
++          std::numeric_limits<uint64_t>::max() / tile_product)
++        << "structured matmul v4 tile product overflows uint64";
++    tile_product *= static_cast<uint64_t>(tile);
++    const uint64_t grid_extent =
++        extents[index] / tile + (extents[index] % tile == 0 ? 0 : 1);
++    CHECK(grid_extent <= std::numeric_limits<uint64_t>::max() / grid_product)
++        << "structured matmul v4 grid product overflows uint64";
++    grid_product *= grid_extent;
++  }
++
++  const uint64_t contraction_extent = module.GetContractionExtent();
++  INTERNAL_CHECK(contraction_extent != 0 && contraction_extent % 128 == 0)
++      << "structured matmul v4 contraction extent must be a positive multiple of 128";
++  INTERNAL_CHECK(result_shape.back() % 16 == 0)
++      << "structured matmul v4 N must be a multiple of 16";
++  const uint64_t contraction_tile =
++      StructuredMatmulContractionTile(contraction_extent, resolved_options);
++  const uint64_t contraction_chunks =
++      contraction_extent / contraction_tile +
++      (contraction_extent % contraction_tile == 0 ? 0 : 1);
++  CHECK(tile_product <=
++        kCudaTileCompilerMaximumTileElements / contraction_tile)
++      << "structured matmul v4 resolved tile product*r exceeds the pinned CUDA Tile compiler "
++         "maximum tile elements "
++      << kCudaTileCompilerMaximumTileElements << " (tile product=" << tile_product
++      << ", r=" << contraction_tile << ")";
++  CHECK(contraction_chunks <=
++        static_cast<uint64_t>(std::numeric_limits<int32_t>::max()))
++      << "structured matmul v4 contraction chunk count ceil(K/r)="
++      << contraction_chunks << " (K=" << contraction_extent
++      << ", r=" << contraction_tile
++      << ") exceeds INT32_MAX because TensorIR lowering materializes an i32 loop bound";
++  const int64_t max_grid_x = request.GetTargetInfo().GetTraits().GetMaxGridDimX();
++  CHECK(grid_product <=
++            static_cast<uint64_t>(std::numeric_limits<int32_t>::max()) &&
++        grid_product <= static_cast<uint64_t>(max_grid_x))
++      << "structured matmul v4 static grid x=" << grid_product
++      << " exceeds the prepared target limit " << max_grid_x;
++}
++
+ uint32_t ExpectedFusedPointwiseGridX(
+     const PreparedStructuredTensorIrCompilation& prepared) {
+   INTERNAL_CHECK(prepared.GetModuleKind() ==
+@@ -416,6 +528,30 @@ uint32_t ExpectedRowReductionGridX(
+   return static_cast<uint32_t>(grid_x);
+ }
+ 
++uint32_t ExpectedStructuredMatmulGridX(
++    const PreparedStructuredTensorIrCompilation& prepared) {
++  INTERNAL_CHECK(prepared.GetModuleKind() ==
++                 PreparedStructuredTensorIrModuleKind::StructuredMatmulV4)
++      << "expected-grid calculation requires a structured matmul v4 preparation";
++  INTERNAL_CHECK(prepared.GetValueMetadata().size() == 3)
++      << "structured matmul v4 preparation must contain two inputs and one result";
++  const std::vector<uint64_t> extents = StructuredMatmulIterationExtents(
++      prepared.GetValueMetadata()[2].GetShape());
++  INTERNAL_CHECK(prepared.GetResolvedOptions().tile_sizes.size() == extents.size())
++      << "structured matmul v4 preparation tile arity differs";
++  uint64_t grid_x = 1;
++  for (size_t index = 0; index < extents.size(); ++index) {
++    const uint32_t tile = prepared.GetResolvedOptions().tile_sizes[index];
++    INTERNAL_CHECK(tile != 0) << "structured matmul v4 tile size is zero";
++    const uint64_t extent_grid =
++        extents[index] / tile + (extents[index] % tile == 0 ? 0 : 1);
++    INTERNAL_CHECK(extent_grid <= std::numeric_limits<uint32_t>::max() / grid_x)
++        << "structured matmul v4 grid exceeds uint32 after preparation";
++    grid_x *= extent_grid;
++  }
++  return static_cast<uint32_t>(grid_x);
++}
++
+ void ValidateDescriptor(const ArtifactArgumentDescriptor& descriptor,
+                         const PreparedStructuredTensorIrValueMetadata& metadata,
+                         size_t descriptor_index) {
+@@ -489,7 +625,15 @@ void ValidateKernelAbi(const PreparedStructuredTensorIrCompilation& prepared,
+   }
+ 
+   const ArtifactGridAbi& grid = kernel_abi.GetGridAbi();
+-  if (grid.GetPolicy() != ArtifactGridPolicy::Static || grid.GetShapeOperandIndex() != 0) {
++  if (prepared.GetModuleKind() ==
++      PreparedStructuredTensorIrModuleKind::StructuredMatmulV4) {
++    if (grid.GetPolicy() != ArtifactGridPolicy::Static ||
++        grid.GetShapeOperandIndex() != 2) {
++      RejectFinalization(
++          "structured matmul grid ABI must be static and selected by Result0");
++    }
++  } else if (grid.GetPolicy() != ArtifactGridPolicy::Static ||
++             grid.GetShapeOperandIndex() != 0) {
+     RejectFinalization("grid ABI must be static and selected by Input0");
+   }
+   if (grid.GetTileSizes() != prepared.GetResolvedOptions().tile_sizes) {
+@@ -521,6 +665,12 @@ void ValidateKernelAbi(const PreparedStructuredTensorIrCompilation& prepared,
+     RejectFinalization(
+         "row reduction static grid x differs from the checked rows and row tile");
+   }
++  if (prepared.GetModuleKind() ==
++          PreparedStructuredTensorIrModuleKind::StructuredMatmulV4 &&
++      dimensions[0] != ExpectedStructuredMatmulGridX(prepared)) {
++    RejectFinalization(
++        "structured matmul static grid x differs from normalized output extents and tiles");
++  }
+ 
+   const ArtifactWorkspaceAbi& workspace = kernel_abi.GetWorkspaceAbi();
+   if (workspace.GetKind() != ArtifactWorkspaceKind::Static || workspace.GetSizeBytes() != 0 ||
+@@ -597,6 +747,7 @@ PreparedStructuredTensorIrCompilation PrepareStructuredTensorIrCompilation(
+       ResolveStrictTensorIrProducerOptions(request, schedule);
+   ValidateFusedPointwiseSchedule(module, resolved_options, request);
+   ValidateRowReductionSchedule(module, resolved_options, request);
++  ValidateStructuredMatmulSchedule(module, resolved_options, request);
+ 
+   PreparedStructuredTensorIrModuleKind module_kind =
+       PreparedStructuredTensorIrModuleKind::LegacyStaticAddV1;
+@@ -616,6 +767,14 @@ PreparedStructuredTensorIrCompilation PrepareStructuredTensorIrCompilation(
+     INTERNAL_CHECK(module.GetMetadataSchemaVersion() == 3 && module.GetInputCount() == 1 &&
+                    module.GetResultCount() == 1 && module.GetValueMetadata().size() == 2)
+         << "prepared row reduction TensorIR module must use schema 3 with one input and one result";
++  } else if (module.GetKind() ==
++             codegen::nvidia::TensorIrModuleKind::StructuredMatmulV4) {
++    module_kind = PreparedStructuredTensorIrModuleKind::StructuredMatmulV4;
++    INTERNAL_CHECK(module.GetMetadataSchemaVersion() == 4 &&
++                   module.GetInputCount() == 2 && module.GetResultCount() == 1 &&
++                   module.GetValueMetadata().size() == 3 &&
++                   module.GetContractionExtent() != 0)
++        << "prepared structured matmul TensorIR module must use schema 4 with two inputs, one result, and K";
+   } else {
+     INTERNAL_UNREACHABLE << "emitted TensorIR module kind is invalid";
+   }
+diff --git a/src/compiler/structured_tensor_ir_build_spec.h b/src/compiler/structured_tensor_ir_build_spec.h
+index ba27527b1c3902b001ec4ffea3742281d9e2799e..500c30f05e0bcd452f95d110568cabd12b5253da 100644
+--- a/src/compiler/structured_tensor_ir_build_spec.h
++++ b/src/compiler/structured_tensor_ir_build_spec.h
+@@ -44,6 +44,7 @@ enum class PreparedStructuredTensorIrModuleKind : uint8_t {
+   LegacyStaticAddV1 = 0,
+   FusedPointwiseV2 = 1,
+   RowReductionV3 = 2,
++  StructuredMatmulV4 = 3,
+ };
+ 
+ /** Owned metadata copied out of TensorIR source emission. */
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index f05635bd38ac1cea98bdc07512e5ffd10c45ec7c..d58b2ef6ce0f24ddbb070404f75c2a9bdeac2103 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -101,9 +101,7 @@ def _fused_program() -> ir.Program:
+     return ir.Program([function], "structured_compile_fused", span)
+ 
+ 
+-def _row_reduction_program(
+-    shape: list[int], dtype: pypto.DataType, op_name: str
+-) -> ir.Program:
++def _row_reduction_program(shape: list[int], dtype: pypto.DataType, op_name: str) -> ir.Program:
+     span = ir.Span("structured_compile_test.py", 3, 1)
+     input_type = ir.TensorType(shape, dtype)
+     result_shape = [*shape[:-1], 1]
+@@ -111,9 +109,7 @@ def _row_reduction_program(
+     input_value = ir.Var("input", input_type, span)
+     result = ir.Var("result", result_type, span)
+     call = ir.Call(ir.get_op(op_name), [input_value], result_type, span)
+-    body = ir.SeqStmts(
+-        [ir.AssignStmt(result, call, span), ir.ReturnStmt([result], span)], span
+-    )
++    body = ir.SeqStmts([ir.AssignStmt(result, call, span), ir.ReturnStmt([result], span)], span)
+     function = ir.Function(
+         "ignored_row_reduction_name",
+         [input_value],
+@@ -124,6 +120,44 @@ def _row_reduction_program(
+     return ir.Program([function], "structured_compile_row_reduction", span)
+ 
+ 
++def _structured_matmul_program(
++    lhs_shape: list[int],
++    rhs_shape: list[int],
++    result_shape: list[int],
++    *,
++    a_trans: bool = False,
++    b_trans: bool = False,
++) -> ir.Program:
++    span = ir.Span("structured_compile_test.py", 4, 1)
++    lhs_type = ir.TensorType(lhs_shape, pypto.DataType.BF16)
++    rhs_type = ir.TensorType(rhs_shape, pypto.DataType.BF16)
++    result_type = ir.TensorType(result_shape, pypto.DataType.BF16)
++    lhs = ir.Var("lhs", lhs_type, span)
++    rhs = ir.Var("rhs", rhs_type, span)
++    result = ir.Var("result", result_type, span)
++    call = ir.Call(
++        ir.get_op("tensor.matmul"),
++        [lhs, rhs],
++        {
++            "out_dtype": pypto.DataType.BF16,
++            "a_trans": a_trans,
++            "b_trans": b_trans,
++            "c_matrix_nz": False,
++        },
++        result_type,
++        span,
++    )
++    body = ir.SeqStmts([ir.AssignStmt(result, call, span), ir.ReturnStmt([result], span)], span)
++    function = ir.Function(
++        "ignored_structured_matmul_name",
++        [lhs, rhs],
++        [result_type],
++        body,
++        span,
++    )
++    return ir.Program([function], "structured_compile_matmul", span)
++
++
+ def _traits() -> TargetTraits:
+     return TargetTraits(
+         compute_capability=120,
+@@ -196,12 +230,13 @@ def _request(info: NvidiaBackendBuildInfo) -> CompileRequest:
+     return CompileRequest(target, toolchain)
+ 
+ 
+-def _schedule(tile_size: int = 16) -> CanonicalSchedule:
++def _schedule(tile_size: int | list[int] = 16) -> CanonicalSchedule:
+     parameter = ScheduleParameter
+     unsigned = ScheduleValueKind.UnsignedInteger
++    tile_sizes = [tile_size] if isinstance(tile_size, int) else tile_size
+     return CanonicalSchedule(
+         [parameter("codegen_strategy", ScheduleValueKind.Text, "layout-propagation")],
+-        [parameter("dim_000", unsigned, str(tile_size))],
++        [parameter(f"dim_{index:03d}", unsigned, str(value)) for index, value in enumerate(tile_sizes)],
+         [],
+         [],
+         [parameter("count", unsigned, "1")],
+@@ -231,6 +266,12 @@ def test_compile_structured_strict_functional() -> None:
+         ):
+             with pytest.raises(ValueError, match="requires the compiled private NVIDIA backend"):
+                 compile_structured_strict(candidate, request, schedule)
++        with pytest.raises(ValueError, match="requires the compiled private NVIDIA backend"):
++            compile_structured_strict(
++                _structured_matmul_program([32, 128], [128, 16], [32, 16]),
++                request,
++                _schedule([32, 16]),
++            )
+         return
+ 
+     result = compile_structured_strict(program, request, schedule)
+@@ -312,10 +353,59 @@ def test_compile_structured_strict_functional() -> None:
+         assert descriptors[1].strides == result_strides
+         assert not reduction.artifact.fallback_used
+         assert reduction.build_spec.callable_abi_digest == reduction_kernel.identity_digest
+-        assert (
+-            reduction.artifact.identities.kernel_build_spec_digest
+-            == reduction.build_spec.identity_digest
++        assert reduction.artifact.identities.kernel_build_spec_digest == reduction.build_spec.identity_digest
++
++    matmul_cases = (
++        ([1, 1, 128], [1, 128, 16], [1, 1, 16], False, False, [16], 1),
++        ([1, 128, 32], [1, 128, 16], [1, 32, 16], True, False, [32, 16], 1),
++        ([2, 1, 128], [2, 16, 128], [2, 1, 16], False, True, [2, 16], 1),
++        (
++            [2, 128, 32],
++            [2, 16, 128],
++            [2, 32, 16],
++            True,
++            True,
++            [1, 16, 16],
++            4,
++        ),
++    )
++    for lhs_shape, rhs_shape, result_shape, a_trans, b_trans, tiles, grid_x in matmul_cases:
++        matmul = compile_structured_strict(
++            _structured_matmul_program(
++                lhs_shape,
++                rhs_shape,
++                result_shape,
++                a_trans=a_trans,
++                b_trans=b_trans,
++            ),
++            request,
++            _schedule(tiles),
+         )
++        matmul_kernel = matmul.artifact.kernel_abi
++        assert matmul_kernel.entry_function_name == "pypto_structured_matmul_v4"
++        assert matmul_kernel.argument_packing_policy == ArtifactArgumentPackingPolicy.PointerOnly
++        assert matmul_kernel.grid_abi.policy == ArtifactGridPolicy.Static
++        assert matmul_kernel.grid_abi.shape_operand_index == 2
++        assert matmul_kernel.grid_abi.static_dimensions == [grid_x, 1, 1]
++        assert matmul_kernel.grid_abi.tile_sizes == tiles
++        descriptors = matmul_kernel.argument_layout.operand_descriptors
++        assert len(descriptors) == 3
++        assert matmul_kernel.argument_layout.input_operand_count == 2
++        assert matmul_kernel.argument_layout.total_kernel_argument_count == 3
++        for descriptor, physical_shape in zip(descriptors, (lhs_shape, rhs_shape, result_shape), strict=True):
++            assert descriptor.kind == ArtifactOperandKind.Tensor
++            assert descriptor.shape == physical_shape
++            running = 1
++            strides: list[int] = []
++            for extent in reversed(physical_shape):
++                strides.append(running)
++                running *= extent
++            assert descriptor.strides == list(reversed(strides))
++            assert descriptor.dynamic_size_count == 0
++            assert descriptor.dynamic_stride_count == 0
++        assert not matmul.artifact.fallback_used
++        assert matmul.build_spec.callable_abi_digest == matmul_kernel.identity_digest
++        assert matmul.artifact.identities.kernel_build_spec_digest == matmul.build_spec.identity_digest
+ 
+ 
+ if __name__ == "__main__":
+diff --git a/tests/ut/cpp/structured_compile_test.cpp b/tests/ut/cpp/structured_compile_test.cpp
+index e88d003dc8cda24fa6149b25a974224b4998f186..d9418b26aaa5740842c802e294a44af26314d1de 100644
+--- a/tests/ut/cpp/structured_compile_test.cpp
++++ b/tests/ut/cpp/structured_compile_test.cpp
+@@ -182,6 +182,42 @@ ir::ProgramPtr MakeRowReductionProgram(
+                                       TestSpan());
+ }
+ 
++ir::ProgramPtr MakeStructuredMatmulProgram(
++    const std::vector<int64_t>& lhs_shape,
++    const std::vector<int64_t>& rhs_shape,
++    const std::vector<int64_t>& result_shape, bool a_trans = false,
++    bool b_trans = false) {
++  auto lhs_type = std::make_shared<ir::TensorType>(
++      lhs_shape, DataType::BF16, std::optional<ir::MemRefPtr>{});
++  auto rhs_type = std::make_shared<ir::TensorType>(
++      rhs_shape, DataType::BF16, std::optional<ir::MemRefPtr>{});
++  auto result_type = std::make_shared<ir::TensorType>(
++      result_shape, DataType::BF16, std::optional<ir::MemRefPtr>{});
++  auto lhs = std::make_shared<ir::Var>("lhs", lhs_type, TestSpan());
++  auto rhs = std::make_shared<ir::Var>("rhs", rhs_type, TestSpan());
++  auto result = std::make_shared<ir::Var>("result", result_type, TestSpan());
++  auto call = std::make_shared<ir::Call>(
++      ir::OpRegistry::GetInstance().GetOp("tensor.matmul"),
++      std::vector<ir::ExprPtr>{lhs, rhs},
++      std::vector<std::pair<std::string, std::any>>{
++          {"out_dtype", DataType::BF16}, {"a_trans", a_trans},
++          {"b_trans", b_trans}, {"c_matrix_nz", false}},
++      std::vector<std::pair<std::string, std::any>>{}, result_type, TestSpan());
++  auto body = std::make_shared<ir::SeqStmts>(
++      std::vector<ir::StmtPtr>{
++          std::make_shared<ir::AssignStmt>(result, call, TestSpan()),
++          std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{result},
++                                           TestSpan())},
++      TestSpan());
++  auto function = std::make_shared<ir::Function>(
++      "ignored", std::vector<ir::VarPtr>{lhs, rhs},
++      std::vector<ir::ParamDirection>{ir::ParamDirection::In,
++                                      ir::ParamDirection::In},
++      std::vector<ir::TypePtr>{result_type}, body, TestSpan());
++  return std::make_shared<ir::Program>(std::vector<ir::FunctionPtr>{function},
++                                      "test", TestSpan());
++}
++
+ ir::ProgramPtr MakeMaximumFusedProgram() {
+   auto type = std::make_shared<ir::TensorType>(
+       std::vector<int64_t>{16}, DataType::FP32, std::optional<ir::MemRefPtr>{});
+@@ -274,6 +310,30 @@ CanonicalSchedule MakeSchedule(std::string tile_size = "16") {
+        ScheduleParameter("uniform_signature", ScheduleValueKind::Boolean, "false")});
+ }
+ 
++CanonicalSchedule MakeSchedule(const std::vector<uint32_t>& tile_sizes) {
++  std::vector<ScheduleParameter> parameters;
++  parameters.reserve(tile_sizes.size());
++  for (size_t index = 0; index < tile_sizes.size(); ++index) {
++    std::string name = "dim_000";
++    name[4] = static_cast<char>('0' + (index / 100U) % 10U);
++    name[5] = static_cast<char>('0' + (index / 10U) % 10U);
++    name[6] = static_cast<char>('0' + index % 10U);
++    parameters.emplace_back(std::move(name), ScheduleValueKind::UnsignedInteger,
++                            std::to_string(tile_sizes[index]));
++  }
++  return CanonicalSchedule(
++      {ScheduleParameter("codegen_strategy", ScheduleValueKind::Text,
++                         "layout-propagation")},
++      std::move(parameters), {}, {},
++      {ScheduleParameter("count", ScheduleValueKind::UnsignedInteger, "1")},
++      {ScheduleParameter("count", ScheduleValueKind::UnsignedInteger, "4")}, {},
++      {ScheduleParameter("bytecode_major", ScheduleValueKind::UnsignedInteger, "13"),
++       ScheduleParameter("bytecode_minor", ScheduleValueKind::UnsignedInteger, "3"),
++       ScheduleParameter("bytecode_tag", ScheduleValueKind::UnsignedInteger, "0"),
++       ScheduleParameter("max_candidates", ScheduleValueKind::UnsignedInteger, "0"),
++       ScheduleParameter("uniform_signature", ScheduleValueKind::Boolean, "false")});
++}
++
+ bool RejectsValue(const std::function<void()>& action, std::string_view expected) {
+   try {
+     action();
+@@ -331,6 +391,14 @@ int TestPrevalidationMakesZeroProducerCalls() {
+       },
+       "requires the compiled private NVIDIA backend"));
+   REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before);
++  REQUIRE(RejectsValue(
++      [&] {
++        (void)CompileStructuredStrict(
++            MakeStructuredMatmulProgram({32, 128}, {128, 16}, {32, 16}),
++            request, MakeSchedule(std::vector<uint32_t>{32, 16}));
++      },
++      "requires the compiled private NVIDIA backend"));
++  REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before);
+ #endif
+   return 0;
+ }
+@@ -655,6 +723,89 @@ int TestRealRowReductionProducerSuccess() {
+   return 0;
+ }
+ 
++int TestRealStructuredMatmulProducerSuccess() {
++#if defined(PYPTO_ENABLE_NVIDIA_COMPILER_BACKEND)
++  struct Case {
++    std::vector<int64_t> lhs_shape;
++    std::vector<int64_t> rhs_shape;
++    std::vector<int64_t> result_shape;
++    bool a_trans;
++    bool b_trans;
++    std::vector<uint32_t> tile_sizes;
++    uint32_t grid_x;
++  };
++  // Together these cases cover decode/prefill, B=1/B>1, and all four
++  // transpose combinations while retaining physical descriptor shapes.
++  const std::vector<Case> cases = {
++      {{1, 1, 128}, {1, 128, 16}, {1, 1, 16}, false, false, {16}, 1},
++      {{1, 128, 32}, {1, 128, 16}, {1, 32, 16}, true, false, {32, 16}, 1},
++      {{2, 1, 128}, {2, 16, 128}, {2, 1, 16}, false, true, {2, 16}, 1},
++      {{2, 128, 32}, {2, 16, 128}, {2, 32, 16}, true, true,
++       {1, 16, 16}, 4},
++  };
++  const auto dense_strides = [](const std::vector<int64_t>& shape) {
++    std::vector<std::optional<int64_t>> strides(shape.size());
++    int64_t running = 1;
++    for (size_t reverse_index = shape.size(); reverse_index > 0;
++         --reverse_index) {
++      const size_t index = reverse_index - 1;
++      strides[index] = running;
++      running *= shape[index];
++    }
++    return strides;
++  };
++  const CompileRequest request = MakeRequest();
++  for (const Case& test_case : cases) {
++    const uint64_t before = GetStrictNvidiaProducerInvocationCountForTesting();
++    const StructuredCompileResult result = CompileStructuredStrict(
++        MakeStructuredMatmulProgram(test_case.lhs_shape, test_case.rhs_shape,
++                                    test_case.result_shape, test_case.a_trans,
++                                    test_case.b_trans),
++        request, MakeSchedule(test_case.tile_sizes));
++    REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before + 1);
++    const Artifact& artifact = result.GetArtifact();
++    const KernelBuildSpec& build_spec = result.GetBuildSpec();
++    const auto& kernel = artifact.GetKernelAbi();
++    REQUIRE(kernel.GetEntryFunctionName() == "pypto_structured_matmul_v4");
++    REQUIRE(kernel.GetArgumentPackingPolicy() ==
++            pypto::compiler::ArtifactArgumentPackingPolicy::PointerOnly);
++    REQUIRE(kernel.GetArgumentLayout().GetInputOperandCount() == 2);
++    REQUIRE(kernel.GetArgumentLayout().GetOperandDescriptors().size() == 3);
++    REQUIRE(kernel.GetArgumentLayout().GetTotalKernelArgumentCount() == 3);
++    const auto& descriptors = kernel.GetArgumentLayout().GetOperandDescriptors();
++    const std::array<std::vector<int64_t>, 3> expected_shapes = {
++        test_case.lhs_shape, test_case.rhs_shape, test_case.result_shape};
++    for (size_t index = 0; index < descriptors.size(); ++index) {
++      REQUIRE(descriptors[index].GetKind() ==
++              pypto::compiler::ArtifactOperandKind::Tensor);
++      REQUIRE(descriptors[index].GetShape().size() ==
++              expected_shapes[index].size());
++      for (size_t dim = 0; dim < expected_shapes[index].size(); ++dim) {
++        REQUIRE(descriptors[index].GetShape()[dim] == expected_shapes[index][dim]);
++      }
++      REQUIRE(descriptors[index].GetStrides() ==
++              dense_strides(expected_shapes[index]));
++      REQUIRE(descriptors[index].GetDynamicSizeCount() == 0);
++      REQUIRE(descriptors[index].GetDynamicStrideCount() == 0);
++    }
++    REQUIRE(kernel.GetGridAbi().GetPolicy() ==
++            pypto::compiler::ArtifactGridPolicy::Static);
++    REQUIRE(kernel.GetGridAbi().GetShapeOperandIndex() == 2);
++    REQUIRE((kernel.GetGridAbi().GetStaticDimensions() ==
++             std::array<uint32_t, 3>{test_case.grid_x, 1, 1}));
++    REQUIRE(kernel.GetGridAbi().GetTileSizes() == test_case.tile_sizes);
++    REQUIRE(kernel.GetWorkspaceAbi().GetSizeBytes() == 0);
++    REQUIRE(!artifact.UsedFallback());
++    REQUIRE(!artifact.GetDeviceCode().empty());
++    REQUIRE(!artifact.GetDeviceCodeSha256().empty());
++    REQUIRE(build_spec.GetCallableAbiDigest() == kernel.GetIdentityDigest());
++    REQUIRE(artifact.GetIdentities().GetKernelBuildSpecDigest() ==
++            build_spec.GetIdentityDigest());
++  }
++#endif
++  return 0;
++}
++
+ }  // namespace
+ 
+ int main() {
+@@ -671,5 +822,6 @@ int main() {
+   if (const int result = TestRealProducerSuccess()) return result;
+   if (const int result = TestRealFusedPointwiseProducerSuccess()) return result;
+   if (const int result = TestRealRowReductionProducerSuccess()) return result;
++  if (const int result = TestRealStructuredMatmulProducerSuccess()) return result;
+   return 0;
+ }
+diff --git a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+index 9f0558deabb54dcd3b5a2efa3d5f1a0f1eaa2520..3d6a6aa47a408d8a21230d28194522025435c002 100644
+--- a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
++++ b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+@@ -231,6 +231,34 @@ constexpr std::string_view kRowReductionRankThreeResultGoldenHex =
+     "62695f736368656d615f76657273696f6e03a7726573756c74739188aa636f6e746967756f7573c3aa64747970655f63"
+     "6f646534aa64747970655f6e616d65a466703332b06578706c696369745f73747269646573c3a76f7264696e616c00a4"
+     "72616e6b03a5736861706593020301a77374726964657393030101";
++constexpr std::string_view kStructuredMatmulStaticGoldenHex =
++    "83a8636f6e7472616374d927707970746f2e66726f6e74656e642e7374617469635f7370656369616c697a6174696f6e"
++    "2e7634d9247374617469635f7370656369616c697a6174696f6e5f736368656d615f76657273696f6e04a676616c7565"
++    "739383a76f7264696e616c00a4726f6c65a8617267756d656e74a573686170659220cc8083a76f7264696e616c01a472"
++    "6f6c65a8617267756d656e74a5736861706592cc801083a76f7264696e616c00a4726f6c65a6726573756c74a5736861"
++    "7065922010";
++constexpr std::string_view kStructuredMatmulSymbolicGoldenHex =
++    "84ab636f6e73747261696e747390a8636f6e7472616374d929707970746f2e66726f6e74656e642e73796d626f6c6963"
++    "5f7370656369616c697a6174696f6e2e7634d92673796d626f6c69635f7370656369616c697a6174696f6e5f73636865"
++    "6d615f76657273696f6e04a773796d626f6c7390";
++constexpr std::string_view kStructuredMatmulArgumentGoldenHex =
++    "83bb617267756d656e745f6162695f736368656d615f76657273696f6e04a9617267756d656e74739289aa636f6e7469"
++    "67756f7573c3a9646972656374696f6ea2696eaa64747970655f636f646540aa64747970655f6e616d65a862666c6f61"
++    "743136b06578706c696369745f73747269646573c3a76f7264696e616c00a472616e6b02a573686170659220cc80a773"
++    "74726964657392cc800189aa636f6e746967756f7573c3a9646972656374696f6ea2696eaa64747970655f636f646540"
++    "aa64747970655f6e616d65a862666c6f61743136b06578706c696369745f73747269646573c3a76f7264696e616c01a4"
++    "72616e6b02a5736861706592cc8010a773747269646573921001a8636f6e7472616374be707970746f2e66726f6e7465"
++    "6e642e617267756d656e745f6162692e7634";
++constexpr std::string_view kStructuredMatmulResultGoldenHex =
++    "83a8636f6e7472616374bc707970746f2e66726f6e74656e642e726573756c745f6162692e7634b9726573756c745f61"
++    "62695f736368656d615f76657273696f6e04a7726573756c74739188aa636f6e746967756f7573c3aa64747970655f63"
++    "6f646540aa64747970655f6e616d65a862666c6f61743136b06578706c696369745f73747269646573c3a76f7264696e"
++    "616c00a472616e6b02a57368617065922010a773747269646573921001";
++constexpr std::string_view kStructuredMatmulMutationGoldenHex =
++    "84b0617267756d656e745f656666656374739282a6656666656374a9726561642d6f6e6c79a76f7264696e616c0082a6"
++    "656666656374a9726561642d6f6e6c79a76f7264696e616c01a8636f6e7472616374be707970746f2e66726f6e74656e"
++    "642e6d75746174696f6e5f6162692e7634bb6d75746174696f6e5f6162695f736368656d615f76657273696f6e04ae72"
++    "6573756c745f616c696173657391c0";
+ 
+ const ir::Span& TestSpan() {
+   static const ir::Span span("structured_tensor_ir_build_spec_test.cpp", 7, 3);
+@@ -329,6 +357,36 @@ ir::ProgramPtr MakeRowReductionProgram(
+                                       TestSpan());
+ }
+ 
++ir::ProgramPtr MakeStructuredMatmulProgram(
++    const std::vector<int64_t>& lhs_shape = {32, 128},
++    const std::vector<int64_t>& rhs_shape = {128, 16},
++    const std::vector<int64_t>& result_shape = {32, 16},
++    std::vector<std::pair<std::string, std::any>> kwargs = {}) {
++  auto lhs_type = PlainTensor(lhs_shape, DataType::BF16);
++  auto rhs_type = PlainTensor(rhs_shape, DataType::BF16);
++  auto result_type = PlainTensor(result_shape, DataType::BF16);
++  auto lhs = std::make_shared<ir::Var>("lhs", lhs_type, TestSpan());
++  auto rhs = std::make_shared<ir::Var>("rhs", rhs_type, TestSpan());
++  auto result = std::make_shared<ir::Var>("result", result_type, TestSpan());
++  auto call = std::make_shared<ir::Call>(
++      ir::OpRegistry::GetInstance().GetOp("tensor.matmul"),
++      std::vector<ir::ExprPtr>{lhs, rhs}, std::move(kwargs),
++      std::vector<std::pair<std::string, std::any>>{}, result_type, TestSpan());
++  auto body = std::make_shared<ir::SeqStmts>(
++      std::vector<ir::StmtPtr>{
++          std::make_shared<ir::AssignStmt>(result, call, TestSpan()),
++          std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{result},
++                                           TestSpan())},
++      TestSpan());
++  auto function = std::make_shared<ir::Function>(
++      "ignored", std::vector<ir::VarPtr>{lhs, rhs},
++      std::vector<ir::ParamDirection>{ir::ParamDirection::In,
++                                      ir::ParamDirection::In},
++      std::vector<ir::TypePtr>{result_type}, body, TestSpan());
++  return std::make_shared<ir::Program>(std::vector<ir::FunctionPtr>{function},
++                                      "test", TestSpan());
++}
++
+ TargetTraits ValidTraits(int multiprocessor_count = 82,
+                          int max_grid_dim_x = 2147483647) {
+   return TargetTraits(120, multiprocessor_count, 32, 1024, 1536, 24, 1024, 1024, 64,
+@@ -550,6 +608,34 @@ KernelOptions RowReductionKernelOptions(
+   return options;
+ }
+ 
++KernelOptions StructuredMatmulKernelOptions(
++    const std::vector<int64_t>& lhs_shape = {32, 128},
++    const std::vector<int64_t>& rhs_shape = {128, 16},
++    const std::vector<int64_t>& result_shape = {32, 16},
++    const std::vector<uint32_t>& tile_sizes = {32, 16}, uint32_t grid_x = 1) {
++  const auto dense_strides = [](const std::vector<int64_t>& shape) {
++    std::vector<int64_t> strides(shape.size());
++    int64_t running = 1;
++    for (size_t reverse_index = shape.size(); reverse_index > 0; --reverse_index) {
++      const size_t index = reverse_index - 1;
++      strides[index] = running;
++      running *= shape[index];
++    }
++    return strides;
++  };
++  KernelOptions options;
++  options.entry_function_name = "pypto_structured_matmul_v4";
++  options.input_count = 2;
++  options.grid_shape_operand_index = 2;
++  options.static_grid = {grid_x, 1, 1};
++  options.tile_sizes = tile_sizes;
++  options.descriptors = DescriptorVector(
++      TensorDescriptor(lhs_shape, dense_strides(lhs_shape)),
++      TensorDescriptor(rhs_shape, dense_strides(rhs_shape)),
++      TensorDescriptor(result_shape, dense_strides(result_shape)));
++  return options;
++}
++
+ uint32_t TotalArguments(const std::vector<ArtifactArgumentDescriptor>& descriptors) {
+   uint32_t total = 0;
+   for (const auto& descriptor : descriptors) {
+@@ -1011,15 +1097,13 @@ int TestRowReductionV3ProjectionAndFinalization() {
+   REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(missing_result)),
+                               "descriptor count"));
+   KernelOptions wrong_result_shape = RowReductionKernelOptions({2, 3}, {2}, 1);
+-  wrong_result_shape.descriptors =
+-      DescriptorVector(TensorDescriptor({2, 3}, {3, 1}),
+-                       TensorDescriptor({2, 2}, {2, 1}));
++  wrong_result_shape.descriptors = DescriptorVector(
++      TensorDescriptor({2, 3}, {3, 1}), TensorDescriptor({2, 2}, {2, 1}));
+   REQUIRE(RejectsFinalization(
+       prepared, MakeKernelAbi(std::move(wrong_result_shape)), "static shape"));
+   KernelOptions wrong_result_stride = RowReductionKernelOptions({2, 3}, {2}, 1);
+-  wrong_result_stride.descriptors =
+-      DescriptorVector(TensorDescriptor({2, 3}, {3, 1}),
+-                       TensorDescriptor({2, 1}, {2, 1}));
++  wrong_result_stride.descriptors = DescriptorVector(
++      TensorDescriptor({2, 3}, {3, 1}), TensorDescriptor({2, 1}, {2, 1}));
+   REQUIRE(RejectsFinalization(
+       prepared, MakeKernelAbi(std::move(wrong_result_stride)), "static stride"));
+   KernelOptions wrong_grid = RowReductionKernelOptions({2, 3}, {2}, 1);
+@@ -1090,6 +1174,266 @@ int TestRowReductionV3ScheduleRejections() {
+   return 0;
+ }
+ 
++int TestStructuredMatmulV4ProjectionAndFinalization() {
++  constexpr ProjectionDigestGolden kProjectionDigests = {
++      "b8090aa5d28365dcba509e756d69cceb008d556766cabe5c6389bb425c931885",
++      "d44e9c1e3ece544dc84deaea3fded8ec26b45b22cc9eafe0909e1e15d8f06ad7",
++      "dbdcdbb1930ac708044f757a4863252944356a24d29534379f232b0e0f617c9b",
++      "1cc7aecc21f9e4d0208f3ff97ce98a91ee4a22ffe83e4b94aa07b2b0bd80e256",
++      "9c121cb6a8d8519e79449d4f0853608260d4e3913abb0a228b28d6a3e1e91014"};
++  const CompileRequest request = ValidRequest();
++  const CanonicalSchedule schedule = ValidSchedule({32, 16});
++  const PreparedStructuredTensorIrCompilation prepared =
++      PrepareStructuredTensorIrCompilation(MakeStructuredMatmulProgram(), request,
++                                           schedule);
++  const PreparedStructuredTensorIrCompilation repeated =
++      PrepareStructuredTensorIrCompilation(MakeStructuredMatmulProgram(), request,
++                                           schedule);
++
++  REQUIRE(prepared.GetModuleKind() ==
++          PreparedStructuredTensorIrModuleKind::StructuredMatmulV4);
++  REQUIRE(prepared.GetFrontendMetadataSchemaVersion() == 4);
++  REQUIRE(prepared.GetEntryName() == "pypto_structured_matmul_v4");
++  REQUIRE(prepared.GetCanonicalSource().size() == 480);
++  REQUIRE(prepared.GetSourceIrDigest() ==
++          "672946aecd134ee938be30cf05e4aca058a40e14798bbaa1f0fde9eb2fe9b267");
++  REQUIRE(prepared.GetInputCount() == 2);
++  REQUIRE(prepared.GetResultCount() == 1);
++  REQUIRE(prepared.GetValueMetadata().size() == 3);
++  REQUIRE(prepared.GetValueMetadata()[0].GetShape() ==
++          std::vector<int64_t>({32, 128}));
++  REQUIRE(prepared.GetValueMetadata()[0].GetLogicalDenseStrides() ==
++          std::vector<int64_t>({128, 1}));
++  REQUIRE(prepared.GetValueMetadata()[1].GetShape() ==
++          std::vector<int64_t>({128, 16}));
++  REQUIRE(prepared.GetValueMetadata()[2].GetShape() ==
++          std::vector<int64_t>({32, 16}));
++  REQUIRE(prepared.GetStaticSpecialization().GetCanonicalBytes() ==
++          BytesFromHex(kStructuredMatmulStaticGoldenHex));
++  REQUIRE(prepared.GetSymbolicSpecialization().GetCanonicalBytes() ==
++          BytesFromHex(kStructuredMatmulSymbolicGoldenHex));
++  REQUIRE(prepared.GetArgumentAbi().GetCanonicalBytes() ==
++          BytesFromHex(kStructuredMatmulArgumentGoldenHex));
++  REQUIRE(prepared.GetResultAbi().GetCanonicalBytes() ==
++          BytesFromHex(kStructuredMatmulResultGoldenHex));
++  REQUIRE(prepared.GetMutationAbi().GetCanonicalBytes() ==
++          BytesFromHex(kStructuredMatmulMutationGoldenHex));
++  REQUIRE(MatchesProjectionDigestGolden(prepared, kProjectionDigests));
++  REQUIRE(prepared.GetStaticSpecialization().GetCanonicalBytes() ==
++          repeated.GetStaticSpecialization().GetCanonicalBytes());
++  REQUIRE(prepared.GetArgumentAbi().GetCanonicalBytes() ==
++          repeated.GetArgumentAbi().GetCanonicalBytes());
++
++  const ArtifactKernelAbi kernel =
++      MakeKernelAbi(StructuredMatmulKernelOptions());
++  const KernelBuildSpec build_spec =
++      FinalizeStructuredTensorIrBuildSpec(prepared, kernel);
++  REQUIRE(kernel.GetEntryFunctionName() == "pypto_structured_matmul_v4");
++  REQUIRE(kernel.GetArgumentLayout().GetInputOperandCount() == 2);
++  REQUIRE(kernel.GetArgumentLayout().GetOperandDescriptors().size() == 3);
++  REQUIRE(kernel.GetArgumentLayout().GetTotalKernelArgumentCount() == 3);
++  REQUIRE(kernel.GetGridAbi().GetShapeOperandIndex() == 2);
++  REQUIRE(kernel.GetGridAbi().GetTileSizes() ==
++          std::vector<uint32_t>({32, 16}));
++  REQUIRE((kernel.GetGridAbi().GetStaticDimensions() ==
++           std::array<uint32_t, 3>{1, 1, 1}));
++  REQUIRE(kernel.GetWorkspaceAbi().GetSizeBytes() == 0);
++  REQUIRE(build_spec.GetCallableAbiDigest() == kernel.GetIdentityDigest());
++  REQUIRE(build_spec.GetStaticSpecializationDigest() ==
++          prepared.GetStaticSpecialization().GetIdentityDigest());
++  REQUIRE(build_spec.GetArgumentAbiDigest() ==
++          prepared.GetArgumentAbi().GetIdentityDigest());
++
++  const auto transposed = PrepareStructuredTensorIrCompilation(
++      MakeStructuredMatmulProgram(
++          {2, 128, 32}, {2, 16, 128}, {2, 32, 16},
++          {{"out_dtype", DataType::BF16}, {"a_trans", true},
++           {"b_trans", true}, {"c_matrix_nz", false}}),
++      request, ValidSchedule({2, 32, 16}));
++  REQUIRE(transposed.GetValueMetadata()[0].GetShape() ==
++          std::vector<int64_t>({2, 128, 32}));
++  REQUIRE(transposed.GetValueMetadata()[1].GetShape() ==
++          std::vector<int64_t>({2, 16, 128}));
++  REQUIRE(transposed.GetValueMetadata()[2].GetShape() ==
++          std::vector<int64_t>({2, 32, 16}));
++  REQUIRE(transposed.GetCanonicalSource().size() == 714);
++  REQUIRE(transposed.GetSourceIrDigest() ==
++          "8c5059b9aba415eb8a7361ae1ce7ec65790a9dc8be789693bb5e059e73f0ebb5");
++
++  struct ModeCase {
++    std::vector<int64_t> lhs_shape;
++    std::vector<int64_t> rhs_shape;
++    std::vector<int64_t> result_shape;
++    std::vector<uint32_t> tile_sizes;
++    uint32_t grid_x;
++  };
++  const std::vector<ModeCase> modes = {
++      {{1, 128}, {128, 16}, {1, 16}, {16}, 1},
++      {{7, 128}, {128, 16}, {7, 16}, {4, 16}, 2},
++      {{1, 32, 128}, {1, 128, 16}, {1, 32, 16}, {32, 16}, 1},
++      {{2, 1, 128}, {2, 128, 16}, {2, 1, 16}, {2, 16}, 1},
++      {{2, 32, 128}, {2, 128, 16}, {2, 32, 16}, {1, 16, 16}, 4},
++  };
++  for (const ModeCase& mode : modes) {
++    const auto mode_prepared = PrepareStructuredTensorIrCompilation(
++        MakeStructuredMatmulProgram(mode.lhs_shape, mode.rhs_shape,
++                                    mode.result_shape),
++        request, ValidSchedule(mode.tile_sizes));
++    const KernelBuildSpec mode_spec = FinalizeStructuredTensorIrBuildSpec(
++        mode_prepared,
++        MakeKernelAbi(StructuredMatmulKernelOptions(
++            mode.lhs_shape, mode.rhs_shape, mode.result_shape, mode.tile_sizes,
++            mode.grid_x)));
++    REQUIRE(!mode_spec.GetIdentityDigest().empty());
++  }
++
++  KernelOptions wrong_input_count = StructuredMatmulKernelOptions();
++  wrong_input_count.input_count = 1;
++  REQUIRE(RejectsFinalization(prepared,
++                              MakeKernelAbi(std::move(wrong_input_count)),
++                              "input count"));
++  KernelOptions missing_result = StructuredMatmulKernelOptions();
++  missing_result.descriptors.pop_back();
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(missing_result)),
++                              "descriptor count"));
++  KernelOptions wrong_lhs = StructuredMatmulKernelOptions();
++  wrong_lhs.descriptors = DescriptorVector(
++      TensorDescriptor({128, 32}, {32, 1}),
++      TensorDescriptor({128, 16}, {16, 1}),
++      TensorDescriptor({32, 16}, {16, 1}));
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(wrong_lhs)),
++                              "static shape"));
++  KernelOptions wrong_result = StructuredMatmulKernelOptions();
++  wrong_result.descriptors = DescriptorVector(
++      TensorDescriptor({32, 128}, {128, 1}),
++      TensorDescriptor({128, 16}, {16, 1}),
++      TensorDescriptor({16, 32}, {32, 1}));
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(wrong_result)),
++                              "static shape"));
++  KernelOptions wrong_entry = StructuredMatmulKernelOptions();
++  wrong_entry.entry_function_name = "wrong";
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(wrong_entry)),
++                              "entry function name"));
++  KernelOptions uniform = StructuredMatmulKernelOptions();
++  uniform.uniform_signature = true;
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(uniform)),
++                              "no uniform ABI"));
++  KernelOptions flat_packing = StructuredMatmulKernelOptions();
++  flat_packing.packing_policy = ArtifactArgumentPackingPolicy::Flat;
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(flat_packing)),
++                              "pointer-only"));
++  KernelOptions wrong_shape_source = StructuredMatmulKernelOptions();
++  wrong_shape_source.grid_shape_operand_index = 0;
++  REQUIRE(RejectsFinalization(
++      prepared, MakeKernelAbi(std::move(wrong_shape_source)),
++      "selected by Result0"));
++  KernelOptions wrong_grid = StructuredMatmulKernelOptions();
++  wrong_grid.static_grid = {2, 1, 1};
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(wrong_grid)),
++                              "normalized output extents and tiles"));
++  KernelOptions runtime_grid = StructuredMatmulKernelOptions();
++  runtime_grid.grid_policy = ArtifactGridPolicy::TileBasedRuntime;
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(runtime_grid)),
++                              "static and selected by Result0"));
++  KernelOptions wrong_grid_y = StructuredMatmulKernelOptions();
++  wrong_grid_y.static_grid = {1, 2, 1};
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(wrong_grid_y)),
++                              "y=z=1"));
++  KernelOptions wrong_tiles = StructuredMatmulKernelOptions();
++  wrong_tiles.tile_sizes = {16, 16};
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(wrong_tiles)),
++                              "tile sizes"));
++  KernelOptions workspace = StructuredMatmulKernelOptions();
++  workspace.workspace_size = 8;
++  workspace.workspace_alignment = 8;
++  REQUIRE(RejectsFinalization(prepared, MakeKernelAbi(std::move(workspace)),
++                              "zero-workspace"));
++  return 0;
++}
++
++int TestStructuredMatmulV4ScheduleRejections() {
++  const CompileRequest request = ValidRequest();
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(
++            MakeStructuredMatmulProgram(), request, ValidSchedule({32}));
++      },
++      "requires 2 normalized tile dimensions, got 1"));
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(
++            MakeStructuredMatmulProgram(), request, ValidSchedule({3, 16}));
++      },
++      "positive power of two"));
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(
++            MakeStructuredMatmulProgram(), request, ValidSchedule({64, 16}));
++      },
++      "bit_floor(normalized extent 32)"));
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(
++            MakeStructuredMatmulProgram({7, 128}, {128, 16}, {7, 16}),
++            request, ValidSchedule({8, 16}));
++      },
++      "bit_floor(normalized extent 7)"));
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(
++            MakeStructuredMatmulProgram({1, 128}, {128, 16}, {1, 16}), request,
++            ValidSchedule({1, 16}));
++      },
++      "requires 1 normalized tile dimensions, got 2"));
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(
++            MakeStructuredMatmulProgram({2048, 128}, {128, 1024},
++                                        {2048, 1024}),
++            request, ValidSchedule({2048, 1024}));
++      },
++      "exceeds the pinned CUDA Tile compiler maximum tile elements"));
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(
++            MakeStructuredMatmulProgram({64, 128}, {128, 32}, {64, 32}),
++            ValidRequest(82, 3), ValidSchedule({1, 16}));
++      },
++      "exceeds the prepared target limit 3"));
++  const int64_t huge_k =
++      (static_cast<int64_t>(std::numeric_limits<int32_t>::max()) + 1) * 128;
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(
++            MakeStructuredMatmulProgram({1, huge_k}, {huge_k, 16}, {1, 16}),
++            request, ValidSchedule({16}));
++      },
++      "ceil(K/r)=2147483648"));
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(
++            MakeStructuredMatmulProgram({65536, 128}, {128, 65536},
++                                        {65536, 65536}),
++            request, ValidSchedule({1, 1}));
++      },
++      "static grid x=4294967296"));
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(
++            MakeStructuredMatmulProgram({32, 64}, {64, 16}, {32, 16}),
++            request, ValidSchedule({32, 16}));
++      },
++      "K must be a multiple of 128"));
++  REQUIRE(RejectsPreparation(
++      [&] {
++        (void)PrepareStructuredTensorIrCompilation(
++            MakeStructuredMatmulProgram({32, 128}, {128, 8}, {32, 8}),
++            request, ValidSchedule({32, 8}));
++      },
++      "N must be a multiple of 16"));
++  return 0;
++}
++
+ int TestRankOneBf16ImplicitStrideGoldenAndFinalization() {
+   const CompileRequest request = ValidRequest();
+   const PreparedStructuredTensorIrCompilation prepared =
+@@ -1436,6 +1780,8 @@ int main() {
+   if (const int result = TestFusedPointwiseV2ScheduleRejections()) return result;
+   if (const int result = TestRowReductionV3ProjectionAndFinalization()) return result;
+   if (const int result = TestRowReductionV3ScheduleRejections()) return result;
++  if (const int result = TestStructuredMatmulV4ProjectionAndFinalization()) return result;
++  if (const int result = TestStructuredMatmulV4ScheduleRejections()) return result;
+   if (const int result = TestRankOneBf16ImplicitStrideGoldenAndFinalization()) return result;
+   if (const int result = TestStrictScheduleOverloadParity()) return result;
+   if (const int result = TestDeterminismAndIdentityChanges()) return result;
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index 4c9f31b577988563c2ede5dc0b040af35a300660..eebda3fc72617036297441a417548d3aee0d7f86 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -203,6 +203,45 @@ RowReductionProgram MakeRowReduction(
+           input, result, input_type, result_type};
+ }
+ 
++struct StructuredMatmulProgram {
++  ir::ProgramPtr program;
++  ir::VarPtr lhs;
++  ir::VarPtr rhs;
++  ir::VarPtr result;
++  ir::TensorTypePtr lhs_type;
++  ir::TensorTypePtr rhs_type;
++  ir::TensorTypePtr result_type;
++};
++
++StructuredMatmulProgram MakeStructuredMatmul(
++    const std::vector<int64_t>& lhs_shape = {32, 128},
++    const std::vector<int64_t>& rhs_shape = {128, 16},
++    const std::vector<int64_t>& result_shape = {32, 16},
++    DataType lhs_dtype = DataType::BF16, DataType rhs_dtype = DataType::BF16,
++    DataType result_dtype = DataType::BF16,
++    std::vector<std::pair<std::string, std::any>> kwargs = {},
++    std::vector<std::pair<std::string, std::any>> attrs = {},
++    const std::string& op_name = "tensor.matmul",
++    const std::string& function_name = "structured_matmul",
++    const std::string& lhs_name = "lhs", const std::string& rhs_name = "rhs",
++    const std::string& result_name = "result") {
++  auto lhs_type = PlainTensor(lhs_shape, lhs_dtype);
++  auto rhs_type = PlainTensor(rhs_shape, rhs_dtype);
++  auto result_type = PlainTensor(result_shape, result_dtype);
++  auto lhs = std::make_shared<ir::Var>(lhs_name, lhs_type, TestSpan());
++  auto rhs = std::make_shared<ir::Var>(rhs_name, rhs_type, TestSpan());
++  auto result = std::make_shared<ir::Var>(result_name, result_type, TestSpan());
++  auto call = OpCall(op_name, {lhs, rhs}, result_type, std::move(kwargs),
++                     std::move(attrs));
++  auto assignment = std::make_shared<ir::AssignStmt>(result, call, TestSpan());
++  auto returned =
++      std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{result}, TestSpan());
++  return {MakeProgram(function_name, {lhs, rhs},
++                      {ir::ParamDirection::In, ir::ParamDirection::In},
++                      {result_type}, {assignment, returned}),
++          lhs, rhs, result, lhs_type, rhs_type, result_type};
++}
++
+ class GroupedNumpunct : public std::numpunct<char> {
+  protected:
+   [[nodiscard]] char do_thousands_sep() const override { return '_'; }
+@@ -247,6 +286,7 @@ int TestFp32CanonicalSourceAndMetadata() {
+   REQUIRE(module.GetEntryName() == "pypto_vector_add");
+   REQUIRE(module.GetInputCount() == 2);
+   REQUIRE(module.GetResultCount() == 1);
++  REQUIRE(module.GetContractionExtent() == 0);
+   REQUIRE(module.GetValueMetadata().size() == 3);
+ 
+   const auto& input0 = module.GetValueMetadata()[0];
+@@ -337,6 +377,7 @@ int TestFusedPointwiseV2CanonicalSourceAndMetadata() {
+       "}\n";
+   REQUIRE(module.GetKind() == TensorIrModuleKind::FusedPointwiseV2);
+   REQUIRE(module.GetMetadataSchemaVersion() == 2);
++  REQUIRE(module.GetContractionExtent() == 0);
+   REQUIRE(module.GetEntryName() == "pypto_fused_pointwise_v2");
+   REQUIRE(module.GetCanonicalSource() == expected);
+   REQUIRE(module.GetInputCount() == 3);
+@@ -377,6 +418,7 @@ int TestRowReductionV3CanonicalSourcesAndMetadata() {
+   REQUIRE(sum_module.GetEntryName() == "pypto_row_reduction_v3");
+   REQUIRE(sum_module.GetInputCount() == 1);
+   REQUIRE(sum_module.GetResultCount() == 1);
++  REQUIRE(sum_module.GetContractionExtent() == 0);
+   REQUIRE(sum_module.GetValueMetadata().size() == 2);
+   const auto& sum_input = sum_module.GetValueMetadata()[0];
+   const auto& sum_result = sum_module.GetValueMetadata()[1];
+@@ -546,6 +588,113 @@ int TestRowReductionV3CanonicalSourcesAndMetadata() {
+   return 0;
+ }
+ 
++int TestStructuredMatmulV4CanonicalSourcesAndMetadata() {
++  const StructuredMatmulProgram rank_two = MakeStructuredMatmul();
++  const TensorIrModule rank_two_module = EmitTensorIr(rank_two.program);
++  const std::string rank_two_expected =
++      "module {\n"
++      "  nv_tensor_ir.graph @pypto_structured_matmul_v4(\n"
++      "    %arg0: tensor<32x128xbf16> {nv_tensor_ir.stride = \"(128,1)\"},\n"
++      "    %arg1: tensor<128x16xbf16> {nv_tensor_ir.stride = \"(16,1)\"}\n"
++      "  ) -> (tensor<32x16xbf16> {nv_tensor_ir.stride = \"(16,1)\"}) {\n"
++      "    %accum0 = matmul(%arg0, %arg1)\n"
++      "      : (tensor<32x128xbf16>, tensor<128x16xbf16>) -> tensor<32x16xf32>\n"
++      "    %result0 = convert %accum0 : tensor<32x16xf32> -> tensor<32x16xbf16>\n"
++      "    results %result0 : tensor<32x16xbf16>\n"
++      "  }\n"
++      "}\n";
++  REQUIRE(MatchesSourceAndSha256(rank_two_module, rank_two_expected,
++                                 "672946aecd134ee938be30cf05e4aca058a40e14798bbaa1f0fde9eb2fe9b267"));
++  REQUIRE(rank_two_module.GetKind() == TensorIrModuleKind::StructuredMatmulV4);
++  REQUIRE(rank_two_module.GetMetadataSchemaVersion() == 4);
++  REQUIRE(rank_two_module.GetEntryName() == "pypto_structured_matmul_v4");
++  REQUIRE(rank_two_module.GetInputCount() == 2);
++  REQUIRE(rank_two_module.GetResultCount() == 1);
++  REQUIRE(rank_two_module.GetContractionExtent() == 128);
++  REQUIRE(rank_two_module.GetValueMetadata().size() == 3);
++  REQUIRE(rank_two_module.GetValueMetadata()[0].GetShape() ==
++          std::vector<int64_t>({32, 128}));
++  REQUIRE(rank_two_module.GetValueMetadata()[0].GetLogicalDenseStrides() ==
++          std::vector<int64_t>({128, 1}));
++  REQUIRE(rank_two_module.GetValueMetadata()[1].GetShape() ==
++          std::vector<int64_t>({128, 16}));
++  REQUIRE(rank_two_module.GetValueMetadata()[2].GetShape() ==
++          std::vector<int64_t>({32, 16}));
++  for (const auto& metadata : rank_two_module.GetValueMetadata()) {
++    REQUIRE(metadata.GetDtypeCode() == DataType::BF16.Code());
++    REQUIRE(metadata.GetDtypeName() == "bfloat16");
++    REQUIRE(metadata.HasExplicitStrides());
++  }
++
++  const auto transpose_kwargs =
++      std::vector<std::pair<std::string, std::any>>{
++          {"out_dtype", DataType::BF16}, {"a_trans", true},
++          {"b_trans", true}, {"c_matrix_nz", false}};
++  const TensorIrModule rank_three = EmitTensorIr(
++      MakeStructuredMatmul({2, 128, 32}, {2, 16, 128}, {2, 32, 16},
++                           DataType::BF16, DataType::BF16, DataType::BF16,
++                           transpose_kwargs)
++          .program);
++  const std::string rank_three_expected =
++      "module {\n"
++      "  nv_tensor_ir.graph @pypto_structured_matmul_v4(\n"
++      "    %arg0: tensor<2x128x32xbf16> {nv_tensor_ir.stride = \"(4096,32,1)\"},\n"
++      "    %arg1: tensor<2x16x128xbf16> {nv_tensor_ir.stride = \"(2048,128,1)\"}\n"
++      "  ) -> (tensor<2x32x16xbf16> {nv_tensor_ir.stride = \"(512,16,1)\"}) {\n"
++      "    %lhs0 = transpose %arg0 permutation = [0, 2, 1] : "
++      "tensor<2x128x32xbf16> -> tensor<2x32x128xbf16>\n"
++      "    %rhs0 = transpose %arg1 permutation = [0, 2, 1] : "
++      "tensor<2x16x128xbf16> -> tensor<2x128x16xbf16>\n"
++      "    %accum0 = matmul(%lhs0, %rhs0)\n"
++      "      : (tensor<2x32x128xbf16>, tensor<2x128x16xbf16>) -> "
++      "tensor<2x32x16xf32>\n"
++      "    %result0 = convert %accum0 : tensor<2x32x16xf32> -> "
++      "tensor<2x32x16xbf16>\n"
++      "    results %result0 : tensor<2x32x16xbf16>\n"
++      "  }\n"
++      "}\n";
++  REQUIRE(MatchesSourceAndSha256(rank_three, rank_three_expected,
++                                 "8c5059b9aba415eb8a7361ae1ce7ec65790a9dc8be789693bb5e059e73f0ebb5"));
++  REQUIRE(rank_three.GetValueMetadata()[0].GetShape() ==
++          std::vector<int64_t>({2, 128, 32}));
++  REQUIRE(rank_three.GetValueMetadata()[1].GetShape() ==
++          std::vector<int64_t>({2, 16, 128}));
++  REQUIRE(rank_three.GetValueMetadata()[2].GetShape() ==
++          std::vector<int64_t>({2, 32, 16}));
++
++  for (bool a_trans : {false, true}) {
++    for (bool b_trans : {false, true}) {
++      const std::vector<int64_t> lhs_shape =
++          a_trans ? std::vector<int64_t>{128, 32}
++                  : std::vector<int64_t>{32, 128};
++      const std::vector<int64_t> rhs_shape =
++          b_trans ? std::vector<int64_t>{16, 128}
++                  : std::vector<int64_t>{128, 16};
++      const TensorIrModule module = EmitTensorIr(
++          MakeStructuredMatmul(
++              lhs_shape, rhs_shape, {32, 16}, DataType::BF16, DataType::BF16,
++              DataType::BF16,
++              {{"a_trans", a_trans}, {"b_trans", b_trans},
++               {"c_matrix_nz", false}})
++              .program);
++      REQUIRE((module.GetCanonicalSource().find("%lhs0 = transpose") !=
++               std::string::npos) == a_trans);
++      REQUIRE((module.GetCanonicalSource().find("%rhs0 = transpose") !=
++               std::string::npos) == b_trans);
++      REQUIRE(module.GetCanonicalSource().find(
++                  "-> tensor<32x16xf32>\n    %result0 = convert") !=
++              std::string::npos);
++    }
++  }
++  const StructuredMatmulProgram cosmetic = MakeStructuredMatmul(
++      {32, 128}, {128, 16}, {32, 16}, DataType::BF16, DataType::BF16,
++      DataType::BF16, {}, {}, "tensor.matmul", "another_function", "x", "y",
++      "z");
++  REQUIRE(EmitTensorIr(cosmetic.program).GetCanonicalSource() ==
++          rank_two_module.GetCanonicalSource());
++  return 0;
++}
++
+ int TestRankOneExactCanonicalSources() {
+   const ValidProgram valid = MakeValid({7}, DataType::BF16, "bf16_add");
+   const TensorIrModule module = EmitTensorIr(valid.program);
+@@ -1583,6 +1732,321 @@ int TestRowReductionV3Rejections() {
+   return 0;
+ }
+ 
++int TestStructuredMatmulV4Rejections() {
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(
++            MakeStructuredMatmul({128}, {128}, {1}).program);
++      },
++      "rank 2 or rank 3"));
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(MakeStructuredMatmul(
++                               {32, 128}, {1, 128, 16}, {1, 32, 16})
++                               .program);
++      },
++      "same rank"));
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(MakeStructuredMatmul(
++                               {2, 32, 128}, {1, 128, 16}, {2, 32, 16})
++                               .program);
++      },
++      "batch extents must be exactly equal"));
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(MakeStructuredMatmul(
++                               {32, 128}, {64, 16}, {32, 16})
++                               .program);
++      },
++      "contraction extents must match"));
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(MakeStructuredMatmul(
++                               {32, 64}, {64, 16}, {32, 16})
++                               .program);
++      },
++      "K must be a multiple of 128"));
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(MakeStructuredMatmul(
++                               {32, 128}, {128, 8}, {32, 8})
++                               .program);
++      },
++      "N must be a multiple of 16"));
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(MakeStructuredMatmul(
++                               {32, 128}, {128, 16}, {31, 16})
++                               .program);
++      },
++      "dense BF16 with logical shape 32x16"));
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(MakeStructuredMatmul(
++                               {32, 128}, {128, 16}, {32, 16}, DataType::FP32)
++                               .program);
++      },
++      "parameters must have BF16 dtype"));
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(MakeStructuredMatmul(
++                               {32, 128}, {128, 16}, {32, 16}, DataType::BF16,
++                               DataType::FP32)
++                               .program);
++      },
++      "parameters must have BF16 dtype"));
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(MakeStructuredMatmul(
++                               {32, 128}, {128, 16}, {32, 16}, DataType::BF16,
++                               DataType::BF16, DataType::FP32)
++                               .program);
++      },
++      "dense BF16 with logical shape"));
++
++  const auto reject_kwargs = [&](std::vector<std::pair<std::string, std::any>> kwargs,
++                                 std::string_view expected) {
++    return Rejects(
++        [&] {
++          (void)EmitTensorIr(
++              MakeStructuredMatmul({32, 128}, {128, 16}, {32, 16},
++                                   DataType::BF16, DataType::BF16,
++                                   DataType::BF16, std::move(kwargs))
++                  .program);
++        },
++        expected);
++  };
++  REQUIRE(reject_kwargs({{"out_dtype", DataType::FP32}},
++                        "out_dtype must be exact BF16"));
++  REQUIRE(reject_kwargs({{"out_dtype", std::string("bf16")}},
++                        "out_dtype must be exact BF16"));
++  REQUIRE(reject_kwargs({{"a_trans", 1}}, "a_trans must have bool type"));
++  REQUIRE(reject_kwargs({{"b_trans", std::string("true")}},
++                        "b_trans must have bool type"));
++  REQUIRE(reject_kwargs({{"c_matrix_nz", true}}, "c_matrix_nz must be false"));
++  REQUIRE(reject_kwargs({{"unknown", false}}, "unknown is not supported"));
++  REQUIRE(reject_kwargs({{"a_trans", false}, {"a_trans", false}},
++                        "appears more than once"));
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(
++            MakeStructuredMatmul({32, 128}, {128, 16}, {32, 16},
++                                 DataType::BF16, DataType::BF16,
++                                 DataType::BF16, {}, {{"ignored", true}})
++                .program);
++      },
++      "call attributes are not supported"));
++  REQUIRE(Rejects(
++      [&] {
++        (void)EmitTensorIr(
++            MakeStructuredMatmul({32, 128}, {128, 16}, {32, 16},
++                                 DataType::BF16, DataType::BF16,
++                                 DataType::BF16, {}, {}, "tensor.matmul_acc")
++                .program);
++      },
++      "supports only tensor.matmul"));
++
++  auto dynamic_extent = std::make_shared<ir::Var>(
++      "extent", std::make_shared<ir::ScalarType>(DataType::INDEX), TestSpan());
++  auto dynamic_lhs = std::make_shared<ir::TensorType>(
++      std::vector<ir::ExprPtr>{dynamic_extent,
++                               std::make_shared<ir::ConstInt>(
++                                   128, DataType::INDEX, TestSpan())},
++      DataType::BF16);
++  const auto make_with_lhs = [&](const ir::TensorTypePtr& lhs_type,
++                                 const std::vector<ir::ExprPtr>& explicit_args = {}) {
++    auto rhs_type = PlainTensor({128, 16}, DataType::BF16);
++    auto result_type = PlainTensor({32, 16}, DataType::BF16);
++    auto lhs = std::make_shared<ir::Var>("lhs", lhs_type, TestSpan());
++    auto rhs = std::make_shared<ir::Var>("rhs", rhs_type, TestSpan());
++    auto result = std::make_shared<ir::Var>("result", result_type, TestSpan());
++    std::vector<ir::ExprPtr> arguments = explicit_args;
++    if (arguments.empty()) arguments = {lhs, rhs};
++    auto call = OpCall("tensor.matmul", arguments, result_type);
++    auto assignment = std::make_shared<ir::AssignStmt>(result, call, TestSpan());
++    auto returned = std::make_shared<ir::ReturnStmt>(
++        std::vector<ir::ExprPtr>{result}, TestSpan());
++    return MakeProgram("matmul", {lhs, rhs},
++                       {ir::ParamDirection::In, ir::ParamDirection::In},
++                       {result_type}, {assignment, returned});
++  };
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(make_with_lhs(dynamic_lhs)); },
++                  "shape must be fully static"));
++  auto view_lhs = std::make_shared<ir::TensorType>(
++      std::vector<int64_t>{32, 128}, DataType::BF16,
++      std::optional<ir::MemRefPtr>{},
++      std::optional<ir::TensorView>{
++          ir::TensorView(std::vector<int64_t>{1, 2}, ir::TensorLayout::DN)});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(make_with_lhs(view_lhs)); },
++                  "must not carry a TensorView"));
++  auto base = std::make_shared<ir::Var>("base", ir::GetPtrType(), TestSpan());
++  auto memref = std::make_shared<ir::MemRef>(base, 0, 8192, TestSpan());
++  auto memref_lhs = std::make_shared<ir::TensorType>(
++      std::vector<int64_t>{32, 128}, DataType::BF16,
++      std::optional<ir::MemRefPtr>{memref});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(make_with_lhs(memref_lhs)); },
++                  "must not carry a MemRef"));
++
++  const StructuredMatmulProgram valid = MakeStructuredMatmul();
++  auto nested = OpCall("tensor.neg", {valid.lhs}, valid.lhs_type);
++  auto nested_call = OpCall("tensor.matmul", {nested, valid.rhs}, valid.result_type);
++  auto nested_assignment =
++      std::make_shared<ir::AssignStmt>(valid.result, nested_call, TestSpan());
++  auto returned = std::make_shared<ir::ReturnStmt>(
++      std::vector<ir::ExprPtr>{valid.result}, TestSpan());
++  auto nested_program = MakeProgram(
++      "matmul", {valid.lhs, valid.rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {valid.result_type},
++      {nested_assignment, returned});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(nested_program); },
++                  "directly reference Input0 then Input1"));
++
++  auto swapped_call = OpCall("tensor.matmul", {valid.rhs, valid.lhs}, valid.result_type);
++  auto swapped_assignment =
++      std::make_shared<ir::AssignStmt>(valid.result, swapped_call, TestSpan());
++  auto swapped_program = MakeProgram(
++      "matmul", {valid.lhs, valid.rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {valid.result_type},
++      {swapped_assignment, returned});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(swapped_program); },
++                  "directly reference Input0 then Input1"));
++
++  auto wrong_return = MakeProgram(
++      "matmul", {valid.lhs, valid.rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {valid.result_type},
++      {std::make_shared<ir::AssignStmt>(
++           valid.result,
++           OpCall("tensor.matmul", {valid.lhs, valid.rhs}, valid.result_type),
++           TestSpan()),
++       std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{valid.lhs},
++                                        TestSpan())});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(wrong_return); },
++                  "directly reference the structured matmul assignment result"));
++
++  auto wrong_arity_call =
++      OpCall("tensor.matmul", {valid.lhs}, valid.result_type);
++  auto wrong_arity_program = MakeProgram(
++      "matmul", {valid.lhs, valid.rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {valid.result_type},
++      {std::make_shared<ir::AssignStmt>(valid.result, wrong_arity_call,
++                                        TestSpan()),
++       returned});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(wrong_arity_program); },
++                  "expects exactly two operands, got 1"));
++
++  auto duplicate_parameter_call =
++      OpCall("tensor.matmul", {valid.lhs, valid.lhs}, valid.result_type);
++  auto duplicate_parameter_program = MakeProgram(
++      "matmul", {valid.lhs, valid.lhs},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {valid.result_type},
++      {std::make_shared<ir::AssignStmt>(valid.result,
++                                        duplicate_parameter_call, TestSpan()),
++       returned});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(duplicate_parameter_program); },
++                  "distinct IR identities"));
++
++  auto extra_parameter =
++      std::make_shared<ir::Var>("extra", valid.lhs_type, TestSpan());
++  auto extra_parameter_program = MakeProgram(
++      "matmul", {valid.lhs, valid.rhs, extra_parameter},
++      {ir::ParamDirection::In, ir::ParamDirection::In,
++       ir::ParamDirection::In},
++      {valid.result_type},
++      {std::make_shared<ir::AssignStmt>(
++           valid.result,
++           OpCall("tensor.matmul", {valid.lhs, valid.rhs}, valid.result_type),
++           TestSpan()),
++       returned});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(extra_parameter_program); },
++                  "exactly two function parameters, got 3"));
++
++  auto reused_parameter_program = MakeProgram(
++      "matmul", {valid.lhs, valid.rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {valid.result_type},
++      {std::make_shared<ir::AssignStmt>(
++           valid.lhs,
++           OpCall("tensor.matmul", {valid.lhs, valid.rhs}, valid.result_type),
++           TestSpan()),
++       std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{valid.lhs},
++                                        TestSpan())});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(reused_parameter_program); },
++                  "must not reuse a parameter IR identity"));
++
++  auto iter_result = std::make_shared<ir::IterArg>(
++      "iter", valid.result_type, valid.lhs, TestSpan());
++  auto iter_program = MakeProgram(
++      "matmul", {valid.lhs, valid.rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {valid.result_type},
++      {std::make_shared<ir::AssignStmt>(
++           iter_result,
++           OpCall("tensor.matmul", {valid.lhs, valid.rhs}, valid.result_type),
++           TestSpan()),
++       std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{iter_result},
++                                        TestSpan())});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(iter_program); },
++                  "assignment result must be an exact Var"));
++
++  auto extra_statement_program = MakeProgram(
++      "matmul", {valid.lhs, valid.rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {valid.result_type},
++      {std::make_shared<ir::AssignStmt>(
++           valid.result,
++           OpCall("tensor.matmul", {valid.lhs, valid.rhs}, valid.result_type),
++           TestSpan()),
++       std::make_shared<ir::AssignStmt>(
++           valid.result,
++           OpCall("tensor.matmul", {valid.lhs, valid.rhs}, valid.result_type),
++           TestSpan()),
++       returned});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(extra_statement_program); },
++                  "exactly one assignment and one return"));
++
++  const ir::StmtPtr& valid_body =
++      valid.program->functions_.begin()->second->body_;
++  auto attributed_function = MakeRawProgram(
++      {valid.lhs, valid.rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {valid.result_type},
++      valid_body, {{"ignored", true}}, false, ir::FunctionType::Opaque,
++      "matmul");
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(attributed_function); },
++                  "function attributes"));
++  auto runtime_bound = MakeRawProgram(
++      {valid.lhs, valid.rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {valid.result_type},
++      valid_body, {}, true, ir::FunctionType::Opaque, "matmul");
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(runtime_bound); },
++                  "runtime-bound functions"));
++  auto incore = MakeRawProgram(
++      {valid.lhs, valid.rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {valid.result_type},
++      valid_body, {}, false, ir::FunctionType::InCore, "matmul");
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(incore); },
++                  "must be Opaque with no hierarchy"));
++  auto wrong_direction = MakeRawProgram(
++      {valid.lhs, valid.rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::Out}, {valid.result_type},
++      valid_body, {}, false, ir::FunctionType::Opaque, "matmul");
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(wrong_direction); },
++                  "must have direction In"));
++  auto missing_direction = MakeRawProgram(
++      {valid.lhs, valid.rhs}, {ir::ParamDirection::In}, {valid.result_type},
++      valid_body, {}, false, ir::FunctionType::Opaque, "matmul");
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(missing_direction); },
++                  "parameter-direction count must be 2, got 1"));
++  auto missing_return_type = MakeProgram(
++      "matmul", {valid.lhs, valid.rhs},
++      {ir::ParamDirection::In, ir::ParamDirection::In}, {},
++      {std::make_shared<ir::AssignStmt>(
++           valid.result,
++           OpCall("tensor.matmul", {valid.lhs, valid.rhs}, valid.result_type),
++           TestSpan()),
++       returned});
++  REQUIRE(Rejects([&] { (void)EmitTensorIr(missing_return_type); },
++                  "exactly one declared return"));
++  return 0;
++}
++
+ int TestStaticShapeRejections() {
+   const ir::OpPtr& add = ir::OpRegistry::GetInstance().GetOp("tensor.add");
+   const auto reject_shape = [&](const std::vector<int64_t>& shape,
+@@ -1752,6 +2216,7 @@ int main() {
+   if (const int result = TestFusedPointwiseV2CanonicalSourceAndMetadata()) return result;
+   if (const int result = TestFusedPointwiseV2RowBroadcast()) return result;
+   if (const int result = TestRowReductionV3CanonicalSourcesAndMetadata()) return result;
++  if (const int result = TestStructuredMatmulV4CanonicalSourcesAndMetadata()) return result;
+   if (const int result = TestRankOneExactCanonicalSources()) return result;
+   if (const int result = TestDeterministicGeneratedNamesAndOperandIdentity()) return result;
+   if (const int result = TestCanonicalSourceIgnoresGlobalLocale()) return result;
+@@ -1760,6 +2225,7 @@ int main() {
+   if (const int result = TestFusedPointwiseV2BoundsAndScalarFormatting()) return result;
+   if (const int result = TestFusedPointwiseV2Rejections()) return result;
+   if (const int result = TestRowReductionV3Rejections()) return result;
++  if (const int result = TestStructuredMatmulV4Rejections()) return result;
+   if (const int result = TestStaticShapeRejections()) return result;
+   if (const int result = TestCosmeticNamesAndDiagnosticBounds()) return result;
+   return 0;

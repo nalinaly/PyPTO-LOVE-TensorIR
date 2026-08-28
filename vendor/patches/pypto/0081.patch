@@ -1,0 +1,27 @@
+From ff7e239cee8f1d0395379af3f6b9b4e97cecacf6 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 20:23:29 +0800
+Subject: [PATCH 081/212] nvidia: accept FP32 literals in BF16 tile kernels
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 59ad494a362606aac6006a7840beb1378e2629ab..8760badfcd8922a1cf26175a616f0fa4fa7b4b6f 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -1665,9 +1665,11 @@ FusedPointwiseGraph AnalyzeNativeTilePointwise(const ir::ProgramPtr& program) {
+     if (spec->has_scalar) {
+       const auto scalar = ir::As<ir::ConstFloat>(call->args_.back());
+       if (!scalar || scalar->GetKind() != ir::ObjectKind::ConstFloat ||
+-          scalar->dtype() != output.dtype || !std::isfinite(scalar->value_) ||
++          !(scalar->dtype() == output.dtype ||
++            (output.dtype == DataType::BF16 && scalar->dtype() == DataType::FP32)) ||
++          !std::isfinite(scalar->value_) ||
+           std::fabs(scalar->value_) > MaximumFiniteScalar(output.dtype)) {
+-        Reject("native tile scalar must be a finite constant in the tile dtype",
++        Reject("native tile scalar must be a finite compatible floating constant",
+                &call->span_);
+       }
+       instruction.scalar = scalar->value_;

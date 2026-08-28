@@ -1,0 +1,40 @@
+From 5f514d0ff7f7182ac1aedbcec215341236394773 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 12:42:24 +0800
+Subject: [PATCH 194/212] Canonicalize GDN state updates through flat rows
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 19 +++++++++++++++++--
+ 1 file changed, 17 insertions(+), 2 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 72105aa1001569ca7e8174389b7b4614dd83f045..b41be3cc14b5f791e08050f19da8bfc3fed6ab6f 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -9528,9 +9528,24 @@ std::string EmitNativeTileGdnRecurrentBatchedSource(
+       source += wide_query_group_type;
+       source += ") -> ";
+       source += state_group_type;
++      source += "\n    %decayed_flat_" + suffix + " = reshape %decayed_" +
++                suffix + " : ";
++      source += state_group_type;
++      source += " -> ";
++      source += state_row_type;
++      source += "\n    %outer_flat_" + suffix + " = reshape %outer_" + suffix +
++                " : ";
++      source += state_group_type;
++      source += " -> ";
++      source += state_row_type;
++      const std::string updated_flat = "%updated_flat_" + suffix;
++      source += "\n    " + updated_flat + " = add %decayed_flat_" + suffix +
++                ", %outer_flat_" + suffix + " : ";
++      source += state_row_type;
+       const std::string updated = "%updated_" + suffix;
+-      source += "\n    " + updated + " = add %decayed_" + suffix +
+-                ", %outer_" + suffix + " : ";
++      source += "\n    " + updated + " = reshape " + updated_flat + " : ";
++      source += state_row_type;
++      source += " -> ";
+       source += state_group_type;
+       current_state = updated;
+       if (token + 1 == graph.tokens_per_request) {

@@ -1,0 +1,28 @@
+From a62d90337119660234f3ef9821c6ae6c00d195a1 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 23 Aug 2026 21:56:34 +0800
+Subject: [PATCH 006/212] tests: gate symlink probe under redirecting editable
+ installs
+
+---
+ tests/ut/language/test_unified_ops.py | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/tests/ut/language/test_unified_ops.py b/tests/ut/language/test_unified_ops.py
+index 312c774219940d66e0b43ae65d24306f062bcf8f..6a5f5ce3245c8bb778319ae9851cd443f59db12c 100644
+--- a/tests/ut/language/test_unified_ops.py
++++ b/tests/ut/language/test_unified_ops.py
+@@ -1903,6 +1903,13 @@ class TestUnifiedSlicePadValue:
+         frames share the aliased spelling, so this needs a subprocess; an
+         in-process fake frame would not reproduce it.
+         """
++        loader_module = type(sys.modules["pypto"].__loader__).__module__
++        if loader_module.startswith("_editable_skbc_"):
++            pytest.skip(
++                "scikit-build's redirecting editable finder bypasses the "
++                "PYTHONPATH symlink; exercise this probe from a wheel install"
++            )
++
+         package_root = pathlib.Path(pypto_ir_utils.__file__).resolve().parent.parent.parent
+         link_root = tmp_path / "linked_python"
+         link_root.symlink_to(package_root, target_is_directory=True)

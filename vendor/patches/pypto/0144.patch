@@ -1,0 +1,275 @@
+From 84e101ab2aa2a4ad7808c834f910f28c85a4e348 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 05:22:17 +0800
+Subject: [PATCH 144/212] Preserve TensorIR argument mutation effects
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp      | 14 +++++-
+ src/codegen/nvidia/tensor_ir_codegen.h        | 14 +++++-
+ .../structured_tensor_ir_build_spec.cpp       | 46 +++++++++++++++----
+ .../structured_tensor_ir_build_spec.h         | 14 +++++-
+ .../structured_tensor_ir_build_spec_test.cpp  |  4 ++
+ tests/ut/cpp/tensor_ir_codegen_test.cpp       |  4 ++
+ 6 files changed, 84 insertions(+), 12 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 977c055f78e76b917686aa4f99fca46612112045..412ae9392f877b8bdd5734303c2639800e671423 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -6226,17 +6226,27 @@ std::string_view EntryNameForKind(TensorIrModuleKind kind) {
+ TensorIrValueMetadata::TensorIrValueMetadata(TensorIrValueRole role, uint32_t ordinal,
+                                              DataType dtype, std::vector<int64_t> shape,
+                                              std::vector<int64_t> logical_dense_strides,
+-                                             bool has_explicit_strides)
++                                             bool has_explicit_strides,
++                                             TensorIrArgumentEffect argument_effect)
+     : role_(role),
+       ordinal_(ordinal),
+       dtype_code_(dtype.Code()),
+       dtype_name_(dtype.ToString()),
+       shape_(std::move(shape)),
+       logical_dense_strides_(std::move(logical_dense_strides)),
+-      has_explicit_strides_(has_explicit_strides) {
++      has_explicit_strides_(has_explicit_strides),
++      argument_effect_(argument_effect) {
+   if (role_ != TensorIrValueRole::Input && role_ != TensorIrValueRole::Result) {
+     InternalReject("value metadata role is invalid");
+   }
++  if (argument_effect_ != TensorIrArgumentEffect::ReadOnly &&
++      argument_effect_ != TensorIrArgumentEffect::ReadWrite) {
++    InternalReject("value metadata argument effect is invalid");
++  }
++  if (role_ == TensorIrValueRole::Result &&
++      argument_effect_ != TensorIrArgumentEffect::ReadOnly) {
++    InternalReject("result metadata cannot carry an argument mutation effect");
++  }
+   if ((role_ == TensorIrValueRole::Input && ordinal_ >= kMaximumFusedPointwiseInputs) ||
+       (role_ == TensorIrValueRole::Result &&
+        ordinal_ >= kMaximumFusedPointwiseResults)) {
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.h b/src/codegen/nvidia/tensor_ir_codegen.h
+index 3969c51773dbd84d1a2a13305d14ee377e265702..2c84d60b9b6398a0797d6159bff738d4f225312d 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.h
++++ b/src/codegen/nvidia/tensor_ir_codegen.h
+@@ -41,6 +41,12 @@ enum class TensorIrValueRole : uint8_t {
+   Result = 1,
+ };
+ 
++/** Mutation effect of one TensorIR graph argument. */
++enum class TensorIrArgumentEffect : uint8_t {
++  ReadOnly = 0,
++  ReadWrite = 1,
++};
++
+ /**
+  * Compiler-neutral metadata for one statically shaped contiguous graph value.
+  *
+@@ -65,12 +71,17 @@ class TensorIrValueMetadata {
+   }
+   [[nodiscard]] constexpr bool IsContiguous() const noexcept { return true; }
+   [[nodiscard]] bool HasExplicitStrides() const noexcept { return has_explicit_strides_; }
++  [[nodiscard]] TensorIrArgumentEffect GetArgumentEffect() const noexcept {
++    return argument_effect_;
++  }
+ 
+  private:
+   TensorIrValueMetadata(TensorIrValueRole role, uint32_t ordinal, DataType dtype,
+                         std::vector<int64_t> shape,
+                         std::vector<int64_t> logical_dense_strides,
+-                        bool has_explicit_strides);
++                        bool has_explicit_strides,
++                        TensorIrArgumentEffect argument_effect =
++                            TensorIrArgumentEffect::ReadOnly);
+   friend TensorIrModule EmitTensorIr(const ir::ProgramPtr& program);
+   friend TensorIrModule detail::EmitLegacyStaticAddV1(const ir::ProgramPtr& program);
+ 
+@@ -81,6 +92,7 @@ class TensorIrValueMetadata {
+   std::vector<int64_t> shape_;
+   std::vector<int64_t> logical_dense_strides_;
+   bool has_explicit_strides_;
++  TensorIrArgumentEffect argument_effect_;
+ };
+ 
+ /** Exact TensorIR source bytes and the metadata used to construct them. */
+diff --git a/src/compiler/structured_tensor_ir_build_spec.cpp b/src/compiler/structured_tensor_ir_build_spec.cpp
+index 37a5c060ac1c27e55365eb2c01a02ae9b6e53cf7..b0375ee800afaaf356ef7419634b769352ae3b43 100644
+--- a/src/compiler/structured_tensor_ir_build_spec.cpp
++++ b/src/compiler/structured_tensor_ir_build_spec.cpp
+@@ -115,6 +115,26 @@ std::string_view RoleName(PreparedStructuredTensorIrValueRole role) {
+   throw InternalError("prepared structured TensorIR value role is invalid");
+ }
+ 
++std::string_view ArgumentDirectionName(
++    PreparedStructuredTensorIrArgumentEffect effect) {
++  if (effect == PreparedStructuredTensorIrArgumentEffect::ReadOnly) return "in";
++  if (effect == PreparedStructuredTensorIrArgumentEffect::ReadWrite) {
++    return "inout";
++  }
++  throw InternalError("prepared structured TensorIR argument effect is invalid");
++}
++
++std::string_view MutationEffectName(
++    PreparedStructuredTensorIrArgumentEffect effect) {
++  if (effect == PreparedStructuredTensorIrArgumentEffect::ReadOnly) {
++    return "read-only";
++  }
++  if (effect == PreparedStructuredTensorIrArgumentEffect::ReadWrite) {
++    return "read-write";
++  }
++  throw InternalError("prepared structured TensorIR argument effect is invalid");
++}
++
+ void PackInt64Array(CanonicalPacker& packer, const std::vector<int64_t>& values) {
+   packer.pack_array(static_cast<uint32_t>(values.size()));
+   for (int64_t value : values) packer.pack(value);
+@@ -139,7 +159,7 @@ void PackAbiDescriptor(CanonicalPacker& packer,
+   packer.pack(true);
+   if (include_direction) {
+     PackKey(packer, "direction");
+-    PackText(packer, "in");
++    PackText(packer, ArgumentDirectionName(metadata.GetArgumentEffect()));
+   }
+   PackKey(packer, "dtype_code");
+   packer.pack(metadata.GetDtypeCode());
+@@ -238,8 +258,10 @@ std::vector<uint8_t> SerializeResultAbi(
+   return FinishProjection(buffer, "result ABI");
+ }
+ 
+-std::vector<uint8_t> SerializeMutationAbi(uint32_t input_count,
+-                                          const FrontendProjectionSchema& schema) {
++std::vector<uint8_t> SerializeMutationAbi(
++    const std::vector<PreparedStructuredTensorIrValueMetadata>& metadata,
++    uint32_t input_count,
++    const FrontendProjectionSchema& schema) {
+   msgpack::sbuffer buffer;
+   CanonicalPacker packer(buffer);
+   packer.pack_map(4);
+@@ -248,7 +270,7 @@ std::vector<uint8_t> SerializeMutationAbi(uint32_t input_count,
+   for (uint32_t ordinal = 0; ordinal < input_count; ++ordinal) {
+     packer.pack_map(2);
+     PackKey(packer, "effect");
+-    PackText(packer, "read-only");
++    PackText(packer, MutationEffectName(metadata[ordinal].GetArgumentEffect()));
+     PackKey(packer, "ordinal");
+     packer.pack(ordinal);
+   }
+@@ -790,14 +812,16 @@ void ValidateKernelAbi(const PreparedStructuredTensorIrCompilation& prepared,
+ PreparedStructuredTensorIrValueMetadata::PreparedStructuredTensorIrValueMetadata(
+     PreparedStructuredTensorIrValueRole role, uint32_t ordinal, uint8_t dtype_code,
+     std::string dtype_name, std::vector<int64_t> shape,
+-    std::vector<int64_t> logical_dense_strides, bool has_explicit_strides)
++    std::vector<int64_t> logical_dense_strides, bool has_explicit_strides,
++    PreparedStructuredTensorIrArgumentEffect argument_effect)
+     : role_(role),
+       ordinal_(ordinal),
+       dtype_code_(dtype_code),
+       dtype_name_(std::move(dtype_name)),
+       shape_(std::move(shape)),
+       logical_dense_strides_(std::move(logical_dense_strides)),
+-      has_explicit_strides_(has_explicit_strides) {}
++      has_explicit_strides_(has_explicit_strides),
++      argument_effect_(argument_effect) {}
+ 
+ StructuredTensorIrIdentityProjection::StructuredTensorIrIdentityProjection(
+     std::vector<uint8_t> canonical_bytes)
+@@ -885,9 +909,15 @@ PreparedStructuredTensorIrCompilation PrepareStructuredTensorIrCompilation(
+         value.GetRole() == codegen::nvidia::TensorIrValueRole::Input
+             ? PreparedStructuredTensorIrValueRole::Argument
+             : PreparedStructuredTensorIrValueRole::Result;
++    const PreparedStructuredTensorIrArgumentEffect argument_effect =
++        value.GetArgumentEffect() ==
++                codegen::nvidia::TensorIrArgumentEffect::ReadWrite
++            ? PreparedStructuredTensorIrArgumentEffect::ReadWrite
++            : PreparedStructuredTensorIrArgumentEffect::ReadOnly;
+     metadata.push_back(PreparedStructuredTensorIrValueMetadata(
+         role, value.GetOrdinal(), value.GetDtypeCode(), value.GetDtypeName(), value.GetShape(),
+-        value.GetLogicalDenseStrides(), value.HasExplicitStrides()));
++        value.GetLogicalDenseStrides(), value.HasExplicitStrides(),
++        argument_effect));
+   }
+   for (size_t index = 0; index < metadata.size(); ++index) {
+     const bool is_input = index < module.GetInputCount();
+@@ -912,7 +942,7 @@ PreparedStructuredTensorIrCompilation PrepareStructuredTensorIrCompilation(
+   StructuredTensorIrIdentityProjection result_abi(
+       SerializeResultAbi(metadata, module.GetInputCount(), projection_schema));
+   StructuredTensorIrIdentityProjection mutation_abi(
+-      SerializeMutationAbi(module.GetInputCount(), projection_schema));
++      SerializeMutationAbi(metadata, module.GetInputCount(), projection_schema));
+ 
+   const std::string source_ir_digest = Artifact::ComputeSourceIrDigest(canonical_source);
+   return PreparedStructuredTensorIrCompilation(
+diff --git a/src/compiler/structured_tensor_ir_build_spec.h b/src/compiler/structured_tensor_ir_build_spec.h
+index 1d975ab64f20721e72b86a988565c51351498776..f1bdc235d6b91b094d13fdb3c0d0223dc7fc2104 100644
+--- a/src/compiler/structured_tensor_ir_build_spec.h
++++ b/src/compiler/structured_tensor_ir_build_spec.h
+@@ -39,6 +39,11 @@ enum class PreparedStructuredTensorIrValueRole : uint8_t {
+   Result = 1,
+ };
+ 
++enum class PreparedStructuredTensorIrArgumentEffect : uint8_t {
++  ReadOnly = 0,
++  ReadWrite = 1,
++};
++
+ /** Frontend family retained after TensorIrModule is copied away. */
+ enum class PreparedStructuredTensorIrModuleKind : uint8_t {
+   LegacyStaticAddV1 = 0,
+@@ -66,6 +71,10 @@ class PreparedStructuredTensorIrValueMetadata {
+     return logical_dense_strides_;
+   }
+   [[nodiscard]] bool HasExplicitStrides() const noexcept { return has_explicit_strides_; }
++  [[nodiscard]] PreparedStructuredTensorIrArgumentEffect GetArgumentEffect()
++      const noexcept {
++    return argument_effect_;
++  }
+   [[nodiscard]] constexpr bool IsContiguous() const noexcept { return true; }
+ 
+  private:
+@@ -73,7 +82,9 @@ class PreparedStructuredTensorIrValueMetadata {
+                                           uint8_t dtype_code, std::string dtype_name,
+                                           std::vector<int64_t> shape,
+                                           std::vector<int64_t> logical_dense_strides,
+-                                          bool has_explicit_strides);
++                                          bool has_explicit_strides,
++                                          PreparedStructuredTensorIrArgumentEffect
++                                              argument_effect);
+   friend PreparedStructuredTensorIrCompilation PrepareStructuredTensorIrCompilation(
+       const ir::ProgramPtr& program, const CompileRequest& request,
+       const CanonicalSchedule& schedule);
+@@ -85,6 +96,7 @@ class PreparedStructuredTensorIrValueMetadata {
+   std::vector<int64_t> shape_;
+   std::vector<int64_t> logical_dense_strides_;
+   bool has_explicit_strides_;
++  PreparedStructuredTensorIrArgumentEffect argument_effect_;
+ };
+ 
+ /** One canonical, domain-separated identity projection and its SHA-256. */
+diff --git a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+index 633fba9d0e7b0e64bfe0822d0d6e558ef1c37040..558117b9c580e7cb2bd284528c63d2f3643d4d4f 100644
+--- a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
++++ b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+@@ -748,6 +748,10 @@ int TestPreparationGoldenAndOwnership() {
+   REQUIRE(metadata[0].GetLogicalDenseStrides() == std::vector<int64_t>({8, 1}));
+   REQUIRE(metadata[0].HasExplicitStrides());
+   REQUIRE(metadata[0].IsContiguous());
++  for (const auto& value : metadata) {
++    REQUIRE(value.GetArgumentEffect() ==
++            PreparedStructuredTensorIrArgumentEffect::ReadOnly);
++  }
+ 
+   REQUIRE(prepared.GetStaticSpecialization().GetCanonicalBytes() ==
+           BytesFromHex(kStaticGoldenHex));
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index 4466f2e63094d58b8ef4f5da3cc8b1f008cb55dd..257af3e272d2d8e4e01a54560dfa43b6dc34574b 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -298,6 +298,10 @@ int TestFp32CanonicalSourceAndMetadata() {
+   REQUIRE(input0.GetLogicalDenseStrides() == std::vector<int64_t>({3, 1}));
+   REQUIRE(input0.IsContiguous());
+   REQUIRE(input0.HasExplicitStrides());
++  REQUIRE(input0.GetArgumentEffect() == TensorIrArgumentEffect::ReadOnly);
++  for (const auto& metadata : module.GetValueMetadata()) {
++    REQUIRE(metadata.GetArgumentEffect() == TensorIrArgumentEffect::ReadOnly);
++  }
+ 
+   const auto& result = module.GetValueMetadata()[2];
+   REQUIRE(result.GetRole() == TensorIrValueRole::Result);

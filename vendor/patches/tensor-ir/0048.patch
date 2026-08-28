@@ -1,0 +1,22 @@
+From 9137c902ed01f8836bf004994ef095b6fed77eeb Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 01:56:29 +0800
+Subject: [PATCH 48/82] Compare delayed broadcast tile shapes portably
+
+---
+ lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index 68910815e030561a6bc389489db41a3b9a056d7f..088f03fbc999beb2d47eae923b331bda03a92f5d 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -1030,7 +1030,7 @@ Value ConversionStateImpl::getTile(Value operand) {
+            "layout has no associated value");
+     Value tile = it->second;
+     auto tileType = cast<ShapedType>(tile.getType());
+-    if (tileType.getShape() != iterationSpace->tileShape) {
++    if (!llvm::equal(tileType.getShape(), iterationSpace->tileShape)) {
+       assert(activeRewriter && "missing active conversion rewriter");
+       Operation *definition = tile.getDefiningOp();
+       assert(definition && "loaded tile must have a defining operation");

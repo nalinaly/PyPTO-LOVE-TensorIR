@@ -1,0 +1,625 @@
+From 1c701ec6f7e7c547f6af02862603981f64e01091 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 02:31:43 +0800
+Subject: [PATCH 11/82] Validate CUDA Cubin entry parameter ABI
+
+---
+ .../Compiler/CudaTile/CudaTileArtifact.h      |  14 +-
+ lib/Compiler/CudaTile/CudaTileArtifact.cpp    | 493 +++++++++++++++++-
+ 2 files changed, 477 insertions(+), 30 deletions(-)
+
+diff --git a/include/tensor_ir/Compiler/CudaTile/CudaTileArtifact.h b/include/tensor_ir/Compiler/CudaTile/CudaTileArtifact.h
+index 5f952fd59d66a16dfb6879b83a45f129fad603a7..741355f6e38f262a3abedcf57c9ce7cd16a73565 100644
+--- a/include/tensor_ir/Compiler/CudaTile/CudaTileArtifact.h
++++ b/include/tensor_ir/Compiler/CudaTile/CudaTileArtifact.h
+@@ -45,14 +45,18 @@ StatusOr<CudaTileArtifactKind>
+ detectCudaTileArtifactKind(llvm::ArrayRef<char> deviceCode);
+ 
+ /// Validate complete runtime-free device bytes against their declared kind,
+-/// target, and intermediate TileIR bytecode version. This performs no CUDA
+-/// load, context query, filesystem access, or runtime reconstruction. The
+-/// target is byte-attested for Cubin; TileIR carries and validates its version
+-/// but does not encode an equivalent target attestation.
++/// numeric target, declared entry function, and intermediate TileIR bytecode
++/// version. This performs no CUDA load, context query, filesystem access, or
++/// runtime reconstruction. Cubin bytes attest the numeric SM and entry symbol;
++/// target portability remains producer policy because CUDA ELF does not encode
++/// TensorIR's portability enum. TileIR carries and validates its version but
++/// does not encode an equivalent target attestation.
+ Status validateCudaTileDeviceCode(
+     llvm::ArrayRef<char> deviceCode, CudaTileArtifactKind actualKind,
+     SmTarget actualTarget,
+-    mlir::cuda_tile::BytecodeVersion tileIRBytecodeVersion);
++    mlir::cuda_tile::BytecodeVersion tileIRBytecodeVersion,
++    llvm::StringRef entryFunctionName,
++    llvm::ArrayRef<uint32_t> kernelArgumentSizes);
+ 
+ /// Process- and device-independent output of TensorIR CUDA Tile compilation.
+ ///
+diff --git a/lib/Compiler/CudaTile/CudaTileArtifact.cpp b/lib/Compiler/CudaTile/CudaTileArtifact.cpp
+index 48d0b3f0a60adc372cc25cbe3383b0736464b98e..1d2fabc3c992663bd214a41f1a48e2524190b962 100644
+--- a/lib/Compiler/CudaTile/CudaTileArtifact.cpp
++++ b/lib/Compiler/CudaTile/CudaTileArtifact.cpp
+@@ -11,10 +11,14 @@
+ #include "cuda_tile/Dialect/CudaTile/IR/Dialect.h"
+ #include "mlir/IR/Diagnostics.h"
+ 
++#include <algorithm>
+ #include <cstddef>
++#include <cstring>
+ #include <limits>
+ #include <optional>
+ #include <string>
++#include <utility>
++#include <vector>
+ 
+ namespace mlir::nv_tensor_ir::backend::cuda_tile {
+ namespace {
+@@ -66,6 +70,402 @@ bool isRangeWithin(uint64_t offset, uint64_t size, size_t totalSize) {
+   return offset <= totalSize && size <= totalSize - offset;
+ }
+ 
++bool sectionNameEquals(llvm::ArrayRef<char> bytes, uint64_t tableOffset,
++                       uint64_t tableSize, uint32_t nameOffset,
++                       llvm::StringRef expected) {
++  if (nameOffset > tableSize || expected.size() + 1 > tableSize - nameOffset) {
++    return false;
++  }
++  const char *name = bytes.data() + tableOffset + nameOffset;
++  return std::memcmp(name, expected.data(), expected.size()) == 0 &&
++         name[expected.size()] == '\0';
++}
++
++struct KernelParameterMetadata {
++  uint32_t constantBankSize;
++  uint32_t constantSectionSymbolIndex;
++  uint16_t constantBankOffset;
++};
++
++StatusOr<KernelParameterMetadata>
++validateKernelParameterMetadata(llvm::ArrayRef<char> bytes,
++                                uint64_t metadataOffset,
++                                uint64_t metadataSize,
++                                llvm::ArrayRef<uint32_t> expectedSizes) {
++  constexpr uint8_t kIndexedFormat = 4;
++  constexpr uint8_t kHalfValueFormat = 3;
++  constexpr uint8_t kParameterConstantBank = 0x0a;
++  constexpr uint8_t kKernelParameterInfo = 0x17;
++  constexpr uint8_t kConstantBankParameterSize = 0x19;
++  constexpr size_t kMaximumMetadataRecords = 65536;
++  if (expectedSizes.empty() || expectedSizes.size() > 4096) {
++    return Status::InvalidArgument(
++        "invalid expected CUDA kernel argument-size metadata");
++  }
++
++  std::vector<bool> seen(expectedSizes.size(), false);
++  std::vector<std::pair<uint32_t, uint32_t>> ranges;
++  ranges.reserve(expectedSizes.size());
++  std::optional<uint32_t> constantSectionSymbolIndex;
++  std::optional<uint16_t> constantBankOffset;
++  std::optional<uint16_t> constantBankExtent;
++  std::optional<uint32_t> constantBankSize;
++  uint64_t cursor = 0;
++  size_t recordCount = 0;
++  while (cursor < metadataSize) {
++    if (recordCount == kMaximumMetadataRecords) {
++      return Status::InvalidArgument(
++          "CUDA per-entry metadata record count exceeds its strict limit");
++    }
++    ++recordCount;
++    if (!isRangeWithin(metadataOffset + cursor, 4, bytes.size()) ||
++        metadataSize - cursor < 4) {
++      return Status::InvalidArgument("truncated CUDA per-entry metadata record");
++    }
++    uint64_t recordOffset = metadataOffset + cursor;
++    uint8_t format = static_cast<uint8_t>(bytes[recordOffset]);
++    uint8_t attribute = static_cast<uint8_t>(bytes[recordOffset + 1]);
++    uint16_t value = readU16LE(bytes, recordOffset + 2);
++    uint64_t payloadSize = 0;
++    if (format == kIndexedFormat) {
++      payloadSize = value;
++    } else if (format != 1 && format != 2 &&
++               format != kHalfValueFormat) {
++      return Status::InvalidArgument("unknown CUDA per-entry metadata format");
++    }
++    uint64_t recordSize = 4 + payloadSize;
++    uint64_t alignedRecordSize = (recordSize + 3) & ~uint64_t{3};
++    if (alignedRecordSize < recordSize || alignedRecordSize > metadataSize - cursor ||
++        !isRangeWithin(recordOffset, alignedRecordSize, bytes.size())) {
++      return Status::InvalidArgument("invalid CUDA per-entry metadata record size");
++    }
++
++    if (attribute == kParameterConstantBank) {
++      if (format != kIndexedFormat || payloadSize != 8 ||
++          constantSectionSymbolIndex || constantBankOffset ||
++          constantBankExtent) {
++        return Status::InvalidArgument(
++            "invalid CUDA parameter constant-bank record");
++      }
++      constantSectionSymbolIndex = readU32LE(bytes, recordOffset + 4);
++      uint32_t descriptor = readU32LE(bytes, recordOffset + 8);
++      constantBankOffset = static_cast<uint16_t>(descriptor & 0xffff);
++      constantBankExtent = static_cast<uint16_t>(descriptor >> 16);
++    } else if (attribute == kKernelParameterInfo) {
++      if (format != kIndexedFormat || payloadSize != 12) {
++        return Status::InvalidArgument("invalid CUDA kernel parameter record");
++      }
++      uint16_t ordinal = readU16LE(bytes, recordOffset + 8);
++      uint16_t parameterOffset = readU16LE(bytes, recordOffset + 10);
++      uint32_t descriptor = readU32LE(bytes, recordOffset + 12);
++      // CUDA 13.3 KPARAM_INFO stores the byte width in bits [31:18].
++      uint32_t parameterSize = (descriptor >> 18) & 0x3fff;
++      if (ordinal >= expectedSizes.size() || seen[ordinal] || parameterSize == 0 ||
++          parameterSize != expectedSizes[ordinal]) {
++        return Status::InvalidArgument(
++            "CUDA kernel parameter metadata differs from the declared ABI");
++      }
++      seen[ordinal] = true;
++      ranges.emplace_back(parameterOffset, parameterOffset + parameterSize);
++    } else if (attribute == kConstantBankParameterSize) {
++      if (format != kHalfValueFormat || constantBankSize) {
++        return Status::InvalidArgument(
++            "invalid CUDA constant-bank parameter-size record");
++      }
++      constantBankSize = value;
++    }
++    cursor += alignedRecordSize;
++  }
++
++  if (!constantSectionSymbolIndex || !constantBankOffset ||
++      !constantBankExtent || !constantBankSize ||
++      *constantBankExtent != *constantBankSize ||
++      !std::all_of(seen.begin(), seen.end(), [](bool value) { return value; })) {
++    return Status::InvalidArgument(
++        "CUDA cubin parameter metadata is incomplete");
++  }
++  std::sort(ranges.begin(), ranges.end());
++  uint32_t maximumEnd = 0;
++  for (const auto &[begin, end] : ranges) {
++    if (begin < maximumEnd || end > *constantBankSize) {
++      return Status::InvalidArgument(
++          "CUDA cubin parameter ranges overlap or exceed their constant bank");
++    }
++    maximumEnd = end;
++  }
++  if (maximumEnd != *constantBankSize) {
++    return Status::InvalidArgument(
++        "CUDA constant-bank parameter size differs from the declared arguments");
++  }
++  return KernelParameterMetadata{*constantBankSize,
++                                 *constantSectionSymbolIndex,
++                                 *constantBankOffset};
++}
++
++Status validateEntryFunctionSymbol(llvm::ArrayRef<char> bytes,
++                                   uint64_t sectionHeadersOffset,
++                                   uint16_t sectionHeaderSize,
++                                   uint16_t sectionHeaderCount,
++                                   uint16_t sectionNameIndex,
++                                   llvm::StringRef entryFunctionName,
++                                   llvm::ArrayRef<uint32_t> kernelArgumentSizes) {
++  constexpr uint64_t kElf64SymbolSize = 24;
++  constexpr uint64_t kMaximumSymbolCount = 1 << 20;
++  constexpr size_t kMaximumSymbolStringCount = 65536;
++  constexpr uint8_t kCudaEntrySymbol = 0x10;
++  constexpr uint32_t kCudaInfoSectionType = 0x70000000;
++  if (entryFunctionName.empty() || entryFunctionName.size() > 1024 ||
++      containsNul(entryFunctionName)) {
++    return Status::InvalidArgument("invalid CUDA Cubin entry function name");
++  }
++
++  bool hasSymbolTable = false;
++  uint32_t entrySymbolCount = 0;
++  uint16_t symbolTableSectionIndex = 0;
++  uint16_t entryTextSectionIndex = 0;
++  uint32_t entrySymbolIndex = 0;
++  uint64_t matchedSymbolTableOffset = 0;
++  uint64_t matchedSymbolCount = 0;
++  for (uint16_t sectionIndex = 0; sectionIndex < sectionHeaderCount;
++       ++sectionIndex) {
++    uint64_t sectionHeaderOffset =
++        sectionHeadersOffset +
++        static_cast<uint64_t>(sectionIndex) * sectionHeaderSize;
++    uint32_t sectionType = readU32LE(bytes, sectionHeaderOffset + 4);
++    if (sectionType != llvm::ELF::SHT_SYMTAB &&
++        sectionType != llvm::ELF::SHT_DYNSYM) {
++      continue;
++    }
++    if (hasSymbolTable) {
++      return Status::InvalidArgument(
++          "CUDA cubin contains multiple symbol tables");
++    }
++    hasSymbolTable = true;
++    symbolTableSectionIndex = sectionIndex;
++
++    uint64_t symbolTableOffset = readU64LE(bytes, sectionHeaderOffset + 24);
++    uint64_t symbolTableSize = readU64LE(bytes, sectionHeaderOffset + 32);
++    uint32_t stringTableIndex = readU32LE(bytes, sectionHeaderOffset + 40);
++    uint64_t symbolEntrySize = readU64LE(bytes, sectionHeaderOffset + 56);
++    if (symbolEntrySize != kElf64SymbolSize ||
++        symbolTableSize % symbolEntrySize != 0 ||
++        !isRangeWithin(symbolTableOffset, symbolTableSize, bytes.size()) ||
++        stringTableIndex >= sectionHeaderCount) {
++      return Status::InvalidArgument("invalid CUDA ELF symbol table");
++    }
++
++    uint64_t stringHeaderOffset =
++        sectionHeadersOffset +
++        static_cast<uint64_t>(stringTableIndex) * sectionHeaderSize;
++    if (readU32LE(bytes, stringHeaderOffset + 4) != llvm::ELF::SHT_STRTAB) {
++      return Status::InvalidArgument("CUDA ELF symbol table does not link a string table");
++    }
++    uint64_t stringTableOffset = readU64LE(bytes, stringHeaderOffset + 24);
++    uint64_t stringTableSize = readU64LE(bytes, stringHeaderOffset + 32);
++    if (!isRangeWithin(stringTableOffset, stringTableSize, bytes.size())) {
++      return Status::InvalidArgument("invalid CUDA ELF symbol string table bounds");
++    }
++
++    const uint64_t symbolCount = symbolTableSize / symbolEntrySize;
++    if (symbolCount > kMaximumSymbolCount) {
++      return Status::InvalidArgument(
++          "CUDA ELF symbol count exceeds its strict limit");
++    }
++
++    std::optional<uint32_t> declaredNameOffset;
++    uint64_t stringOffset = 0;
++    size_t stringCount = 0;
++    while (stringOffset < stringTableSize) {
++      if (stringCount == kMaximumSymbolStringCount) {
++        return Status::InvalidArgument(
++            "CUDA ELF symbol string count exceeds its strict limit");
++      }
++      ++stringCount;
++      llvm::StringRef remaining(bytes.data() + stringTableOffset + stringOffset,
++                                stringTableSize - stringOffset);
++      size_t terminator = remaining.find('\0');
++      if (terminator == llvm::StringRef::npos) {
++        return Status::InvalidArgument(
++            "CUDA ELF symbol string table is not NUL-terminated");
++      }
++      if (remaining.take_front(terminator) == entryFunctionName) {
++        if (stringOffset > std::numeric_limits<uint32_t>::max()) {
++          return Status::InvalidArgument(
++              "CUDA ELF entry name offset exceeds uint32 range");
++        }
++        if (declaredNameOffset) {
++          return Status::InvalidArgument(
++              "CUDA ELF string table duplicates the declared entry name");
++        }
++        declaredNameOffset = static_cast<uint32_t>(stringOffset);
++      }
++      stringOffset += terminator + 1;
++    }
++    if (!declaredNameOffset) {
++      continue;
++    }
++
++    for (uint64_t symbolIndex = 0; symbolIndex < symbolCount; ++symbolIndex) {
++      uint64_t symbolOffset = symbolTableOffset + symbolIndex * symbolEntrySize;
++      uint32_t nameOffset = readU32LE(bytes, symbolOffset);
++      if (nameOffset != *declaredNameOffset) {
++        continue;
++      }
++
++      uint8_t symbolInfo = static_cast<uint8_t>(bytes[symbolOffset + 4]);
++      uint8_t symbolOther = static_cast<uint8_t>(bytes[symbolOffset + 5]);
++      uint8_t symbolBinding = symbolInfo >> 4;
++      uint8_t symbolType = symbolInfo & 0x0f;
++      if ((symbolBinding != llvm::ELF::STB_GLOBAL &&
++           symbolBinding != llvm::ELF::STB_WEAK) ||
++          symbolType != llvm::ELF::STT_FUNC ||
++          (symbolOther & 0xf0) != kCudaEntrySymbol) {
++        continue;
++      }
++
++      uint16_t definedSectionIndex = readU16LE(bytes, symbolOffset + 6);
++      if (definedSectionIndex == llvm::ELF::SHN_UNDEF ||
++          definedSectionIndex >= llvm::ELF::SHN_LORESERVE ||
++          definedSectionIndex >= sectionHeaderCount) {
++        continue;
++      }
++      uint64_t definedSectionOffset =
++          sectionHeadersOffset +
++          static_cast<uint64_t>(definedSectionIndex) * sectionHeaderSize;
++      uint32_t definedSectionType = readU32LE(bytes, definedSectionOffset + 4);
++      uint64_t definedSectionAddress = readU64LE(bytes, definedSectionOffset + 16);
++      uint64_t definedSectionFlags = readU64LE(bytes, definedSectionOffset + 8);
++      uint64_t definedSectionSize = readU64LE(bytes, definedSectionOffset + 32);
++      uint64_t definedSectionAlignment = readU64LE(bytes, definedSectionOffset + 48);
++      uint64_t symbolValue = readU64LE(bytes, symbolOffset + 8);
++      uint64_t symbolSize = readU64LE(bytes, symbolOffset + 16);
++      if (definedSectionType == llvm::ELF::SHT_PROGBITS &&
++          (definedSectionFlags & llvm::ELF::SHF_EXECINSTR) != 0 &&
++          definedSectionSize > 0 && definedSectionSize % 16 == 0 &&
++          definedSectionAlignment >= 16 && symbolSize > 0 &&
++          symbolSize % 16 == 0 && symbolValue >= definedSectionAddress &&
++          isRangeWithin(symbolValue - definedSectionAddress, symbolSize,
++                        definedSectionSize)) {
++        ++entrySymbolCount;
++        if (entrySymbolCount == 1) {
++          entryTextSectionIndex = definedSectionIndex;
++          entrySymbolIndex = static_cast<uint32_t>(symbolIndex);
++          matchedSymbolTableOffset = symbolTableOffset;
++          matchedSymbolCount = symbolCount;
++        }
++      }
++    }
++  }
++
++  if (!hasSymbolTable) {
++    return Status::InvalidArgument("CUDA cubin contains no symbol table");
++  }
++  if (entrySymbolCount != 1) {
++    return Status::InvalidArgument(
++        "CUDA cubin must define exactly one declared entry function");
++  }
++
++  uint64_t sectionNameHeaderOffset =
++      sectionHeadersOffset +
++      static_cast<uint64_t>(sectionNameIndex) * sectionHeaderSize;
++  if (readU32LE(bytes, sectionNameHeaderOffset + 4) !=
++      llvm::ELF::SHT_STRTAB) {
++    return Status::InvalidArgument(
++        "CUDA ELF section-name table is not a string table");
++  }
++  uint64_t sectionNameTableOffset =
++      readU64LE(bytes, sectionNameHeaderOffset + 24);
++  uint64_t sectionNameTableSize =
++      readU64LE(bytes, sectionNameHeaderOffset + 32);
++  if (!isRangeWithin(sectionNameTableOffset, sectionNameTableSize,
++                     bytes.size())) {
++    return Status::InvalidArgument(
++        "invalid CUDA ELF section-name table bounds");
++  }
++
++  const std::string textSectionName = ".text." + entryFunctionName.str();
++  uint64_t entryTextHeaderOffset =
++      sectionHeadersOffset +
++      static_cast<uint64_t>(entryTextSectionIndex) * sectionHeaderSize;
++  if (!sectionNameEquals(bytes, sectionNameTableOffset, sectionNameTableSize,
++                         readU32LE(bytes, entryTextHeaderOffset),
++                         textSectionName) ||
++      readU32LE(bytes, entryTextHeaderOffset + 40) !=
++          symbolTableSectionIndex ||
++      readU32LE(bytes, entryTextHeaderOffset + 44) != entrySymbolIndex) {
++    return Status::InvalidArgument(
++        "CUDA entry symbol and text section are not canonically linked");
++  }
++
++  const std::string metadataSectionName = ".nv.info." + entryFunctionName.str();
++  const std::string constantSectionName =
++      ".nv.constant0." + entryFunctionName.str();
++  std::optional<KernelParameterMetadata> parameterMetadata;
++  bool hasConstantSection = false;
++  uint16_t constantSectionIndex = 0;
++  uint64_t constantSectionSize = 0;
++  for (uint16_t sectionIndex = 0; sectionIndex < sectionHeaderCount;
++       ++sectionIndex) {
++    uint64_t sectionHeaderOffset =
++        sectionHeadersOffset +
++        static_cast<uint64_t>(sectionIndex) * sectionHeaderSize;
++    uint32_t nameOffset = readU32LE(bytes, sectionHeaderOffset);
++    uint32_t sectionType = readU32LE(bytes, sectionHeaderOffset + 4);
++    uint64_t sectionOffset = readU64LE(bytes, sectionHeaderOffset + 24);
++    uint64_t sectionSize = readU64LE(bytes, sectionHeaderOffset + 32);
++    uint32_t sectionLink = readU32LE(bytes, sectionHeaderOffset + 40);
++    uint32_t sectionInfo = readU32LE(bytes, sectionHeaderOffset + 44);
++    if (sectionNameEquals(bytes, sectionNameTableOffset, sectionNameTableSize,
++                          nameOffset, metadataSectionName)) {
++      if (parameterMetadata || sectionType != kCudaInfoSectionType ||
++          sectionSize == 0 || sectionLink != symbolTableSectionIndex ||
++          sectionInfo != entryTextSectionIndex) {
++        return Status::InvalidArgument(
++            "invalid CUDA per-entry parameter metadata section");
++      }
++      TIR_ASSIGN_OR_RETURN(
++          auto metadata,
++          validateKernelParameterMetadata(bytes, sectionOffset, sectionSize,
++                                          kernelArgumentSizes));
++      parameterMetadata = metadata;
++    } else if (sectionNameEquals(bytes, sectionNameTableOffset,
++                                 sectionNameTableSize, nameOffset,
++                                 constantSectionName)) {
++      if (hasConstantSection || sectionType != llvm::ELF::SHT_PROGBITS ||
++          sectionInfo != entryTextSectionIndex || sectionSize == 0) {
++        return Status::InvalidArgument(
++            "invalid CUDA entry constant-bank section");
++      }
++      hasConstantSection = true;
++      constantSectionIndex = sectionIndex;
++      constantSectionSize = sectionSize;
++    }
++  }
++  if (!parameterMetadata || !hasConstantSection ||
++      parameterMetadata->constantBankOffset > constantSectionSize ||
++      parameterMetadata->constantBankSize >
++          constantSectionSize - parameterMetadata->constantBankOffset ||
++      static_cast<uint64_t>(parameterMetadata->constantBankOffset) +
++              parameterMetadata->constantBankSize !=
++          constantSectionSize ||
++      parameterMetadata->constantSectionSymbolIndex >= matchedSymbolCount) {
++    return Status::InvalidArgument(
++        "CUDA cubin is missing per-entry parameter ABI sections");
++  }
++  uint64_t constantSymbolOffset =
++      matchedSymbolTableOffset +
++      static_cast<uint64_t>(parameterMetadata->constantSectionSymbolIndex) *
++          kElf64SymbolSize;
++  uint8_t constantSymbolInfo =
++      static_cast<uint8_t>(bytes[constantSymbolOffset + 4]);
++  if ((constantSymbolInfo & 0x0f) != llvm::ELF::STT_SECTION ||
++      readU16LE(bytes, constantSymbolOffset + 6) != constantSectionIndex) {
++    return Status::InvalidArgument(
++        "CUDA parameter metadata does not reference its constant section");
++  }
++  return Status::Ok();
++}
++
+ StatusOr<int32_t> decodeCudaSmFlags(llvm::ArrayRef<char> bytes,
+                                     uint32_t flags) {
+   uint8_t abiVersion =
+@@ -147,7 +547,9 @@ Status validateCudaElfHeader(llvm::ArrayRef<char> bytes,
+ }
+ 
+ Status validateCompleteCudaElf(llvm::ArrayRef<char> bytes,
+-                               const SmTarget &expectedTarget) {
++                               const SmTarget &expectedTarget,
++                               llvm::StringRef entryFunctionName,
++                               llvm::ArrayRef<uint32_t> kernelArgumentSizes) {
+   // CUDA 13.3 cubins emitted by tileiras use OSABI byte 0x41. The pinned LLVM
+   // revision only names the older CUDA OSABI values (0x33 and 0x29).
+   static constexpr uint8_t kCudaTileOsAbi = 0x41;
+@@ -164,12 +566,8 @@ Status validateCompleteCudaElf(llvm::ArrayRef<char> bytes,
+   uint8_t abiVersion =
+       static_cast<uint8_t>(bytes[llvm::ELF::EI_ABIVERSION]);
+   uint16_t elfType = readU16LE(bytes, 16);
+-  if ((elfType != llvm::ELF::ET_EXEC && elfType != llvm::ELF::ET_REL) ||
+-      (osAbi != llvm::ELF::ELFOSABI_CUDA &&
+-       osAbi != llvm::ELF::ELFOSABI_CUDA_V2 &&
+-       osAbi != kCudaTileOsAbi) ||
+-      (abiVersion != llvm::ELF::ELFABIVERSION_CUDA_V1 &&
+-       abiVersion != llvm::ELF::ELFABIVERSION_CUDA_V2)) {
++  if (elfType != llvm::ELF::ET_EXEC || osAbi != kCudaTileOsAbi ||
++      abiVersion != llvm::ELF::ELFABIVERSION_CUDA_V2) {
+     return Status::InvalidArgument("ELF object is not a supported CUDA cubin");
+   }
+ 
+@@ -178,22 +576,41 @@ Status validateCompleteCudaElf(llvm::ArrayRef<char> bytes,
+       readU16LE(bytes, kProgramHeaderSizeOffset);
+   uint16_t programHeaderCount =
+       readU16LE(bytes, kProgramHeaderCountOffset);
+-  if (programHeaderCount > 0 &&
+-      (programHeaderSize != kElf64ProgramHeaderSize ||
+-       !isRangeWithin(programHeadersOffset,
+-                      static_cast<uint64_t>(programHeaderSize) *
+-                          programHeaderCount,
+-                      bytes.size()))) {
++  if (programHeaderCount == 0 ||
++      programHeaderSize != kElf64ProgramHeaderSize ||
++      !isRangeWithin(programHeadersOffset,
++                     static_cast<uint64_t>(programHeaderSize) *
++                         programHeaderCount,
++                     bytes.size())) {
+     return Status::InvalidArgument("invalid CUDA ELF program header table");
+   }
++  bool hasLoadSegment = false;
+   for (uint16_t index = 0; index < programHeaderCount; ++index) {
+     uint64_t headerOffset = programHeadersOffset +
+                             static_cast<uint64_t>(index) * programHeaderSize;
++    uint32_t segmentType = readU32LE(bytes, headerOffset);
+     uint64_t fileOffset = readU64LE(bytes, headerOffset + 8);
++    uint64_t virtualAddress = readU64LE(bytes, headerOffset + 16);
+     uint64_t fileSize = readU64LE(bytes, headerOffset + 32);
+-    if (!isRangeWithin(fileOffset, fileSize, bytes.size())) {
+-      return Status::InvalidArgument("invalid CUDA ELF segment bounds");
++    uint64_t memorySize = readU64LE(bytes, headerOffset + 40);
++    uint64_t alignment = readU64LE(bytes, headerOffset + 48);
++    if ((segmentType != llvm::ELF::PT_LOAD &&
++         segmentType != llvm::ELF::PT_PHDR) ||
++        fileSize > memorySize || !isPowerOfTwo(alignment) ||
++        fileOffset % alignment != virtualAddress % alignment ||
++        !isRangeWithin(fileOffset, fileSize, bytes.size())) {
++      return Status::InvalidArgument("invalid CUDA ELF segment metadata");
++    }
++    if (segmentType == llvm::ELF::PT_PHDR &&
++        (fileOffset != programHeadersOffset ||
++         fileSize != static_cast<uint64_t>(programHeaderSize) *
++                         programHeaderCount)) {
++      return Status::InvalidArgument("invalid CUDA ELF program-header segment");
+     }
++    hasLoadSegment = hasLoadSegment || segmentType == llvm::ELF::PT_LOAD;
++  }
++  if (!hasLoadSegment) {
++    return Status::InvalidArgument("CUDA cubin contains no loadable segment");
+   }
+ 
+   uint64_t sectionHeadersOffset = readU64LE(bytes, kSectionHeaderOffset);
+@@ -203,6 +620,7 @@ Status validateCompleteCudaElf(llvm::ArrayRef<char> bytes,
+       readU16LE(bytes, kSectionHeaderCountOffset);
+   uint16_t sectionNameIndex = readU16LE(bytes, kSectionNameIndexOffset);
+   if (sectionHeaderCount == 0 ||
++      sectionHeaderCount >= llvm::ELF::SHN_LORESERVE ||
+       sectionHeaderSize != kElf64SectionHeaderSize ||
+       sectionNameIndex >= sectionHeaderCount ||
+       !isRangeWithin(sectionHeadersOffset,
+@@ -239,11 +657,15 @@ Status validateCompleteCudaElf(llvm::ArrayRef<char> bytes,
+     return Status::InvalidArgument(
+         "cubin SM flags differ from artifact target metadata");
+   }
+-  // TensorIR's arch_conditional means an exact numeric architecture match;
+-  // it is not the CUDA accelerator-feature suffix encoded by
+-  // EF_CUDA_ACCELERATORS. The exact SM check above is therefore the complete
+-  // portability validation for this Cubin path.
+-  return Status::Ok();
++  // TensorIR's portability enum is producer policy; it is not the CUDA
++  // accelerator-feature suffix encoded by EF_CUDA_ACCELERATORS. Cubin bytes
++  // therefore attest the exact numeric SM, while the caller separately binds
++  // portability policy.
++  return validateEntryFunctionSymbol(bytes, sectionHeadersOffset,
++                                     sectionHeaderSize, sectionHeaderCount,
++                                     sectionNameIndex,
++                                     entryFunctionName,
++                                     kernelArgumentSizes);
+ }
+ 
+ Status validateArgLayout(const ::tensor_ir::rt::KernelArgLayout &layout) {
+@@ -319,6 +741,22 @@ Status validateArgLayout(const ::tensor_ir::rt::KernelArgLayout &layout) {
+   return Status::Ok();
+ }
+ 
++llvm::SmallVector<uint32_t, 16>
++getKernelArgumentSizes(const ::tensor_ir::rt::KernelArgLayout &layout) {
++  llvm::SmallVector<uint32_t, 16> sizes;
++  sizes.reserve(layout.totalKernelArgs);
++  for (const auto &descriptor : layout.tensorDescs) {
++    if (descriptor.isScalar) {
++      sizes.push_back(static_cast<uint32_t>(descriptor.scalarSizeInBytes));
++      continue;
++    }
++    sizes.push_back(sizeof(uint64_t));
++    sizes.append(descriptor.numDynSizes, sizeof(int32_t));
++    sizes.append(descriptor.numDynStrides, sizeof(int32_t));
++  }
++  return sizes;
++}
++
+ } // namespace
+ 
+ llvm::StringRef stringifyCudaTileArtifactKind(CudaTileArtifactKind kind) {
+@@ -353,7 +791,9 @@ detectCudaTileArtifactKind(llvm::ArrayRef<char> deviceCode) {
+ Status validateCudaTileDeviceCode(
+     llvm::ArrayRef<char> deviceCode, CudaTileArtifactKind actualKind,
+     SmTarget actualTarget,
+-    mlir::cuda_tile::BytecodeVersion tileIRBytecodeVersion) {
++    mlir::cuda_tile::BytecodeVersion tileIRBytecodeVersion,
++    llvm::StringRef entryFunctionName,
++    llvm::ArrayRef<uint32_t> kernelArgumentSizes) {
+   TIR_ASSIGN_OR_RETURN(auto detectedKind,
+                        detectCudaTileArtifactKind(deviceCode));
+   if (detectedKind != actualKind) {
+@@ -373,7 +813,9 @@ Status validateCudaTileDeviceCode(
+     }
+     TIR_RETURN_IF_ERROR(validateCudaElfHeader(
+         deviceCode, actualTarget.getComputeCapabilityVersion()));
+-    return validateCompleteCudaElf(deviceCode, actualTarget);
++    return validateCompleteCudaElf(deviceCode, actualTarget,
++                                   entryFunctionName,
++                                   kernelArgumentSizes);
+   }
+   return Status::InvalidArgument("unknown CUDA Tile artifact kind");
+ }
+@@ -411,10 +853,11 @@ Status CudaTileCompiledArtifact::validate() const {
+     return Status::InvalidArgument(
+         "actual target is incompatible with requested target");
+   }
+-  TIR_RETURN_IF_ERROR(validateCudaTileDeviceCode(
+-      deviceCode, actualArtifactKind, actualTarget, tileIRBytecodeVersion));
+-
+   TIR_RETURN_IF_ERROR(validateArgLayout(argLayout));
++  const auto kernelArgumentSizes = getKernelArgumentSizes(argLayout);
++  TIR_RETURN_IF_ERROR(validateCudaTileDeviceCode(
++      deviceCode, actualArtifactKind, actualTarget, tileIRBytecodeVersion,
++      entryFunctionName, kernelArgumentSizes));
+   bool requiresFlatPacking =
+       argLayout.uniformSignature || argLayout.hasDynamicShapes();
+   if (argumentPackingPolicy != CudaTileArgumentPackingPolicy::PointerOnly &&

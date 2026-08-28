@@ -1,0 +1,30 @@
+From 49fc2628ebd61cfb97428bdc017e3e205dd6a9c4 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 12:31:25 +0800
+Subject: [PATCH 189/212] Lock physical scatter tile order
+
+---
+ 3rdparty/nvidia/tensor-ir  | 2 +-
+ cmake/nvidia_backend.cmake | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index a8898e63938563f56a76576368823b17599e6ddc..04da10448b8dbb95d91ae73252b34bff628407ad 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit a8898e63938563f56a76576368823b17599e6ddc
++Subproject commit 04da10448b8dbb95d91ae73252b34bff628407ad
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 7bc7c346b1a2068bb120e6b50d0f32a1a04e7efd..e58c0fbebb0e770f3e83ae61c6566b21637e1879 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "a8898e63938563f56a76576368823b17599e6ddc")
++    "04da10448b8dbb95d91ae73252b34bff628407ad")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

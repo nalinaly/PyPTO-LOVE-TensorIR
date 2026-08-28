@@ -1,0 +1,81 @@
+From 08a9c755156a88bdb293087ce1bc9f7ce7dd018c Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 17:38:48 +0800
+Subject: [PATCH 206/212] Support integer native gather rows
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 50 +++++++++++++++++-------
+ 1 file changed, 36 insertions(+), 14 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 714366b9fe707f6b3a3d3d132a08fdf846e80fbe..ed88ce12a0c2a23863bd74a6218d11131776c9b4 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -4360,18 +4360,41 @@ NativeTileGatherRowsGraph AnalyzeNativeTileGatherRows(
+            &function->span_);
+   }
+ 
+-  const StaticTensor data = ReadStaticTensor(
+-      function->params_[0]->GetType(), function->params_[0]->span_,
+-      "native gather_rows data");
++  const auto data_type = ir::As<ir::TensorType>(
++      function->params_[0]->GetType());
++  const bool integer_data =
++      data_type && (data_type->dtype_ == DataType::INT32 ||
++                    data_type->dtype_ == DataType::INT64);
++  const StaticTensor data = integer_data
++                                ? ReadStaticIntegerTensor(
++                                      function->params_[0]->GetType(),
++                                      function->params_[0]->span_,
++                                      "native gather_rows data")
++                                : ReadStaticTensor(
++                                      function->params_[0]->GetType(),
++                                      function->params_[0]->span_,
++                                      "native gather_rows data");
+   StaticTensor indices = ReadStaticIntegerTensor(
+       function->params_[1]->GetType(), function->params_[1]->span_,
+       "native gather_rows indices");
+-  const StaticTensor result = ReadStaticTensor(
+-      function->params_[2]->GetType(), function->params_[2]->span_,
+-      "native gather_rows output");
+-  const StaticTensor declared = ReadStaticTensor(
+-      function->return_types_[0], function->span_,
+-      "native gather_rows declared result");
++  const StaticTensor result = integer_data
++                                  ? ReadStaticIntegerTensor(
++                                        function->params_[2]->GetType(),
++                                        function->params_[2]->span_,
++                                        "native gather_rows output")
++                                  : ReadStaticTensor(
++                                        function->params_[2]->GetType(),
++                                        function->params_[2]->span_,
++                                        "native gather_rows output");
++  const StaticTensor declared = integer_data
++                                    ? ReadStaticIntegerTensor(
++                                          function->return_types_[0],
++                                          function->span_,
++                                          "native gather_rows declared result")
++                                    : ReadStaticTensor(
++                                          function->return_types_[0],
++                                          function->span_,
++                                          "native gather_rows declared result");
+   if (data.shape.size() != 2 || indices.shape.size() != 2 ||
+       result.shape.size() != 2 || !SameTensor(result, declared) ||
+       indices.shape != result.shape || data.shape[1] != result.shape[1]) {
+@@ -8875,12 +8898,11 @@ TensorIrValueMetadata::TensorIrValueMetadata(TensorIrValueRole role, uint32_t or
+     InternalReject("value metadata ordinal is invalid for its role");
+   }
+   const bool computeDtype = dtype == DataType::BF16 || dtype == DataType::FP32;
+-  const bool integerInput =
+-      role_ == TensorIrValueRole::Input &&
+-      (dtype == DataType::INT32 || dtype == DataType::INT64);
+-  if (!computeDtype && !integerInput) {
++  const bool integerValue =
++      dtype == DataType::INT32 || dtype == DataType::INT64;
++  if (!computeDtype && !integerValue) {
+     InternalReject(
+-        "value metadata dtype must be a compute dtype or an integer input");
++        "value metadata dtype must be a compute or integer dtype");
+   }
+   if (dtype_name_.empty() || shape_.empty() || shape_.size() > kMaximumRank ||
+       shape_.size() != logical_dense_strides_.size() ||

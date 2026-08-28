@@ -16,12 +16,16 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEFAULT_PREFIX = ROOT / "envs" / "pypto-nvidia"
 PROFILE_SOURCE_ROOTS = {
     "pypto": (
+        ROOT / ".sources" / "sglang" / "python",
         ROOT / "projects" / "pypto",
         ROOT / "projects" / "pypto-kernels",
         ROOT / "projects" / "pypto-framework-plugins",
         ROOT / "upstream" / "sglang" / "python",
     ),
-    "baseline": (ROOT / "upstream" / "sglang" / "python",),
+    "baseline": (
+        ROOT / ".sources" / "sglang" / "python",
+        ROOT / "upstream" / "sglang" / "python",
+    ),
 }
 DISTUTILS_PRECEDENCE_PTH = (
     "import os; var = 'SETUPTOOLS_USE_DISTUTILS'; "
@@ -112,7 +116,9 @@ def editable_source_from_direct_url(direct_url: object) -> pathlib.Path:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--prefix", type=pathlib.Path, default=DEFAULT_PREFIX)
-    parser.add_argument("--profile", choices=tuple(PROFILE_SOURCE_ROOTS), default="pypto")
+    parser.add_argument(
+        "--profile", choices=tuple(PROFILE_SOURCE_ROOTS), default="pypto"
+    )
     args = parser.parse_args()
     environment_prefix = args.prefix.resolve()
     failures: list[dict[str, str]] = []

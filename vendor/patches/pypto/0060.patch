@@ -1,0 +1,40 @@
+From c4565dbe0cdf33f291440b04ec49ee7c0531b67e Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 11:52:02 +0800
+Subject: [PATCH 060/212] test: print failing REQUIRE site in codegen test
+
+---
+ tests/ut/cpp/tensor_ir_codegen_test.cpp | 13 ++++++++-----
+ 1 file changed, 8 insertions(+), 5 deletions(-)
+
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index ae4b01a135cfd1b9594f1f482d3519befe83051f..0aa0758828b18bd0d4c2045da7077522fede8011 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -11,6 +11,7 @@
+ 
+ #include <any>
+ #include <cstdint>
++#include <cstdio>
+ #include <functional>
+ #include <limits>
+ #include <locale>
+@@ -49,11 +50,13 @@ using pypto::compiler::Artifact;
+ 
+ namespace ir = pypto::ir;
+ 
+-#define REQUIRE(condition) \
+-  do {                     \
+-    if (!(condition)) {    \
+-      return __LINE__;     \
+-    }                      \
++#define REQUIRE(condition)                                            \
++  do {                                                                \
++    if (!(condition)) {                                               \
++      std::fprintf(stderr, "REQUIRE failed: %s at line %d in %s\n",   \
++                   #condition, __LINE__, __func__);                   \
++      return __LINE__;                                                \
++    }                                                                 \
+   } while (false)
+ 
+ namespace {

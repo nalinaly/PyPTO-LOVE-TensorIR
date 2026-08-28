@@ -1,0 +1,53 @@
+From a1a4abac0c5df475bf0791cf3354795cf0dbad3e Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 15:30:37 +0800
+Subject: [PATCH 200/212] Accept FP32 QK rotary caches
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 19 ++++++++++++-------
+ 1 file changed, 12 insertions(+), 7 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index e35f3cb12fc8e10654e6da4e9a39119e82f45f54..07cfd1bafd718cc807d9d0448d332b03660735ad 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -2093,7 +2093,7 @@ std::string EmitNativeTileQkRmsNormRopeSource(
+   const StaticTensor weight3 = tensor(DataType::FP32, {1, 1, headDim});
+   const StaticTensor qWeightFull = tensor(DataType::FP32, q3.shape);
+   const StaticTensor kWeightFull = tensor(DataType::FP32, k3.shape);
+-  const StaticTensor cacheRows = tensor(DataType::BF16, {tokens, rotaryDim});
++  const StaticTensor cacheRows = tensor(graph.cache.dtype, {tokens, rotaryDim});
+   const StaticTensor cacheRowsF = tensor(DataType::FP32, cacheRows.shape);
+   const StaticTensor cacheHalf = tensor(DataType::FP32, {tokens, half});
+   const StaticTensor cacheHalf3 = tensor(DataType::FP32, {tokens, 1, half});
+@@ -2264,11 +2264,16 @@ std::string EmitNativeTileQkRmsNormRopeSource(
+   source += TensorTypeText(positions32);
+   source += ") -> ";
+   source += cacheRowsType;
+-  source += "\n    %cache_wide = convert %cache_rows : ";
+-  source += cacheRowsType;
+-  source += " -> ";
+-  source += cacheRowsFType;
+-  source += "\n    %cos2 = slice %cache_wide starts = [0, 0] limits = [";
++  std::string cacheWideValue = "%cache_rows";
++  if (graph.cache.dtype != DataType::FP32) {
++    source += "\n    %cache_wide = convert %cache_rows : ";
++    source += cacheRowsType;
++    source += " -> ";
++    source += cacheRowsFType;
++    cacheWideValue = "%cache_wide";
++  }
++  source += "\n    %cos2 = slice " + cacheWideValue +
++            " starts = [0, 0] limits = [";
+   AppendInteger(source, tokens);
+   source += ", ";
+   AppendInteger(source, half);
+@@ -2276,7 +2281,7 @@ std::string EmitNativeTileQkRmsNormRopeSource(
+   source += cacheRowsFType;
+   source += " -> ";
+   source += cacheHalfType;
+-  source += "\n    %sin2 = slice %cache_wide starts = [0, ";
++  source += "\n    %sin2 = slice " + cacheWideValue + " starts = [0, ";
+   AppendInteger(source, half);
+   source += "] limits = [";
+   AppendInteger(source, tokens);

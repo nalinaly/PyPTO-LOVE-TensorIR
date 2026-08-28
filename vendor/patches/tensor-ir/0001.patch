@@ -1,0 +1,111 @@
+From ca8640e71cd5a95a041f60d8e18672c806f38e42 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Mon, 24 Aug 2026 22:02:21 +0800
+Subject: [PATCH 01/82] build: support private embedded compiler mode
+
+---
+ CMakeLists.txt                | 37 +++++++++++++++++++++++++++++------
+ cmake/TensorIRLLVMUtils.cmake | 15 ++++++++++++--
+ 2 files changed, 44 insertions(+), 8 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 866cb2758158d7b8aed7a587f5640564a7a622f6..364d5d3723eb5de2dbde2e398c904089fbf786e9 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -15,13 +15,31 @@ option(TENSOR_IR_INCLUDE_TESTS "Generate build targets for TensorIR tests" ON)
+ 
+ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+   set(_TENSOR_IR_DOWNLOAD_LLVM_DEFAULT ON)
++  set(_TENSOR_IR_STANDALONE_PRODUCT_DEFAULT ON)
+ else()
+   set(_TENSOR_IR_DOWNLOAD_LLVM_DEFAULT OFF)
++  set(_TENSOR_IR_STANDALONE_PRODUCT_DEFAULT OFF)
+ endif()
+ option(TENSOR_IR_DOWNLOAD_LLVM
+        "Download and build the LLVM project revision required by CUDA Tile"
+        "${_TENSOR_IR_DOWNLOAD_LLVM_DEFAULT}")
++option(TENSOR_IR_INCLUDE_TOOLS "Build standalone TensorIR command-line tools"
++       "${_TENSOR_IR_STANDALONE_PRODUCT_DEFAULT}")
++option(TENSOR_IR_ENABLE_INSTALL "Install standalone TensorIR products"
++       "${_TENSOR_IR_STANDALONE_PRODUCT_DEFAULT}")
++option(TENSOR_IR_LLVM_BUILD_EXAMPLES
++       "Build LLVM/MLIR examples for a TensorIR-managed LLVM dependency"
++       "${_TENSOR_IR_STANDALONE_PRODUCT_DEFAULT}")
++option(TENSOR_IR_ENABLE_CUDA_TILE_CAPI
++       "Build the CUDA Tile C API as part of TensorIR"
++       "${_TENSOR_IR_STANDALONE_PRODUCT_DEFAULT}")
+ unset(_TENSOR_IR_DOWNLOAD_LLVM_DEFAULT)
++unset(_TENSOR_IR_STANDALONE_PRODUCT_DEFAULT)
++
++if(TENSOR_IR_ENABLE_INSTALL AND NOT TENSOR_IR_INCLUDE_TOOLS)
++  message(FATAL_ERROR
++    "TENSOR_IR_ENABLE_INSTALL requires TENSOR_IR_INCLUDE_TOOLS")
++endif()
+ 
+ set(TENSOR_IR_CUDART_LINKAGE "DYNAMIC"
+     CACHE STRING "CUDA Runtime linkage for TensorIR: DYNAMIC or STATIC")
+@@ -101,7 +119,11 @@ if(NOT CUDA_TILE_USE_LLVM_INSTALL_DIR)
+   endif()
+ endif()
+ 
+-set(CUDA_TILE_ENABLE_TESTING OFF)
++set(CUDA_TILE_ENABLE_TESTING OFF CACHE BOOL "Enable CUDA Tile testing" FORCE)
++set(CUDA_TILE_ENABLE_TOOLS "${TENSOR_IR_INCLUDE_TOOLS}"
++    CACHE BOOL "Enable CUDA Tile command-line tools" FORCE)
++set(CUDA_TILE_ENABLE_CAPI "${TENSOR_IR_ENABLE_CUDA_TILE_CAPI}"
++    CACHE BOOL "Enable the CUDA Tile C API" FORCE)
+ set(CUDA_TILE_ENABLE_BINDINGS_PYTHON OFF)
+ include(cmake/TensorIRFetchCudaTile.cmake)
+ tensor_ir_fetch_cuda_tile(CUDA_TILE_SOURCE_DIR CUDA_TILE_BINARY_DIR)
+@@ -186,7 +208,9 @@ add_subdirectory(lib)
+ if(TENSOR_IR_INCLUDE_TESTS)
+   add_subdirectory(test/lib)
+ endif()
+-add_subdirectory(tools)
++if(TENSOR_IR_INCLUDE_TOOLS)
++  add_subdirectory(tools)
++endif()
+ if(TENSOR_IR_ENABLE_BINDINGS_PYTHON)
+   add_subdirectory(python)
+ endif()
+@@ -198,7 +222,8 @@ endif()
+ # Installation
+ # ==============================================================================
+ 
+-include(GNUInstallDirs)
+-
+-install(TARGETS tensor_ir-compiler tensor_ir-opt
+-        RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
++if(TENSOR_IR_ENABLE_INSTALL)
++  include(GNUInstallDirs)
++  install(TARGETS tensor_ir-compiler tensor_ir-opt
++          RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
++endif()
+diff --git a/cmake/TensorIRLLVMUtils.cmake b/cmake/TensorIRLLVMUtils.cmake
+index 7bae8ce835bec6d87b4ec6ca538a15769e4ff3e1..ca888f9a05c4046b63839ffd7d375d4b1964f342 100644
+--- a/cmake/TensorIRLLVMUtils.cmake
++++ b/cmake/TensorIRLLVMUtils.cmake
+@@ -49,10 +49,21 @@ macro(_tensor_ir_configure_llvm_options)
+ 
+   # With CMP0077 NEW, option() doesn't clear normal variables.
+   set(LLVM_APPEND_VC_REV OFF)
+-  set(LLVM_BUILD_EXAMPLES ON)
++  set(LLVM_BUILD_EXAMPLES "${TENSOR_IR_LLVM_BUILD_EXAMPLES}")
++  set(LLVM_INCLUDE_EXAMPLES "${TENSOR_IR_LLVM_BUILD_EXAMPLES}"
++      CACHE BOOL "Include LLVM examples" FORCE)
+   set(LLVM_BUILD_UTILS ON)
+   set(LLVM_INSTALL_UTILS ON)
+-  set(MLIR_INCLUDE_INTEGRATION_TESTS ON)
++  set(LLVM_BUILD_TESTS "${TENSOR_IR_INCLUDE_TESTS}"
++      CACHE BOOL "Build LLVM tests" FORCE)
++  set(LLVM_INCLUDE_TESTS "${TENSOR_IR_INCLUDE_TESTS}"
++      CACHE BOOL "Include LLVM tests" FORCE)
++  set(LLVM_INCLUDE_BENCHMARKS OFF CACHE BOOL "Include LLVM benchmarks" FORCE)
++  set(LLVM_INCLUDE_DOCS OFF CACHE BOOL "Include LLVM documentation" FORCE)
++  set(MLIR_INCLUDE_TESTS "${TENSOR_IR_INCLUDE_TESTS}"
++      CACHE BOOL "Include MLIR tests" FORCE)
++  set(MLIR_INCLUDE_INTEGRATION_TESTS "${TENSOR_IR_INCLUDE_TESTS}"
++      CACHE BOOL "Include MLIR integration tests" FORCE)
+ 
+   # These are declared CACHE BOOL, so we must FORCE them.
+   set(MLIR_ENABLE_BINDINGS_PYTHON "${TENSOR_IR_ENABLE_BINDINGS_PYTHON}"

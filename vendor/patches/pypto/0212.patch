@@ -1,0 +1,471 @@
+From 9e13b4301faeee482bb63e16e7991d0b597a5a51 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 20:54:44 +0800
+Subject: [PATCH 212/212] Build FP32 sigmoid multiply with typed TensorIR
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp      | 202 +++++++++++++++++-
+ .../nvidia/typed_tensor_ir_module_spec.h      |  10 +
+ .../nvidia_typed_tensor_ir_builder.cpp        |  77 +++++++
+ tests/ut/cpp/structured_compile_test.cpp      |  43 ++++
+ 4 files changed, 331 insertions(+), 1 deletion(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 4fb677e8180ed712d03c7f5ce238edd2d98a6c8c..9076c81777dc37471e33aab066d5f0c5ea865a28 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -164,6 +164,12 @@ struct NativeTileSiluAndMulGraph {
+   StaticTensor result;
+ };
+ 
++struct NativeTileSigmoidAndMulGraph {
++  StaticTensor value;
++  StaticTensor gate;
++  StaticTensor result;
++};
++
+ struct NativeTileQkRmsNormRopeGraph {
+   StaticTensor q_gate;
+   StaticTensor key;
+@@ -4794,6 +4800,20 @@ TypedTensorIrModuleSpec MakeNativeSiluAndMulTensorIrSpec(
+   return module_spec;
+ }
+ 
++TypedTensorIrModuleSpec MakeNativeSigmoidAndMulTensorIrSpec(
++    const NativeTileSigmoidAndMulGraph& graph) {
++  TypedTensorIrModuleSpec module_spec;
++  module_spec.kind = TypedTensorIrModuleKind::NativeSigmoidAndMul;
++  auto& spec = module_spec.native_sigmoid_and_mul;
++  spec.inputs[0] = MakeTypedTensorIrTensorSpec(
++      graph.value, /*has_explicit_strides=*/true);
++  spec.inputs[1] = MakeTypedTensorIrTensorSpec(
++      graph.gate, /*has_explicit_strides=*/true);
++  spec.result = MakeTypedTensorIrTensorSpec(
++      graph.result, /*has_explicit_strides=*/true);
++  return module_spec;
++}
++
+ bool IsNativeTileMatmulCandidate(const ir::ProgramPtr& program) {
+   if (!IsNativeTilePointwiseCandidate(program)) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+@@ -6874,6 +6894,165 @@ NativeTileRopeGraph AnalyzeNativeTileRope(const ir::ProgramPtr& program) {
+   return NativeTileRopeGraph{input, cosine};
+ }
+ 
++bool IsNativeTileSigmoidAndMulCandidate(const ir::ProgramPtr& program) {
++  if (!IsNativeTilePointwiseCandidate(program)) return false;
++  const ir::FunctionPtr& function = program->functions_.begin()->second;
++  if (function->params_.size() != 3) return false;
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = top && !top->stmts_.empty()
++                         ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
++                         : nullptr;
++  const TileLoopNest loop_nest =
++      scope ? UnwrapStaticTileLoops(scope->body_) : TileLoopNest{};
++  if (!loop_nest.leaf || loop_nest.leaf->stmts_.size() != 11) return false;
++  const auto first_cast =
++      ir::As<ir::AssignStmt>(loop_nest.leaf->stmts_[2]);
++  const auto final_cast =
++      ir::As<ir::AssignStmt>(loop_nest.leaf->stmts_[9]);
++  const auto first_call =
++      first_cast ? ir::As<ir::Call>(first_cast->value_) : nullptr;
++  const auto final_call =
++      final_cast ? ir::As<ir::Call>(final_cast->value_) : nullptr;
++  return first_call && final_call && ir::IsOp(first_call, "tile.cast") &&
++         ir::IsOp(final_call, "tile.cast");
++}
++
++NativeTileSigmoidAndMulGraph AnalyzeNativeTileSigmoidAndMul(
++    const ir::ProgramPtr& program) {
++  const auto& [global, function] = *program->functions_.begin();
++  if (!global || !function || global->name_ != function->name_ ||
++      function->requires_runtime_binding_ ||
++      function->func_type_ != ir::FunctionType::Orchestration ||
++      !function->level_.has_value() || *function->level_ != ir::Level::CHIP ||
++      !function->role_.has_value() ||
++      *function->role_ != ir::Role::Orchestrator || !function->attrs_.empty()) {
++    Reject("native sigmoid-and-mul must be one canonical CHIP @pl.jit function",
++           function ? &function->span_ : &program->span_);
++  }
++  if (function->params_.size() != 3 ||
++      function->param_directions_.size() != 3 ||
++      function->param_directions_[0] != ir::ParamDirection::In ||
++      function->param_directions_[1] != ir::ParamDirection::In ||
++      function->param_directions_[2] != ir::ParamDirection::Out ||
++      function->return_types_.size() != 1) {
++    Reject("native sigmoid-and-mul requires two inputs and one output",
++           &function->span_);
++  }
++  const StaticTensor value = ReadStaticNdStridedTensor(
++      function->params_[0]->GetType(), function->params_[0]->span_,
++      "native sigmoid value");
++  const StaticTensor gate = ReadStaticNdStridedTensor(
++      function->params_[1]->GetType(), function->params_[1]->span_,
++      "native sigmoid gate");
++  const StaticTensor result = ReadStaticTensor(
++      function->params_[2]->GetType(), function->params_[2]->span_,
++      "native sigmoid result");
++  const StaticTensor declared = ReadStaticTensor(
++      function->return_types_[0], function->span_,
++      "native sigmoid declared result");
++  if (value.dtype != DataType::BF16 || gate.dtype != DataType::BF16 ||
++      result.dtype != DataType::BF16 || value.shape.size() != 2 ||
++      value.shape != gate.shape || value.shape != result.shape ||
++      value.dense_strides[1] != 1 || gate.dense_strides[1] != 1 ||
++      value.dense_strides[0] < value.shape[1] ||
++      gate.dense_strides[0] < gate.shape[1] ||
++      !SameTensor(result, declared) || result.shape[1] % 128 != 0) {
++    Reject("native sigmoid-and-mul tensor types, shapes, or strides are invalid",
++           &function->span_);
++  }
++
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = top && top->stmts_.size() == 2
++                         ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
++                         : nullptr;
++  const auto returned = top && top->stmts_.size() == 2
++                            ? ir::As<ir::ReturnStmt>(top->stmts_[1])
++                            : nullptr;
++  const auto returned_var =
++      returned && returned->value_.size() == 1
++          ? ir::As<ir::Var>(returned->value_[0])
++          : nullptr;
++  if (!scope || scope->split_ != ir::SplitMode::None ||
++      !scope->attrs_.empty() || !returned_var ||
++      returned_var.get() != function->params_[2].get()) {
++    Reject("native sigmoid-and-mul scope or return is invalid",
++           &function->span_);
++  }
++  const TileLoopNest loop_nest = UnwrapStaticTileLoops(scope->body_);
++  const uint64_t expected_repetitions =
++      static_cast<uint64_t>(result.shape[0]) *
++      static_cast<uint64_t>(result.shape[1] / 128);
++  if (!loop_nest.leaf || loop_nest.leaf->stmts_.size() != 11 ||
++      loop_nest.repetitions != expected_repetitions) {
++    Reject("native sigmoid-and-mul loops must cover [1,128] tiles exactly",
++           &scope->span_);
++  }
++  constexpr std::array<std::string_view, 10> kOps = {
++      "tile.load", "tile.load", "tile.cast", "tile.cast", "tile.neg",
++      "tile.exp",  "tile.adds", "tile.recip", "tile.mul",  "tile.cast"};
++  std::array<ir::AssignStmtPtr, kOps.size()> assignments;
++  std::array<ir::CallPtr, kOps.size()> calls;
++  for (size_t index = 0; index < kOps.size(); ++index) {
++    assignments[index] =
++        ir::As<ir::AssignStmt>(loop_nest.leaf->stmts_[index]);
++    calls[index] = assignments[index]
++                       ? ir::As<ir::Call>(assignments[index]->value_)
++                       : nullptr;
++    if (!assignments[index] || !assignments[index]->var_ || !calls[index] ||
++        !calls[index]->op_ ||
++        !ir::IsOp(calls[index], std::string(kOps[index]))) {
++      Reject("native sigmoid-and-mul operation sequence is invalid",
++             &loop_nest.leaf->stmts_[index]->span_);
++    }
++  }
++  const auto require_source = [&](size_t call_index, size_t argument_index,
++                                  const ir::VarPtr& expected) {
++    if (argument_index >= calls[call_index]->args_.size()) return false;
++    const auto value_arg =
++        ir::As<ir::Var>(calls[call_index]->args_[argument_index]);
++    return value_arg && value_arg.get() == expected.get();
++  };
++  if (!require_source(0, 0, function->params_[0]) ||
++      !require_source(1, 0, function->params_[1]) ||
++      !require_source(2, 0, assignments[0]->var_) ||
++      !require_source(3, 0, assignments[1]->var_) ||
++      !require_source(4, 0, assignments[3]->var_) ||
++      !require_source(5, 0, assignments[4]->var_) ||
++      !require_source(6, 0, assignments[5]->var_) ||
++      !require_source(7, 0, assignments[6]->var_) ||
++      !require_source(8, 0, assignments[2]->var_) ||
++      !require_source(8, 1, assignments[7]->var_) ||
++      !require_source(9, 0, assignments[8]->var_)) {
++    Reject("native sigmoid-and-mul SSA dataflow is invalid", &scope->span_);
++  }
++  const StaticTensor bf16_tile{DataType::BF16, {1, 128}, {128, 1}};
++  const StaticTensor fp32_tile{DataType::FP32, {1, 128}, {128, 1}};
++  for (size_t index = 0; index < assignments.size(); ++index) {
++    const StaticTensor tile = ReadStaticTile(
++        assignments[index]->var_->GetType(), assignments[index]->span_,
++        "native sigmoid-and-mul tile");
++    const bool expects_bf16 = index < 2 || index == assignments.size() - 1;
++    if (!SameTensor(tile, expects_bf16 ? bf16_tile : fp32_tile)) {
++      Reject("native sigmoid-and-mul tile dtype or shape is invalid",
++             &assignments[index]->span_);
++    }
++  }
++  const auto store = ir::As<ir::EvalStmt>(loop_nest.leaf->stmts_.back());
++  const auto store_call = store ? ir::As<ir::Call>(store->expr_) : nullptr;
++  const auto stored = store_call && store_call->args_.size() == 3
++                          ? ir::As<ir::Var>(store_call->args_[0])
++                          : nullptr;
++  const auto target = store_call && store_call->args_.size() == 3
++                          ? ir::As<ir::Var>(store_call->args_[2])
++                          : nullptr;
++  if (!store_call || !ir::IsOp(store_call, "tile.store") || !stored ||
++      stored.get() != assignments.back()->var_.get() || !target ||
++      target.get() != function->params_[2].get()) {
++    Reject("native sigmoid-and-mul store is invalid", &scope->span_);
++  }
++  return NativeTileSigmoidAndMulGraph{value, gate, result};
++}
++
+ bool IsNativeTileSiluAndMulCandidate(const ir::ProgramPtr& program) {
+   if (!IsNativeTilePointwiseCandidate(program)) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+@@ -9201,7 +9380,8 @@ void TensorIrModule::Validate() const {
+       typed_module_spec_->kind != TypedTensorIrModuleKind::NativeGdnRecurrent &&
+       typed_module_spec_->kind != TypedTensorIrModuleKind::StructuredMatmul &&
+       typed_module_spec_->kind != TypedTensorIrModuleKind::NativeSiluAndMul &&
+-      typed_module_spec_->kind != TypedTensorIrModuleKind::NativeGdnProjection) {
++      typed_module_spec_->kind != TypedTensorIrModuleKind::NativeGdnProjection &&
++      typed_module_spec_->kind != TypedTensorIrModuleKind::NativeSigmoidAndMul) {
+     InternalReject("typed TensorIR module kind is invalid");
+   }
+   if (typed_module_spec_.has_value() &&
+@@ -9875,6 +10055,26 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+         EmitRowReductionEpilogueSource(input, /*square_input=*/true, steps),
+         std::move(metadata), /*input_count=*/1);
+   }
++  if (IsNativeTileSigmoidAndMulCandidate(program)) {
++    const NativeTileSigmoidAndMulGraph graph =
++        AnalyzeNativeTileSigmoidAndMul(program);
++    std::vector<TensorIrValueMetadata> metadata;
++    metadata.reserve(3);
++    const std::array<StaticTensor, 2> inputs = {graph.value, graph.gate};
++    for (uint32_t index = 0; index < inputs.size(); ++index) {
++      metadata.push_back(TensorIrValueMetadata(
++          TensorIrValueRole::Input, index, inputs[index].dtype,
++          inputs[index].shape, inputs[index].dense_strides,
++          /*has_explicit_strides=*/true));
++    }
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Result, 0, graph.result.dtype,
++        graph.result.shape, graph.result.dense_strides,
++        /*has_explicit_strides=*/true));
++    return TensorIrModule(TensorIrModuleKind::FusedPointwise,
++                          MakeNativeSigmoidAndMulTensorIrSpec(graph),
++                          std::move(metadata), /*input_count=*/2);
++  }
+   if (IsNativeTileSiluAndMulCandidate(program)) {
+     const NativeTileSiluAndMulGraph graph =
+         AnalyzeNativeTileSiluAndMul(program);
+diff --git a/src/codegen/nvidia/typed_tensor_ir_module_spec.h b/src/codegen/nvidia/typed_tensor_ir_module_spec.h
+index 975d93ee17a5d7b5c4c3c4beb8d963923264ef34..a39de33ef15f262df13a7205e8e308d8e7a90ed2 100644
+--- a/src/codegen/nvidia/typed_tensor_ir_module_spec.h
++++ b/src/codegen/nvidia/typed_tensor_ir_module_spec.h
+@@ -70,6 +70,14 @@ struct NativeSiluAndMulTensorIrSpec {
+   TypedTensorIrTensorSpec result;
+ };
+ 
++/** Typed BF16 sigmoid-and-multiply graph with FP32 intermediates. */
++struct NativeSigmoidAndMulTensorIrSpec {
++  static constexpr std::size_t kInputCount = 2;
++
++  std::array<TypedTensorIrTensorSpec, kInputCount> inputs;
++  TypedTensorIrTensorSpec result;
++};
++
+ /** Typed packing of the two GDN projection results into recurrent input. */
+ struct NativeGdnProjectionTensorIrSpec {
+   static constexpr std::size_t kInputCount = 2;
+@@ -87,6 +95,7 @@ enum class TypedTensorIrModuleKind : uint8_t {
+   StructuredMatmul = 1,
+   NativeSiluAndMul = 2,
+   NativeGdnProjection = 3,
++  NativeSigmoidAndMul = 4,
+ };
+ 
+ /** One compiler-neutral request for typed MLIR/TensorIR construction. */
+@@ -96,6 +105,7 @@ struct TypedTensorIrModuleSpec {
+   StructuredMatmulTensorIrSpec structured_matmul;
+   NativeSiluAndMulTensorIrSpec native_silu_and_mul;
+   NativeGdnProjectionTensorIrSpec native_gdn_projection;
++  NativeSigmoidAndMulTensorIrSpec native_sigmoid_and_mul;
+ };
+ 
+ }  // namespace pypto::codegen::nvidia
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index e9f868b5aecd2abfc18a60b819a0a24e4627229c..7fe2ff93efcb0ee7492e58b9825b59970fcc88c5 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -42,6 +42,7 @@ namespace tir = mlir::nv_tensor_ir;
+ namespace tcg = mlir::nv_tensor_ir::tcutegen;
+ using codegen::nvidia::NativeGdnRecurrentTensorIrSpec;
+ using codegen::nvidia::NativeGdnProjectionTensorIrSpec;
++using codegen::nvidia::NativeSigmoidAndMulTensorIrSpec;
+ using codegen::nvidia::NativeSiluAndMulTensorIrSpec;
+ using codegen::nvidia::StructuredMatmulTensorIrSpec;
+ using codegen::nvidia::TypedTensorIrElementType;
+@@ -269,6 +270,30 @@ bool ValidateNativeSiluAndMulSpec(const NativeSiluAndMulTensorIrSpec& spec,
+   return true;
+ }
+ 
++bool ValidateNativeSigmoidAndMulSpec(
++    const NativeSigmoidAndMulTensorIrSpec& spec, std::string& diagnostic) {
++  const auto reject = [&](std::string message) {
++    diagnostic = "typed TensorIR sigmoid-and-mul specification rejected: " +
++                 std::move(message);
++    return false;
++  };
++  for (const auto& input : spec.inputs) {
++    if (!HasValidStaticMetadata(input) || input.shape.size() != 2 ||
++        input.element_type != TypedTensorIrElementType::BF16 ||
++        input.strides[1] != 1 || input.strides[0] < input.shape[1]) {
++      return reject("inputs must be row-pitched rank-2 BF16 tensors");
++    }
++  }
++  if (!HasValidStaticMetadata(spec.result) || !IsDense(spec.result) ||
++      spec.result.element_type != TypedTensorIrElementType::BF16 ||
++      spec.inputs[0].shape != spec.inputs[1].shape ||
++      spec.inputs[0].shape != spec.result.shape ||
++      spec.result.shape[1] % 128 != 0) {
++    return reject("result dtype, shape, or tile geometry is invalid");
++  }
++  return true;
++}
++
+ bool ValidateNativeGdnProjectionSpec(
+     const NativeGdnProjectionTensorIrSpec& spec, std::string& diagnostic) {
+   const auto reject = [&](std::string message) {
+@@ -426,6 +451,45 @@ mlir::Value BuildNativeSiluAndMul(
+       .getOutput();
+ }
+ 
++mlir::Value BuildNativeSigmoidAndMul(
++    mlir::OpBuilder& builder, mlir::Location location,
++    const NativeSigmoidAndMulTensorIrSpec& spec, mlir::Block& entry) {
++  llvm::SmallVector<mlir::Value> arguments(entry.getArguments().begin(),
++                                           entry.getArguments().end());
++  const auto wide_type = TensorType(
++      builder, TypedTensorIrElementType::FP32, spec.result.shape);
++  const auto result_type = TensorType(
++      builder, TypedTensorIrElementType::BF16, spec.result.shape);
++  const mlir::Value value =
++      tir::ConvertOp::create(builder, location, wide_type, arguments[0])
++          .getOutput();
++  const mlir::Value gate =
++      tir::ConvertOp::create(builder, location, wide_type, arguments[1])
++          .getOutput();
++  const mlir::Value negative =
++      tir::NegOp::create(builder, location, wide_type, gate).getOutput();
++  const mlir::Value exponent =
++      tir::ExpOp::create(builder, location, wide_type, negative).getOutput();
++  const mlir::Value one =
++      tir::ConstantOp::create(builder, location, builder.getF32FloatAttr(1.0F))
++          .getResult();
++  const mlir::Value one_full =
++      tir::SplatOp::create(builder, location, wide_type, one,
++                           mlir::ValueRange{})
++          .getOutput();
++  const mlir::Value denominator =
++      tir::AddOp::create(builder, location, wide_type, exponent, one_full)
++          .getOutput();
++  const mlir::Value sigmoid =
++      tir::ReciprocalOp::create(builder, location, wide_type, denominator)
++          .getOutput();
++  const mlir::Value product =
++      tir::MulOp::create(builder, location, wide_type, value, sigmoid)
++          .getOutput();
++  return tir::ConvertOp::create(builder, location, result_type, product)
++      .getOutput();
++}
++
+ mlir::Value BuildNativeGdnProjection(
+     mlir::OpBuilder& builder, mlir::Location location,
+     const NativeGdnProjectionTensorIrSpec& spec, mlir::Block& entry) {
+@@ -860,6 +924,11 @@ std::optional<BuiltTypedTensorIrModule> BuildTypedTensorIrModule(
+                                          diagnostic)) {
+       return std::nullopt;
+     }
++  } else if (spec.kind == TypedTensorIrModuleKind::NativeSigmoidAndMul) {
++    if (!ValidateNativeSigmoidAndMulSpec(spec.native_sigmoid_and_mul,
++                                         diagnostic)) {
++      return std::nullopt;
++    }
+   } else {
+     diagnostic = "typed TensorIR module kind is unsupported";
+     return std::nullopt;
+@@ -897,6 +966,11 @@ std::optional<BuiltTypedTensorIrModule> BuildTypedTensorIrModule(
+                   spec.native_gdn_projection.inputs.end());
+     result = spec.native_gdn_projection.result;
+     entry_name = kEntryName;
++  } else if (spec.kind == TypedTensorIrModuleKind::NativeSigmoidAndMul) {
++    inputs.assign(spec.native_sigmoid_and_mul.inputs.begin(),
++                  spec.native_sigmoid_and_mul.inputs.end());
++    result = spec.native_sigmoid_and_mul.result;
++    entry_name = kEntryName;
+   } else {
+     inputs.assign(spec.native_silu_and_mul.inputs.begin(),
+                   spec.native_silu_and_mul.inputs.end());
+@@ -934,6 +1008,9 @@ std::optional<BuiltTypedTensorIrModule> BuildTypedTensorIrModule(
+   } else if (spec.kind == TypedTensorIrModuleKind::NativeGdnProjection) {
+     built_result = BuildNativeGdnProjection(
+         builder, location, spec.native_gdn_projection, *entry);
++  } else if (spec.kind == TypedTensorIrModuleKind::NativeSigmoidAndMul) {
++    built_result = BuildNativeSigmoidAndMul(
++        builder, location, spec.native_sigmoid_and_mul, *entry);
+   } else {
+     built_result = BuildNativeSiluAndMul(
+         builder, location, spec.native_silu_and_mul, *entry);
+diff --git a/tests/ut/cpp/structured_compile_test.cpp b/tests/ut/cpp/structured_compile_test.cpp
+index bc67f9ed44a5a2d29ab62090eab5ff2b193ffd75..0ace2cc23b172a53d794cc59b4aafc3ecb50d571 100644
+--- a/tests/ut/cpp/structured_compile_test.cpp
++++ b/tests/ut/cpp/structured_compile_test.cpp
+@@ -1076,6 +1076,48 @@ int TestTypedGdnProjectionModuleBuilder() {
+   return 0;
+ }
+ 
++int TestTypedSigmoidAndMulModuleBuilder() {
++#if defined(PYPTO_ENABLE_NVIDIA_COMPILER_BACKEND)
++  using pypto::codegen::nvidia::NativeSigmoidAndMulTensorIrSpec;
++  using pypto::codegen::nvidia::TypedTensorIrElementType;
++  using pypto::codegen::nvidia::TypedTensorIrModuleKind;
++  using pypto::codegen::nvidia::TypedTensorIrModuleSpec;
++  using pypto::codegen::nvidia::TypedTensorIrTensorSpec;
++  using pypto::compiler::detail::BuildTypedTensorIrModule;
++
++  const auto tensor = [](std::vector<int64_t> shape,
++                         std::vector<int64_t> strides) {
++    return TypedTensorIrTensorSpec{TypedTensorIrElementType::BF16,
++                                   std::move(shape), std::move(strides), true};
++  };
++  TypedTensorIrModuleSpec module_spec;
++  module_spec.kind = TypedTensorIrModuleKind::NativeSigmoidAndMul;
++  NativeSigmoidAndMulTensorIrSpec& spec =
++      module_spec.native_sigmoid_and_mul;
++  spec.inputs = {tensor({3, 256}, {512, 1}),
++                 tensor({3, 256}, {384, 1})};
++  spec.result = tensor({3, 256}, {256, 1});
++
++  std::string diagnostic;
++  auto built = BuildTypedTensorIrModule(module_spec, diagnostic);
++  REQUIRE(built.has_value());
++  REQUIRE(diagnostic.empty());
++  const std::string source(built->canonical_source.begin(),
++                           built->canonical_source.end());
++  REQUIRE(source.find("convert") != std::string::npos);
++  REQUIRE(source.find("exp") != std::string::npos);
++  REQUIRE(source.find("reciprocal") != std::string::npos);
++
++  module_spec.native_sigmoid_and_mul.inputs[1].element_type =
++      TypedTensorIrElementType::FP32;
++  std::string invalid_diagnostic;
++  REQUIRE(!BuildTypedTensorIrModule(module_spec, invalid_diagnostic).has_value());
++  REQUIRE(invalid_diagnostic.find("row-pitched rank-2 BF16") !=
++          std::string::npos);
++#endif
++  return 0;
++}
++
+ }  // namespace
+ 
+ int main() {
+@@ -1095,5 +1137,6 @@ int main() {
+   if (const int result = TestRealStructuredMatmulProducerSuccess()) return result;
+   if (const int result = TestTypedGdnModuleBuilder()) return result;
+   if (const int result = TestTypedGdnProjectionModuleBuilder()) return result;
++  if (const int result = TestTypedSigmoidAndMulModuleBuilder()) return result;
+   return 0;
+ }

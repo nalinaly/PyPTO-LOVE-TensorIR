@@ -1,0 +1,261 @@
+From 1dcb38c20e53d07c97d3781cae538e33901bae30 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 05:11:29 +0800
+Subject: [PATCH 26/82] Traverse tileiras scratch through directory descriptors
+
+---
+ lib/Compiler/CudaTile/TileIRAssembly.cpp      | 158 +++++++++++++-----
+ .../CudaTile/TileIRAssemblyInternal.h         |   3 +-
+ 2 files changed, 118 insertions(+), 43 deletions(-)
+
+diff --git a/lib/Compiler/CudaTile/TileIRAssembly.cpp b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+index 7df565d41beff2d53fbc473f86cbf7429b67f67b..1a51fb41aeb761093211656f93b75e3c7adc530e 100644
+--- a/lib/Compiler/CudaTile/TileIRAssembly.cpp
++++ b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+@@ -3,7 +3,7 @@
+ 
+ #include "tensor_ir/Compiler/CudaTile/TileIRAssembly.h"
+ 
+-#include "Compiler/CudaTile/TileIRAssemblyInternal.h"
++#include "CudaTile/TileIRAssemblyInternal.h"
+ 
+ #include "llvm/ADT/SmallString.h"
+ #include "llvm/ADT/StringExtras.h"
+@@ -21,6 +21,7 @@
+ #include <chrono>
+ #include <csignal>
+ #include <cstring>
++#include <dirent.h>
+ #include <fcntl.h>
+ #endif
+ #include <memory>
+@@ -29,6 +30,7 @@
+ #if defined(__linux__)
+ #include <sys/resource.h>
+ #include <sys/syscall.h>
++#include <sys/stat.h>
+ #include <sys/wait.h>
+ #include <thread>
+ #include <unistd.h>
+@@ -80,46 +82,114 @@ constexpr unsigned kCompileCommandTimeoutSeconds = 300;
+ constexpr unsigned kAssemblerMemoryLimitMiB = 4096;
+ 
+ detail::ScratchScanResult classifyScratchScanError(std::error_code error) {
+-  return {error == std::errc::no_such_file_or_directory
+-              ? detail::ScratchScanStatus::TransientError
+-              : detail::ScratchScanStatus::FatalError,
+-          error};
++  return {detail::ScratchScanStatus::ScanError, error};
+ }
+ 
++#if defined(__linux__)
++std::error_code currentSystemError() {
++  return {errno, std::generic_category()};
++}
++
++struct DirectoryCloser {
++  void operator()(DIR *directory) const {
++    if (directory != nullptr) {
++      (void)::closedir(directory);
++    }
++  }
++};
++
++using DirectoryHandle = std::unique_ptr<DIR, DirectoryCloser>;
++
++detail::ScratchScanResult openDirectoryHandle(int descriptor,
++                                              DirectoryHandle &result) {
++  DIR *directory = ::fdopendir(descriptor);
++  if (directory == nullptr) {
++    std::error_code error = currentSystemError();
++    (void)::close(descriptor);
++    return classifyScratchScanError(error);
++  }
++  result.reset(directory);
++  return {detail::ScratchScanStatus::WithinLimit, {}};
++}
++#endif
++
+ } // namespace
+ 
+ detail::ScratchScanResult detail::scanScratchDirectory(
+     llvm::StringRef path, uint64_t maximumBytes) {
+-  std::error_code error;
+-  llvm::sys::fs::recursive_directory_iterator iterator(
+-      path, error, /*follow_symlinks=*/false);
+-  llvm::sys::fs::recursive_directory_iterator end;
+-  if (error) {
+-    return classifyScratchScanError(error);
++#if defined(__linux__)
++  const std::string rootPath = path.str();
++  int rootDescriptor = ::open(rootPath.c_str(),
++                              O_RDONLY | O_CLOEXEC | O_DIRECTORY | O_NOFOLLOW);
++  if (rootDescriptor < 0) {
++    return classifyScratchScanError(currentSystemError());
++  }
++  DirectoryHandle root;
++  ScratchScanResult rootOpen = openDirectoryHandle(rootDescriptor, root);
++  if (rootOpen.status == ScratchScanStatus::ScanError) {
++    return rootOpen;
+   }
++
+   uint64_t totalBytes = 0;
+-  while (iterator != end) {
+-    auto status = iterator->status();
+-    if (!status) {
+-      return classifyScratchScanError(status.getError());
+-    }
+-    if (status->type() == llvm::sys::fs::file_type::regular_file) {
+-      uint64_t fileBytes = 0;
+-      if (std::error_code sizeError =
+-              llvm::sys::fs::file_size(iterator->path(), fileBytes)) {
+-        return classifyScratchScanError(sizeError);
++  std::vector<DirectoryHandle> pendingDirectories;
++  pendingDirectories.push_back(std::move(root));
++  while (!pendingDirectories.empty()) {
++    DirectoryHandle directory = std::move(pendingDirectories.back());
++    pendingDirectories.pop_back();
++    while (true) {
++      errno = 0;
++      dirent *entry = ::readdir(directory.get());
++      if (entry == nullptr) {
++        if (errno != 0) {
++          return classifyScratchScanError(currentSystemError());
++        }
++        break;
+       }
+-      if (fileBytes > maximumBytes - totalBytes) {
+-        return {detail::ScratchScanStatus::Exceeded, {}};
++      if (std::strcmp(entry->d_name, ".") == 0 ||
++          std::strcmp(entry->d_name, "..") == 0) {
++        continue;
++      }
++
++      struct stat status {};
++      if (::fstatat(::dirfd(directory.get()), entry->d_name, &status,
++                    AT_SYMLINK_NOFOLLOW) != 0) {
++        return classifyScratchScanError(currentSystemError());
++      }
++      if (S_ISDIR(status.st_mode)) {
++        int childDescriptor =
++            ::openat(::dirfd(directory.get()), entry->d_name,
++                     O_RDONLY | O_CLOEXEC | O_DIRECTORY | O_NOFOLLOW);
++        if (childDescriptor < 0) {
++          return classifyScratchScanError(currentSystemError());
++        }
++        DirectoryHandle child;
++        ScratchScanResult childOpen =
++            openDirectoryHandle(childDescriptor, child);
++        if (childOpen.status == ScratchScanStatus::ScanError) {
++          return childOpen;
++        }
++        pendingDirectories.push_back(std::move(child));
++      } else if (S_ISREG(status.st_mode)) {
++        if (status.st_size < 0) {
++          return classifyScratchScanError(
++              std::make_error_code(std::errc::io_error));
++        }
++        uint64_t fileBytes = static_cast<uint64_t>(status.st_size);
++        if (totalBytes > maximumBytes ||
++            fileBytes > maximumBytes - totalBytes) {
++          return {detail::ScratchScanStatus::Exceeded, {}};
++        }
++        totalBytes += fileBytes;
+       }
+-      totalBytes += fileBytes;
+-    }
+-    iterator.increment(error);
+-    if (error) {
+-      return classifyScratchScanError(error);
+     }
+   }
+   return {detail::ScratchScanStatus::WithinLimit, {}};
++#else
++  (void)path;
++  (void)maximumBytes;
++  return classifyScratchScanError(
++      std::make_error_code(std::errc::operation_not_supported));
++#endif
+ }
+ 
+ detail::ScratchQuotaDecision detail::ScratchQuotaMonitor::observe(
+@@ -127,13 +197,13 @@ detail::ScratchQuotaDecision detail::ScratchQuotaMonitor::observe(
+   if (result.status == ScratchScanStatus::Exceeded) {
+     return ScratchQuotaDecision::RejectExceeded;
+   }
+-  if (result.status == ScratchScanStatus::FatalError) {
+-    return ScratchQuotaDecision::RejectScanError;
+-  }
+-  if (result.status == ScratchScanStatus::TransientError) {
++  if (result.status == ScratchScanStatus::ScanError) {
++    if (childExited ||
++        result.error != std::errc::no_such_file_or_directory) {
++      return ScratchQuotaDecision::RejectScanError;
++    }
+     ++consecutiveTransientScans_;
+-    if (childExited || consecutiveTransientScans_ >
+-                           kMaximumConsecutiveTransientScans) {
++    if (consecutiveTransientScans_ > kMaximumConsecutiveTransientScans) {
+       return ScratchQuotaDecision::RejectScanError;
+     }
+     return ScratchQuotaDecision::Continue;
+@@ -145,16 +215,20 @@ detail::ScratchQuotaDecision detail::ScratchQuotaMonitor::observe(
+ namespace {
+ 
+ ProcessResult scratchQuotaFailure(detail::ScratchQuotaDecision decision,
+-                                  const detail::ScratchScanResult &scan) {
++                                  const detail::ScratchScanResult &scan,
++                                  bool childExited) {
+   if (decision == detail::ScratchQuotaDecision::RejectExceeded) {
+     return {-3, "tileiras child exceeded the bounded scratch quota"};
+   }
+   std::string message = "tileiras scratch quota scan failed closed";
+-  if (scan.error) {
++  if (scan.status == detail::ScratchScanStatus::ScanError &&
++      scan.error == std::errc::no_such_file_or_directory) {
++    message += childExited
++                   ? ": the post-exit scratch tree was incomplete"
++                   : ": transient filesystem churn did not settle within "
++                     "the bounded retry window";
++  } else if (scan.error) {
+     message += ": " + scan.error.message();
+-  } else if (scan.status == detail::ScratchScanStatus::TransientError) {
+-    message += ": transient filesystem churn did not settle within the "
+-               "bounded retry window";
+   }
+   return {-4, std::move(message)};
+ }
+@@ -327,7 +401,8 @@ ProcessResult runProgramWithFileLimit(
+       (void)::kill(child, SIGKILL);
+       while (::waitpid(child, &status, 0) == -1 && errno == EINTR) {
+       }
+-      return scratchQuotaFailure(scratchDecision, scratchScan);
++      return scratchQuotaFailure(scratchDecision, scratchScan,
++                                 /*childExited=*/false);
+     }
+     std::this_thread::sleep_for(std::chrono::milliseconds(10));
+   }
+@@ -336,7 +411,8 @@ ProcessResult runProgramWithFileLimit(
+   detail::ScratchQuotaDecision finalScratchDecision =
+       scratchQuotaMonitor.observe(finalScratchScan, /*childExited=*/true);
+   if (finalScratchDecision != detail::ScratchQuotaDecision::Continue) {
+-    return scratchQuotaFailure(finalScratchDecision, finalScratchScan);
++    return scratchQuotaFailure(finalScratchDecision, finalScratchScan,
++                               /*childExited=*/true);
+   }
+   if (WIFEXITED(status)) {
+     return {WEXITSTATUS(status), {}};
+diff --git a/lib/Compiler/CudaTile/TileIRAssemblyInternal.h b/lib/Compiler/CudaTile/TileIRAssemblyInternal.h
+index 2231e93e324f7eddf5ac128f9ecde2c7bfccda3a..634955a5f2099fac8c10ea00dfa834efb9c8ae4a 100644
+--- a/lib/Compiler/CudaTile/TileIRAssemblyInternal.h
++++ b/lib/Compiler/CudaTile/TileIRAssemblyInternal.h
+@@ -14,8 +14,7 @@ namespace mlir::nv_tensor_ir::backend::cuda_tile::detail {
+ enum class ScratchScanStatus {
+   WithinLimit,
+   Exceeded,
+-  TransientError,
+-  FatalError,
++  ScanError,
+ };
+ 
+ struct ScratchScanResult {

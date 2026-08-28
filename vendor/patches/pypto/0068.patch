@@ -1,0 +1,71 @@
+From 9aff69fe9b7053cfa4f024e6bfb1233dc3ce9347 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Thu, 27 Aug 2026 12:51:02 +0800
+Subject: [PATCH 068/212] codegen: declare broadcast inputs through the
+ stride-0 convention
+
+Layout-propagation lowers broadcast graph inputs by loading unit-stride
+extents as zero strides; the kernel ABI therefore records the zero
+strides and the wrapper passes an addressing-equivalent stride-zero
+view.
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 16 +++++++++++++++-
+ tests/ut/cpp/tensor_ir_codegen_test.cpp  |  4 ++--
+ 2 files changed, 17 insertions(+), 3 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 9c03352c1764bf76b963db5f30821977655ddd6d..9e41c2aa802ad84b0a6ad67acc8607b64d49cdc4 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -260,6 +260,20 @@ std::string TensorWithStrideText(const StaticTensor& tensor) {
+          ")\"}";
+ }
+ 
++std::string TensorBroadcastStrideText(const StaticTensor& tensor) {
++  // Layout-propagation lowers broadcast inputs through the stride-0
++  // convention: unit trailing extents carry a zero stride so the load
++  // itself expands them. Addressing is unchanged because a unit extent can
++  // only ever be indexed at zero.
++  std::vector<int64_t> strides = tensor.dense_strides;
++  for (size_t index = 1; index < strides.size(); ++index) {
++    if (tensor.shape[index] == 1) strides[index] = 0;
++  }
++  const std::string type = TensorTypeText(tensor);
++  return type + " {nv_tensor_ir.stride = \"(" + JoinIntegers(strides, ',') +
++         ")\"}";
++}
++
+ std::string EmitLegacyStaticAddSource(const StaticTensor& tensor, size_t lhs_index,
+                                       size_t rhs_index) {
+   const std::string type = TensorTypeText(tensor);
+@@ -952,7 +966,7 @@ std::string EmitFusedPointwiseSource(const FusedPointwiseGraph& graph) {
+     AppendIndex(source, input_index);
+     source += ": ";
+     if (graph.broadcast_inputs[input_index]) {
+-      source += TensorWithStrideText(graph.input_tensors[input_index]);
++      source += TensorBroadcastStrideText(graph.input_tensors[input_index]);
+     } else {
+       source += type_with_stride;
+     }
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index 3be8e26b154c69e88256e40c3b401ab486e79aa6..0cf00788517068dd2f30e7e0a8dd7a30c54658b7 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -1650,7 +1650,7 @@ int TestFusedPointwiseV2RowBroadcast() {
+ 
+   REQUIRE(module.GetKind() == TensorIrModuleKind::FusedPointwiseV2);
+   const std::string source = module.GetCanonicalSource();
+-  REQUIRE(source.find("%arg1: tensor<4x1xf32> {nv_tensor_ir.stride = \"(1,1)\"}") !=
++  REQUIRE(source.find("%arg1: tensor<4x1xf32> {nv_tensor_ir.stride = \"(1,0)\"}") !=
+           std::string::npos);
+   REQUIRE(source.find("%bcarg1 = broadcast %arg1 : tensor<4x1xf32> -> tensor<4x6xf32>") !=
+           std::string::npos);
+@@ -1677,7 +1677,7 @@ int TestFusedPointwiseV2RowBroadcast() {
+         {expand_assignment, div_assignment, div_return}));
+     const std::string materialized_source = materialized.GetCanonicalSource();
+     REQUIRE(materialized_source.find(
+-                "%value0 = broadcast %bcarg1 : tensor<4x1xf32> -> tensor<4x6xf32>") !=
++                "%value0 = broadcast %arg1 : tensor<4x1xf32> -> tensor<4x6xf32>") !=
+             std::string::npos);
+     REQUIRE(materialized_source.find("%value1 = div %value0, %arg0 : tensor<4x6xf32>") !=
+             std::string::npos);

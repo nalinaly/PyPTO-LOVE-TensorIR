@@ -1,0 +1,64 @@
+From 2777ef23ad24580854b732e62fb462dea6ba6ef0 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 01:12:45 +0800
+Subject: [PATCH 41/82] Support slicing reduction result layouts
+
+---
+ lib/Dialect/TensorAttrs.cpp                   | 19 +++++++++++++++++--
+ .../reduction_slice_layout.mlir               | 17 +++++++++++++++++
+ 2 files changed, 34 insertions(+), 2 deletions(-)
+ create mode 100644 test/Conversion/TensorToCudaTile/reduction_slice_layout.mlir
+
+diff --git a/lib/Dialect/TensorAttrs.cpp b/lib/Dialect/TensorAttrs.cpp
+index 63b1f9c87b2e1c47625b93262b51608c7ffa7339..98caee35665330424e66b2093a59ed544ab1956e 100644
+--- a/lib/Dialect/TensorAttrs.cpp
++++ b/lib/Dialect/TensorAttrs.cpp
+@@ -1182,8 +1182,23 @@ ReductionSourceAttr::transpose(ArrayRef<int64_t> permutation) const {
+ LayoutSourceAttrInterface
+ ReductionSourceAttr::slice(ArrayRef<int64_t> starts, ArrayRef<int64_t> limits,
+                            ArrayRef<int64_t> strides) const {
+-  LLVM_DEBUG(llvm::dbgs() << "Reduction slice is not supported\n");
+-  return nullptr;
++  if (starts.size() != getShape().size() || limits.size() != starts.size() ||
++      strides.size() != starts.size()) {
++    return nullptr;
++  }
++  auto viewAttr = TensorSourceAttr::get(getContext(), 0, 0, getView(), {});
++  SmallVector<int64_t> extendedStarts(starts.begin(), starts.end());
++  SmallVector<int64_t> extendedLimits(limits.begin(), limits.end());
++  SmallVector<int64_t> extendedStrides(strides.begin(), strides.end());
++  extendedStarts.push_back(0);
++  extendedLimits.push_back(getReductionSize());
++  extendedStrides.push_back(1);
++  auto newAttr = dyn_cast_or_null<TensorSourceAttr>(viewAttr.slice(
++      extendedStarts, extendedLimits, extendedStrides));
++  return newAttr ? ReductionSourceAttr::get(getContext(),
++                                            newAttr.getCuteLayout().toString(),
++                                            getSource())
++                 : nullptr;
+ }
+ 
+ LayoutSourceAttrInterface ReductionSourceAttr::normalize() const {
+diff --git a/test/Conversion/TensorToCudaTile/reduction_slice_layout.mlir b/test/Conversion/TensorToCudaTile/reduction_slice_layout.mlir
+new file mode 100644
+index 0000000000000000000000000000000000000000..c4cb60653235f51fb0a687f50192f267469ef100
+--- /dev/null
++++ b/test/Conversion/TensorToCudaTile/reduction_slice_layout.mlir
+@@ -0,0 +1,17 @@
++// RUN: tensor_ir-opt --layout-propagation-pipeline %s | FileCheck %s
++
++// CHECK-LABEL: entry @reduction_broadcast_slice
++// CHECK: reduce
++// CHECK: store_view_tko weak
++module {
++  nv_tensor_ir.graph @reduction_broadcast_slice(
++      %input: tensor<2x8x256xf32>) -> tensor<2x8x32xf32>
++      attributes {tile_size = array<i32: 1, 32>} {
++    %sum = reduce(%input) <dimensions = [2], reduction_mode = <add>> :
++      tensor<2x8x256xf32> -> tensor<2x8x1xf32>
++    %full = broadcast %sum : tensor<2x8x1xf32> -> tensor<2x8x256xf32>
++    %part = slice %full starts = [0, 0, 0] limits = [2, 8, 32]
++      strides = [1, 1, 1] : tensor<2x8x256xf32> -> tensor<2x8x32xf32>
++    results %part : tensor<2x8x32xf32>
++  }
++}

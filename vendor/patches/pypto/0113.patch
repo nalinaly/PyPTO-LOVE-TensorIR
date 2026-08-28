@@ -1,0 +1,337 @@
+From 618958d71a07e0de7caf7360c83e7523011b325a Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Fri, 28 Aug 2026 00:29:56 +0800
+Subject: [PATCH 113/212] Lower native tile row gathers
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp     | 230 +++++++++++++++++++
+ tests/ut/compiler/test_structured_compile.py |  33 +++
+ 2 files changed, 263 insertions(+)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 1a47fb6e2560589ef80e947f12b8794265145e67..5a1a27f640f22599b583b7972e35077e571d38a1 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -138,6 +138,12 @@ struct NativeTileCausalConvGraph {
+   StaticTensor result;
+ };
+ 
++struct NativeTileGatherRowsGraph {
++  StaticTensor data;
++  StaticTensor indices;
++  StaticTensor result;
++};
++
+ std::string BoundedDisplay(std::string_view value) {
+   std::string output;
+   const size_t count = std::min(value.size(), kMaximumDiagnosticNameBytes);
+@@ -236,6 +242,40 @@ StaticTensor ReadStaticTensor(const ir::TypePtr& type, const ir::Span& span,
+   return StaticTensor{tensor_type->dtype_, shape, MakeDenseStrides(shape, span)};
+ }
+ 
++StaticTensor ReadStaticIntegerTensor(const ir::TypePtr& type,
++                                     const ir::Span& span,
++                                     std::string_view location) {
++  const auto tensorType = ir::As<ir::TensorType>(type);
++  if (!tensorType || tensorType->memref_.has_value() ||
++      tensorType->tensor_view_.has_value()) {
++    Reject(std::string(location) + " must have plain TensorType", &span);
++  }
++  if (tensorType->dtype_ != DataType::INT64 &&
++      tensorType->dtype_ != DataType::INT32) {
++    Reject(std::string(location) + " dtype must be INT64 or INT32, got " +
++               tensorType->dtype_.ToString(),
++           &span);
++  }
++  if (tensorType->shape_.empty() ||
++      tensorType->shape_.size() > kMaximumRank) {
++    Reject(std::string(location) + " rank must be between 1 and 32", &span);
++  }
++  std::vector<int64_t> shape;
++  shape.reserve(tensorType->shape_.size());
++  for (const ir::ExprPtr& dimension : tensorType->shape_) {
++    const auto constant = ir::As<ir::ConstInt>(dimension);
++    if (!constant || constant->dtype() != DataType::INDEX ||
++        constant->value_ <= 0) {
++      Reject(std::string(location) +
++                 " shape must be fully static and positive",
++             &span);
++    }
++    shape.push_back(constant->value_);
++  }
++  return StaticTensor{tensorType->dtype_, shape,
++                      MakeDenseStrides(shape, span)};
++}
++
+ StaticTensor ReadStaticTile(const ir::TypePtr& type, const ir::Span& span,
+                             std::string_view location) {
+   const auto tile_type = ir::As<ir::TileType>(type);
+@@ -274,6 +314,8 @@ bool SameTensor(const StaticTensor& left, const StaticTensor& right) {
+ const char* TensorIrDtype(DataType dtype) {
+   if (dtype == DataType::BF16) return "bf16";
+   if (dtype == DataType::FP32) return "f32";
++  if (dtype == DataType::INT32) return "si32";
++  if (dtype == DataType::INT64) return "si64";
+   InternalReject("unsupported dtype reached source emission");
+ }
+ 
+@@ -1412,6 +1454,47 @@ std::string EmitNativeTileCausalConvSegmentedSource(
+   return source;
+ }
+ 
++std::string EmitNativeTileGatherRowsSource(
++    const NativeTileGatherRowsGraph& graph) {
++  StaticTensor indices32 = graph.indices;
++  indices32.dtype = DataType::INT32;
++  const std::string dataType = TensorTypeText(graph.data);
++  const std::string dataWithStride = TensorWithStrideText(graph.data);
++  const std::string indicesType = TensorTypeText(graph.indices);
++  const std::string indicesWithStride = TensorWithStrideText(graph.indices);
++  const std::string indices32Type = TensorTypeText(indices32);
++  const std::string resultType = TensorTypeText(graph.result);
++  const std::string resultWithStride = TensorWithStrideText(graph.result);
++  std::string source;
++  source.reserve(768 + dataWithStride.size() + indicesWithStride.size() +
++                 resultWithStride.size());
++  source += "module {\n  nv_tensor_ir.graph @";
++  source += kFusedPointwiseEntryName;
++  source += "(\n    %arg0: ";
++  source += dataWithStride;
++  source += ",\n    %arg1: ";
++  source += indicesWithStride;
++  source += "\n  ) -> (";
++  source += resultWithStride;
++  source += ") {\n    %indices32 = convert %arg1 : ";
++  source += indicesType;
++  source += " -> ";
++  source += indices32Type;
++  source += "\n    %result0 = gather_rows %arg0, %indices32 : (";
++  source += dataType;
++  source += ", ";
++  source += indices32Type;
++  source += ") -> ";
++  source += resultType;
++  source += "\n    results %result0 : ";
++  source += resultType;
++  source += "\n  }\n}\n";
++  if (source.size() > kMaximumCanonicalSourceBytes) {
++    Reject("canonical TensorIR source exceeds 16 MiB");
++  }
++  return source;
++}
++
+ std::string EmitRowReductionSource(const RowReductionGraph& graph) {
+   const std::string input_type = TensorTypeText(graph.input);
+   const std::string input_with_stride = TensorWithStrideText(graph.input);
+@@ -3125,6 +3208,133 @@ NativeTileCausalConvGraph AnalyzeNativeTileCausalConv(
+   return NativeTileCausalConvGraph{input, weight, result};
+ }
+ 
++bool IsNativeTileGatherRowsCandidate(const ir::ProgramPtr& program) {
++  if (!program || program->functions_.size() != 1) return false;
++  const ir::FunctionPtr& function = program->functions_.begin()->second;
++  if (!function || function->params_.size() != 3) return false;
++  const auto indicesType =
++      ir::As<ir::TensorType>(function->params_[1]->GetType());
++  return indicesType && (indicesType->dtype_ == DataType::INT64 ||
++                         indicesType->dtype_ == DataType::INT32);
++}
++
++NativeTileGatherRowsGraph AnalyzeNativeTileGatherRows(
++    const ir::ProgramPtr& program) {
++  if (!IsNativeTileGatherRowsCandidate(program)) {
++    Reject("native gather_rows candidate is malformed",
++           program ? &program->span_ : nullptr);
++  }
++  const auto& [global, function] = *program->functions_.begin();
++  if (!global || !function || global->name_ != function->name_ ||
++      function->requires_runtime_binding_ ||
++      function->func_type_ != ir::FunctionType::Orchestration ||
++      !function->level_.has_value() || *function->level_ != ir::Level::CHIP ||
++      !function->role_.has_value() ||
++      *function->role_ != ir::Role::Orchestrator || !function->attrs_.empty()) {
++    Reject("native gather_rows must be one canonical CHIP @pl.jit function",
++           &function->span_);
++  }
++  if (function->param_directions_.size() != 3 ||
++      function->param_directions_[0] != ir::ParamDirection::In ||
++      function->param_directions_[1] != ir::ParamDirection::In ||
++      function->param_directions_[2] != ir::ParamDirection::Out ||
++      function->return_types_.size() != 1) {
++    Reject("native gather_rows requires two inputs, one output and one return",
++           &function->span_);
++  }
++
++  const StaticTensor data = ReadStaticTensor(
++      function->params_[0]->GetType(), function->params_[0]->span_,
++      "native gather_rows data");
++  StaticTensor indices = ReadStaticIntegerTensor(
++      function->params_[1]->GetType(), function->params_[1]->span_,
++      "native gather_rows indices");
++  const StaticTensor result = ReadStaticTensor(
++      function->params_[2]->GetType(), function->params_[2]->span_,
++      "native gather_rows output");
++  const StaticTensor declared = ReadStaticTensor(
++      function->return_types_[0], function->span_,
++      "native gather_rows declared result");
++  if (data.shape.size() != 2 || indices.shape.size() != 2 ||
++      result.shape.size() != 2 || !SameTensor(result, declared) ||
++      indices.shape != result.shape || data.shape[1] != result.shape[1]) {
++    Reject("native gather_rows data, indices and output shapes are incompatible",
++           &function->span_);
++  }
++  indices.dense_strides = {1, 0};
++
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  if (!top || top->stmts_.size() != 2) {
++    Reject("native gather_rows body must contain one scope and one return",
++           &function->span_);
++  }
++  const auto scope = ir::As<ir::InCoreScopeStmt>(top->stmts_[0]);
++  const auto returned = ir::As<ir::ReturnStmt>(top->stmts_[1]);
++  const auto returnedVar =
++      returned && returned->value_.size() == 1
++          ? ir::As<ir::Var>(returned->value_[0])
++          : nullptr;
++  if (!scope || scope->split_ != ir::SplitMode::None ||
++      !scope->attrs_.empty() || !returnedVar ||
++      returnedVar.get() != function->params_[2].get()) {
++    Reject("native gather_rows scope or return is invalid", &function->span_);
++  }
++
++  const TileLoopNest loopNest = UnwrapStaticTileLoops(scope->body_);
++  if (!loopNest.leaf || loopNest.leaf->stmts_.size() != 3) {
++    Reject("native gather_rows tile body must be read, load and store",
++           &scope->span_);
++  }
++  const auto readAssignment =
++      ir::As<ir::AssignStmt>(loopNest.leaf->stmts_[0]);
++  const auto readCall =
++      readAssignment ? ir::As<ir::Call>(readAssignment->value_) : nullptr;
++  const auto readSource =
++      readCall && !readCall->args_.empty()
++          ? ir::As<ir::Var>(readCall->args_[0])
++          : nullptr;
++  const auto loadAssignment =
++      ir::As<ir::AssignStmt>(loopNest.leaf->stmts_[1]);
++  const auto loadCall =
++      loadAssignment ? ir::As<ir::Call>(loadAssignment->value_) : nullptr;
++  const auto loadSource =
++      loadCall && !loadCall->args_.empty()
++          ? ir::As<ir::Var>(loadCall->args_[0])
++          : nullptr;
++  const auto storeStatement =
++      ir::As<ir::EvalStmt>(loopNest.leaf->stmts_[2]);
++  const auto storeCall =
++      storeStatement ? ir::As<ir::Call>(storeStatement->expr_) : nullptr;
++  const auto storeTarget =
++      storeCall && storeCall->args_.size() == 3
++          ? ir::As<ir::Var>(storeCall->args_[2])
++          : nullptr;
++  if (!readCall || !ir::IsOp(readCall, "tensor.read") || !readSource ||
++      readSource.get() != function->params_[1].get() || !loadCall ||
++      !ir::IsOp(loadCall, "tile.load") || !loadSource ||
++      loadSource.get() != function->params_[0].get() || !storeCall ||
++      !ir::IsOp(storeCall, "tile.store") || !storeTarget ||
++      storeTarget.get() != function->params_[2].get()) {
++    Reject("native gather_rows operation sequence is invalid",
++           &loopNest.leaf->span_);
++  }
++  const StaticTensor loaded = ReadStaticTile(
++      loadAssignment->var_->GetType(), loadAssignment->span_,
++      "native gather_rows loaded tile");
++  if (loaded.dtype != result.dtype || loaded.shape.size() != 2 ||
++      loaded.shape[0] != 1 || loaded.shape[1] <= 0 ||
++      result.shape[1] % loaded.shape[1] != 0 ||
++      StaticElementCount(loaded, loadAssignment->span_,
++                         "native gather_rows tile") *
++              loopNest.repetitions !=
++          StaticElementCount(result, function->span_,
++                             "native gather_rows result")) {
++    Reject("native gather_rows loops must cover the result exactly once",
++           &scope->span_);
++  }
++  return NativeTileGatherRowsGraph{data, indices, result};
++}
++
+ struct NativeTileRopeGraph {
+   StaticTensor input;
+   StaticTensor frequency;
+@@ -5306,6 +5516,26 @@ TensorIrModule EmitLegacyStaticAddV1(const ir::ProgramPtr& program) {
+ }  // namespace detail
+ 
+ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
++  if (IsNativeTileGatherRowsCandidate(program)) {
++    const NativeTileGatherRowsGraph graph =
++        AnalyzeNativeTileGatherRows(program);
++    std::vector<TensorIrValueMetadata> metadata;
++    metadata.reserve(3);
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Input, 0, graph.data.dtype, graph.data.shape,
++        graph.data.dense_strides, /*has_explicit_strides=*/true));
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Input, 1, graph.indices.dtype,
++        graph.indices.shape, graph.indices.dense_strides,
++        /*has_explicit_strides=*/true));
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Result, 0, graph.result.dtype,
++        graph.result.shape, graph.result.dense_strides,
++        /*has_explicit_strides=*/true));
++    return TensorIrModule(TensorIrModuleKind::FusedPointwise,
++                          EmitNativeTileGatherRowsSource(graph),
++                          std::move(metadata), /*input_count=*/2);
++  }
+   if (IsNativeTileRowReductionCandidate(program)) {
+     const RowReductionGraph graph = AnalyzeNativeTileRowReduction(program);
+     std::vector<TensorIrValueMetadata> metadata;
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index 190d6aad51fe229845f4bd9a83a672c0ded9c4d4..e1ead7da53ec8a4175e9d83d03b1714244b88567 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -308,6 +308,21 @@ def _native_tile_linear(
+     return out
+ 
+ 
++@pl.jit
++def _native_tile_embedding(
++    weight: pl.Tensor[[1024, 256], pl.BF16],
++    repeated_token_ids: pl.Tensor[[8, 256], pl.INT64],
++    out: pl.Out[pl.Tensor[[8, 256], pl.BF16]],
++):
++    with pl.at(level=pl.Level.CORE_GROUP):
++        for row in pl.range(8):
++            for block in pl.range(2):
++                token_id = pl.read(repeated_token_ids, [row, block * 128])
++                value = pl.load(weight, [token_id, block * 128], [1, 128])
++                pl.store(value, [row, block * 128], out)
++    return out
++
++
+ def _program() -> ir.Program:
+     span = ir.Span("structured_compile_test.py", 1, 1)
+     tensor_type = ir.TensorType([8, 8], pypto.DataType.FP32)
+@@ -644,6 +659,24 @@ def _assert_native_tile_compilation(request: CompileRequest) -> None:
+     ]
+     assert not causal_conv.artifact.fallback_used
+ 
++    embedding = compile_structured_strict(
++        _native_tile_embedding.specialize(), request, _schedule([8, 128])
++    )
++    embedding_kernel = embedding.artifact.kernel_abi
++    assert embedding_kernel.entry_function_name == "pypto_fused_pointwise"
++    assert embedding_kernel.grid_abi.static_dimensions == [1, 1, 1]
++    assert embedding_kernel.grid_abi.tile_sizes == [8, 128]
++    assert embedding_kernel.argument_layout.input_operand_count == 2
++    assert embedding_kernel.argument_layout.total_kernel_argument_count == 3
++    descriptors = embedding_kernel.argument_layout.operand_descriptors
++    assert [descriptor.shape for descriptor in descriptors] == [
++        [1024, 256],
++        [8, 256],
++        [8, 256],
++    ]
++    assert descriptors[1].strides == [1, 0]
++    assert not embedding.artifact.fallback_used
++
+     rope = compile_structured_strict(
+         _native_tile_rope.specialize(), request, _schedule([1, 1, 64])
+     )

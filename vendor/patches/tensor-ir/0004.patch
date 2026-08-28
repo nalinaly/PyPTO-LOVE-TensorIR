@@ -1,0 +1,25 @@
+From 785843846e9516808ac7a52cbfe6c213c896030d Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Mon, 24 Aug 2026 22:51:27 +0800
+Subject: [PATCH 04/82] build: align runtime with LLVM ABI policy
+
+---
+ lib/Runtime/CMakeLists.txt | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/lib/Runtime/CMakeLists.txt b/lib/Runtime/CMakeLists.txt
+index a652a14ce62e4e208d21fa8b7633b025a7508e3b..d22e0ed4b3f6a422905e7810063cd5de1220bf87 100644
+--- a/lib/Runtime/CMakeLists.txt
++++ b/lib/Runtime/CMakeLists.txt
+@@ -4,6 +4,11 @@ add_library(NVTensorIRRuntime STATIC
+   CudaTileRuntimeKernel.cpp
+ )
+ 
++# This target consumes LLVM support templates and must use the same
++# RTTI/exception ABI policy as the LLVM libraries it links. add_mlir_library
++# applies this automatically; the plain runtime target must do so explicitly.
++llvm_update_compile_flags(NVTensorIRRuntime)
++
+ tensor_ir_register_library(NVTensorIRRuntime)
+ 
+ target_include_directories(NVTensorIRRuntime

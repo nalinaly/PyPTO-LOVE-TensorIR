@@ -1,0 +1,30 @@
+From 2c870f975a950af9c234821864a183c86f6252c6 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Tue, 25 Aug 2026 04:18:05 +0800
+Subject: [PATCH 17/82] Allow bounded tileiras scratch files
+
+---
+ lib/Compiler/CudaTile/TileIRAssembly.cpp | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/lib/Compiler/CudaTile/TileIRAssembly.cpp b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+index b3d31c1c26fe7763aea4874dc7603819875c60c0..84ca5709264a09256ccb4d4a24f995908e6d94a8 100644
+--- a/lib/Compiler/CudaTile/TileIRAssembly.cpp
++++ b/lib/Compiler/CudaTile/TileIRAssembly.cpp
+@@ -53,6 +53,7 @@ struct ProcessResult {
+ 
+ constexpr uint64_t kMaximumDiagnosticBytes = 64 * 1024;
+ constexpr uint64_t kMaximumCubinBytes = 64ULL * 1024ULL * 1024ULL;
++constexpr uint64_t kMaximumChildFileBytes = 512ULL * 1024ULL * 1024ULL;
+ constexpr unsigned kMetadataCommandTimeoutSeconds = 30;
+ constexpr unsigned kCompileCommandTimeoutSeconds = 300;
+ constexpr unsigned kAssemblerMemoryLimitMiB = 4096;
+@@ -140,7 +141,7 @@ ProcessResult runProgramWithFileLimit(
+     const rlim_t memoryBytes =
+         static_cast<rlim_t>(kAssemblerMemoryLimitMiB) * 1024U * 1024U;
+     const struct rlimit memoryLimit = {memoryBytes, memoryBytes};
+-    const rlim_t fileBytes = static_cast<rlim_t>(kMaximumCubinBytes);
++    const rlim_t fileBytes = static_cast<rlim_t>(kMaximumChildFileBytes);
+     const struct rlimit fileLimit = {fileBytes, fileBytes};
+     if (::setrlimit(RLIMIT_DATA, &memoryLimit) != 0 ||
+         ::setrlimit(RLIMIT_FSIZE, &fileLimit) != 0) {
