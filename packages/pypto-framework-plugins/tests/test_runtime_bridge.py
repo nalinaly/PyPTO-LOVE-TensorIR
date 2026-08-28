@@ -43,8 +43,6 @@ def test_pypto_launch_wraps_native_executable_in_artifact_annotation(monkeypatch
     pointwise_codegen._RUNTIME_DSO_SHA256[name] = "d" * 64
     runtime_bridge._executables.clear()
     runtime_bridge._kernel_executable_identities.clear()
-    runtime_bridge._execution_streams.clear()
-    runtime_bridge._kernel_stream_devices.clear()
     runtime_bridge._artifact_records.clear()
     runtime_bridge._observations.clear()
     monkeypatch.setattr(runtime_bridge, "trace_window_active", lambda: False)
@@ -99,12 +97,10 @@ def test_pypto_launch_wraps_native_executable_in_artifact_annotation(monkeypatch
             self.waited.append(other)
 
     caller = FakeStream(123)
-    execution = FakeStream(456)
     torch = ModuleType("torch")
     torch.cuda = SimpleNamespace(
         current_stream=lambda: caller,
         current_device=lambda: 0,
-        Stream=lambda **_kwargs: execution,
     )
     monkeypatch.setitem(sys.modules, "torch", torch)
 
@@ -118,15 +114,14 @@ def test_pypto_launch_wraps_native_executable_in_artifact_annotation(monkeypatch
     monkeypatch.setattr(runtime_bridge, "annotate_artifact_launch", annotate)
     runtime_bridge.pypto_launch(name, (), 123)
 
-    assert launches == [("packet", 456)]
+    assert launches == [("packet", 123)]
     assert len(annotated) == 1
     assert annotated[0].artifact_id == "pypto-artifact-v1:runtime-identity"
     assert annotated[0].kernel_name == "pypto_runtime_kernel"
     assert annotated[0].provider == "pypto.generic"
     assert annotated[0].source_node == "torch-inductor:runtime-test"
     assert annotated[0].kernels_revision == "pypto-dso-sha256:" + "d" * 64
-    assert caller.waited == [execution]
-    assert execution.waited == [caller]
+    assert caller.waited == []
 
 
 def test_runtime_caches_fail_closed_after_fork(monkeypatch) -> None:

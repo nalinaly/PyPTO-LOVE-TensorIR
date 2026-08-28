@@ -30,8 +30,6 @@ _OWNER_PID = os.getpid()
 _observations: dict[int, Any] = {}
 _executables: dict[str, tuple[str, str, int, Any]] = {}
 _kernel_executable_identities: dict[str, tuple[str, str, int]] = {}
-_execution_streams: dict[int, Any] = {}
-_kernel_stream_devices: dict[str, int] = {}
 _artifact_records: dict[str, Any] = {}
 
 
@@ -105,24 +103,6 @@ def _ensure_executable(
                 f"PyPTO artifact identity collision for {identity!r}"
             )
         return executable
-
-
-def _ensure_execution_stream(torch_module: Any, caller_stream: Any) -> Any:
-    """Return one non-default stream ordered with the caller's current stream."""
-
-    _require_owner_process()
-    device = caller_stream.device
-    index = int(device.index if device.index is not None else torch_module.cuda.current_device())
-    with _lock:
-        stream = _execution_streams.get(index)
-        if stream is None:
-            if trace_window_active():
-                raise StrictCoverageError(
-                    f"PyPTO execution stream for cuda:{index} was not prewarmed"
-                )
-            stream = torch_module.cuda.Stream(device=device)
-            _execution_streams[index] = stream
-        return stream
 
 
 def _ensure_artifact_record(
@@ -202,13 +182,6 @@ def prewarm_kernel(kernel_name: str) -> None:
                 dso_sha256,
                 device_index,
             )
-            caller_stream = torch.cuda.current_stream()
-            execution_stream = _ensure_execution_stream(torch, caller_stream)
-        device = execution_stream.device
-        index = int(
-            device.index if device.index is not None else torch.cuda.current_device()
-        )
-        _kernel_stream_devices[kernel_name] = index
         _ensure_artifact_record(kernel_name, artifact, source_node, dso_sha256)
         if trace_window_active():
             raise StrictCoverageError(
@@ -231,7 +204,6 @@ def kernel_is_prewarmed(kernel_name: str) -> bool:
             executable is not None
             and executable[1] == dso_sha256
             and executable[2] == device_index
-            and _kernel_stream_devices.get(kernel_name) == device_index
             and record is not None
             and record.kernels_revision == f"pypto-dso-sha256:{dso_sha256}"
         )
@@ -290,16 +262,6 @@ def pypto_launch(kernel_name: str, args: tuple[Any, ...], stream: int) -> None:
         raise StrictCoverageError(
             "generated PyPTO wrapper did not pass the caller's current stream"
         )
-    execution_stream = _ensure_execution_stream(torch, caller_stream)
-    index = int(
-        execution_stream.device.index
-        if execution_stream.device.index is not None
-        else torch.cuda.current_device()
-    )
-    with _lock:
-        _kernel_stream_devices[kernel_name] = index
-    execution_stream.wait_stream(caller_stream)
-
     executable = _ensure_executable(
         runtime,
         kernel_name,
@@ -340,6 +302,5 @@ def pypto_launch(kernel_name: str, args: tuple[Any, ...], stream: int) -> None:
         dso_sha256,
     )
     with annotate_artifact_launch(artifact_record):
-        executable.launch(packet, execution_stream.cuda_stream)
-    caller_stream.wait_stream(execution_stream)
+        executable.launch(packet, int(stream))
     del packet
