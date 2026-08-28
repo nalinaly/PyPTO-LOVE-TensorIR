@@ -117,7 +117,7 @@ def main() -> int:
     )
     state_indices = torch.tensor([2], device="cuda", dtype=torch.int32)
     a_log = torch.randn(value_heads, device="cuda", dtype=torch.float32) * 0.1
-    dt_bias = torch.randn(value_heads, device="cuda", dtype=torch.float32) * 0.1
+    dt_bias = torch.randn(value_heads, device="cuda", dtype=torch.bfloat16) * 0.1
     conv_initial = conv_state.clone()
     gdn_initial = gdn_state.clone()
 

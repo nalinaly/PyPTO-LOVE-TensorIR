@@ -337,6 +337,7 @@ def test_gdn_recurrent_is_one_mutation_declared_graph():
     assert rendered.count("pl.InOut[") == 1
     assert "pl.range(2)" in rendered and "pl.range(16)" in rendered
     assert rendered.count("pl.tile.row_sum") == 2  # Q and K L2 norms
+    assert rendered.count("pl.tile.cast") >= 8  # includes BF16 dt_bias -> FP32
     assert rendered.count("pl.tile.matmul") == 2  # state*K and Q*state
     assert "pl.tile.abs" in rendered and "pl.tile.maximums" in rendered
     assert "pl.tile.row_expand_mul" in rendered

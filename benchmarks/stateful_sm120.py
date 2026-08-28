@@ -228,7 +228,7 @@ def gdn_case(
     a = torch.randn(rows, value_heads, device="cuda", dtype=torch.bfloat16)
     b = torch.randn_like(a)
     a_log = torch.randn(value_heads, device="cuda", dtype=torch.float32) * 0.1
-    dt_bias = torch.randn(value_heads, device="cuda", dtype=torch.float32) * 0.1
+    dt_bias = torch.randn(value_heads, device="cuda", dtype=torch.bfloat16) * 0.1
     slots = 65
     state_width = value_heads * dv * dk
     slot_stride = state_width + 4096

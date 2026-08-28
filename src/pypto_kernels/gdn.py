@@ -128,7 +128,10 @@ def gdn_recurrent_kernel(
                         target_type=pl.FP32,
                     )
                     A_wide = pl.reshape(A_box, [out.shape[3], 1])
-                    dt_wide = pl.reshape(dt_box, [out.shape[3], 1])
+                    dt_wide = pl.cast(
+                        pl.reshape(dt_box, [out.shape[3], 1]),
+                        target_type=pl.FP32,
+                    )
 
                     gate_x = pl.add(a_wide, dt_wide)
                     gate_abs = pl.abs(gate_x)
@@ -250,7 +253,7 @@ def build_recurrent(
     dt_bias = torch.empty_strided(
         (value_heads, value_dim),
         parameter_strides,
-        dtype=torch.float32,
+        dtype=torch.bfloat16,
         device="meta",
     )
     state = torch.empty_strided(
@@ -354,12 +357,14 @@ def gdn_recurrent(
         A_log.ndim != 1
         or dt_bias.ndim != 1
         or A_log.dtype is not torch.float32
-        or dt_bias.dtype is not torch.float32
+        or dt_bias.dtype is not torch.bfloat16
         or not A_log.is_contiguous()
         or not dt_bias.is_contiguous()
         or tuple(A_log.shape) != tuple(dt_bias.shape)
     ):
-        raise ValueError("GDN recurrent A_log/dt_bias must be matching FP32 vectors")
+        raise ValueError(
+            "GDN recurrent A_log/dt_bias must be matching FP32/BF16 vectors"
+        )
     if state.ndim != 4 or state.dtype is not torch.float32:
         raise ValueError("GDN recurrent state must be rank-4 FP32")
     state_slots, value_heads, value_dim, key_dim = map(int, state.shape)
