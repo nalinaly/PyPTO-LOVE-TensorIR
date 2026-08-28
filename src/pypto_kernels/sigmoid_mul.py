@@ -57,8 +57,9 @@ def _matrix_shape(shape: tuple[int, ...]) -> tuple[int, int]:
     return rows, columns
 
 
-def _tiles(rows: int) -> list[int]:
-    return [_TILE_WIDTH] if rows == 1 else [1, _TILE_WIDTH]
+def _tiles(rows: int, columns: int, *row_strides: int) -> list[int]:
+    flattened = rows == 1 or all(stride == columns for stride in row_strides)
+    return [_TILE_WIDTH] if flattened else [1, _TILE_WIDTH]
 
 
 def compile_for(
@@ -98,7 +99,7 @@ def compile_for(
     graph_key = compile_jit_kernel(
         sigmoid_mul_kernel,
         (value, gate, out),
-        _tiles(rows),
+        _tiles(rows, columns, value_row_stride, gate_row_stride),
     )
     with _lock:
         _cache[cache_key] = graph_key
