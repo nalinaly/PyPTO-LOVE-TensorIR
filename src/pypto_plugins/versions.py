@@ -20,6 +20,7 @@ EXPECTED_TORCH_VERSION = "2.13.0"
 EXPECTED_TORCH_COMMIT = "cf30153c4c131c8164ee7798e5022d810682e2cb"
 EXPECTED_SGLANG_VERSION = "0.5.18"
 EXPECTED_SGLANG_COMMIT = "71de97b264b04dcd514cf904003028aefe9775c8"
+SOURCE_CHECKOUT_SGLANG_VERSION = "0.0.0.dev0"
 EXPECTED_TORCH_CUDA = "13.0"
 EXPECTED_COMPUTE_CAPABILITY = (12, 0)
 
@@ -162,10 +163,6 @@ def assert_sglang_compatible(
     if sglang_module is None:
         import sglang as sglang_module
     version = installed_version or str(sglang_module.__version__)
-    if _base_version(version) != EXPECTED_SGLANG_VERSION:
-        raise FrameworkCompatibilityError(
-            f"PyPTO SGLang plugin requires {EXPECTED_SGLANG_VERSION}; found {version}."
-        )
     root = _required_root(source_root, "PYPTO_SGLANG_SOURCE_ROOT")
     _require_import_below(sglang_module, root / "python" / "sglang", "sglang")
     try:
@@ -179,4 +176,11 @@ def assert_sglang_compatible(
         raise FrameworkCompatibilityError(
             "PyPTO SGLang plugin requires clean commit "
             f"{EXPECTED_SGLANG_COMMIT}; found commit={commit}, dirty={bool(dirty)}."
+        )
+    if (
+        _base_version(version) != EXPECTED_SGLANG_VERSION
+        and version != SOURCE_CHECKOUT_SGLANG_VERSION
+    ):
+        raise FrameworkCompatibilityError(
+            f"PyPTO SGLang plugin requires {EXPECTED_SGLANG_VERSION}; found {version}."
         )
