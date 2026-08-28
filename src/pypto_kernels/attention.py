@@ -514,11 +514,11 @@ def build_paged_decode(
     req_to_token = torch.empty(
         (request_rows, max_context_len), dtype=torch.int32, device="meta"
     )
-    request_index = torch.empty(
-        (batch_size, tokens), dtype=torch.int64, device="meta"
+    request_index = torch.empty_strided(
+        (batch_size, tokens), (1, 0), dtype=torch.int64, device="meta"
     )
-    valid_tokens = torch.empty(
-        (batch_size, tokens), dtype=torch.int64, device="meta"
+    valid_tokens = torch.empty_strided(
+        (batch_size, tokens), (1, 0), dtype=torch.int64, device="meta"
     )
     virtual_to_physical = torch.empty(
         (mapping_rows, 1), dtype=torch.int64, device="meta"
@@ -642,8 +642,8 @@ def build_paged_cache_write(
         dtype=torch.bfloat16,
         device="meta",
     )
-    physical_row = torch.empty(
-        (update_rows, row_width), dtype=torch.int64, device="meta"
+    physical_row = torch.empty_strided(
+        (update_rows, row_width), (1, 0), dtype=torch.int64, device="meta"
     )
     virtual_to_physical = torch.empty(
         (mapping_rows, 1), dtype=torch.int64, device="meta"
@@ -777,11 +777,11 @@ def build_paged_prefill(
     req_to_token = torch.empty(
         (request_rows, max_context_len), dtype=torch.int32, device="meta"
     )
-    request_index = torch.empty(
-        (1, bucket_tokens), dtype=torch.int64, device="meta"
+    request_index = torch.empty_strided(
+        (1, bucket_tokens), (0, 0), dtype=torch.int64, device="meta"
     )
-    prefix_tokens = torch.empty(
-        (1, bucket_tokens), dtype=torch.int32, device="meta"
+    prefix_tokens = torch.empty_strided(
+        (1, bucket_tokens), (0, 0), dtype=torch.int32, device="meta"
     )
     virtual_to_physical = torch.empty(
         (mapping_rows, 1), dtype=torch.int64, device="meta"
