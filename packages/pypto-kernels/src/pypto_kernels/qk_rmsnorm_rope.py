@@ -203,6 +203,11 @@ def _validate_shape(
         )
 
 
+def _tiles(tokens: int) -> list[int]:
+    tail = [1, 1, 1, 1, 32]
+    return tail if tokens == 1 else [1, *tail]
+
+
 def build(
     tokens: int,
     q_heads: int,
@@ -288,7 +293,7 @@ def compile_for(
     if cached is not None:
         return cached
     program = build(*cache_key)
-    graph_key = compile_graph(program, [1, 1, 1, 1, 1, 32])
+    graph_key = compile_graph(program, _tiles(tokens))
     with _lock:
         _cache[cache_key] = graph_key
     return graph_key

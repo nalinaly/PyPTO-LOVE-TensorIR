@@ -254,6 +254,8 @@ def test_embedding_is_one_dynamic_row_gather_graph():
 
 
 def test_qk_norm_partial_rope_gate_is_one_native_graph():
+    assert qk_rmsnorm_rope._tiles(1) == [1, 1, 1, 1, 32]
+    assert qk_rmsnorm_rope._tiles(19) == [1, 1, 1, 1, 1, 32]
     program = qk_rmsnorm_rope.build(2, 8, 2, 256, 64, 1024)
     rendered = str(program)
     assert len(_one_program(program).body.stmts) == 2
