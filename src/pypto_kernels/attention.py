@@ -20,7 +20,7 @@ _paged_cache_write_cache: dict[tuple[int, int, int, int, int], str] = {}
 _paged_prefill_cache: dict[tuple[int, int, int, int, int, int, int, int, int, int], str] = {}
 
 STATUS = "native-tile executable"
-PAGED_DECODE_STATUS = "native-tile source candidate"
+PAGED_DECODE_STATUS = "native-tile executable"
 GRAPHS = 4
 
 
