@@ -21,6 +21,8 @@ import stop_run
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ENVIRONMENT = (ROOT / "envs/pypto-nvidia").resolve()
 HOST_ABORT_KIB = 16 * 1024 * 1024
+HOST_EMERGENCY_ABORT_KIB = 15 * 1024 * 1024
+HOST_FLOOR_CONSECUTIVE_SAMPLES = 3
 GPU_FREE_FLOOR_MIB = 4 * 1024
 POLL_SECONDS = 1
 
@@ -34,6 +36,44 @@ def mem_available_kib() -> int:
         if line.startswith("MemAvailable:"):
             return int(line.split()[1])
     raise BoundedGpuError("/proc/meminfo has no MemAvailable field")
+
+
+def host_floor_update(
+    available_kib: int, consecutive_below_floor: int
+) -> tuple[str | None, int]:
+    if available_kib < HOST_EMERGENCY_ABORT_KIB:
+        return "host-memory-emergency-floor", consecutive_below_floor + 1
+    if available_kib < HOST_ABORT_KIB:
+        consecutive_below_floor += 1
+        if consecutive_below_floor >= HOST_FLOOR_CONSECUTIVE_SAMPLES:
+            return "host-memory-floor", consecutive_below_floor
+        return None, consecutive_below_floor
+    return None, 0
+
+
+def process_stat(pid: int) -> tuple[int, int]:
+    fields = pathlib.Path(f"/proc/{pid}/stat").read_text().rpartition(")")[2].split()
+    if len(fields) <= 19:
+        raise BoundedGpuError(f"malformed /proc/{pid}/stat")
+    return int(fields[2]), int(fields[19])
+
+
+def owned_pgid_rss_kib(pgid: int) -> int:
+    total = 0
+    for entry in pathlib.Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            observed_pgid, _start_ticks = process_stat(int(entry.name))
+            if observed_pgid != pgid:
+                continue
+            for line in (entry / "status").read_text().splitlines():
+                if line.startswith("VmRSS:"):
+                    total += int(line.split()[1])
+                    break
+        except (FileNotFoundError, PermissionError, ProcessLookupError, ValueError):
+            continue
+    return total
 
 
 def process_environment(pid: int) -> dict[str, str]:
@@ -200,6 +240,8 @@ def main() -> int:
         "policy": {
             "launch_admission_floor_kib": None,
             "host_abort_floor_kib": HOST_ABORT_KIB,
+            "host_emergency_abort_floor_kib": HOST_EMERGENCY_ABORT_KIB,
+            "host_floor_consecutive_samples": HOST_FLOOR_CONSECUTIVE_SAMPLES,
             "gpu_free_floor_mib": GPU_FREE_FLOOR_MIB,
             "protected_zero_nvidia_required": True,
             "external_process_signals": False,
@@ -221,15 +263,27 @@ def main() -> int:
     deadline = time.monotonic() + args.timeout_seconds
     minimum_available = initial_available
     samples = 0
+    maximum_owned_rss = 0
+    below_host_floor_samples = 0
+    maximum_consecutive_below_host_floor = 0
     abort_reason: str | None = None
     latest_audit = initial_audit
     try:
         while process.poll() is None:
             available = mem_available_kib()
             minimum_available = min(minimum_available, available)
+            maximum_owned_rss = max(
+                maximum_owned_rss, owned_pgid_rss_kib(int(metadata["pgid"]))
+            )
             samples += 1
-            if available < HOST_ABORT_KIB:
-                abort_reason = "host-memory-floor"
+            abort_reason, below_host_floor_samples = host_floor_update(
+                available, below_host_floor_samples
+            )
+            maximum_consecutive_below_host_floor = max(
+                maximum_consecutive_below_host_floor,
+                below_host_floor_samples,
+            )
+            if abort_reason is not None:
                 break
             if shutil.disk_usage(ROOT).free < minimum_disk:
                 abort_reason = "workspace-disk-floor"
@@ -260,6 +314,10 @@ def main() -> int:
             "samples": samples,
             "initial_mem_available_kib": initial_available,
             "minimum_mem_available_kib": minimum_available,
+            "maximum_owned_pgid_rss_kib": maximum_owned_rss,
+            "maximum_consecutive_below_host_floor": (
+                maximum_consecutive_below_host_floor
+            ),
             "latest_runtime_audit": latest_audit,
             "post_audit": post_audit,
         }

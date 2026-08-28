@@ -110,9 +110,29 @@ class BoundedGpuPolicyTest(unittest.TestCase):
 
     def test_policy_has_runtime_safety_floors_not_22_gib_admission(self) -> None:
         self.assertEqual(gpu.HOST_ABORT_KIB, 16 * 1024 * 1024)
+        self.assertEqual(gpu.HOST_EMERGENCY_ABORT_KIB, 15 * 1024 * 1024)
+        self.assertEqual(gpu.HOST_FLOOR_CONSECUTIVE_SAMPLES, 3)
         self.assertEqual(gpu.GPU_FREE_FLOOR_MIB, 4 * 1024)
         self.assertEqual(gpu.POLL_SECONDS, 1)
         self.assertFalse(hasattr(gpu, "LAUNCH_MEMORY_KIB"))
+
+    def test_host_floor_debounces_noise_but_emergency_aborts_immediately(self) -> None:
+        just_below = gpu.HOST_ABORT_KIB - 1
+        reason, count = gpu.host_floor_update(just_below, 0)
+        self.assertIsNone(reason)
+        self.assertEqual(count, 1)
+        reason, count = gpu.host_floor_update(gpu.HOST_ABORT_KIB, count)
+        self.assertIsNone(reason)
+        self.assertEqual(count, 0)
+        for expected_count in (1, 2):
+            reason, count = gpu.host_floor_update(just_below, count)
+            self.assertIsNone(reason)
+            self.assertEqual(count, expected_count)
+        reason, count = gpu.host_floor_update(just_below, count)
+        self.assertEqual(reason, "host-memory-floor")
+        self.assertEqual(count, 3)
+        reason, _count = gpu.host_floor_update(gpu.HOST_EMERGENCY_ABORT_KIB - 1, 0)
+        self.assertEqual(reason, "host-memory-emergency-floor")
 
     def test_child_must_be_selected_python_and_workspace_script(self) -> None:
         command = ["--", self.python, "-B", self.script, "--example"]
