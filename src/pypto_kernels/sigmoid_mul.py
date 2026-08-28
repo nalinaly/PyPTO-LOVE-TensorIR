@@ -54,6 +54,10 @@ def _matrix_shape(shape: tuple[int, ...]) -> tuple[int, int]:
     return rows, columns
 
 
+def _tiles(rows: int) -> list[int]:
+    return [_TILE_WIDTH] if rows == 1 else [1, _TILE_WIDTH]
+
+
 def compile_for(
     shape: tuple[int, ...],
     dtype_name: str = "bfloat16",
@@ -91,7 +95,7 @@ def compile_for(
     graph_key = compile_jit_kernel(
         sigmoid_mul_kernel,
         (value, gate, out),
-        [_TILE_WIDTH],
+        _tiles(rows),
     )
     with _lock:
         _cache[cache_key] = graph_key

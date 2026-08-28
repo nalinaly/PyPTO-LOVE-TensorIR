@@ -119,6 +119,8 @@ def test_pointwise_operators_use_native_tile_dsl():
         sample, pitched_gate, sample
     )
     assert "pl.TensorView(stride=[512, 1]" in str(pitched_program)
+    assert sigmoid_mul._tiles(1) == [128]
+    assert sigmoid_mul._tiles(19) == [1, 128]
 
 
 def test_rmsnorm_uses_native_tile_reduction():
