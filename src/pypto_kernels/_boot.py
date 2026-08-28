@@ -3,17 +3,24 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import pathlib
 import sys
 import threading
 from typing import Any
 
-DSO_PATH = (
-    "/home/zhaosiying/pypto-love-tensor-ir/builds/"
-    "pypto-opext-on-a589f79/product/"
-    "pypto_core.cpython-314-x86_64-linux-gnu.so"
+DSO_PATH = os.environ.get(
+    "PYPTO_KERNEL_DSO_PATH",
+    (
+        "/home/zhaosiying/pypto-love-tensor-ir/builds/"
+        "pypto-opext-on-a589f79/product/"
+        "pypto_core.cpython-314-x86_64-linux-gnu.so"
+    ),
 )
-PYPTO_PACKAGE = "/home/zhaosiying/pypto-love-tensor-ir/projects/pypto/python/pypto"
+PYPTO_PACKAGE = os.environ.get(
+    "PYPTO_KERNEL_PACKAGE_PATH",
+    "/home/zhaosiying/pypto-love-tensor-ir/projects/pypto/python/pypto",
+)
 
 _lock = threading.RLock()
 _modules: dict[str, Any] | None = None
