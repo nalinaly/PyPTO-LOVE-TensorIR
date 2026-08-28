@@ -104,7 +104,9 @@ def validate_child(raw: list[str]) -> list[str]:
     return [str(expected_python), "-B", str(script), *command[3:]]
 
 
-def audit(run_id: str | None = None) -> dict[str, object]:
+def audit(
+    run_id: str | None = None, owned_pgid: int | None = None
+) -> dict[str, object]:
     gpu = preflight.nvidia_identity()
     free_mib = int(gpu["memory_mib"]) - int(gpu["used_mib"])
     all_processes, protected, _workspace = preflight.process_table()
@@ -117,12 +119,21 @@ def audit(run_id: str | None = None) -> dict[str, object]:
     owned_compute: list[int] = []
     external_compute: list[int] = []
     for pid in sorted(compute_pids):
+        pgid_owned = False
+        if owned_pgid is not None:
+            try:
+                observed_pgid, _start_ticks = process_stat(pid)
+                pgid_owned = observed_pgid == owned_pgid
+            except (OSError, ValueError):
+                pass
         try:
             environment = process_environment(pid)
         except OSError:
-            external_compute.append(pid)
+            (owned_compute if pgid_owned else external_compute).append(pid)
             continue
-        if run_id is not None and environment.get("PYPTO_RUN_ID") == run_id:
+        if pgid_owned or (
+            run_id is not None and environment.get("PYPTO_RUN_ID") == run_id
+        ):
             owned_compute.append(pid)
         else:
             external_compute.append(pid)
@@ -291,7 +302,7 @@ def main() -> int:
             if time.monotonic() >= deadline:
                 abort_reason = "owned-run-timeout"
                 break
-            latest_audit = audit(run_id)
+            latest_audit = audit(run_id, int(metadata["pgid"]))
             if not audit_ok(latest_audit, child_running=True):
                 abort_reason = "nvidia-coexistence-audit"
                 break

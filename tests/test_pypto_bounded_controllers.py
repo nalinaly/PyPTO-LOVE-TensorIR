@@ -210,6 +210,37 @@ class BoundedGpuPolicyTest(unittest.TestCase):
         self.assertEqual(report["external_compute_pids"], [22])
         self.assertEqual(report["protected_compute_pids"], [22])
 
+    def test_audit_retains_owned_pgid_when_exit_environment_disappears(self) -> None:
+        with (
+            mock.patch.object(
+                gpu.preflight,
+                "nvidia_identity",
+                return_value={"memory_mib": "24576", "used_mib": "1024"},
+            ),
+            mock.patch.object(
+                gpu.preflight, "process_table", return_value=([], [], [])
+            ),
+            mock.patch.object(
+                gpu.preflight, "nvidia_compute_pids", return_value={91, 92}
+            ),
+            mock.patch.object(
+                gpu.preflight,
+                "protected_nvidia_runtime_mappings",
+                return_value=([], []),
+            ),
+            mock.patch.object(
+                gpu,
+                "process_stat",
+                side_effect=lambda pid: (700 if pid == 91 else 800, 1),
+            ),
+            mock.patch.object(
+                gpu, "process_environment", side_effect=FileNotFoundError
+            ),
+        ):
+            report = gpu.audit("owned", owned_pgid=700)
+        self.assertEqual(report["owned_compute_pids"], [91])
+        self.assertEqual(report["external_compute_pids"], [92])
+
     def test_termination_signals_only_verified_owned_metadata(self) -> None:
         process = mock.Mock()
         process.poll.return_value = None
