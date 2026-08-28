@@ -15,6 +15,7 @@ from __future__ import annotations
 import threading
 from typing import Any
 
+from ..activity_trace import annotate_artifact_launch, artifact_record_from_runtime
 from ..errors import StrictCoverageError
 
 _EXPECTED_DRIVER_RELEASE = "610.74"
@@ -27,6 +28,7 @@ _lock = threading.RLock()
 _observation: Any = None
 _executables: dict[str, Any] = {}
 _execution_streams: dict[int, Any] = {}
+_artifact_records: dict[str, Any] = {}
 
 
 def _ensure_observation(runtime: Any) -> Any:
@@ -64,6 +66,19 @@ def _ensure_execution_stream(torch_module: Any, caller_stream: Any) -> Any:
             stream = torch_module.cuda.Stream(device=device)
             _execution_streams[index] = stream
         return stream
+
+
+def _ensure_artifact_record(name: str, artifact: Any) -> Any:
+    with _lock:
+        record = _artifact_records.get(name)
+        if record is None:
+            record = artifact_record_from_runtime(
+                artifact,
+                provider="pypto.generic",
+                source_node=f"torch-inductor:{name}",
+            )
+            _artifact_records[name] = record
+        return record
 
 
 def pypto_launch(kernel_name: str, args: tuple[Any, ...], stream: int) -> None:
@@ -119,6 +134,8 @@ def pypto_launch(kernel_name: str, args: tuple[Any, ...], stream: int) -> None:
             + "; abi="
             + repr(descriptors)
         ) from error
-    executable.launch(packet, execution_stream.cuda_stream)
+    artifact_record = _ensure_artifact_record(kernel_name, artifact)
+    with annotate_artifact_launch(artifact_record):
+        executable.launch(packet, execution_stream.cuda_stream)
     caller_stream.wait_stream(execution_stream)
     del packet
