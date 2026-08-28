@@ -50,9 +50,9 @@
     },
     "pypto-kernels": {
       "path": "packages/pypto-kernels",
-      "prefix_tree": "96e2a95a98b09adf28dbc0fe8326d078968ad3e9",
-      "source_commit": "09cf9d15741acb24466fa35d7f5d8714d72088f3",
-      "source_tree": "96e2a95a98b09adf28dbc0fe8326d078968ad3e9",
+      "prefix_tree": "d73041909b39e5b7d07ea5c841a0302dd30c3186",
+      "source_commit": "4a61252a8814fd0fdbc879e31da7401d5d79c060",
+      "source_tree": "d73041909b39e5b7d07ea5c841a0302dd30c3186",
       "version": "0.1.0"
     }
   },

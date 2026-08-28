@@ -982,7 +982,7 @@ def main(argv: list[str] | None = None) -> int:
                     torch.bfloat16
                 ).float()
                 current = current + (
-                    residual * beta
+                    residual * beta[:, None]
                 )[:, :, None] * key[:, None, :]
                 token_outputs.append(torch.einsum("hk,hvk->hv", query, current))
             reference_state[slot] = current
