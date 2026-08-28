@@ -43,9 +43,9 @@
   "packages": {
     "pypto-framework-plugins": {
       "path": "packages/pypto-framework-plugins",
-      "prefix_tree": "b53e8a509fbc494b569ee763a27256fb6b77c82b",
-      "source_commit": "8887a7298ff066ef40846b098b295718f8689888",
-      "source_tree": "b53e8a509fbc494b569ee763a27256fb6b77c82b",
+      "prefix_tree": "965f50d6d447d40d637b7e384d1779750c94696b",
+      "source_commit": "79a0bf1160a19f4159d29957e60d64b8da31522b",
+      "source_tree": "965f50d6d447d40d637b7e384d1779750c94696b",
       "version": "0.1.0.dev0"
     },
     "pypto-kernels": {
