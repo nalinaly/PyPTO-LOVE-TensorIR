@@ -4,6 +4,9 @@ from contextlib import contextmanager
 from types import ModuleType, SimpleNamespace
 import sys
 
+import pytest
+
+from pypto_plugins.errors import StrictCoverageError
 from pypto_plugins.torch import pointwise_codegen
 from pypto_plugins.torch import runtime_bridge
 from pypto_plugins.torch.scheduling import REGISTRY
@@ -29,13 +32,30 @@ def test_pypto_launch_wraps_native_executable_in_artifact_annotation(monkeypatch
     artifact = _Artifact()
     request = object()
     REGISTRY.clear()
-    REGISTRY._kernels[name] = object()
+    REGISTRY.register(name, object())
     pointwise_codegen._RUNTIME_OBJECTS.clear()
     pointwise_codegen._RUNTIME_OBJECTS[name] = (artifact, request)
+    pointwise_codegen._RUNTIME_SOURCE_NODES.clear()
+    pointwise_codegen._RUNTIME_SOURCE_NODES[name] = "torch-inductor:runtime-test"
+    pointwise_codegen._RUNTIME_DEVICE_INDICES.clear()
+    pointwise_codegen._RUNTIME_DEVICE_INDICES[name] = 0
+    pointwise_codegen._RUNTIME_DSO_SHA256.clear()
+    pointwise_codegen._RUNTIME_DSO_SHA256[name] = "d" * 64
     runtime_bridge._executables.clear()
+    runtime_bridge._kernel_executable_identities.clear()
     runtime_bridge._execution_streams.clear()
+    runtime_bridge._kernel_stream_devices.clear()
     runtime_bridge._artifact_records.clear()
-    monkeypatch.setattr(runtime_bridge, "_observation", None)
+    runtime_bridge._observations.clear()
+    monkeypatch.setattr(runtime_bridge, "trace_window_active", lambda: False)
+    monkeypatch.setattr(
+        runtime_bridge,
+        "resolve_live_runtime_expectation",
+        lambda: SimpleNamespace(
+            driver_label="driver-test",
+            cuda_runtime_library_path="/runtime/libcudart.so",
+        ),
+    )
 
     launches = []
 
@@ -102,5 +122,18 @@ def test_pypto_launch_wraps_native_executable_in_artifact_annotation(monkeypatch
     assert len(annotated) == 1
     assert annotated[0].artifact_id == "pypto-artifact-v1:runtime-identity"
     assert annotated[0].kernel_name == "pypto_runtime_kernel"
+    assert annotated[0].provider == "pypto.generic"
+    assert annotated[0].source_node == "torch-inductor:runtime-test"
+    assert annotated[0].kernels_revision == "pypto-dso-sha256:" + "d" * 64
     assert caller.waited == [execution]
     assert execution.waited == [caller]
+
+
+def test_runtime_caches_fail_closed_after_fork(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runtime_bridge,
+        "_OWNER_PID",
+        runtime_bridge.os.getpid() + 1,
+    )
+    with pytest.raises(StrictCoverageError, match="inherited across fork"):
+        runtime_bridge.kernel_is_prewarmed("kernel")

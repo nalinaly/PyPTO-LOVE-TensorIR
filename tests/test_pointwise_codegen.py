@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+from pathlib import Path
+import tempfile
 import unittest
 
 from pypto_plugins.errors import StrictCoverageError
@@ -39,7 +42,10 @@ class PointwiseCodegenTest(unittest.TestCase):
         self.assertEqual(artifact.argument_count, 3)
         self.assertEqual(artifact.workspace_bytes, 0)
         self.assertFalse(artifact.fallback_used)
-        again = pc.compile_pointwise(builder.build(), tile=128)
+        self.assertEqual(artifact.dso_sha256, pc.pypto_dso_sha256())
+        with pc.capture_pointwise_artifacts() as capture:
+            again = pc.compile_pointwise(builder.build(), tile=128)
+        self.assertEqual(capture.single_artifact(), artifact)
         self.assertEqual(artifact.cubin_sha256, again.cubin_sha256)
         self.assertEqual(artifact.artifact_sha256, again.artifact_sha256)
 
@@ -51,7 +57,8 @@ class PointwiseCodegenTest(unittest.TestCase):
         artifact = pc.compile_pointwise(builder.build(), tile=64)
         self.assertFalse(artifact.fallback_used)
         self.assertGreater(artifact.cubin_bytes, 0)
-        self.assertIn("pypto_pointwise_", artifact.kernel_name)
+        self.assertIn("pypto_inductor_", artifact.kernel_name)
+        self.assertTrue(artifact.source_node.startswith("torch-inductor:"))
 
     def test_native_row_reduction_compiles(self) -> None:
         program = pc.NativeReductionProgram((256, 128), "float32", "sum")
@@ -67,6 +74,85 @@ class PointwiseCodegenTest(unittest.TestCase):
         self.assertTrue(artifact.entry_name.startswith("pypto_row_reduction"))
         self.assertEqual(artifact.argument_count, 2)
         self.assertFalse(artifact.fallback_used)
+
+    def test_row_pitched_fp32_swiglu_compiles_with_explicit_casts(self) -> None:
+        shape = (19, 3584)
+        row_pitched = pc.PointwiseTensorSpec(
+            shape,
+            (7168, 1),
+            "bfloat16",
+            "cuda",
+            0,
+        )
+        output_spec = pc.PointwiseTensorSpec(
+            shape,
+            (4096, 1),
+            "bfloat16",
+            "cuda",
+            0,
+        )
+        builder = pc.PointwiseProgramBuilder(
+            shape,
+            "bfloat16",
+            output_spec=output_spec,
+        )
+        gate = builder.add_input("gate", specialization=row_pitched)
+        up = builder.add_input("up", specialization=row_pitched)
+        gate_wide = builder.emit(
+            "tensor.cast", [gate, builder.dtype("float32")]
+        )
+        up_wide = builder.emit("tensor.cast", [up, builder.dtype("float32")])
+        negative = builder.emit(
+            "tensor.muls", [gate_wide, builder.scalar(-1.0)]
+        )
+        exponential = builder.emit("tensor.exp", [negative])
+        denominator = builder.emit(
+            "tensor.adds", [exponential, builder.scalar(1.0)]
+        )
+        sigmoid = builder.emit("tensor.recip", [denominator])
+        silu = builder.emit("tensor.mul", [gate_wide, sigmoid])
+        product = builder.emit("tensor.mul", [silu, up_wide])
+        result = builder.emit(
+            "tensor.cast", [product, builder.dtype("bfloat16")]
+        )
+        builder.mark_output(result)
+        program = builder.build()
+        source = program.native_source(128)
+        self.assertEqual(source.count("pl.cast"), 3)
+        self.assertIn("target_type=pl.FP32", source)
+        self.assertIn("target_type=pl.BF16", source)
+        samples = program.specialization_samples()
+        self.assertEqual(tuple(samples[0].stride()), (7168, 1))
+        self.assertEqual(tuple(samples[1].stride()), (7168, 1))
+        self.assertEqual(tuple(samples[2].stride()), (4096, 1))
+        artifact = pc.compile_pointwise(program, tile=128)
+        self.assertFalse(artifact.fallback_used)
+        self.assertEqual(artifact.argument_count, 3)
+        self.assertTrue(artifact.source_node.startswith("torch-inductor:"))
+
+    def test_real_dso_digest_and_directory_uniqueness(self) -> None:
+        dso = pc.pypto_dso_path()
+        with dso.open("rb") as stream:
+            expected = hashlib.file_digest(stream, "sha256").hexdigest()
+        self.assertEqual(pc.pypto_dso_sha256(), expected)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = root / "pypto_core.first.so"
+            first.write_bytes(b"first")
+            self.assertEqual(pc._resolve_dso_override(root), first)
+            (root / "pypto_core.second.so").write_bytes(b"second")
+            with self.assertRaisesRegex(StrictCoverageError, "exactly one"):
+                pc._resolve_dso_override(root)
+
+    def test_compiler_cache_fails_closed_after_fork(self) -> None:
+        original = pc._OWNER_PID
+        try:
+            pc._OWNER_PID = original + 1
+            with self.assertRaisesRegex(StrictCoverageError, "inherited across fork"):
+                pc.compile_cache_snapshot()
+        finally:
+            pc._OWNER_PID = original
 
     def test_bounds_and_dtype_fail_closed(self) -> None:
         with self.assertRaises(StrictCoverageError):

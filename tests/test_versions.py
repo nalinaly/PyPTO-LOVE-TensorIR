@@ -49,6 +49,29 @@ def write_environment_lock(workspace_root, torch_module) -> None:
     )
 
 
+def write_formal_environment_lock(workspace_root, environment, torch_module) -> None:
+    relative = str(environment.relative_to(workspace_root))
+    (environment / ".identity-lock.json").write_text(
+        json.dumps(
+            {
+                "schema": 2,
+                "release": "qwen35-sm120-v1",
+                "formal_prefix": relative,
+                "destination_prefix": relative,
+                "python_abi": "cp314",
+                "torch": "2.13.0+cu130",
+                "torch_file": torch_module.__file__,
+                "torch_git": EXPECTED_TORCH_COMMIT,
+                "cuda": "13.0",
+                "hip": None,
+                "torch_tree_sha256": "a" * 64,
+                "distributions_sha256": "b" * 64,
+                "distributions_count": 170,
+            }
+        )
+    )
+
+
 def fake_sglang(source_root):
     module_path = source_root / "python" / "sglang" / "__init__.py"
     module_path.parent.mkdir(parents=True, exist_ok=True)
@@ -66,6 +89,29 @@ def test_torch_exact_cuda_commit_is_accepted(tmp_path) -> None:
     assert_torch_compatible(
         module, environment_root=environment, workspace_root=tmp_path
     )
+
+
+def test_torch_formal_release_identity_is_accepted(tmp_path) -> None:
+    environment = tmp_path / "envs/pypto-release"
+    module = fake_torch(environment)
+    write_formal_environment_lock(tmp_path, environment, module)
+    assert_torch_compatible(
+        module, environment_root=environment, workspace_root=tmp_path
+    )
+
+
+def test_torch_formal_release_identity_drift_fails_closed(tmp_path) -> None:
+    environment = tmp_path / "envs/pypto-release"
+    module = fake_torch(environment)
+    write_formal_environment_lock(tmp_path, environment, module)
+    lock = environment / ".identity-lock.json"
+    payload = json.loads(lock.read_text())
+    payload["torch_tree_sha256"] = "short"
+    lock.write_text(json.dumps(payload))
+    with pytest.raises(FrameworkCompatibilityError, match="formal PyPTO"):
+        assert_torch_compatible(
+            module, environment_root=environment, workspace_root=tmp_path
+        )
 
 
 def test_torch_rocm_build_fails_closed(tmp_path) -> None:
@@ -114,9 +160,46 @@ def test_sglang_import_must_come_from_locked_checkout(monkeypatch, tmp_path) -> 
 
 
 def test_sglang_registration_error_exits_fail_closed(monkeypatch) -> None:
+    monkeypatch.setattr(sglang_plugin, "_registered", False)
+    monkeypatch.setattr(
+        sglang_plugin,
+        "_registration_pid",
+        sglang_plugin.os.getpid(),
+    )
+
     def fail_registration() -> None:
         raise FrameworkCompatibilityError("wrong SGLang source")
 
     monkeypatch.setattr(sglang_plugin, "_register_impl", fail_registration)
     with pytest.raises(SystemExit, match="wrong SGLang source"):
+        sglang_plugin.register()
+
+
+def test_sglang_registration_is_fully_idempotent(monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(sglang_plugin, "_registered", False)
+    monkeypatch.setattr(
+        sglang_plugin,
+        "_registration_pid",
+        sglang_plugin.os.getpid(),
+    )
+    monkeypatch.setattr(
+        sglang_plugin,
+        "_register_impl",
+        lambda: calls.append("registered"),
+    )
+    sglang_plugin.register()
+    sglang_plugin.register()
+    assert calls == ["registered"]
+    assert sglang_plugin._registered is True
+
+
+def test_sglang_registration_fails_closed_after_fork(monkeypatch) -> None:
+    monkeypatch.setattr(sglang_plugin, "_registered", False)
+    monkeypatch.setattr(
+        sglang_plugin,
+        "_registration_pid",
+        sglang_plugin.os.getpid() + 1,
+    )
+    with pytest.raises(SystemExit, match="inherited across fork"):
         sglang_plugin.register()

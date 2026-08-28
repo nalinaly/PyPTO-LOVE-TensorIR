@@ -84,6 +84,45 @@ def assert_torch_compatible(
     root = _required_root(environment_root, "PYPTO_ENV_PREFIX")
     _require_import_below(torch_module, root, "torch")
     workspace = _required_root(workspace_root, "PYPTO_WORKSPACE_ROOT")
+    formal_lock = root / ".identity-lock.json"
+    if formal_lock.is_file():
+        try:
+            manifest = json.loads(formal_lock.read_text())
+            relative_prefix = str(root.relative_to(workspace))
+        except (OSError, ValueError) as exc:
+            raise FrameworkCompatibilityError(
+                f"cannot read formal environment identity {formal_lock}: {exc}"
+            ) from exc
+        digests = (
+            manifest.get("torch_tree_sha256"),
+            manifest.get("distributions_sha256"),
+        )
+        if (
+            manifest.get("schema") != 2
+            or manifest.get("release") != "qwen35-sm120-v1"
+            or manifest.get("formal_prefix") != relative_prefix
+            or manifest.get("destination_prefix") != relative_prefix
+            or manifest.get("python_abi") != "cp314"
+            or manifest.get("torch_git") != EXPECTED_TORCH_COMMIT
+            or _base_version(str(manifest.get("torch")))
+            != EXPECTED_TORCH_VERSION
+            or manifest.get("cuda") != EXPECTED_TORCH_CUDA
+            or manifest.get("hip") is not None
+            or not all(
+                isinstance(value, str) and len(value) == 64 for value in digests
+            )
+            or not isinstance(manifest.get("distributions_count"), int)
+            or int(manifest["distributions_count"]) <= 0
+        ):
+            raise FrameworkCompatibilityError(
+                "formal PyPTO environment identity is incomplete or drifted"
+            )
+        imported_file = str(pathlib.Path(str(torch_module.__file__)).resolve())
+        if manifest.get("torch_file") != imported_file:
+            raise FrameworkCompatibilityError(
+                f"imported torch file {imported_file} does not match formal identity"
+            )
+        return
     try:
         manifest = json.loads((workspace / "ENVIRONMENT.lock").read_text())
     except (OSError, ValueError) as exc:

@@ -161,6 +161,48 @@ def _validate_native_tile_source(module: object, source: Path, graphs: int) -> N
         )
 
 
+def _validate_silu_and_mul_out_abi(source: Path) -> None:
+    """Require the installed handwritten fallback's caller-owned output ABI."""
+
+    try:
+        tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+    except (OSError, SyntaxError) as error:
+        raise FrameworkCompatibilityError(
+            "unable to inspect pypto_kernels.silu_and_mul ABI"
+        ) from error
+    functions = [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "silu_and_mul"
+    ]
+    if len(functions) != 1:
+        raise FrameworkCompatibilityError(
+            "pypto_kernels.silu_and_mul must define one public callable"
+        )
+    function = functions[0]
+    positional = [argument.arg for argument in function.args.args]
+    keyword_only = [argument.arg for argument in function.args.kwonlyargs]
+    positional_defaults = function.args.defaults
+    keyword_defaults = function.args.kw_defaults
+    if (
+        positional != ["gate", "up", "stream"]
+        or keyword_only != ["out"]
+        or len(positional_defaults) != 1
+        or not isinstance(positional_defaults[0], ast.Constant)
+        or positional_defaults[0].value is not None
+        or len(keyword_defaults) != 1
+        or not isinstance(keyword_defaults[0], ast.Constant)
+        or keyword_defaults[0].value is not None
+        or function.args.vararg is not None
+        or function.args.kwarg is not None
+    ):
+        raise FrameworkCompatibilityError(
+            "pypto_kernels.silu_and_mul must expose "
+            "(gate, up, stream=None, *, out=None)"
+        )
+
+
 def inspect_operator_library(package: ModuleType) -> OperatorLibrarySnapshot:
     """Validate the active package and every exported Qwen operator graph."""
 
@@ -210,6 +252,8 @@ def inspect_operator_library(package: ModuleType) -> OperatorLibrarySnapshot:
         source = _operator_source(name, package_root)
         graphs = _graph_count(module, source)
         _validate_native_tile_source(module, source, graphs)
+        if name == "silu_and_mul":
+            _validate_silu_and_mul_out_abi(source)
         counts.append((name, graphs))
     return OperatorLibrarySnapshot(
         version=version,

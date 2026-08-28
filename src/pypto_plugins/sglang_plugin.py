@@ -56,6 +56,7 @@ UNQUANTIZED_LINEAR_TARGET = (
     "sglang.srt.layers.quantization.unquant.UnquantizedLinearMethod.apply"
 )
 SILU_AND_MUL_TARGET = "sglang.srt.layers.activation.silu_and_mul"
+SILU_FORWARD_CUDA_TARGET = "sglang.srt.layers.activation.SiluAndMul.forward_cuda"
 LM_HEAD_TARGET = "sglang.srt.layers.logits_processor.LogitsProcessor._compute_lm_head"
 EMBEDDING_TARGET = (
     "sglang.srt.layers.quantization.unquant.UnquantizedEmbeddingMethod.embedding"
@@ -78,6 +79,9 @@ _linear_prepack_cache: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 _differential_lock = threading.RLock()
 _differential_records: list[dict[str, object]] = []
 _differential_writer_registered = False
+_registration_lock = threading.RLock()
+_registration_pid = os.getpid()
+_registered = False
 
 
 def _pypto_compute_selected() -> bool:
@@ -827,11 +831,33 @@ def _unquantized_linear_around(original_fn, method, layer, x, bias=None):
     return output
 
 
-def _silu_and_mul_around(original_fn, input, out=None):
-    """Route SGLang's packed SwiGLU activation through one PyPTO graph."""
+def _dispatch_swiglu(gate, up, out=None):
+    """Select functional Inductor or mutation-declared handwritten execution."""
 
-    if not _pypto_compute_selected() or _vendor_reference_mode():
-        return original_fn(input, out)
+    if out is None:
+        from .torch.inductor_swiglu import run_fp32_swiglu
+
+        return run_fp32_swiglu(gate, up)
+    # SGLang's caller-owned output contract cannot be represented by this
+    # functional Inductor graph without an extra copy.  Keep the existing
+    # mutation-declared handwritten PyPTO operator for that exact ABI.
+    from pypto_kernels import silu_and_mul
+    from .sglang.stream import pypto_stream
+
+    if silu_and_mul.STATUS != "native-tile executable":
+        raise BackendNotReadyError("PyPTO SiLU-and-mul operator is not executable.")
+    with pypto_stream(gate.device) as stream:
+        return silu_and_mul.silu_and_mul(
+            gate,
+            up,
+            stream=stream,
+            out=out,
+        )
+
+
+def _validated_swiglu_views(input, out=None):
+    """Validate the pinned packed ABI and return its two row-pitched views."""
+
     import torch
 
     if (
@@ -856,20 +882,43 @@ def _silu_and_mul_around(original_fn, input, out=None):
         raise BackendNotReadyError(
             "PyPTO SiLU-and-mul received an incompatible caller-owned output."
         )
-    from pypto_kernels import silu_and_mul
-    from .sglang.stream import pypto_stream
+    return input[:, :half], input[:, half:]
 
-    if silu_and_mul.STATUS != "native-tile executable":
-        raise BackendNotReadyError("PyPTO SiLU-and-mul operator is not executable.")
-    with pypto_stream(input.device) as stream:
-        result = silu_and_mul.silu_and_mul(
-            input[:, :half],
-            input[:, half:],
-            stream=stream,
-            out=out,
-        )
+
+def _silu_and_mul_around(original_fn, input, out=None):
+    """Route packed SwiGLU through Inductor; preserve caller-owned output ABI."""
+
+    if not _pypto_compute_selected() or _vendor_reference_mode():
+        return original_fn(input, out)
+    gate, up = _validated_swiglu_views(input, out)
+    result = _dispatch_swiglu(gate, up, out)
     if os.environ.get("PYPTO_DIFFERENTIAL_REPORT"):
         reference = original_fn(input, None)
+        _record_differential("silu_and_mul", "packed_swiglu", result, reference)
+    return result
+
+
+def _silu_forward_cuda_around(original_fn, operator, input):
+    """Bypass SGLang's preallocated output so real Qwen uses Inductor.
+
+    The pinned ``SiluAndMul.forward_cuda`` always allocates ``out`` before
+    calling the module-level primitive.  Hooking only that primitive would
+    therefore select the handwritten mutation path for every model call.  This
+    class-method hook retains the public functional return ABI and sends the
+    real model call through the standard ``torch.compile(backend='pypto')``
+    route without adding an ATen copy kernel.
+    """
+
+    if not _pypto_compute_selected() or _vendor_reference_mode():
+        return original_fn(operator, input)
+    gate, up = _validated_swiglu_views(input)
+    result = _dispatch_swiglu(gate, up, None)
+    if os.environ.get("PYPTO_DIFFERENTIAL_REPORT"):
+        import torch
+
+        reference = (
+            torch.nn.functional.silu(gate.float()) * up.float()
+        ).to(torch.bfloat16)
         _record_differential("silu_and_mul", "packed_swiglu", result, reference)
     return result
 
@@ -1083,6 +1132,49 @@ def _enable_qwen_language_model_only(server_args_class=None) -> tuple[str, ...]:
     return updated
 
 
+def _enable_deterministic_pypto_attention(server_args_module=None) -> tuple[str, ...]:
+    """Admit PyPTO deterministic attention without claiming radix support."""
+
+    if server_args_module is None:
+        server_args_module = importlib.import_module("sglang.srt.server_args")
+    deterministic = getattr(
+        server_args_module,
+        "DETERMINISTIC_ATTENTION_BACKEND_CHOICES",
+        None,
+    )
+    radix = getattr(
+        server_args_module,
+        "RADIX_SUPPORTED_DETERMINISTIC_ATTENTION_BACKEND",
+        None,
+    )
+    add_choice = getattr(
+        server_args_module,
+        "add_deterministic_attention_backend_choices",
+        None,
+    )
+    if (
+        not isinstance(deterministic, list)
+        or not all(isinstance(name, str) and name for name in deterministic)
+        or not isinstance(radix, list)
+        or not all(isinstance(name, str) and name for name in radix)
+        or not callable(add_choice)
+    ):
+        raise BackendNotReadyError(
+            "pinned SGLang deterministic attention registration contract changed"
+        )
+    if "pypto" in radix:
+        raise BackendNotReadyError(
+            "PyPTO must not be registered for deterministic radix attention"
+        )
+    if "pypto" not in deterministic:
+        add_choice(["pypto"])
+    if deterministic.count("pypto") != 1 or "pypto" in radix:
+        raise BackendNotReadyError(
+            "PyPTO deterministic attention registration is inconsistent"
+        )
+    return tuple(deterministic)
+
+
 def _qwen_text_only_weight_name(name: str) -> bool:
     return not (
         name.startswith(("model.visual.", "visual.", "model.mtp.", "mtp."))
@@ -1216,6 +1308,7 @@ def _register_impl() -> None:
     assert_torch_compatible()
     assert_sglang_compatible()
     _enable_qwen_language_model_only()
+    _enable_deterministic_pypto_attention()
     _enable_qwen_text_only_weight_filter()
     _enable_offloader_tied_parameter_support()
     install()
@@ -1240,6 +1333,7 @@ def _register_impl() -> None:
         FUSED_SIGMOID_MUL_TARGET,
         UNQUANTIZED_LINEAR_TARGET,
         SILU_AND_MUL_TARGET,
+        SILU_FORWARD_CUDA_TARGET,
         LM_HEAD_TARGET,
         EMBEDDING_TARGET,
         PRUNED_STATES_TARGET,
@@ -1304,6 +1398,11 @@ def _register_impl() -> None:
         HookType.AROUND,
     )
     HookRegistry.register(
+        SILU_FORWARD_CUDA_TARGET,
+        _silu_forward_cuda_around,
+        HookType.AROUND,
+    )
+    HookRegistry.register(
         LM_HEAD_TARGET,
         _lm_head_around,
         HookType.AROUND,
@@ -1342,7 +1441,19 @@ def register() -> None:
     default provider. ``SystemExit`` derives from ``BaseException`` rather than
     ``Exception``, so it crosses that loader boundary and stops the worker.
     """
-    try:
-        _register_impl()
-    except Exception as exc:
-        raise SystemExit(f"PyPTO SGLang plugin registration failed: {exc}") from exc
+    global _registered
+    current_pid = os.getpid()
+    if current_pid != _registration_pid:
+        raise SystemExit(
+            "PyPTO SGLang registration state was inherited across fork; use spawn/exec"
+        )
+    with _registration_lock:
+        if _registered:
+            return
+        try:
+            _register_impl()
+        except Exception as exc:
+            raise SystemExit(
+                f"PyPTO SGLang plugin registration failed: {exc}"
+            ) from exc
+        _registered = True

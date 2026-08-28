@@ -64,7 +64,7 @@ def main() -> int:
                 "argument_count": artifact.argument_count,
                 "fallback_used": artifact.fallback_used,
             }
-            for name, artifact in scheduling.REGISTRY._kernels.items()
+            for name, artifact in scheduling.REGISTRY.snapshot()
         }
         max_abs_diff = float(
             (output.float() - expected.float()).abs().max().item()

@@ -9,16 +9,14 @@ import os
 import pathlib
 import sys
 
-sys.path.insert(
-    0,
-    "/home/zhaosiying/pypto-love-tensor-ir/projects/pypto-framework-plugins/src",
-)
+PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-import torch
+import torch  # noqa: E402
 
-from pypto_plugins.torch import pointwise_codegen
-from pypto_plugins.torch.runtime_bridge import pypto_launch
-from pypto_plugins.torch.scheduling import REGISTRY
+from pypto_plugins.torch import pointwise_codegen  # noqa: E402
+from pypto_plugins.torch.runtime_bridge import pypto_launch  # noqa: E402
+from pypto_plugins.torch.scheduling import REGISTRY  # noqa: E402
 
 
 def main() -> int:
@@ -78,7 +76,7 @@ def main() -> int:
     )
     reduction_correct = bool(torch.equal(reduction_out, reduction_reference))
 
-    dso = pathlib.Path(pointwise_codegen._DEFAULT_DSO)
+    dso = pointwise_codegen.pypto_dso_path()
     info = pointwise_codegen.bootstrap_pypto()[
         "compiler"
     ].get_nvidia_backend_build_info()

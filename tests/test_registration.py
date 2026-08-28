@@ -7,7 +7,6 @@ from unittest import mock
 
 from pypto_plugins.torch import registration
 from pypto_plugins.torch.context import activate_mode
-from pypto_plugins.errors import StrictCoverageError
 import pypto_plugins.torch_inductor as torch_inductor
 
 
@@ -43,6 +42,13 @@ class RegistrationTest(unittest.TestCase):
             with self.assertRaises(Exception):
                 scheduling_ctor(object()).codegen()
         self.assertIsNotNone(scheduler)
+
+    def test_pypto_wrapper_disables_unrestorable_inductor_disk_cache(self) -> None:
+        registration.install()
+        self.addCleanup(registration.uninstall)
+        wrapper = self.common.device_codegens["cuda"].wrapper_codegen
+        with activate_mode(strict=True):
+            self.assertFalse(wrapper.supports_caching)
 
     def test_public_install_contract_uses_real_registration(self) -> None:
         torch_inductor.uninstall()

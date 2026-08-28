@@ -28,7 +28,7 @@ _snapshot: DeviceCodegenSnapshot | None = None
 _installed = False
 _original_triton_hash_with_backend: Any = None
 
-PYPTO_BACKEND_HASH = "pypto-sm120-native-tile-pointwise"
+PYPTO_BACKEND_HASH = "pypto-sm120-strided-pointwise-fp32-dso-pid-20260828"
 
 
 def _pypto_triton_hash_with_backend() -> str:
@@ -99,6 +99,11 @@ def _resolve_scheduling_class(constructor: Any) -> Any:
 
 def _pypto_wrapper_constructor(original_wrapper: Any) -> Any:
     class PyptoPythonWrapperCodegen(original_wrapper):  # type: ignore[misc,valid-type]
+        # Generated wrappers depend on process-owned artifact/executable objects.
+        # The plugin provides its own revision-bound cache and deliberately
+        # disables Inductor's disk FX cache, which cannot restore those objects.
+        supports_caching = False
+
         def codegen_kernel_call(
             self,
             name: str,

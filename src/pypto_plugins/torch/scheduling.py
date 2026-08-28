@@ -11,6 +11,8 @@ bridge call; non-pointwise kernels fail closed.
 
 from __future__ import annotations
 
+import os
+import threading
 from typing import Any
 
 from ..errors import StrictCoverageError
@@ -23,20 +25,63 @@ class PyptoKernelRegistry:
 
     def __init__(self) -> None:
         self._kernels: dict[str, pointwise_codegen.PointwiseArtifact] = {}
+        self._lock = threading.RLock()
+        self._owner_pid = os.getpid()
+
+    def _require_owner_process(self) -> None:
+        current = os.getpid()
+        if current != self._owner_pid:
+            raise StrictCoverageError(
+                "PyPTO kernel registry was inherited across fork; use spawn/exec"
+            )
 
     def register(
         self, name: str, artifact: pointwise_codegen.PointwiseArtifact
     ) -> None:
-        self._kernels.setdefault(name, artifact)
+        self._require_owner_process()
+        with self._lock:
+            previous = self._kernels.setdefault(name, artifact)
+            if previous != artifact:
+                raise StrictCoverageError(
+                    f"conflicting PyPTO Inductor kernel registration for {name!r}"
+                )
 
     def get(self, name: str) -> pointwise_codegen.PointwiseArtifact:
-        return self._kernels[name]
+        self._require_owner_process()
+        with self._lock:
+            return self._kernels[name]
 
     def __contains__(self, name: object) -> bool:
-        return name in self._kernels
+        self._require_owner_process()
+        with self._lock:
+            return name in self._kernels
+
+    def __len__(self) -> int:
+        self._require_owner_process()
+        with self._lock:
+            return len(self._kernels)
+
+    def snapshot(
+        self,
+    ) -> tuple[tuple[str, pointwise_codegen.PointwiseArtifact], ...]:
+        self._require_owner_process()
+        with self._lock:
+            return tuple((name, self._kernels[name]) for name in sorted(self._kernels))
+
+    def unique_artifacts(self) -> tuple[pointwise_codegen.PointwiseArtifact, ...]:
+        unique: dict[str, pointwise_codegen.PointwiseArtifact] = {}
+        for _name, artifact in self.snapshot():
+            previous = unique.setdefault(artifact.cache_identity_sha256, artifact)
+            if previous != artifact:
+                raise StrictCoverageError(
+                    "PyPTO registry contains a cache identity conflict"
+                )
+        return tuple(unique[key] for key in sorted(unique))
 
     def clear(self) -> None:
-        self._kernels.clear()
+        self._require_owner_process()
+        with self._lock:
+            self._kernels.clear()
 
 
 REGISTRY = PyptoKernelRegistry()
@@ -82,19 +127,23 @@ def make_pypto_triton_scheduling(triton_scheduling_class: Any) -> Any:
 
         def _codegen_pypto_reduction_node(self, node: Any) -> None:
             program = _translate_reduction(node)
-            name = f"pypto_kernel_{len(REGISTRY._kernels)}"
             artifact = pointwise_codegen.compile_pointwise(
-                program, tile=program.row_tile, registry_name=name
+                program,
+                tile=program.row_tile,
+                prewarm_runtime=True,
             )
+            name = artifact.kernel_name
             REGISTRY.register(name, artifact)
             _emit_pypto_node_launch(node, name)
 
         def _codegen_pypto_pointwise_node(self, node: Any) -> None:
             program, meta = _translate_pointwise(node)
-            name = f"pypto_kernel_{len(REGISTRY._kernels)}"
             artifact = pointwise_codegen.compile_pointwise(
-                program, tile=meta["tile"], registry_name=name
+                program,
+                tile=meta["tile"],
+                prewarm_runtime=True,
             )
+            name = artifact.kernel_name
             REGISTRY.register(name, artifact)
             _emit_pypto_node_launch(node, name, meta)
 
@@ -107,11 +156,15 @@ def make_pypto_triton_scheduling(triton_scheduling_class: Any) -> Any:
                     "node schedule yet"
                 )
             program, meta = _translate_pointwise(kernel)
-            name = f"pypto_kernel_{len(REGISTRY._kernels)}"
+            name = str(kernel)
             artifact = pointwise_codegen.compile_pointwise(
-                program, tile=meta["tile"], registry_name=name
+                program,
+                tile=meta["tile"],
+                registry_name=name,
+                prewarm_runtime=True,
             )
-            REGISTRY.register(str(kernel), artifact)
+            REGISTRY.register(artifact.kernel_name, artifact)
+            REGISTRY.register(name, artifact)
 
         def call_kernel(
             self,
@@ -242,32 +295,57 @@ def _graph_wrapper_code() -> Any:
     return V.graph.wrapper_code
 
 
-def _force_dense_output_layout(output: Any) -> None:
-    """Pin a PyPTO-produced buffer to dense row-major strides.
+def _dtype_name(dtype: Any) -> str:
+    import torch
 
-    The PyPTO kernel ABI carries dense static strides in the artifact, and
-    Inductor's layout heuristics can pick exotic strides (a [M,1] row with
-    stride (1,M)) for intermediates; every layout consumer in this path is
-    index-based, so dense is always safe here.
-    """
-    buffer = getattr(output, "node", output)
-    if not hasattr(buffer, "get_size") or not hasattr(buffer, "layout"):
-        return
+    if dtype is torch.bfloat16:
+        return "bfloat16"
+    if dtype is torch.float32:
+        return "float32"
+    raise StrictCoverageError(f"native pointwise dtype {dtype!r} is unsupported")
+
+
+def _tensor_specialization(name: str, fallback: Any = None) -> Any:
+    """Read one static Inductor buffer layout without inventing dense strides."""
+
+    from torch._inductor.virtualized import V
+
     try:
-        from torch._inductor.ir import FixedLayout
-
-        size = [int(extent) for extent in buffer.get_size()]
-        strides: list[int] = []
-        running = 1
-        for extent in reversed(size):
-            strides.append(running)
-            running *= extent
-        strides.reverse()
-        buffer.layout = FixedLayout(
-            buffer.get_device(), buffer.get_dtype(), size, strides
+        buffer = V.graph.get_buffer(name)
+    except Exception:
+        buffer = fallback
+    if buffer is None:
+        raise StrictCoverageError(
+            f"pointwise input {name!r} has no Inductor buffer metadata"
         )
-    except Exception:  # pragma: no cover - layout pinning is best-effort
-        pass
+    required = ("get_size", "get_stride", "get_dtype", "get_device")
+    if not all(callable(getattr(buffer, method, None)) for method in required):
+        raise StrictCoverageError(
+            f"pointwise buffer {name!r} lacks static layout metadata"
+        )
+    try:
+        shape = tuple(int(value) for value in buffer.get_size())
+        strides = tuple(int(value) for value in buffer.get_stride())
+    except (TypeError, ValueError) as error:
+        raise StrictCoverageError(
+            f"pointwise buffer {name!r} has symbolic shape or strides"
+        ) from error
+    device = buffer.get_device()
+    device_type = getattr(device, "type", None)
+    device_index = getattr(device, "index", None)
+    if device_type != "cuda":
+        raise StrictCoverageError(
+            f"pointwise buffer {name!r} must be on CUDA, got {device!r}"
+        )
+    if device_index is None:
+        device_index = 0
+    return pointwise_codegen.PointwiseTensorSpec(
+        shape,
+        strides,
+        _dtype_name(buffer.get_dtype()),
+        device_type,
+        int(device_index),
+    )
 
 
 def _emit_pypto_node_launch(node: Any, name: str, meta: dict | None = None) -> None:
@@ -280,29 +358,32 @@ def _emit_pypto_node_launch(node: Any, name: str, meta: dict | None = None) -> N
         wrapper._pypto_header_written = True
     for output in node.get_outputs():
         buffer = getattr(output, "node", output)
-        _force_dense_output_layout(buffer)
         if not hasattr(buffer, "get_defining_op"):
             buffer = getattr(output, "buffer", None)
         if buffer is not None and hasattr(buffer, "get_defining_op"):
             wrapper.codegen_allocation(buffer)
     stream = "_pypto_torch.cuda.current_stream().cuda_stream"
-    broadcast_buffers = set((meta or {}).get("broadcast_buffers", ()))
-    output_shape = (meta or {}).get("output_shape") or []
+    broadcast_views = dict((meta or {}).get("broadcast_views", {}))
+    ordered_inputs = (meta or {}).get("input_buffers")
+    if ordered_inputs is None:
+        ordered_call_args = _node_call_args(node)
+    else:
+        ordered_call_args = [*ordered_inputs]
+        ordered_call_args.extend(output.get_name() for output in node.get_outputs())
+        if set(ordered_call_args) != set(_node_call_args(node)):
+            raise StrictCoverageError(
+                "PyPTO pointwise launch arguments disagree with node dependencies"
+            )
     call_args = []
-    for arg in _node_call_args(node):
-        if arg in broadcast_buffers:
+    for arg in ordered_call_args:
+        if arg in broadcast_views:
             # The kernel ABI declares the full iteration-space extent with
             # zero trailing strides for broadcast inputs; pass the
             # addressing-equivalent expanded stride-zero view.
-            shape_text = repr(tuple(output_shape))
-            stride_text = "(1," + "0," * (len(output_shape) - 1) + ")"
-            stride_text = (
-                "(" + stride_text[1:-1].rstrip(",") + ")"
-                if len(output_shape) > 1
-                else "(1,)"
-            )
+            shape, strides = broadcast_views[arg]
             call_args.append(
-                f"_pypto_torch.as_strided({arg}, {shape_text}, {stride_text})"
+                f"_pypto_torch.as_strided({arg}, {tuple(shape)!r}, "
+                f"{tuple(strides)!r})"
             )
         else:
             call_args.append(arg)
@@ -463,6 +544,60 @@ class _OpsRecorder:
                 return None
             if name == "constant":
                 return args[0]
+            if name == "to_dtype":
+                import torch
+
+                if len(args) < 2 or len(args) > 4:
+                    raise StrictCoverageError(
+                        "strict PyPTO pointwise received malformed to_dtype"
+                    )
+                unknown_kwargs = set(kwargs) - {"src_dtype", "use_compute_types"}
+                if unknown_kwargs:
+                    raise StrictCoverageError(
+                        "strict PyPTO pointwise to_dtype has unsupported options "
+                        f"{sorted(unknown_kwargs)}"
+                    )
+                if len(args) >= 3 and "src_dtype" in kwargs:
+                    raise StrictCoverageError(
+                        "strict PyPTO pointwise to_dtype repeats src_dtype"
+                    )
+                if len(args) >= 4 and "use_compute_types" in kwargs:
+                    raise StrictCoverageError(
+                        "strict PyPTO pointwise to_dtype repeats use_compute_types"
+                    )
+                source_dtype = (
+                    args[2] if len(args) >= 3 else kwargs.get("src_dtype")
+                )
+                use_compute_types = (
+                    args[3]
+                    if len(args) >= 4
+                    else kwargs.get("use_compute_types", True)
+                )
+                if source_dtype not in (None, torch.float32, torch.bfloat16):
+                    raise StrictCoverageError(
+                        "strict PyPTO pointwise to_dtype has unsupported "
+                        f"src_dtype={source_dtype!r}"
+                    )
+                if use_compute_types is not True:
+                    raise StrictCoverageError(
+                        "strict PyPTO pointwise to_dtype requires "
+                        "use_compute_types=True"
+                    )
+                target = args[1]
+                if target is torch.float32:
+                    target_name = "float32"
+                elif target is torch.bfloat16:
+                    target_name = "bfloat16"
+                else:
+                    raise StrictCoverageError(
+                        f"strict PyPTO pointwise cannot cast to {target!r}"
+                    )
+                self.events.append(("cast", args[0], target_name))
+                return self._next_proxy()
+            if name == "to_dtype_bitcast":
+                raise StrictCoverageError(
+                    "strict PyPTO pointwise does not reinterpret tensor bits"
+                )
             if (
                 name in self._COMPOSED
                 and len(args) == 1
@@ -645,7 +780,7 @@ class _OpsRecorder:
         return max(positions) < arity - 1
 
 
-def _translate_pointwise(node: Any) -> tuple[Any, dict[str, str | int]]:
+def _translate_pointwise(node: Any) -> tuple[Any, dict[str, Any]]:
     """Translate a pointwise node's real ops sequence into native tile IR.
 
     The node body executes once against the recording ops handler; loads and
@@ -688,22 +823,19 @@ def _translate_pointwise(node: Any) -> tuple[Any, dict[str, str | int]]:
             f"(inputs={len(recorder.inputs)}, events={len(recorder.events)}, "
             f"outputs={len(recorder.outputs)})"
         )
-    import torch
-
-    output_dtype = (
-        output_buffer.get_dtype()
-        if hasattr(output_buffer, "get_dtype")
-        else getattr(data, "dtype", None)
-    )
-    if output_dtype is torch.bfloat16:
-        dtype_name = "bfloat16"
-    elif output_dtype is torch.float32:
-        dtype_name = "float32"
-    else:
+    output_name = getattr(output, "get_name", lambda: None)()
+    if not isinstance(output_name, str) or not output_name:
+        raise StrictCoverageError("pointwise output has no stable buffer name")
+    output_spec = _tensor_specialization(output_name, output_buffer)
+    if output_spec.shape != tuple(ranges):
         raise StrictCoverageError(
-            f"native pointwise output dtype {output_dtype!r} is unsupported"
+            "pointwise output metadata disagrees with its iteration ranges"
         )
-    builder = pointwise_codegen.PointwiseProgramBuilder(tuple(ranges), dtype_name)
+    builder = pointwise_codegen.PointwiseProgramBuilder(
+        tuple(ranges),
+        output_spec.dtype_name,
+        output_spec=output_spec,
+    )
     values: dict[int, Any] = {}
     variables: dict[str, Any] = {}
     stored_keys: list[int] = []
@@ -721,10 +853,17 @@ def _translate_pointwise(node: Any) -> tuple[Any, dict[str, str | int]]:
             buffer_name = str(event[1])
             variable = variables.get(buffer_name)
             if variable is None:
+                input_spec = _tensor_specialization(buffer_name)
                 if kind == "broadcast_load":
-                    variable = builder.add_broadcast_input(buffer_name)
+                    variable = builder.add_broadcast_input(
+                        buffer_name,
+                        specialization=input_spec,
+                    )
                 else:
-                    variable = builder.add_input(buffer_name)
+                    variable = builder.add_input(
+                        buffer_name,
+                        specialization=input_spec,
+                    )
                 variables[buffer_name] = variable
             values[next_key] = variable
             next_key += 1
@@ -740,6 +879,18 @@ def _translate_pointwise(node: Any) -> tuple[Any, dict[str, str | int]]:
             values[next_key] = builder.emit(op_name, arguments)
             last_op_key = next_key
             next_key += 1
+        elif kind == "cast":
+            operand = event[1]
+            if not isinstance(operand, _OpsRecorder._Proxy):
+                raise StrictCoverageError(
+                    "strict PyPTO pointwise cast operand is not a tensor value"
+                )
+            values[next_key] = builder.emit(
+                "tensor.cast",
+                [values[operand.key], builder.dtype(str(event[2]))],
+            )
+            last_op_key = next_key
+            next_key += 1
         elif kind == "store":
             if event[2] is not None:
                 stored_keys.append(int(event[2]))
@@ -747,11 +898,26 @@ def _translate_pointwise(node: Any) -> tuple[Any, dict[str, str | int]]:
     for output_key in output_keys:
         if output_key is not None:
             builder.mark_output(values[output_key])
-    broadcast_buffers = sorted(
-        {str(event[1]) for event in recorder.events if event[0] == "broadcast_load"}
-    )
-    return builder.build(), {
+    broadcast_buffers = {
+        str(event[1])
+        for event in recorder.events
+        if event[0] == "broadcast_load"
+    }
+    program = builder.build()
+    expanded_specs = {
+        input_value.name: input_value.specialization
+        for input_value in program.inputs
+    }
+    broadcast_views = {
+        name: (
+            expanded_specs[name].shape,
+            expanded_specs[name].strides,
+        )
+        for name in sorted(broadcast_buffers)
+    }
+    return program, {
         "tile": 128,
-        "broadcast_buffers": broadcast_buffers,
+        "broadcast_views": broadcast_views,
+        "input_buffers": [input_value.name for input_value in program.inputs],
         "output_shape": list(ranges),
     }

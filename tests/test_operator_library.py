@@ -12,6 +12,7 @@ from pypto_plugins.operator_library import (
     EXPECTED_OPERATOR_LIBRARY_VERSION,
     EXPECTED_OPERATOR_MODULES,
     _validate_native_tile_source,
+    _validate_silu_and_mul_out_abi,
     assert_operator_library_compatible,
     inspect_operator_library,
 )
@@ -99,6 +100,25 @@ def test_native_tile_source_rejects_retired_labels_and_whole_tensor_ir(
         source.write_text(payload, encoding="utf-8")
         with pytest.raises(FrameworkCompatibilityError, match=message):
             _validate_native_tile_source(module, source, 1)
+
+
+def test_handwritten_swiglu_requires_current_caller_owned_out_abi(tmp_path) -> None:
+    valid = tmp_path / "valid.py"
+    valid.write_text(
+        "def silu_and_mul(gate, up, stream=None, *, out=None):\n"
+        "    return out\n",
+        encoding="utf-8",
+    )
+    _validate_silu_and_mul_out_abi(valid)
+
+    legacy = tmp_path / "legacy.py"
+    legacy.write_text(
+        "def silu_and_mul(gate, up, stream=None):\n"
+        "    return gate\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(FrameworkCompatibilityError, match="out=None"):
+        _validate_silu_and_mul_out_abi(legacy)
 
 
 def test_torch_install_checks_operators_before_framework_actions(monkeypatch) -> None:

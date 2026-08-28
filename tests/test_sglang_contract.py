@@ -25,10 +25,13 @@ from pypto_plugins.sglang_plugin import (
     PRUNED_STATES_TARGET,
     QK_RMSNORM_ROPE_GATE_TARGET,
     SILU_AND_MUL_TARGET,
+    SILU_FORWARD_CUDA_TARGET,
     TRITON_SUPPORT_TARGETS,
     UNQUANTIZED_LINEAR_TARGET,
     QWEN_LANGUAGE_MODEL_ONLY_ARCHITECTURES,
     _attention_factory,
+    _dispatch_swiglu,
+    _enable_deterministic_pypto_attention,
     _enable_offloader_tied_parameter_support,
     _enable_qwen_language_model_only,
     _enable_qwen_text_only_weight_filter,
@@ -42,6 +45,7 @@ from pypto_plugins.sglang_plugin import (
     _lm_head_around,
     _pruned_states_around,
     _silu_and_mul_around,
+    _silu_forward_cuda_around,
     _support_triton_around,
     _unquantized_linear_around,
     _qwen_text_only_weight_name,
@@ -88,6 +92,25 @@ QWEN35_MODEL = (
     / "models"
     / "qwen3_5.py"
 )
+SERVER_ARGS = (
+    WORKSPACE_ROOT
+    / "upstream"
+    / "sglang"
+    / "python"
+    / "sglang"
+    / "srt"
+    / "server_args.py"
+)
+ACTIVATION_SOURCE = (
+    WORKSPACE_ROOT
+    / "upstream"
+    / "sglang"
+    / "python"
+    / "sglang"
+    / "srt"
+    / "layers"
+    / "activation.py"
+)
 
 
 def test_qwen35_language_model_only_compatibility_is_bounded_and_idempotent() -> None:
@@ -109,6 +132,49 @@ def test_qwen35_language_model_only_compatibility_is_bounded_and_idempotent() ->
 
     with pytest.raises(BackendNotReadyError, match="contract changed"):
         _enable_qwen_language_model_only(IncompatibleServerArgs)
+
+
+def test_deterministic_attention_registration_is_oot_and_excludes_radix() -> None:
+    calls = []
+    module = SimpleNamespace(
+        DETERMINISTIC_ATTENTION_BACKEND_CHOICES=["flashinfer"],
+        RADIX_SUPPORTED_DETERMINISTIC_ATTENTION_BACKEND=["triton"],
+    )
+
+    def add(choices):
+        calls.append(tuple(choices))
+        module.DETERMINISTIC_ATTENTION_BACKEND_CHOICES.extend(choices)
+
+    module.add_deterministic_attention_backend_choices = add
+    assert _enable_deterministic_pypto_attention(module) == (
+        "flashinfer",
+        "pypto",
+    )
+    assert _enable_deterministic_pypto_attention(module) == (
+        "flashinfer",
+        "pypto",
+    )
+    assert calls == [("pypto",)]
+    assert "pypto" not in module.RADIX_SUPPORTED_DETERMINISTIC_ATTENTION_BACKEND
+
+    module.RADIX_SUPPORTED_DETERMINISTIC_ATTENTION_BACKEND.append("pypto")
+    with pytest.raises(BackendNotReadyError, match="must not be registered"):
+        _enable_deterministic_pypto_attention(module)
+
+
+def test_pinned_deterministic_attention_registration_api_is_exact() -> None:
+    if not SERVER_ARGS.is_file():
+        pytest.skip("workspace SGLang checkout is not present")
+    tree = ast.parse(SERVER_ARGS.read_text(encoding="utf-8"), filename=str(SERVER_ARGS))
+    functions = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    regular = functions["add_deterministic_attention_backend_choices"]
+    radix = functions["add_radix_supported_deterministic_attention_backend_choices"]
+    assert [argument.arg for argument in regular.args.args] == ["choices"]
+    assert [argument.arg for argument in radix.args.args] == ["choices"]
 
 
 def test_qwen35_text_only_weight_filter_is_bounded_and_idempotent() -> None:
@@ -258,12 +324,14 @@ def test_gemma_rmsnorm_offload_colocates_derived_weight() -> None:
 def test_linear_swiglu_and_lm_head_hooks_are_pinned_and_fail_closed(monkeypatch) -> None:
     assert UNQUANTIZED_LINEAR_TARGET.endswith("UnquantizedLinearMethod.apply")
     assert SILU_AND_MUL_TARGET.endswith("activation.silu_and_mul")
+    assert SILU_FORWARD_CUDA_TARGET.endswith("SiluAndMul.forward_cuda")
     assert LM_HEAD_TARGET.endswith("LogitsProcessor._compute_lm_head")
     assert EMBEDDING_TARGET.endswith("UnquantizedEmbeddingMethod.embedding")
     assert PRUNED_STATES_TARGET.endswith("LogitsProcessor._get_pruned_states")
     text = SGLANG_PLUGIN.read_text(encoding="utf-8")
     assert "linear.linear(" in text
     assert "silu_and_mul.silu_and_mul(" in text
+    assert "run_fp32_swiglu(" in text
 
     monkeypatch.setattr(
         "pypto_plugins.sglang_plugin._pypto_compute_selected", lambda: False
@@ -309,6 +377,113 @@ def test_linear_swiglu_and_lm_head_hooks_are_pinned_and_fail_closed(monkeypatch)
     )
     assert torch.equal(pruned[0], hidden[-1:])
     assert pruned[0].data_ptr() == hidden[-1:].data_ptr()
+
+
+def test_swiglu_functional_and_caller_owned_routes_remain_distinct(monkeypatch) -> None:
+    gate = torch.empty((2, 128), dtype=torch.bfloat16)
+    up = torch.empty_like(gate)
+    generated = object()
+    handwritten = object()
+    monkeypatch.setattr(
+        "pypto_plugins.torch.inductor_swiglu.run_fp32_swiglu",
+        lambda observed_gate, observed_up: (
+            generated
+            if observed_gate is gate and observed_up is up
+            else pytest.fail("unexpected generated operands")
+        ),
+    )
+    assert _dispatch_swiglu(gate, up, None) is generated
+
+    calls = []
+    module = ModuleType("pypto_kernels.silu_and_mul")
+    module.STATUS = "native-tile executable"
+    module.silu_and_mul = (
+        lambda *args, **kwargs: calls.append((args, kwargs)) or handwritten
+    )
+    monkeypatch.setitem(sys.modules, "pypto_kernels.silu_and_mul", module)
+    monkeypatch.setattr(pypto_kernels, "silu_and_mul", module, raising=False)
+
+    @contextmanager
+    def stream(device):
+        assert device.type == "cpu"
+        yield "caller-stream"
+
+    monkeypatch.setattr("pypto_plugins.sglang.stream.pypto_stream", stream)
+    out = torch.empty_like(gate)
+    assert _dispatch_swiglu(gate, up, out) is handwritten
+    assert len(calls) == 1
+    assert calls[0][0][0] is gate and calls[0][0][1] is up
+    assert calls[0][1]["stream"] == "caller-stream"
+    assert calls[0][1]["out"] is out
+
+
+def test_pinned_silu_forward_cuda_boundary_is_exact() -> None:
+    if not ACTIVATION_SOURCE.is_file():
+        pytest.skip("workspace SGLang checkout is not present")
+    tree = ast.parse(
+        ACTIVATION_SOURCE.read_text(encoding="utf-8"),
+        filename=str(ACTIVATION_SOURCE),
+    )
+    silu_class = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "SiluAndMul"
+    )
+    forward = next(
+        node
+        for node in silu_class.body
+        if isinstance(node, ast.FunctionDef) and node.name == "forward_cuda"
+    )
+    assert [argument.arg for argument in forward.args.args] == ["self", "x"]
+    calls = [
+        node
+        for node in ast.walk(forward)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "silu_and_mul"
+    ]
+    assert len(calls) == 1
+    assert len(calls[0].args) == 2
+
+
+def test_silu_forward_cuda_hook_reaches_functional_inductor_boundary(monkeypatch) -> None:
+    import pypto_plugins.sglang_plugin as plugin
+
+    operator = object()
+    packed = object()
+    gate = object()
+    up = object()
+    delegated = []
+    dispatched = []
+
+    def original(observed_operator, observed_input):
+        delegated.append((observed_operator, observed_input))
+        return "original"
+
+    monkeypatch.setattr(plugin, "_pypto_compute_selected", lambda: False)
+    assert _silu_forward_cuda_around(original, operator, packed) == "original"
+    assert delegated == [(operator, packed)]
+
+    monkeypatch.setattr(plugin, "_pypto_compute_selected", lambda: True)
+    monkeypatch.setattr(plugin, "_vendor_reference_mode", lambda: False)
+    monkeypatch.setattr(
+        plugin,
+        "_validated_swiglu_views",
+        lambda observed, out=None: (gate, up)
+        if observed is packed and out is None
+        else pytest.fail("unexpected packed ABI"),
+    )
+    monkeypatch.setattr(
+        plugin,
+        "_dispatch_swiglu",
+        lambda observed_gate, observed_up, out=None: dispatched.append(
+            (observed_gate, observed_up, out)
+        )
+        or "generated",
+    )
+    assert _silu_forward_cuda_around(original, operator, packed) == "generated"
+    assert dispatched == [(gate, up, None)]
+    assert delegated == [(operator, packed)]
 
 
 def test_fla_gated_rmsnorm_hook_is_preloaded_and_registered() -> None:
