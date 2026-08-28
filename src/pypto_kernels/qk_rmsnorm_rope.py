@@ -213,6 +213,7 @@ def build(
     q_gate_row_stride: int | None = None,
     key_row_stride: int | None = None,
     cache_fp32: bool = False,
+    positions_int32: bool = False,
 ) -> Any:
     _validate_shape(tokens, q_heads, kv_heads, head_dim, rotary_dim, max_positions)
     import torch
@@ -244,7 +245,9 @@ def build(
         device="meta",
     )
     positions = torch.empty(
-        (tokens, rotary_dim), dtype=torch.int64, device="meta"
+        (tokens, rotary_dim),
+        dtype=torch.int32 if positions_int32 else torch.int64,
+        device="meta",
     )
     out = torch.empty(
         (tokens, 2 * q_heads + kv_heads, head_dim),
@@ -266,6 +269,7 @@ def compile_for(
     q_gate_row_stride: int,
     key_row_stride: int,
     cache_fp32: bool,
+    positions_int32: bool,
 ) -> str:
     _validate_shape(tokens, q_heads, kv_heads, head_dim, rotary_dim, max_positions)
     cache_key = (
@@ -278,6 +282,7 @@ def compile_for(
         q_gate_row_stride,
         key_row_stride,
         cache_fp32,
+        positions_int32,
     )
     cached = _cache.get(cache_key)
     if cached is not None:
@@ -312,10 +317,12 @@ def qk_rmsnorm_rope_gate(
         raise ValueError("QK preparation cos/sin cache must use BF16 or FP32")
     if (
         positions.ndim != 1
-        or positions.dtype is not torch.int64
+        or positions.dtype not in (torch.int32, torch.int64)
         or not positions.is_contiguous()
     ):
-        raise ValueError("QK preparation positions must be contiguous rank-1 INT64")
+        raise ValueError(
+            "QK preparation positions must be contiguous rank-1 INT32/INT64"
+        )
     tokens = int(q_gate.shape[0])
     head_dim = int(q_weight.numel())
     rotary_dim = int(cos_sin_cache.shape[1])
@@ -352,6 +359,7 @@ def qk_rmsnorm_rope_gate(
         int(q_gate.stride(0)),
         int(key.stride(0)),
         cos_sin_cache.dtype is torch.float32,
+        positions.dtype is torch.int32,
     )
     packed = torch.empty(
         (tokens, 2 * q_heads + kv_heads, head_dim),

@@ -195,9 +195,12 @@ def test_qk_norm_partial_rope_gate_is_one_native_graph():
     assert "pl.TensorView(stride=[4608, 1]" in pitched
     assert "pl.TensorView(stride=[1024, 1]" in pitched
     pitched_fp32_cache = str(
-        qk_rmsnorm_rope.build(2, 8, 2, 256, 64, 1024, 4608, 1024, True)
+        qk_rmsnorm_rope.build(
+            2, 8, 2, 256, 64, 1024, 4608, 1024, True, True
+        )
     )
     assert "cos_sin_cache: pl.Tensor[[1024, 64], pl.FP32]" in pitched_fp32_cache
+    assert "repeated_positions: pl.Tensor[[2, 64], pl.INT32]" in pitched_fp32_cache
 
 
 def _one_program(p):
