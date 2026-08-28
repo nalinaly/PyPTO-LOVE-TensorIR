@@ -24,29 +24,42 @@ def main() -> int:
 
         monitor = monitor_api.start_collection(run_dir / "cupti-monitor")
         monitor_started = True
-        monitor.begin_trace_window()
-        annotation = json.dumps(
-            {"kind": "probe", "provider": "pypto.tensorir"},
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        external_id = monitor.push_user_annotation(annotation)
-        value = torch.ones(4096, device="cuda")
-        result = value + value
-        popped_id = monitor.pop_user_annotation()
-        torch.cuda.synchronize()
-        window = monitor.end_trace_window()
-        if not window["events"]:
-            raise RuntimeError("CUPTI trace window returned no activity records")
+        windows = []
+        external_ids = []
+        popped_ids = []
+        result = None
+        for index in range(3):
+            monitor.begin_trace_window()
+            annotation = json.dumps(
+                {
+                    "index": index,
+                    "kind": "probe",
+                    "provider": "pypto.tensorir",
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            external_ids.append(monitor.push_user_annotation(annotation))
+            value = torch.ones(4096, device="cuda")
+            result = value + value
+            popped_ids.append(monitor.pop_user_annotation())
+            torch.cuda.synchronize()
+            window = monitor.end_trace_window()
+            if not window["events"]:
+                raise RuntimeError(
+                    f"CUPTI trace window {index} returned no activity records"
+                )
+            windows.append(window)
         stats = monitor_api.stop_collection()
         monitor_started = False
         report.update(
             {
                 "status": "complete",
-                "external_id": external_id,
-                "popped_id": popped_id,
+                "event_counts": [len(window["events"]) for window in windows],
+                "external_ids": external_ids,
+                "popped_ids": popped_ids,
                 "result_sum": float(result.sum().cpu()),
-                "trace_window": window,
+                "trace_windows": windows,
                 "stats": stats,
             }
         )

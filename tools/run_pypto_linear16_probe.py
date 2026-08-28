@@ -22,6 +22,11 @@ def main() -> int:
     x = torch.randn((19, 1024), device="cuda", dtype=torch.bfloat16)
     weight = torch.randn((32, 1024), device="cuda", dtype=torch.bfloat16)
     expected = torch.nn.functional.linear(x, weight)
+    reduced_precision = torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction
+    torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = False
+    expected_full_reduction = torch.nn.functional.linear(x, weight)
+    torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = reduced_precision
+    ground_truth = torch.nn.functional.linear(x.float(), weight.float())
     packed_weight = torch.zeros((128, 1024), device="cuda", dtype=torch.bfloat16)
     packed_weight[:32].copy_(weight)
     with pypto_stream(x.device) as stream:
@@ -41,6 +46,11 @@ def main() -> int:
         )
     torch.cuda.synchronize()
     difference = (actual.float() - expected.float()).abs()
+    pypto_ground_difference = (actual.float() - ground_truth).abs()
+    vendor_ground_difference = (expected.float() - ground_truth).abs()
+    full_reduction_difference = (
+        actual.float() - expected_full_reduction.float()
+    ).abs()
     projection_difference = max(
         float((mixed - projected_qkvz[:, :4096]).abs().max()),
         float((z.reshape(19, -1) - projected_qkvz[:, 4096:]).abs().max()),
@@ -68,6 +78,17 @@ def main() -> int:
     torch.cuda.synchronize()
     head_difference = (actual_head.float() - expected_head.float()).abs()
     head_float_difference = (actual_head_float - expected_head.float()).abs()
+    wide_weight = torch.randn(
+        (8192, 1024), device="cuda", dtype=torch.bfloat16
+    )
+    reduced_precision = torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction
+    torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = False
+    expected_wide = torch.nn.functional.linear(x, wide_weight)
+    torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = reduced_precision
+    with pypto_stream(x.device) as stream:
+        actual_wide = linear(x, wide_weight, stream=stream)
+    torch.cuda.synchronize()
+    wide_difference = (actual_wide.float() - expected_wide.float()).abs()
     clear_state = torch.randn(
         (2, 1, 128, 128), device="cuda", dtype=torch.float32
     )
@@ -110,6 +131,10 @@ def main() -> int:
         "embedding_max_abs": embedding_max,
         "max_abs": float(difference.max()),
         "mean_abs": float(difference.mean()),
+        "full_reduction_max_abs": float(full_reduction_difference.max()),
+        "full_reduction_mean_abs": float(full_reduction_difference.mean()),
+        "pypto_ground_max_abs": float(pypto_ground_difference.max()),
+        "pypto_ground_mean_abs": float(pypto_ground_difference.mean()),
         "one_row_max_abs": float(head_difference.max()),
         "one_row_mean_abs": float(head_difference.mean()),
         "one_row_float_max_abs": float(head_float_difference.max()),
@@ -118,6 +143,10 @@ def main() -> int:
         "shape": list(actual.shape),
         "silu_max_abs": float(silu_difference.max()),
         "silu_mean_abs": float(silu_difference.mean()),
+        "vendor_ground_max_abs": float(vendor_ground_difference.max()),
+        "vendor_ground_mean_abs": float(vendor_ground_difference.mean()),
+        "wide_full_reduction_max_abs": float(wide_difference.max()),
+        "wide_full_reduction_mean_abs": float(wide_difference.mean()),
     }
     print(json.dumps(result, sort_keys=True), flush=True)
     return (
@@ -131,6 +160,7 @@ def main() -> int:
         and result["projection_max_abs"] == 0.0
         and result["recurrent_clear_max_abs"] == 0.0
         and result["silu_max_abs"] <= 0.5
+        and result["wide_full_reduction_max_abs"] <= 0.25
         else 1
     )
 
