@@ -12,6 +12,7 @@
 /.cache/
 /logs/
 /runs/
+/state/evidence/current-*-run.json
 /reports/data/
 *.pyc
 __pycache__/
