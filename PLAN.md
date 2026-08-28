@@ -1,8 +1,8 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `49`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `50`
 
-## Current phase: full-stack execution to Qwen3.5 (D-0018 lightweight gates)
+## Current phase: SGLang/CUDA-Graph integration after stateful CP-0086
 
 ## Authoritative final model gate (2026-08-28)
 
@@ -38,22 +38,43 @@ weights and tokenizer:
    performance reports. A compile, Cubin, operator smoke, layer test or one
    successful generation cannot substitute for this model gate.
 
-The immediate path to that gate is to finish the current single-graph,
-single-launch fused QK RMSNorm plus partial RoPE compiler transaction, then
-close causal paged attention, stateful convolution and single-graph GDN,
-complete the zero-diff SGLang route, bring up and stabilize 0.8B, and only then
-repeat the full gate for 9B. No model-name, hidden-size or fixed benchmark-shape
-special case may be used to satisfy either model.
+The accepted low-level path now includes fused QK RMSNorm plus partial RoPE,
+causal paged attention, packed GDN projection, stateful causal convolution and
+recurrent GDN. The immediate work is the zero-diff SGLang route: connect the
+accepted StateBundle lifecycle to CUDA Graph capture/replay and radix-cache
+copy/clear, close the remaining Dynamo/Inductor and handwritten-operator
+inventory with strict provider tracing, then bring up and stabilize 0.8B.
+Only after the complete 0.8B model gate passes does the same gate repeat for
+9B. No model-name, hidden-size or fixed benchmark-shape special case may be
+used to satisfy either model.
 
 The historical 22 GiB CPU-v2 admission value is not a compiler memory
 requirement and is no longer a prerequisite for this execution path. It was a
 conservative host-coexistence reserve derived from an approximate user
 authorization, without owned-build peak-memory evidence. Per the user's later
 override, bounded CPU builds use `--parallel 24`, must record owned-process RSS
-and host
-`MemAvailable`, retain the 16 GiB running-child pause boundary, and must never
-signal a protected external process. The exact-hashed v2 controls remain
-unchanged solely so historical evidence stays reproducible.
+and host `MemAvailable`, retain the 16 GiB running-child safety boundary, and
+must never signal a protected external process. The exact-hashed v2 controls
+remain unchanged solely so historical evidence stays reproducible.
+
+CP-0086 accepts the stateful operator layer at PyPTO `15fd226`, TensorIR
+`b478e09`, clean `pypto-kernels@9caff6f` and framework plugin `c606574`.
+Projection is exact; causal-convolution decode/prefill state is exact with
+worst output error `8.84444e-4`; recurrent GDN state error is at most
+`2.98024e-8` and worst output error is `0.0121547`. Three fresh controlled
+processes produce byte-identical numerical content after removing only the
+run ID. Each Conv T5 process also executes ten repetitions with zero output or
+state drift. Long Conv/GDN prefills deliberately use ordered one-token PyPTO
+primitives (`T` launches), not the rejected nondeterministic multi-token
+mutation graph. This is correctness/stability evidence, not performance.
+
+The active bounded controllers contain no 22 GiB gate and reject any build or
+CTest command whose parallelism is not exactly 24. The final product-producing
+build started with `22553348 KiB` available (below 22 GiB), completed with
+`--parallel 24`, and measured `387080 KiB` peak summed owned-PGID RSS. Final
+CTest is 13/13 with `-j24`. The 16 GiB initial/running safety line is retained;
+it is not a compiler-footprint claim. Evidence is
+`state/evidence/pypto_stateful_sm120_cp0086.json`.
 
 CP-0039 accepts compile-free HIR-to-TensorIR emission, CP-0040 accepts the
 standalone canonical schedule, and CP-0041 accepts compiler-owned frontend

@@ -1,13 +1,13 @@
 # CHECKPOINT
 
-**Checkpoint:** `CP-0085`
+**Checkpoint:** `CP-0086`
 
-## Active unaccepted continuation after CP-0085 (2026-08-28)
+## Active continuation after CP-0086 (2026-08-28)
 
 This section is the current resume boundary and supersedes older resume text
-below. It records work in progress, **not** CP-0086 acceptance.
+below. CP-0086 is accepted; CUDA Graph/SGLang/model work remains unaccepted.
 
-- PLAN revision 49 freezes Qwen3.5-0.8B then 9B, exact prompt
+- PLAN revision 50 freezes Qwen3.5-0.8B then 9B, exact prompt
   `为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？`, 100% PyPTO
   handwritten-plus-Inductor model-forward compute, zero compute fallback,
   repeated stability and logits/token/text reference comparison. D-0019 also
@@ -47,6 +47,36 @@ below. It records work in progress, **not** CP-0086 acceptance.
   returns zero with no post-exit violation or survivor. Evidence is
   `state/evidence/pypto_paged_attention_cp0085.json`. CP-0085 is not CUDA graph,
   SGLang, model-logit, coverage, stability or performance acceptance.
+- CP-0086 accepts stateful operator correctness and its initial framework
+  lifecycle seam at PyPTO `15fd226` / TensorIR `b478e09` / clean
+  `pypto-kernels@9caff6f` / plugin `c606574`. DSO SHA-256 is
+  `f29e696a...8b73`. Projection is exact; Conv decode and T5 prefill have exact
+  final state with worst output error `8.84444e-4`; GDN decode, controlled
+  outer/decay and T3/T13 prefill have state error at most `2.98024e-8` and
+  worst output error `0.0121547`. Three independent controlled processes are
+  all correct and have identical result content after excluding the run ID;
+  Conv T5 is repeated ten times per process with zero output/state drift.
+  Conv and GDN use a stable one-token recurrent primitive, so T5/T13 require
+  five/thirteen ordered PyPTO launches. This is not a performance result.
+- Plugin StateBundle supplies stable plane-major BF16 `[slots,3,D]` Conv
+  sidecars and mirrors explicit pool clear/copy operations, including the
+  base-class call form used by UnifiedMambaPool. Kernel structure passes 18/18,
+  plugin tests pass 103/103, and controller/isolation tests pass 107 plus 45
+  subtests. Radix activation, CUDA Graph capture/replay, speculative modes and
+  ReplaySSM still fail closed.
+- Final active controls are `tools/run_pypto_cpu_bounded.py` and
+  `tools/run_pypto_gpu_bounded.py`. There is no 22 GiB gate. CPU commands must
+  contain exactly `--parallel 24` or `-j24`, and conflicting lower parallelism
+  is rejected. The product-producing build started at `22553348 KiB`
+  MemAvailable, below 22 GiB, completed at 24-way parallelism with
+  `387080 KiB` peak owned-PGID RSS, and never paused. Final CTest is 13/13.
+  The 16 GiB initial/running safety boundary remains separate from compiler
+  footprint. Evidence is
+  `state/evidence/pypto_stateful_sm120_cp0086.json`.
+- The next unaccepted transaction is CUDA Graph plus radix-cache lifecycle in
+  the pinned SGLang route, followed by strict Dynamo/Inductor/handwritten
+  provider coverage and the complete Qwen3.5-0.8B model gate using the frozen
+  Chinese prompt. No operator checkpoint is model acceptance.
 
 ### Superseded pre-CP-0085 paged-attention notes
 
@@ -141,7 +171,7 @@ boundary for history; CP-0085 above is authoritative where they conflict.
   compiler paths and the SGLang adapter are source-only; none is an
   SGLang/model attention result.
 
-### Current post-CP-0085 continuation
+### Superseded pre-CP-0086 stateful notes
 
 - The same isolated PyPTO branch now contains source-only single-graph GDN and
   stateful causal-convolution emitters. Current kernels replace the former
@@ -153,7 +183,7 @@ boundary for history; CP-0085 above is authoritative where they conflict.
   graph likewise reads and updates the nonzero BF16 `[D,3]` slot history with
   FP32 accumulation and SiLU in one launch. Future SM120 gates compare both
   outputs and final states, with INT32/INT64 slot-index cases and row-pitched
-  state pools; none has run. Plugin `eba17b7` adds a zero-diff GDN wrapper but
+  state pools; none had run at this boundary. Plugin `eba17b7` adds a zero-diff GDN wrapper but
   keeps it closed until both operator statuses become executable. Its first
   supported lane explicitly disables CUDA graphs, speculative decoding,
   radix/state checkpoints and ReplaySSM; generic StateBundle zero/copy and
@@ -186,18 +216,18 @@ pause boundary and never signal external processes. The earlier dry admission
 also established that an isolated controller PATH must include
 `/usr/lib/wsl/lib` for WSL's `nvidia-smi` identity audit.
 
-The permanent focused gates are
+The permanent earlier focused gates are
 `projects/pypto-kernels/benchmarks/qk_sm120.py` and
 `projects/pypto-kernels/benchmarks/paged_attention_sm120.py`. Shared
 classification/execution JSON files remain development snapshots; immutable
-CP-0084/CP-0085 evidence is authoritative. The next compiler work is the
-stateful-convolution and GDN failures already exposed by the same DSO, followed
-by SGLang routing and CUDA-graph compatibility. Do not claim attention
-performance or either model gate.
+CP-0084/CP-0085 evidence is authoritative for those earlier products. CP-0086
+now closes the later stateful-operator failures. The next work is SGLang state
+lifecycle and CUDA-graph compatibility. Do not claim attention or stateful
+performance, full framework execution, or either model gate.
 
 Keep the primary QK checkout clean at PyPTO `d1b90b7` / TensorIR `a48606b`.
-The active paged product is separately bound to PyPTO `2faefb6` / TensorIR
-`1cae26f`; never reinterpret one DSO as the other product.
+The accepted stateful product is separately bound to PyPTO `15fd226` /
+TensorIR `b478e09`; never reinterpret an earlier QK/paged DSO as this product.
 
 **Status:** Qwen3.5 token embedding is now a real native tile row gather, not
 one-hot matmul. Canonical operator `426e373` uses explicit `@pl.jit` row/block

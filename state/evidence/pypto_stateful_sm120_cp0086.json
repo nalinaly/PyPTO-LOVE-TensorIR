@@ -1,0 +1,218 @@
+{
+  "accepted_claim": {
+    "all_correct": true,
+    "cases": [
+      {
+        "case": "gdn_projection_packed_t13_h8_hv16",
+        "launches": 1,
+        "max_abs_diff": 0.0,
+        "shared_storage": true
+      },
+      {
+        "case": "causal_conv_plane_b2_t1_torch.int32",
+        "launches": 1,
+        "output_max_abs_diff": 0.00064125657081604,
+        "state_max_abs_diff": 0.0
+      },
+      {
+        "case": "causal_conv_plane_b1_t5_torch.int64",
+        "launches": 5,
+        "output_drift": 0.0,
+        "output_max_abs_diff": 0.0008844435214996338,
+        "repetitions": 10,
+        "state_drift": 0.0,
+        "state_max_abs_diff": 0.0
+      },
+      {
+        "case": "gdn_recurrent_b2_t1_torch.int32",
+        "launches": 1,
+        "output_max_abs_diff": 0.008997440338134766,
+        "state_max_abs_diff": 2.9802322387695312e-08
+      },
+      {
+        "case": "gdn_outer_b1_t1_torch.int32",
+        "launches": 1,
+        "output_max_abs_diff": 0.006876848638057709,
+        "state_max_abs_diff": 1.1175870895385742e-08
+      },
+      {
+        "case": "gdn_decay_b1_t1_torch.int32",
+        "launches": 1,
+        "output_max_abs_diff": 0.0,
+        "state_max_abs_diff": 5.587935447692871e-09
+      },
+      {
+        "case": "gdn_recurrent_b1_t3_torch.int64",
+        "launches": 3,
+        "output_max_abs_diff": 0.007789507508277893,
+        "state_max_abs_diff": 1.862645149230957e-08
+      },
+      {
+        "case": "gdn_recurrent_b1_t13_torch.int32",
+        "launches": 13,
+        "output_max_abs_diff": 0.012154679745435715,
+        "state_max_abs_diff": 2.2351741790771484e-08
+      }
+    ],
+    "cold_processes": 3,
+    "identical_result_digest_excluding_run_id": "c25ace18714066ed2fe02ae78afb424d13bdb99b21034661dd71531a580f70e1",
+    "ordered_token_primitive": {
+      "causal_conv_max_fused_tokens": 1,
+      "gdn_max_fused_tokens": 1,
+      "reason": "preserve deterministic recurrent mutation order and accepted state layout"
+    },
+    "state_bundle": {
+      "conv_layout": "BF16 [slots,3,D] plane-major sidecar",
+      "copy_and_clear_unit_tested": true,
+      "gdn_layout": "SGLang-owned FP32 recurrent state",
+      "stable_per_layer_attachment": true
+    },
+    "thresholds": {
+      "causal_conv_output_atol": 0.05,
+      "causal_conv_output_rtol": 0.05,
+      "causal_conv_state": "exact",
+      "causal_conv_warm_drift": "exact zero",
+      "gdn_output_atol": 0.08,
+      "gdn_output_rtol": 0.08,
+      "gdn_state_atol": 0.002,
+      "gdn_state_rtol": 0.002,
+      "projection": "exact"
+    }
+  },
+  "build": {
+    "actual_product_build": {
+      "command_parallelism": 24,
+      "initial_mem_available_kib": 22553348,
+      "maximum_owned_pgid_rss_kib": 387080,
+      "minimum_mem_available_kib": 18696124,
+      "pauses": [],
+      "process_sha256": "f74c8db89f9a07b5a3e65d47d667e1f4d36519a516ede4b9ea2fa536e630038a",
+      "return_code": 0,
+      "run_id": "pypto-cpu-bounded-20260828T044505Z-932711-150b4b"
+    },
+    "ctest": {
+      "jobs": 24,
+      "last_test_log_bytes": 9820,
+      "last_test_log_sha256": "c91d94c6a7e135a59059b17abc3cb9ef53e6ed586e57f0ad505979ca0e8f9a22",
+      "passed": 13,
+      "process_sha256": "872bf6ab40d0583342ab2916a13cbb4509fa3382e43768272368ca2d9177080b",
+      "run_id": "pypto-cpu-bounded-20260828T052213Z-949559-840701",
+      "total": 13
+    },
+    "dso_bytes": 795967792,
+    "dso_path": "builds/pypto-paged-f34c3f5/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "dso_sha256": "f29e696a8c128ac124c92066a1dbab95b3821e1f8791627c4f21c530fbe08b73",
+    "final_controller_build_recheck": {
+      "command_parallelism": 24,
+      "maximum_owned_pgid_rss_kib": 76140,
+      "minimum_mem_available_kib": 44812324,
+      "process_sha256": "445a924ab1befc87da038e535c685b5c355e85e6e20f4b1d8c9786bd5e280d64",
+      "return_code": 0,
+      "run_id": "pypto-cpu-bounded-20260828T052208Z-949452-9ae22a"
+    },
+    "pypto_commit": "15fd2264da8819334643afaf089238e07caeeeef",
+    "pypto_tree": "d980808de9f76d9058252abc159bc0978191fa1d",
+    "tensor_ir_commit": "b478e09a49c13d8ee330f770a19fef48b759f8b8",
+    "tensor_ir_tree": "e01988d10b9363662ce4da07b491463055b34943"
+  },
+  "controllers": {
+    "cpu": {
+      "external_process_signals": false,
+      "launch_admission_floor_kib": null,
+      "parallelism": 24,
+      "path": "tools/run_pypto_cpu_bounded.py",
+      "pause_memory_floor_kib": 16777216,
+      "resume_memory_floor_kib": 17825792,
+      "sha256": "ecdd4b06d44875540f085d48f1cde67616905a0eb6c22d889af2776e6365675c"
+    },
+    "gpu": {
+      "external_process_signals": false,
+      "gpu_free_floor_mib": 4096,
+      "host_abort_floor_kib": 16777216,
+      "launch_admission_floor_kib": null,
+      "path": "tools/run_pypto_gpu_bounded.py",
+      "sha256": "afdaac30541e3514db48d578b6e4202501d0b0ddfba9c3f2f87d76351b8d70eb"
+    },
+    "legacy_22_gib_status": "retired from the active path; frozen v2 controls remain unchanged for historical replay",
+    "tests": {
+      "junit_path": "runs/cp0086-stateful-gates/root-controller.xml",
+      "junit_sha256": "0bb0daad3c9147a9b1e2b189d2218db6204ea346706f45c578b1e18021d49698",
+      "passed": 107,
+      "subtests_passed": 45,
+      "test_source_sha256": "9bc8961d22fb47452957d3b4ebbde87a37874b9d1a07bf52f74ee408cf526d70"
+    }
+  },
+  "framework": {
+    "plugin_commit": "c606574a2bb5a463a1eb3327ca60e0bf68bc15db",
+    "plugin_tree": "257690992e8834539daa21c4f5640651a93aa910",
+    "pytest": {
+      "junit_path": "runs/cp0086-stateful-gates/plugin-full.xml",
+      "junit_sha256": "e0c9d326fdc222df72ef75e18aded647d259c942567a1b876dbe65feee98958d",
+      "passed": 103,
+      "total": 103
+    },
+    "state_bundle_path": "src/pypto_plugins/sglang/state_bundle.py",
+    "state_bundle_sha256": "d59be550e713e9c451e929b8789fd216f41309c43d4a4951b539c8e1b95d2795"
+  },
+  "kind": "pypto-stateful-sm120-cp0086",
+  "not_accepted": [
+    "CUDA Graph capture or replay integration",
+    "enabled radix-cache state checkpointing",
+    "speculative decoding or ReplaySSM",
+    "SGLang server or model execution",
+    "Qwen3.5 logits, token IDs or generated-text parity",
+    "100% model-forward PyPTO coverage",
+    "operator or model performance"
+  ],
+  "runs": [
+    {
+      "initial_and_locked_audit_sha256": "4f31b4395c46ab8b2cbbff4a44e0b3663c4bd35d6c847fcf0531e1aa39a00342",
+      "minimum_mem_available_kib": 43469260,
+      "post_exit_compute_pids": [],
+      "process_sha256": "4fa05403217a5564d68e3edaade2aadb064c55ad11c82392a3c52f42bda2bbbd",
+      "result_sha256": "f1430210a8888a2ddebd587c7118d73109757fa0ad219599bbffd4070d61937b",
+      "return_code": 0,
+      "run_id": "pypto-gpu-bounded-20260828T052235Z-949801-4d3ad8"
+    },
+    {
+      "initial_and_locked_audit_sha256": "4f31b4395c46ab8b2cbbff4a44e0b3663c4bd35d6c847fcf0531e1aa39a00342",
+      "minimum_mem_available_kib": 43741988,
+      "post_exit_compute_pids": [],
+      "process_sha256": "aeda98b49ce34b31b7bc378ccbb5b850ffe7227f7d4bc82ab53a5d58e117b9d6",
+      "result_sha256": "39f7b2c0cf7523e77d4f0493718dfe852a15353ccf5be62d4995eef18f89048f",
+      "return_code": 0,
+      "run_id": "pypto-gpu-bounded-20260828T052323Z-950167-084226"
+    },
+    {
+      "initial_and_locked_audit_sha256": "4f31b4395c46ab8b2cbbff4a44e0b3663c4bd35d6c847fcf0531e1aa39a00342",
+      "minimum_mem_available_kib": 43604184,
+      "post_exit_compute_pids": [],
+      "process_sha256": "63efa2bc8fda97fccf10ca1649dc3c2e5d35486f28fafda98b526532a2be1bc3",
+      "result_sha256": "c77dab9249f280c8ba3f48b20b55cc60ff5a1720c8889fef59717bf8da2b836a",
+      "return_code": 0,
+      "run_id": "pypto-gpu-bounded-20260828T052405Z-950469-43bc4e"
+    }
+  ],
+  "schema_version": 1,
+  "source": {
+    "benchmark_path": "benchmarks/stateful_sm120.py",
+    "benchmark_sha256": "247109d3c3daafa9a062e5bb6db276ee4e78b89264710463075bfa47eed90f4f",
+    "causal_conv_path": "src/pypto_kernels/causal_conv1d.py",
+    "causal_conv_sha256": "6e210b9f02b7a04797e5028cbee1a2b9cc01420209367f5f7b8206f0de1363d5",
+    "clean_kernel_worktree": true,
+    "gdn_path": "src/pypto_kernels/gdn.py",
+    "gdn_projection_path": "src/pypto_kernels/gdn_projection.py",
+    "gdn_projection_sha256": "21ea09e6c8f1317a9fc0a5f8e141677409657589d4b97023abdd4e3506eed8cc",
+    "gdn_sha256": "21e3410bdc9c59849501302808f345bede480c9464705d7fdb740109e3a55783",
+    "kernel_tree": "f158bb840c09fb462ff21ac5e77457b81b71ecdb",
+    "pypto_emitter_sha256": "96d42b6e8a546df8d5b236f073b288f6e783172568bee8e38e2c0d6df103c354",
+    "pypto_kernels_commit": "9caff6f5c2c715338828a32e9d008354df67f680",
+    "tensor_ir_pointwise_sha256": "7a0d7966e4aa3c60cdebaa42f57888744ab78cc448d05a5dcc2b1d39f025dc4b"
+  },
+  "structure_tests": {
+    "junit_path": "runs/cp0086-stateful-gates/kernel-structure.xml",
+    "junit_sha256": "d8faac2a1fb29900f32a4a074857754eb27ef083fa8963d451c5c59067deba7b",
+    "passed": 18,
+    "total": 18
+  }
+}

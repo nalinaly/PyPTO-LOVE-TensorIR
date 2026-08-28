@@ -233,6 +233,35 @@ prohibition, and distinguish safety headroom from compiler footprint. Compiler
 memory optimization is required only if measured owned usage regresses, not to
 satisfy the retired constant.
 
+The final stateful product build strengthens that decision: run
+`pypto-cpu-bounded-20260828T044505Z-932711-150b4b` started with
+`22553348 KiB` MemAvailable, already below 22 GiB, completed with
+`--parallel 24`, measured `387080 KiB` peak summed owned-PGID RSS and never
+paused. The active bounded controller rejects missing, duplicate or
+conflicting parallel settings and restricts CMake/CTest directories to
+workspace builds. Its 16 GiB initial/running safety boundary is explicitly not
+a compiler admission estimate.
+
+## D-0020: Stateful recurrence uses an ordered one-token PyPTO primitive (2026-08-28)
+
+The direct multi-token causal-convolution graph produced nondeterministic
+output under repeated execution, and direct multi-token GDN carried a wrong
+in-graph recurrent layout. Those candidates are diagnostics, not accepted
+implementations.
+
+The active Conv and GDN runtime therefore compiles one generic `T=1` PyPTO
+primitive and sequences it on the caller stream for each request token. Decode
+uses one launch; a prefill of length `T` uses `T` ordered PyPTO launches. This
+does not introduce eager ATen or another compute provider into the candidate
+operator. It preserves exact Conv state, near-FP32 GDN state and repeatable
+outputs across three fresh processes.
+
+This choice accepts correctness and state ordering only. It does not claim
+that tokenwise prefill is fast, nor does it accept SGLang CUDA Graph capture,
+radix state checkpointing or model execution. Those remain the next explicit
+gates; optimization may fuse tokens only after it reproduces the accepted
+state/output evidence without a fallback.
+
 ## D-0017: Final acceptance is a per-kernel PyPTO-versus-SGLang-default comparison
 
 The user reconfirmed on 2026-08-26 that the end state is Qwen3.5-9B running
