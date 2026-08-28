@@ -144,26 +144,42 @@ def create_attention_backend(model_runner: Any) -> Any:
                 )
 
         @staticmethod
-        def _validate_qkv(q: Any, k: Any, v: Any) -> None:
+        def _normalize_qkv(q: Any, k: Any, v: Any) -> tuple[Any, Any, Any]:
             if k is None or v is None:
                 raise BackendNotReadyError(
                     "PyPTO attention does not implement cross-layer KV sharing."
                 )
-            if any(
-                tensor.ndim != 2
-                or tensor.dtype is not torch.bfloat16
-                or tensor.stride(1) != 1
-                or tensor.stride(0) < tensor.shape[1]
-                for tensor in (q, k, v)
-            ):
+            q_valid = (
+                q.ndim == 2
+                and q.dtype is torch.bfloat16
+                and q.stride(1) == 1
+                and q.stride(0) >= q.shape[1]
+            )
+            kv_valid = all(
+                tensor.ndim == 3
+                and tensor.dtype is torch.bfloat16
+                and tensor.stride(2) == 1
+                and tensor.stride(1) == tensor.shape[2]
+                and tensor.stride(0) >= tensor.shape[1] * tensor.shape[2]
+                for tensor in (k, v)
+            )
+            if not q_valid or not kv_valid:
+                details = "; ".join(
+                    f"{name}: shape={tuple(tensor.shape)}, dtype={tensor.dtype}, "
+                    f"stride={tuple(tensor.stride())}"
+                    for name, tensor in (("q", q), ("k", k), ("v", v))
+                )
                 raise BackendNotReadyError(
-                    "PyPTO attention requires rank-2 BF16 Q/K/V with unit "
-                    "inner strides and non-overlapping static row pitches."
+                    "PyPTO attention requires row-pitched rank-2 Q and "
+                    "head-dense rank-3 K/V BF16 views; "
+                    + details
                 )
             if q.shape[0] != k.shape[0] or k.shape != v.shape:
                 raise BackendNotReadyError(
                     "PyPTO attention received incompatible Q/K/V token rows."
                 )
+            rows = int(k.shape[0])
+            return q, k.view(rows, -1), v.view(rows, -1)
 
         def _flat_cache(self, layer: Any) -> tuple[Any, Any]:
             key_cache = self.token_to_kv_pool.get_key_buffer(layer.layer_id)
@@ -278,7 +294,7 @@ def create_attention_backend(model_runner: Any) -> Any:
                     "PyPTO decode received a non-decode SGLang forward mode."
                 )
             self._validate_layer(layer)
-            self._validate_qkv(q, k, v)
+            q, k, v = self._normalize_qkv(q, k, v)
             key_cache, value_cache = self._flat_cache(layer)
             with pypto_stream(q.device) as stream:
                 self._write_cache(
@@ -329,7 +345,7 @@ def create_attention_backend(model_runner: Any) -> Any:
                     "PyPTO causal prefill currently accepts only plain EXTEND mode."
                 )
             self._validate_layer(layer)
-            self._validate_qkv(q, k, v)
+            q, k, v = self._normalize_qkv(q, k, v)
             if forward_batch.req_pool_indices.numel() != 1:
                 raise BackendNotReadyError(
                     "PyPTO causal prefill currently supports exactly one request."
