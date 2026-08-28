@@ -882,7 +882,6 @@ def _reference_schedule(tile_shape: tuple[int, ...]) -> Any:
         ScheduleParameter,
         ScheduleValueKind,
     )
-
     if not tile_shape or any(
         type(extent) is not int or extent <= 0 for extent in tile_shape
     ):
@@ -909,6 +908,14 @@ def _reference_schedule(tile_shape: tuple[int, ...]) -> Any:
             parameter("uniform_signature", ScheduleValueKind.Boolean, "false"),
         ],
     )
+
+
+def _pointwise_tile_shape(shape: tuple[int, ...], tile: int) -> tuple[int, ...]:
+    """Match TensorIR's canonical removal of unit iteration dimensions."""
+
+    if not shape or tile <= 0 or shape[-1] % tile:
+        raise StrictCoverageError("pointwise shape is incompatible with its tile")
+    return (*([1] * sum(extent != 1 for extent in shape[:-1])), tile)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1094,7 +1101,7 @@ def compile_pointwise(
                 device_index=device_index,
             )
             tile_shape = (
-                (*([1] * (len(program.shape) - 1)), tile)
+                _pointwise_tile_shape(program.shape, tile)
                 if isinstance(program, NativePointwiseProgram)
                 else (tile,)
             )
