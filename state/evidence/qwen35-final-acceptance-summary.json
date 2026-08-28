@@ -1,0 +1,152 @@
+{
+  "acceptance": {
+    "compute_fallbacks": 0,
+    "coverage_mode": "strict",
+    "exact_prompt": true,
+    "model_forward_compute": "100% PyPTO artifacts",
+    "status": "accepted",
+    "upstream_sglang_diff": 0
+  },
+  "build": {
+    "compiler_revision": "9e13b4301faeee482bb63e16e7991d0b597a5a51",
+    "dso_bytes": 797092728,
+    "dso_path": "builds/pypto-paged-f34c3f5/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "dso_sha256": "b59d69f136f8e004727e39d9cb4faa77e4b127f1a097e00c367fed426f4c854f",
+    "kernel_revision": "37fe6da2358c44544772fdeef8d18c806e58fbbb",
+    "plugin_revision": "6654b6047f65a287ec353f1708cd52100a0d71d3",
+    "root_code_revision": "98abcd4a5af4e125cd486348371d91a78f2ec6ed",
+    "sglang_revision": "71de97b264b04dcd514cf904003028aefe9775c8"
+  },
+  "kind": "qwen35-final-acceptance-summary",
+  "models": {
+    "0.8B": {
+      "coverage": {
+        "compute_calls_per_request": 1006,
+        "excluded_runtime_groups": 0,
+        "fallback_groups": 0,
+        "violation_count": 0
+      },
+      "decoded_text": "elda",
+      "logits_sha256": "60bec709a899df11f22eb3c4c1d3cf07d0178b5abe6ff23cc571b49a68849e8a",
+      "next_token_ids": [35685],
+      "parity": {
+        "candidate_top1_margin": 1.875,
+        "cosine_similarity": 0.9839786262569689,
+        "max_abs_error": 2.25,
+        "max_relative_error": 1.9280575513839722,
+        "mean_abs_error": 0.35087454319000244,
+        "passed": true,
+        "top5_token_overlap": 4
+      },
+      "performance": {
+        "cold_compile_warmup_ms": 219161.074427,
+        "cold_model_load_ms": 2148.388966,
+        "median_latency_ms": 191.9732835,
+        "p90_latency_ms": 233.076893,
+        "prompt_tokens_per_second_at_median": 98.97210514712064,
+        "run_id": "pypto-gpu-bounded-20260828T134707Z-1202730-39cf16",
+        "sha256": "8ba6e0e6d76a98dc80d2a886c57b896d532df9a22257c087811e75e78d9638ee"
+      },
+      "policy": {
+        "path": "state/evidence/qwen35-0p8b-parity-policy-v2.json",
+        "sha256": "649f435f36c2e0d4401cbdb00968d0c9eb0f3e554b701e40930db539c5309601"
+      },
+      "profile": {
+        "compute_gpu_median_ms": 162.8691775,
+        "largest_source": "pypto_kernels.linear:linear_kernel",
+        "largest_source_gpu_time_share": 0.9605935504307906
+      },
+      "stability": {
+        "accepted_requests": 30,
+        "fresh_start_run_ids": [
+          "pypto-gpu-bounded-20260828T132808Z-1195819-7362d2",
+          "pypto-gpu-bounded-20260828T133554Z-1199328-6ac742",
+          "pypto-gpu-bounded-20260828T133949Z-1200660-64e618"
+        ],
+        "report_sha256": [
+          "36c8ec426d0ff762e28b4b015dfc902fdacd85bd4966479275c98b72d30f8e8f",
+          "0d1c3e4fdc0662c5c06eca336f50fab6ef564f5d1d477c4a214f67efb28f3cf0",
+          "fa4416457fe3ca89cdd9c3f635269d5e62c9bf0ac161778d3b1bfdaf832976ab"
+        ],
+        "unique_logits_sha256": 1
+      }
+    },
+    "9B": {
+      "coverage": {
+        "compute_calls_per_request": 1364,
+        "excluded_runtime": "58 CUDA memcpy calls for CPU offload",
+        "fallback_groups": 0,
+        "violation_count": 0
+      },
+      "decoded_text": "《",
+      "logits_sha256": "55bdbf07b552b6b1670022224e7f7e4d4f62eeeab9721d408d47ba7c4efe8fc4",
+      "next_token_ids": [26076],
+      "parity": {
+        "candidate_top1_margin": 0.625,
+        "cosine_similarity": 0.9948127665474364,
+        "max_abs_error": 1.734375,
+        "max_relative_error": 1.3361486196517944,
+        "mean_abs_error": 0.25772637128829956,
+        "passed": true,
+        "top5_token_overlap": 4
+      },
+      "performance": {
+        "cold_compile_warmup_ms": 141962.370032,
+        "cold_model_load_ms": 121007.298835,
+        "median_latency_ms": 2444.845479,
+        "p90_latency_ms": 2451.237594,
+        "prompt_tokens_per_second_at_median": 7.771452291443569,
+        "run_id": "pypto-gpu-bounded-20260828T135117Z-1204351-65d539",
+        "sha256": "aeb8d732d278bae3a25acb4e0c6fdd483cbfd9b78821f5103c135bc862ef0a32"
+      },
+      "policy": {
+        "path": "state/evidence/qwen35-9b-parity-policy-v1.json",
+        "sha256": "807788fad3665ccfb93351fb81fc4e5b2f283221a61c1f426f6535178a5d3e92"
+      },
+      "profile": {
+        "compute_gpu_median_ms": 2176.4260745,
+        "cpu_offload_memcpy_ms_per_request": 45.47023263333333,
+        "largest_source": "pypto_kernels.linear:linear_kernel",
+        "largest_source_gpu_time_share": 0.9901913690379553
+      },
+      "stability": {
+        "accepted_requests": 30,
+        "fresh_start_run_ids": [
+          "pypto-gpu-bounded-20260828T131114Z-1189354-106cc1",
+          "pypto-gpu-bounded-20260828T131358Z-1190335-677039",
+          "pypto-gpu-bounded-20260828T131644Z-1191371-4a86db"
+        ],
+        "report_sha256": [
+          "2acf4730e07c2765575e51f4fa4ed0869c286de494798414ffdba70075345029",
+          "1ec2064f8206b6cb90aa6f4a48820be0f110130cd2a1fcfd61087773ab1a1be7",
+          "3ed9c9ebe4e41f7d9b90fb9b10badc43da81671af6c9cf2835bdebe8536db83b"
+        ],
+        "unique_logits_sha256": 1
+      }
+    }
+  },
+  "parallelism": {
+    "build": 24,
+    "ctest": 24,
+    "pytest": 24
+  },
+  "profile_summary": {
+    "path": "state/evidence/qwen35-final-strict-profile-summary.json",
+    "sha256": "4c599bddc6bc6497f97181dc713415db5a9ceeced1ac6a02d2b6cd561edc072b"
+  },
+  "prompt": "为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？",
+  "resource_policy": {
+    "gpu_free_floor_mib": 4096,
+    "host_abort_floor_gib": 16,
+    "host_emergency_floor_gib": 15,
+    "launch_admission_floor_gib": null,
+    "legacy_22_gib_gate": false
+  },
+  "schema": 1,
+  "tests": {
+    "bounded_controller": "11 passed, 23 subtests passed",
+    "compiler_ctest": "13/13 passed with -j24",
+    "kernel_pytest": "21/21 passed with -n24",
+    "plugin_pytest": "125/125 passed with -n24"
+  }
+}
