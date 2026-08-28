@@ -130,6 +130,15 @@ class PointwiseCodegenTest(unittest.TestCase):
         self.assertEqual(artifact.argument_count, 3)
         self.assertTrue(artifact.source_node.startswith("torch-inductor:"))
 
+    def test_pointwise_schedule_preserves_iteration_rank(self) -> None:
+        schedule = pc._reference_schedule((1, 1, 128))
+        self.assertEqual(
+            [(item.name, item.canonical_value) for item in schedule.tile],
+            [("dim_000", "1"), ("dim_001", "1"), ("dim_002", "128")],
+        )
+        with self.assertRaises(StrictCoverageError):
+            pc._reference_schedule(())
+
     def test_real_dso_digest_and_directory_uniqueness(self) -> None:
         dso = pc.pypto_dso_path()
         with dso.open("rb") as stream:

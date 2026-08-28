@@ -876,18 +876,26 @@ def _reference_request(
     return CompileRequest(target, toolchain)
 
 
-def _reference_schedule(tile: int) -> Any:
+def _reference_schedule(tile_shape: tuple[int, ...]) -> Any:
     from pypto.compiler import (
         CanonicalSchedule,
         ScheduleParameter,
         ScheduleValueKind,
     )
 
+    if not tile_shape or any(
+        type(extent) is not int or extent <= 0 for extent in tile_shape
+    ):
+        raise StrictCoverageError("pointwise schedule tile shape must be positive")
+
     parameter = ScheduleParameter
     unsigned = ScheduleValueKind.UnsignedInteger
     return CanonicalSchedule(
         [parameter("codegen_strategy", ScheduleValueKind.Text, "layout-propagation")],
-        [parameter("dim_000", unsigned, str(tile))],
+        [
+            parameter(f"dim_{index:03d}", unsigned, str(extent))
+            for index, extent in enumerate(tile_shape)
+        ],
         [],
         [],
         [parameter("count", unsigned, "1")],
@@ -1085,7 +1093,12 @@ def compile_pointwise(
                 require_live_target=prewarm_runtime,
                 device_index=device_index,
             )
-            schedule = _reference_schedule(tile)
+            tile_shape = (
+                (*([1] * (len(program.shape) - 1)), tile)
+                if isinstance(program, NativePointwiseProgram)
+                else (tile,)
+            )
+            schedule = _reference_schedule(tile_shape)
             specialized = (
                 program.specialize(tile)
                 if isinstance(program, NativePointwiseProgram)
