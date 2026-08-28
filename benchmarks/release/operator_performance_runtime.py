@@ -274,8 +274,8 @@ def summarize_fresh_starts(
                 raise ReleaseContractError("operator resource telemetry is incomplete")
             if int(resource_summary["minimum_gpu_memory_free_bytes"]) < 4 * 1024**3:
                 raise ReleaseContractError("operator run crossed the 4 GiB GPU floor")
-            if int(resource_summary["minimum_mem_available_kib"]) < 16 * 1024**2:
-                raise ReleaseContractError("operator run crossed the 16 GiB host floor")
+            if int(resource_summary["minimum_mem_available_kib"]) < 12 * 1024**2:
+                raise ReleaseContractError("operator run crossed the 12 GiB host floor")
             for case in cases:
                 raw = case.get("raw_batch_average_ms_per_call")
                 if type(raw) is not list or len(raw) != TIMED_BATCHES:

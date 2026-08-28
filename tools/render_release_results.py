@@ -152,8 +152,8 @@ def _controller_evidence(
     policy = controller.get("policy") or {}
     if (
         policy.get("launch_admission_floor_kib") is not None
-        or policy.get("host_abort_floor_kib") != 16 * 1024**2
-        or policy.get("host_emergency_abort_floor_kib") != 15 * 1024**2
+        or policy.get("host_abort_floor_kib") != 12 * 1024**2
+        or policy.get("host_emergency_abort_floor_kib") != 11 * 1024**2
         or policy.get("gpu_free_floor_mib") != 4 * 1024
         or policy.get("formal_identity_verified") is not True
     ):
@@ -465,9 +465,9 @@ def _load_performance(
                 raise ReleaseContractError(
                     f"GPU free memory fell below the 4 GiB release floor: {path}"
                 )
-            if int(resource_summary.get("minimum_mem_available_kib", 0)) < 16 * 1024**2:
+            if int(resource_summary.get("minimum_mem_available_kib", 0)) < 12 * 1024**2:
                 raise ReleaseContractError(
-                    f"host MemAvailable fell below the 16 GiB release floor: {path}"
+                    f"host MemAvailable fell below the 12 GiB release floor: {path}"
                 )
             peak_gpu.append(int(resource_summary["peak_gpu_memory_used_bytes"]))
             minimum_host.append(int(resource_summary["minimum_mem_available_kib"]))

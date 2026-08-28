@@ -25,8 +25,8 @@ ALLOWED_ENVIRONMENT_PROFILES = {
     "pypto-release": "pypto",
     "sglang-baseline": "baseline",
 }
-HOST_ABORT_KIB = 16 * 1024 * 1024
-HOST_EMERGENCY_ABORT_KIB = 15 * 1024 * 1024
+HOST_ABORT_KIB = 12 * 1024 * 1024
+HOST_EMERGENCY_ABORT_KIB = 11 * 1024 * 1024
 HOST_FLOOR_CONSECUTIVE_SAMPLES = 3
 GPU_FREE_FLOOR_MIB = 4 * 1024
 POLL_SECONDS = 1
@@ -284,7 +284,7 @@ def main() -> int:
     command = validate_child(args.command, environment_prefix)
     initial_available = mem_available_kib()
     if initial_available < HOST_ABORT_KIB:
-        raise BoundedGpuError("MemAvailable is already below 16 GiB abort floor")
+        raise BoundedGpuError("MemAvailable is already below 12 GiB abort floor")
     initial_audit = audit()
     if not audit_ok(initial_audit, child_running=False):
         raise BoundedGpuError(

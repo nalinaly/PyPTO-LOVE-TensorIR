@@ -140,8 +140,8 @@ class BoundedGpuPolicyTest(unittest.TestCase):
         cls.script = str((ROOT / "tools/run_pypto_gpu_bounded.py").resolve(strict=True))
 
     def test_policy_has_runtime_safety_floors_not_22_gib_admission(self) -> None:
-        self.assertEqual(gpu.HOST_ABORT_KIB, 16 * 1024 * 1024)
-        self.assertEqual(gpu.HOST_EMERGENCY_ABORT_KIB, 15 * 1024 * 1024)
+        self.assertEqual(gpu.HOST_ABORT_KIB, 12 * 1024 * 1024)
+        self.assertEqual(gpu.HOST_EMERGENCY_ABORT_KIB, 11 * 1024 * 1024)
         self.assertEqual(gpu.HOST_FLOOR_CONSECUTIVE_SAMPLES, 3)
         self.assertEqual(gpu.GPU_FREE_FLOOR_MIB, 4 * 1024)
         self.assertEqual(gpu.POLL_SECONDS, 1)

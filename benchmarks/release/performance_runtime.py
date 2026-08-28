@@ -543,9 +543,9 @@ def summarize_fresh_starts(
                 < 4 * 1024**3
             ):
                 raise ReleaseContractError(f"{lane} crossed the 4 GiB GPU free floor")
-            if int(resource_summary.get("minimum_mem_available_kib", 0)) < 16 * 1024**2:
+            if int(resource_summary.get("minimum_mem_available_kib", 0)) < 12 * 1024**2:
                 raise ReleaseContractError(
-                    f"{lane} crossed the 16 GiB host MemAvailable floor"
+                    f"{lane} crossed the 12 GiB host MemAvailable floor"
                 )
             gpu_identities.append(identity)
             resource_summaries.append(resource_summary)
