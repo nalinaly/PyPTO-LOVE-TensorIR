@@ -275,6 +275,22 @@ def test_qk_norm_partial_rope_gate_is_one_native_graph():
     assert "repeated_positions: pl.Tensor[[2, 64], pl.INT32]" in pitched_fp32_cache
 
 
+@pytest.mark.parametrize(
+    ("rows", "q_heads", "kv_heads"),
+    ((1, 8, 2), (19, 8, 2), (1, 16, 4), (19, 16, 4)),
+)
+def test_qk_real_qwen35_decode_and_prefill_geometries(
+    rows: int, q_heads: int, kv_heads: int
+) -> None:
+    rendered = str(
+        qk_rmsnorm_rope.build(rows, q_heads, kv_heads, 256, 64, 262144)
+    )
+    assert f"pl.range({rows})" in rendered or rows == 1
+    assert f"pl.range({q_heads})" in rendered
+    assert f"pl.range({kv_heads})" in rendered
+    assert rendered.count("pl.tile.store") == 3
+
+
 def _one_program(p):
     assert len(p.functions) == 1
     fn = list(p.functions.values())[0]
@@ -466,6 +482,21 @@ def test_linear_is_one_native_tile_graph():
     assert "pl.TensorView(stride=[8192, 1]" in pitched
 
 
+@pytest.mark.parametrize(
+    ("rows", "hidden", "intermediate"),
+    ((1, 1024, 3584), (19, 1024, 3584), (1, 4096, 12288), (19, 4096, 12288)),
+)
+def test_linear_and_lm_head_real_qwen35_geometries(
+    rows: int, hidden: int, intermediate: int
+) -> None:
+    dense = str(linear.build(rows, hidden, 2 * intermediate))
+    lm_head = str(linear.build(rows, hidden, 248320, "float32"))
+    assert f"pl.Tensor[[{rows}, {hidden}], pl.BF16]" in dense
+    assert f"pl.Out[pl.Tensor[[{rows}, {2 * intermediate}], pl.BF16]]" in dense
+    assert f"pl.Out[pl.Tensor[[{rows}, 248320], pl.FP32]]" in lm_head
+    assert lm_head.count("pl.tile.cast") == 2
+
+
 def test_gdn_recurrent_is_one_mutation_declared_graph():
     program = gdn.build_recurrent(2, 1, 8, 16, 128, 128, 65, 16 * 128 * 128 + 4096)
     rendered = str(program)
@@ -491,6 +522,24 @@ def test_gdn_recurrent_schedule_omits_unit_iteration_dimensions():
     assert gdn._recurrent_tiles(1, 1, 8, 16, 128) == [1, 1, 64]
     assert gdn._recurrent_tiles(2, 1, 8, 16, 128) == [1, 1, 1, 64]
     assert gdn._recurrent_tiles(1, 1, 1, 1, 48) == [32]
+
+
+@pytest.mark.parametrize(
+    ("value_heads", "channels"), ((16, 6144), (32, 8192))
+)
+def test_stateful_real_qwen35_geometries_are_single_token_primitives(
+    value_heads: int, channels: int
+) -> None:
+    conv = str(causal_conv1d.build(1, 1, channels))
+    recurrent = str(
+        gdn.build_recurrent(1, 1, 16, value_heads, 128, 128, 65)
+    )
+    projection = str(gdn_projection.build(19, 16, value_heads, 128, 128))
+    assert f"pl.Tensor[[1, 1, {channels}], pl.BF16]" in conv
+    assert f"pl.range({value_heads})" in recurrent
+    assert "pl.range(19)" in projection
+    assert causal_conv1d._MAX_FUSED_TOKENS == 1
+    assert gdn._MAX_FUSED_TOKENS == 1
 
 
 def test_gdn_projection_split_is_one_packed_output_graph():

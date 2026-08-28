@@ -56,6 +56,15 @@ def main(argv: list[str] | None = None) -> int:
         ),
         ("embedding", embedding.build(32, 248320, 1024), [8, 128]),
         (
+            "integer_gather",
+            embedding.integer_gather_kernel.specialize(
+                torch.empty((65, 1), dtype=torch.int32, device="meta"),
+                torch.empty((19, 1), dtype=torch.int64, device="meta"),
+                torch.empty((19, 1), dtype=torch.int32, device="meta"),
+            ),
+            [1],
+        ),
+        (
             "qk_rmsnorm_rope",
             qk_rmsnorm_rope.build(2, 8, 2, 256, 64, 262144),
             [1, 1, 1, 1, 1, 32],
@@ -120,6 +129,11 @@ def main(argv: list[str] | None = None) -> int:
             [1, 1, 1, 128],
         ),
         ("linear", linear.build(32, 1024, 1024), [1, 128]),
+        (
+            "linear_to_float",
+            linear.build(19, 4096, 248320, "float32"),
+            [1, 128],
+        ),
         (
             "gdn_projection_split",
             gdn_projection.build(13, 8, 16, 128, 128),

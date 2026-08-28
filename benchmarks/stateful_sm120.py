@@ -16,12 +16,25 @@ sys.path.insert(0, str(KERNEL_ROOT / "src"))
 
 import torch  # noqa: E402
 
+from _qwen35_models import (  # noqa: E402
+    Qwen35Shape,
+    load_release_shapes,
+    parse_release_rows,
+)
 from pypto_kernels import causal_conv1d, gdn, gdn_projection  # noqa: E402
 from pypto_kernels._boot import bootstrap, loaded_dso_path  # noqa: E402
 
 
-def projection_case(stream: torch.cuda.Stream) -> dict[str, object]:
-    rows, q_heads, value_heads, dk, dv = 13, 8, 16, 128, 128
+def projection_case(
+    stream: torch.cuda.Stream,
+    *,
+    shape: Qwen35Shape,
+    rows: int,
+) -> dict[str, object]:
+    q_heads = shape.linear_q_heads
+    value_heads = shape.linear_value_heads
+    dk = shape.linear_key_dim
+    dv = shape.linear_value_dim
     mixed_width = 2 * q_heads * dk + value_heads * dv
     z_width = value_heads * dv
     qkvz = torch.randn(rows, mixed_width + z_width, device="cuda", dtype=torch.bfloat16)
@@ -48,8 +61,20 @@ def projection_case(stream: torch.cuda.Stream) -> dict[str, object]:
         for observed, reference in zip(actual, expected)
     ]
     return {
-        "case": "gdn_projection_packed_t13_h8_hv16",
+        "case": f"gdn_projection_{shape.model}_rows{rows}",
+        "operator": "gdn_projection",
+        "model": shape.model,
+        "rows": rows,
+        "q_heads": q_heads,
+        "value_heads": value_heads,
+        "key_dim": dk,
+        "value_dim": dv,
+        "input_shapes": [list(qkvz.shape), list(ba.shape)],
+        "input_strides": [list(qkvz.stride()), list(ba.stride())],
+        "input_dtype": str(qkvz.dtype),
         "launches": 1,
+        "launch_count": 1,
+        "launch_topology": "one_packed_projection_launch",
         "outputs_contiguous": [value.is_contiguous() for value in actual],
         "shared_storage": len({value.untyped_storage().data_ptr() for value in actual})
         == 1,
@@ -64,12 +89,13 @@ def projection_case(stream: torch.cuda.Stream) -> dict[str, object]:
 def conv_case(
     stream: torch.cuda.Stream,
     *,
+    shape: Qwen35Shape,
     batch_size: int,
     tokens: int,
     index_dtype: torch.dtype,
     repetitions: int = 1,
 ) -> dict[str, object]:
-    channels = 4096
+    channels = shape.conv_channels
     rows = batch_size * tokens
     x = torch.randn(rows, channels, device="cuda", dtype=torch.bfloat16) * 0.2
     weight = torch.randn(channels, 4, device="cuda", dtype=torch.bfloat16) * 0.2
@@ -153,8 +179,30 @@ def conv_case(
         selected_expected.transpose(1, 2).contiguous().view(batch_size, 3, channels)
     )
     return {
-        "case": f"causal_conv_plane_b{batch_size}_t{tokens}_{index_dtype}",
-        "launches": 1 if tokens == 1 else batch_size * tokens,
+        "case": f"causal_conv1d_{shape.model}_rows{rows}",
+        "operator": "causal_conv1d",
+        "model": shape.model,
+        "rows": rows,
+        "channels": channels,
+        "batch_size": batch_size,
+        "tokens_per_request": tokens,
+        "index_dtype": str(index_dtype),
+        "input_shape": list(x.shape),
+        "input_stride": list(x.stride()),
+        "weight_shape": list(weight.shape),
+        "weight_stride": list(weight.stride()),
+        "state_shape": list(state.shape),
+        "state_stride": list(state.stride()),
+        "input_dtype": str(x.dtype),
+        "state_dtype": str(state.dtype),
+        "launches": 1 if tokens == 1 else rows,
+        "launch_count": 1 if tokens == 1 else rows,
+        "launch_topology": (
+            "one_batched_single_token_launch"
+            if tokens == 1
+            else "request_major_tokenwise_single_token_launches"
+        ),
+        "tokens_per_launch": 1,
         "repetitions": repetitions,
         "output_drift": output_drift,
         "state_drift": state_drift,
@@ -202,13 +250,17 @@ def conv_case(
 def gdn_case(
     stream: torch.cuda.Stream,
     *,
+    shape: Qwen35Shape,
     batch_size: int,
     tokens: int,
     index_dtype: torch.dtype,
     controlled_outer: bool = False,
     controlled_decay: bool = False,
 ) -> dict[str, object]:
-    q_heads, value_heads, dk, dv = 8, 16, 128, 128
+    q_heads = shape.linear_q_heads
+    value_heads = shape.linear_value_heads
+    dk = shape.linear_key_dim
+    dv = shape.linear_value_dim
     rows = batch_size * tokens
     mixed_width = 2 * q_heads * dk + value_heads * dv
     mixed_qkv = (
@@ -361,15 +413,40 @@ def gdn_case(
     )
     return {
         "case": (
-            f"gdn_outer_b{batch_size}_t{tokens}_{index_dtype}"
+            f"gdn_outer_{shape.model}_rows{rows}"
             if controlled_outer
             else (
-                f"gdn_decay_b{batch_size}_t{tokens}_{index_dtype}"
+                f"gdn_decay_{shape.model}_rows{rows}"
                 if controlled_decay
-                else f"gdn_recurrent_b{batch_size}_t{tokens}_{index_dtype}"
+                else f"gdn_recurrent_{shape.model}_rows{rows}"
             )
         ),
+        "operator": "gdn_recurrent",
+        "model": shape.model,
+        "rows": rows,
+        "q_heads": q_heads,
+        "value_heads": value_heads,
+        "key_dim": dk,
+        "value_dim": dv,
+        "batch_size": batch_size,
+        "tokens_per_request": tokens,
+        "index_dtype": str(index_dtype),
+        "mixed_qkv_shape": list(mixed_qkv.shape),
+        "mixed_qkv_stride": list(mixed_qkv.stride()),
+        "gate_shape": list(a.shape),
+        "gate_stride": list(a.stride()),
+        "state_shape": list(state.shape),
+        "state_stride": list(state.stride()),
+        "mixed_qkv_dtype": str(mixed_qkv.dtype),
+        "state_dtype": str(state.dtype),
         "launches": launches,
+        "launch_count": launches,
+        "launch_topology": (
+            "one_batched_single_token_launch"
+            if tokens == 1
+            else "request_major_tokenwise_single_token_launches"
+        ),
+        "tokens_per_launch": 1,
         "state_slot_stride": slot_stride,
         "output_max_abs_diff": output_diff,
         "state_max_abs_diff": state_diff,
@@ -447,50 +524,67 @@ def gdn_case(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("cases", nargs="*")
+    parser.add_argument("--model-root", type=pathlib.Path, required=True)
+    parser.add_argument("--rows", default="1,19")
     parser.add_argument("--output", type=pathlib.Path, required=True)
     args = parser.parse_args(argv)
     output = args.output.resolve()
     if output == KERNEL_ROOT or KERNEL_ROOT in output.parents:
         raise ValueError("stateful output must be outside the source package")
-    torch.manual_seed(19)
+    seed = 19
+    torch.manual_seed(seed)
+    rows = parse_release_rows(args.rows)
+    shapes = load_release_shapes(args.model_root)
+    if not torch.cuda.is_available() or torch.cuda.get_device_capability(0) != (12, 0):
+        raise RuntimeError("this regression requires one visible SM120 CUDA device")
     stream = torch.cuda.Stream()
     requested = set(args.cases)
-    all_cases = {
-        "projection": lambda: projection_case(stream),
-        "conv_decode": lambda: conv_case(
-            stream, batch_size=2, tokens=1, index_dtype=torch.int32
-        ),
-        "conv_prefill": lambda: conv_case(
-            stream,
-            batch_size=1,
-            tokens=5,
-            index_dtype=torch.int64,
-            repetitions=10,
-        ),
-        "gdn_decode": lambda: gdn_case(
-            stream, batch_size=2, tokens=1, index_dtype=torch.int32
-        ),
-        "gdn_outer": lambda: gdn_case(
-            stream,
-            batch_size=1,
-            tokens=1,
-            index_dtype=torch.int32,
-            controlled_outer=True,
-        ),
-        "gdn_decay": lambda: gdn_case(
-            stream,
-            batch_size=1,
-            tokens=1,
-            index_dtype=torch.int32,
-            controlled_decay=True,
-        ),
-        "gdn_prefill3": lambda: gdn_case(
-            stream, batch_size=1, tokens=3, index_dtype=torch.int64
-        ),
-        "gdn_prefill13": lambda: gdn_case(
-            stream, batch_size=1, tokens=13, index_dtype=torch.int32
-        ),
-    }
+    all_cases = {}
+    for shape in shapes:
+        for row_count in rows:
+            suffix = f"{shape.model}_rows{row_count}"
+            index_dtype = torch.int32 if row_count == 1 else torch.int64
+            all_cases[f"projection_{suffix}"] = (
+                lambda shape=shape, row_count=row_count: projection_case(
+                    stream, shape=shape, rows=row_count
+                )
+            )
+            all_cases[f"conv_{suffix}"] = (
+                lambda shape=shape, row_count=row_count, index_dtype=index_dtype: conv_case(
+                    stream,
+                    shape=shape,
+                    batch_size=1,
+                    tokens=row_count,
+                    index_dtype=index_dtype,
+                    repetitions=2,
+                )
+            )
+            all_cases[f"gdn_{suffix}"] = (
+                lambda shape=shape, row_count=row_count, index_dtype=index_dtype: gdn_case(
+                    stream,
+                    shape=shape,
+                    batch_size=1,
+                    tokens=row_count,
+                    index_dtype=index_dtype,
+                )
+            )
+    small = shapes[0]
+    all_cases["gdn_outer_0_8b_rows1"] = lambda: gdn_case(
+        stream,
+        shape=small,
+        batch_size=1,
+        tokens=1,
+        index_dtype=torch.int32,
+        controlled_outer=True,
+    )
+    all_cases["gdn_decay_0_8b_rows1"] = lambda: gdn_case(
+        stream,
+        shape=small,
+        batch_size=1,
+        tokens=1,
+        index_dtype=torch.int32,
+        controlled_decay=True,
+    )
     unknown = requested - all_cases.keys()
     if unknown:
         raise ValueError(f"unknown stateful cases: {sorted(unknown)}")
@@ -501,6 +595,22 @@ def main(argv: list[str] | None = None) -> int:
         "schema": 1,
         "kind": "pypto-stateful-sm120",
         "run_id": os.environ.get("PYPTO_RUN_ID"),
+        "seed": seed,
+        "thresholds": {
+            "conv_output_rtol": 5e-2,
+            "conv_output_atol": 5e-2,
+            "conv_state": "exact",
+            "gdn_output_rtol": 8e-2,
+            "gdn_output_atol": 8e-2,
+            "gdn_state_rtol": 2e-3,
+            "gdn_state_atol": 2e-3,
+        },
+        "models": [shape.record() for shape in shapes],
+        "rows": list(rows),
+        "launch_contract": {
+            "causal_conv1d": "rows=1 is one launch; rows>1 is one launch per ordered token",
+            "gdn_recurrent": "rows=1 is one launch; rows>1 is one launch per ordered token",
+        },
         "dso_path": str(dso),
         "dso_sha256": hashlib.sha256(dso.read_bytes()).hexdigest(),
         "bootstrap": {
