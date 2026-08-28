@@ -18,11 +18,19 @@ from typing import Any, Iterator
 from ..errors import StrictCoverageError
 
 _DSO_ENVIRONMENT = "PYPTO_PLUGINS_PYPTO_DSO"
-POINTWISE_CODEGEN_REVISION = "strided-fp32-cast-dso-pid-20260828"
+POINTWISE_CODEGEN_REVISION = "audited-generated-source-v2-20260829"
 
 _lock = threading.Lock()
 _pypto_modules: dict[str, ModuleType] | None = None
 _OWNER_PID = os.getpid()
+
+
+def _is_sha256(value: object) -> bool:
+    return (
+        type(value) is str
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
 
 
 def _require_owner_process() -> None:
@@ -712,6 +720,10 @@ _RUNTIME_OBJECTS: dict[str, tuple[Any, Any]] = {}
 _RUNTIME_SOURCE_NODES: dict[str, str] = {}
 _RUNTIME_DEVICE_INDICES: dict[str, int] = {}
 _RUNTIME_DSO_SHA256: dict[str, str] = {}
+_RUNTIME_WRAPPER_SOURCES: dict[
+    str,
+    dict[tuple[str, str], "WrapperLaunchSource"],
+] = {}
 _RUNTIME_LOCK = threading.RLock()
 
 
@@ -734,11 +746,7 @@ def retain_runtime_objects(
         )
     if type(device_index) is not int or device_index < 0:
         raise StrictCoverageError("runtime object CUDA device index is invalid")
-    if (
-        type(dso_sha256) is not str
-        or len(dso_sha256) != 64
-        or any(character not in "0123456789abcdef" for character in dso_sha256)
-    ):
+    if not _is_sha256(dso_sha256):
         raise StrictCoverageError("runtime object DSO SHA256 is invalid")
     _require_owner_process()
     with _RUNTIME_LOCK:
@@ -795,10 +803,257 @@ class PointwiseArtifact:
     argument_count: int
     workspace_bytes: int
     fallback_used: bool
-    launcher_source: str
+    pypto_source: str
+    pypto_source_sha256: str
     cache_identity_sha256: str
     source_node: str
     dso_sha256: str
+
+    def __post_init__(self) -> None:
+        digests = (
+            self.build_spec_sha256,
+            self.artifact_sha256,
+            self.cubin_sha256,
+            self.pypto_source_sha256,
+            self.cache_identity_sha256,
+            self.dso_sha256,
+        )
+        if not all(_is_sha256(value) for value in digests):
+            raise StrictCoverageError("pointwise artifact has an invalid SHA256")
+        if type(self.pypto_source) is not str:
+            raise StrictCoverageError("pointwise generated source must be exact text")
+        source_digest = hashlib.sha256(self.pypto_source.encode("utf-8")).hexdigest()
+        if not self.pypto_source.startswith("@pl.jit\n"):
+            raise StrictCoverageError("pointwise artifact lacks generated @pl.jit source")
+        if self.pypto_source_sha256 != source_digest:
+            raise StrictCoverageError("pointwise generated source SHA256 differs")
+        if self.source_node != f"torch-inductor:{self.cache_identity_sha256[:16]}":
+            raise StrictCoverageError("pointwise source node is not cache-identity bound")
+        if self.kernel_name != f"pypto_inductor_{self.cache_identity_sha256[:16]}":
+            raise StrictCoverageError("pointwise kernel name is not cache-identity bound")
+
+
+@dataclass(frozen=True, slots=True)
+class WrapperLaunchSource:
+    """Exact source lines emitted into an Inductor Python wrapper."""
+
+    registry_name: str
+    kernel_name: str
+    source_node: str
+    artifact_id: str
+    artifact_sha256: str
+    header_source: str
+    header_source_sha256: str
+    launch_source: str
+    launch_source_sha256: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "registry_name": self.registry_name,
+            "kernel_name": self.kernel_name,
+            "source_node": self.source_node,
+            "artifact_id": self.artifact_id,
+            "artifact_sha256": self.artifact_sha256,
+            "header_source": self.header_source,
+            "header_source_sha256": self.header_source_sha256,
+            "launch_source": self.launch_source,
+            "launch_source_sha256": self.launch_source_sha256,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class PointwiseSourceEvidence:
+    """Audited generated-source and native-artifact binding."""
+
+    kernel_name: str
+    entry_name: str
+    source_node: str
+    cache_identity_sha256: str
+    build_spec_sha256: str
+    artifact_id: str
+    artifact_sha256: str
+    cubin_sha256: str
+    dso_sha256: str
+    pypto_source: str
+    pypto_source_sha256: str
+    wrapper_launch_sources: tuple[WrapperLaunchSource, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "kernel_name": self.kernel_name,
+            "entry_name": self.entry_name,
+            "source_node": self.source_node,
+            "cache_identity_sha256": self.cache_identity_sha256,
+            "build_spec_sha256": self.build_spec_sha256,
+            "artifact_id": self.artifact_id,
+            "artifact_sha256": self.artifact_sha256,
+            "cubin_sha256": self.cubin_sha256,
+            "dso_sha256": self.dso_sha256,
+            "pypto_source": self.pypto_source,
+            "pypto_source_sha256": self.pypto_source_sha256,
+            "wrapper_launch_sources": [
+                record.to_dict() for record in self.wrapper_launch_sources
+            ],
+        }
+
+
+def record_wrapper_launch_source(
+    registry_name: str,
+    artifact: PointwiseArtifact,
+    *,
+    header_lines: tuple[str, ...],
+    launch_line: str,
+) -> WrapperLaunchSource:
+    """Bind exact emitted wrapper lines to their retained native artifact."""
+
+    _require_owner_process()
+    if type(registry_name) is not str or not registry_name:
+        raise StrictCoverageError("wrapper registry name must be non-empty")
+    if type(artifact) is not PointwiseArtifact:
+        raise StrictCoverageError("wrapper source requires an exact pointwise artifact")
+    if (
+        type(header_lines) is not tuple
+        or not header_lines
+        or any(type(line) is not str or not line or "\n" in line for line in header_lines)
+    ):
+        raise StrictCoverageError("wrapper header lines must be exact non-empty lines")
+    if type(launch_line) is not str or not launch_line or "\n" in launch_line:
+        raise StrictCoverageError("wrapper launch line must be one exact source line")
+    if not launch_line.startswith(f"pypto_launch({registry_name!r}, "):
+        raise StrictCoverageError("wrapper launch line is not registry-name bound")
+
+    with _RUNTIME_LOCK:
+        retained = _RUNTIME_OBJECTS.get(registry_name)
+        retained_source_node = _RUNTIME_SOURCE_NODES.get(registry_name)
+        retained_dso = _RUNTIME_DSO_SHA256.get(registry_name)
+        if retained is None:
+            raise StrictCoverageError(
+                f"wrapper source has no retained runtime object for {registry_name!r}"
+            )
+        native_artifact, _request = retained
+        serialized = bytes(native_artifact.serialize())
+        artifact_sha256 = hashlib.sha256(serialized).hexdigest()
+        cubin_sha256 = hashlib.sha256(bytes(native_artifact.device_code)).hexdigest()
+        if (
+            artifact_sha256 != artifact.artifact_sha256
+            or cubin_sha256 != artifact.cubin_sha256
+            or str(native_artifact.kernel_abi.entry_function_name)
+            != artifact.entry_name
+            or bool(native_artifact.fallback_used) != artifact.fallback_used
+            or retained_source_node != artifact.source_node
+            or retained_dso != artifact.dso_sha256
+        ):
+            raise StrictCoverageError(
+                "wrapper source and retained native artifact identities differ"
+            )
+        artifact_id = f"pypto-artifact-v1:{native_artifact.identity_digest}"
+        header_source = "\n".join(header_lines) + "\n"
+        launch_source = launch_line + "\n"
+        header_sha256 = hashlib.sha256(header_source.encode("utf-8")).hexdigest()
+        launch_sha256 = hashlib.sha256(launch_source.encode("utf-8")).hexdigest()
+        record = WrapperLaunchSource(
+            registry_name=registry_name,
+            kernel_name=artifact.kernel_name,
+            source_node=artifact.source_node,
+            artifact_id=artifact_id,
+            artifact_sha256=artifact.artifact_sha256,
+            header_source=header_source,
+            header_source_sha256=header_sha256,
+            launch_source=launch_source,
+            launch_source_sha256=launch_sha256,
+        )
+        records = _RUNTIME_WRAPPER_SOURCES.setdefault(
+            artifact.cache_identity_sha256,
+            {},
+        )
+        previous = records.setdefault((header_sha256, launch_sha256), record)
+        if previous != record:
+            raise StrictCoverageError(
+                "conflicting wrapper source for one pointwise artifact identity"
+            )
+        return previous
+
+
+def pointwise_source_evidence(
+    artifact: PointwiseArtifact,
+    *,
+    require_wrapper_source: bool = True,
+) -> PointwiseSourceEvidence:
+    """Audit generated DSL, wrapper source and the retained native artifact."""
+
+    _require_owner_process()
+    if type(artifact) is not PointwiseArtifact:
+        raise StrictCoverageError("source evidence requires an exact pointwise artifact")
+    with _RUNTIME_LOCK:
+        retained = _RUNTIME_OBJECTS.get(artifact.kernel_name)
+        if retained is None:
+            raise StrictCoverageError("source evidence has no canonical runtime object")
+        native_artifact, _request = retained
+        artifact_sha256 = hashlib.sha256(
+            bytes(native_artifact.serialize())
+        ).hexdigest()
+        cubin_sha256 = hashlib.sha256(bytes(native_artifact.device_code)).hexdigest()
+        source_sha256 = hashlib.sha256(
+            artifact.pypto_source.encode("utf-8")
+        ).hexdigest()
+        if (
+            artifact_sha256 != artifact.artifact_sha256
+            or cubin_sha256 != artifact.cubin_sha256
+            or source_sha256 != artifact.pypto_source_sha256
+            or str(native_artifact.kernel_abi.entry_function_name)
+            != artifact.entry_name
+            or bool(native_artifact.fallback_used) != artifact.fallback_used
+            or _RUNTIME_SOURCE_NODES.get(artifact.kernel_name)
+            != artifact.source_node
+            or _RUNTIME_DSO_SHA256.get(artifact.kernel_name) != artifact.dso_sha256
+        ):
+            raise StrictCoverageError(
+                "generated source and retained native artifact identities differ"
+            )
+        artifact_id = f"pypto-artifact-v1:{native_artifact.identity_digest}"
+        wrapper_sources = tuple(
+            sorted(
+                _RUNTIME_WRAPPER_SOURCES.get(
+                    artifact.cache_identity_sha256,
+                    {},
+                ).values(),
+                key=lambda record: (
+                    record.registry_name,
+                    record.header_source_sha256,
+                    record.launch_source_sha256,
+                ),
+            )
+        )
+        if require_wrapper_source and not wrapper_sources:
+            raise StrictCoverageError("pointwise artifact has no emitted wrapper source")
+        for record in wrapper_sources:
+            if (
+                record.kernel_name != artifact.kernel_name
+                or record.source_node != artifact.source_node
+                or record.artifact_id != artifact_id
+                or record.artifact_sha256 != artifact.artifact_sha256
+                or hashlib.sha256(record.header_source.encode("utf-8")).hexdigest()
+                != record.header_source_sha256
+                or hashlib.sha256(record.launch_source.encode("utf-8")).hexdigest()
+                != record.launch_source_sha256
+            ):
+                raise StrictCoverageError(
+                    "emitted wrapper source lost its native artifact binding"
+                )
+        return PointwiseSourceEvidence(
+            kernel_name=artifact.kernel_name,
+            entry_name=artifact.entry_name,
+            source_node=artifact.source_node,
+            cache_identity_sha256=artifact.cache_identity_sha256,
+            build_spec_sha256=artifact.build_spec_sha256,
+            artifact_id=artifact_id,
+            artifact_sha256=artifact.artifact_sha256,
+            cubin_sha256=artifact.cubin_sha256,
+            dso_sha256=artifact.dso_sha256,
+            pypto_source=artifact.pypto_source,
+            pypto_source_sha256=artifact.pypto_source_sha256,
+            wrapper_launch_sources=wrapper_sources,
+        )
 
 
 def _live_target_or_none(device_index: int) -> Any:
@@ -1066,6 +1321,7 @@ def clear_caches_for_testing() -> None:
         _RUNTIME_SOURCE_NODES.clear()
         _RUNTIME_DEVICE_INDICES.clear()
         _RUNTIME_DSO_SHA256.clear()
+        _RUNTIME_WRAPPER_SOURCES.clear()
     _NATIVE_SOURCE_CACHE.clear()
     _REDUCTION_SOURCE_CACHE.clear()
 
@@ -1091,7 +1347,6 @@ def compile_pointwise(
     dso_sha256 = pypto_dso_sha256()
     revision_identity = _backend_revision_identity(info, dso_sha256)
     cache_key = (program, tile, revision_identity)
-    identity_sha = hashlib.sha256(repr(cache_key).encode("utf-8")).hexdigest()
     if isinstance(program, NativePointwiseProgram):
         if program.output_spec.device_type != "cuda":
             raise StrictCoverageError("native pointwise compilation requires CUDA")
@@ -1133,6 +1388,14 @@ def compile_pointwise(
                 if isinstance(program, NativePointwiseProgram)
                 else program.specialize()
             )
+            pypto_source = (
+                program.native_source(tile)
+                if isinstance(program, NativePointwiseProgram)
+                else program.native_source()
+            )
+            pypto_source_sha = hashlib.sha256(
+                pypto_source.encode("utf-8")
+            ).hexdigest()
             result = compiler.compile_structured_strict(
                 specialized,
                 request,
@@ -1146,25 +1409,37 @@ def compile_pointwise(
             kernel = artifact.kernel_abi
             cubin = bytes(artifact.device_code)
             cubin_sha = hashlib.sha256(cubin).hexdigest()
+            build_spec_sha = hashlib.sha256(
+                result.build_spec.serialize()
+            ).hexdigest()
+            artifact_sha = hashlib.sha256(artifact.serialize()).hexdigest()
+            identity_sha = hashlib.sha256(
+                b"pypto-inductor-source-artifact-v2\0"
+                + repr(cache_key).encode("utf-8")
+                + b"\0"
+                + pypto_source_sha.encode("ascii")
+                + b"\0"
+                + build_spec_sha.encode("ascii")
+                + b"\0"
+                + artifact_sha.encode("ascii")
+                + b"\0"
+                + cubin_sha.encode("ascii")
+            ).hexdigest()
             kernel_name = f"pypto_inductor_{identity_sha[:16]}"
             source_node = f"torch-inductor:{identity_sha[:16]}"
             cached = PointwiseArtifact(
                 kernel_name=kernel_name,
                 entry_name=kernel.entry_function_name,
-                build_spec_sha256=hashlib.sha256(
-                    result.build_spec.serialize()
-                ).hexdigest(),
-                artifact_sha256=hashlib.sha256(artifact.serialize()).hexdigest(),
+                build_spec_sha256=build_spec_sha,
+                artifact_sha256=artifact_sha,
                 cubin_sha256=cubin_sha,
                 cubin_bytes=len(cubin),
                 grid=tuple(kernel.grid_abi.static_dimensions),
                 argument_count=kernel.argument_layout.total_kernel_argument_count,
                 workspace_bytes=kernel.workspace_abi.size_bytes,
                 fallback_used=bool(artifact.fallback_used),
-                launcher_source=(
-                    f"def launch(stream, *tensors):\n"
-                    f"    return _PYPTO_REGISTRY[{cubin_sha!r}].launch(stream, tensors)\n"
-                ),
+                pypto_source=pypto_source,
+                pypto_source_sha256=pypto_source_sha,
                 cache_identity_sha256=identity_sha,
                 source_node=source_node,
                 dso_sha256=dso_sha256,
@@ -1218,6 +1493,8 @@ def compile_pointwise(
 __all__ = (
     "PointwiseArtifact",
     "PointwiseArtifactCapture",
+    "PointwiseSourceEvidence",
+    "WrapperLaunchSource",
     "NativePointwiseProgram",
     "NativeReductionProgram",
     "BackendRevisionIdentity",
@@ -1229,8 +1506,10 @@ __all__ = (
     "compile_cache_snapshot",
     "compile_pointwise",
     "current_backend_revision_identity",
+    "pointwise_source_evidence",
     "pypto_dso_path",
     "pypto_dso_sha256",
+    "record_wrapper_launch_source",
     "retain_runtime_objects",
     "runtime_objects",
     "runtime_device_index",

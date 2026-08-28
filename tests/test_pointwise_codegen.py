@@ -43,11 +43,47 @@ class PointwiseCodegenTest(unittest.TestCase):
         self.assertEqual(artifact.workspace_bytes, 0)
         self.assertFalse(artifact.fallback_used)
         self.assertEqual(artifact.dso_sha256, pc.pypto_dso_sha256())
+        self.assertEqual(artifact.pypto_source, native_source)
+        self.assertEqual(
+            artifact.pypto_source_sha256,
+            hashlib.sha256(native_source.encode("utf-8")).hexdigest(),
+        )
+        evidence = pc.pointwise_source_evidence(
+            artifact,
+            require_wrapper_source=False,
+        )
+        self.assertEqual(evidence.artifact_sha256, artifact.artifact_sha256)
+        self.assertEqual(evidence.pypto_source, native_source)
         with pc.capture_pointwise_artifacts() as capture:
             again = pc.compile_pointwise(builder.build(), tile=128)
         self.assertEqual(capture.single_artifact(), artifact)
         self.assertEqual(artifact.cubin_sha256, again.cubin_sha256)
         self.assertEqual(artifact.artifact_sha256, again.artifact_sha256)
+
+        header_lines = (
+            "from pypto_plugins.torch.runtime_bridge import pypto_launch",
+            "import torch as _pypto_torch",
+        )
+        launch_line = (
+            f"pypto_launch({artifact.kernel_name!r}, "
+            "(input_0, input_1, out, ), stream)"
+        )
+        wrapper = pc.record_wrapper_launch_source(
+            artifact.kernel_name,
+            artifact,
+            header_lines=header_lines,
+            launch_line=launch_line,
+        )
+        self.assertEqual(wrapper.launch_source, launch_line + "\n")
+        audited = pc.pointwise_source_evidence(artifact)
+        self.assertEqual(audited.wrapper_launch_sources, (wrapper,))
+        with self.assertRaisesRegex(StrictCoverageError, "registry-name bound"):
+            pc.record_wrapper_launch_source(
+                artifact.kernel_name,
+                artifact,
+                header_lines=header_lines,
+                launch_line="pypto_launch('other', (), stream)",
+            )
 
     def test_bf16_chain_compiles_and_widens(self) -> None:
         builder = pc.PointwiseProgramBuilder((64,), "bfloat16")

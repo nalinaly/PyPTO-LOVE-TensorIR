@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from types import SimpleNamespace
 
 import pytest
@@ -157,8 +158,9 @@ def test_pointwise_cast_recorder_is_explicit_and_bitcast_fails_closed() -> None:
 def test_callable_cache_compiles_once_and_reuses_prewarmed_artifact(monkeypatch) -> None:
     key = _call_key()
     calls = []
+    source = "@pl.jit\ndef generated_pointwise_kernel():\n    pass\n"
     artifact = pointwise_codegen.PointwiseArtifact(
-        kernel_name="stable-kernel",
+        kernel_name="pypto_inductor_4444444444444444",
         entry_name="stable_entry",
         build_spec_sha256="1" * 64,
         artifact_sha256="2" * 64,
@@ -168,9 +170,10 @@ def test_callable_cache_compiles_once_and_reuses_prewarmed_artifact(monkeypatch)
         argument_count=3,
         workspace_bytes=0,
         fallback_used=False,
-        launcher_source="launch",
+        pypto_source=source,
+        pypto_source_sha256=hashlib.sha256(source.encode("utf-8")).hexdigest(),
         cache_identity_sha256="4" * 64,
-        source_node="torch-inductor:stable-test",
+        source_node="torch-inductor:4444444444444444",
         dso_sha256="5" * 64,
     )
     REGISTRY.clear()
@@ -178,7 +181,7 @@ def test_callable_cache_compiles_once_and_reuses_prewarmed_artifact(monkeypatch)
 
     def compiled(_gate, _up):
         calls.append("launch")
-        REGISTRY.register("stable-kernel", artifact)
+        REGISTRY.register(artifact.kernel_name, artifact)
         pointwise_codegen._record_active_capture(artifact)
         return object()
 
@@ -189,7 +192,7 @@ def test_callable_cache_compiles_once_and_reuses_prewarmed_artifact(monkeypatch)
     monkeypatch.setattr(
         inductor_swiglu.runtime_bridge,
         "kernel_is_prewarmed",
-        lambda name: name == "stable-kernel",
+        lambda name: name == artifact.kernel_name,
     )
     first = inductor_swiglu.run_fp32_swiglu(object(), object())
     second = inductor_swiglu.run_fp32_swiglu(object(), object())
@@ -197,7 +200,7 @@ def test_callable_cache_compiles_once_and_reuses_prewarmed_artifact(monkeypatch)
     assert calls == ["launch", "launch"]
     snapshot = inductor_swiglu.callable_cache_snapshot()
     assert len(snapshot) == 1
-    assert snapshot[0][1:] == ("stable-kernel", "torch-inductor:stable-test")
+    assert snapshot[0][1:] == (artifact.kernel_name, artifact.source_node)
 
 
 def test_callable_cache_miss_during_trace_fails_before_compile(monkeypatch) -> None:
@@ -332,6 +335,11 @@ def test_compile_and_prewarm_share_one_locked_transaction(monkeypatch) -> None:
         pointwise_codegen.NativePointwiseProgram,
         "specialize",
         lambda *_a, **_k: object(),
+    )
+    monkeypatch.setattr(
+        pointwise_codegen.NativePointwiseProgram,
+        "native_source",
+        lambda *_a, **_k: "@pl.jit\ndef generated_pointwise_kernel():\n    pass\n",
     )
     monkeypatch.setattr(activity_trace, "trace_window_active", lambda: False)
     prewarmed = []
