@@ -53,6 +53,19 @@ class SourceReleaseTest(unittest.TestCase):
             {entry["path"]: entry["commit"] for entry in self.lock["pypto_submodules"]},
         )
 
+    def test_package_subtrees_match_their_original_commits(self) -> None:
+        report = source_release.verify_release_artifacts(ROOT, self.lock)
+        self.assertEqual(
+            report["packages"]["pypto-kernels"]["source_commit"],
+            "1df679147eb2d01b097c61f5b15e98a5e8062fdf",
+        )
+        self.assertEqual(
+            report["packages"]["pypto-framework-plugins"]["source_commit"],
+            "0ed10dca1f18ff801d05446cc4bcdd7ab5f2f603",
+        )
+        for package in report["packages"].values():
+            self.assertEqual(package["source_tree"], package["prefix_tree"])
+
     def test_bundles_are_hash_locked_and_materializable(self) -> None:
         report = source_release.verify_release_artifacts(ROOT, self.lock)
         self.assertTrue(report["pypto"]["bundle"]["clone_probe"])

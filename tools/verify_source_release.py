@@ -12,6 +12,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import tomllib
 from collections.abc import Iterable, Mapping
 from typing import Any
 
@@ -163,6 +164,21 @@ def load_lock(lock_path: pathlib.Path = DEFAULT_LOCK) -> dict[str, Any]:
     environment_artifacts = lock.get("environment_artifacts")
     if not isinstance(environment_artifacts, list) or len(environment_artifacts) != 3:
         raise SourceReleaseError("environment_artifacts must lock exactly three files")
+    packages = lock.get("packages")
+    expected_packages = {"pypto-kernels", "pypto-framework-plugins"}
+    if not isinstance(packages, dict) or set(packages) != expected_packages:
+        raise SourceReleaseError(
+            f"packages must be exactly {sorted(expected_packages)}"
+        )
+    for name, spec in packages.items():
+        if not isinstance(spec, dict):
+            raise SourceReleaseError(f"package specification is invalid: {name}")
+        _relative_path(pathlib.Path("."), spec.get("path"), f"packages.{name}.path")
+        _require_hex40(spec.get("source_commit"), f"packages.{name}.source_commit")
+        _require_hex40(spec.get("source_tree"), f"packages.{name}.source_tree")
+        _require_hex40(spec.get("prefix_tree"), f"packages.{name}.prefix_tree")
+        if not isinstance(spec.get("version"), str) or not spec["version"]:
+            raise SourceReleaseError(f"package version is missing: {name}")
     return lock
 
 
@@ -600,6 +616,42 @@ def verify_release_artifacts(
         "locked_artifacts": len(conda_lines) - 1 + len(requirements),
         "fresh_creation_status": artifact_lock["fresh_creation"]["status"],
     }
+    package_results: dict[str, object] = {}
+    for name, spec in lock["packages"].items():
+        package_path = _relative_path(root, spec["path"], f"packages.{name}.path")
+        if not package_path.is_dir() or package_path.is_symlink():
+            raise SourceReleaseError(f"package snapshot is missing: {package_path}")
+        if any(path.name == ".git" for path in package_path.rglob(".git")):
+            raise SourceReleaseError(f"package snapshot contains nested Git state: {name}")
+        source_commit = str(spec["source_commit"])
+        _git(root, "cat-file", "-e", f"{source_commit}^{{commit}}")
+        source_tree = _git(root, "rev-parse", f"{source_commit}^{{tree}}")
+        prefix_tree = _git(root, "rev-parse", f"HEAD:{spec['path']}")
+        if (
+            source_tree != spec["source_tree"]
+            or prefix_tree != spec["prefix_tree"]
+            or source_tree != prefix_tree
+        ):
+            raise SourceReleaseError(
+                f"package source/prefix tree differs for {name}: "
+                f"source={source_tree}, prefix={prefix_tree}"
+            )
+        try:
+            project = tomllib.loads(
+                (package_path / "pyproject.toml").read_text(encoding="utf-8")
+            )["project"]
+        except (OSError, KeyError, tomllib.TOMLDecodeError) as error:
+            raise SourceReleaseError(f"invalid package metadata for {name}: {error}")
+        if project.get("name") != name or project.get("version") != spec["version"]:
+            raise SourceReleaseError(f"package name/version differs for {name}")
+        package_results[name] = {
+            "path": spec["path"],
+            "source_commit": source_commit,
+            "source_tree": source_tree,
+            "prefix_tree": prefix_tree,
+            "version": spec["version"],
+        }
+    results["packages"] = package_results
     return results
 
 

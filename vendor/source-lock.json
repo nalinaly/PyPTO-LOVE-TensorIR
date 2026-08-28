@@ -40,6 +40,22 @@
       "revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a"
     }
   },
+  "packages": {
+    "pypto-framework-plugins": {
+      "path": "packages/pypto-framework-plugins",
+      "prefix_tree": "d7433ce56e225bf57716f5eec35227cf4ab418ee",
+      "source_commit": "0ed10dca1f18ff801d05446cc4bcdd7ab5f2f603",
+      "source_tree": "d7433ce56e225bf57716f5eec35227cf4ab418ee",
+      "version": "0.1.0.dev0"
+    },
+    "pypto-kernels": {
+      "path": "packages/pypto-kernels",
+      "prefix_tree": "6d401a2d8790cc5a1f299b5968b932ffacf22081",
+      "source_commit": "1df679147eb2d01b097c61f5b15e98a5e8062fdf",
+      "source_tree": "6d401a2d8790cc5a1f299b5968b932ffacf22081",
+      "version": "0.1.0"
+    }
+  },
   "pypto_submodules": [
     {
       "commit": "6f8310e238fc3ce68f42f391cbe93fd156bb2c23",
