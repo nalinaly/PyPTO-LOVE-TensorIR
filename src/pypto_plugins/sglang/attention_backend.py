@@ -152,11 +152,13 @@ def create_attention_backend(model_runner: Any) -> Any:
             if any(
                 tensor.ndim != 2
                 or tensor.dtype is not torch.bfloat16
-                or not tensor.is_contiguous()
+                or tensor.stride(1) != 1
+                or tensor.stride(0) < tensor.shape[1]
                 for tensor in (q, k, v)
             ):
                 raise BackendNotReadyError(
-                    "PyPTO attention requires contiguous rank-2 BF16 Q/K/V."
+                    "PyPTO attention requires rank-2 BF16 Q/K/V with unit "
+                    "inner strides and non-overlapping static row pitches."
                 )
             if q.shape[0] != k.shape[0] or k.shape != v.shape:
                 raise BackendNotReadyError(
