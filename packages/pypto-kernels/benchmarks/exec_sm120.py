@@ -916,7 +916,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         b = torch.randn_like(a)
         A_log = torch.randn(value_heads, device="cuda", dtype=torch.float32) * 0.1
-        dt_bias = torch.randn(value_heads, device="cuda", dtype=torch.float32) * 0.1
+        dt_bias = (
+            torch.randn(value_heads, device="cuda", dtype=torch.bfloat16)
+            * 0.1
+        )
         state_slots = 65
         state_width = value_heads * dv * dk
         state_stride = state_width + 4096
