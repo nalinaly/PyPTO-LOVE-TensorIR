@@ -138,6 +138,10 @@ class PointwiseCodegenTest(unittest.TestCase):
         )
         with self.assertRaises(StrictCoverageError):
             pc._reference_schedule(())
+        self.assertEqual(pc._pointwise_tile_shape((1, 3584), 128), (128,))
+        self.assertEqual(
+            pc._pointwise_tile_shape((19, 3584), 128), (1, 128)
+        )
 
     def test_real_dso_digest_and_directory_uniqueness(self) -> None:
         dso = pc.pypto_dso_path()
