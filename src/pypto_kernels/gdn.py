@@ -282,6 +282,22 @@ def build_recurrent(
     )
 
 
+def _recurrent_tiles(
+    batch_size: int,
+    tokens_per_request: int,
+    q_heads: int,
+    value_heads: int,
+    value_dim: int,
+) -> list[int]:
+    """Tile only non-unit dimensions of the typed TensorIR iteration space."""
+
+    head_groups = value_heads // q_heads
+    outer_extents = (batch_size, tokens_per_request, q_heads, head_groups)
+    tiles = [1 for extent in outer_extents if extent > 1]
+    tiles.append(1 << min(6, value_dim.bit_length() - 1))
+    return tiles
+
+
 def compile_recurrent(
     batch_size: int,
     tokens_per_request: int,
@@ -312,7 +328,9 @@ def compile_recurrent(
     if cached is not None:
         return cached
     program = build_recurrent(*shape_key)
-    tiles = [1, 1, 64] if batch_size == 1 and tokens_per_request == 1 else [1, 1, 1, 64]
+    tiles = _recurrent_tiles(
+        batch_size, tokens_per_request, q_heads, value_heads, value_dim
+    )
     graph_key = compile_graph(program, tiles)
     with _lock:
         _recurrent_cache[shape_key] = graph_key
