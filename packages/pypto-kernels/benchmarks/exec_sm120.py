@@ -40,7 +40,8 @@ def main(argv: list[str] | None = None) -> int:
     output = args.output.resolve()
     if output == PACKAGE_ROOT or PACKAGE_ROOT in output.parents:
         raise ValueError("execution output must be outside the source package")
-    torch.manual_seed(3)
+    seed = 3
+    torch.manual_seed(seed)
     stream = torch.cuda.Stream()
     cases = []
     for m, n in ((256, 1024), (4096, 1024), (1, 3584)):
@@ -104,6 +105,38 @@ def main(argv: list[str] | None = None) -> int:
             "correct": bool(torch.equal(embedding_out, embedding_ref)),
         }
     )
+    for integer_dtype in (torch.int32, torch.int64):
+        for count in (1, 19):
+            integer_table = torch.arange(
+                65, device="cuda", dtype=integer_dtype
+            ).mul_(7)
+            integer_indices = (
+                torch.arange(count, device="cuda", dtype=torch.int64) * 11 + 3
+            ) % integer_table.numel()
+            integer_out = embedding.integer_gather(
+                integer_table, integer_indices, stream=stream
+            )
+            stream.synchronize()
+            integer_ref = integer_table.index_select(0, integer_indices)
+            cases.append(
+                {
+                    "case": f"integer_gather_{integer_dtype}_rows{count}",
+                    "implementation": "native-tile-dsl-integer-gather",
+                    "launches": 1,
+                    "table_shape": list(integer_table.shape),
+                    "table_stride": list(integer_table.stride()),
+                    "indices_shape": list(integer_indices.shape),
+                    "indices_stride": list(integer_indices.stride()),
+                    "output_shape": list(integer_out.shape),
+                    "dtype": str(integer_dtype),
+                    "max_abs_diff": int(
+                        (integer_out.to(torch.int64) - integer_ref.to(torch.int64))
+                        .abs()
+                        .max()
+                    ),
+                    "correct": bool(torch.equal(integer_out, integer_ref)),
+                }
+            )
 
     # Qwen3.5-0.8B full-attention preparation: per-head Q/Gate interleave,
     # Gemma RMSNorm, partial NeoX RoPE and gate deinterleave in one graph.
@@ -811,13 +844,21 @@ def main(argv: list[str] | None = None) -> int:
             reference_rows.append(torch.stack(reference_heads))
         prefill_ref = torch.stack(reference_rows).reshape_as(prefill_out)
         prefill_diff = float((prefill_out.float() - prefill_ref).abs().max())
+        attention_launches = attention._paged_prefill_partition_count(kv_heads)
         cases.append(
             {
                 "case": label,
                 "implementation": "native-tile-dsl-causal-paged-prefill",
-                "launches": 2,
+                "launches": 1 + attention_launches,
+                "launch_count": 1 + attention_launches,
                 "cache_write_launches": 1,
-                "attention_launches": 1,
+                "attention_launches": attention_launches,
+                "attention_launch_topology": (
+                    "one_fused_all_kv_heads_launch"
+                    if attention_launches == 1
+                    else "one_single_kv_head_launch_per_kv_head"
+                ),
+                "kv_heads": kv_heads,
                 "prefix_tokens": prefix_count,
                 "query_rows": query_rows,
                 "bucket_tokens": bucket_tokens,
@@ -986,6 +1027,17 @@ def main(argv: list[str] | None = None) -> int:
         "schema": 2,
         "kind": "pypto-kernels-exec-sm120",
         "run_id": os.environ.get("PYPTO_RUN_ID"),
+        "seed": seed,
+        "thresholds": {
+            "pointwise_rtol": 5e-2,
+            "pointwise_atol": 5e-2,
+            "attention_rtol": 1e-1,
+            "attention_atol": 8e-2,
+            "gdn_output_rtol": 8e-2,
+            "gdn_output_atol": 8e-2,
+            "gdn_state_rtol": 2e-3,
+            "gdn_state_atol": 2e-3
+        },
         "dso_sha256": hashlib.sha256(dso.read_bytes()).hexdigest(),
         "pypto_commit": bootstrap()["compiler"]
         .get_nvidia_backend_build_info()
@@ -994,6 +1046,7 @@ def main(argv: list[str] | None = None) -> int:
             "silu_and_mul",
             "sigmoid_mul",
             "embedding",
+            "integer_gather",
             "qk_rmsnorm_rope",
             "rmsnorm",
             "fused_add_rmsnorm",

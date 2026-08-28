@@ -30,7 +30,8 @@ def main(argv: list[str] | None = None) -> int:
     output = args.output.resolve()
     if output == KERNEL_ROOT or KERNEL_ROOT in output.parents:
         raise ValueError("paged-attention output must be outside the source package")
-    torch.manual_seed(11)
+    seed = 11
+    torch.manual_seed(seed)
     stream = torch.cuda.Stream()
     cases: list[dict[str, object]] = []
 
@@ -341,12 +342,20 @@ def main(argv: list[str] | None = None) -> int:
         correct = bool(
             torch.allclose(output.float(), reference, rtol=RTOL, atol=ATOL)
         )
+        attention_launches = attention._paged_prefill_partition_count(kv_heads)
         cases.append(
             {
                 "case": label,
-                "launches": 2,
+                "launches": 1 + attention_launches,
+                "launch_count": 1 + attention_launches,
                 "cache_write_launches": 1,
-                "attention_launches": 1,
+                "attention_launches": attention_launches,
+                "attention_launch_topology": (
+                    "one_fused_all_kv_heads_launch"
+                    if attention_launches == 1
+                    else "one_single_kv_head_launch_per_kv_head"
+                ),
+                "kv_heads": kv_heads,
                 "prefix_tokens": prefix_count,
                 "query_rows": query_rows,
                 "bucket_tokens": bucket_tokens,
@@ -384,6 +393,7 @@ def main(argv: list[str] | None = None) -> int:
         "schema_version": 1,
         "kind": "pypto-paged-attention-sm120",
         "run_id": os.environ.get("PYPTO_RUN_ID"),
+        "seed": seed,
         "thresholds": {"rtol": RTOL, "atol": ATOL},
         "dso_sha256": hashlib.sha256(dso.read_bytes()).hexdigest(),
         "pypto_commit": (
