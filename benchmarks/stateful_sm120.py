@@ -77,6 +77,7 @@ def conv_case(
     batch_size: int,
     tokens: int,
     index_dtype: torch.dtype,
+    repetitions: int = 1,
 ) -> dict[str, object]:
     channels = 4096
     rows = batch_size * tokens
@@ -94,16 +95,25 @@ def conv_case(
     indices = torch.arange(2, 2 + batch_size, device="cuda", dtype=index_dtype)
     initial_state = state.clone()
     reference_state = initial_state.clone()
-    actual = causal_conv1d.causal_conv1d(
-        x,
-        weight,
-        state,
-        indices,
-        batch_size=batch_size,
-        tokens_per_request=tokens,
-        stream=stream,
-    )
-    stream.synchronize()
+    observed_outputs = []
+    observed_states = []
+    for repetition in range(repetitions):
+        if repetition:
+            state.copy_(initial_state)
+        observed_outputs.append(
+            causal_conv1d.causal_conv1d(
+                x,
+                weight,
+                state,
+                indices,
+                batch_size=batch_size,
+                tokens_per_request=tokens,
+                stream=stream,
+            ).clone()
+        )
+        stream.synchronize()
+        observed_states.append(state.clone())
+    actual = observed_outputs[-1]
 
     x_rows = x.view(batch_size, tokens, channels)
     reference_outputs = []
@@ -125,8 +135,22 @@ def conv_case(
         reference_state[slot] = history
         reference_outputs.append(torch.stack(token_outputs))
     reference = torch.stack(reference_outputs).view(rows, channels)
-    output_diff = float((actual.float() - reference).abs().max())
-    state_diff = float((state.float() - reference_state.float()).abs().max())
+    output_diff = max(
+        float((observed.float() - reference).abs().max())
+        for observed in observed_outputs
+    )
+    state_diff = max(
+        float((observed.float() - reference_state.float()).abs().max())
+        for observed in observed_states
+    )
+    output_drift = max(
+        float((observed.float() - observed_outputs[0].float()).abs().max())
+        for observed in observed_outputs
+    )
+    state_drift = max(
+        float((observed.float() - observed_states[0].float()).abs().max())
+        for observed in observed_states
+    )
     actual_slot_changes = (
         (state.float() - initial_state.float()).abs().flatten(1).amax(dim=1)
     )
@@ -141,6 +165,9 @@ def conv_case(
     return {
         "case": f"causal_conv_plane_b{batch_size}_t{tokens}_{index_dtype}",
         "launches": 1,
+        "repetitions": repetitions,
+        "output_drift": output_drift,
+        "state_drift": state_drift,
         "state_slot_stride": slot_stride,
         "output_max_abs_diff": output_diff,
         "state_max_abs_diff": state_diff,
@@ -176,6 +203,8 @@ def conv_case(
         "correct": bool(
             torch.allclose(actual.float(), reference, rtol=5e-2, atol=5e-2)
             and torch.equal(state, reference_state)
+            and output_drift == 0.0
+            and state_drift == 0.0
         ),
     }
 
@@ -434,7 +463,11 @@ def main() -> int:
             stream, batch_size=2, tokens=1, index_dtype=torch.int32
         ),
         "conv_prefill": lambda: conv_case(
-            stream, batch_size=1, tokens=5, index_dtype=torch.int64
+            stream,
+            batch_size=1,
+            tokens=5,
+            index_dtype=torch.int64,
+            repetitions=10,
         ),
         "gdn_decode": lambda: gdn_case(
             stream, batch_size=2, tokens=1, index_dtype=torch.int32
