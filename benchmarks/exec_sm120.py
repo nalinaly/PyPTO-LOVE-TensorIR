@@ -339,8 +339,8 @@ def main(argv: list[str] | None = None) -> int:
         state_slots = 8
         state_stride = channels * 3 + 128
         conv_state = torch.empty_strided(
-            (state_slots, channels, 3),
-            (state_stride, 3, 1),
+            (state_slots, 3, channels),
+            (state_stride, channels, 1),
             device="cuda",
             dtype=torch.bfloat16,
         )
@@ -369,13 +369,13 @@ def main(argv: list[str] | None = None) -> int:
             for token in range(tokens_per_request):
                 current = x_rows[batch_row, token]
                 linear = (
-                    history[:, 0].float() * conv_weight[:, 0].float()
-                    + history[:, 1].float() * conv_weight[:, 1].float()
-                    + history[:, 2].float() * conv_weight[:, 2].float()
+                    history[0].float() * conv_weight[:, 0].float()
+                    + history[1].float() * conv_weight[:, 1].float()
+                    + history[2].float() * conv_weight[:, 2].float()
                     + current.float() * conv_weight[:, 3].float()
                 )
                 outputs.append(torch.nn.functional.silu(linear))
-                history = torch.stack((history[:, 1], history[:, 2], current), dim=1)
+                history = torch.stack((history[1], history[2], current), dim=0)
             reference_state[slot] = history
             reference_rows.append(torch.stack(outputs))
         conv_ref = torch.stack(reference_rows).view(rows, channels)
