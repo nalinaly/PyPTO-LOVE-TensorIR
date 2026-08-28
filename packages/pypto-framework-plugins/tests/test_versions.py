@@ -159,6 +159,37 @@ def test_sglang_import_must_come_from_locked_checkout(monkeypatch, tmp_path) -> 
         )
 
 
+def test_sglang_source_checkout_fallback_version_is_commit_bound(
+    monkeypatch, tmp_path
+) -> None:
+    source_root = tmp_path / "source"
+    module = fake_sglang(source_root)
+    module.__version__ = "0.0.0.dev0"
+    monkeypatch.setattr(
+        versions,
+        "_git_output",
+        lambda _root, command, *args: EXPECTED_SGLANG_COMMIT
+        if command == "rev-parse"
+        else "",
+    )
+    assert_sglang_compatible(source_root=source_root, sglang_module=module)
+
+
+def test_sglang_unknown_source_version_fails_closed(monkeypatch, tmp_path) -> None:
+    source_root = tmp_path / "source"
+    module = fake_sglang(source_root)
+    module.__version__ = "0.5.17"
+    monkeypatch.setattr(
+        versions,
+        "_git_output",
+        lambda _root, command, *args: EXPECTED_SGLANG_COMMIT
+        if command == "rev-parse"
+        else "",
+    )
+    with pytest.raises(FrameworkCompatibilityError, match="requires 0.5.18"):
+        assert_sglang_compatible(source_root=source_root, sglang_module=module)
+
+
 def test_sglang_registration_error_exits_fail_closed(monkeypatch) -> None:
     monkeypatch.setattr(sglang_plugin, "_registered", False)
     monkeypatch.setattr(
