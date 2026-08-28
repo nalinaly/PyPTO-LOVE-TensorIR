@@ -1,0 +1,104 @@
+From a5df444e6fb8656f5dffef8056e267807288495d Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 01:30:16 +0800
+Subject: [PATCH 215/215] Support CUDA default stream launches
+
+---
+ src/runtime/nvidia/driver_api.cpp       |  5 -----
+ src/runtime/nvidia/executable.cpp       | 30 +++++++++++++------------
+ tests/ut/cpp/nvidia_executable_test.cpp | 10 ++++-----
+ 3 files changed, 21 insertions(+), 24 deletions(-)
+
+diff --git a/src/runtime/nvidia/driver_api.cpp b/src/runtime/nvidia/driver_api.cpp
+index 4680c90107ded3593476e6c5f4c3d1ab95ea6ffc..5b993dfa205a1c56952a7f1f2d7131933970a0f4 100644
+--- a/src/runtime/nvidia/driver_api.cpp
++++ b/src/runtime/nvidia/driver_api.cpp
+@@ -529,11 +529,6 @@ class DynamicNvidiaDriver final : public NvidiaDriverApi {
+               const std::vector<void*>& kernel_parameters) override {
+     RequireCallable();
+     CheckFunctionAddress(function_address);
+-    if (config.stream_address == 0 ||
+-        config.stream_address == kCudaLegacyStreamAddress ||
+-        config.stream_address == kCudaPerThreadStreamAddress) {
+-      throw ValueError("CUDA launch requires a non-default caller-owned stream");
+-    }
+     for (uint32_t dimension : config.grid_dimensions) {
+       if (dimension == 0) {
+         throw ValueError("CUDA launch grid dimensions must be positive");
+diff --git a/src/runtime/nvidia/executable.cpp b/src/runtime/nvidia/executable.cpp
+index 81caacc7764f7403548524a14f8421825f24aab7..ab627904a5b3dfa0c871f99f165dda8de118e1b9 100644
+--- a/src/runtime/nvidia/executable.cpp
++++ b/src/runtime/nvidia/executable.cpp
+@@ -931,12 +931,6 @@ NvidiaLaunchPacket NvidiaExecutable::PrepareLaunch(
+ 
+ void NvidiaExecutable::Launch(const NvidiaLaunchPacket& packet,
+                               uintptr_t raw_current_stream) {
+-  if (raw_current_stream == 0 ||
+-      raw_current_stream == kCudaLegacyStreamAddress ||
+-      raw_current_stream == kCudaPerThreadStreamAddress) {
+-    throw ValueError(
+-        "NvidiaExecutable rejects CUDA null, legacy and per-thread default streams");
+-  }
+   RequireCreatorProcess(*state_);
+   if (!packet.state_ || !packet.data_ || packet.state_.get() != state_.get()) {
+     throw ValueError("NvidiaLaunchPacket belongs to another or released executable");
+@@ -952,14 +946,22 @@ void NvidiaExecutable::Launch(const NvidiaLaunchPacket& packet,
+   ActiveLaunchGuard guard(state_);
+ 
+   ValidateBoundContext(*state_);
+-  const detail::NvidiaStreamBinding stream =
+-      state_->driver->GetStreamBinding(raw_current_stream);
+-  if (stream.green_context_address != 0) {
+-    throw RuntimeError("NvidiaExecutable v1 does not support CUDA green-context streams");
+-  }
+-  if (stream.context_address == 0 ||
+-      stream.context_address != state_->context_address) {
+-    throw RuntimeError("CUDA stream context differs from the prewarmed NvidiaExecutable");
++  const bool is_default_stream =
++      raw_current_stream == 0 ||
++      raw_current_stream == kCudaLegacyStreamAddress ||
++      raw_current_stream == kCudaPerThreadStreamAddress;
++  if (!is_default_stream) {
++    const detail::NvidiaStreamBinding stream =
++        state_->driver->GetStreamBinding(raw_current_stream);
++    if (stream.green_context_address != 0) {
++      throw RuntimeError(
++          "NvidiaExecutable v1 does not support CUDA green-context streams");
++    }
++    if (stream.context_address == 0 ||
++        stream.context_address != state_->context_address) {
++      throw RuntimeError(
++          "CUDA stream context differs from the prewarmed NvidiaExecutable");
++    }
+   }
+ 
+   const auto& launch = state_->artifact.GetKernelAbi().GetLaunchAbi();
+diff --git a/tests/ut/cpp/nvidia_executable_test.cpp b/tests/ut/cpp/nvidia_executable_test.cpp
+index d164e491d6e0f4228f817289c7b9acc7a99f3bc1..1be0f176867095faef144b8f3d362b6b5a83b45f 100644
+--- a/tests/ut/cpp/nvidia_executable_test.cpp
++++ b/tests/ut/cpp/nvidia_executable_test.cpp
+@@ -1686,11 +1686,11 @@ int TestLaunchArgumentAndLiveBindingRejections(const ArtifactSet& artifacts) {
+   {
+     NvidiaLaunchPacket packet = executable->PrepareLaunch(MakeStaticArguments());
+     for (uintptr_t special_stream : {uintptr_t{0}, uintptr_t{1}, uintptr_t{2}}) {
+-      REQUIRE(RejectsWith<ValueError>(
+-          [&]() { executable->Launch(packet, special_stream); },
+-          "null, legacy and per-thread default streams"));
++      executable->Launch(packet, special_stream);
++      REQUIRE(driver->GetLaunches().back().config.stream_address ==
++              special_stream);
+     }
+-    REQUIRE(driver->CountCalls("Launch") == 0);
++    REQUIRE(driver->CountCalls("Launch") == 3);
+ 
+     driver->current_context_address = kContextAddress + 1;
+     REQUIRE(RejectsWith<RuntimeError>(
+@@ -1721,7 +1721,7 @@ int TestLaunchArgumentAndLiveBindingRejections(const ArtifactSet& artifacts) {
+         [&]() { executable->Launch(packet, kStreamAddress); },
+         "green-context streams"));
+     driver->stream_green_context_address = 0;
+-    REQUIRE(driver->CountCalls("Launch") == 0);
++    REQUIRE(driver->CountCalls("Launch") == 3);
+ 
+     REQUIRE(RejectsWith<ValueError>(
+         [&]() { (void)executable->PrepareLaunch({}); },
