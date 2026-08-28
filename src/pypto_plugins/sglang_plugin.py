@@ -628,11 +628,27 @@ def _unquantized_linear_around(original_fn, method, layer, x, bias=None):
     launch_weight = weight.data
     if logical_features % 128:
         padded_features = ((logical_features + 127) // 128) * 128
-        signature = (
-            int(weight.data_ptr()),
-            int(weight._version),
-            tuple(weight.shape),
+        source_signature = getattr(
+            weight, "_pypto_offload_source_signature", None
         )
+        if source_signature is None:
+            signature = (
+                "resident",
+                int(weight.data_ptr()),
+                int(weight._version),
+                tuple(weight.shape),
+            )
+        elif (
+            not isinstance(source_signature, tuple)
+            or len(source_signature) != 4
+            or source_signature[0] != "offloaded"
+            or source_signature[3] != tuple(weight.shape)
+        ):
+            raise BackendNotReadyError(
+                "PyPTO linear received an invalid offloaded-weight identity."
+            )
+        else:
+            signature = source_signature
         with _linear_prepack_lock:
             cached = _linear_prepack_cache.get(layer)
             if cached is None or cached[0] != signature:
@@ -957,6 +973,27 @@ def _enable_offloader_tied_parameter_support(offloader_module=None):
                 "PyPTO Qwen offload requires functional_call tie_weights=False"
             )
         kwargs["tie_weights"] = False
+        if len(args) >= 2 and isinstance(args[1], dict):
+            module = args[0]
+            replacements = args[1]
+            try:
+                parameters = dict(
+                    module.named_parameters(remove_duplicate=False)
+                )
+            except (AttributeError, TypeError) as error:
+                raise BackendNotReadyError(
+                    "pinned SGLang offloader module parameter contract changed"
+                ) from error
+            for name, replacement in replacements.items():
+                original = parameters.get(name)
+                if original is None or not hasattr(replacement, "shape"):
+                    continue
+                replacement._pypto_offload_source_signature = (
+                    "offloaded",
+                    int(original.data_ptr()),
+                    int(original._version),
+                    tuple(original.shape),
+                )
         return current(*args, **kwargs)
 
     functional_call_with_explicit_aliases._pypto_untied_parameter_compatible = True

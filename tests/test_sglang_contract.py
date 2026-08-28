@@ -118,12 +118,21 @@ def test_qwen35_offloader_functional_call_handles_tied_aliases() -> None:
 
     fake_module = SimpleNamespace(functional_call=functional_call)
     installed = _enable_offloader_tied_parameter_support(fake_module)
-    assert installed("module", "state", args=(1,), kwargs={}) == "forwarded"
-    assert calls == [("module", "state", (1,), {}, False)]
+    module = torch.nn.Linear(2, 2, bias=False)
+    replacement = module.weight.detach().clone()
+    state = {"weight": replacement}
+    assert installed(module, state, args=(1,), kwargs={}) == "forwarded"
+    assert calls == [(module, state, (1,), {}, False)]
+    assert replacement._pypto_offload_source_signature == (
+        "offloaded",
+        module.weight.data_ptr(),
+        module.weight._version,
+        tuple(module.weight.shape),
+    )
     assert _enable_offloader_tied_parameter_support(fake_module) is installed
 
     with pytest.raises(BackendNotReadyError, match="tie_weights=False"):
-        installed("module", "state", tie_weights=True)
+        installed(module, state, tie_weights=True)
 
 
 def test_pinned_linear_backend_hook_symbol_and_signature() -> None:
