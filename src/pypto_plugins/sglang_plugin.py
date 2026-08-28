@@ -30,6 +30,10 @@ TRITON_SUPPORT_TARGETS = (
     "sglang.srt.model_executor.forward_batch_info.support_triton",
     "sglang.srt.layers.rotary_embedding.mrope.support_triton",
 )
+GEMMA_RMSNORM_TARGET = "sglang.srt.layers.layernorm.GemmaRMSNorm._forward_impl"
+FLA_GATED_RMSNORM_TARGET = (
+    "sglang.kernels.ops.attention.fla.layernorm_gated.layernorm_fn"
+)
 
 
 def _attention_factory(runner):
@@ -187,6 +191,161 @@ def _support_triton_around(original_fn, backend):
     return original_fn(backend)
 
 
+def _gemma_rmsnorm_around(
+    original_fn,
+    layer,
+    x,
+    residual=None,
+    post_residual_addition=None,
+):
+    """Route Qwen Gemma RMSNorm and fused residual RMSNorm through PyPTO."""
+
+    from sglang.srt.runtime_context import get_exec
+
+    mamba = get_exec().mamba
+    selected = {
+        mamba.linear_attn_backend,
+        mamba.linear_attn_decode_backend,
+        mamba.linear_attn_prefill_backend,
+    }
+    if "pypto" not in selected:
+        return original_fn(layer, x, residual, post_residual_addition)
+    if post_residual_addition is not None:
+        raise BackendNotReadyError(
+            "PyPTO Gemma RMSNorm does not yet fuse post_residual_addition."
+        )
+    from pypto_kernels import fused_add_rmsnorm, rmsnorm
+    from .sglang.stream import pypto_stream
+
+    if (
+        rmsnorm.STATUS != "native-tile executable"
+        or fused_add_rmsnorm.STATUS != "native-tile executable"
+    ):
+        raise BackendNotReadyError("PyPTO Gemma RMSNorm operators are not executable.")
+    original_shape = tuple(x.shape)
+    flat = x if x.ndim == 2 else x.contiguous().reshape(-1, original_shape[-1])
+    with pypto_stream(x.device) as stream:
+        if residual is None:
+            output = rmsnorm.rmsnorm(
+                flat,
+                layer.weight.data,
+                layer.variance_epsilon,
+                stream=stream,
+            )
+            return output.reshape(original_shape)
+        if x.ndim != 2 or residual.ndim != 2:
+            raise BackendNotReadyError(
+                "PyPTO fused Gemma RMSNorm requires rank-2 residual inputs."
+            )
+        return fused_add_rmsnorm.fused_add_rmsnorm(
+            x,
+            residual,
+            layer.weight.data,
+            layer.variance_epsilon,
+            stream=stream,
+        )
+
+
+def _fla_gated_rmsnorm_around(
+    original_fn,
+    x,
+    weight,
+    bias,
+    z=None,
+    eps=1e-6,
+    group_size=None,
+    norm_before_gate=True,
+    is_rms_norm=False,
+    activation="swish",
+):
+    """Route Qwen GDN output RMSNorm and SiLU gate through PyPTO."""
+
+    from sglang.srt.runtime_context import get_exec
+
+    mamba = get_exec().mamba
+    selected = {
+        mamba.linear_attn_backend,
+        mamba.linear_attn_decode_backend,
+        mamba.linear_attn_prefill_backend,
+    }
+    if "pypto" not in selected:
+        return original_fn(
+            x,
+            weight,
+            bias,
+            z,
+            eps,
+            group_size,
+            norm_before_gate,
+            is_rms_norm,
+            activation,
+        )
+    if (
+        bias is not None
+        or z is None
+        or group_size is not None
+        or not norm_before_gate
+        or not is_rms_norm
+        or activation != "swish"
+        or float(eps) != 1.0e-6
+    ):
+        raise BackendNotReadyError(
+            "PyPTO FLA gated RMSNorm requires bias=None, a gate tensor, "
+            "group_size=None, norm_before_gate=True, is_rms_norm=True, "
+            "activation='swish', and eps=1e-6."
+        )
+    if (
+        x.ndim < 2
+        or tuple(z.shape) != tuple(x.shape)
+        or not x.is_contiguous()
+        or not z.is_contiguous()
+        or not weight.is_contiguous()
+    ):
+        raise BackendNotReadyError(
+            "PyPTO FLA gated RMSNorm requires matching contiguous x/z and "
+            "a contiguous weight."
+        )
+    from pypto_kernels import gated_rmsnorm
+    from .sglang.stream import pypto_stream
+
+    if gated_rmsnorm.STATUS != "native-tile executable":
+        raise BackendNotReadyError(
+            "PyPTO gated RMSNorm operator is not executable."
+        )
+    original_shape = tuple(x.shape)
+    x_flat = x.reshape(-1, original_shape[-1])
+    z_flat = z.reshape(-1, original_shape[-1])
+    with pypto_stream(x.device) as stream:
+        output = gated_rmsnorm.gated_rmsnorm(
+            x_flat,
+            z_flat,
+            weight,
+            eps=float(eps),
+            stream=stream,
+        )
+    return output.reshape(original_shape)
+
+
+def _require_callable_hook_target(target: str) -> None:
+    parts = target.split(".")
+    for count in range(len(parts) - 1, 0, -1):
+        module_name = ".".join(parts[:count])
+        try:
+            value = importlib.import_module(module_name)
+        except ModuleNotFoundError as error:
+            if error.name == module_name:
+                continue
+            raise
+        for attribute in parts[count:]:
+            value = getattr(value, attribute, None)
+            if value is None:
+                break
+        if callable(value):
+            return
+        break
+    raise BackendNotReadyError(f"pinned SGLang hook target is not callable: {target}")
+
+
 def _register_impl() -> None:
     assert_operator_library_compatible()
     assert_backend_executable_ready()
@@ -207,15 +366,12 @@ def _register_impl() -> None:
         LINEAR_BACKEND_RESOLVER_TARGET,
         ATTENTION_WRAPPER_TARGET,
         GDN_PROJECTION_TARGET,
+        GEMMA_RMSNORM_TARGET,
+        FLA_GATED_RMSNORM_TARGET,
         *TRITON_SUPPORT_TARGETS,
     )
     for target in hook_targets:
-        module_name, symbol = target.rsplit(".", 1)
-        module = importlib.import_module(module_name)
-        if not callable(getattr(module, symbol, None)):
-            raise BackendNotReadyError(
-                f"pinned SGLang hook target is not callable: {target}"
-            )
+        _require_callable_hook_target(target)
 
     add_attention_backend_choices(["pypto"])
     add_linear_attn_kernel_backend_choices(["pypto"])
@@ -233,6 +389,16 @@ def _register_impl() -> None:
     HookRegistry.register(
         GDN_PROJECTION_TARGET,
         _gdn_projection_around,
+        HookType.AROUND,
+    )
+    HookRegistry.register(
+        GEMMA_RMSNORM_TARGET,
+        _gemma_rmsnorm_around,
+        HookType.AROUND,
+    )
+    HookRegistry.register(
+        FLA_GATED_RMSNORM_TARGET,
+        _fla_gated_rmsnorm_around,
         HookType.AROUND,
     )
     for target in TRITON_SUPPORT_TARGETS:

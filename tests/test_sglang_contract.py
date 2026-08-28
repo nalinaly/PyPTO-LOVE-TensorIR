@@ -14,11 +14,15 @@ from pypto_plugins.errors import BackendNotReadyError
 from pypto_plugins.sglang.attention_backend import create_attention_backend
 from pypto_plugins.sglang_plugin import (
     ATTENTION_WRAPPER_TARGET,
+    FLA_GATED_RMSNORM_TARGET,
     GDN_PROJECTION_TARGET,
+    GEMMA_RMSNORM_TARGET,
     LINEAR_BACKEND_RESOLVER_TARGET,
     TRITON_SUPPORT_TARGETS,
     _attention_factory,
+    _fla_gated_rmsnorm_around,
     _gdn_projection_around,
+    _gemma_rmsnorm_around,
     _support_triton_around,
 )
 
@@ -113,7 +117,7 @@ def test_pinned_qwen35_projection_hook_symbol_is_imported() -> None:
     }
     assert name in imported
     plugin_text = SGLANG_PLUGIN.read_text(encoding="utf-8")
-    assert "module = importlib.import_module(module_name)" in plugin_text
+    assert "_require_callable_hook_target(target)" in plugin_text
     assert "pinned SGLang hook target is not callable" in plugin_text
 
 
@@ -129,6 +133,93 @@ def test_pypto_scheduler_metadata_never_selects_triton() -> None:
     assert _support_triton_around(original, "flashinfer") is True
     assert delegated == ["flashinfer"]
     assert len(TRITON_SUPPORT_TARGETS) == 4
+
+
+def test_gemma_rmsnorm_hook_is_preloaded_and_registered() -> None:
+    assert GEMMA_RMSNORM_TARGET.endswith("GemmaRMSNorm._forward_impl")
+    text = SGLANG_PLUGIN.read_text(encoding="utf-8")
+    assert "rmsnorm.rmsnorm(" in text
+    assert "fused_add_rmsnorm.fused_add_rmsnorm(" in text
+    assert "post_residual_addition" in text
+    assert callable(_gemma_rmsnorm_around)
+
+
+def test_fla_gated_rmsnorm_hook_is_preloaded_and_registered() -> None:
+    assert FLA_GATED_RMSNORM_TARGET.endswith("layernorm_gated.layernorm_fn")
+    text = SGLANG_PLUGIN.read_text(encoding="utf-8")
+    assert "gated_rmsnorm.gated_rmsnorm(" in text
+    assert "is_rms_norm" in text and "norm_before_gate" in text
+    assert callable(_fla_gated_rmsnorm_around)
+
+
+def test_fla_gated_rmsnorm_routes_only_exact_pypto_contract(monkeypatch) -> None:
+    runtime = ModuleType("sglang.srt.runtime_context")
+    selection = SimpleNamespace(
+        linear_attn_backend="pypto",
+        linear_attn_decode_backend="pypto",
+        linear_attn_prefill_backend="pypto",
+    )
+    runtime.get_exec = lambda: SimpleNamespace(mamba=selection)
+    monkeypatch.setitem(sys.modules, "sglang.srt.runtime_context", runtime)
+    module = ModuleType("pypto_kernels.gated_rmsnorm")
+    module.STATUS = "native-tile executable"
+    calls = []
+
+    def run(x, gate, weight, **kwargs):
+        calls.append((x, gate, weight, kwargs))
+        return torch.empty_like(x)
+
+    module.gated_rmsnorm = run
+    monkeypatch.setitem(sys.modules, "pypto_kernels.gated_rmsnorm", module)
+    monkeypatch.setattr(pypto_kernels, "gated_rmsnorm", module, raising=False)
+
+    @contextmanager
+    def fake_stream(device):
+        assert device.type == "cpu"
+        yield "worker-stream"
+
+    monkeypatch.setattr("pypto_plugins.sglang.stream.pypto_stream", fake_stream)
+    x = torch.empty((2, 3, 128), dtype=torch.bfloat16)
+    gate = torch.empty_like(x)
+    weight = torch.empty(128, dtype=torch.bfloat16)
+    delegated = []
+
+    def original(*args):
+        delegated.append(args)
+        return "original-result"
+
+    output = _fla_gated_rmsnorm_around(
+        original,
+        x,
+        weight,
+        None,
+        gate,
+        1.0e-6,
+        None,
+        True,
+        True,
+        "swish",
+    )
+    assert tuple(output.shape) == tuple(x.shape)
+    assert not delegated
+    assert len(calls) == 1
+    assert tuple(calls[0][0].shape) == (6, 128)
+    assert tuple(calls[0][1].shape) == (6, 128)
+    assert calls[0][2] is weight
+    assert calls[0][3] == {"eps": 1.0e-6, "stream": "worker-stream"}
+
+    with pytest.raises(BackendNotReadyError, match="activation='swish'"):
+        _fla_gated_rmsnorm_around(
+            original, x, weight, None, gate, activation="silu"
+        )
+    selection.linear_attn_backend = "triton"
+    selection.linear_attn_decode_backend = "triton"
+    selection.linear_attn_prefill_backend = "triton"
+    assert (
+        _fla_gated_rmsnorm_around(original, x, weight, None, gate)
+        == "original-result"
+    )
+    assert len(delegated) == 1
 
 
 def test_gdn_projection_hook_routes_only_explicit_pypto_selection(monkeypatch) -> None:
