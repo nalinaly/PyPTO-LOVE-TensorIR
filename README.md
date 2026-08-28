@@ -14,8 +14,8 @@ ones-matmul 广播展开。仅仅用整张量 `tensor.*` graph 再附加 schedul
 | `silu_and_mul`（SwiGLU） | 1 | **原生 tile** ✅ | `[1,128]` load/compute/store；静态双层 `pl.range`；一次 launch |
 | `fused_add_rmsnorm` | 1 | **原生 tile** ✅ | 同一 graph/launch 返回 residual sum 与 Qwen weighted norm |
 | `sigmoid_mul` | 1 | **原生 tile** ✅ | full-attention 输出门 `value*sigmoid(gate)`；一次 launch |
-| `embedding` | 1 | **原生 tile** ✅ | INT64 token 动态 row gather；无 one-hot；一次 launch |
-| `linear`（投影/LM head） | 1 | **原生 tile** ✅ | `[1,K] @ [128,K].T` 输出 tile；一次 launch |
+| `embedding` / integer gather | 2 | **原生 tile** ✅ | BF16 token row gather 与 INT32/64 slot-table gather；无 one-hot；各一次 launch |
+| `linear`（投影/LM head） | 2 | **原生 tile** ✅ | BF16 输出与 FP32 LM-head 输出；每次调用一个 structured matmul launch |
 | `qk_rmsnorm_rope` | 1 | **原生 tile** ✅ | Q/K norm + partial RoPE + gate split 单图；最终 DSO 上单 launch，Q/K 对参考零误差且 gate 精确一致 |
 | `rmsnorm` | 1 | **原生 tile** ✅ | Qwen `normalized * (1+weight)` 完整公式；一次 launch |
 | `rope` | 1 | **原生 tile** ✅ | 低/高半旋转在一个图内，两个 store 合成一个结果；一次 launch |
@@ -25,16 +25,25 @@ ones-matmul 广播展开。仅仅用整张量 `tensor.*` graph 再附加 schedul
 | `attention` | 4 | **原生 tile** ✅ | dense + paged decode/cache-write/causal prefill；0.8B/9B、batch2 row-pitched cache 与 valid-length mask 数值门通过，最坏误差 `0.03333` |
 | `causal_conv1d` | 1 | **原生 tile** ✅ | `[B,T]` width-4 FP32 累加 + SiLU，读取并 InOut 回写 BF16 row-pitched plane-major `[3,D]` history；decode/prefill state 逐位一致 |
 
-CP-0062 已关闭 broadcast producer 阻塞；分类证据在
-`benchmarks/classify_results.json`。`compiled` 与 GPU 数值 `all_correct`
-仍是两个独立门，后者不得由分类结果代替。
+发布回归不会读取或覆写仓内历史 JSON。`compiled` 与 GPU 数值
+`all_correct` 是两个独立门，后者不得由分类结果代替；每次结果必须显式
+写到控制仓 `runs/<run-id>/`。
 
 ## 运行
 
-```
-envs/pypto-nvidia/bin/python -B tests/test_operators.py          # 单 graph/tile IR 结构
-envs/pypto-nvidia/bin/python -B benchmarks/classify_sm120.py     # GPU 编译分类
-envs/pypto-nvidia/bin/python -B benchmarks/exec_sm120.py         # GPU launch/数值
+```bash
+python -m pytest -q -n24 tests
+python -B benchmarks/classify_sm120.py --output "$RUN_DIR/classify.json"
+python -B benchmarks/exec_sm120.py --output "$RUN_DIR/operators.json"
+python -B benchmarks/stateful_sm120.py --output "$RUN_DIR/stateful.json"
+python -B benchmarks/paged_attention_sm120.py \
+  --output "$RUN_DIR/paged-attention.json"
 ```
 
-本仓是唯一算子实现；模型接入只允许引用这些原生 tile 算子。
+`pypto` 与 `pypto-framework-plugins` 应作为已安装分发包提供。仅诊断时可用
+`PYPTO_KERNEL_DSO_PATH`、`PYPTO_KERNEL_PACKAGE_PATH`、
+`PYPTO_KERNEL_CUDA_DRIVER_LABEL` 和 `PYPTO_KERNEL_CUDART` 覆盖自动发现；
+发布命令不得写死某台工作站的路径。
+
+本仓是唯一手写算子实现；模型接入只允许引用这些原生 tile 算子。项目的
+公开发布仍受 `LICENSE_STATUS.md` 所述授权门约束。

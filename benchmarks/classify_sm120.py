@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import hashlib
 import os
@@ -11,21 +12,12 @@ import sys
 
 import torch
 
-sys.path.insert(
-    0,
-    "/home/zhaosiying/pypto-love-tensor-ir/projects/pypto-kernels/src",
-)
-os.environ.setdefault(
-    "PYPTO_KERNEL_DSO_PATH",
-    "/home/zhaosiying/pypto-love-tensor-ir/builds/pypto-paged-f34c3f5/"
-    "product/pypto_core.cpython-314-x86_64-linux-gnu.so",
-)
-os.environ.setdefault(
-    "PYPTO_KERNEL_PACKAGE_PATH",
-    "/home/zhaosiying/pypto-love-tensor-ir/worktrees/pypto-paged-decode/python/pypto",
-)
+PACKAGE_ROOT = pathlib.Path(__file__).resolve().parents[1]
+SOURCE_ROOT = PACKAGE_ROOT / "src"
+if SOURCE_ROOT.is_dir():
+    sys.path.insert(0, str(SOURCE_ROOT))
 
-from pypto_kernels._boot import DSO_PATH, bootstrap, classify  # noqa: E402
+from pypto_kernels._boot import bootstrap, classify, loaded_dso_path  # noqa: E402
 from pypto_kernels import (  # noqa: E402
     attention,
     causal_conv1d,
@@ -43,7 +35,13 @@ from pypto_kernels import (  # noqa: E402
 )
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=pathlib.Path, required=True)
+    args = parser.parse_args(argv)
+    output = args.output.resolve()
+    if output == PACKAGE_ROOT or PACKAGE_ROOT in output.parents:
+        raise ValueError("classification output must be outside the source package")
     sample = torch.empty((256, 1024), dtype=torch.bfloat16, device="meta")
     cases = (
         (
@@ -143,7 +141,7 @@ def main() -> int:
         result = classify(program, tiles)
         results.append({"case": name, "tiles": tiles, **result})
     all_compiled = all(item["status"] == "compiled" for item in results)
-    dso = pathlib.Path(DSO_PATH)
+    dso = loaded_dso_path()
     result = {
         "schema": 2,
         "kind": "pypto-kernels-classify-sm120",
@@ -156,9 +154,8 @@ def main() -> int:
         "cases": results,
     }
     rendered = json.dumps(result, sort_keys=True, indent=1)
-    pathlib.Path(__file__).with_name("classify_results.json").write_text(
-        rendered + "\n", encoding="utf-8"
-    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(rendered + "\n", encoding="utf-8")
     print(rendered)
     return 0 if all_compiled else 75
 

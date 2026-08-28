@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+import ctypes
 import hashlib
+import importlib
 import importlib.util
 import os
 import pathlib
@@ -11,22 +13,15 @@ import sys
 import threading
 from typing import Any
 
-DSO_PATH = os.environ.get(
-    "PYPTO_KERNEL_DSO_PATH",
-    (
-        "/home/zhaosiying/pypto-love-tensor-ir/builds/"
-        "pypto-opext-on-a589f79/product/"
-        "pypto_core.cpython-314-x86_64-linux-gnu.so"
-    ),
-)
-PYPTO_PACKAGE = os.environ.get(
-    "PYPTO_KERNEL_PACKAGE_PATH",
-    "/home/zhaosiying/pypto-love-tensor-ir/projects/pypto/python/pypto",
-)
+DSO_PATH = os.environ.get("PYPTO_KERNEL_DSO_PATH")
+PYPTO_PACKAGE = os.environ.get("PYPTO_KERNEL_PACKAGE_PATH")
+_DRIVER_LABEL_ENV = "PYPTO_KERNEL_CUDA_DRIVER_LABEL"
+_CUDART_PATH_ENV = "PYPTO_KERNEL_CUDART"
 
 _lock = threading.RLock()
 _modules: dict[str, Any] | None = None
 _sources_revision: str | None = None
+_runtime_expectation: tuple[str, str] | None = None
 
 
 def _kernel_sources_revision() -> str:
@@ -48,14 +43,47 @@ def _kernel_sources_revision() -> str:
 
 
 def bootstrap() -> dict[str, Any]:
-    """Bind the exact-DSO pypto package once per process."""
+    """Bind installed PyPTO or one explicitly requested diagnostic DSO."""
 
     global _modules
     with _lock:
         if _modules is not None:
             return _modules
+    if DSO_PATH is None and PYPTO_PACKAGE is None:
+        pypto = importlib.import_module("pypto")
+        core = importlib.import_module("pypto.pypto_core")
+        modules = {
+            "pypto": pypto,
+            "ir": pypto.ir,
+            "compiler": pypto.compiler,
+            "core": core,
+        }
+        with _lock:
+            if _modules is None:
+                _modules = modules
+            return _modules
+    if DSO_PATH is None:
+        raise RuntimeError(
+            "PYPTO_KERNEL_PACKAGE_PATH requires PYPTO_KERNEL_DSO_PATH"
+        )
     resolved = pathlib.Path(DSO_PATH).resolve(strict=True)
-    package_root = pathlib.Path(PYPTO_PACKAGE).resolve(strict=True)
+    if resolved.is_dir():
+        matches = sorted(resolved.glob("pypto_core*.so"))
+        if len(matches) != 1:
+            raise RuntimeError(
+                "PYPTO_KERNEL_DSO_PATH directory must contain exactly one "
+                "pypto_core shared library"
+            )
+        resolved = matches[0].resolve(strict=True)
+    if PYPTO_PACKAGE is None:
+        package_spec = importlib.util.find_spec("pypto")
+        if package_spec is None or package_spec.origin is None:
+            raise RuntimeError(
+                "explicit PyPTO DSO bootstrap cannot locate the installed package"
+            )
+        package_root = pathlib.Path(package_spec.origin).resolve(strict=True).parent
+    else:
+        package_root = pathlib.Path(PYPTO_PACKAGE).resolve(strict=True)
     occupied = sorted(
         name for name in sys.modules if name == "pypto" or name.startswith("pypto.")
     )
@@ -107,15 +135,91 @@ def bootstrap() -> dict[str, Any]:
             sys.meta_path.insert(min(index, len(sys.meta_path)), finder)
         raise
     with _lock:
-        _modules = {"pypto": pypto, "ir": pypto.ir, "compiler": pypto.compiler}
+        _modules = {
+            "pypto": pypto,
+            "ir": pypto.ir,
+            "compiler": pypto.compiler,
+            "core": core,
+        }
     return _modules
 
 
-EXPECTED_DRIVER = "610.74"
-EXPECTED_RUNTIME = (
-    "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-nvidia/lib/"
-    "python3.14/site-packages/nvidia/cu13/lib/libcudart.so.13"
-)
+def loaded_dso_path() -> pathlib.Path:
+    """Return the concrete extension selected by :func:`bootstrap`."""
+
+    value = getattr(bootstrap()["core"], "__file__", None)
+    if not isinstance(value, str):
+        raise RuntimeError("loaded pypto_core has no concrete file")
+    return pathlib.Path(value).resolve(strict=True)
+
+
+class _DlInfo(ctypes.Structure):
+    _fields_ = (
+        ("dli_fname", ctypes.c_char_p),
+        ("dli_fbase", ctypes.c_void_p),
+        ("dli_sname", ctypes.c_char_p),
+        ("dli_saddr", ctypes.c_void_p),
+    )
+
+
+def _loaded_symbol_provider(symbol_name: str) -> str:
+    process = ctypes.CDLL(None)
+    try:
+        symbol = getattr(process, symbol_name)
+        dladdr = process.dladdr
+    except AttributeError as error:
+        raise RuntimeError(
+            f"the process has no loaded {symbol_name} provider"
+        ) from error
+    dladdr.argtypes = (ctypes.c_void_p, ctypes.POINTER(_DlInfo))
+    dladdr.restype = ctypes.c_int
+    info = _DlInfo()
+    if dladdr(ctypes.cast(symbol, ctypes.c_void_p), ctypes.byref(info)) != 1:
+        raise RuntimeError(f"dladdr failed for loaded symbol {symbol_name}")
+    if not info.dli_fname:
+        raise RuntimeError(f"dladdr returned no provider for {symbol_name}")
+    return str(pathlib.Path(os.fsdecode(info.dli_fname)).resolve(strict=True))
+
+
+def _driver_api_label() -> str:
+    try:
+        driver = ctypes.CDLL("libcuda.so.1")
+        query = driver.cuDriverGetVersion
+    except (OSError, AttributeError) as error:
+        raise RuntimeError("CUDA Driver API version is unavailable") from error
+    query.argtypes = (ctypes.POINTER(ctypes.c_int),)
+    query.restype = ctypes.c_int
+    value = ctypes.c_int()
+    status = int(query(ctypes.byref(value)))
+    if status != 0 or value.value <= 0:
+        raise RuntimeError(
+            f"cuDriverGetVersion failed with status={status}, value={value.value}"
+        )
+    return f"cuda-driver-api-{value.value}"
+
+
+def _live_runtime_expectation() -> tuple[str, str]:
+    """Resolve strict expectations from live providers or explicit overrides."""
+
+    global _runtime_expectation
+    with _lock:
+        if _runtime_expectation is not None:
+            return _runtime_expectation
+    driver_label = os.environ.get(_DRIVER_LABEL_ENV)
+    if driver_label is None:
+        driver_label = _driver_api_label()
+    elif not driver_label or driver_label != driver_label.strip():
+        raise RuntimeError(f"{_DRIVER_LABEL_ENV} must be non-empty and trimmed")
+    runtime_override = os.environ.get(_CUDART_PATH_ENV)
+    runtime_path = (
+        str(pathlib.Path(runtime_override).resolve(strict=True))
+        if runtime_override
+        else _loaded_symbol_provider("cudaRuntimeGetVersion")
+    )
+    value = (driver_label, runtime_path)
+    with _lock:
+        _runtime_expectation = value
+    return value
 
 
 def compile_graph(
@@ -149,9 +253,7 @@ def compile_graph(
     torch.zeros(1, device="cuda")
     from pypto.runtime import nvidia as runtime
 
-    observation = runtime.observe_current_nvidia_runtime(
-        EXPECTED_DRIVER, EXPECTED_RUNTIME
-    )
+    observation = runtime.observe_current_nvidia_runtime(*_live_runtime_expectation())
     from pypto.compiler import ToolchainIdentity
 
     toolchain = ToolchainIdentity(
@@ -191,15 +293,22 @@ def compile_graph(
     result = compiler.compile_structured_strict(program, request, schedule)
     artifact = result.artifact
     key = hashlib.sha256(bytes(artifact.device_code)).hexdigest()[:16]
-    from pypto_plugins.activity_trace import artifact_record_from_runtime
-
-    artifact_record = artifact_record_from_runtime(
-        artifact,
-        provider=provider,
-        source_node=source_node
-        or f"pypto-kernels:{artifact.kernel_abi.entry_function_name}",
-        kernels_revision=_kernel_sources_revision(),
-    )
+    try:
+        from pypto_plugins.activity_trace import artifact_record_from_runtime
+    except ImportError:
+        if os.environ.get("PYPTO_STRICT_COVERAGE") == "1":
+            raise RuntimeError(
+                "strict coverage requires pypto-framework-plugins"
+            ) from None
+        artifact_record = None
+    else:
+        artifact_record = artifact_record_from_runtime(
+            artifact,
+            provider=provider,
+            source_node=source_node
+            or f"pypto-kernels:{artifact.kernel_abi.entry_function_name}",
+            kernels_revision=_kernel_sources_revision(),
+        )
     with _lock:
         _GRAPHS[key] = (artifact, request)
         _GRAPH_RECORDS[key] = artifact_record
@@ -248,7 +357,7 @@ def _ready_executable(key: str) -> Any:
         artifact, request = _GRAPHS[key]
         executable = runtime.NvidiaExecutable(artifact, request)
         observation = runtime.observe_current_nvidia_runtime(
-            EXPECTED_DRIVER, EXPECTED_RUNTIME
+            *_live_runtime_expectation()
         )
         executable.prewarm(observation.cuda_runtime_api_version)
         _EXECUTABLES[key] = executable

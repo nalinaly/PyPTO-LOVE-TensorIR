@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import math
@@ -10,25 +11,13 @@ import os
 import pathlib
 import sys
 
-ROOT = pathlib.Path("/home/zhaosiying/pypto-love-tensor-ir")
 KERNEL_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(KERNEL_ROOT / "src"))
-os.environ.setdefault(
-    "PYPTO_KERNEL_DSO_PATH",
-    str(
-        ROOT / "builds/pypto-paged-f34c3f5/product/"
-        "pypto_core.cpython-314-x86_64-linux-gnu.so"
-    ),
-)
-os.environ.setdefault(
-    "PYPTO_KERNEL_PACKAGE_PATH",
-    str(ROOT / "worktrees/pypto-paged-decode/python/pypto"),
-)
 
 import torch  # noqa: E402
 
 from pypto_kernels import causal_conv1d, gdn, gdn_projection  # noqa: E402
-from pypto_kernels._boot import DSO_PATH, bootstrap  # noqa: E402
+from pypto_kernels._boot import bootstrap, loaded_dso_path  # noqa: E402
 
 
 def projection_case(stream: torch.cuda.Stream) -> dict[str, object]:
@@ -455,10 +444,17 @@ def gdn_case(
     }
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("cases", nargs="*")
+    parser.add_argument("--output", type=pathlib.Path, required=True)
+    args = parser.parse_args(argv)
+    output = args.output.resolve()
+    if output == KERNEL_ROOT or KERNEL_ROOT in output.parents:
+        raise ValueError("stateful output must be outside the source package")
     torch.manual_seed(19)
     stream = torch.cuda.Stream()
-    requested = set(sys.argv[1:])
+    requested = set(args.cases)
     all_cases = {
         "projection": lambda: projection_case(stream),
         "conv_decode": lambda: conv_case(
@@ -500,7 +496,7 @@ def main() -> int:
         raise ValueError(f"unknown stateful cases: {sorted(unknown)}")
     selected = requested or set(all_cases)
     cases = [factory() for name, factory in all_cases.items() if name in selected]
-    dso = pathlib.Path(DSO_PATH)
+    dso = loaded_dso_path()
     result = {
         "schema": 1,
         "kind": "pypto-stateful-sm120",
@@ -513,8 +509,6 @@ def main() -> int:
         "all_correct": all(bool(case["correct"]) for case in cases),
         "cases": cases,
     }
-    run_id = os.environ.get("PYPTO_RUN_ID", "manual")
-    output = ROOT / "runs" / run_id / "stateful-result.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     print(json.dumps(result, sort_keys=True))

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import math
@@ -12,29 +13,23 @@ import sys
 
 import torch
 
-ROOT = pathlib.Path(__file__).resolve().parents[3]
-os.environ.setdefault(
-    "PYPTO_KERNEL_DSO_PATH",
-    str(
-        ROOT
-        / "builds/pypto-paged-f34c3f5/product/"
-        "pypto_core.cpython-314-x86_64-linux-gnu.so"
-    ),
-)
-os.environ.setdefault(
-    "PYPTO_KERNEL_PACKAGE_PATH",
-    str(ROOT / "worktrees/pypto-paged-decode/python/pypto"),
-)
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
+KERNEL_ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(KERNEL_ROOT / "src"))
 
 from pypto_kernels import attention  # noqa: E402
-from pypto_kernels._boot import DSO_PATH, bootstrap  # noqa: E402
+from pypto_kernels._boot import bootstrap, loaded_dso_path  # noqa: E402
 
 RTOL = 1.0e-1
 ATOL = 8.0e-2
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=pathlib.Path, required=True)
+    args = parser.parse_args(argv)
+    output = args.output.resolve()
+    if output == KERNEL_ROOT or KERNEL_ROOT in output.parents:
+        raise ValueError("paged-attention output must be outside the source package")
     torch.manual_seed(11)
     stream = torch.cuda.Stream()
     cases: list[dict[str, object]] = []
@@ -384,11 +379,11 @@ def main() -> int:
     run_prefill(q_heads=16, kv_heads=4, label="prefill_9b_prefix2_extend13")
 
     all_correct = all(bool(case["correct"]) for case in cases)
-    dso = pathlib.Path(DSO_PATH)
+    dso = loaded_dso_path()
     result = {
         "schema_version": 1,
         "kind": "pypto-paged-attention-sm120",
-        "run_id": os.environ["PYPTO_RUN_ID"],
+        "run_id": os.environ.get("PYPTO_RUN_ID"),
         "thresholds": {"rtol": RTOL, "atol": ATOL},
         "dso_sha256": hashlib.sha256(dso.read_bytes()).hexdigest(),
         "pypto_commit": (
@@ -398,10 +393,8 @@ def main() -> int:
         "cases": cases,
     }
     rendered = json.dumps(result, indent=2, sort_keys=True) + "\n"
-    run_dir = ROOT / "runs" / result["run_id"]
-    (run_dir / "paged-attention-result.json").write_text(
-        rendered, encoding="utf-8"
-    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(rendered, encoding="utf-8")
     print(rendered, end="")
     return 0 if all_correct else 75
 

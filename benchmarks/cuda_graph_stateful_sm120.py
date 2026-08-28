@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import math
@@ -11,28 +12,16 @@ import pathlib
 import sys
 
 
-ROOT = pathlib.Path("/home/zhaosiying/pypto-love-tensor-ir")
 KERNEL_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(KERNEL_ROOT / "src"))
-os.environ.setdefault(
-    "PYPTO_KERNEL_DSO_PATH",
-    str(
-        ROOT / "builds/pypto-paged-f34c3f5/product/"
-        "pypto_core.cpython-314-x86_64-linux-gnu.so"
-    ),
-)
-os.environ.setdefault(
-    "PYPTO_KERNEL_PACKAGE_PATH",
-    str(ROOT / "worktrees/pypto-paged-decode/python/pypto"),
-)
 
 import torch  # noqa: E402
 
 from pypto_kernels import causal_conv1d, gdn, gdn_projection  # noqa: E402
 from pypto_kernels._boot import (  # noqa: E402
-    DSO_PATH,
     acquire_cuda_graph_leases,
     bootstrap,
+    loaded_dso_path,
 )
 
 
@@ -87,7 +76,13 @@ def reference(
     return z, output, conv_state, gdn_state
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=pathlib.Path, required=True)
+    args = parser.parse_args(argv)
+    output = args.output.resolve()
+    if output == KERNEL_ROOT or KERNEL_ROOT in output.parents:
+        raise ValueError("CUDA-graph output must be outside the source package")
     torch.manual_seed(29)
     q_heads, value_heads, key_dim, value_dim = 8, 16, 128, 128
     mixed_width = 2 * q_heads * key_dim + value_heads * value_dim
@@ -217,7 +212,7 @@ def main() -> int:
         for value in observed_gdn
     )
     z_diff = float((captured_z.float() - expected_z.float()).abs().max())
-    dso = pathlib.Path(DSO_PATH)
+    dso = loaded_dso_path()
     correct = bool(
         z_diff == 0.0
         and output_diff <= 0.08
@@ -248,8 +243,6 @@ def main() -> int:
         "gdn_state_drift": gdn_drift,
         "correct": correct,
     }
-    run_id = os.environ.get("PYPTO_RUN_ID", "manual")
-    output = ROOT / "runs" / run_id / "cuda-graph-stateful-result.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     print(json.dumps(result, sort_keys=True))

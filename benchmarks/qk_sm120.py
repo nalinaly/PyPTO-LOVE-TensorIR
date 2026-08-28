@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
@@ -11,17 +12,24 @@ import sys
 
 import torch
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
+KERNEL_ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(KERNEL_ROOT / "src"))
 
-from pypto_kernels import qk_rmsnorm_rope
-from pypto_kernels._boot import DSO_PATH, bootstrap
+from pypto_kernels import qk_rmsnorm_rope  # noqa: E402
+from pypto_kernels._boot import bootstrap, loaded_dso_path  # noqa: E402
 
 
 RTOL = 5.0e-2
 ATOL = 5.0e-2
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=pathlib.Path, required=True)
+    args = parser.parse_args(argv)
+    output = args.output.resolve()
+    if output == KERNEL_ROOT or KERNEL_ROOT in output.parents:
+        raise ValueError("QK output must be outside the source package")
     torch.manual_seed(3)
     tokens, q_heads, kv_heads = 2, 8, 2
     head_dim, rotary_dim, max_positions = 256, 64, 262144
@@ -57,7 +65,16 @@ def main() -> int:
     positions = torch.tensor([0, 17], device="cuda", dtype=torch.int64)
 
     graph_key = qk_rmsnorm_rope.compile_for(
-        tokens, q_heads, kv_heads, head_dim, rotary_dim, max_positions
+        tokens,
+        q_heads,
+        kv_heads,
+        head_dim,
+        rotary_dim,
+        max_positions,
+        int(q_gate.stride(0)),
+        int(key.stride(0)),
+        cos_sin_cache.dtype is torch.float32,
+        positions.dtype is torch.int32,
     )
     q_out, k_out, gate_out = qk_rmsnorm_rope.qk_rmsnorm_rope_gate(
         q_gate,
@@ -120,11 +137,11 @@ def main() -> int:
     )
     correct = gate_exact and q_close and k_close
 
-    dso = pathlib.Path(DSO_PATH)
+    dso = loaded_dso_path()
     result = {
         "schema_version": 1,
         "kind": "pypto-qk-rmsnorm-partial-rope-gate-sm120",
-        "run_id": os.environ["PYPTO_RUN_ID"],
+        "run_id": os.environ.get("PYPTO_RUN_ID"),
         "graph_key": graph_key,
         "launches": 1,
         "shape": {
@@ -150,8 +167,8 @@ def main() -> int:
         ),
     }
     rendered = json.dumps(result, indent=2, sort_keys=True) + "\n"
-    run_dir = pathlib.Path(__file__).parents[3] / "runs" / result["run_id"]
-    (run_dir / "qk-exec-result.json").write_text(rendered, encoding="utf-8")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(rendered, encoding="utf-8")
     print(rendered, end="")
     return 0 if correct else 75
 
