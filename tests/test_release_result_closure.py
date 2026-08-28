@@ -6,6 +6,7 @@ import importlib.util
 import json
 from pathlib import Path
 import struct
+import sys
 import zlib
 
 import pytest
@@ -424,6 +425,34 @@ def _docs_fixture(root: Path) -> tuple[dict[str, Path], Path, Path, Path]:
     return documents, summary, fragment_manifest, screenshot_manifest
 
 
+def _sync_argv(
+    documents: dict[str, Path],
+    summary: Path,
+    fragments: Path,
+    screenshots: Path,
+    *,
+    check: bool,
+) -> list[str]:
+    argv = [
+        "sync_release_docs.py",
+        "--release-summary",
+        str(summary),
+        "--marker-fragments",
+        str(fragments),
+        "--readme-zh",
+        str(documents["readme_zh"]),
+        "--readme-en",
+        str(documents["readme_en"]),
+        "--blog",
+        str(documents["blog"]),
+        "--screenshots-manifest",
+        str(screenshots),
+    ]
+    if check:
+        argv.append("--check")
+    return argv
+
+
 def test_docs_sync_is_evidence_bound_and_updates_only_controlled_markers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -470,3 +499,117 @@ def test_docs_sync_rejects_placeholder_fragment(
     fragments_path.write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(sync.ReleaseContractError, match="placeholder"):
         sync._load_fragments(summary, fragments_path)
+
+
+def test_docs_sync_check_is_fail_closed_read_only_and_then_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    documents, summary, fragments, screenshots = _docs_fixture(tmp_path)
+    monkeypatch.setattr(sync, "ROOT", tmp_path)
+    before = {name: path.read_bytes() for name, path in documents.items()}
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        _sync_argv(
+            documents, summary, fragments, screenshots, check=True
+        ),
+    )
+    with pytest.raises(sync.ReleaseContractError) as failure:
+        sync.main()
+    message = str(failure.value)
+    assert "not synchronized" in message
+    assert "README.md" in message
+    assert "README_EN.md" in message
+    assert "reports/local-blog/blog.md" in message
+    assert {name: path.read_bytes() for name, path in documents.items()} == before
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        _sync_argv(
+            documents, summary, fragments, screenshots, check=False
+        ),
+    )
+    assert sync.main() == 0
+    synchronized = {name: path.read_bytes() for name, path in documents.items()}
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        _sync_argv(
+            documents, summary, fragments, screenshots, check=True
+        ),
+    )
+    assert sync.main() == 0
+    assert {name: path.read_bytes() for name, path in documents.items()} == synchronized
+
+
+def test_docs_sync_check_detects_fragment_input_drift_without_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    documents, summary, fragments, screenshots = _docs_fixture(tmp_path)
+    monkeypatch.setattr(sync, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        _sync_argv(
+            documents, summary, fragments, screenshots, check=False
+        ),
+    )
+    assert sync.main() == 0
+
+    manifest = json.loads(fragments.read_text(encoding="utf-8"))
+    record = manifest["fragments"]["SUMMARY_ZH"]
+    fragment = fragments.parent / record["path"]
+    fragment.write_text("SUMMARY_ZH: PASS UPDATED\n", encoding="utf-8")
+    record["sha256"] = hashlib.sha256(fragment.read_bytes()).hexdigest()
+    fragments.write_text(json.dumps(manifest), encoding="utf-8")
+    before = {name: path.read_bytes() for name, path in documents.items()}
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        _sync_argv(
+            documents, summary, fragments, screenshots, check=True
+        ),
+    )
+    with pytest.raises(sync.ReleaseContractError) as failure:
+        sync.main()
+    assert "README.md" in str(failure.value)
+    assert "reports/local-blog/blog.md" in str(failure.value)
+    assert {name: path.read_bytes() for name, path in documents.items()} == before
+
+
+def test_docs_sync_check_detects_screenshot_input_drift_without_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    documents, summary, fragments, screenshots = _docs_fixture(tmp_path)
+    monkeypatch.setattr(sync, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        _sync_argv(
+            documents, summary, fragments, screenshots, check=False
+        ),
+    )
+    assert sync.main() == 0
+
+    manifest = json.loads(screenshots.read_text(encoding="utf-8"))
+    manifest["screenshots"]["build"]["caption_en"] = (
+        "Updated formal build evidence"
+    )
+    screenshots.write_text(json.dumps(manifest), encoding="utf-8")
+    before = {name: path.read_bytes() for name, path in documents.items()}
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        _sync_argv(
+            documents, summary, fragments, screenshots, check=True
+        ),
+    )
+    with pytest.raises(sync.ReleaseContractError) as failure:
+        sync.main()
+    assert "README_EN.md" in str(failure.value)
+    assert "README.md" not in str(failure.value)
+    assert "reports/local-blog/blog.md" not in str(failure.value)
+    assert {name: path.read_bytes() for name, path in documents.items()} == before

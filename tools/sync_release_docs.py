@@ -376,6 +376,23 @@ def _atomic_replace_many(updates: dict[Path, str]) -> None:
             temporary.unlink(missing_ok=True)
 
 
+def _require_documents_synced(updates: dict[Path, str]) -> None:
+    """Fail unless every controlled document already has its rendered bytes."""
+
+    stale = []
+    for destination, expected in updates.items():
+        if destination.read_bytes() != expected.encode("utf-8"):
+            try:
+                stale.append(destination.relative_to(ROOT).as_posix())
+            except ValueError:
+                stale.append(str(destination))
+    if stale:
+        raise ReleaseContractError(
+            "documents are not synchronized with release fragments and "
+            f"screenshots: {', '.join(sorted(stale))}"
+        )
+
+
 def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser()
     value.add_argument("--release-summary", type=Path, required=True)
@@ -408,7 +425,9 @@ def main() -> int:
                 )
             text = _replace_marker(text, marker, fragment)
         updates[path] = text
-    if not args.check:
+    if args.check:
+        _require_documents_synced(updates)
+    else:
         _atomic_replace_many(updates)
     print(
         json.dumps(
