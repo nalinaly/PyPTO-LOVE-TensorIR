@@ -46,7 +46,24 @@ def create_gdn_backend(model_runner: Any) -> Any:
                 )
 
         @staticmethod
-        def _reject_kwargs(kwargs: dict[str, Any]) -> None:
+        def _validate_wrapper_kwargs(layer: Any, kwargs: dict[str, Any]) -> None:
+            optional_tensors = {
+                name: kwargs.pop(name, None) for name in ("q", "k", "v")
+            }
+            if any(value is not None for value in optional_tensors.values()):
+                raise BackendNotReadyError(
+                    "PyPTO GDN does not accept full-attention Q/K/V inputs."
+                )
+            save_kv_cache = kwargs.pop("save_kv_cache", True)
+            if save_kv_cache is not True:
+                raise BackendNotReadyError(
+                    "PyPTO GDN requires the stateful cache update path."
+                )
+            layer_id = kwargs.pop("layer_id", None)
+            if layer_id is not None and int(layer_id) != int(layer.layer_id):
+                raise BackendNotReadyError(
+                    "PyPTO GDN wrapper layer_id disagrees with the layer object."
+                )
             if kwargs:
                 raise BackendNotReadyError(
                     "PyPTO GDN does not implement optional backend kwargs: "
@@ -119,7 +136,7 @@ def create_gdn_backend(model_runner: Any) -> Any:
             b: Any,
             **kwargs: Any,
         ) -> Any:
-            self._reject_kwargs(kwargs)
+            self._validate_wrapper_kwargs(layer, kwargs)
             if not forward_batch.forward_mode.is_decode():
                 raise BackendNotReadyError(
                     "PyPTO GDN decode received a non-decode forward mode."
@@ -143,7 +160,7 @@ def create_gdn_backend(model_runner: Any) -> Any:
             b: Any,
             **kwargs: Any,
         ) -> Any:
-            self._reject_kwargs(kwargs)
+            self._validate_wrapper_kwargs(layer, kwargs)
             mode = forward_batch.forward_mode
             if (
                 not mode.is_extend()

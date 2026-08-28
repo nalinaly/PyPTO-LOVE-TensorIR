@@ -38,6 +38,7 @@ ATTENTION_ADAPTER = (
     PROJECT_ROOT / "src" / "pypto_plugins" / "sglang" / "attention_backend.py"
 )
 GDN_ADAPTER = PROJECT_ROOT / "src" / "pypto_plugins" / "sglang" / "gdn_backend.py"
+SGLANG_PLUGIN = PROJECT_ROOT / "src" / "pypto_plugins" / "sglang_plugin.py"
 ATTENTION_REGISTRY = (
     WORKSPACE_ROOT
     / "upstream"
@@ -108,6 +109,9 @@ def test_pinned_qwen35_projection_hook_symbol_is_imported() -> None:
         for alias in node.names
     }
     assert name in imported
+    plugin_text = SGLANG_PLUGIN.read_text(encoding="utf-8")
+    assert "importlib.import_module(projection_module_name)" in plugin_text
+    assert "pinned Qwen3.5 projection hook target is not callable" in plugin_text
 
 
 def test_gdn_projection_hook_routes_only_explicit_pypto_selection(monkeypatch) -> None:
@@ -227,6 +231,9 @@ def test_gdn_adapter_uses_only_stateful_pypto_graphs() -> None:
         ".to(",
     ):
         assert forbidden not in text
+    assert 'causal_conv1d.STATUS != "native-tile stateful executable"' in (
+        SGLANG_PLUGIN.read_text(encoding="utf-8")
+    )
 
 
 def _install_fake_attention_base(monkeypatch) -> None:

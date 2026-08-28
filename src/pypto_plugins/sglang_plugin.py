@@ -7,6 +7,8 @@ standalone operator ABI exists.
 
 from __future__ import annotations
 
+import importlib
+
 from .errors import BackendNotReadyError
 from .operator_library import assert_operator_library_compatible
 from .torch_inductor import assert_backend_executable_ready, install
@@ -96,7 +98,7 @@ def _attention_wrapper_around(original_fn, runner, full_attn_backend):
     from pypto_kernels import causal_conv1d, gdn
 
     if (
-        causal_conv1d.STATUS != "native-tile executable"
+        causal_conv1d.STATUS != "native-tile stateful executable"
         or gdn.STATUS != "native-tile recurrent executable"
     ):
         raise BackendNotReadyError(
@@ -185,6 +187,13 @@ def _register_impl() -> None:
         add_linear_attn_kernel_backend_choices,
     )
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
+
+    projection_module_name, projection_symbol = GDN_PROJECTION_TARGET.rsplit(".", 1)
+    projection_module = importlib.import_module(projection_module_name)
+    if not callable(getattr(projection_module, projection_symbol, None)):
+        raise BackendNotReadyError(
+            "pinned Qwen3.5 projection hook target is not callable"
+        )
 
     add_attention_backend_choices(["pypto"])
     add_linear_attn_kernel_backend_choices(["pypto"])
