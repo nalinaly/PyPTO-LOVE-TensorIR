@@ -77,34 +77,40 @@ def main(argv: list[str] | None = None) -> int:
         )
     # Every broadcast-dependent former B-class operator below is one compile
     # and one launch. Launch arguments follow builder input discovery order.
-    embedding_tokens, embedding_vocab, embedding_hidden = 32, 248320, 1024
-    token_ids = torch.randint(
-        0,
-        embedding_vocab,
-        (embedding_tokens,),
-        device="cuda",
-        dtype=torch.int64,
-    )
+    embedding_vocab, embedding_hidden = 248320, 1024
     embedding_weight = torch.randn(
         embedding_vocab,
         embedding_hidden,
         device="cuda",
         dtype=torch.bfloat16,
     )
-    embedding_out = embedding.embedding(token_ids, embedding_weight, stream=stream)
-    stream.synchronize()
-    embedding_ref = embedding_weight[token_ids]
-    cases.append(
-        {
-            "case": "embedding_bf16 32x248320x1024",
-            "implementation": "native-tile-dsl",
-            "launches": 1,
-            "max_abs_diff": float(
-                (embedding_out.float() - embedding_ref.float()).abs().max()
-            ),
-            "correct": bool(torch.equal(embedding_out, embedding_ref)),
-        }
-    )
+    for embedding_tokens in (1, 19):
+        token_ids = torch.randint(
+            0,
+            embedding_vocab,
+            (embedding_tokens,),
+            device="cuda",
+            dtype=torch.int64,
+        )
+        embedding_out = embedding.embedding(
+            token_ids, embedding_weight, stream=stream
+        )
+        stream.synchronize()
+        embedding_ref = embedding_weight[token_ids]
+        cases.append(
+            {
+                "case": (
+                    f"embedding_bf16_rows{embedding_tokens}_"
+                    f"{embedding_vocab}x{embedding_hidden}"
+                ),
+                "implementation": "native-tile-dsl",
+                "launches": 1,
+                "max_abs_diff": float(
+                    (embedding_out.float() - embedding_ref.float()).abs().max()
+                ),
+                "correct": bool(torch.equal(embedding_out, embedding_ref)),
+            }
+        )
     for integer_dtype in (torch.int32, torch.int64):
         for count in (1, 19):
             integer_table = torch.arange(
