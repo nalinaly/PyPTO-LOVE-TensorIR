@@ -28,7 +28,7 @@
     ["gdn_projection", "gdn_projection"],
     ["causal_conv", "gdn_conv"],
     ["gdn:recurrent|gated_rmsnorm", "gdn_recurrent_norm"],
-    ["silu_and_mul|torch-inductor:.*silu|torch-inductor:.*mul", "mlp_swiglu"],
+    ["silu_and_mul|^torch-inductor:[0-9a-f]{16,64}$", "mlp_swiglu"],
     ["fused_add_rmsnorm", "residual_norm"],
     ["rmsnorm:rmsnorm", "final_norm"],
     ["linear_to_float", "lm_head"],

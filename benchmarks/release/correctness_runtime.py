@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import traceback
 
+from .evidence_identity import collect_run_identity
 from .lanes import (
     prepare_worker_environment,
     resolved_backend_record,
@@ -19,12 +20,14 @@ from .workload import (
     OUTPUT_TOKENS,
     PROMPT,
     PROMPT_TOKEN_IDS,
+    Qwen35ModelSpec,
     SCHEMA_VERSION,
     ReleaseContractError,
     atomic_json,
     canonical_json_sha256,
     model_revision,
     read_json,
+    resolve_qwen35_model_spec,
     sha256_file,
     validate_workload,
     workload_record,
@@ -32,6 +35,7 @@ from .workload import (
 
 
 MAX_TRACE_ATTEMPTS = 10
+ROOT = Path(__file__).resolve().parents[2]
 THRESHOLDS = {
     "cosine_similarity_min": 0.98,
     "max_abs_error_max": 3.0,
@@ -44,7 +48,9 @@ THRESHOLDS = {
 }
 
 
-def _model_record(model_path: Path) -> dict[str, object]:
+def _model_record(
+    model_path: Path, model_spec: Qwen35ModelSpec
+) -> dict[str, object]:
     config = model_path / "config.json"
     if not config.is_file():
         raise ReleaseContractError(f"model config is missing: {config}")
@@ -53,6 +59,7 @@ def _model_record(model_path: Path) -> dict[str, object]:
         raise ReleaseContractError(f"model has no safetensors: {model_path}")
     return {
         "path": str(model_path),
+        **model_spec.record(),
         "revision": model_revision(model_path),
         "config_sha256": sha256_file(config),
         "shards": [
@@ -213,15 +220,17 @@ def _run_engine_sequences(
 def run_reference(model_path: Path, run_id: str, run_dir: Path) -> int:
     lane = "sglang-matched"
     model_path = model_path.resolve(strict=True)
-    report_path = run_dir / "qwen35-9b-reference.json"
-    tensor_path = run_dir / "qwen35-9b-reference-logits.pt"
-    model = _model_record(model_path)
+    model_spec = resolve_qwen35_model_spec(ROOT, model_path)
+    report_path = run_dir / f"{model_spec.report_stem}-reference.json"
+    tensor_path = run_dir / f"{model_spec.report_stem}-reference-logits.pt"
+    model = _model_record(model_path, model_spec)
+    workload = workload_record(model_spec)
     report: dict[str, object] = {
         "schema": SCHEMA_VERSION,
-        "kind": "qwen35-9b-multitoken-reference",
+        "kind": f"{model_spec.report_stem}-multitoken-reference",
         "lane": lane,
         "run_id": run_id,
-        "workload": workload_record(),
+        "workload": workload,
         "entrypoint": "sglang.benchmark.one_batch ModelRunner",
         "thresholds": THRESHOLDS,
         "model": model,
@@ -249,6 +258,7 @@ def run_reference(model_path: Path, run_id: str, run_dir: Path) -> int:
             raise ReleaseContractError(
                 "tokenizer revision does not encode the frozen 19-token prompt"
             )
+        evidence_identity = collect_run_identity(ROOT, "baseline", model_path)
         report.update(
             {
                 "status": "complete",
@@ -264,12 +274,13 @@ def run_reference(model_path: Path, run_id: str, run_dir: Path) -> int:
                 "reference_identity": canonical_json_sha256(
                     {
                         "model": model,
-                        "workload": workload_record(),
+                        "workload": workload,
                         "thresholds": THRESHOLDS,
                         "output_token_ids": output_ids,
                         "logits_raw_sha256": _tensor_raw_sha256(logits),
                     }
                 ),
+                "evidence_identity": evidence_identity,
             }
         )
         return_code = 0
@@ -362,6 +373,7 @@ def _coverage_request(
     request_index: int,
     windows: list[dict[str, object]],
     monitor_stats: dict[str, object],
+    model_spec: Qwen35ModelSpec,
     model_revision: str,
     run_dir: Path,
 ) -> tuple[dict[str, object], dict[str, object]]:
@@ -407,7 +419,7 @@ def _coverage_request(
         raise ReleaseContractError("CUPTI request trace is not closed-world")
     manifest = TraceManifest(
         run_id=f"{run_id}:request:{request_index}",
-        model_id="Qwen/Qwen3.5-9B",
+        model_id=model_spec.model_id,
         model_revision=model_revision,
         device_fingerprint=_device_fingerprint(torch),
         collector=TRACE_COLLECTOR,
@@ -462,10 +474,11 @@ def _coverage_request(
         "handwritten_artifact_count": len(handwritten_artifacts),
         "handwritten_compute_calls": handwritten_calls,
         "unknown_artifacts": unknown_artifacts,
-        "expected_calls": 32 * OUTPUT_TOKENS,
+        "expected_calls": model_spec.expected_inductor_calls,
+        "num_hidden_layers": model_spec.num_hidden_layers,
         "effective": bool(
             inductor_artifacts
-            and inductor_calls == 32 * OUTPUT_TOKENS
+            and inductor_calls == model_spec.expected_inductor_calls
             and handwritten_artifacts
             and handwritten_calls > 0
             and not unknown_artifacts
@@ -494,15 +507,18 @@ def run_candidate(
 ) -> int:
     lane = "pypto"
     model_path = model_path.resolve(strict=True)
+    model_spec = resolve_qwen35_model_spec(ROOT, model_path)
     reference_report_path = reference_report_path.resolve(strict=True)
-    report_path = run_dir / "qwen35-9b-correctness.json"
-    model = _model_record(model_path)
+    report_path = run_dir / f"{model_spec.report_stem}-correctness.json"
+    model = _model_record(model_path, model_spec)
+    workload = workload_record(model_spec)
     report: dict[str, object] = {
         "schema": SCHEMA_VERSION,
-        "kind": "qwen35-9b-multitoken-correctness",
+        "kind": f"{model_spec.report_stem}-multitoken-correctness",
         "lane": lane,
         "run_id": run_id,
-        "workload": workload_record(),
+        "workload": workload,
+        "model": model,
         "entrypoint": "sglang.benchmark.one_batch ModelRunner",
         "request_count": MEASURED_REQUESTS,
         "fresh_process": True,
@@ -515,13 +531,32 @@ def run_candidate(
         reference_report = read_json(reference_report_path)
         if reference_report.get("status") != "complete":
             raise ReleaseContractError("reference report is not complete")
-        validate_workload(reference_report.get("workload", {}))
+        expected_reference_kind = f"{model_spec.report_stem}-multitoken-reference"
+        if reference_report.get("kind") != expected_reference_kind:
+            raise ReleaseContractError(
+                "reference report kind differs for selected model"
+            )
+        validate_workload(reference_report.get("workload", {}), model_spec)
         if reference_report.get("thresholds") != THRESHOLDS:
             raise ReleaseContractError(
                 "reference thresholds differ from release policy"
             )
-        if reference_report.get("model", {}).get("revision") != model["revision"]:
-            raise ReleaseContractError("candidate and reference model revisions differ")
+        reference_model = reference_report.get("model")
+        if not isinstance(reference_model, dict) or any(
+            reference_model.get(field) != model[field]
+            for field in (
+                "manifest_name",
+                "model_id",
+                "model_size",
+                "num_hidden_layers",
+                "expected_inductor_calls",
+                "revision",
+                "config_sha256",
+            )
+        ):
+            raise ReleaseContractError(
+                "candidate and reference model specifications differ"
+            )
         logits_record = reference_report.get("logits")
         if not isinstance(logits_record, dict):
             raise ReleaseContractError("reference report has no tensor record")
@@ -530,6 +565,10 @@ def run_candidate(
             raise ReleaseContractError("reference tensor file identity changed")
 
         expected_output_ids = list(reference_report["output_token_ids"])
+        if len(expected_output_ids) != OUTPUT_TOKENS:
+            raise ReleaseContractError(
+                "reference output token sequence does not contain 64 steps"
+            )
         engine_requests, engine_requested, engine_resolved = _run_engine_sequences(
             model_path, expected_output_ids
         )
@@ -603,6 +642,7 @@ def run_candidate(
                 request_index=request_index,
                 windows=windows,
                 monitor_stats=monitor_stats,
+                model_spec=model_spec,
                 model_revision=str(model["revision"]),
                 run_dir=run_dir,
             )
@@ -638,6 +678,7 @@ def run_candidate(
             raise ReleaseContractError(
                 "candidate tokenizer does not encode the frozen 19-token prompt"
             )
+        evidence_identity = collect_run_identity(ROOT, "pypto", model_path)
         report.update(
             {
                 "status": "complete" if all_passed else "failed",
@@ -657,6 +698,7 @@ def run_candidate(
                     expected_output_ids, skip_special_tokens=False
                 ),
                 "collector_stats": stats,
+                "evidence_identity": evidence_identity,
             }
         )
         return_code = 0 if all_passed else 1

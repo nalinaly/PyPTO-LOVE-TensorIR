@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import hashlib
 import json
 import math
 import os
 from pathlib import Path
+import random
 import re
 import statistics
 import tempfile
@@ -72,6 +74,9 @@ PROFILE_SCHEDULE = (
     "pypto",
     "sglang-matched",
 )
+BOOTSTRAP_CONFIDENCE = 0.95
+BOOTSTRAP_RESAMPLES = 10_000
+BOOTSTRAP_SEED = 20_260_829
 
 _RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,191}\Z")
 
@@ -80,10 +85,102 @@ class ReleaseContractError(RuntimeError):
     """A release input or result violates the frozen public contract."""
 
 
-def workload_record() -> dict[str, object]:
+@dataclass(frozen=True)
+class Qwen35ModelSpec:
+    """One supported text-model release target and its derived report contract."""
+
+    manifest_name: str
+    model_id: str
+    model_size: str
+    report_stem: str
+    num_hidden_layers: int
+
+    @property
+    def expected_inductor_calls(self) -> int:
+        """One fused Inductor pointwise launch per layer and generated token."""
+
+        return self.num_hidden_layers * OUTPUT_TOKENS
+
+    def record(self) -> dict[str, object]:
+        return {
+            "manifest_name": self.manifest_name,
+            "model_id": self.model_id,
+            "model_size": self.model_size,
+            "report_stem": self.report_stem,
+            "num_hidden_layers": self.num_hidden_layers,
+            "expected_inductor_calls": self.expected_inductor_calls,
+        }
+
+
+QWEN35_MODEL_SPECS = {
+    "Qwen3.5-0.8B": Qwen35ModelSpec(
+        manifest_name="Qwen3.5-0.8B",
+        model_id="Qwen/Qwen3.5-0.8B",
+        model_size="0.8B",
+        report_stem="qwen35-0.8b",
+        num_hidden_layers=24,
+    ),
+    "Qwen3.5-9B": Qwen35ModelSpec(
+        manifest_name="Qwen3.5-9B",
+        model_id=MODEL_ID,
+        model_size=MODEL_SIZE,
+        report_stem="qwen35-9b",
+        num_hidden_layers=32,
+    ),
+}
+DEFAULT_MODEL_SPEC = QWEN35_MODEL_SPECS["Qwen3.5-9B"]
+
+
+def resolve_qwen35_model_spec(root: Path, model_path: Path) -> Qwen35ModelSpec:
+    """Resolve and verify a supported model from its manifest and config."""
+
+    root = root.resolve()
+    resolved_model = model_path.resolve(strict=True)
+    manifest_path = (root / "models/MANIFEST.json").resolve(strict=True)
+    manifest = read_json(manifest_path)
+    models = manifest.get("models")
+    if manifest.get("schema") != 1 or not isinstance(models, dict):
+        raise ReleaseContractError("model MANIFEST has an unknown schema")
+    matches = []
+    for name, record in models.items():
+        if not isinstance(record, dict) or type(record.get("destination")) is not str:
+            continue
+        destination = (root / str(record["destination"])).resolve()
+        if destination == resolved_model:
+            matches.append((name, record))
+    if len(matches) != 1:
+        raise ReleaseContractError(
+            "model path must match exactly one MANIFEST destination: "
+            f"{resolved_model}"
+        )
+    manifest_name, manifest_record = matches[0]
+    spec = QWEN35_MODEL_SPECS.get(str(manifest_name))
+    if spec is None:
+        raise ReleaseContractError(f"unsupported Qwen3.5 release model: {manifest_name}")
+    if manifest_record.get("repository_id") != spec.model_id:
+        raise ReleaseContractError(
+            f"model repository ID differs for {spec.manifest_name}"
+        )
+    config_path = resolved_model / "config.json"
+    config = read_json(config_path)
+    text_config = config.get("text_config")
+    if not isinstance(text_config, dict):
+        raise ReleaseContractError(f"model text_config is missing: {config_path}")
+    if text_config.get("num_hidden_layers") != spec.num_hidden_layers:
+        raise ReleaseContractError(
+            f"model layer count differs for {spec.manifest_name}: "
+            f"expected {spec.num_hidden_layers}, "
+            f"got {text_config.get('num_hidden_layers')!r}"
+        )
+    return spec
+
+
+def workload_record(
+    model_spec: Qwen35ModelSpec = DEFAULT_MODEL_SPEC,
+) -> dict[str, object]:
     return {
-        "model_id": MODEL_ID,
-        "model_size": MODEL_SIZE,
+        "model_id": model_spec.model_id,
+        "model_size": model_spec.model_size,
         "prompt": PROMPT,
         "prompt_token_ids": list(PROMPT_TOKEN_IDS),
         "prompt_tokens": PROMPT_TOKENS,
@@ -94,8 +191,11 @@ def workload_record() -> dict[str, object]:
     }
 
 
-def validate_workload(value: Mapping[str, object]) -> None:
-    expected = workload_record()
+def validate_workload(
+    value: Mapping[str, object],
+    model_spec: Qwen35ModelSpec = DEFAULT_MODEL_SPEC,
+) -> None:
+    expected = workload_record(model_spec)
     for key, expected_value in expected.items():
         if value.get(key) != expected_value:
             raise ReleaseContractError(
@@ -190,13 +290,147 @@ def distribution(values: Iterable[float]) -> dict[str, float]:
     observed = [float(value) for value in values]
     if not observed:
         raise ReleaseContractError("a distribution requires at least one sample")
+    if any(not math.isfinite(value) for value in observed):
+        raise ReleaseContractError("a distribution contains a non-finite sample")
+    p90 = nearest_rank(observed, 0.90)
+    p99 = nearest_rank(observed, 0.99)
     return {
         "min": min(observed),
         "mean": statistics.fmean(observed),
         "p50": statistics.median(observed),
-        "p90_nearest_rank": nearest_rank(observed, 0.90),
-        "p99_nearest_rank": nearest_rank(observed, 0.99),
+        "p90": p90,
+        "p90_nearest_rank": p90,
+        "p99": p99,
+        "p99_nearest_rank": p99,
         "max": max(observed),
+    }
+
+
+def _bootstrap_seed(salt: str) -> int:
+    digest = hashlib.sha256(salt.encode("utf-8")).digest()
+    return BOOTSTRAP_SEED ^ int.from_bytes(digest[:8], "big")
+
+
+def bootstrap_median_ci(
+    values: Iterable[float],
+    *,
+    salt: str,
+    confidence: float = BOOTSTRAP_CONFIDENCE,
+    resamples: int = BOOTSTRAP_RESAMPLES,
+) -> dict[str, object]:
+    """Deterministic percentile-bootstrap CI over fresh process starts."""
+
+    observed = [float(value) for value in values]
+    if not observed:
+        raise ReleaseContractError("a bootstrap interval requires at least one start")
+    if not 0.0 < confidence < 1.0:
+        raise ValueError("confidence must be in (0, 1)")
+    if type(resamples) is not int or resamples <= 0:
+        raise ValueError("resamples must be a positive integer")
+    seed = _bootstrap_seed(salt)
+    generator = random.Random(seed)
+    count = len(observed)
+    estimates = [
+        statistics.median(observed[generator.randrange(count)] for _ in range(count))
+        for _ in range(resamples)
+    ]
+    alpha = (1.0 - confidence) / 2.0
+    return {
+        "confidence": confidence,
+        "lower": nearest_rank(estimates, alpha),
+        "upper": nearest_rank(estimates, 1.0 - alpha),
+        "method": "nonparametric percentile bootstrap over fresh process starts",
+        "resamples": resamples,
+        "seed": seed,
+    }
+
+
+def fresh_start_summary(values: Iterable[float], *, salt: str) -> dict[str, object]:
+    """Summarize one scalar estimate from each independent fresh start."""
+
+    observed = [float(value) for value in values]
+    summary: dict[str, object] = distribution(observed)
+    summary.update(
+        {
+            "sample_count": len(observed),
+            "sample_unit": "fresh_process_start",
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "median_bootstrap_95ci": bootstrap_median_ci(observed, salt=salt),
+        }
+    )
+    return summary
+
+
+def bootstrap_median_comparison_ci(
+    candidate: Iterable[float],
+    baseline: Iterable[float],
+    *,
+    operation: str,
+    salt: str,
+    confidence: float = BOOTSTRAP_CONFIDENCE,
+    resamples: int = BOOTSTRAP_RESAMPLES,
+) -> dict[str, object]:
+    """Bootstrap a difference or ratio of independent start-level medians."""
+
+    candidate_values = [float(value) for value in candidate]
+    baseline_values = [float(value) for value in baseline]
+    if not candidate_values or not baseline_values:
+        raise ReleaseContractError("a comparison interval requires both start sets")
+    if operation not in {"difference", "ratio"}:
+        raise ValueError(f"unsupported bootstrap comparison: {operation}")
+    if operation == "ratio" and any(value == 0.0 for value in baseline_values):
+        raise ReleaseContractError("a bootstrap ratio has a zero baseline start")
+    if not 0.0 < confidence < 1.0:
+        raise ValueError("confidence must be in (0, 1)")
+    if type(resamples) is not int or resamples <= 0:
+        raise ValueError("resamples must be a positive integer")
+    seed = _bootstrap_seed(salt)
+    generator = random.Random(seed)
+    candidate_count = len(candidate_values)
+    baseline_count = len(baseline_values)
+    estimates = []
+    for _ in range(resamples):
+        candidate_median = statistics.median(
+            candidate_values[generator.randrange(candidate_count)]
+            for _ in range(candidate_count)
+        )
+        baseline_median = statistics.median(
+            baseline_values[generator.randrange(baseline_count)]
+            for _ in range(baseline_count)
+        )
+        estimates.append(
+            candidate_median - baseline_median
+            if operation == "difference"
+            else candidate_median / baseline_median
+        )
+    alpha = (1.0 - confidence) / 2.0
+    return {
+        "confidence": confidence,
+        "lower": nearest_rank(estimates, alpha),
+        "upper": nearest_rank(estimates, 1.0 - alpha),
+        "method": (
+            "independent nonparametric percentile bootstrap over fresh process starts"
+        ),
+        "operation": operation,
+        "resamples": resamples,
+        "seed": seed,
+    }
+
+
+def fresh_start_methodology(
+    within_start_unit: str = "requests",
+) -> dict[str, object]:
+    if not within_start_unit:
+        raise ValueError("within_start_unit must be nonempty")
+    return {
+        "experimental_unit": "fresh_process_start",
+        "within_start_estimator": f"median across {within_start_unit}",
+        "headline_estimator": "median across fresh-start estimates",
+        "tail_estimators": ["p90_nearest_rank", "p99_nearest_rank"],
+        "uncertainty": "95% percentile bootstrap CI resampling fresh starts",
+        "bootstrap_resamples": BOOTSTRAP_RESAMPLES,
+        "bootstrap_seed": BOOTSTRAP_SEED,
+        "pooling_requests_across_starts": False,
     }
 
 

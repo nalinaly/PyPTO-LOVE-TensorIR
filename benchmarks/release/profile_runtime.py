@@ -10,13 +10,22 @@ import re
 import traceback
 
 from .correctness_runtime import _generate, _load_runner, _shutdown_runner
-from .lanes import memory_qualification, prepare_worker_environment
+from .evidence_identity import collect_run_identity
+from .lanes import (
+    execution_feature_record,
+    matched_lane_comparability,
+    memory_qualification,
+    prepare_worker_environment,
+)
 from .workload import (
     OUTPUT_TOKENS,
     SCHEMA_VERSION,
     ReleaseContractError,
     atomic_json,
+    bootstrap_median_comparison_ci,
     distribution,
+    fresh_start_methodology,
+    fresh_start_summary,
     sha256_file,
     workload_record,
 )
@@ -110,7 +119,7 @@ def _annotation(value: object) -> dict[str, object] | None:
 def aggregate_windows(
     windows: list[dict[str, object]], rules: dict[str, object]
 ) -> dict[str, object]:
-    groups: dict[tuple[str, str, str, str, str], list[int]] = defaultdict(
+    groups: dict[tuple[str, str, str, str, str, str], list[int]] = defaultdict(
         lambda: [0, 0]
     )
     stage_totals: dict[str, list[int]] = defaultdict(lambda: [0, 0])
@@ -142,6 +151,7 @@ def aggregate_windows(
                 provider = "cuda.runtime"
                 source = kind
                 kernel = str(event.get("name") or kind)
+                attribution = "runtime_activity_kind"
             else:
                 kernel = str(event.get("name") or "")
                 correlation = event.get("correlation_id")
@@ -150,32 +160,56 @@ def aggregate_windows(
                 phase = None
                 provider = "stock.cuda"
                 source = "unannotated"
+                attribution = "none"
                 if payload and payload.get("kind") == PHASE_ANNOTATION_KIND:
                     phase = str(payload.get("phase"))
                     source = str(payload.get("module"))
+                    attribution = "callsite_external_correlation"
                 elif payload and payload.get("kind") == ARTIFACT_ANNOTATION_KIND:
                     artifact = payload.get("artifact")
                     if isinstance(artifact, dict):
                         provider = str(artifact.get("provider"))
                         source = str(artifact.get("source_node"))
                         phase = _phase_for(source, rules["source_node_rules"])
+                        attribution = (
+                            "explicit_unattributed_shared_artifact"
+                            if phase == "unattributed_compute"
+                            else "artifact_source_identity"
+                        )
                 if phase is None:
                     phase = _phase_for(kernel, rules["kernel_name_rules"])
+                    if phase is not None:
+                        attribution = "kernel_name_heuristic"
                 if phase is None:
                     phase = "unattributed_compute"
-            key = (stage, phase, provider, source, kernel)
+                    attribution = "unattributed"
+            key = (stage, phase, provider, source, kernel, attribution)
             groups[key][0] += 1
             groups[key][1] += duration
             stage_totals[stage][0] += 1
             stage_totals[stage][1] += duration
 
     phase_totals: dict[str, list[int]] = defaultdict(lambda: [0, 0])
-    for (_stage, phase, _provider, _source, _kernel), totals in groups.items():
+    for (
+        _stage,
+        phase,
+        _provider,
+        _source,
+        _kernel,
+        _attribution,
+    ), totals in groups.items():
         phase_totals[phase][0] += totals[0]
         phase_totals[phase][1] += totals[1]
     compute_ns = sum(
         totals[1]
-        for (stage, phase, provider, source, kernel), totals in groups.items()
+        for (
+            stage,
+            phase,
+            provider,
+            source,
+            kernel,
+            attribution,
+        ), totals in groups.items()
         if phase != "runtime_memcpy"
     )
     runtime_ns = phase_totals["runtime_memcpy"][1]
@@ -198,6 +232,7 @@ def aggregate_windows(
                 "provider": key[2],
                 "source": key[3],
                 "kernel": key[4],
+                "attribution": key[5],
                 "calls": totals[0],
                 "gpu_time_ns": totals[1],
             }
@@ -246,6 +281,7 @@ def run(
         )
         report["requested_server_config"] = requested
         report["resolved_backends"] = resolved
+        report["execution_features"] = execution_feature_record(requested, resolved)
         warm_ids, _warm_logits, _warm_windows = _generate(torch, one_batch, runner)
         if len(warm_ids) != OUTPUT_TOKENS:
             raise ReleaseContractError("profile warmup did not complete")
@@ -313,9 +349,19 @@ def run(
                 counter.get("num_graphs_seen", 0) > 0
                 and counter.get("num_inductor_compiles", 0) > 0
             ),
-            "graph_capture_observed": any(value > 0 for value in graph_memory.values()),
-            "graph_memory_gb": graph_memory,
         }
+        report["execution_features"]["cuda_graph"].update(
+            {
+                "capture_memory_metadata_gb": graph_memory,
+                "capture_memory_metadata_observed": any(
+                    value > 0 for value in graph_memory.values()
+                ),
+                "evidence_boundary": (
+                    "Nonzero graph memory is capture metadata, not proof that "
+                    "profiled requests replayed a CUDA Graph."
+                ),
+            }
+        )
         inductor_calls = sum(
             int(group["calls"])
             for group in aggregation["kernel_groups"]
@@ -330,14 +376,20 @@ def run(
             if lane != "pypto"
             else inductor_calls == PROFILE_REQUESTS * OUTPUT_TOKENS * 32
         )
-        if lane in {"pypto", "sglang-optimized"} and not compilation["effective"]:
+        if compilation["requested"] and not compilation["effective"]:
             raise ReleaseContractError(
                 f"{lane} requested compilation but execution was not observed"
             )
-        if lane == "sglang-optimized" and not compilation["graph_capture_observed"]:
+        if lane == "sglang-optimized" and not all(
+            report["execution_features"][feature]["requested"]
+            and report["execution_features"][feature]["enabled"]
+            for feature in ("cuda_graph", "overlap_schedule")
+        ):
             raise ReleaseContractError(
-                "optimized profile did not observe CUDA Graph capture"
+                "optimized profile did not keep CUDA Graph and overlap configured"
             )
+        identity_profile = "pypto" if lane == "pypto" else "baseline"
+        evidence_identity = collect_run_identity(root, identity_profile, model_path)
         report.update(
             {
                 "status": "complete",
@@ -349,10 +401,13 @@ def run(
                 "collector_stats": stats,
                 "aggregation": aggregation,
                 "compilation": compilation,
+                "evidence_identity": evidence_identity,
                 "limitations": [
                     "Latency claims must come from run_performance_regression.py.",
-                    "A PyPTO artifact annotation is more specific than its enclosing module annotation; shared linear artifacts remain unattributed unless their source identity is phase-specific.",
+                    "Shared linear artifacts are explicitly unattributed when CUPTI exposes only their artifact identity and no callsite correlation.",
                     "Kernel-name fallback is descriptive and is never used as PyPTO coverage evidence.",
+                    "CUDA Graph replay and runtime overlap are not inferred from configuration or graph-memory metadata.",
+                    "GPU time is the sum of CUPTI activity durations; overlapping kernels can make it exceed elapsed critical-path time.",
                 ],
             }
         )
@@ -398,6 +453,73 @@ def run(
     return return_code
 
 
+def _profile_start_estimate(report: dict[str, object]) -> dict[str, object]:
+    requests = report.get("requests")
+    if type(requests) is not list or len(requests) != PROFILE_REQUESTS:
+        raise ReleaseContractError("profile report lacks five request aggregations")
+    aggregations = []
+    for request in requests:
+        if not isinstance(request, dict) or not isinstance(
+            request.get("aggregation"), dict
+        ):
+            raise ReleaseContractError("profile request aggregation is malformed")
+        aggregations.append(request["aggregation"])
+    aggregate = report.get("aggregation")
+    if not isinstance(aggregate, dict):
+        raise ReleaseContractError("profile run aggregation is absent")
+    compute_total = sum(float(item["compute_gpu_time_ns"]) for item in aggregations)
+    memcpy_total = sum(
+        float(item["runtime_memcpy_gpu_time_ns"]) for item in aggregations
+    )
+    if compute_total != float(
+        aggregate["compute_gpu_time_ns"]
+    ) or memcpy_total != float(aggregate["runtime_memcpy_gpu_time_ns"]):
+        raise ReleaseContractError("profile request totals do not reconcile to the run")
+    phase_names = sorted(
+        {
+            *(str(phase) for item in aggregations for phase in item["phase_totals"]),
+            *(str(phase) for phase in aggregate["phase_totals"]),
+        }
+    )
+    for phase in phase_names:
+        calls = sum(
+            float(item["phase_totals"].get(phase, {}).get("calls", 0))
+            for item in aggregations
+        )
+        gpu_time_ns = sum(
+            float(item["phase_totals"].get(phase, {}).get("gpu_time_ns", 0))
+            for item in aggregations
+        )
+        aggregate_phase = aggregate["phase_totals"].get(phase, {})
+        if calls != float(aggregate_phase.get("calls", 0)) or gpu_time_ns != float(
+            aggregate_phase.get("gpu_time_ns", 0)
+        ):
+            raise ReleaseContractError(
+                f"profile phase {phase!r} does not reconcile to the run"
+            )
+    return {
+        "compute_gpu_time_ns": distribution(
+            float(item["compute_gpu_time_ns"]) for item in aggregations
+        )["p50"],
+        "runtime_memcpy_gpu_time_ns": distribution(
+            float(item["runtime_memcpy_gpu_time_ns"]) for item in aggregations
+        )["p50"],
+        "phase_totals": {
+            phase: {
+                "calls": distribution(
+                    float(item["phase_totals"].get(phase, {}).get("calls", 0))
+                    for item in aggregations
+                )["p50"],
+                "gpu_time_ns": distribution(
+                    float(item["phase_totals"].get(phase, {}).get("gpu_time_ns", 0))
+                    for item in aggregations
+                )["p50"],
+            }
+            for phase in phase_names
+        },
+    }
+
+
 def reconcile(
     profiles: dict[str, object],
     performance: dict[str, object] | None = None,
@@ -407,63 +529,158 @@ def reconcile(
         raise ReleaseContractError(
             "reconciliation requires exactly three profile lanes"
         )
-    averaged = {}
+    lane_starts: dict[str, list[dict[str, object]]] = {}
+    lane_summaries: dict[str, dict[str, object]] = {}
     input_counts = {}
+    requested_configs: dict[str, dict[str, object]] = {}
+    resolved_configs: dict[str, dict[str, object]] = {}
     for lane, raw_reports in profiles.items():
         reports = raw_reports if isinstance(raw_reports, list) else [raw_reports]
-        if not reports:
-            raise ReleaseContractError(f"profile list is empty for lane {lane}")
-        phase_totals: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0])
-        compute_ns = 0.0
-        memcpy_ns = 0.0
-        profile_requests = 0
+        if len(reports) != 3:
+            raise ReleaseContractError(
+                f"profile reconciliation requires three fresh starts for {lane}"
+            )
         for report in reports:
             if report.get("status") != "complete" or report.get("lane") != lane:
                 raise ReleaseContractError(f"profile is not accepted for lane {lane}")
             if report.get("workload") != workload_record():
                 raise ReleaseContractError(f"profile workload drifted for lane {lane}")
-            count = int(report.get("profile_requests", 0))
-            if count <= 0:
+            if int(report.get("profile_requests", 0)) != PROFILE_REQUESTS:
                 raise ReleaseContractError(
                     f"profile request count is invalid for {lane}"
                 )
-            aggregation = report["aggregation"]
-            compute_ns += float(aggregation["compute_gpu_time_ns"])
-            memcpy_ns += float(aggregation["runtime_memcpy_gpu_time_ns"])
-            profile_requests += count
-            for phase, totals in aggregation["phase_totals"].items():
-                phase_totals[phase][0] += float(totals["calls"])
-                phase_totals[phase][1] += float(totals["gpu_time_ns"])
-        averaged[lane] = {
-            "compute_gpu_time_ns": compute_ns / profile_requests,
-            "runtime_memcpy_gpu_time_ns": memcpy_ns / profile_requests,
+            compilation = report.get("compilation")
+            if (
+                not isinstance(compilation, dict)
+                or compilation.get("requested") is not True
+                or compilation.get("effective") is not True
+            ):
+                raise ReleaseContractError(
+                    f"profile did not prove compiled execution for {lane}"
+                )
+        configs = [report.get("requested_server_config") for report in reports]
+        if any(type(config) is not dict for config in configs):
+            raise ReleaseContractError(f"profile configuration is absent for {lane}")
+        if any(config != configs[0] for config in configs[1:]):
+            raise ReleaseContractError(
+                f"profile configuration drifted across {lane} starts"
+            )
+        requested_configs[lane] = configs[0]
+        resolved = [report.get("resolved_backends") for report in reports]
+        if any(type(config) is not dict for config in resolved):
+            raise ReleaseContractError(
+                f"profile resolved configuration is absent for {lane}"
+            )
+        if any(config != resolved[0] for config in resolved[1:]):
+            raise ReleaseContractError(
+                f"profile resolved configuration drifted across {lane} starts"
+            )
+        resolved_configs[lane] = resolved[0]
+        starts = [_profile_start_estimate(report) for report in reports]
+        lane_starts[lane] = starts
+        phase_names = sorted(
+            {phase for start in starts for phase in start["phase_totals"]}
+        )
+        lane_summaries[lane] = {
+            "compute_gpu_time_ns_per_request": fresh_start_summary(
+                (float(start["compute_gpu_time_ns"]) for start in starts),
+                salt=f"profile:{lane}:compute",
+            ),
+            "runtime_memcpy_gpu_time_ns_per_request": fresh_start_summary(
+                (float(start["runtime_memcpy_gpu_time_ns"]) for start in starts),
+                salt=f"profile:{lane}:memcpy",
+            ),
             "phase_totals": {
                 phase: {
-                    "calls": totals[0] / profile_requests,
-                    "gpu_time_ns": totals[1] / profile_requests,
+                    "calls_per_request": fresh_start_summary(
+                        (
+                            float(start["phase_totals"].get(phase, {}).get("calls", 0))
+                            for start in starts
+                        ),
+                        salt=f"profile:{lane}:{phase}:calls",
+                    ),
+                    "gpu_time_ns_per_request": fresh_start_summary(
+                        (
+                            float(
+                                start["phase_totals"]
+                                .get(phase, {})
+                                .get("gpu_time_ns", 0)
+                            )
+                            for start in starts
+                        ),
+                        salt=f"profile:{lane}:{phase}:gpu-time",
+                    ),
                 }
-                for phase, totals in phase_totals.items()
+                for phase in phase_names
             },
         }
         input_counts[lane] = {
             "fresh_starts": len(reports),
-            "profile_requests": profile_requests,
+            "profile_requests": len(reports) * PROFILE_REQUESTS,
         }
-    candidate = averaged["pypto"]
+
+    comparability = matched_lane_comparability(
+        requested_configs["pypto"],
+        requested_configs["sglang-matched"],
+        resolved_configs["pypto"],
+        resolved_configs["sglang-matched"],
+    )
+    if not comparability["matched_claim_allowed"]:
+        return {
+            "schema": SCHEMA_VERSION,
+            "kind": "qwen35-9b-profile-gap-reconciliation",
+            "workload": workload_record(),
+            "methodology": fresh_start_methodology(),
+            "gpu_time_definition": (
+                "sum of CUPTI activity durations, not elapsed critical-path time"
+            ),
+            "profile_inputs": input_counts,
+            "lane_summaries": lane_summaries,
+            "matched_comparability": comparability,
+            "comparisons": {},
+            "status": "failed",
+            "error": "matched profile controls drifted",
+        }
+    performance_summary = None
+    if performance is not None:
+        from .performance_runtime import summarize_fresh_starts
+
+        performance_summary = summarize_fresh_starts(performance)
+        if performance_summary["status"] != "complete":
+            raise ReleaseContractError("performance controls are not comparable")
+    candidate = lane_summaries["pypto"]
     comparisons = {}
     for baseline_lane in ("sglang-matched", "sglang-optimized"):
-        baseline = averaged[baseline_lane]
+        baseline = lane_summaries[baseline_lane]
         phase_names = sorted(
             set(candidate["phase_totals"]) | set(baseline["phase_totals"])
         )
         phase_names = [name for name in phase_names if name != "runtime_memcpy"]
         phase_gaps = []
         for phase in phase_names:
+            candidate_values = [
+                float(start["phase_totals"].get(phase, {}).get("gpu_time_ns", 0))
+                for start in lane_starts["pypto"]
+            ]
+            baseline_values = [
+                float(start["phase_totals"].get(phase, {}).get("gpu_time_ns", 0))
+                for start in lane_starts[baseline_lane]
+            ]
             candidate_ns = float(
-                candidate["phase_totals"].get(phase, {}).get("gpu_time_ns", 0)
+                candidate["phase_totals"]
+                .get(phase, {})
+                .get("gpu_time_ns_per_request", {"p50": 0})["p50"]
             )
             baseline_ns = float(
-                baseline["phase_totals"].get(phase, {}).get("gpu_time_ns", 0)
+                baseline["phase_totals"]
+                .get(phase, {})
+                .get("gpu_time_ns_per_request", {"p50": 0})["p50"]
+            )
+            interval = bootstrap_median_comparison_ci(
+                candidate_values,
+                baseline_values,
+                operation="difference",
+                salt=f"profile:pypto-vs-{baseline_lane}:{phase}",
             )
             phase_gaps.append(
                 {
@@ -471,58 +688,87 @@ def reconcile(
                     "pypto_gpu_ms": candidate_ns / 1e6,
                     "baseline_gpu_ms": baseline_ns / 1e6,
                     "gap_ms": (candidate_ns - baseline_ns) / 1e6,
+                    "gap_bootstrap_95ci_ms": {
+                        **interval,
+                        "lower": float(interval["lower"]) / 1e6,
+                        "upper": float(interval["upper"]) / 1e6,
+                    },
                 }
             )
-        candidate_total = float(candidate["compute_gpu_time_ns"])
-        baseline_total = float(baseline["compute_gpu_time_ns"])
+        candidate_values = [
+            float(start["compute_gpu_time_ns"]) for start in lane_starts["pypto"]
+        ]
+        baseline_values = [
+            float(start["compute_gpu_time_ns"]) for start in lane_starts[baseline_lane]
+        ]
+        candidate_total = float(candidate["compute_gpu_time_ns_per_request"]["p50"])
+        baseline_total = float(baseline["compute_gpu_time_ns_per_request"]["p50"])
         total_gap_ms = (candidate_total - baseline_total) / 1e6
-        explained_ms = sum(item["gap_ms"] for item in phase_gaps)
+        total_interval = bootstrap_median_comparison_ci(
+            candidate_values,
+            baseline_values,
+            operation="difference",
+            salt=f"profile:pypto-vs-{baseline_lane}:compute-total",
+        )
+        explained_ms = sum(float(item["gap_ms"]) for item in phase_gaps)
         comparison: dict[str, object] = {
             "baseline_lane": baseline_lane,
             "model_compute_gap_ms": total_gap_ms,
+            "model_compute_gap_bootstrap_95ci_ms": {
+                **total_interval,
+                "lower": float(total_interval["lower"]) / 1e6,
+                "upper": float(total_interval["upper"]) / 1e6,
+            },
             "phase_gap_sum_ms": explained_ms,
             "phase_reconciliation_residual_ms": total_gap_ms - explained_ms,
+            "phase_reconciliation_boundary": (
+                "The residual can be nonzero because each phase and the total use "
+                "separate medians across fresh starts."
+            ),
             "phases": phase_gaps,
         }
-        if performance is not None:
-            for lane in ("pypto", baseline_lane):
-                raw_measured = performance.get(lane)
-                measured_reports = (
-                    raw_measured if isinstance(raw_measured, list) else [raw_measured]
-                )
-                if not measured_reports or any(
-                    measured is None or measured.get("status") != "complete"
-                    for measured in measured_reports
-                ):
-                    raise ReleaseContractError(f"performance report missing for {lane}")
-                if any(
-                    measured.get("workload") != workload_record()
-                    for measured in measured_reports
-                ):
-                    raise ReleaseContractError(
-                        f"performance workload drifted for {lane}"
-                    )
-
-            def pooled_e2e(raw):
-                reports = raw if isinstance(raw, list) else [raw]
-                values = [
-                    float(request["e2e_ms"])
-                    for measured in reports
-                    for request in measured["raw_requests"]
-                ]
-                return distribution(values)["p50"]
-
-            candidate_e2e = pooled_e2e(performance["pypto"])
-            baseline_e2e = pooled_e2e(performance[baseline_lane])
+        if performance_summary is not None:
+            candidate_starts = [
+                float(start["metric_p50"]["e2e_ms"])
+                for start in performance_summary["lanes"]["pypto"]["per_start"]
+            ]
+            baseline_starts = [
+                float(start["metric_p50"]["e2e_ms"])
+                for start in performance_summary["lanes"][baseline_lane]["per_start"]
+            ]
+            candidate_e2e = float(
+                performance_summary["lanes"]["pypto"]["e2e_ms"]["p50"]
+            )
+            baseline_e2e = float(
+                performance_summary["lanes"][baseline_lane]["e2e_ms"]["p50"]
+            )
             e2e_gap = candidate_e2e - baseline_e2e
+            e2e_interval = bootstrap_median_comparison_ci(
+                candidate_starts,
+                baseline_starts,
+                operation="difference",
+                salt=f"reconcile:pypto-vs-{baseline_lane}:e2e",
+            )
             comparison["median_e2e_gap_ms"] = e2e_gap
-            comparison["host_scheduler_memcpy_graph_gap_ms"] = e2e_gap - total_gap_ms
+            comparison["median_e2e_gap_bootstrap_95ci_ms"] = e2e_interval
+            comparison["non_profiled_e2e_residual_ms"] = e2e_gap - total_gap_ms
+            comparison["non_profiled_e2e_residual_boundary"] = (
+                "Residual includes host scheduling, sampling, synchronization, runtime "
+                "copies and profiler/method differences; it is not labeled as CUDA "
+                "Graph or overlap time without replay/overlap runtime evidence."
+            )
         comparisons[baseline_lane] = comparison
     return {
         "schema": SCHEMA_VERSION,
         "kind": "qwen35-9b-profile-gap-reconciliation",
         "workload": workload_record(),
+        "methodology": fresh_start_methodology(),
+        "gpu_time_definition": (
+            "sum of CUPTI activity durations, not elapsed critical-path time"
+        ),
         "profile_inputs": input_counts,
+        "lane_summaries": lane_summaries,
+        "matched_comparability": comparability,
         "comparisons": comparisons,
         "status": "complete",
     }

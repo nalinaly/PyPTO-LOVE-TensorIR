@@ -17,7 +17,10 @@ import time
 import traceback
 from typing import Any
 
+from .evidence_identity import collect_run_identity
 from .lanes import (
+    execution_feature_record,
+    matched_lane_comparability,
     memory_qualification,
     prepare_worker_environment,
     resolved_backend_record,
@@ -35,10 +38,27 @@ from .workload import (
     UNTIMED_WARMUPS,
     ReleaseContractError,
     atomic_json,
+    bootstrap_median_comparison_ci,
     distribution,
+    fresh_start_methodology,
+    fresh_start_summary,
     model_revision,
     sha256_file,
     workload_record,
+)
+
+
+ROOT = Path(__file__).resolve().parents[2]
+PERFORMANCE_METRICS = (
+    "e2e_ms",
+    "ttft_ms",
+    "tpot_ms",
+    "itl_ms",
+    "output_tokens_per_second",
+    "decode_tokens_per_second",
+    "input_tokens_per_second",
+    "total_tokens_per_second",
+    "requests_per_second",
 )
 
 
@@ -105,6 +125,7 @@ class ResourceSampler:
         self.nvml_error: str | None = None
         self._nvml: Any | None = None
         self._handle: Any | None = None
+        self._stopped = False
 
     def start(self) -> None:
         try:
@@ -190,6 +211,9 @@ class ResourceSampler:
             self._stop.wait(SAMPLE_INTERVAL_MS / 1000.0)
 
     def stop(self) -> None:
+        if self._stopped:
+            return
+        self._stopped = True
         self._stop.set()
         self._thread.join(timeout=2)
         if self._nvml is not None:
@@ -289,8 +313,13 @@ def _graph_observation(server_info: object) -> dict[str, object]:
                     if isinstance(value, (int, float))
                 }
     return {
-        "graph_memory_gb": graph,
-        "capture_observed": any(value > 0 for value in graph.values()),
+        "capture_memory_metadata_gb": graph,
+        "capture_memory_metadata_observed": any(value > 0 for value in graph.values()),
+        "replay_runtime_observed": None,
+        "evidence_boundary": (
+            "Nonzero graph memory is capture metadata, not proof that measured "
+            "requests replayed a CUDA Graph."
+        ),
     }
 
 
@@ -411,6 +440,217 @@ def _resource_summary(samples: list[dict[str, object]]) -> dict[str, object]:
     }
 
 
+def _start_metric_estimate(report: dict[str, object], metric: str) -> float:
+    requests = report.get("raw_requests")
+    if type(requests) is not list or len(requests) != MEASURED_REQUESTS:
+        raise ReleaseContractError("performance report request count drifted")
+    if metric == "itl_ms":
+        request_values = [
+            distribution(request[metric])["p50"]
+            for request in requests
+            if isinstance(request, dict)
+        ]
+    else:
+        request_values = [
+            float(request[metric]) for request in requests if isinstance(request, dict)
+        ]
+    if len(request_values) != MEASURED_REQUESTS:
+        raise ReleaseContractError(f"performance metric {metric!r} is incomplete")
+    return distribution(request_values)["p50"]
+
+
+def summarize_fresh_starts(
+    reports_by_lane: dict[str, list[dict[str, object]]],
+    *,
+    expected_starts: int = 4,
+) -> dict[str, object]:
+    """Summarize performance without pooling requests across process starts."""
+
+    expected_lanes = {"pypto", "sglang-matched", "sglang-optimized"}
+    if set(reports_by_lane) != expected_lanes:
+        raise ReleaseContractError("performance summary requires exactly three lanes")
+    lane_summaries: dict[str, dict[str, object]] = {}
+    per_start_metrics: dict[str, dict[str, list[float]]] = {}
+    requested_configs: dict[str, dict[str, object]] = {}
+    resolved_configs: dict[str, dict[str, object]] = {}
+    gpu_identities = []
+    for lane in sorted(expected_lanes):
+        reports = reports_by_lane[lane]
+        if len(reports) != expected_starts:
+            raise ReleaseContractError(
+                f"{lane} requires {expected_starts} fresh performance starts"
+            )
+        for report in reports:
+            if (
+                report.get("status") != "complete"
+                or report.get("kind") != "qwen35-9b-performance-only"
+                or report.get("lane") != lane
+                or report.get("workload") != workload_record()
+            ):
+                raise ReleaseContractError(
+                    f"performance report is not accepted for {lane}"
+                )
+            compilation = report.get("compilation")
+            if (
+                not isinstance(compilation, dict)
+                or compilation.get("requested") is not True
+                or compilation.get("backend_invocation_observed") is not True
+            ):
+                raise ReleaseContractError(
+                    f"{lane} did not prove a requested torch.compile backend invocation"
+                )
+        configs = [report.get("requested_server_config") for report in reports]
+        if any(type(config) is not dict for config in configs):
+            raise ReleaseContractError(f"{lane} requested configuration is absent")
+        if any(config != configs[0] for config in configs[1:]):
+            raise ReleaseContractError(f"{lane} configuration drifted across starts")
+        requested_configs[lane] = configs[0]
+        resolved = [report.get("resolved_backends") for report in reports]
+        if any(type(config) is not dict for config in resolved):
+            raise ReleaseContractError(f"{lane} resolved configuration is absent")
+        if any(config != resolved[0] for config in resolved[1:]):
+            raise ReleaseContractError(
+                f"{lane} resolved configuration drifted across starts"
+            )
+        resolved_configs[lane] = resolved[0]
+        resource_summaries = []
+        for report in reports:
+            resources = report.get("resources")
+            if (
+                not isinstance(resources, dict)
+                or resources.get("nvml_error") is not None
+            ):
+                raise ReleaseContractError(f"{lane} NVML sampling is incomplete")
+            identity = resources.get("gpu_identity")
+            resource_summary = resources.get("summary")
+            if not isinstance(identity, dict) or not isinstance(resource_summary, dict):
+                raise ReleaseContractError(f"{lane} resource identity is incomplete")
+            required_resource_fields = (
+                "peak_gpu_memory_used_bytes",
+                "minimum_gpu_memory_free_bytes",
+                "minimum_mem_available_kib",
+                "peak_owned_pgid_rss_kib",
+            )
+            if any(
+                type(resource_summary.get(field)) is not int
+                for field in required_resource_fields
+            ):
+                raise ReleaseContractError(f"{lane} resource telemetry is incomplete")
+            if resource_summary.get("thermal_throttle_observed") is not False:
+                raise ReleaseContractError(f"{lane} observed thermal throttling")
+            if (
+                int(resource_summary.get("minimum_gpu_memory_free_bytes", 0))
+                < 4 * 1024**3
+            ):
+                raise ReleaseContractError(f"{lane} crossed the 4 GiB GPU free floor")
+            if int(resource_summary.get("minimum_mem_available_kib", 0)) < 16 * 1024**2:
+                raise ReleaseContractError(
+                    f"{lane} crossed the 16 GiB host MemAvailable floor"
+                )
+            gpu_identities.append(identity)
+            resource_summaries.append(resource_summary)
+        estimates = {
+            metric: [_start_metric_estimate(report, metric) for report in reports]
+            for metric in PERFORMANCE_METRICS
+        }
+        per_start_metrics[lane] = estimates
+        summary: dict[str, object] = {
+            "fresh_starts": len(reports),
+            "measured_requests": len(reports) * MEASURED_REQUESTS,
+            "per_start": [
+                {
+                    "run_id": report.get("run_id"),
+                    "request_count": MEASURED_REQUESTS,
+                    "metric_p50": {
+                        metric: estimates[metric][index]
+                        for metric in PERFORMANCE_METRICS
+                    },
+                }
+                for index, report in enumerate(reports)
+            ],
+            "cold_engine_start_ms": fresh_start_summary(
+                (float(report["cold_engine_start_ms"]) for report in reports),
+                salt=f"performance:{lane}:cold_engine_start_ms",
+            ),
+            "first_compile_trigger_request_ms": fresh_start_summary(
+                (
+                    float(report["first_compile_trigger_request_ms"])
+                    for report in reports
+                ),
+                salt=f"performance:{lane}:first_compile_trigger_request_ms",
+            ),
+            "resources": {
+                "peak_gpu_memory_used_bytes": max(
+                    int(item["peak_gpu_memory_used_bytes"])
+                    for item in resource_summaries
+                ),
+                "minimum_gpu_memory_free_bytes": min(
+                    int(item["minimum_gpu_memory_free_bytes"])
+                    for item in resource_summaries
+                ),
+                "minimum_mem_available_kib": min(
+                    int(item["minimum_mem_available_kib"])
+                    for item in resource_summaries
+                ),
+                "peak_owned_pgid_rss_kib": max(
+                    int(item["peak_owned_pgid_rss_kib"]) for item in resource_summaries
+                ),
+                "thermal_throttle_observed": False,
+            },
+        }
+        for metric, values in estimates.items():
+            summary[metric] = fresh_start_summary(
+                values, salt=f"performance:{lane}:{metric}"
+            )
+        lane_summaries[lane] = summary
+
+    if any(identity != gpu_identities[0] for identity in gpu_identities[1:]):
+        raise ReleaseContractError(
+            "performance matrix spans different GPUs, drivers, or memory sizes"
+        )
+    comparability = matched_lane_comparability(
+        requested_configs["pypto"],
+        requested_configs["sglang-matched"],
+        resolved_configs["pypto"],
+        resolved_configs["sglang-matched"],
+    )
+    comparisons: dict[str, object] = {}
+    candidate_rates = per_start_metrics["pypto"]["output_tokens_per_second"]
+    candidate_median = float(lane_summaries["pypto"]["output_tokens_per_second"]["p50"])
+    for baseline_lane in ("sglang-matched", "sglang-optimized"):
+        baseline_rates = per_start_metrics[baseline_lane]["output_tokens_per_second"]
+        baseline_median = float(
+            lane_summaries[baseline_lane]["output_tokens_per_second"]["p50"]
+        )
+        ratio = candidate_median / baseline_median
+        interval = bootstrap_median_comparison_ci(
+            candidate_rates,
+            baseline_rates,
+            operation="ratio",
+            salt=f"performance:pypto-vs-{baseline_lane}:output-rate",
+        )
+        comparisons[baseline_lane] = {
+            "metric": "output_tokens_per_second",
+            "pypto_percent_of_baseline": ratio * 100.0,
+            "median_ratio_bootstrap_95ci_percent": {
+                **interval,
+                "lower": float(interval["lower"]) * 100.0,
+                "upper": float(interval["upper"]) * 100.0,
+            },
+        }
+    return {
+        "schema": SCHEMA_VERSION,
+        "kind": "qwen35-9b-fresh-start-performance-summary",
+        "workload": workload_record(),
+        "methodology": fresh_start_methodology(),
+        "lanes": lane_summaries,
+        "matched_comparability": comparability,
+        "comparisons": comparisons,
+        "gpu_identity": gpu_identities[0],
+        "status": ("complete" if comparability["matched_claim_allowed"] else "failed"),
+    }
+
+
 def run(
     lane: str,
     model_path: Path,
@@ -432,7 +672,7 @@ def run(
         "workload": workload_record(),
         "measurement": {
             "entrypoint": "sglang.Engine offline streaming API",
-            "compile_warmups": COMPILE_WARMUPS,
+            "first_compile_trigger_requests": COMPILE_WARMUPS,
             "untimed_warmups": UNTIMED_WARMUPS,
             "measured_requests": MEASURED_REQUESTS,
             "profiler_enabled": False,
@@ -470,6 +710,7 @@ def run(
             "source": str(Path(sgl.__file__).resolve()),
         }
         report["resolved_backends"] = resolved
+        report["execution_features"] = execution_feature_record(requested, resolved)
         report["cold_engine_start_ms"] = (engine_ready - startup_start) / 1e6
 
         compile_start = time.perf_counter_ns()
@@ -536,18 +777,32 @@ def run(
         )
         report["torch_allocator"] = internal_zero.get("release_torch_allocator")
         graph = _graph_observation(server_info)
-        report["cuda_graph"] = graph
-        if lane == "sglang-optimized" and not compilation["effective"]:
+        report["execution_features"]["cuda_graph"].update(graph)
+        if compilation["requested"] and not compilation["backend_invocation_observed"]:
             raise ReleaseContractError(
-                "optimized lane requested torch.compile but no effective compilation was observed"
+                f"{lane} requested torch.compile but no backend invocation was observed"
             )
-        if lane == "sglang-optimized" and not graph["capture_observed"]:
+        if lane == "sglang-optimized" and not all(
+            report["execution_features"][feature]["requested"]
+            and report["execution_features"][feature]["enabled"]
+            for feature in ("cuda_graph", "overlap_schedule")
+        ):
             raise ReleaseContractError(
-                "optimized lane did not publish effective CUDA Graph capture metadata"
+                "optimized lane did not keep CUDA Graph and overlap configuration enabled"
             )
         report["sglang_memory_state"] = internal
         report["sglang_startup_time"] = (
             server_info.get("startup_time") if isinstance(server_info, dict) else None
+        )
+        sampler.stop()
+        report["identity_collection_boundary"] = (
+            "Full model/package hashing runs after every timed request and after "
+            "resource sampling stops, so it cannot warm cold-load inputs or enter "
+            "latency/resource summaries."
+        )
+        identity_profile = "pypto" if lane == "pypto" else "baseline"
+        report["evidence_identity"] = collect_run_identity(
+            ROOT, identity_profile, model_path
         )
         report["status"] = "complete"
         return_code = 0

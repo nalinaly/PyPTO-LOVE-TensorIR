@@ -1,39 +1,303 @@
 {
-  "schema": 1,
+  "schema": 2,
   "structure": {
     "jobs": 24,
-    "path": "packages/pypto-kernels/tests/test_operators.py"
+    "paths": [
+      "packages/pypto-kernels/tests/test_operators.py",
+      "packages/pypto-kernels/tests/test_portable_release.py"
+    ]
   },
   "gpu_suites": [
     {
+      "id": "handwritten-compile-classification",
       "path": "packages/pypto-kernels/benchmarks/classify_sm120.py",
       "result": "classify-result.json",
-      "success_field": "all_compiled"
+      "success_field": "all_compiled",
+      "case_expectations": [
+        {
+          "where": {"case": "silu_and_mul"},
+          "equals": {"status": "compiled"}
+        },
+        {
+          "where": {"case": "sigmoid_mul"},
+          "equals": {"status": "compiled"}
+        },
+        {
+          "where": {"case": "embedding"},
+          "equals": {"status": "compiled"}
+        },
+        {
+          "where": {"case": "integer_gather"},
+          "equals": {"status": "compiled"}
+        },
+        {
+          "where": {"case": "qk_rmsnorm_rope"},
+          "equals": {"status": "compiled"}
+        },
+        {
+          "where": {"case": "rmsnorm"},
+          "equals": {"status": "compiled"}
+        },
+        {
+          "where": {"case": "fused_add_rmsnorm"},
+          "equals": {"status": "compiled"}
+        },
+        {
+          "where": {"case": "gated_rmsnorm"},
+          "equals": {"status": "compiled"}
+        },
+        {
+          "where": {"case": "causal_conv1d_stateful_decode"},
+          "equals": {"status": "compiled"}
+        },
+        {
+          "where": {"case": "rope"},
+          "equals": {"status": "compiled"}
+        },
+        {
+          "where": {"case": "attention"},
+          "equals": {"status": "compiled"}
+        },
+        {
+          "where": {"case": "attention_paged_decode_9b"},
+          "equals": {"status": "compiled"}
+        },
+        {
+          "where": {"case": "attention_paged_cache_write_9b"},
+          "equals": {"status": "compiled"}
+        },
+        {
+          "where": {"case": "attention_paged_prefill_9b"},
+          "equals": {"status": "compiled"}
+        },
+        {
+          "where": {"case": "linear"},
+          "equals": {"status": "compiled"}
+        },
+        {
+          "where": {"case": "linear_to_float"},
+          "equals": {"status": "compiled"}
+        },
+        {
+          "where": {"case": "gdn_projection_split"},
+          "equals": {"status": "compiled"}
+        },
+        {
+          "where": {"case": "gdn_recurrent_decode"},
+          "equals": {"status": "compiled"}
+        }
+      ]
     },
     {
+      "id": "handwritten-numerical",
       "path": "packages/pypto-kernels/benchmarks/exec_sm120.py",
       "result": "exec-result.json",
-      "success_field": "all_correct"
+      "success_field": "all_correct",
+      "case_expectations": [
+        {
+          "where": {"case": "integer_gather_torch.int32_rows1"},
+          "equals": {"correct": true, "launches": 1, "dtype": "torch.int32"}
+        },
+        {
+          "where": {"case": "integer_gather_torch.int32_rows19"},
+          "equals": {"correct": true, "launches": 1, "dtype": "torch.int32"}
+        },
+        {
+          "where": {"case": "integer_gather_torch.int64_rows1"},
+          "equals": {"correct": true, "launches": 1, "dtype": "torch.int64"}
+        },
+        {
+          "where": {"case": "integer_gather_torch.int64_rows19"},
+          "equals": {"correct": true, "launches": 1, "dtype": "torch.int64"}
+        }
+      ]
     },
     {
+      "id": "stateful-real-model-shapes",
       "path": "packages/pypto-kernels/benchmarks/stateful_sm120.py",
       "result": "stateful-result.json",
-      "success_field": "all_correct"
+      "success_field": "all_correct",
+      "expected_case_count": 14,
+      "arguments": ["--rows", "1,19"],
+      "path_arguments": [
+        {"flag": "--model-root", "path": "models"}
+      ],
+      "case_expectations": [
+        {
+          "where": {"case": "gdn_projection_Qwen3.5-0.8B_rows1"},
+          "equals": {"correct": true, "q_heads": 16, "value_heads": 16, "launches": 1}
+        },
+        {
+          "where": {"case": "gdn_projection_Qwen3.5-0.8B_rows19"},
+          "equals": {"correct": true, "q_heads": 16, "value_heads": 16, "launches": 1}
+        },
+        {
+          "where": {"case": "gdn_projection_Qwen3.5-9B_rows1"},
+          "equals": {"correct": true, "q_heads": 16, "value_heads": 32, "launches": 1}
+        },
+        {
+          "where": {"case": "gdn_projection_Qwen3.5-9B_rows19"},
+          "equals": {"correct": true, "q_heads": 16, "value_heads": 32, "launches": 1}
+        },
+        {
+          "where": {"case": "causal_conv1d_Qwen3.5-0.8B_rows1"},
+          "equals": {"correct": true, "channels": 6144, "launches": 1, "tokens_per_launch": 1}
+        },
+        {
+          "where": {"case": "causal_conv1d_Qwen3.5-0.8B_rows19"},
+          "equals": {"correct": true, "channels": 6144, "launches": 19, "tokens_per_launch": 1}
+        },
+        {
+          "where": {"case": "causal_conv1d_Qwen3.5-9B_rows1"},
+          "equals": {"correct": true, "channels": 8192, "launches": 1, "tokens_per_launch": 1}
+        },
+        {
+          "where": {"case": "causal_conv1d_Qwen3.5-9B_rows19"},
+          "equals": {"correct": true, "channels": 8192, "launches": 19, "tokens_per_launch": 1}
+        },
+        {
+          "where": {"case": "gdn_recurrent_Qwen3.5-0.8B_rows1"},
+          "equals": {"correct": true, "q_heads": 16, "value_heads": 16, "launches": 1, "tokens_per_launch": 1}
+        },
+        {
+          "where": {"case": "gdn_recurrent_Qwen3.5-0.8B_rows19"},
+          "equals": {"correct": true, "q_heads": 16, "value_heads": 16, "launches": 19, "tokens_per_launch": 1}
+        },
+        {
+          "where": {"case": "gdn_recurrent_Qwen3.5-9B_rows1"},
+          "equals": {"correct": true, "q_heads": 16, "value_heads": 32, "launches": 1, "tokens_per_launch": 1}
+        },
+        {
+          "where": {"case": "gdn_recurrent_Qwen3.5-9B_rows19"},
+          "equals": {"correct": true, "q_heads": 16, "value_heads": 32, "launches": 19, "tokens_per_launch": 1}
+        }
+      ]
     },
     {
+      "id": "paged-attention",
       "path": "packages/pypto-kernels/benchmarks/paged_attention_sm120.py",
       "result": "paged-attention-result.json",
-      "success_field": "all_correct"
+      "success_field": "all_correct",
+      "case_expectations": [
+        {
+          "where": {"case": "prefill_0_8b_prefix2_extend13"},
+          "equals": {"correct": true, "kv_heads": 2, "launches": 2, "launch_count": 2, "cache_write_launches": 1, "attention_launches": 1}
+        },
+        {
+          "where": {"case": "prefill_9b_prefix2_extend13"},
+          "equals": {"correct": true, "kv_heads": 4, "launches": 5, "launch_count": 5, "cache_write_launches": 1, "attention_launches": 4}
+        }
+      ]
     },
     {
+      "id": "qk-real-model-shapes",
       "path": "packages/pypto-kernels/benchmarks/qk_sm120.py",
       "result": "qk-result.json",
-      "success_field": "correct"
+      "success_field": "all_correct",
+      "expected_case_count": 4,
+      "arguments": ["--rows", "1,19"],
+      "path_arguments": [
+        {"flag": "--model-root", "path": "models"}
+      ],
+      "case_expectations": [
+        {
+          "where": {"model": "Qwen3.5-0.8B", "rows": 1},
+          "equals": {"correct": true, "q_heads": 8, "kv_heads": 2, "head_dim": 256, "rotary_dim": 64, "launches": 1}
+        },
+        {
+          "where": {"model": "Qwen3.5-0.8B", "rows": 19},
+          "equals": {"correct": true, "q_heads": 8, "kv_heads": 2, "head_dim": 256, "rotary_dim": 64, "launches": 1}
+        },
+        {
+          "where": {"model": "Qwen3.5-9B", "rows": 1},
+          "equals": {"correct": true, "q_heads": 16, "kv_heads": 4, "head_dim": 256, "rotary_dim": 64, "launches": 1}
+        },
+        {
+          "where": {"model": "Qwen3.5-9B", "rows": 19},
+          "equals": {"correct": true, "q_heads": 16, "kv_heads": 4, "head_dim": 256, "rotary_dim": 64, "launches": 1}
+        }
+      ]
     },
     {
+      "id": "linear-real-model-shapes",
+      "path": "packages/pypto-kernels/benchmarks/linear_sm120.py",
+      "result": "linear-result.json",
+      "success_field": "all_correct",
+      "expected_case_count": 8,
+      "arguments": ["--rows", "1,19"],
+      "path_arguments": [
+        {"flag": "--model-root", "path": "models"}
+      ],
+      "case_expectations": [
+        {
+          "where": {"operator": "linear", "model": "Qwen3.5-0.8B", "rows": 1},
+          "equals": {"correct": true, "input_shape": [1, 1024], "weight_shape": [7168, 1024], "output_dtype": "torch.bfloat16", "launches": 1}
+        },
+        {
+          "where": {"operator": "linear", "model": "Qwen3.5-0.8B", "rows": 19},
+          "equals": {"correct": true, "input_shape": [19, 1024], "weight_shape": [7168, 1024], "output_dtype": "torch.bfloat16", "launches": 1}
+        },
+        {
+          "where": {"operator": "linear_to_float", "model": "Qwen3.5-0.8B", "rows": 1},
+          "equals": {"correct": true, "input_shape": [1, 1024], "weight_shape": [248320, 1024], "output_dtype": "torch.float32", "launches": 1}
+        },
+        {
+          "where": {"operator": "linear_to_float", "model": "Qwen3.5-0.8B", "rows": 19},
+          "equals": {"correct": true, "input_shape": [19, 1024], "weight_shape": [248320, 1024], "output_dtype": "torch.float32", "launches": 1}
+        },
+        {
+          "where": {"operator": "linear", "model": "Qwen3.5-9B", "rows": 1},
+          "equals": {"correct": true, "input_shape": [1, 4096], "weight_shape": [24576, 4096], "output_dtype": "torch.bfloat16", "launches": 1}
+        },
+        {
+          "where": {"operator": "linear", "model": "Qwen3.5-9B", "rows": 19},
+          "equals": {"correct": true, "input_shape": [19, 4096], "weight_shape": [24576, 4096], "output_dtype": "torch.bfloat16", "launches": 1}
+        },
+        {
+          "where": {"operator": "linear_to_float", "model": "Qwen3.5-9B", "rows": 1},
+          "equals": {"correct": true, "input_shape": [1, 4096], "weight_shape": [248320, 4096], "output_dtype": "torch.float32", "launches": 1}
+        },
+        {
+          "where": {"operator": "linear_to_float", "model": "Qwen3.5-9B", "rows": 19},
+          "equals": {"correct": true, "input_shape": [19, 4096], "weight_shape": [248320, 4096], "output_dtype": "torch.float32", "launches": 1}
+        }
+      ]
+    },
+    {
+      "id": "stateful-cuda-graph",
       "path": "packages/pypto-kernels/benchmarks/cuda_graph_stateful_sm120.py",
       "result": "cuda-graph-stateful-result.json",
       "success_field": "correct"
+    },
+    {
+      "id": "inductor-swiglu-real-model-shapes",
+      "path": "packages/pypto-framework-plugins/benchmarks/qwen35_swiglu_torch_compile_sm120.py",
+      "result": "inductor-swiglu-result.json",
+      "success_field": "all_native",
+      "run_id_required": false,
+      "expected_case_count": 4,
+      "arguments": ["--rows", "1,19"],
+      "path_arguments": [
+        {"flag": "--model-root", "path": "models"}
+      ],
+      "case_expectations": [
+        {
+          "where": {"model": "Qwen3.5-0.8B", "rows": 1},
+          "equals": {"columns": 3584, "gate_stride": [7168, 1], "up_stride": [7168, 1], "reference_close": true, "handwritten_equal": true}
+        },
+        {
+          "where": {"model": "Qwen3.5-0.8B", "rows": 19},
+          "equals": {"columns": 3584, "gate_stride": [7168, 1], "up_stride": [7168, 1], "reference_close": true, "handwritten_equal": true}
+        },
+        {
+          "where": {"model": "Qwen3.5-9B", "rows": 1},
+          "equals": {"columns": 12288, "gate_stride": [24576, 1], "up_stride": [24576, 1], "reference_close": true, "handwritten_equal": true}
+        },
+        {
+          "where": {"model": "Qwen3.5-9B", "rows": 19},
+          "equals": {"columns": 12288, "gate_stride": [24576, 1], "up_stride": [24576, 1], "reference_close": true, "handwritten_equal": true}
+        }
+      ]
     }
   ]
 }

@@ -20,13 +20,17 @@ from benchmarks.release.controllers import (  # noqa: E402
     isolated_command,
     pypto_gpu_command,
 )
-from benchmarks.release.performance_runtime import run  # noqa: E402
+from benchmarks.release.performance_runtime import (  # noqa: E402
+    run,
+    summarize_fresh_starts,
+)
 from benchmarks.release.workload import (  # noqa: E402
     LANES,
     PERFORMANCE_SCHEDULE,
     SCHEMA_VERSION,
     ReleaseContractError,
     atomic_json,
+    read_json,
     require_run_directory,
 )
 
@@ -143,15 +147,30 @@ def main() -> int:
         }
         if not args.dry_run:
             timestamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
-            path = (
+            directory = (
                 ROOT
                 / "runs"
                 / (
                     f"release-performance-matrix-{timestamp}-{os.getpid()}-"
                     f"{secrets.token_hex(3)}"
                 )
-                / "summary.json"
             )
+            if complete:
+                grouped = {
+                    lane: [
+                        read_json(Path(item["report"]).resolve(strict=True))
+                        for item in records
+                        if item["lane"] == lane
+                    ]
+                    for lane in LANES
+                }
+                aggregation = summarize_fresh_starts(grouped)
+                aggregation_path = directory / "aggregation.json"
+                atomic_json(aggregation_path, aggregation)
+                payload["aggregation"] = str(aggregation_path)
+                if aggregation["status"] != "complete":
+                    payload["status"] = "failed"
+            path = directory / "summary.json"
             atomic_json(path, payload)
             payload["summary_path"] = str(path)
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True), flush=True)

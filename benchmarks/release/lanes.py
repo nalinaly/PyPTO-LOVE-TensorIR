@@ -11,6 +11,56 @@ from .workload import LANES, ReleaseContractError
 
 
 BASELINE_LANES = {"sglang-matched", "sglang-optimized"}
+MATCHED_CONTROL_FIELDS = (
+    "model_path",
+    "tokenizer_path",
+    "dtype",
+    "kv_cache_dtype",
+    "tp_size",
+    "context_length",
+    "max_total_tokens",
+    "max_prefill_tokens",
+    "max_running_requests",
+    "prefill_max_requests",
+    "enable_torch_compile",
+    "torch_compile_max_bs",
+    "sampling_backend",
+    "cpu_offload_gb",
+    "mem_fraction_static",
+    "disable_radix_cache",
+    "disable_cuda_graph",
+    "disable_overlap_schedule",
+    "disable_custom_all_reduce",
+    "page_size",
+    "chunked_prefill_size",
+    "random_seed",
+    "stream_interval",
+)
+IMPLEMENTATION_FIELDS = (
+    "attention_backend",
+    "decode_attention_backend",
+    "prefill_attention_backend",
+    "linear_attn_backend",
+    "linear_attn_decode_backend",
+    "linear_attn_prefill_backend",
+    "mamba_ssm_dtype",
+)
+MATCHED_RESOLVED_CONTROL_FIELDS = (
+    "sampling_backend",
+    "torch_compile_requested",
+    "cuda_graph_enabled_by_server_args",
+    "overlap_schedule_enabled_by_server_args",
+    "radix_cache_enabled_by_server_args",
+)
+MATCHED_RESOLVED_IMPLEMENTATION_FIELDS = (
+    "attention_prefill",
+    "attention_decode",
+    "linear_attention_default",
+    "linear_attention_prefill",
+    "linear_attention_decode",
+    "mamba",
+    "mamba_ssm_dtype",
+)
 FORBIDDEN_RELEASE_OVERRIDES = (
     "PYPTO_PLUGINS_PYPTO_DSO",
     "PYPTO_PLUGINS_CUDA_DRIVER_LABEL",
@@ -154,7 +204,9 @@ def server_kwargs(
                 "linear_attn_decode_backend": "flashinfer",
                 "linear_attn_prefill_backend": "flashinfer",
                 "mamba_ssm_dtype": "bfloat16",
-                "sampling_backend": "flashinfer",
+                "sampling_backend": (
+                    "pytorch" if lane == "sglang-matched" else "flashinfer"
+                ),
             }
         )
         if lane == "sglang-matched":
@@ -209,14 +261,19 @@ def resolved_backend_record(server_args: object) -> dict[str, object]:
         or getattr(server_args, "linear_attn_backend", None),
         "mamba": getattr(server_args, "mamba_backend", None),
         "mamba_ssm_dtype": getattr(server_args, "mamba_ssm_dtype", None),
+        "sampling_backend": getattr(server_args, "sampling_backend", None),
         "torch_compile_requested": bool(
             getattr(server_args, "enable_torch_compile", False)
         ),
-        "disable_cuda_graph": bool(getattr(server_args, "disable_cuda_graph", False)),
-        "disable_overlap_schedule": bool(
+        "cuda_graph_enabled_by_server_args": not bool(
+            getattr(server_args, "disable_cuda_graph", False)
+        ),
+        "overlap_schedule_enabled_by_server_args": not bool(
             getattr(server_args, "disable_overlap_schedule", False)
         ),
-        "disable_radix_cache": bool(getattr(server_args, "disable_radix_cache", False)),
+        "radix_cache_enabled_by_server_args": not bool(
+            getattr(server_args, "disable_radix_cache", False)
+        ),
         "cuda_graph_config": _jsonable(getattr(server_args, "cuda_graph_config", None)),
     }
     return record
@@ -234,6 +291,10 @@ def validate_resolved_backends(lane: str, record: dict[str, object]) -> None:
         drift = {key: record.get(key) for key in required if record.get(key) != "pypto"}
         if drift:
             raise ReleaseContractError(f"PyPTO backend resolution drifted: {drift}")
+        if record.get("sampling_backend") != "pytorch":
+            raise ReleaseContractError(
+                "PyPTO lane did not resolve the frozen PyTorch sampler"
+            )
         return
     required = (
         "attention_prefill",
@@ -250,3 +311,115 @@ def validate_resolved_backends(lane: str, record: dict[str, object]) -> None:
             "stock backend did not resolve to supported FlashInfer/BF16 state: "
             f"drift={drift}, dtype={record.get('mamba_ssm_dtype')!r}"
         )
+    expected_sampler = "pytorch" if lane == "sglang-matched" else "flashinfer"
+    if record.get("sampling_backend") != expected_sampler:
+        raise ReleaseContractError(
+            f"{lane} sampler did not resolve to {expected_sampler!r}: "
+            f"{record.get('sampling_backend')!r}"
+        )
+
+
+def execution_feature_record(
+    requested: dict[str, object], resolved: dict[str, object]
+) -> dict[str, object]:
+    """Record configuration state without claiming replay or overlap execution."""
+
+    cuda_graph_requested = not bool(requested.get("disable_cuda_graph", False))
+    overlap_requested = not bool(requested.get("disable_overlap_schedule", False))
+    return {
+        "cuda_graph": {
+            "requested": cuda_graph_requested,
+            "enabled": bool(resolved.get("cuda_graph_enabled_by_server_args")),
+            "replay_runtime_observed": None,
+            "evidence_boundary": (
+                "requested/enabled are configuration facts; this record does not "
+                "prove CUDA Graph replay"
+            ),
+        },
+        "overlap_schedule": {
+            "requested": overlap_requested,
+            "enabled": bool(resolved.get("overlap_schedule_enabled_by_server_args")),
+            "runtime_overlap_observed": None,
+            "evidence_boundary": (
+                "requested/enabled are configuration facts; this record does not "
+                "prove concurrent runtime overlap"
+            ),
+        },
+    }
+
+
+def matched_lane_comparability(
+    candidate: dict[str, object],
+    baseline: dict[str, object],
+    candidate_resolved: dict[str, object] | None = None,
+    baseline_resolved: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Fail-closed accounting for the controls behind the ``matched`` label."""
+
+    control_mismatches = [
+        {
+            "field": field,
+            "pypto": candidate.get(field),
+            "sglang_matched": baseline.get(field),
+        }
+        for field in MATCHED_CONTROL_FIELDS
+        if candidate.get(field) != baseline.get(field)
+    ]
+    if candidate_resolved is None or baseline_resolved is None:
+        control_mismatches.append(
+            {
+                "field": "resolved_server_args",
+                "pypto": "missing" if candidate_resolved is None else "present",
+                "sglang_matched": (
+                    "missing" if baseline_resolved is None else "present"
+                ),
+            }
+        )
+    else:
+        control_mismatches.extend(
+            {
+                "field": f"resolved.{field}",
+                "pypto": candidate_resolved.get(field),
+                "sglang_matched": baseline_resolved.get(field),
+            }
+            for field in MATCHED_RESOLVED_CONTROL_FIELDS
+            if candidate_resolved.get(field) != baseline_resolved.get(field)
+        )
+    implementation_differences = [
+        {
+            "field": field,
+            "pypto": candidate.get(field),
+            "sglang_matched": baseline.get(field),
+            "reason": "implementation under test",
+        }
+        for field in IMPLEMENTATION_FIELDS
+        if candidate.get(field) != baseline.get(field)
+    ]
+    if candidate_resolved is not None and baseline_resolved is not None:
+        implementation_differences.extend(
+            {
+                "field": f"resolved.{field}",
+                "pypto": candidate_resolved.get(field),
+                "sglang_matched": baseline_resolved.get(field),
+                "reason": "implementation under test",
+            }
+            for field in MATCHED_RESOLVED_IMPLEMENTATION_FIELDS
+            if candidate_resolved.get(field) != baseline_resolved.get(field)
+        )
+    claim_allowed = not control_mismatches
+    return {
+        "status": (
+            "matched_controls_with_implementation_differences"
+            if claim_allowed
+            else "unmatched_controls"
+        ),
+        "matched_claim_allowed": claim_allowed,
+        "matched_control_fields": list(MATCHED_CONTROL_FIELDS),
+        "matched_resolved_control_fields": list(MATCHED_RESOLVED_CONTROL_FIELDS),
+        "control_mismatches": control_mismatches,
+        "intentionally_unmatched_implementation_fields": implementation_differences,
+        "evidence_boundary": (
+            "The matched label covers listed controls only. Backend/provider fields "
+            "are intentionally different because they are the implementation under test."
+        ),
+    }

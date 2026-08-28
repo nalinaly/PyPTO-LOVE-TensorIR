@@ -70,6 +70,82 @@ def test_release_parallelism_and_sample_counts_are_frozen() -> None:
     assert profile_runtime.PROFILE_REQUESTS == 5
 
 
+def test_model_correctness_all_mode_is_one_public_closed_loop() -> None:
+    args = model_tool.parser().parse_args(
+        ["all", "--model-path", "models/Qwen3.5-9B", "--dry-run"]
+    )
+    assert args.mode == "all"
+    assert args.reference_report is None
+
+
+def _write_model_spec_fixture(root: Path) -> dict[str, Path]:
+    layers = {"Qwen3.5-0.8B": 24, "Qwen3.5-9B": 32}
+    paths = {}
+    records = {}
+    for name, layer_count in layers.items():
+        path = root / "models" / name
+        path.mkdir(parents=True)
+        (path / "config.json").write_text(
+            json.dumps({"text_config": {"num_hidden_layers": layer_count}}),
+            encoding="utf-8",
+        )
+        paths[name] = path
+        records[name] = {
+            "destination": f"models/{name}",
+            "repository_id": f"Qwen/{name}",
+        }
+    (root / "models/MANIFEST.json").write_text(
+        json.dumps({"schema": 1, "models": records}), encoding="utf-8"
+    )
+    return paths
+
+
+def test_model_correctness_spec_drives_both_model_contracts(tmp_path: Path) -> None:
+    paths = _write_model_spec_fixture(tmp_path)
+    small = workload.resolve_qwen35_model_spec(
+        tmp_path, paths["Qwen3.5-0.8B"]
+    )
+    large = workload.resolve_qwen35_model_spec(tmp_path, paths["Qwen3.5-9B"])
+    assert small.record() == {
+        "manifest_name": "Qwen3.5-0.8B",
+        "model_id": "Qwen/Qwen3.5-0.8B",
+        "model_size": "0.8B",
+        "report_stem": "qwen35-0.8b",
+        "num_hidden_layers": 24,
+        "expected_inductor_calls": 24 * 64,
+    }
+    assert large.record() == {
+        "manifest_name": "Qwen3.5-9B",
+        "model_id": "Qwen/Qwen3.5-9B",
+        "model_size": "9B",
+        "report_stem": "qwen35-9b",
+        "num_hidden_layers": 32,
+        "expected_inductor_calls": 32 * 64,
+    }
+    assert model_tool._report_name(small, "reference") == (
+        "qwen35-0.8b-reference.json"
+    )
+    assert model_tool._report_name(small, "candidate") == (
+        "qwen35-0.8b-correctness.json"
+    )
+    assert model_tool._report_name(large, "reference") == "qwen35-9b-reference.json"
+    assert model_tool._report_name(large, "candidate") == (
+        "qwen35-9b-correctness.json"
+    )
+    assert workload.workload_record(small)["model_id"] == "Qwen/Qwen3.5-0.8B"
+    assert workload.workload_record(large) == workload.workload_record()
+
+
+def test_model_correctness_spec_rejects_config_layer_drift(tmp_path: Path) -> None:
+    paths = _write_model_spec_fixture(tmp_path)
+    (paths["Qwen3.5-0.8B"] / "config.json").write_text(
+        json.dumps({"text_config": {"num_hidden_layers": 32}}),
+        encoding="utf-8",
+    )
+    with pytest.raises(workload.ReleaseContractError, match="layer count differs"):
+        workload.resolve_qwen35_model_spec(tmp_path, paths["Qwen3.5-0.8B"])
+
+
 def test_performance_surface_has_no_numerical_acceptance_inputs() -> None:
     parser = performance_tool.parser()
     with pytest.raises(SystemExit):
@@ -200,6 +276,8 @@ def test_lane_memory_and_provider_qualifications_are_explicit() -> None:
         assert config["linear_attn_decode_backend"] == "flashinfer"
         assert config["linear_attn_prefill_backend"] == "flashinfer"
         assert config["mamba_ssm_dtype"] == "bfloat16"
+    assert pypto["sampling_backend"] == matched["sampling_backend"] == "pytorch"
+    assert optimized["sampling_backend"] == "flashinfer"
     assert matched["disable_cuda_graph"] is True
     assert matched["disable_overlap_schedule"] is True
     assert "disable_cuda_graph" not in optimized
@@ -214,6 +292,7 @@ def test_requested_compile_flag_is_not_reported_as_effective() -> None:
         linear_attn_decode_backend="flashinfer",
         mamba_backend="triton",
         mamba_ssm_dtype="bfloat16",
+        sampling_backend="flashinfer",
         enable_torch_compile=True,
         disable_cuda_graph=False,
         disable_overlap_schedule=False,
@@ -320,9 +399,120 @@ def test_operator_manifest_covers_compile_numerical_and_graph_gates() -> None:
         "stateful_sm120.py",
         "paged_attention_sm120.py",
         "qk_sm120.py",
+        "linear_sm120.py",
         "cuda_graph_stateful_sm120.py",
+        "qwen35_swiglu_torch_compile_sm120.py",
     ]
     assert all("success_field" in item for item in suites)
+    assert manifest["schema"] == 2
+    assert manifest["structure"] == {
+        "jobs": 24,
+        "paths": [
+            "packages/pypto-kernels/tests/test_operators.py",
+            "packages/pypto-kernels/tests/test_portable_release.py",
+        ],
+    }
+    assert [path.name for path in operator_tool._structure_sources(
+        ROOT / "packages/pypto-kernels"
+    )] == ["test_operators.py", "test_portable_release.py"]
+    resolved = operator_tool._operator_suites(ROOT / "packages/pypto-kernels")
+    assert [item[0]["id"] for item in resolved] == [item["id"] for item in suites]
+    assert all(source.is_file() for _raw, source, _scope, _args in resolved)
+
+
+def test_operator_manifest_locks_real_model_shape_and_launch_contracts() -> None:
+    manifest = json.loads(
+        (ROOT / "benchmarks/release/operator_manifest.json").read_text(encoding="utf-8")
+    )
+    suites = {item["id"]: item for item in manifest["gpu_suites"]}
+    compiled = suites["handwritten-compile-classification"]["case_expectations"]
+    assert len(compiled) == 18
+    assert len({item["where"]["case"] for item in compiled}) == 18
+    assert all(item["equals"] == {"status": "compiled"} for item in compiled)
+    stateful = suites["stateful-real-model-shapes"]["case_expectations"]
+    assert any(
+        item["where"] == {"case": "gdn_recurrent_Qwen3.5-9B_rows19"}
+        and item["equals"]["q_heads"] == 16
+        and item["equals"]["value_heads"] == 32
+        and item["equals"]["launches"] == 19
+        for item in stateful
+    )
+    paged = suites["paged-attention"]["case_expectations"]
+    assert any(
+        item["where"] == {"case": "prefill_9b_prefix2_extend13"}
+        and item["equals"]
+        == {
+            "correct": True,
+            "kv_heads": 4,
+            "launches": 5,
+            "launch_count": 5,
+            "cache_write_launches": 1,
+            "attention_launches": 4,
+        }
+        for item in paged
+    )
+    swiglu = suites["inductor-swiglu-real-model-shapes"]
+    assert swiglu["expected_case_count"] == 4
+    assert {
+        (item["where"]["model"], item["where"]["rows"])
+        for item in swiglu["case_expectations"]
+    } == {
+        ("Qwen3.5-0.8B", 1),
+        ("Qwen3.5-0.8B", 19),
+        ("Qwen3.5-9B", 1),
+        ("Qwen3.5-9B", 19),
+    }
+
+
+def test_operator_case_expectations_fail_closed() -> None:
+    suite = {
+        "case_expectations": [
+            {
+                "where": {"model": "Qwen3.5-9B", "rows": 19},
+                "equals": {"correct": True, "launches": 19},
+            }
+        ],
+        "expected_case_count": 1,
+    }
+    operator_tool._validate_case_expectations(
+        {
+            "cases": [
+                {
+                    "model": "Qwen3.5-9B",
+                    "rows": 19,
+                    "correct": True,
+                    "launches": 19,
+                }
+            ]
+        },
+        suite,
+    )
+    with pytest.raises(workload.ReleaseContractError, match="expectation failed"):
+        operator_tool._validate_case_expectations(
+            {
+                "cases": [
+                    {
+                        "model": "Qwen3.5-9B",
+                        "rows": 19,
+                        "correct": True,
+                        "launches": 1,
+                    }
+                ]
+            },
+            suite,
+        )
+
+
+def test_operator_manifest_paths_cannot_escape_or_own_output() -> None:
+    for value in ("../escape.py", "/absolute.py", "a/./b.py"):
+        with pytest.raises(workload.ReleaseContractError, match="relative path"):
+            operator_tool._manifest_relative_path(value, "test path")
+    with pytest.raises(workload.ReleaseContractError, match="output ownership"):
+        operator_tool._suite_arguments({"arguments": ["--output", "foreign.json"]})
+    with pytest.raises(workload.ReleaseContractError, match="unknown schema"):
+        operator_tool._suite_arguments(
+            {"path_arguments": [{"flag": "--model-root", "path": "models", "x": 1}]}
+        )
 
 
 def test_release_sources_have_no_workstation_absolute_paths() -> None:
@@ -410,11 +600,41 @@ def test_logical_phase_aggregation_uses_annotations_and_artifacts() -> None:
 
 
 def _profile(lane: str, compute_ns: int, phase_ns: int) -> dict[str, object]:
+    requested = lanes.server_kwargs(lane, Path("model"))
+    resolved = {
+        "sampling_backend": requested["sampling_backend"],
+        "torch_compile_requested": requested["enable_torch_compile"],
+        "cuda_graph_enabled_by_server_args": not requested.get(
+            "disable_cuda_graph", False
+        ),
+        "overlap_schedule_enabled_by_server_args": not requested.get(
+            "disable_overlap_schedule", False
+        ),
+        "radix_cache_enabled_by_server_args": not requested.get(
+            "disable_radix_cache", False
+        ),
+    }
+    request_aggregation = {
+        "compute_gpu_time_ns": compute_ns / 5,
+        "runtime_memcpy_gpu_time_ns": 0,
+        "phase_totals": {"mlp_down": {"calls": 1, "gpu_time_ns": phase_ns / 5}},
+    }
     return {
         "status": "complete",
         "lane": lane,
         "workload": workload.workload_record(),
         "profile_requests": 5,
+        "requested_server_config": requested,
+        "resolved_backends": resolved,
+        "compilation": {"requested": True, "effective": True},
+        "requests": [
+            {
+                "request_index": index,
+                "trace_attempts": 1,
+                "aggregation": request_aggregation,
+            }
+            for index in range(5)
+        ],
         "aggregation": {
             "compute_gpu_time_ns": compute_ns,
             "runtime_memcpy_gpu_time_ns": 0,

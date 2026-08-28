@@ -130,7 +130,7 @@ def main() -> int:
         }
         atomic_json(output, payload)
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True), flush=True)
-        return 0
+        return 0 if payload["status"] == "complete" else 1
 
     if args.timeout_seconds <= 0:
         raise ReleaseContractError("timeout must be positive")
@@ -249,6 +249,8 @@ def main() -> int:
                 reconciliation_path = directory / "reconciliation.json"
                 atomic_json(reconciliation_path, reconciliation)
                 payload["reconciliation"] = str(reconciliation_path)
+                if reconciliation["status"] != "complete":
+                    payload["status"] = "failed"
             summary_path = directory / "summary.json"
             atomic_json(summary_path, payload)
             payload["summary_path"] = str(summary_path)
