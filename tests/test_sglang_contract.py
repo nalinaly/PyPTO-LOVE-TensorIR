@@ -265,7 +265,7 @@ def test_qk_rmsnorm_rope_gate_routes_exact_pypto_contract(monkeypatch) -> None:
     q_weight = torch.empty(128, dtype=torch.bfloat16)
     k_weight = torch.empty(128, dtype=torch.bfloat16)
     cache = torch.empty((1024, 64), dtype=torch.bfloat16)
-    positions = torch.arange(2, dtype=torch.int64)
+    positions = torch.arange(2, dtype=torch.int64).repeat(3, 1)
     delegated = []
 
     def original(*args, **kwargs):
@@ -289,16 +289,15 @@ def test_qk_rmsnorm_rope_gate_routes_exact_pypto_contract(monkeypatch) -> None:
     )
     assert result == ("q", "k", "gate")
     assert not delegated
-    assert calls == [
-        (
-            (q_gate, key, q_weight, k_weight, cache, positions),
-            {
-                "q_heads": 2,
-                "kv_heads": 1,
-                "stream": "worker-stream",
-            },
-        )
-    ]
+    assert len(calls) == 1
+    call_args, call_kwargs = calls[0]
+    assert call_args[:5] == (q_gate, key, q_weight, k_weight, cache)
+    assert torch.equal(call_args[5], positions[0])
+    assert call_kwargs == {
+        "q_heads": 2,
+        "kv_heads": 1,
+        "stream": "worker-stream",
+    }
     with pytest.raises(BackendNotReadyError, match="has_gate=True"):
         _qk_rmsnorm_rope_gate_around(
             original,

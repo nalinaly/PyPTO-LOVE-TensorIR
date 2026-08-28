@@ -395,6 +395,16 @@ def _qk_rmsnorm_rope_gate_around(
         raise BackendNotReadyError(
             "PyPTO fused Q/K RMSNorm/RoPE operator is not executable."
         )
+    if positions.ndim == 2:
+        if (
+            tuple(positions.shape) != (3, int(q_gate.shape[0]))
+            or positions.stride(1) != 1
+        ):
+            raise BackendNotReadyError(
+                "PyPTO fused Q/K preparation requires M-RoPE positions "
+                "with shape [3, tokens] and unit inner stride."
+            )
+        positions = positions[0]
     with pypto_stream(q_gate.device) as stream:
         return qk_rmsnorm_rope.qk_rmsnorm_rope_gate(
             q_gate,
