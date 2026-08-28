@@ -37,6 +37,7 @@ def projection_case(stream: torch.cuda.Stream) -> dict[str, object]:
     z_width = value_heads * dv
     qkvz = torch.randn(rows, mixed_width + z_width, device="cuda", dtype=torch.bfloat16)
     ba = torch.randn(rows, 2 * value_heads, device="cuda", dtype=torch.bfloat16)
+    torch.cuda.synchronize()
     actual = gdn_projection.split_projection(
         qkvz,
         ba,
@@ -100,6 +101,7 @@ def conv_case(
     for repetition in range(repetitions):
         if repetition:
             state.copy_(initial_state)
+        torch.cuda.synchronize()
         observed_outputs.append(
             causal_conv1d.causal_conv1d(
                 x,
@@ -251,6 +253,7 @@ def gdn_case(
     initial_state = state.clone()
     reference_state = initial_state.clone()
     alternate_state = initial_state.clone()
+    torch.cuda.synchronize()
     actual = gdn.gdn_recurrent(
         mixed_qkv,
         a,
