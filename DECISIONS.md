@@ -207,6 +207,31 @@ bucket); correctness still precedes performance claims; Triton stays
 reference-only. The D-0017 per-kernel comparison report remains the
 final acceptance.
 
+## D-0019: Retire 22 GiB as a compiler admission requirement (2026-08-28)
+
+The 22 GiB value in D-0016 was an approximate host-coexistence reserve, not a
+measured PyPTO compiler footprint. The CPU-v2 controller records
+`MemAvailable` and pause events but no owned-process peak, so its constant
+cannot support a compiler-memory claim.
+
+A final-head `--parallel 2` QK DSO rebuild sampled the owned process group every
+200 ms. During the 500-second full-rebuild portion, peak summed RSS was
+386252 KiB and the largest observed `MemAvailable` drop was 5594360 KiB; the
+run reached 266/300 and stopped only at the owned-run timeout, with no memory
+pause. A 1200-second retry completed the remaining build and final link, again
+without a pause, and CTest passed 13/13. The host-availability drop is an upper
+bound that includes unrelated activity and cache effects; the sampled PGID RSS
+excludes page cache. Neither measure approaches 22 GiB.
+
+Therefore 22 GiB is retired as an active compiler launch/resume prerequisite.
+The historical exact-hashed v2 implementation remains byte-for-byte unchanged
+for evidence replay, but the Qwen3.5 plan must not wait for its 22 GiB gate.
+Future bounded CPU builds use `--parallel 2`, record owned RSS plus minimum
+`MemAvailable`, retain the 16 GiB running-child pause boundary and external-PID
+prohibition, and distinguish safety headroom from compiler footprint. Compiler
+memory optimization is required only if measured owned usage regresses, not to
+satisfy the retired constant.
+
 ## D-0017: Final acceptance is a per-kernel PyPTO-versus-SGLang-default comparison
 
 The user reconfirmed on 2026-08-26 that the end state is Qwen3.5-9B running

@@ -137,29 +137,30 @@ below. It records work in progress, **not** CP-0084 acceptance.
   after the focused gate closes. `benchmarks/classify_results.json` still
   records the earlier failed candidate and must be regenerated, not promoted.
 
-The final DSO rebuild did not start because the protected external ZCode
-9B/TP4 and gem5 lanes held `MemAvailable` near 18.7--19.9 GiB. The reviewed
-CPU-v2 controller and canonical manifest pass 55/55 tests, but its exact
-admission is 22 GiB; a ten-minute read-only monitor never reached it. No
-external PID was signalled. A later source-only TensorIR validation monitor
-also never admitted a child. Its first dry admission proved that an `env -i`
-PATH containing only
-`/usr/bin:/bin` cannot find WSL's `nvidia-smi`; include the canonical WSL
-directory for the controller's GPU identity audit. Resume only after
-`MemAvailable >= 23068672 KiB` with:
+The final-head QK DSO now builds at PyPTO `d1b90b7` / TensorIR `a48606b`.
+Run `pypto-cpu-v2-20260827T235550Z-740023-675299` performed a real 300-step
+`--parallel 2` rebuild and reached 266/300 before the controller's 500-second
+owned-run timeout; it had no memory pause. A 200 ms external sampler observed
+386252 KiB peak summed owned-PGID RSS, a 5594360 KiB maximum host
+`MemAvailable` drop and a 49189392 KiB minimum. Retry
+`pypto-cpu-v2-20260828T000456Z-755666-667c04` completed the remaining compile
+and link in 69 seconds with return code zero and no pause. The resulting
+789270408-byte DSO has SHA-256
+`a5399730494b95fbabea7e10596fdd2538be1dd0128d15a1a3d9e61d082c6781`.
+Run `pypto-cpu-v2-20260828T000725Z-758307-e5f1f2` then passes CTest 13/13.
+`state/evidence/pypto_qk_final_build_memory_audit_20260828.json` records the
+measurements and their attribution limits.
 
-```bash
-env -i PATH=/usr/lib/wsl/lib:/usr/bin:/bin \
-  envs/pypto-nvidia/bin/python -E -B -S \
-  tools/run_pypto_cpu_coexistence_v2_isolated.py \
-  --run-id-file runs/next-qk-final-build.json \
-  --timeout-seconds 500 --minimum-free-disk-gib 64 -- \
-  cmake --build \
-  /home/zhaosiying/pypto-love-tensor-ir/builds/pypto-opext-on-a589f79 \
-  --parallel 2
-```
+This establishes that the historical 22 GiB CPU-v2 admission value was a
+legacy coexistence reserve, not a compiler requirement. Per D-0019 it is no
+longer a prerequisite for the active Qwen3.5 path. The exact v2 bytes remain
+unchanged for historical replay; bounded CPU builds stay at `--parallel 2`,
+record owned RSS plus minimum `MemAvailable`, retain the 16 GiB running-child
+pause boundary and never signal external processes. The earlier dry admission
+also established that an isolated controller PATH must include
+`/usr/lib/wsl/lib` for WSL's `nvidia-smi` identity audit.
 
-Then require final-head CTest 13/13, run the focused QK compile probe through
+Next run the focused QK compile probe through
 `run_pypto_gpu_smoke_generic.py --allow-protected-zero-nvidia-gpu-smoke`, and
 run the canonical classification and execution scripts. Only a successful
 single launch with Q/K BF16 reference tolerance and exact gate copy may advance

@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `47`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `48`
 
 ## Current phase: full-stack execution to Qwen3.5 (D-0018 lightweight gates)
 
@@ -44,6 +44,15 @@ close causal paged attention, stateful convolution and single-graph GDN,
 complete the zero-diff SGLang route, bring up and stabilize 0.8B, and only then
 repeat the full gate for 9B. No model-name, hidden-size or fixed benchmark-shape
 special case may be used to satisfy either model.
+
+The historical 22 GiB CPU-v2 admission value is not a compiler memory
+requirement and is no longer a prerequisite for this execution path. It was a
+conservative host-coexistence reserve derived from an approximate user
+authorization, without owned-build peak-memory evidence. Bounded CPU builds
+remain capped at `--parallel 2`, must record owned-process RSS and host
+`MemAvailable`, retain the 16 GiB running-child pause boundary, and must never
+signal a protected external process. The exact-hashed v2 controls remain
+unchanged solely so historical evidence stays reproducible.
 
 CP-0039 accepts compile-free HIR-to-TensorIR emission, CP-0040 accepts the
 standalone canonical schedule, and CP-0041 accepts compiler-owned frontend

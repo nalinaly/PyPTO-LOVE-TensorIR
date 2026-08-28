@@ -1,0 +1,65 @@
+{
+  "build": {
+    "command": [
+      "cmake",
+      "--build",
+      "/home/zhaosiying/pypto-love-tensor-ir/builds/pypto-opext-on-a589f79",
+      "--parallel",
+      "2"
+    ],
+    "first_run": {
+      "available_drop_kib": 5594360,
+      "end_available_kib": 52798076,
+      "max_owned_pgid_rss_kib": 386252,
+      "min_available_kib": 49189392,
+      "outcome": "owned-run-timeout-after-266-of-300",
+      "process_metadata_sha256": "fba10c84dc689b5d8a0731dcd91380a057a3a6907c553199db18a67f68c5eef8",
+      "run_id": "pypto-cpu-v2-20260827T235550Z-740023-675299",
+      "sample_count": 2430,
+      "sample_period_ms": 200,
+      "start_available_kib": 54783752
+    },
+    "retry": {
+      "available_drop_kib": 3015596,
+      "end_available_kib": 52478684,
+      "max_owned_pgid_rss_kib": 76164,
+      "min_available_kib": 49088928,
+      "outcome": "completed",
+      "process_metadata_sha256": "d6635a3847a13ef79599bec40b78cf7a57a39ac07196f94956df151c88252118",
+      "return_code": 0,
+      "run_id": "pypto-cpu-v2-20260828T000456Z-755666-667c04",
+      "sample_count": 333,
+      "sample_period_ms": 200,
+      "start_available_kib": 52104524
+    },
+    "source": {
+      "pypto_commit": "d1b90b767d6be8e3907a01d41655eedbc621df2f",
+      "tensor_ir_commit": "a48606b88c7fdce4b31ebdf33cd3e6af113cf985"
+    }
+  },
+  "conclusion": {
+    "compiler_requires_22_gib": false,
+    "historical_cpu_v2_bytes_preserved": true,
+    "parallelism_cap": 2,
+    "retire_22_gib_as_active_compiler_gate": true,
+    "runtime_pause_floor_kib": 16777216
+  },
+  "kind": "pypto-qk-final-build-memory-audit",
+  "measurement_limits": [
+    "max_owned_pgid_rss_kib is a 200 ms point-in-time sum for processes in the recorded owned PGID",
+    "owned PGID RSS excludes page cache",
+    "available_drop_kib is an upper bound on build-induced host pressure because host activity and cache effects are not attributed"
+  ],
+  "product": {
+    "bytes": 789270408,
+    "path": "builds/pypto-opext-on-a589f79/product/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "sha256": "a5399730494b95fbabea7e10596fdd2538be1dd0128d15a1a3d9e61d082c6781"
+  },
+  "schema_version": 1,
+  "tests": {
+    "ctest_passed": 13,
+    "ctest_total": 13,
+    "process_metadata_sha256": "194697bc150371d8698901df9024c1dfdb8679194b2ed594d74ceeaf060a13a3",
+    "run_id": "pypto-cpu-v2-20260828T000725Z-758307-e5f1f2"
+  }
+}
