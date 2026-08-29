@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the independent performance-only Qwen3.5 SwiGLU A/B matrix."""
+"""Run the independent aligned Qwen3.5-9B operator A/B matrix."""
 
 from __future__ import annotations
 
@@ -96,7 +96,10 @@ def main() -> int:
     for index, lane in enumerate(lanes):
         controlled = launch(lane)
         report = (
-            ROOT / "runs" / controlled.run_id / f"qwen35-swiglu-performance-{lane}.json"
+            ROOT
+            / "runs"
+            / controlled.run_id
+            / f"qwen35-9b-operator-performance-{lane}.json"
             if controlled.run_id is not None
             else None
         )
@@ -118,11 +121,18 @@ def main() -> int:
     payload: dict[str, object] = {
         "schema": SCHEMA_VERSION,
         "kind": (
-            "qwen35-swiglu-operator-performance-matrix-control"
+            "qwen35-9b-aligned-operator-performance-matrix-control"
             if args.matrix
-            else "qwen35-swiglu-operator-performance-control"
+            else "qwen35-9b-aligned-operator-performance-control"
         ),
+        "model_path": str(args.model_path.resolve()),
         "schedule": list(lanes),
+        "starts_per_lane": 4 if args.matrix else None,
+        "case_count_per_start": 7,
+        "warmup_calls_per_case": 20,
+        "timed_batches_per_case": 30,
+        "default_calls_per_batch": 100,
+        "lm_head_calls_per_batch": 1,
         "runs": records,
         "status": "planned" if args.dry_run else "complete" if complete else "failed",
     }
@@ -134,18 +144,23 @@ def main() -> int:
             / f"release-operator-ab-{timestamp}-{os.getpid()}-{secrets.token_hex(3)}"
         )
         if complete:
-            grouped = {
-                lane: [
-                    read_json(Path(item["report"]).resolve(strict=True))
-                    for item in records
-                    if item["lane"] == lane
-                ]
-                for lane in OPERATOR_LANES
-            }
-            summary = summarize_fresh_starts(grouped)
-            summary_path = directory / "aggregation.json"
-            atomic_json(summary_path, summary)
-            payload["aggregation"] = str(summary_path)
+            try:
+                grouped = {
+                    lane: [
+                        read_json(Path(item["report"]).resolve(strict=True))
+                        for item in records
+                        if item["lane"] == lane
+                    ]
+                    for lane in OPERATOR_LANES
+                }
+                summary = summarize_fresh_starts(grouped)
+                summary_path = directory / "aggregation.json"
+                atomic_json(summary_path, summary)
+                payload["aggregation"] = str(summary_path)
+            except Exception as error:
+                payload["status"] = "failed"
+                payload["aggregation_error_type"] = type(error).__name__
+                payload["aggregation_error"] = str(error)
         control_path = directory / "summary.json"
         atomic_json(control_path, payload)
         payload["summary_path"] = str(control_path)

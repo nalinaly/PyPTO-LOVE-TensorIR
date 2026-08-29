@@ -923,7 +923,7 @@ def _load_operator_performance(
     if (
         summary.get("status") != "complete"
         or summary.get("kind")
-        != "qwen35-swiglu-operator-performance-matrix-control"
+        != "qwen35-9b-aligned-operator-performance-matrix-control"
         or type(runs) is not list
         or len(runs) != len(OPERATOR_SCHEDULE)
         or [item.get("lane") for item in runs] != list(OPERATOR_SCHEDULE)
@@ -940,7 +940,7 @@ def _load_operator_performance(
         report = read_json(report_path)
         if (
             report.get("status") != "complete"
-            or report.get("kind") != "qwen35-swiglu-operator-performance-only"
+            or report.get("kind") != "qwen35-9b-aligned-operator-performance-only"
             or report.get("lane") != lane
         ):
             raise ReleaseContractError(
@@ -1069,7 +1069,7 @@ def _profile_markdown(reconciliation: dict[str, object]) -> str:
 
 def _operator_performance_markdown(performance: dict[str, object]) -> str:
     rows = [
-        "| SwiGLU case | PyPTO ms/call p50 | Stock ms/call p50 | PyPTO latency / stock | 95% bootstrap CI |",
+        "| Aligned operator case | PyPTO ms/call p50 | Stock ms/call p50 | PyPTO latency / stock | 95% bootstrap CI |",
         "|---|---:|---:|---:|---:|",
     ]
     for case, comparison in performance["comparisons"].items():

@@ -328,12 +328,63 @@ def test_profile_reconciliation_records_unmatched_controls_before_failing() -> N
     )
 
 
+def _operator_identity(lane: str) -> dict[str, object]:
+    identity = {
+        "selected_environment_lock": "pypto" if lane == "pypto" else "baseline",
+        "test_global_identity": "same-across-lanes",
+    }
+    identity["identity_sha256"] = workload.canonical_json_sha256(identity)
+    return identity
+
+
 def _operator_report(lane: str, start: int) -> dict[str, object]:
+    model = operator_performance_runtime.load_model_contract(ROOT / "models/Qwen3.5-9B")
+
+    def provider(case: dict[str, object]) -> dict[str, object]:
+        if lane != "pypto":
+            return {
+                "kind": "stock_public_api",
+                "public_callable": (
+                    operator_performance_runtime._expected_public_callable(
+                        lane, str(case["operator"])
+                    )
+                ),
+                "stream_policy": "caller_current_stream",
+                "artifact": None,
+            }
+        source = (
+            "torch-inductor:0123456789abcdef"
+            if case["operator"] == "swiglu"
+            else "pypto_kernels.linear:linear_to_float_kernel"
+            if case["operator"] == "fp32_lm_head"
+            else "pypto_kernels.linear:linear_kernel"
+        )
+        return {
+            "kind": "pypto_artifact",
+            "public_callable": operator_performance_runtime._expected_public_callable(
+                lane, str(case["operator"])
+            ),
+            "stream_policy": (
+                "caller_current_stream"
+                if case["operator"] == "swiglu"
+                else "pypto_stream_current_ordering"
+            ),
+            "artifact": {
+                "artifact_id": f"artifact:{case['name']}",
+                "provider": (
+                    "pypto.generic" if case["operator"] == "swiglu" else "pypto.matmul"
+                ),
+                "source_node": source,
+            },
+        }
+
     return {
         "status": "complete",
-        "kind": "qwen35-swiglu-operator-performance-only",
+        "kind": "qwen35-9b-aligned-operator-performance-only",
         "lane": lane,
         "run_id": f"operator-{lane}-{start}",
+        "model_contract": model,
+        "evidence_identity": _operator_identity(lane),
         "resources": {
             "nvml_error": None,
             "gpu_identity": {
@@ -352,17 +403,29 @@ def _operator_report(lane: str, start: int) -> dict[str, object]:
         "cases": [
             {
                 **case,
+                "provider": provider(case),
                 "first_compile_trigger_call_wall_ms": 100.0 + start,
-                "raw_batch_average_ms_per_call": [float(start + 1) for _ in range(30)],
+                "total_timed_calls": case["timed_batches"] * case["calls_per_batch"],
+                "raw_batch_average_ms_per_call": [
+                    float(start + 1) for _ in range(case["timed_batches"])
+                ],
             }
-            for case in operator_performance_runtime.SWIGLU_CASES
+            for case in operator_performance_runtime.case_specs(model)
         ],
     }
 
 
-def test_operator_ab_is_a_separate_performance_only_entrypoint() -> None:
+def test_operator_ab_is_aligned_and_performance_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        operator_performance_runtime,
+        "comparable_identity",
+        lambda _identity: {"global": "same-across-lanes"},
+    )
     args = operator_performance_tool.parser().parse_args(["--matrix", "--dry-run"])
     assert args.matrix is True
+    assert args.model_path == ROOT / "models/Qwen3.5-9B"
     assert operator_performance_runtime.OPERATOR_SCHEDULE.count("pypto") == 4
     assert operator_performance_runtime.OPERATOR_SCHEDULE.count("sglang-matched") == 4
     reports = {
@@ -372,9 +435,129 @@ def test_operator_ab_is_a_separate_performance_only_entrypoint() -> None:
     summary = operator_performance_runtime.summarize_fresh_starts(reports)
     assert summary["status"] == "complete"
     assert summary["correctness_evaluated"] is False
+    assert len(summary["comparisons"]) == 7
+    contracts = [item["contract"] for item in summary["comparisons"].values()]
+    assert {item["operator"] for item in contracts} == {
+        "swiglu",
+        "gate_up_linear",
+        "down_linear",
+        "fp32_lm_head",
+    }
+    assert {
+        item["candidate_implementation"]
+        for item in contracts
+        if item["operator"] == "swiglu"
+    } == {"inductor_generated_pypto"}
+    assert {
+        item["candidate_implementation"]
+        for item in contracts
+        if item["operator"] != "swiglu"
+    } == {"handwritten_pypto"}
+    assert {
+        item["phase"] for item in contracts if item["operator"] != "fp32_lm_head"
+    } == {"decode", "prefill"}
+    lm_head = [item for item in contracts if item["operator"] == "fp32_lm_head"]
+    assert len(lm_head) == 1
+    assert lm_head[0]["phase"] == "decode_and_pruned_prefill"
+    assert lm_head[0]["rows"] == 1
+    assert "use_fp32_lm_head=false" in lm_head[0]["semantic_contract"]
+    assert "zero-copy" in lm_head[0]["callsite_note"]
+    assert all(
+        item["warmup_calls"] == 20 and item["timed_batches"] == 30 for item in contracts
+    )
+    assert all(
+        item["calls_per_batch"] == 1 and item["calls_adjustment_reason"]
+        for item in contracts
+        if item["operator"] == "fp32_lm_head"
+    )
+    assert all(
+        item["calls_per_batch"] == 100 and item["calls_adjustment_reason"] is None
+        for item in contracts
+        if item["operator"] != "fp32_lm_head"
+    )
     source = (ROOT / "benchmarks/release/operator_performance_runtime.py").read_text(
         encoding="utf-8"
     )
     assert "correctness_runtime" not in source
     assert "torch.allclose" not in source
     assert "torch.equal" not in source
+    assert "return torch.nn.functional.linear(input_, weight).float()" in source
+    assert source.index('report["cases"]') < source.index(
+        'report["evidence_identity"] = collect_run_identity'
+    )
+    assert "del output, invoke, allocations" in source
+    assert "torch.cuda.empty_cache()" in source
+    renderer = (ROOT / "tools/render_release_results.py").read_text(encoding="utf-8")
+    assert "qwen35-9b-aligned-operator-performance-matrix-control" in renderer
+    assert "qwen35-9b-aligned-operator-performance-only" in renderer
+    assert "qwen35-swiglu-operator-performance" not in renderer
+
+
+def test_operator_shapes_are_bound_to_the_real_9b_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    model = operator_performance_runtime.load_model_contract(ROOT / "models/Qwen3.5-9B")
+    assert model["hidden_size"] == 4096
+    assert model["intermediate_size"] == 12288
+    assert model["vocab_size"] == 248320
+    assert model["tensor_parallel_size"] == 1
+    assert model["frozen_prompt_tokens"] == 19
+    cases = operator_performance_runtime.case_specs(model)
+    assert len(cases) == 7
+    assert {case["rows"] for case in cases} == {1, 19}
+    assert [
+        case["weight_shape"] for case in cases if case["operator"] == "gate_up_linear"
+    ] == [[24576, 4096], [24576, 4096]]
+    assert [
+        case["weight_shape"] for case in cases if case["operator"] == "down_linear"
+    ] == [[4096, 12288], [4096, 12288]]
+    assert [
+        case["weight_shape"] for case in cases if case["operator"] == "fp32_lm_head"
+    ] == [[248320, 4096]]
+
+    invalid = tmp_path / "Qwen3.5-9B"
+    invalid.mkdir()
+    payload = {"text_config": {**operator_performance_runtime.EXPECTED_MODEL_FIELDS}}
+    payload["text_config"]["hidden_size"] = 2048
+    (invalid / "config.json").write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(operator_performance_runtime, "ROOT", tmp_path)
+    with pytest.raises(workload.ReleaseContractError, match="geometry drifted"):
+        operator_performance_runtime.load_model_contract(invalid)
+
+
+def test_operator_candidate_artifact_provenance_is_case_specific() -> None:
+    model = operator_performance_runtime.load_model_contract(ROOT / "models/Qwen3.5-9B")
+    for index, case in enumerate(operator_performance_runtime.case_specs(model)):
+        artifact_id = f"artifact-{index}"
+        expected_source = (
+            "torch-inductor:0123456789abcdef"
+            if case["operator"] == "swiglu"
+            else "pypto_kernels.linear:linear_to_float_kernel"
+            if case["operator"] == "fp32_lm_head"
+            else "pypto_kernels.linear:linear_kernel"
+        )
+        expected_provider = (
+            "pypto.generic" if case["operator"] == "swiglu" else "pypto.matmul"
+        )
+        artifact = {
+            "artifact_id": artifact_id,
+            "provider": expected_provider,
+            "source_node": expected_source,
+        }
+        assert (
+            operator_performance_runtime._new_case_artifact(
+                {}, {artifact_id: artifact}, case
+            )
+            == artifact
+        )
+        with pytest.raises(workload.ReleaseContractError, match="provenance drifted"):
+            operator_performance_runtime._new_case_artifact(
+                {},
+                {
+                    artifact_id: {
+                        **artifact,
+                        "provider": "pypto.tensorir",
+                    }
+                },
+                case,
+            )
