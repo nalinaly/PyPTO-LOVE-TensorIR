@@ -1,7 +1,7 @@
 From 6944dcecdb7887f1ee9e4febb2a845ae5bbbbea5 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 02:26:51 +0800
-Subject: [PATCH 54/82] Materialize inputs in one-shot consumers
+Subject: [PATCH 54/89] Materialize inputs in one-shot consumers
 
 ---
  .../LayoutPropagationImpl.cpp                 | 59 ++++++++++---------

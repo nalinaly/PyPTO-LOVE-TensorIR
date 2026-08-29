@@ -1,7 +1,7 @@
 From a00ce66873ec6404839a3bb2140720ffcfc9d255 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 01:13:17 +0800
-Subject: [PATCH 120/212] Advance TensorIR reduction slice lowering
+Subject: [PATCH 120/263] Advance TensorIR reduction slice lowering
 
 ---
  ...ort-slicing-reduction-result-layouts.patch | 67 +++++++++++++++++++

@@ -1,0 +1,89 @@
+From e966127419783f8ccb4db77b2fddaa358e11d752 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 03:16:40 +0800
+Subject: [PATCH 86/89] Restore gathered tiles in physical axis order
+
+---
+ .../LayoutPropagationImpl.cpp                 | 27 +++++--------------
+ .../TensorToCudaTile/gather_rows_layout.mlir  | 22 +++++++++++++++
+ 2 files changed, 29 insertions(+), 20 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index 178fa17ccfe2dddb737fd408ec38c50bcaf77578..04e3bac5ce95beae3ec7b332cd9c99c663855561 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -540,27 +540,14 @@ public:
+         rewriter, op.getLoc(), outputType, tokenType,
+         cuda_tile::MemoryOrderingSemantics::WEAK, /*memory_scope=*/nullptr,
+         gatherView, gatherIndices, /*token=*/nullptr, optimizationHints);
+-    Value result = load.getTile();
+-    SmallVector<int64_t> projectedShape(iterationRank, 1);
+-    if (!scalarRowProjection) {
+-      projectedShape[rowDim] = rowTileSize;
+-    }
+-    if (!scalarColumnProjection) {
+-      for (size_t dim : columnProjection->dimensions) {
+-        projectedShape[dim] = iterationTileShape[dim];
+-      }
+-    }
+-    if (!llvm::equal(projectedShape, gatherTileShape)) {
+-      result = cuda_tile::ReshapeOp::create(
+-          rewriter, op.getLoc(),
+-          cuda_tile::TileType::get(projectedShape, dataElement), result);
+-    }
+-    if (!llvm::equal(projectedShape, iterationTileShape)) {
+-      result = cuda_tile::BroadcastOp::create(
+-          rewriter, op.getLoc(),
+-          cuda_tile::TileType::get(iterationTileShape, dataElement), result);
++    FailureOr<Value> result = restoreProjectedRowTile(
++        rewriter, op.getLoc(), load.getTile(), iterationTileShape, rowDim,
++        scalarRowProjection, scalarColumnProjection, *columnProjection,
++        dataElement);
++    if (failed(result)) {
++      return op.emitError("failed to restore the projected gather tile");
+     }
+-    rewriter.replaceOp(op, result);
++    rewriter.replaceOp(op, *result);
+     return success();
+   }
+ };
+diff --git a/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
+index ddb781e112297e56d850509c871586428ab2decc..596fe79ec906be9b4eb1e09d77c4979d2d5ef80e 100644
+--- a/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
++++ b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
+@@ -19,6 +19,13 @@
+ // CHECK: %[[SINGLE_ROW:.*]] = reshape %[[SINGLE_NARROW]] : tile<1x1xi32> -> tile<1xi32>
+ // CHECK: load_view_tko weak %[[SINGLE_VIEW]][%[[SINGLE_ROW]], {{.*}}]
+ // CHECK: store_view_tko weak
++// CHECK-LABEL: entry @gather_reshaped_columns_transposed
++// CHECK: %[[TRANSPOSED_VIEW:.*]] = make_gather_scatter_view {{.*}} : gather_scatter_view<tile=(1x2048), {{.*}}>
++// CHECK: %[[TRANSPOSED_LOAD:.*]], %{{.*}} = load_view_tko weak %[[TRANSPOSED_VIEW]][{{.*}}]
++// CHECK-SAME: -> tile<1x2048xf32>, token
++// CHECK: %[[PHYSICAL_MATRIX:.*]] = reshape %[[TRANSPOSED_LOAD]] : tile<1x2048xf32> -> tile<32x64xf32>
++// CHECK: %[[LOGICAL_MATRIX:.*]] = permute %[[PHYSICAL_MATRIX]] [1, 0] : tile<32x64xf32> -> tile<64x32xf32>
++// CHECK: store_view_tko weak %[[LOGICAL_MATRIX]]
+ // CHECK-LABEL: entry @gather_single_column
+ // CHECK: %[[COLUMN_DATA:.*]] = make_tensor_view {{.*}}, shape = [1024, 1], strides = [1, 1] : tensor_view<1024x1xsi64, strides=[1,1]>
+ // CHECK: %[[COLUMN_VIEW:.*]] = make_gather_scatter_view %[[COLUMN_DATA]] : gather_scatter_view<tile=(8x1), tensor_view<1024x1xsi64, strides=[1,1]>, sparse_dim=0>
+@@ -65,6 +72,21 @@ module {
+     results %expanded : tensor<16x256xsi32>
+   }
+ 
++  nv_tensor_ir.graph @gather_reshaped_columns_transposed(
++      %data: tensor<65x2048xf32> {nv_tensor_ir.stride = "(2048,1)"},
++      %indices: tensor<1x2048xsi32> {nv_tensor_ir.stride = "(0,0)"})
++      -> tensor<64x32xf32>
++      attributes {tile_size = array<i32: 64, 32>} {
++    %flat = gather_rows %data, %indices
++        : (tensor<65x2048xf32>, tensor<1x2048xsi32>)
++       -> tensor<1x2048xf32>
++    %matrix = reshape %flat
++        : tensor<1x2048xf32> -> tensor<32x64xf32>
++    %transposed = transpose %matrix permutation = [1, 0]
++        : tensor<32x64xf32> -> tensor<64x32xf32>
++    results %transposed : tensor<64x32xf32>
++  }
++
+   nv_tensor_ir.graph @gather_single_column(
+       %data: tensor<1024x1xsi64> {nv_tensor_ir.stride = "(1,1)"},
+       %indices: tensor<32x1xsi32> {nv_tensor_ir.stride = "(1,0)"})

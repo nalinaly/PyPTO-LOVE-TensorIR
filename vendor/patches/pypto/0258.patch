@@ -1,0 +1,30 @@
+From f4a80355632fcef14cdf8965c479da4ac32f931d Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 03:34:09 +0800
+Subject: [PATCH 258/263] Limit gather relayout to transpose consumers
+
+---
+ 3rdparty/nvidia/tensor-ir  | 2 +-
+ cmake/nvidia_backend.cmake | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index e966127419783f8ccb4db77b2fddaa358e11d752..18b6489847229a14171d501e5d2ffd699c6b4cba 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit e966127419783f8ccb4db77b2fddaa358e11d752
++Subproject commit 18b6489847229a14171d501e5d2ffd699c6b4cba
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 3e8f6025cd2e4b6b0088d58d2121800b1716cf44..c0a987cfc3421b3654588747ce11e4727c158ae6 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "e966127419783f8ccb4db77b2fddaa358e11d752")
++    "18b6489847229a14171d501e5d2ffd699c6b4cba")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

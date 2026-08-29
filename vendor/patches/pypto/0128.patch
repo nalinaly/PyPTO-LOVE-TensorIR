@@ -1,7 +1,7 @@
 From 192b80eec6b365ddcdb5de39bb04078dfa2f5d92 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 01:56:53 +0800
-Subject: [PATCH 128/212] Advance TensorIR broadcast shape comparison
+Subject: [PATCH 128/263] Advance TensorIR broadcast shape comparison
 
 ---
  ...layed-broadcast-tile-shapes-portably.patch | 25 +++++++++++++++++++

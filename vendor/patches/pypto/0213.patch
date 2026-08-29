@@ -1,7 +1,7 @@
 From 9dfed55a4db42b5ee0ba3b3899f8d37528c8ac76 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Sat, 29 Aug 2026 00:57:13 +0800
-Subject: [PATCH 213/213] Support row-pitched SwiGLU results
+Subject: [PATCH 213/263] Support row-pitched SwiGLU results
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp      |  8 ++-

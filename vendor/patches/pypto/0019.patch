@@ -1,7 +1,7 @@
 From 4789ae0f7c5647e792b32070e6d575f6403bd24f Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Mon, 24 Aug 2026 23:43:28 +0800
-Subject: [PATCH 019/212] test: bind cubin ABI target decoding
+Subject: [PATCH 019/263] test: bind cubin ABI target decoding
 
 ---
  3rdparty/nvidia/tensor-ir                           | 2 +-

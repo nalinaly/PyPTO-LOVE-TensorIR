@@ -3,16 +3,11 @@
     "pypto",
     "tensor_ir"
   ],
-  "environment_lock": {
-    "bytes": 1954,
-    "path": "environment/release-runtime.json",
-    "sha256": "5bbccd0e74a33eff12bbc401670b7ca7337e26a95aea087a16df6f7175da65e9"
-  },
   "environment_artifacts": [
     {
-      "bytes": 1924,
+      "bytes": 2764,
       "path": "environment/python-artifacts.json",
-      "sha256": "3422585b0ca36ae4d009bee376d6d1d9051bfadb933802d0fde55f7185b18f4a"
+      "sha256": "65561103e8c1bebae1de167f857cd031ea7238cbce9e319bebdffd9771478e69"
     },
     {
       "bytes": 3364,
@@ -25,6 +20,11 @@
       "sha256": "2792dd2a37313552249cfb8da36ebffad5686ae7724ddfe2a15878bfede611bf"
     }
   ],
+  "environment_lock": {
+    "bytes": 2079,
+    "path": "environment/release-runtime.json",
+    "sha256": "39858811aefa7a05aaa291a8ab7893351c4d3c07503441436f6b5407cfb1623b"
+  },
   "materialization": {
     "pypto": "pypto",
     "sglang": "sglang",
@@ -43,16 +43,16 @@
   "packages": {
     "pypto-framework-plugins": {
       "path": "packages/pypto-framework-plugins",
-      "prefix_tree": "878dc86ffb5617f40811d131306de6cce615e3a6",
-      "source_commit": "e6ec0aac8cb91beb6102717c063bbbea2e344f62",
-      "source_tree": "878dc86ffb5617f40811d131306de6cce615e3a6",
+      "prefix_tree": "e9f1aeb4e105d7f9db35ffc3bb6b2c304e555e89",
+      "source_commit": "f11bf6015303ab932d6bfce624f1f1e9e9dfbe13",
+      "source_tree": "e9f1aeb4e105d7f9db35ffc3bb6b2c304e555e89",
       "version": "0.1.0.dev0"
     },
     "pypto-kernels": {
       "path": "packages/pypto-kernels",
-      "prefix_tree": "e76b99c1591a684b2691ce8a6d4078803c9bc856",
-      "source_commit": "775ae22be4afc0ae8674b4eb8177e6aacbfdcc6b",
-      "source_tree": "e76b99c1591a684b2691ce8a6d4078803c9bc856",
+      "prefix_tree": "abb652a2f66b70ed02d87ab8bef62f863a9f4307",
+      "source_commit": "a92a13ead6041f4464c9c337b17a4a5fae85e3e5",
+      "source_tree": "abb652a2f66b70ed02d87ab8bef62f863a9f4307",
       "version": "0.1.0"
     }
   },
@@ -79,11 +79,11 @@
       "url": "https://github.com/hw-native-sys/simpler"
     },
     {
-      "commit": "eb5fc509d9ac6d7a015a29f8b8330f6d9d15fa6b",
+      "commit": "db41d0733eb73971ee03a74faca81d1af6e6aef7",
       "local_source": "tensor_ir",
       "name": "3rdparty/nvidia/tensor-ir",
       "path": "3rdparty/nvidia/tensor-ir",
-      "tree": "a9d6ec9e1494fb5cb18cbc98cfea6bd1ec0b07c0",
+      "tree": "94c02df6614013be8e85167a333c5a8907d0fcf4",
       "url": "https://github.com/NVIDIA/tensor-ir.git"
     },
     {
@@ -108,28 +108,28 @@
       "base_tree": "a46f244a62dfab663fbeb899eb62ee8a042a0b41",
       "bundle": {
         "base_ref": "refs/tags/upstream-base",
-        "bytes": 8993258,
+        "bytes": 9041397,
         "head_ref": "refs/heads/nvidia-sm120",
         "path": "vendor/git/pypto.bundle",
-        "sha256": "e4fb5bb5e8a473c4573c759a3cfe291f203878228f8fce47e03a473413e812df"
+        "sha256": "b2493443df1fc8d1ceb7afb5a568d8934feb74399c7ac8992b6c81119c4de85e"
       },
-      "commit_count": 223,
-      "head_commit": "de37c7dcf93482ca3cfb42f18583ad4c999794e7",
-      "head_tree": "04fe6d82e8cb4b544ee69ae870b54296772477a7",
+      "commit_count": 263,
       "gitlinks": {
         "3rdparty/libbacktrace": "6f8310e238fc3ce68f42f391cbe93fd156bb2c23",
         "3rdparty/msgpack-c": "919908742b4fdbc575e77fe1a8657e70c9573c44",
         "3rdparty/nvidia/cuda-tile": "af2417041cc939b87ef56d92cfdcf61737c5457e",
         "3rdparty/nvidia/llvm-project": "57109befac92811d2253109242ca6fa69c961fb2",
-        "3rdparty/nvidia/tensor-ir": "eb5fc509d9ac6d7a015a29f8b8330f6d9d15fa6b",
+        "3rdparty/nvidia/tensor-ir": "db41d0733eb73971ee03a74faca81d1af6e6aef7",
         "runtime": "93adc3865e65fd72655f571f2e4165cf5ac02616"
       },
+      "head_commit": "4fe2f0ab255901a004106156822770ea7ac9470e",
+      "head_tree": "f456075955cbf57caf121e6a4374ec731cf58f70",
       "origin_url": "https://github.com/hw-native-sys/pypto.git",
       "patch_series": {
         "directory": "vendor/patches/pypto",
         "manifest": "vendor/patches/pypto/series.json",
-        "manifest_bytes": 69676,
-        "manifest_sha256": "61a2333f9a9f77668006f4f1dc89c33113cd47a073cc62129f77a08919a5afa5"
+        "manifest_bytes": 84270,
+        "manifest_sha256": "5416b5527eed5c31dad5a85058020953d7783c9ad1ba51f124a8dff0b8c229a2"
       },
       "shallow_boundary": "e2d0f78ae6d709c0d6ee345a48db2c3d621a4b09"
     },
@@ -144,20 +144,20 @@
       "base_tree": "1cb1598849e2be37c3455f2bab7e3e9643acf922",
       "bundle": {
         "base_ref": "refs/tags/upstream-base",
-        "bytes": 617256,
+        "bytes": 621102,
         "head_ref": "refs/heads/pypto-sm120",
         "path": "vendor/git/tensor-ir.bundle",
-        "sha256": "073154034afc69852a42b48497b3b23b227d7265130af97c4d13714e3af0f52c"
+        "sha256": "a716b75fcfbebe0cf98a2cb9fc2b6e438a124b2bf644abc88f2d04126214daa8"
       },
-      "commit_count": 84,
-      "head_commit": "eb5fc509d9ac6d7a015a29f8b8330f6d9d15fa6b",
-      "head_tree": "a9d6ec9e1494fb5cb18cbc98cfea6bd1ec0b07c0",
+      "commit_count": 89,
+      "head_commit": "db41d0733eb73971ee03a74faca81d1af6e6aef7",
+      "head_tree": "94c02df6614013be8e85167a333c5a8907d0fcf4",
       "origin_url": "https://github.com/NVIDIA/tensor-ir.git",
       "patch_series": {
         "directory": "vendor/patches/tensor-ir",
         "manifest": "vendor/patches/tensor-ir/series.json",
-        "manifest_bytes": 26225,
-        "manifest_sha256": "f6503b4c4b3afc47d3f2da1e4b13b9a40a8a80dbaa909dfca3c07858eaa9596a"
+        "manifest_bytes": 28562,
+        "manifest_sha256": "c82147dee8840ccd9eeb12982b5ea65a2690daa2e34505c8f8aafb89c1b965bf"
       },
       "shallow_boundary": "3b5a8bebc00510b46a1e8b97229d06dd0d006215"
     }

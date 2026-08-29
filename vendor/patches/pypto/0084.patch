@@ -1,7 +1,7 @@
 From c45a51765c8378a8455efeff8d6314969315f015 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 20:54:33 +0800
-Subject: [PATCH 084/212] nvidia: lower native tile RMSNorm graphs
+Subject: [PATCH 084/263] nvidia: lower native tile RMSNorm graphs
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp     | 237 ++++++++++++++++++-

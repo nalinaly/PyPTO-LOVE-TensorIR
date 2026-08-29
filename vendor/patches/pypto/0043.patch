@@ -1,7 +1,7 @@
 From 2842a1c5433cb3cfe9e4fbc7664ebe0ad8a4b129 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Tue, 25 Aug 2026 08:29:37 +0800
-Subject: [PATCH 043/212] Fix executable test descriptor construction
+Subject: [PATCH 043/263] Fix executable test descriptor construction
 
 ---
  tests/ut/cpp/nvidia_executable_test.cpp | 8 +++++---

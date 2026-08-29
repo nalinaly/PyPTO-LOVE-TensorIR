@@ -1,7 +1,7 @@
 From a48606b88c7fdce4b31ebdf33cd3e6af113cf985 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 02:48:26 +0800
-Subject: [PATCH 59/82] Project gather index producers into fused space
+Subject: [PATCH 59/89] Project gather index producers into fused space
 
 ---
  lib/Transform/GraphSplitting.cpp | 16 +++++++++++-----

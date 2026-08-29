@@ -1,7 +1,7 @@
 From 987abb9ad276dac1de4e6190ae04435404543a99 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 18:38:49 +0800
-Subject: [PATCH 209/212] Support row-pitched native matmul results
+Subject: [PATCH 209/263] Support row-pitched native matmul results
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp        | 14 ++++++++------

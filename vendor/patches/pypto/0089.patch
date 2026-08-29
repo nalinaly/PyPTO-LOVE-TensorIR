@@ -1,7 +1,7 @@
 From 5f9aa0810e04ddf28ab5afc55f6284d5ba023a5f Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 21:14:27 +0800
-Subject: [PATCH 089/212] nvidia: accept factored pointwise iteration tiles
+Subject: [PATCH 089/263] nvidia: accept factored pointwise iteration tiles
 
 ---
  .../structured_tensor_ir_build_spec.cpp       | 55 ++++++++++++++++---

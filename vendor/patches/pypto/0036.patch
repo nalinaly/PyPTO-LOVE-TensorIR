@@ -1,7 +1,7 @@
 From 0db96caa21ca89662b7683b99ab70dbef5663cdb Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Tue, 25 Aug 2026 04:52:02 +0800
-Subject: [PATCH 036/212] Tolerate transient tileiras scratch churn
+Subject: [PATCH 036/263] Tolerate transient tileiras scratch churn
 
 ---
  3rdparty/nvidia/tensor-ir                           | 2 +-

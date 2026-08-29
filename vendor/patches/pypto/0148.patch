@@ -1,7 +1,7 @@
 From 40f5f3e0ff82e185e00b7e53bc66c1ab601161c5 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 06:00:22 +0800
-Subject: [PATCH 148/212] Add causal paged prefill TensorIR emitter
+Subject: [PATCH 148/263] Add causal paged prefill TensorIR emitter
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp     | 625 +++++++++++++++++++

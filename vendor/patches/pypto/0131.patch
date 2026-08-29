@@ -1,7 +1,7 @@
 From a45dd90006244eac3855a01fbbd9e9b0d9e65109 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 02:20:06 +0800
-Subject: [PATCH 131/212] Advance TensorIR one-shot layout conversion
+Subject: [PATCH 131/263] Advance TensorIR one-shot layout conversion
 
 ---
  ...24-Run-layout-conversion-as-one-shot.patch | 49 +++++++++++++++++++

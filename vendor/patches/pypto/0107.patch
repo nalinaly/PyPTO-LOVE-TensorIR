@@ -1,7 +1,7 @@
 From 9e40c5f24bddce612d2f978b6fd70b4c0d9b5cba Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 23:50:40 +0800
-Subject: [PATCH 107/212] Canonicalize native TensorIR producer names
+Subject: [PATCH 107/263] Canonicalize native TensorIR producer names
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp      |  98 ++++++------

@@ -1,7 +1,7 @@
 From c340893c5319286d24c3532e17f7218ffb5acd88 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 12:38:54 +0800
-Subject: [PATCH 191/212] Lock unpermuted scatter probe
+Subject: [PATCH 191/263] Lock unpermuted scatter probe
 
 ---
  3rdparty/nvidia/tensor-ir  | 2 +-

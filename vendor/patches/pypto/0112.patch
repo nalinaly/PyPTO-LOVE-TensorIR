@@ -1,7 +1,7 @@
 From ee380f7c4caf0e583d1496811b7e92078121cd09 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 00:24:55 +0800
-Subject: [PATCH 112/212] Finalize the TensorIR gather golden
+Subject: [PATCH 112/263] Finalize the TensorIR gather golden
 
 ---
  ...orIR-signed-indices-in-gather-golden.patch | 30 +++++++++++++++++++

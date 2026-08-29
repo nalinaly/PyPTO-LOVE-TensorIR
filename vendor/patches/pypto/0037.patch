@@ -1,7 +1,7 @@
 From e13a46f77db1d9a2b2c5efb17544671e8f6bd6ba Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Tue, 25 Aug 2026 04:52:45 +0800
-Subject: [PATCH 037/212] Fix TensorIR revision lock syntax
+Subject: [PATCH 037/263] Fix TensorIR revision lock syntax
 
 ---
  cmake/nvidia_backend.cmake | 2 +-

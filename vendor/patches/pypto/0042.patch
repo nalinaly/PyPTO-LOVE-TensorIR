@@ -1,7 +1,7 @@
 From 6819c4fc0b6956f7cbfb3115a4b2dab81be3c797 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Tue, 25 Aug 2026 08:18:49 +0800
-Subject: [PATCH 042/212] Add process-bound NVIDIA executable runtime
+Subject: [PATCH 042/263] Add process-bound NVIDIA executable runtime
 
 ---
  CMakeLists.txt                                |   53 +

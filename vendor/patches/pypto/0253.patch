@@ -1,0 +1,160 @@
+From 831fd644ff6eb7552bfcedcd8c3189e712e935c9 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 02:20:28 +0800
+Subject: [PATCH 253/263] Accept non-overlapping TensorIR value views
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 52 +++++++++++++++---------
+ tests/ut/cpp/tensor_ir_codegen_test.cpp  | 47 +++++++++++++++++++++
+ 2 files changed, 79 insertions(+), 20 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 4120721aa2f3f76b8583e9403afc05c1eb7cbef3..c858ac876fc8bf486ae60fe71619ca66cc7e5add 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -243,6 +243,33 @@ std::vector<int64_t> MakeDenseStridesForMetadata(const std::vector<int64_t>& sha
+   return strides;
+ }
+ 
++bool IsNonOverlappingStaticViewForMetadata(
++    const std::vector<int64_t>& shape, const std::vector<int64_t>& strides,
++    bool allow_broadcast) {
++  if (shape.size() != strides.size()) return false;
++  std::vector<std::pair<int64_t, int64_t>> storage_dimensions;
++  storage_dimensions.reserve(shape.size());
++  for (size_t index = 0; index < shape.size(); ++index) {
++    if (shape[index] <= 0 || strides[index] < 0) return false;
++    if (shape[index] == 1) continue;
++    if (strides[index] == 0) {
++      if (!allow_broadcast) return false;
++      continue;
++    }
++    storage_dimensions.emplace_back(strides[index], shape[index]);
++  }
++  std::sort(storage_dimensions.begin(), storage_dimensions.end());
++  int64_t required_span = 1;
++  for (const auto& [stride, extent] : storage_dimensions) {
++    if (stride < required_span ||
++        extent > std::numeric_limits<int64_t>::max() / stride) {
++      return false;
++    }
++    required_span = stride * extent;
++  }
++  return true;
++}
++
+ StaticTensor ReadStaticTensor(const ir::TypePtr& type, const ir::Span& span,
+                               std::string_view location) {
+   const auto tensor_type = ir::As<ir::TensorType>(type);
+@@ -9233,27 +9260,12 @@ TensorIrValueMetadata::TensorIrValueMetadata(TensorIrValueRole role, uint32_t or
+   if (has_explicit_strides_ != (shape_.size() >= 2)) {
+     InternalReject("value metadata explicit-stride state does not match canonical rank policy");
+   }
+-  const bool zeroStrideInput =
+-      role_ == TensorIrValueRole::Input && has_explicit_strides_ &&
+-      std::any_of(logical_dense_strides_.begin(),
+-                  logical_dense_strides_.end(),
+-                  [](int64_t stride) { return stride == 0; }) &&
+-      std::all_of(logical_dense_strides_.begin(),
+-                  logical_dense_strides_.end(),
+-                  [](int64_t stride) { return stride >= 0; });
+-  const std::vector<int64_t> dense_strides =
+-      MakeDenseStridesForMetadata(shape_);
+-  const bool rowPitchedValue =
+-      shape_.size() >= 2 &&
+-      logical_dense_strides_.size() == shape_.size() &&
+-      logical_dense_strides_[0] >= dense_strides[0] &&
+-      std::equal(logical_dense_strides_.begin() + 1,
+-                 logical_dense_strides_.end(), dense_strides.begin() + 1);
+-  if (logical_dense_strides_ != dense_strides &&
+-      !zeroStrideInput && !rowPitchedValue) {
++  if (!IsNonOverlappingStaticViewForMetadata(
++          shape_, logical_dense_strides_,
++          /*allow_broadcast=*/role_ == TensorIrValueRole::Input)) {
+     InternalReject(
+-        "value metadata strides must be dense, row-pitched, or a zero-stride "
+-        "input view");
++        "value metadata strides must describe a non-overlapping static view; "
++        "only inputs may broadcast through zero strides");
+   }
+ }
+ 
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index 6a6da93e25a15862787d2a11dc595de3ed1122c1..c4f767a83c49358fc1a6da2797913f227e865fff 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -40,6 +40,7 @@
+ #include "pypto/ir/type.h"
+ 
+ using pypto::DataType;
++using pypto::InternalError;
+ using pypto::ValueError;
+ using pypto::codegen::nvidia::EmitTensorIr;
+ using pypto::codegen::nvidia::TensorIrArgumentEffect;
+@@ -259,6 +260,18 @@ bool Rejects(const std::function<void()>& action, std::string_view expected) {
+   return false;
+ }
+ 
++bool InternallyRejects(const std::function<void()>& action,
++                       std::string_view expected) {
++  try {
++    action();
++  } catch (const InternalError& error) {
++    const std::string_view diagnostic(error.what());
++    return diagnostic.find(expected) != std::string_view::npos &&
++           diagnostic.size() <= 4096;
++  }
++  return false;
++}
++
+ bool MatchesSourceAndSha256(const TensorIrModule& module,
+                            const std::string& expected_source,
+                            std::string_view expected_sha256) {
+@@ -2367,6 +2380,39 @@ int TestFusedRmsNormBf16Source() {
+   return 0;
+ }
+ 
++int TestNonOverlappingPermutationStrides() {
++  const auto strided_type = [](const std::vector<int64_t>& strides) {
++    return std::make_shared<ir::TensorType>(
++        std::vector<int64_t>{8, 19, 256}, DataType::BF16,
++        std::optional<ir::MemRefPtr>{},
++        std::optional<ir::TensorView>{
++            ir::TensorView(strides, ir::TensorLayout::ND)});
++  };
++  const auto make_add = [&](const ir::TensorTypePtr& type) {
++    auto lhs = std::make_shared<ir::Var>("lhs", type, TestSpan());
++    auto rhs = std::make_shared<ir::Var>("rhs", type, TestSpan());
++    auto result = std::make_shared<ir::Var>("sum", type, TestSpan());
++    return MakeProgram(
++        "head_major_add", {lhs, rhs},
++        {ir::ParamDirection::In, ir::ParamDirection::In}, {type},
++        {std::make_shared<ir::AssignStmt>(
++             result, AddCall(lhs, rhs, type), TestSpan()),
++         std::make_shared<ir::ReturnStmt>(std::vector<ir::ExprPtr>{result},
++                                          TestSpan())});
++  };
++
++  const TensorIrModule module =
++      EmitTensorIr(make_add(strided_type({256, 2048, 1})));
++  REQUIRE(module.GetValueMetadata().size() == 3);
++  REQUIRE(module.GetValueMetadata()[0].GetLogicalDenseStrides() ==
++          std::vector<int64_t>({256, 2048, 1}));
++  REQUIRE(!module.GetValueMetadata()[0].IsContiguous());
++  REQUIRE(InternallyRejects(
++      [&] { (void)EmitTensorIr(make_add(strided_type({256, 256, 1}))); },
++      "non-overlapping static view"));
++  return 0;
++}
++
+ }  // namespace
+ 
+ int main() {
+@@ -2386,6 +2432,7 @@ int main() {
+   if (const int result = TestFusedPointwiseCanonicalSourceAndMetadata()) return result;
+   if (const int result = TestFusedPointwiseRowBroadcast()) return result;
+   if (const int result = TestFusedRmsNormBf16Source()) return result;
++  if (const int result = TestNonOverlappingPermutationStrides()) return result;
+   if (const int result = TestRowReductionCanonicalSourcesAndMetadata()) return result;
+   if (const int result = TestStructuredMatmulCanonicalSourcesAndMetadata()) return result;
+   if (const int result = TestRankOneExactCanonicalSources()) return result;

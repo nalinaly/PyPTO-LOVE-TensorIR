@@ -1,7 +1,7 @@
 From d6cfe933f9fa30492912400fe537dda3a39ce9a9 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 08:55:03 +0800
-Subject: [PATCH 67/82] Project composite gather scatter indices
+Subject: [PATCH 67/89] Project composite gather scatter indices
 
 ---
  .../LayoutPropagationImpl.cpp                 | 47 +++++++++++++++----

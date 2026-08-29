@@ -1,7 +1,7 @@
 From d8adf4f706462cc57eab6f6b7d2c2c13f25ee55d Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 12:22:16 +0800
-Subject: [PATCH 062/212] codegen: row-broadcast fused pointwise inputs
+Subject: [PATCH 062/263] codegen: row-broadcast fused pointwise inputs
 
 FusedPointwiseV2 now accepts row-expand operands: a [M,1,...] input
 parameter materializes through a TensorIR broadcast before the base

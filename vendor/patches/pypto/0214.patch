@@ -1,7 +1,7 @@
 From 64ea495ae45cb7ae93492002eb808366eb28515d Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Sat, 29 Aug 2026 01:21:43 +0800
-Subject: [PATCH 214/214] Recognize Inductor SwiGLU canonical graph
+Subject: [PATCH 214/263] Recognize Inductor SwiGLU canonical graph
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp     | 77 ++++++++++++++------

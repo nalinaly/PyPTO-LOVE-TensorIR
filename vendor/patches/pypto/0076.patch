@@ -1,7 +1,7 @@
 From 1b47d71415c100791e57bb48d350c538b27f69fe Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 19:20:26 +0800
-Subject: [PATCH 076/212] nvidia: fuse BF16 RMSNorm reduction epilogue
+Subject: [PATCH 076/263] nvidia: fuse BF16 RMSNorm reduction epilogue
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 94 ++++++++++++++++++++----

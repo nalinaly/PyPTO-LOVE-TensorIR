@@ -1,7 +1,7 @@
 From 868a9b70c990bcb33c0a492e0fab18de91f0df2d Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 12:29:04 +0800
-Subject: [PATCH 188/212] Lock recurrent scatter diagnostics
+Subject: [PATCH 188/263] Lock recurrent scatter diagnostics
 
 ---
  3rdparty/nvidia/tensor-ir  | 2 +-

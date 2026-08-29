@@ -1,7 +1,7 @@
 From 76a49bb3db2922e3c6dd06c1218497fe8e9f9b92 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 01:49:44 +0800
-Subject: [PATCH 45/82] Invalidate lazy loads on every rewrite attempt
+Subject: [PATCH 45/89] Invalidate lazy loads on every rewrite attempt
 
 ---
  .../TensorToCudaTile/LayoutPropagationImpl.cpp | 18 ++++++++++--------

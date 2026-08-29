@@ -1,7 +1,7 @@
 From e9be619a9c4d70a643b1d0300d7b3a7683f951a1 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 12:40:35 +0800
-Subject: [PATCH 81/82] Keep aligned scatter update tile order
+Subject: [PATCH 81/89] Keep aligned scatter update tile order
 
 ---
  .../LayoutPropagationImpl.cpp                 | 39 +------------------

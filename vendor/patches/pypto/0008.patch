@@ -1,7 +1,7 @@
 From e463bce7849b2239d0457dcae78ccf41c65ffa55 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Mon, 24 Aug 2026 08:03:22 +0800
-Subject: [PATCH 008/212] build: compile native sources through object target
+Subject: [PATCH 008/263] build: compile native sources through object target
 
 ---
  CMakeLists.txt                 | 27 +++++++++++++++++++++++++++

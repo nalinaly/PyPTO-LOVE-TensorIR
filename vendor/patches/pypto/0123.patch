@@ -1,7 +1,7 @@
 From e4c764bd2cd901f29692a90f3152eb240a3192a1 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 01:44:17 +0800
-Subject: [PATCH 123/212] Advance TensorIR rewrite-scoped loads
+Subject: [PATCH 123/263] Advance TensorIR rewrite-scoped loads
 
 ---
  ...cope-lazy-input-loads-to-one-rewrite.patch | 54 +++++++++++++++++++

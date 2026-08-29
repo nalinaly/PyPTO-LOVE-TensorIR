@@ -1,7 +1,7 @@
 From 35f3ca835a8ad470f7e2d943b2b94b64ef784be5 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 10:47:44 +0800
-Subject: [PATCH 171/212] Fix stateful GDN and convolution TensorIR lowering
+Subject: [PATCH 171/263] Fix stateful GDN and convolution TensorIR lowering
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp      | 56 +++++++++----------

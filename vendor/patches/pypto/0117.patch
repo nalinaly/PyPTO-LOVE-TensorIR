@@ -1,7 +1,7 @@
 From d8eaca6f6bc56b1217ad942a866e48fb4112381c Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 00:45:46 +0800
-Subject: [PATCH 117/212] Finalize the TensorIR gather revision
+Subject: [PATCH 117/263] Finalize the TensorIR gather revision
 
 ---
  ...r-golden-robust-to-constant-hoisting.patch | 26 +++++++++++++++++++

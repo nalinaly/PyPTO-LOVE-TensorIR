@@ -1,0 +1,202 @@
+From 3623b37eddbec0f74f014867fca3dd296ec91868 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 23:06:02 +0800
+Subject: [PATCH 85/89] Restore scatter result tiles in physical axis order
+
+---
+ .../LayoutPropagationImpl.cpp                 | 115 +++++++++++++++++-
+ .../TensorToCudaTile/scatter_rows_layout.mlir |  29 ++++-
+ 2 files changed, 141 insertions(+), 3 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index a6ba1ff517d407ce64725627cb0b0cde0b117d2c..178fa17ccfe2dddb737fd408ec38c50bcaf77578 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -91,6 +91,96 @@ struct ContiguousColumnProjection {
+   int64_t tileSize = 1;
+ };
+ 
++FailureOr<Value> restoreProjectedRowTile(
++    ConversionPatternRewriter &rewriter, Location loc, Value physicalTile,
++    ArrayRef<int64_t> iterationTileShape, size_t rowDim,
++    bool scalarRowProjection, bool scalarColumnProjection,
++    const ContiguousColumnProjection &columnProjection, Type elementType) {
++  const size_t rank = iterationTileShape.size();
++  SmallVector<int64_t> projectedShape(rank, 1);
++  if (!scalarRowProjection) {
++    projectedShape[rowDim] = iterationTileShape[rowDim];
++  }
++  if (!scalarColumnProjection) {
++    for (size_t dim : columnProjection.dimensions) {
++      projectedShape[dim] = iterationTileShape[dim];
++    }
++  }
++
++  SmallVector<bool> isProjected(rank, false);
++  if (!scalarRowProjection) {
++    isProjected[rowDim] = true;
++  }
++  for (size_t dim : columnProjection.dimensions) {
++    if (dim >= rank || isProjected[dim]) {
++      return failure();
++    }
++    isProjected[dim] = true;
++  }
++
++  // Gather/scatter views return [row, flattened physical columns]. Rebuild a
++  // rank-preserving tile in slow-to-fast physical order, then permute it into
++  // logical iteration-space order. Directly reshaping to projectedShape is
++  // only valid when its non-unit dimensions already have that physical order.
++  SmallVector<size_t> packedDimensions;
++  packedDimensions.reserve(rank);
++  for (size_t dim = 0; dim < rank; ++dim) {
++    if (!isProjected[dim]) {
++      if (projectedShape[dim] != 1) {
++        return failure();
++      }
++      packedDimensions.push_back(dim);
++    }
++  }
++  if (!scalarRowProjection) {
++    packedDimensions.push_back(rowDim);
++  }
++  for (size_t dim : llvm::reverse(columnProjection.dimensions)) {
++    packedDimensions.push_back(dim);
++  }
++  if (packedDimensions.size() != rank) {
++    return failure();
++  }
++
++  SmallVector<int64_t> packedShape;
++  packedShape.reserve(rank);
++  for (size_t dim : packedDimensions) {
++    packedShape.push_back(projectedShape[dim]);
++  }
++  Value result = physicalTile;
++  if (!llvm::equal(cast<ShapedType>(result.getType()).getShape(),
++                   packedShape)) {
++    result = cuda_tile::ReshapeOp::create(
++        rewriter, loc, cuda_tile::TileType::get(packedShape, elementType),
++        result);
++  }
++
++  SmallVector<int32_t> permutation(rank);
++  bool needsPermutation = false;
++  for (size_t logicalDim = 0; logicalDim < rank; ++logicalDim) {
++    auto position = llvm::find(packedDimensions, logicalDim);
++    if (position == packedDimensions.end()) {
++      return failure();
++    }
++    const size_t packedDim =
++        static_cast<size_t>(std::distance(packedDimensions.begin(), position));
++    permutation[logicalDim] = static_cast<int32_t>(packedDim);
++    needsPermutation |= packedDim != logicalDim;
++  }
++  if (needsPermutation) {
++    result = cuda_tile::PermuteOp::create(
++        rewriter, loc,
++        cuda_tile::TileType::get(projectedShape, elementType), result,
++        permutation);
++  }
++  if (!llvm::equal(projectedShape, iterationTileShape)) {
++    result = cuda_tile::BroadcastOp::create(
++        rewriter, loc,
++        cuda_tile::TileType::get(iterationTileShape, elementType), result);
++  }
++  return result;
++}
++
+ FailureOr<ContiguousColumnProjection> inferContiguousColumnProjection(
+     const tcg::Layout &dataLayout, ArrayRef<int64_t> iterationTileShape,
+     size_t rowDim, int64_t physicalColumnStride) {
+@@ -630,13 +720,34 @@ public:
+     auto optimizationHints = createLoadStoreOptimizationHints(
+         rewriter.getContext(), projectedDataDesc.allowTma,
+         projectedDataDesc.cost);
+-    cuda_tile::StoreViewTkoOp::create(
++    auto store = cuda_tile::StoreViewTkoOp::create(
+         rewriter, op.getLoc(), tokenType,
+         cuda_tile::MemoryOrderingSemantics::WEAK, /*memory_scope=*/nullptr,
+         tileToStore, scatterView, scatterIndices, /*token=*/nullptr,
+         optimizationHints);
+ 
+-    rewriter.replaceOp(op, updatesTile);
++    if (op.getOutput().use_empty()) {
++      rewriter.eraseOp(op);
++      return success();
++    }
++
++    // ScatterRows returns the row after mutation. Reload it through the data
++    // projection instead of forwarding the updates tile: downstream views can
++    // request a different layout (for example, a transpose), and forwarding
++    // would silently reinterpret the producer tile in that new layout.
++    auto reload = cuda_tile::LoadViewTkoOp::create(
++        rewriter, op.getLoc(),
++        cuda_tile::TileType::get(scatterTileShape, dataElement), tokenType,
++        cuda_tile::MemoryOrderingSemantics::WEAK, /*memory_scope=*/nullptr,
++        scatterView, scatterIndices, store.getResult(), optimizationHints);
++    FailureOr<Value> result = restoreProjectedRowTile(
++        rewriter, op.getLoc(), reload.getTile(), iterationTileShape, rowDim,
++        scalarRowProjection, scalarColumnProjection, *columnProjection,
++        dataElement);
++    if (failed(result)) {
++      return op.emitError("failed to restore the projected scatter tile");
++    }
++    rewriter.replaceOp(op, *result);
+     return success();
+   }
+ };
+diff --git a/test/Conversion/TensorToCudaTile/scatter_rows_layout.mlir b/test/Conversion/TensorToCudaTile/scatter_rows_layout.mlir
+index ce0d13231a7c74b43890aa7308defdb113f2b37b..d70513894ef550a337fe09f755d1a30fc0a52838 100644
+--- a/test/Conversion/TensorToCudaTile/scatter_rows_layout.mlir
++++ b/test/Conversion/TensorToCudaTile/scatter_rows_layout.mlir
+@@ -7,6 +7,13 @@
+ // CHECK: %[[ROW:.*]] = reshape %[[NARROW]] : tile<1x1xi32> -> tile<1xi32>
+ // CHECK: store_view_tko weak {{.*}}, %[[SCATTER_VIEW]][%[[ROW]], {{.*}}]
+ // CHECK: store_view_tko weak
++// CHECK-LABEL: entry @scatter_reshaped_columns_transposed
++// CHECK: %[[TRANSPOSED_VIEW:.*]] = make_gather_scatter_view {{.*}} : gather_scatter_view<tile=(1x2048), {{.*}}>
++// CHECK: %[[TRANSPOSED_STORE:.*]] = store_view_tko weak {{.*}}, %[[TRANSPOSED_VIEW]][{{.*}}]
++// CHECK: %[[TRANSPOSED_RELOAD:.*]], %{{.*}} = load_view_tko weak %[[TRANSPOSED_VIEW]][{{.*}}] token = %[[TRANSPOSED_STORE]]
++// CHECK-SAME: -> tile<1x2048xf32>, token
++// CHECK: %[[PHYSICAL_MATRIX:.*]] = reshape %[[TRANSPOSED_RELOAD]] : tile<1x2048xf32> -> tile<32x64xf32>
++// CHECK: permute %[[PHYSICAL_MATRIX]] [1, 0] : tile<32x64xf32> -> tile<64x32xf32>
+ // CHECK-LABEL: entry @scatter_composite_indices
+ // CHECK: make_gather_scatter_view
+ // CHECK: store_view_tko weak
+@@ -15,7 +22,9 @@
+ // CHECK: %[[INNER_OFFSET:.*]] = muli {{.*}}, {{.*}} : tile<i32>
+ // CHECK: %[[OUTER_OFFSET:.*]] = muli {{.*}}, {{.*}} : tile<i32>
+ // CHECK: %[[RESHAPED_OFFSET:.*]] = addi %[[INNER_OFFSET]], %[[OUTER_OFFSET]] : tile<i32>
+-// CHECK: store_view_tko weak {{.*}}, %[[RESHAPED_VIEW]][{{.*}}, %[[RESHAPED_OFFSET]]]
++// CHECK: %[[STORE_TOKEN:.*]] = store_view_tko weak {{.*}}, %[[RESHAPED_VIEW]][{{.*}}, %[[RESHAPED_OFFSET]]]
++// CHECK: %[[RELOADED:.*]], %{{.*}} = load_view_tko weak %[[RESHAPED_VIEW]][{{.*}}, %[[RESHAPED_OFFSET]]] token = %[[STORE_TOKEN]]
++// CHECK-SAME: -> tile<1x64xf32>, token
+ // CHECK: store_view_tko weak
+ module {
+   nv_tensor_ir.graph @scatter_single_row_broadcast(
+@@ -31,6 +40,24 @@ module {
+     results %expanded : tensor<16x16xbf16>
+   }
+ 
++  nv_tensor_ir.graph @scatter_reshaped_columns_transposed(
++      %data: tensor<65x2048xf32> {nv_tensor_ir.stride = "(2048,1)"},
++      %indices: tensor<1x2048xsi32> {nv_tensor_ir.stride = "(0,0)"},
++      %updates: tensor<32x64xf32>)
++      -> tensor<64x32xf32>
++      attributes {tile_size = array<i32: 64, 32>} {
++    %flat = reshape %updates
++        : tensor<32x64xf32> -> tensor<1x2048xf32>
++    %stored = scatter_rows %data, %indices, %flat
++        : (tensor<65x2048xf32>, tensor<1x2048xsi32>, tensor<1x2048xf32>)
++       -> tensor<1x2048xf32>
++    %matrix = reshape %stored
++        : tensor<1x2048xf32> -> tensor<32x64xf32>
++    %transposed = transpose %matrix permutation = [1, 0]
++        : tensor<32x64xf32> -> tensor<64x32xf32>
++    results %transposed : tensor<64x32xf32>
++  }
++
+   nv_tensor_ir.graph @scatter_composite_indices(
+       %data: tensor<65x16xbf16> {nv_tensor_ir.stride = "(16,1)"},
+       %indices0: tensor<1x16xsi32> {nv_tensor_ir.stride = "(0,0)"},

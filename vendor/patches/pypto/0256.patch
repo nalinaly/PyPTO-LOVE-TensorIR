@@ -1,0 +1,242 @@
+From ec1968ac9e6a7d9da6858172e932de49c38eecd2 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 03:05:25 +0800
+Subject: [PATCH 256/263] Use rank-two single-head prefill math
+
+---
+ .../nvidia_typed_tensor_ir_builder.cpp        | 95 ++++++++++++-------
+ tests/ut/cpp/structured_compile_test.cpp      | 21 ++++
+ 2 files changed, 84 insertions(+), 32 deletions(-)
+
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index f6f8b7f58c51bce5b595c387b32a4e40033002d3..5129c2aebbf0935b78b24f1cdfc261cb6ce891e6 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -817,6 +817,7 @@ mlir::Value BuildNativePagedPrefillBatched(
+   const int64_t queries_per_kv = spec.query_heads / spec.kv_heads;
+   const int64_t head_dim = spec.head_dim;
+   const int64_t tokens = spec.tokens;
++  const bool rank_two_attention = queries_per_kv == 1;
+ 
+   const auto index_row_type =
+       TensorType(builder, TypedTensorIrElementType::INT32, {1, tokens});
+@@ -849,6 +850,9 @@ mlir::Value BuildNativePagedPrefillBatched(
+   const auto query_box_type = TensorType(
+       builder, TypedTensorIrElementType::BF16,
+       {queries_per_kv, spec.query_rows, head_dim});
++  const auto query_row_group_type = TensorType(
++      builder, TypedTensorIrElementType::BF16,
++      {spec.query_rows, head_dim});
+   const auto position_column_type = TensorType(
+       builder, TypedTensorIrElementType::INT32, {spec.query_rows, 1});
+   const auto position_matrix_type = TensorType(
+@@ -862,25 +866,40 @@ mlir::Value BuildNativePagedPrefillBatched(
+       {queries_per_kv, spec.query_rows, tokens});
+   const auto score_type = TensorType(
+       builder, TypedTensorIrElementType::FP32,
+-      {queries_per_kv, spec.query_rows, tokens});
++      rank_two_attention
++          ? std::vector<int64_t>{spec.query_rows, tokens}
++          : std::vector<int64_t>{queries_per_kv, spec.query_rows, tokens});
+   const auto row_type = TensorType(
+       builder, TypedTensorIrElementType::FP32,
+-      {queries_per_kv, spec.query_rows, 1});
++      rank_two_attention
++          ? std::vector<int64_t>{spec.query_rows, 1}
++          : std::vector<int64_t>{queries_per_kv, spec.query_rows, 1});
+   const auto probability_type = TensorType(
+       builder, TypedTensorIrElementType::BF16,
+-      {queries_per_kv, spec.query_rows, tokens});
++      rank_two_attention
++          ? std::vector<int64_t>{spec.query_rows, tokens}
++          : std::vector<int64_t>{queries_per_kv, spec.query_rows, tokens});
+   const auto accumulation_type = TensorType(
+       builder, TypedTensorIrElementType::FP32,
+-      {queries_per_kv, spec.query_rows, head_dim});
++      rank_two_attention
++          ? std::vector<int64_t>{spec.query_rows, head_dim}
++          : std::vector<int64_t>{queries_per_kv, spec.query_rows, head_dim});
+   const auto head_result_type = TensorType(
+       builder, TypedTensorIrElementType::BF16,
+-      {queries_per_kv, spec.query_rows, head_dim});
++      rank_two_attention
++          ? std::vector<int64_t>{spec.query_rows, head_dim}
++          : std::vector<int64_t>{queries_per_kv, spec.query_rows, head_dim});
++  const auto head_box_type = TensorType(
++      builder, TypedTensorIrElementType::BF16,
++      {1, spec.query_rows, head_dim});
+   const auto result_type = TensorType(
+       builder, TypedTensorIrElementType::BF16, spec.result.shape);
+   const auto prefix_scalar_type = TensorType(
+       builder, TypedTensorIrElementType::INT32, {1, 1});
+   const auto mask_type = mlir::RankedTensorType::get(
+-      llvm::ArrayRef<int64_t>{queries_per_kv, spec.query_rows, tokens},
++      rank_two_attention
++          ? llvm::ArrayRef<int64_t>{spec.query_rows, tokens}
++          : llvm::ArrayRef<int64_t>{queries_per_kv, spec.query_rows, tokens},
+       builder.getIntegerType(1));
+ 
+   const mlir::Value request_index = tir::ConvertOp::create(
+@@ -921,12 +940,12 @@ mlir::Value BuildNativePagedPrefillBatched(
+                            positions_row, mlir::ValueRange{})
+                            .getOutput();
+   }
+-  const mlir::Value positions_seed = tir::ReshapeOp::create(
+-      builder, location, position_seed_type, positions_matrix,
+-      mlir::ValueRange{})
+-      .getOutput();
+-  mlir::Value positions_batch = positions_seed;
+-  if (queries_per_kv != 1) {
++  mlir::Value positions_batch = positions_matrix;
++  if (!rank_two_attention) {
++    const mlir::Value positions_seed = tir::ReshapeOp::create(
++        builder, location, position_seed_type, positions_matrix,
++        mlir::ValueRange{})
++        .getOutput();
+     positions_batch = tir::BroadcastOp::create(
+                           builder, location, position_batch_type, positions_seed,
+                           mlir::ValueRange{})
+@@ -972,16 +991,14 @@ mlir::Value BuildNativePagedPrefillBatched(
+                       valid_count_column, mlir::ValueRange{})
+                       .getOutput();
+   }
+-  const mlir::Value valid_count_seed = tir::ReshapeOp::create(
+-      builder, location, position_seed_type, valid_count, mlir::ValueRange{})
+-      .getOutput();
+-  if (queries_per_kv != 1) {
++  if (!rank_two_attention) {
++    const mlir::Value valid_count_seed = tir::ReshapeOp::create(
++        builder, location, position_seed_type, valid_count, mlir::ValueRange{})
++        .getOutput();
+     valid_count = tir::BroadcastOp::create(
+                       builder, location, position_batch_type, valid_count_seed,
+                       mlir::ValueRange{})
+                       .getOutput();
+-  } else {
+-    valid_count = valid_count_seed;
+   }
+   const mlir::Value valid_mask = tir::CmpOp::create(
+       builder, location, mask_type, tir::Comparator::lt, positions_batch,
+@@ -1021,11 +1038,11 @@ mlir::Value BuildNativePagedPrefillBatched(
+         builder, location, gathered_transposed_type, key,
+         llvm::ArrayRef<int64_t>{1, 0})
+         .getOutput();
+-    const mlir::Value key_seed = tir::ReshapeOp::create(
+-        builder, location, key_seed_type, key_transposed, mlir::ValueRange{})
+-        .getOutput();
+-    mlir::Value key_batch = key_seed;
+-    if (queries_per_kv != 1) {
++    mlir::Value key_batch = key_transposed;
++    if (!rank_two_attention) {
++      const mlir::Value key_seed = tir::ReshapeOp::create(
++          builder, location, key_seed_type, key_transposed, mlir::ValueRange{})
++          .getOutput();
+       key_batch = tir::BroadcastOp::create(
+                       builder, location, key_batch_type, key_seed,
+                       mlir::ValueRange{})
+@@ -1040,24 +1057,31 @@ mlir::Value BuildNativePagedPrefillBatched(
+     const mlir::Value value = tir::GatherRowsOp::create(
+         builder, location, gathered_type, value_table, physical_indices)
+         .getOutput();
+-    const mlir::Value value_seed = tir::ReshapeOp::create(
+-        builder, location, value_seed_type, value, mlir::ValueRange{})
+-        .getOutput();
+-    mlir::Value value_batch = value_seed;
+-    if (queries_per_kv != 1) {
++    mlir::Value value_batch = value;
++    if (!rank_two_attention) {
++      const mlir::Value value_seed = tir::ReshapeOp::create(
++          builder, location, value_seed_type, value, mlir::ValueRange{})
++          .getOutput();
+       value_batch = tir::BroadcastOp::create(
+                        builder, location, value_batch_type, value_seed,
+                        mlir::ValueRange{})
+                        .getOutput();
+     }
+     const int64_t q_start = kv_head * queries_per_kv;
+-    const mlir::Value query = tir::SliceOp::create(
++    const mlir::Value query_box = tir::SliceOp::create(
+         builder, location, query_box_type, arguments[0],
+         llvm::ArrayRef<int64_t>{q_start, 0, 0},
+         llvm::ArrayRef<int64_t>{q_start + queries_per_kv, spec.query_rows,
+                                 head_dim},
+         llvm::ArrayRef<int64_t>{1, 1, 1})
+         .getOutput();
++    mlir::Value query = query_box;
++    if (rank_two_attention) {
++      query = tir::ReshapeOp::create(
++                  builder, location, query_row_group_type, query_box,
++                  mlir::ValueRange{})
++                  .getOutput();
++    }
+     const mlir::Value scores = tir::MatmulOp::create(
+         builder, location, score_type, query, key_batch)
+         .getC();
+@@ -1069,7 +1093,8 @@ mlir::Value BuildNativePagedPrefillBatched(
+         .getOutput();
+     const mlir::Value row_max = tir::ReduceOp::create(
+         builder, location, row_type, masked,
+-        llvm::ArrayRef<int32_t>{2}, tir::ReductionMode::max)
++        llvm::ArrayRef<int32_t>{rank_two_attention ? 1 : 2},
++        tir::ReductionMode::max)
+         .getOutput();
+     const mlir::Value max_broadcast = tir::BroadcastOp::create(
+         builder, location, score_type, row_max, mlir::ValueRange{})
+@@ -1082,7 +1107,8 @@ mlir::Value BuildNativePagedPrefillBatched(
+         .getOutput();
+     const mlir::Value row_sum = tir::ReduceOp::create(
+         builder, location, row_type, exponent,
+-        llvm::ArrayRef<int32_t>{2}, tir::ReductionMode::add)
++        llvm::ArrayRef<int32_t>{rank_two_attention ? 1 : 2},
++        tir::ReductionMode::add)
+         .getOutput();
+     const mlir::Value inverse = tir::ReciprocalOp::create(
+         builder, location, row_type, row_sum)
+@@ -1099,9 +1125,14 @@ mlir::Value BuildNativePagedPrefillBatched(
+     const mlir::Value mixed = tir::MatmulOp::create(
+         builder, location, accumulation_type, probability, value_batch)
+         .getC();
+-    const mlir::Value head = tir::ConvertOp::create(
++    mlir::Value head = tir::ConvertOp::create(
+         builder, location, head_result_type, mixed)
+         .getOutput();
++    if (rank_two_attention) {
++      head = tir::ReshapeOp::create(builder, location, head_box_type, head,
++                                    mlir::ValueRange{})
++                 .getOutput();
++    }
+     head_boxes.push_back(head);
+   }
+   if (head_boxes.size() == 1) return head_boxes.front();
+diff --git a/tests/ut/cpp/structured_compile_test.cpp b/tests/ut/cpp/structured_compile_test.cpp
+index e81a00d882bafc5a4c93d91162553543c928b5ed..d3aa757f346a5221edf9874acdd8f8eb41d329d2 100644
+--- a/tests/ut/cpp/structured_compile_test.cpp
++++ b/tests/ut/cpp/structured_compile_test.cpp
+@@ -1132,6 +1132,27 @@ int TestTypedPagedPrefillHeadMajorModuleBuilder() {
+       BuildTypedTensorIrModule(module_spec, one_row_diagnostic);
+   REQUIRE(one_row.has_value());
+   REQUIRE(one_row_diagnostic.empty());
++
++  module_spec.native_paged_prefill.query_rows = 19;
++  module_spec.native_paged_prefill.query_heads = 1;
++  module_spec.native_paged_prefill.kv_heads = 1;
++  module_spec.native_paged_prefill.inputs[0].shape = {1, 19, 256};
++  module_spec.native_paged_prefill.inputs[1].shape = {257, 256};
++  module_spec.native_paged_prefill.inputs[1].strides = {256, 1};
++  module_spec.native_paged_prefill.inputs[2].shape = {257, 256};
++  module_spec.native_paged_prefill.inputs[2].strides = {256, 1};
++  module_spec.native_paged_prefill.result.shape = {1, 19, 256};
++  std::string single_head_diagnostic;
++  auto single_head =
++      BuildTypedTensorIrModule(module_spec, single_head_diagnostic);
++  REQUIRE(single_head.has_value());
++  REQUIRE(single_head_diagnostic.empty());
++  const std::string single_head_source(single_head->canonical_source.begin(),
++                                       single_head->canonical_source.end());
++  REQUIRE(single_head_source.find("tensor<19x32xf32>") !=
++          std::string::npos);
++  REQUIRE(single_head_source.find("tensor<1x19x32xf32>") ==
++          std::string::npos);
+ #endif
+   return 0;
+ }

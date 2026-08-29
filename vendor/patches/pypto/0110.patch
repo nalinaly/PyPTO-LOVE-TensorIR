@@ -1,7 +1,7 @@
 From 4d2bc8a49613988f8e80cd32c9e9000825a3b7b0 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 00:16:44 +0800
-Subject: [PATCH 110/212] Lock the TensorIR row gather revision
+Subject: [PATCH 110/263] Lock the TensorIR row gather revision
 
 ---
  cmake/nvidia_backend.cmake                          | 2 +-

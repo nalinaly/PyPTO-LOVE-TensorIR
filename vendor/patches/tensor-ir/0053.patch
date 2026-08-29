@@ -1,7 +1,7 @@
 From d2ed3e43e63dfb2ac6767431db30cac91ad84b44 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 02:24:31 +0800
-Subject: [PATCH 53/82] Validate gather tiles in their real space
+Subject: [PATCH 53/89] Validate gather tiles in their real space
 
 ---
  .../TensorToCudaTile/LayoutPropagationImpl.cpp           | 9 ++++++---

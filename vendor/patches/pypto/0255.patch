@@ -1,0 +1,52 @@
+From 7e0cb4bc0e78180e9f41acb3391acb844fa21d61 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 02:43:11 +0800
+Subject: [PATCH 255/263] Handle one-row paged prefill metadata
+
+---
+ src/compiler/nvidia_typed_tensor_ir_builder.cpp | 11 +++++++----
+ tests/ut/cpp/structured_compile_test.cpp        |  9 +++++++++
+ 2 files changed, 16 insertions(+), 4 deletions(-)
+
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index b8eb6847e29d0994025a6ef2f3fe0096b5e2eab9..f6f8b7f58c51bce5b595c387b32a4e40033002d3 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -955,10 +955,13 @@ mlir::Value BuildNativePagedPrefillBatched(
+       llvm::ArrayRef<int64_t>{0, 0}, llvm::ArrayRef<int64_t>{1, 1},
+       llvm::ArrayRef<int64_t>{1, 1})
+       .getOutput();
+-  const mlir::Value prefix_column = tir::BroadcastOp::create(
+-      builder, location, position_column_type, prefix_scalar,
+-      mlir::ValueRange{})
+-      .getOutput();
++  mlir::Value prefix_column = prefix_scalar;
++  if (spec.query_rows != 1) {
++    prefix_column = tir::BroadcastOp::create(
++                        builder, location, position_column_type, prefix_scalar,
++                        mlir::ValueRange{})
++                        .getOutput();
++  }
+   const mlir::Value valid_count_column = tir::AddOp::create(
+       builder, location, position_column_type, prefix_column, valid_offset)
+       .getOutput();
+diff --git a/tests/ut/cpp/structured_compile_test.cpp b/tests/ut/cpp/structured_compile_test.cpp
+index dd8d2bbfd6450255d05ed398952377c76682ee2e..e81a00d882bafc5a4c93d91162553543c928b5ed 100644
+--- a/tests/ut/cpp/structured_compile_test.cpp
++++ b/tests/ut/cpp/structured_compile_test.cpp
+@@ -1123,6 +1123,15 @@ int TestTypedPagedPrefillHeadMajorModuleBuilder() {
+   REQUIRE(compiled.GetKernelAbi().GetArgumentLayout().GetInputOperandCount() ==
+           NativePagedPrefillTensorIrSpec::kInputCount);
+   REQUIRE(compiled.GetSourceIrDigest().size() == 64);
++
++  module_spec.native_paged_prefill.query_rows = 1;
++  module_spec.native_paged_prefill.inputs[0].shape = {8, 1, 256};
++  module_spec.native_paged_prefill.result.shape = {8, 1, 256};
++  std::string one_row_diagnostic;
++  auto one_row =
++      BuildTypedTensorIrModule(module_spec, one_row_diagnostic);
++  REQUIRE(one_row.has_value());
++  REQUIRE(one_row_diagnostic.empty());
+ #endif
+   return 0;
+ }

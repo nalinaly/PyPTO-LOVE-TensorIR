@@ -1,0 +1,342 @@
+From 58713095fd2b5f57122024513e84fa1535ce4e19 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 18:10:45 +0800
+Subject: [PATCH 246/263] Preserve paged prefill GQA iteration space in typed
+ IR
+
+---
+ .../nvidia_typed_tensor_ir_builder.cpp        | 314 +++++++++++++++++-
+ 1 file changed, 313 insertions(+), 1 deletion(-)
+
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index ca22af7726b84d2e79287062b15e863319036c6b..69ef080a62453922150a1aa06182b1af84f45344 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -1038,6 +1038,318 @@ mlir::Value BuildNativePagedPrefill(
+       .getOutput();
+ }
+ 
++// Keep the GQA and query-row dimensions in one rank-3 matmul.  TensorIR's
++// matmul iteration space is result-rank plus the contraction dimension; this
++// preserves the four-dimensional schedule used by the native paged-prefill
++// primitive while retaining all construction in typed ODS operations.
++mlir::Value BuildNativePagedPrefillBatched(
++    mlir::OpBuilder& builder, mlir::Location location,
++    const NativePagedPrefillTensorIrSpec& spec, mlir::Block& entry) {
++  llvm::SmallVector<mlir::Value> arguments(entry.getArguments().begin(),
++                                           entry.getArguments().end());
++  const int64_t request_rows = spec.inputs[3].shape[0];
++  const int64_t queries_per_kv = spec.query_heads / spec.kv_heads;
++  const int64_t head_dim = spec.head_dim;
++  const int64_t tokens = spec.tokens;
++
++  const auto index_row_type =
++      TensorType(builder, TypedTensorIrElementType::INT32, {1, tokens});
++  const auto request_prefix_type = TensorType(
++      builder, TypedTensorIrElementType::INT32, {request_rows, tokens});
++  const auto physical_column_type =
++      TensorType(builder, TypedTensorIrElementType::INT64, {tokens, 1});
++  const auto physical_column_i32_type =
++      TensorType(builder, TypedTensorIrElementType::INT32, {tokens, 1});
++  const auto physical_indices_type = TensorType(
++      builder, TypedTensorIrElementType::INT32, {tokens, head_dim});
++  const auto cache_head_type = TensorType(
++      builder, TypedTensorIrElementType::BF16, {spec.cache_rows, head_dim});
++  const auto gathered_type = TensorType(
++      builder, TypedTensorIrElementType::BF16, {tokens, head_dim});
++  const auto gathered_transposed_type = TensorType(
++      builder, TypedTensorIrElementType::BF16, {head_dim, tokens});
++  const auto key_seed_type = TensorType(
++      builder, TypedTensorIrElementType::BF16, {1, head_dim, tokens});
++  const auto key_batch_type = TensorType(
++      builder, TypedTensorIrElementType::BF16,
++      {queries_per_kv, head_dim, tokens});
++  const auto value_seed_type = TensorType(
++      builder, TypedTensorIrElementType::BF16, {1, tokens, head_dim});
++  const auto value_batch_type = TensorType(
++      builder, TypedTensorIrElementType::BF16,
++      {queries_per_kv, tokens, head_dim});
++  const auto query_box_type = TensorType(
++      builder, TypedTensorIrElementType::BF16,
++      {spec.query_rows, queries_per_kv, head_dim});
++  const auto query_group_type = TensorType(
++      builder, TypedTensorIrElementType::BF16,
++      {queries_per_kv, spec.query_rows, head_dim});
++  const auto position_column_type = TensorType(
++      builder, TypedTensorIrElementType::INT32, {spec.query_rows, 1});
++  const auto position_matrix_type = TensorType(
++      builder, TypedTensorIrElementType::INT32,
++      {spec.query_rows, tokens});
++  const auto position_seed_type = TensorType(
++      builder, TypedTensorIrElementType::INT32,
++      {1, spec.query_rows, tokens});
++  const auto position_batch_type = TensorType(
++      builder, TypedTensorIrElementType::INT32,
++      {queries_per_kv, spec.query_rows, tokens});
++  const auto score_type = TensorType(
++      builder, TypedTensorIrElementType::FP32,
++      {queries_per_kv, spec.query_rows, tokens});
++  const auto row_type = TensorType(
++      builder, TypedTensorIrElementType::FP32,
++      {queries_per_kv, spec.query_rows, 1});
++  const auto probability_type = TensorType(
++      builder, TypedTensorIrElementType::BF16,
++      {queries_per_kv, spec.query_rows, tokens});
++  const auto accumulation_type = TensorType(
++      builder, TypedTensorIrElementType::FP32,
++      {queries_per_kv, spec.query_rows, head_dim});
++  const auto head_result_type = TensorType(
++      builder, TypedTensorIrElementType::BF16,
++      {queries_per_kv, spec.query_rows, head_dim});
++  const auto head_box_type = TensorType(
++      builder, TypedTensorIrElementType::BF16,
++      {spec.query_rows, queries_per_kv, head_dim});
++  const auto result_type = TensorType(
++      builder, TypedTensorIrElementType::BF16, spec.result.shape);
++  const auto prefix_scalar_type = TensorType(
++      builder, TypedTensorIrElementType::INT32, {1, 1});
++  const auto mask_type = mlir::RankedTensorType::get(
++      llvm::ArrayRef<int64_t>{queries_per_kv, spec.query_rows, tokens},
++      builder.getIntegerType(1));
++
++  const mlir::Value request_index = tir::ConvertOp::create(
++      builder, location, index_row_type, arguments[4])
++                                         .getOutput();
++  const mlir::Value request_prefix = tir::SliceOp::create(
++      builder, location, request_prefix_type, arguments[3],
++      llvm::ArrayRef<int64_t>{0, 0},
++      llvm::ArrayRef<int64_t>{request_rows, tokens},
++      llvm::ArrayRef<int64_t>{1, 1})
++                                         .getOutput();
++  const mlir::Value request_row = tir::GatherRowsOp::create(
++      builder, location, index_row_type, request_prefix, request_index)
++                                      .getOutput();
++  const mlir::Value virtual_column = tir::TransposeOp::create(
++      builder, location, physical_column_type, request_row,
++      llvm::ArrayRef<int64_t>{1, 0})
++      .getOutput();
++  const mlir::Value physical_column = tir::GatherRowsOp::create(
++      builder, location, physical_column_type, arguments[6], virtual_column)
++                                          .getOutput();
++  const mlir::Value physical_column_i32 = tir::ConvertOp::create(
++      builder, location, physical_column_i32_type, physical_column)
++                                                .getOutput();
++  const mlir::Value physical_indices = tir::BroadcastOp::create(
++      builder, location, physical_indices_type, physical_column_i32,
++      mlir::ValueRange{})
++      .getOutput();
++
++  const mlir::Value positions_row = tir::IotaOp::create(
++      builder, location, index_row_type, /*dimension=*/1,
++      mlir::ValueRange{})
++      .getOutput();
++  mlir::Value positions_matrix = positions_row;
++  if (spec.query_rows != 1) {
++    positions_matrix = tir::BroadcastOp::create(
++                           builder, location, position_matrix_type,
++                           positions_row, mlir::ValueRange{})
++                           .getOutput();
++  }
++  const mlir::Value positions_seed = tir::ReshapeOp::create(
++      builder, location, position_seed_type, positions_matrix,
++      mlir::ValueRange{})
++      .getOutput();
++  mlir::Value positions_batch = positions_seed;
++  if (queries_per_kv != 1) {
++    positions_batch = tir::BroadcastOp::create(
++                          builder, location, position_batch_type, positions_seed,
++                          mlir::ValueRange{})
++                          .getOutput();
++  }
++
++  const mlir::Value query_rows = tir::IotaOp::create(
++      builder, location, position_column_type, /*dimension=*/0,
++      mlir::ValueRange{})
++      .getOutput();
++  const mlir::Value one = tir::ConstantOp::create(
++                              builder, location,
++                              builder.getIntegerAttr(
++                                  builder.getIntegerType(32), 1))
++                              .getResult();
++  const mlir::Value one_column = tir::SplatOp::create(
++      builder, location, position_column_type, one, mlir::ValueRange{})
++      .getOutput();
++  const mlir::Value valid_offset = tir::AddOp::create(
++      builder, location, position_column_type, query_rows, one_column)
++      .getOutput();
++  const mlir::Value prefix_scalar = tir::SliceOp::create(
++      builder, location, prefix_scalar_type, arguments[5],
++      llvm::ArrayRef<int64_t>{0, 0}, llvm::ArrayRef<int64_t>{1, 1},
++      llvm::ArrayRef<int64_t>{1, 1})
++      .getOutput();
++  const mlir::Value prefix_column = tir::BroadcastOp::create(
++      builder, location, position_column_type, prefix_scalar,
++      mlir::ValueRange{})
++      .getOutput();
++  const mlir::Value valid_count_column = tir::AddOp::create(
++      builder, location, position_column_type, prefix_column, valid_offset)
++      .getOutput();
++  mlir::Value valid_count = valid_count_column;
++  if (tokens != 1) {
++    valid_count = tir::BroadcastOp::create(
++                      builder, location, position_matrix_type,
++                      valid_count_column, mlir::ValueRange{})
++                      .getOutput();
++  }
++  const mlir::Value valid_count_seed = tir::ReshapeOp::create(
++      builder, location, position_seed_type, valid_count, mlir::ValueRange{})
++      .getOutput();
++  if (queries_per_kv != 1) {
++    valid_count = tir::BroadcastOp::create(
++                      builder, location, position_batch_type, valid_count_seed,
++                      mlir::ValueRange{})
++                      .getOutput();
++  } else {
++    valid_count = valid_count_seed;
++  }
++  const mlir::Value valid_mask = tir::CmpOp::create(
++      builder, location, mask_type, tir::Comparator::lt, positions_batch,
++      valid_count)
++      .getOutput();
++  const mlir::Value scale = tir::ConstantOp::create(
++                                builder, location,
++                                builder.getF32FloatAttr(
++                                    static_cast<float>(spec.scale)))
++                                .getResult();
++  const mlir::Value scale_splat = tir::SplatOp::create(
++      builder, location, score_type, scale, mlir::ValueRange{})
++      .getOutput();
++  const mlir::Value mask_floor = tir::ConstantOp::create(
++                                     builder, location,
++                                     builder.getF32FloatAttr(
++                                         -std::numeric_limits<float>::max()))
++                                     .getResult();
++  const mlir::Value mask_floor_splat = tir::SplatOp::create(
++      builder, location, score_type, mask_floor, mlir::ValueRange{})
++      .getOutput();
++
++  llvm::SmallVector<mlir::Value> head_boxes;
++  head_boxes.reserve(static_cast<size_t>(spec.kv_heads));
++  for (int64_t kv_head = 0; kv_head < spec.kv_heads; ++kv_head) {
++    const int64_t column_start = kv_head * head_dim;
++    const mlir::Value key_table = tir::SliceOp::create(
++        builder, location, cache_head_type, arguments[1],
++        llvm::ArrayRef<int64_t>{0, column_start},
++        llvm::ArrayRef<int64_t>{spec.cache_rows, column_start + head_dim},
++        llvm::ArrayRef<int64_t>{1, 1})
++        .getOutput();
++    const mlir::Value key = tir::GatherRowsOp::create(
++        builder, location, gathered_type, key_table, physical_indices)
++        .getOutput();
++    const mlir::Value key_transposed = tir::TransposeOp::create(
++        builder, location, gathered_transposed_type, key,
++        llvm::ArrayRef<int64_t>{1, 0})
++        .getOutput();
++    const mlir::Value key_seed = tir::ReshapeOp::create(
++        builder, location, key_seed_type, key_transposed, mlir::ValueRange{})
++        .getOutput();
++    mlir::Value key_batch = key_seed;
++    if (queries_per_kv != 1) {
++      key_batch = tir::BroadcastOp::create(
++                      builder, location, key_batch_type, key_seed,
++                      mlir::ValueRange{})
++                      .getOutput();
++    }
++    const mlir::Value value_table = tir::SliceOp::create(
++        builder, location, cache_head_type, arguments[2],
++        llvm::ArrayRef<int64_t>{0, column_start},
++        llvm::ArrayRef<int64_t>{spec.cache_rows, column_start + head_dim},
++        llvm::ArrayRef<int64_t>{1, 1})
++        .getOutput();
++    const mlir::Value value = tir::GatherRowsOp::create(
++        builder, location, gathered_type, value_table, physical_indices)
++        .getOutput();
++    const mlir::Value value_seed = tir::ReshapeOp::create(
++        builder, location, value_seed_type, value, mlir::ValueRange{})
++        .getOutput();
++    mlir::Value value_batch = value_seed;
++    if (queries_per_kv != 1) {
++      value_batch = tir::BroadcastOp::create(
++                       builder, location, value_batch_type, value_seed,
++                       mlir::ValueRange{})
++                       .getOutput();
++    }
++    const int64_t q_start = kv_head * queries_per_kv;
++    const mlir::Value query_box = tir::SliceOp::create(
++        builder, location, query_box_type, arguments[0],
++        llvm::ArrayRef<int64_t>{0, q_start, 0},
++        llvm::ArrayRef<int64_t>{spec.query_rows, q_start + queries_per_kv,
++                                head_dim},
++        llvm::ArrayRef<int64_t>{1, 1, 1})
++        .getOutput();
++    const mlir::Value query = tir::TransposeOp::create(
++        builder, location, query_group_type, query_box,
++        llvm::ArrayRef<int64_t>{1, 0, 2})
++        .getOutput();
++    const mlir::Value scores = tir::MatmulOp::create(
++        builder, location, score_type, query, key_batch)
++        .getC();
++    const mlir::Value scaled = tir::MulOp::create(
++        builder, location, score_type, scores, scale_splat)
++        .getOutput();
++    const mlir::Value masked = tir::BinarySelectOp::create(
++        builder, location, score_type, valid_mask, scaled, mask_floor_splat)
++        .getOutput();
++    const mlir::Value row_max = tir::ReduceOp::create(
++        builder, location, row_type, masked,
++        llvm::ArrayRef<int32_t>{2}, tir::ReductionMode::max)
++        .getOutput();
++    const mlir::Value max_broadcast = tir::BroadcastOp::create(
++        builder, location, score_type, row_max, mlir::ValueRange{})
++        .getOutput();
++    const mlir::Value centered = tir::SubOp::create(
++        builder, location, score_type, masked, max_broadcast)
++        .getOutput();
++    const mlir::Value exponent = tir::ExpOp::create(
++        builder, location, score_type, centered)
++        .getOutput();
++    const mlir::Value row_sum = tir::ReduceOp::create(
++        builder, location, row_type, exponent,
++        llvm::ArrayRef<int32_t>{2}, tir::ReductionMode::add)
++        .getOutput();
++    const mlir::Value inverse = tir::ReciprocalOp::create(
++        builder, location, row_type, row_sum)
++        .getOutput();
++    const mlir::Value inverse_broadcast = tir::BroadcastOp::create(
++        builder, location, score_type, inverse, mlir::ValueRange{})
++        .getOutput();
++    const mlir::Value probability_f32 = tir::MulOp::create(
++        builder, location, score_type, exponent, inverse_broadcast)
++        .getOutput();
++    const mlir::Value probability = tir::ConvertOp::create(
++        builder, location, probability_type, probability_f32)
++        .getOutput();
++    const mlir::Value mixed = tir::MatmulOp::create(
++        builder, location, accumulation_type, probability, value_batch)
++        .getC();
++    const mlir::Value head = tir::ConvertOp::create(
++        builder, location, head_result_type, mixed)
++        .getOutput();
++    head_boxes.push_back(tir::TransposeOp::create(
++                              builder, location, head_box_type, head,
++                              llvm::ArrayRef<int64_t>{1, 0, 2})
++                              .getOutput());
++  }
++  if (head_boxes.size() == 1) return head_boxes.front();
++  return tir::ConcatenateOp::create(builder, location, result_type, head_boxes,
++                                    /*dimension=*/1)
++      .getOutput();
++}
++
+ mlir::Value BuildNativeGdnProjection(
+     mlir::OpBuilder& builder, mlir::Location location,
+     const NativeGdnProjectionTensorIrSpec& spec, mlir::Block& entry) {
+@@ -1596,7 +1908,7 @@ std::optional<BuiltTypedTensorIrModule> BuildTypedTensorIrModule(
+     built_result = BuildNativePagedGather(
+         builder, location, spec.native_paged_gather, *entry);
+   } else if (spec.kind == TypedTensorIrModuleKind::NativePagedPrefill) {
+-    built_result = BuildNativePagedPrefill(
++    built_result = BuildNativePagedPrefillBatched(
+         builder, location, spec.native_paged_prefill, *entry);
+   } else {
+     built_result = BuildNativeSiluAndMul(

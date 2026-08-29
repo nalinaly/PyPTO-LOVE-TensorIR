@@ -1,7 +1,7 @@
 From 8d57bf96f65a9a19a6f247c162c315de9b0350e9 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 16:02:36 +0800
-Subject: [PATCH 203/212] Preserve pointwise input strides in TensorIR
+Subject: [PATCH 203/263] Preserve pointwise input strides in TensorIR
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 6 +-----

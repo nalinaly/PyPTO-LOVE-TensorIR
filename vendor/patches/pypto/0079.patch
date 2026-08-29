@@ -1,7 +1,7 @@
 From 24dc0878bba514d5d67a84a4dfa8279936e27247 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 20:21:52 +0800
-Subject: [PATCH 079/212] test: use producer-supported native tile shapes
+Subject: [PATCH 079/263] test: use producer-supported native tile shapes
 
 ---
  tests/ut/compiler/test_structured_compile.py | 40 ++++++++++----------

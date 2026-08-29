@@ -1,7 +1,7 @@
 From 9c5dbae3cf834b7ebb588e4e22935ffca59b450e Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Mon, 24 Aug 2026 22:54:15 +0800
-Subject: [PATCH 016/212] test: gate deterministic TensorIR artifact seam
+Subject: [PATCH 016/263] test: gate deterministic TensorIR artifact seam
 
 ---
  3rdparty/nvidia/tensor-ir                     |   2 +-

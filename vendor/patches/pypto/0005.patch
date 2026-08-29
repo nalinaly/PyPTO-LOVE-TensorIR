@@ -1,7 +1,7 @@
 From 5b702d4ee102dbb1a50e174bb1f7242018a7fa69 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Sun, 23 Aug 2026 21:55:53 +0800
-Subject: [PATCH 005/212] tests: accept deferred annotation typo diagnostics
+Subject: [PATCH 005/263] tests: accept deferred annotation typo diagnostics
 
 ---
  tests/ut/language/parser/test_type_resolver.py | 8 +++++++-

@@ -1,7 +1,7 @@
 From ee75208b1fde213e731baffb935bf8ba91c335a3 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 08:58:26 +0800
-Subject: [PATCH 68/82] Accept compatible composite index projections
+Subject: [PATCH 68/89] Accept compatible composite index projections
 
 ---
  .../LayoutPropagationImpl.cpp                 | 71 ++++++++-----------

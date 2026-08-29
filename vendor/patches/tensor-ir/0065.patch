@@ -1,7 +1,7 @@
 From d93401f6cbe825421b4b8d74256bac9f234a4df6 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 08:43:54 +0800
-Subject: [PATCH 65/82] Lower single-column gather rows
+Subject: [PATCH 65/89] Lower single-column gather rows
 
 ---
  .../LayoutPropagationImpl.cpp                 | 32 +++++++++++++------

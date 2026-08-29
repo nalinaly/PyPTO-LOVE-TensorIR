@@ -1,0 +1,87 @@
+From 99455edf050561725352d9fd8df8cf6c07f73489 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 14:41:48 +0800
+Subject: [PATCH 231/263] Revert "Experiment with paged gather tile
+ materialization"
+
+This reverts commit df66dcb6d6d386af57f72a04bf8335471b39f9d6.
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 28 +++++-------------------
+ 1 file changed, 5 insertions(+), 23 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index d3c0776dfd37480bd158aed72f62ebc09af3f1f2..7df3e077076ae00a23841626e1320bacb56147c0 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -8569,9 +8569,6 @@ std::string EmitNativeTilePagedPrefillSource(
+   cache_head.dense_strides = MakeDenseStridesForMetadata(cache_head.shape);
+   StaticTensor gathered{DataType::BF16, {graph.tokens, graph.head_dim}, {}};
+   gathered.dense_strides = MakeDenseStridesForMetadata(gathered.shape);
+-  StaticTensor gathered_wide = gathered;
+-  gathered_wide.dtype = DataType::FP32;
+-  gathered_wide.dense_strides = MakeDenseStridesForMetadata(gathered_wide.shape);
+   StaticTensor gathered_transposed{DataType::BF16,
+                                    {graph.head_dim, graph.tokens}, {}};
+   gathered_transposed.dense_strides =
+@@ -8664,7 +8661,6 @@ std::string EmitNativeTilePagedPrefillSource(
+   const std::string physical_indices_type = TensorTypeText(physical_indices);
+   const std::string cache_head_type = TensorTypeText(cache_head);
+   const std::string gathered_type = TensorTypeText(gathered);
+-  const std::string gathered_wide_type = TensorTypeText(gathered_wide);
+   const std::string gathered_transposed_type =
+       TensorTypeText(gathered_transposed);
+   const std::string key_batch_seed_type = TensorTypeText(key_batch_seed);
+@@ -8839,17 +8835,11 @@ std::string EmitNativeTilePagedPrefillSource(
+     source += physical_indices_type;
+     source += ") -> ";
+     source += gathered_type;
+-    source += "\n    %k_wide_" + kv_suffix + " = convert %k_" + kv_suffix + " : ";
+-    source += gathered_type;
+-    source += " -> ";
+-    source += gathered_wide_type;
+-    source += "\n    %k_materialized_" + kv_suffix + " = convert %k_wide_" + kv_suffix + " : ";
+-    source += gathered_wide_type;
+-    source += " -> ";
+-    source += gathered_type;
+-    source += "\n    %kt_" + kv_suffix + " = transpose %k_materialized_" + kv_suffix +
++    source += "\n    %kt_" + kv_suffix + " = transpose %k_" + kv_suffix +
+               " permutation = [1, 0] : ";
+     source += gathered_type;
++    source += " -> ";
++    source += gathered_transposed_type;
+     source += "\n    %v_table_" + kv_suffix +
+               " = slice %arg2 starts = [0, " +
+               std::to_string(column_start) + "] limits = [" +
+@@ -8865,14 +8855,6 @@ std::string EmitNativeTilePagedPrefillSource(
+     source += physical_indices_type;
+     source += ") -> ";
+     source += gathered_type;
+-    source += "\n    %v_wide_" + kv_suffix + " = convert %v_" + kv_suffix + " : ";
+-    source += gathered_type;
+-    source += " -> ";
+-    source += gathered_wide_type;
+-    source += "\n    %v_materialized_" + kv_suffix + " = convert %v_wide_" + kv_suffix + " : ";
+-    source += gathered_wide_type;
+-    source += " -> ";
+-    source += gathered_type;
+ 
+     const int64_t q_start = kv_head * queries_per_kv;
+     const int64_t q_limit = q_start + queries_per_kv;
+@@ -8942,7 +8924,7 @@ std::string EmitNativeTilePagedPrefillSource(
+       source += " -> ";
+       source += single_probability_type;
+       source += "\n    %mixed_" + suffix + " = matmul(%probability_" + suffix +
+-                ", %v_materialized_" + kv_suffix + ") : (";
++                ", %v_" + kv_suffix + ") : (";
+       source += single_probability_type;
+       source += ", ";
+       source += gathered_type;
+@@ -8968,7 +8950,7 @@ std::string EmitNativeTilePagedPrefillSource(
+       source += key_batch_seed_type;
+       source += " -> ";
+       source += key_batch_type;
+-      source += "\n    %v_seed_" + suffix + " = reshape %v_materialized_" + kv_suffix + " : ";
++      source += "\n    %v_seed_" + suffix + " = reshape %v_" + kv_suffix + " : ";
+       source += gathered_type;
+       source += " -> ";
+       source += value_batch_seed_type;

@@ -1,7 +1,7 @@
 From 61ec894eebfd6d9ac2c232be38892c5b54eefa53 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Sat, 29 Aug 2026 06:55:38 +0800
-Subject: [PATCH 220/220] Wire bounded assembler timeout through TensorIR
+Subject: [PATCH 220/263] Wire bounded assembler timeout through TensorIR
 
 ---
  3rdparty/nvidia/tensor-ir                 | 2 +-

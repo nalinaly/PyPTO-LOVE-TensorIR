@@ -1,7 +1,7 @@
 From 68ae16eaa3a29133c1e7e18241e152a55380460b Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 12:39:33 +0800
-Subject: [PATCH 064/212] codegen: DAG operand chains and broadcast
+Subject: [PATCH 064/263] codegen: DAG operand chains and broadcast
  materialization
 
 Fused pointwise assignments may now consume any earlier SSA result, not

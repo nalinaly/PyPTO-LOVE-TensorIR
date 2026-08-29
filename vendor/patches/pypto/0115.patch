@@ -1,7 +1,7 @@
 From 5a4cf3dc0368bb22518fd37c24526403c1394e53 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 00:37:01 +0800
-Subject: [PATCH 115/212] Advance the TensorIR gather frontend
+Subject: [PATCH 115/263] Advance the TensorIR gather frontend
 
 ---
  ...ow-gathers-in-the-CUDA-Tile-frontend.patch | 24 +++++++++++++++++++

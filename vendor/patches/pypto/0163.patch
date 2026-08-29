@@ -1,7 +1,7 @@
 From 876e0502f2e5d62514b6a2987294c7216c66f12b Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 09:28:40 +0800
-Subject: [PATCH 163/212] Vectorize causal paged prefill rows
+Subject: [PATCH 163/263] Vectorize causal paged prefill rows
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 292 ++++++++++++-----------

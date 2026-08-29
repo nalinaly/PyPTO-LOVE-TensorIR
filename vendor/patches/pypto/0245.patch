@@ -1,0 +1,471 @@
+From 78fd5db8eb7d9861e67ff7fceff64db8f5325781 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 17:56:33 +0800
+Subject: [PATCH 245/263] Build causal paged prefill through typed TensorIR
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp      |  30 +-
+ .../nvidia/typed_tensor_ir_module_spec.h      |  17 +
+ .../nvidia_typed_tensor_ir_builder.cpp        | 317 ++++++++++++++++++
+ 3 files changed, 362 insertions(+), 2 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 8a3fa3e582d3ad7e5c96657684e4c305f962abd8..91c582772a82e4a43ab2e5dbbd82648acb2953e3 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -4869,6 +4869,31 @@ TypedTensorIrModuleSpec MakeNativePagedGatherTensorIrSpec(
+   return module_spec;
+ }
+ 
++TypedTensorIrModuleSpec MakeNativePagedPrefillTensorIrSpec(
++    const NativeTilePagedPrefillGraph& graph) {
++  TypedTensorIrModuleSpec module_spec;
++  module_spec.kind = TypedTensorIrModuleKind::NativePagedPrefill;
++  auto& spec = module_spec.native_paged_prefill;
++  const std::array<StaticTensor, NativePagedPrefillTensorIrSpec::kInputCount>
++      inputs = {graph.query,          graph.key_cache, graph.value_cache,
++                graph.req_to_token,   graph.request_index,
++                graph.prefix_tokens, graph.virtual_to_physical};
++  for (size_t index = 0; index < inputs.size(); ++index) {
++    spec.inputs[index] = MakeTypedTensorIrTensorSpec(
++        inputs[index], /*has_explicit_strides=*/true);
++  }
++  spec.result = MakeTypedTensorIrTensorSpec(
++      graph.result, /*has_explicit_strides=*/true);
++  spec.query_rows = graph.query_rows;
++  spec.query_heads = graph.q_heads;
++  spec.kv_heads = graph.kv_heads;
++  spec.tokens = graph.tokens;
++  spec.head_dim = graph.head_dim;
++  spec.cache_rows = graph.cache_rows;
++  spec.scale = graph.scale;
++  return module_spec;
++}
++
+ bool IsNativeTileMatmulCandidate(const ir::ProgramPtr& program) {
+   if (!IsNativeTilePointwiseCandidate(program)) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+@@ -9654,7 +9679,8 @@ void TensorIrModule::Validate() const {
+       typed_module_spec_->kind != TypedTensorIrModuleKind::NativeGdnProjection &&
+       typed_module_spec_->kind != TypedTensorIrModuleKind::NativeSigmoidAndMul &&
+       typed_module_spec_->kind != TypedTensorIrModuleKind::NativeAttention &&
+-      typed_module_spec_->kind != TypedTensorIrModuleKind::NativePagedGather) {
++      typed_module_spec_->kind != TypedTensorIrModuleKind::NativePagedGather &&
++      typed_module_spec_->kind != TypedTensorIrModuleKind::NativePagedPrefill) {
+     InternalReject("typed TensorIR module kind is invalid");
+   }
+   if (typed_module_spec_.has_value() &&
+@@ -10205,7 +10231,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+         TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
+         graph.result.dense_strides, /*has_explicit_strides=*/true));
+     return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+-                          EmitNativeTilePagedPrefillSource(graph),
++                          MakeNativePagedPrefillTensorIrSpec(graph),
+                           std::move(metadata), /*input_count=*/7);
+   }
+   if (IsNativeTilePagedDecodeCandidate(program)) {
+diff --git a/src/codegen/nvidia/typed_tensor_ir_module_spec.h b/src/codegen/nvidia/typed_tensor_ir_module_spec.h
+index 43f686612743dfb0e55cef6eb0baf8c459b7bc93..e2ceb799b28dda7a2445fd2688a24ca3d52305e2 100644
+--- a/src/codegen/nvidia/typed_tensor_ir_module_spec.h
++++ b/src/codegen/nvidia/typed_tensor_ir_module_spec.h
+@@ -98,6 +98,21 @@ struct NativePagedGatherTensorIrSpec {
+   int64_t row_width = 0;
+ };
+ 
++/** Typed causal paged-prefill attention graph with static GQA geometry. */
++struct NativePagedPrefillTensorIrSpec {
++  static constexpr std::size_t kInputCount = 7;
++
++  std::array<TypedTensorIrTensorSpec, kInputCount> inputs;
++  TypedTensorIrTensorSpec result;
++  int64_t query_rows = 0;
++  int64_t query_heads = 0;
++  int64_t kv_heads = 0;
++  int64_t tokens = 0;
++  int64_t head_dim = 0;
++  int64_t cache_rows = 0;
++  double scale = 0.0;
++};
++
+ /** Typed packing of the two GDN projection results into recurrent input. */
+ struct NativeGdnProjectionTensorIrSpec {
+   static constexpr std::size_t kInputCount = 2;
+@@ -118,6 +133,7 @@ enum class TypedTensorIrModuleKind : uint8_t {
+   NativeSigmoidAndMul = 4,
+   NativeAttention = 5,
+   NativePagedGather = 6,
++  NativePagedPrefill = 7,
+ };
+ 
+ /** One compiler-neutral request for typed MLIR/TensorIR construction. */
+@@ -130,6 +146,7 @@ struct TypedTensorIrModuleSpec {
+   NativeSigmoidAndMulTensorIrSpec native_sigmoid_and_mul;
+   NativeAttentionTensorIrSpec native_attention;
+   NativePagedGatherTensorIrSpec native_paged_gather;
++  NativePagedPrefillTensorIrSpec native_paged_prefill;
+ };
+ 
+ }  // namespace pypto::codegen::nvidia
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index 84aede201a77a10da0e3d458294677bbc470e11e..ca22af7726b84d2e79287062b15e863319036c6b 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -44,6 +44,7 @@ using codegen::nvidia::NativeGdnRecurrentTensorIrSpec;
+ using codegen::nvidia::NativeGdnProjectionTensorIrSpec;
+ using codegen::nvidia::NativeAttentionTensorIrSpec;
+ using codegen::nvidia::NativePagedGatherTensorIrSpec;
++using codegen::nvidia::NativePagedPrefillTensorIrSpec;
+ using codegen::nvidia::NativeSigmoidAndMulTensorIrSpec;
+ using codegen::nvidia::NativeSiluAndMulTensorIrSpec;
+ using codegen::nvidia::StructuredMatmulTensorIrSpec;
+@@ -393,6 +394,79 @@ bool ValidateNativePagedGatherSpec(
+   return true;
+ }
+ 
++bool ValidateNativePagedPrefillSpec(
++    const NativePagedPrefillTensorIrSpec& spec, std::string& diagnostic) {
++  const auto reject = [&](std::string message) {
++    diagnostic = "typed TensorIR paged-prefill specification rejected: " +
++                 std::move(message);
++    return false;
++  };
++  for (const auto& input : spec.inputs) {
++    if (!HasValidStaticMetadata(input)) {
++      return reject("inputs must have fully static explicit metadata");
++    }
++  }
++  if (!HasValidStaticMetadata(spec.result)) {
++    return reject("result must have fully static explicit metadata");
++  }
++  const auto& query = spec.inputs[0];
++  const auto& key_cache = spec.inputs[1];
++  const auto& value_cache = spec.inputs[2];
++  const auto& request_table = spec.inputs[3];
++  const auto& request_index = spec.inputs[4];
++  const auto& prefix_tokens = spec.inputs[5];
++  const auto& mapping = spec.inputs[6];
++  if (query.element_type != TypedTensorIrElementType::BF16 ||
++      query.shape != std::vector<int64_t>({spec.query_rows, spec.query_heads,
++                                           spec.head_dim}) ||
++      query.shape.size() != 3 || query.strides[2] != 1 ||
++      query.strides[1] < spec.head_dim ||
++      key_cache.element_type != TypedTensorIrElementType::BF16 ||
++      value_cache.element_type != TypedTensorIrElementType::BF16 ||
++      key_cache.shape != value_cache.shape || key_cache.shape.size() != 2 ||
++      key_cache.strides[1] != 1 || key_cache.strides[0] < key_cache.shape[1] ||
++      request_table.element_type != TypedTensorIrElementType::INT32 ||
++      request_table.shape.size() != 2 || !IsDense(request_table) ||
++      request_index.element_type != TypedTensorIrElementType::INT64 ||
++      request_index.shape != std::vector<int64_t>({1, spec.tokens}) ||
++      request_index.strides != std::vector<int64_t>({0, 0}) ||
++      prefix_tokens.element_type != TypedTensorIrElementType::INT32 ||
++      prefix_tokens.shape != request_index.shape ||
++      prefix_tokens.strides != std::vector<int64_t>({0, 0}) ||
++      mapping.element_type != TypedTensorIrElementType::INT64 ||
++      mapping.shape.size() != 2 || mapping.shape[0] <= 0 ||
++      mapping.shape[1] != 1 || mapping.strides[1] != 1 ||
++      mapping.strides[0] < 1 ||
++      spec.result.element_type != TypedTensorIrElementType::BF16 ||
++      spec.result.shape != query.shape || spec.result.strides[2] != 1 ||
++      spec.result.strides[1] < spec.head_dim ||
++      spec.result.strides[0] < spec.query_heads * spec.head_dim) {
++    return reject("tensor dtype, shape, or stride contract is invalid");
++  }
++  if (spec.query_rows <= 0 || spec.query_heads <= 0 || spec.kv_heads <= 0 ||
++      spec.tokens <= 0 || spec.head_dim <= 0 || spec.cache_rows <= 0 ||
++      spec.query_heads % spec.kv_heads != 0 || spec.head_dim % 128 != 0 ||
++      spec.tokens % 16 != 0 || key_cache.shape[1] != spec.kv_heads * spec.head_dim ||
++      request_table.shape[0] <= 0 || request_table.shape[1] < spec.tokens ||
++      request_index.shape[0] != 1 || !std::isfinite(spec.scale)) {
++    return reject("static GQA or cache geometry is invalid");
++  }
++  int64_t query_work = 0;
++  int64_t kv_work = 0;
++  if (!CheckedMultiply(spec.query_rows, spec.query_heads, query_work) ||
++      !CheckedMultiply(spec.kv_heads, spec.query_rows, kv_work) ||
++      query_work > kMaximumBatchTokenProduct || kv_work > kMaximumBatchTokenProduct) {
++    return reject("paged-prefill operation count exceeds the bounded builder");
++  }
++  const double expected_scale =
++      1.0 / std::sqrt(static_cast<double>(spec.head_dim));
++  if (std::fabs(spec.scale - expected_scale) >
++      std::numeric_limits<double>::epsilon()) {
++    return reject("scale does not equal 1/sqrt(head_dim)");
++  }
++  return true;
++}
++
+ bool ValidateNativeGdnProjectionSpec(
+     const NativeGdnProjectionTensorIrSpec& spec, std::string& diagnostic) {
+   const auto reject = [&](std::string message) {
+@@ -733,6 +807,237 @@ mlir::Value BuildNativePagedGather(
+       .getOutput();
+ }
+ 
++mlir::Value BuildNativePagedPrefill(
++    mlir::OpBuilder& builder, mlir::Location location,
++    const NativePagedPrefillTensorIrSpec& spec, mlir::Block& entry) {
++  llvm::SmallVector<mlir::Value> arguments(entry.getArguments().begin(),
++                                           entry.getArguments().end());
++  const int64_t request_rows = spec.inputs[3].shape[0];
++  const int64_t queries_per_kv = spec.query_heads / spec.kv_heads;
++  const int64_t head_dim = spec.head_dim;
++  const int64_t tokens = spec.tokens;
++
++  const auto index_row_type =
++      TensorType(builder, TypedTensorIrElementType::INT32, {1, tokens});
++  const auto request_prefix_type = TensorType(
++      builder, TypedTensorIrElementType::INT32, {request_rows, tokens});
++  const auto physical_column_type =
++      TensorType(builder, TypedTensorIrElementType::INT64, {tokens, 1});
++  const auto physical_column_i32_type =
++      TensorType(builder, TypedTensorIrElementType::INT32, {tokens, 1});
++  const auto physical_indices_type = TensorType(
++      builder, TypedTensorIrElementType::INT32, {tokens, head_dim});
++  const auto cache_head_type = TensorType(
++      builder, TypedTensorIrElementType::BF16, {spec.cache_rows, head_dim});
++  const auto gathered_type = TensorType(
++      builder, TypedTensorIrElementType::BF16, {tokens, head_dim});
++  const auto gathered_transposed_type = TensorType(
++      builder, TypedTensorIrElementType::BF16, {head_dim, tokens});
++  const auto query_box_type = TensorType(
++      builder, TypedTensorIrElementType::BF16, {1, 1, head_dim});
++  const auto query_type =
++      TensorType(builder, TypedTensorIrElementType::BF16, {1, head_dim});
++  const auto score_type =
++      TensorType(builder, TypedTensorIrElementType::FP32, {1, tokens});
++  const auto row_type =
++      TensorType(builder, TypedTensorIrElementType::FP32, {1, 1});
++  const auto probability_type =
++      TensorType(builder, TypedTensorIrElementType::BF16, {1, tokens});
++  const auto accumulation_type = TensorType(
++      builder, TypedTensorIrElementType::FP32, {1, head_dim});
++  const auto head_type = TensorType(
++      builder, TypedTensorIrElementType::BF16, {1, head_dim});
++  const auto output_head_type = TensorType(
++      builder, TypedTensorIrElementType::BF16, {1, 1, head_dim});
++  const auto output_row_type = TensorType(
++      builder, TypedTensorIrElementType::BF16,
++      {1, spec.query_heads, head_dim});
++  const auto result_type = TensorType(
++      builder, TypedTensorIrElementType::BF16, spec.result.shape);
++  const auto positions_type = index_row_type;
++  const auto prefix_scalar_type =
++      TensorType(builder, TypedTensorIrElementType::INT32, {1, 1});
++  const auto valid_count_type = index_row_type;
++  const auto mask_type = mlir::RankedTensorType::get(
++      llvm::ArrayRef<int64_t>{1, tokens}, builder.getIntegerType(1));
++
++  const mlir::Value request_index = tir::ConvertOp::create(
++      builder, location, index_row_type, arguments[4])
++                                         .getOutput();
++  const mlir::Value request_prefix = tir::SliceOp::create(
++      builder, location, request_prefix_type, arguments[3],
++      llvm::ArrayRef<int64_t>{0, 0},
++      llvm::ArrayRef<int64_t>{request_rows, tokens},
++      llvm::ArrayRef<int64_t>{1, 1})
++                                         .getOutput();
++  const mlir::Value request_row = tir::GatherRowsOp::create(
++      builder, location, index_row_type, request_prefix, request_index)
++                                      .getOutput();
++  const mlir::Value virtual_column = tir::TransposeOp::create(
++      builder, location, physical_column_type, request_row,
++      llvm::ArrayRef<int64_t>{1, 0})
++      .getOutput();
++  const mlir::Value physical_column = tir::GatherRowsOp::create(
++      builder, location, physical_column_type, arguments[6], virtual_column)
++                                          .getOutput();
++  const mlir::Value physical_column_i32 = tir::ConvertOp::create(
++      builder, location, physical_column_i32_type, physical_column)
++                                                .getOutput();
++  const mlir::Value physical_indices = tir::BroadcastOp::create(
++      builder, location, physical_indices_type, physical_column_i32,
++      mlir::ValueRange{})
++      .getOutput();
++  const mlir::Value positions = tir::IotaOp::create(
++      builder, location, positions_type, /*dimension=*/1,
++      mlir::ValueRange{})
++      .getOutput();
++  const mlir::Value prefix_scalar = tir::SliceOp::create(
++      builder, location, prefix_scalar_type, arguments[5],
++      llvm::ArrayRef<int64_t>{0, 0}, llvm::ArrayRef<int64_t>{1, 1},
++      llvm::ArrayRef<int64_t>{1, 1})
++      .getOutput();
++  const mlir::Value prefix_row = tir::BroadcastOp::create(
++      builder, location, valid_count_type, prefix_scalar,
++      mlir::ValueRange{})
++      .getOutput();
++  const mlir::Value scale = tir::ConstantOp::create(
++                                builder, location,
++                                builder.getF32FloatAttr(
++                                    static_cast<float>(spec.scale)))
++                                .getResult();
++  const mlir::Value scale_splat = tir::SplatOp::create(
++      builder, location, score_type, scale, mlir::ValueRange{})
++      .getOutput();
++  const mlir::Value mask_floor = tir::ConstantOp::create(
++                                     builder, location,
++                                     builder.getF32FloatAttr(
++                                         -std::numeric_limits<float>::max()))
++                                     .getResult();
++  const mlir::Value mask_floor_splat = tir::SplatOp::create(
++      builder, location, score_type, mask_floor, mlir::ValueRange{})
++      .getOutput();
++
++  llvm::SmallVector<mlir::Value> row_outputs;
++  row_outputs.reserve(static_cast<size_t>(spec.query_rows));
++  for (int64_t query_row = 0; query_row < spec.query_rows; ++query_row) {
++    llvm::SmallVector<mlir::Value> head_outputs;
++    head_outputs.reserve(static_cast<size_t>(spec.query_heads));
++    const mlir::Value row_offset = tir::ConstantOp::create(
++                                       builder, location,
++                                       builder.getIntegerAttr(
++                                           builder.getIntegerType(32),
++                                           query_row + 1))
++                                       .getResult();
++    const mlir::Value row_offset_splat = tir::SplatOp::create(
++        builder, location, index_row_type, row_offset, mlir::ValueRange{})
++        .getOutput();
++    const mlir::Value valid_count = tir::AddOp::create(
++        builder, location, valid_count_type, prefix_row, row_offset_splat)
++        .getOutput();
++    const mlir::Value valid_mask = tir::CmpOp::create(
++        builder, location, mask_type, tir::Comparator::lt, positions,
++        valid_count)
++        .getOutput();
++
++    for (int64_t q_head = 0; q_head < spec.query_heads; ++q_head) {
++      const int64_t kv_head = q_head / queries_per_kv;
++      const int64_t column_start = kv_head * head_dim;
++      const mlir::Value key_table = tir::SliceOp::create(
++          builder, location, cache_head_type, arguments[1],
++          llvm::ArrayRef<int64_t>{0, column_start},
++          llvm::ArrayRef<int64_t>{spec.cache_rows, column_start + head_dim},
++          llvm::ArrayRef<int64_t>{1, 1})
++          .getOutput();
++      const mlir::Value key = tir::GatherRowsOp::create(
++          builder, location, gathered_type, key_table, physical_indices)
++          .getOutput();
++      const mlir::Value key_transposed = tir::TransposeOp::create(
++          builder, location, gathered_transposed_type, key,
++          llvm::ArrayRef<int64_t>{1, 0})
++          .getOutput();
++      const mlir::Value value_table = tir::SliceOp::create(
++          builder, location, cache_head_type, arguments[2],
++          llvm::ArrayRef<int64_t>{0, column_start},
++          llvm::ArrayRef<int64_t>{spec.cache_rows, column_start + head_dim},
++          llvm::ArrayRef<int64_t>{1, 1})
++          .getOutput();
++      const mlir::Value value = tir::GatherRowsOp::create(
++          builder, location, gathered_type, value_table, physical_indices)
++          .getOutput();
++      const mlir::Value query_box = tir::SliceOp::create(
++          builder, location, query_box_type, arguments[0],
++          llvm::ArrayRef<int64_t>{query_row, q_head, 0},
++          llvm::ArrayRef<int64_t>{query_row + 1, q_head + 1, head_dim},
++          llvm::ArrayRef<int64_t>{1, 1, 1})
++          .getOutput();
++      const mlir::Value query = tir::ReshapeOp::create(
++          builder, location, query_type, query_box, mlir::ValueRange{})
++          .getOutput();
++      const mlir::Value scores = tir::MatmulOp::create(
++          builder, location, score_type, query, key_transposed)
++          .getC();
++      const mlir::Value scaled = tir::MulOp::create(
++          builder, location, score_type, scores, scale_splat)
++          .getOutput();
++      const mlir::Value masked = tir::BinarySelectOp::create(
++          builder, location, score_type, valid_mask, scaled, mask_floor_splat)
++          .getOutput();
++      const mlir::Value row_max = tir::ReduceOp::create(
++          builder, location, row_type, masked,
++          llvm::ArrayRef<int32_t>{1}, tir::ReductionMode::max)
++          .getOutput();
++      const mlir::Value max_broadcast = tir::BroadcastOp::create(
++          builder, location, score_type, row_max, mlir::ValueRange{})
++          .getOutput();
++      const mlir::Value centered = tir::SubOp::create(
++          builder, location, score_type, masked, max_broadcast)
++          .getOutput();
++      const mlir::Value exponent = tir::ExpOp::create(
++          builder, location, score_type, centered)
++          .getOutput();
++      const mlir::Value row_sum = tir::ReduceOp::create(
++          builder, location, row_type, exponent,
++          llvm::ArrayRef<int32_t>{1}, tir::ReductionMode::add)
++          .getOutput();
++      const mlir::Value inverse = tir::ReciprocalOp::create(
++          builder, location, row_type, row_sum)
++          .getOutput();
++      const mlir::Value inverse_broadcast = tir::BroadcastOp::create(
++          builder, location, score_type, inverse, mlir::ValueRange{})
++          .getOutput();
++      const mlir::Value probability_f32 = tir::MulOp::create(
++          builder, location, score_type, exponent, inverse_broadcast)
++          .getOutput();
++      const mlir::Value probability = tir::ConvertOp::create(
++          builder, location, probability_type, probability_f32)
++          .getOutput();
++      const mlir::Value mixed = tir::MatmulOp::create(
++          builder, location, accumulation_type, probability, value)
++          .getC();
++      const mlir::Value head = tir::ConvertOp::create(
++          builder, location, head_type, mixed)
++          .getOutput();
++      head_outputs.push_back(
++          tir::ReshapeOp::create(builder, location, output_head_type, head,
++                                 mlir::ValueRange{})
++              .getOutput());
++    }
++    mlir::Value row_output = head_outputs.front();
++    if (head_outputs.size() > 1) {
++      row_output = tir::ConcatenateOp::create(
++                       builder, location, output_row_type, head_outputs,
++                       /*dimension=*/1)
++                       .getOutput();
++    }
++    row_outputs.push_back(row_output);
++  }
++  if (row_outputs.size() == 1) return row_outputs.front();
++  llvm::SmallVector<mlir::Value> rows(row_outputs.begin(), row_outputs.end());
++  return tir::ConcatenateOp::create(builder, location, result_type, rows,
++                                    /*dimension=*/0)
++      .getOutput();
++}
++
+ mlir::Value BuildNativeGdnProjection(
+     mlir::OpBuilder& builder, mlir::Location location,
+     const NativeGdnProjectionTensorIrSpec& spec, mlir::Block& entry) {
+@@ -1181,6 +1486,10 @@ std::optional<BuiltTypedTensorIrModule> BuildTypedTensorIrModule(
+     if (!ValidateNativePagedGatherSpec(spec.native_paged_gather, diagnostic)) {
+       return std::nullopt;
+     }
++  } else if (spec.kind == TypedTensorIrModuleKind::NativePagedPrefill) {
++    if (!ValidateNativePagedPrefillSpec(spec.native_paged_prefill, diagnostic)) {
++      return std::nullopt;
++    }
+   } else {
+     diagnostic = "typed TensorIR module kind is unsupported";
+     return std::nullopt;
+@@ -1235,6 +1544,11 @@ std::optional<BuiltTypedTensorIrModule> BuildTypedTensorIrModule(
+                   spec.native_paged_gather.inputs.end());
+     result = spec.native_paged_gather.result;
+     entry_name = kEntryName;
++  } else if (spec.kind == TypedTensorIrModuleKind::NativePagedPrefill) {
++    inputs.assign(spec.native_paged_prefill.inputs.begin(),
++                  spec.native_paged_prefill.inputs.end());
++    result = spec.native_paged_prefill.result;
++    entry_name = kEntryName;
+   } else {
+     inputs.assign(spec.native_silu_and_mul.inputs.begin(),
+                   spec.native_silu_and_mul.inputs.end());
+@@ -1281,6 +1595,9 @@ std::optional<BuiltTypedTensorIrModule> BuildTypedTensorIrModule(
+   } else if (spec.kind == TypedTensorIrModuleKind::NativePagedGather) {
+     built_result = BuildNativePagedGather(
+         builder, location, spec.native_paged_gather, *entry);
++  } else if (spec.kind == TypedTensorIrModuleKind::NativePagedPrefill) {
++    built_result = BuildNativePagedPrefill(
++        builder, location, spec.native_paged_prefill, *entry);
+   } else {
+     built_result = BuildNativeSiluAndMul(
+         builder, location, spec.native_silu_and_mul, *entry);

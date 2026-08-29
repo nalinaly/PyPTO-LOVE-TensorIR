@@ -1,7 +1,7 @@
 From b9d24b470c9a113e382916b586785112274c373f Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Sat, 29 Aug 2026 08:39:57 +0800
-Subject: [PATCH 222/222] Fix phase-one rejection counters
+Subject: [PATCH 222/263] Fix phase-one rejection counters
 
 ---
  tests/ut/cpp/structured_compile_test.cpp | 13 +++++++++++--

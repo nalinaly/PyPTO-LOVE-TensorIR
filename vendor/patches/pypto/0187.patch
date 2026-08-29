@@ -1,7 +1,7 @@
 From 8ae55a1e02698d43453d05fd6e74b10d1c5f1aa1 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 12:29:04 +0800
-Subject: [PATCH 187/212] Retain all causal convolution state planes
+Subject: [PATCH 187/263] Retain all causal convolution state planes
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 26 +++++++++++++++++++-----

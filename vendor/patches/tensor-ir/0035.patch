@@ -1,7 +1,7 @@
 From c05ab8fe2832ec46d72eb43ca9afb90b378c0ad6 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 00:18:14 +0800
-Subject: [PATCH 35/82] Construct gather index tile types explicitly
+Subject: [PATCH 35/89] Construct gather index tile types explicitly
 
 ---
  lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp | 8 +++++---

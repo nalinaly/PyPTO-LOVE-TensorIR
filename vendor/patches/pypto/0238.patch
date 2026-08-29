@@ -1,0 +1,91 @@
+From a6495fe6d87513f4f07fa86d7ce9e2d176fbdcce Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 16:34:48 +0800
+Subject: [PATCH 238/263] Read recurrent GDN output through natural state
+ matmul
+
+---
+ .../nvidia_typed_tensor_ir_builder.cpp        | 38 +++++++++----------
+ 1 file changed, 19 insertions(+), 19 deletions(-)
+
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index b6998e595cc96e8dba8c5ca0a45832013991fa55..ea3875a665065c6a7073ff3d35ba53d900e4e72d 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -796,9 +796,6 @@ class NativeGdnRecurrentBuilder {
+     const auto state_group_type = Tensor(
+         TypedTensorIrElementType::FP32,
+         {spec_.query_heads, heads_per_query, spec_.value_dim, spec_.key_dim});
+-    const auto state_transposed_type = Tensor(
+-        TypedTensorIrElementType::FP32,
+-        {spec_.query_heads, heads_per_query, spec_.key_dim, spec_.value_dim});
+     const auto qk_box_type =
+         Tensor(TypedTensorIrElementType::BF16, {1, 1, qk_width});
+     const auto query_seed_type = Tensor(
+@@ -829,12 +826,15 @@ class NativeGdnRecurrentBuilder {
+         {1, 1, spec_.value_heads, spec_.value_dim});
+     const auto parameter_group_type = wide_value_group_type;
+     const auto dt_parameter_group_type = value_group_type;
+-    const auto output_group_type = Tensor(
++    const auto query_column_type = Tensor(
++        TypedTensorIrElementType::FP32,
++        {spec_.query_heads, heads_per_query, spec_.key_dim, 1});
++    const auto output_column_type = Tensor(
+         TypedTensorIrElementType::FP32,
+-        {spec_.query_heads, heads_per_query, 1, spec_.value_dim});
+-    const auto output_group_bf16_type = Tensor(
++        {spec_.query_heads, heads_per_query, spec_.value_dim, 1});
++    const auto output_column_bf16_type = Tensor(
+         TypedTensorIrElementType::BF16,
+-        {spec_.query_heads, heads_per_query, 1, spec_.value_dim});
++        {spec_.query_heads, heads_per_query, spec_.value_dim, 1});
+     const auto output_box_type = Tensor(
+         TypedTensorIrElementType::BF16,
+         {1, 1, spec_.value_heads, spec_.value_dim});
+@@ -980,8 +980,8 @@ class NativeGdnRecurrentBuilder {
+ 
+         if (token + 1 != spec_.tokens_per_request) {
+           token_outputs.push_back(BuildOutput(
+-              scaled_query, current_state, state_transposed_type,
+-              output_group_type, output_group_bf16_type, output_box_type));
++              scaled_query, current_state, query_column_type,
++              output_column_type, output_column_bf16_type, output_box_type));
+         }
+       }
+ 
+@@ -992,8 +992,8 @@ class NativeGdnRecurrentBuilder {
+               .getOutput();
+       const mlir::Value stored_group = Reshape(stored_state, state_group_type);
+       const mlir::Value final_output = BuildOutput(
+-          final_scaled_query, stored_group, state_transposed_type,
+-          output_group_type, output_group_bf16_type, output_box_type);
++          final_scaled_query, stored_group, query_column_type,
++          output_column_type, output_column_bf16_type, output_box_type);
+       token_outputs.push_back(final_output);
+ 
+       if (token_outputs.size() == 1) {
+@@ -1109,16 +1109,16 @@ class NativeGdnRecurrentBuilder {
+ 
+   mlir::Value BuildOutput(
+       mlir::Value scaled_query, mlir::Value state,
+-      mlir::RankedTensorType state_transposed_type,
+-      mlir::RankedTensorType output_group_type,
+-      mlir::RankedTensorType output_group_bf16_type,
++      mlir::RankedTensorType query_column_type,
++      mlir::RankedTensorType output_column_type,
++      mlir::RankedTensorType output_column_bf16_type,
+       mlir::RankedTensorType output_box_type) {
+-    const mlir::Value state_transposed =
+-        Transpose(state, state_transposed_type, {0, 1, 3, 2});
+-    const mlir::Value output_wide =
+-        Matmul(scaled_query, state_transposed, output_group_type);
++    const mlir::Value query_column =
++        Transpose(scaled_query, query_column_type, {0, 1, 3, 2});
++    const mlir::Value output_column =
++        Matmul(state, query_column, output_column_type);
+     const mlir::Value output =
+-        Convert(output_wide, output_group_bf16_type);
++        Convert(output_column, output_column_bf16_type);
+     return Reshape(output, output_box_type);
+   }
+ 

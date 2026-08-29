@@ -1,7 +1,7 @@
 From fb888ae8c30d8e228aa2085ea8ae12a6f4826d10 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 19:30:47 +0800
-Subject: [PATCH 077/212] nvidia: generalize broadcast reduction epilogues
+Subject: [PATCH 077/263] nvidia: generalize broadcast reduction epilogues
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 79 ++++++++++++++----------

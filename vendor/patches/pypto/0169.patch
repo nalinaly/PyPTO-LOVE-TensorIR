@@ -1,7 +1,7 @@
 From fd3926a07983a0a0d7d8c91db8600dd418839ad2 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 10:17:17 +0800
-Subject: [PATCH 169/212] Represent row-pitched TensorIR ABI metadata
+Subject: [PATCH 169/263] Represent row-pitched TensorIR ABI metadata
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp      | 23 +++++++++++++++++--

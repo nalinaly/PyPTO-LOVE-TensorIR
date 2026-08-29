@@ -1,0 +1,32 @@
+From 5a8a50d164adf6ffda4d9eb0ae2051bf23095f7c Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 03:55:18 +0800
+Subject: [PATCH 88/89] Fix transpose permutation signedness
+
+---
+ lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index 9237e8819e9e0f3d983c4a2da277708ae7bf98d6..2e304514bfbe2f43d9cf3d659a21dd5144c0dc0e 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -7,6 +7,7 @@
+ #include "tensor_ir/Utils/Utils.h"
+ 
+ #include <algorithm>
++#include <cstdint>
+ #include <limits>
+ 
+ #include "llvm/Support/Debug.h"
+@@ -393,7 +394,9 @@ bool gatherFeedsTransposeView(Value value) {
+     if (auto transpose = dyn_cast<TransposeOp>(user)) {
+       return llvm::any_of(
+           llvm::enumerate(transpose.getPermutation()),
+-          [](auto item) { return item.index() != item.value(); });
++          [](auto item) {
++            return static_cast<int64_t>(item.index()) != item.value();
++          });
+     }
+     if (auto reshape = dyn_cast<ReshapeOp>(user)) {
+       value = reshape.getOutput();

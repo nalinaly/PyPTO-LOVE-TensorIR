@@ -1,7 +1,7 @@
 From ae4d59fc8dbe9b95558b6ddf1a2e482f6648f7e8 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 02:16:14 +0800
-Subject: [PATCH 130/212] Advance TensorIR anchored input loads
+Subject: [PATCH 130/263] Advance TensorIR anchored input loads
 
 ---
  ...-narrow-loads-before-lazy-broadcasts.patch | 98 +++++++++++++++++++

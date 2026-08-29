@@ -1,5 +1,13 @@
 {
   "artifacts": {
+    "cupti_python": {
+      "bytes": 841373,
+      "filename": "cupti_python-13.2.0-cp314-cp314-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl",
+      "purpose": "profiling-overlay",
+      "sha256": "d57ad6cad9a757dcda2fdd4b7eaa9994991c739d569073e6d78820a25dee0ab7",
+      "url": "https://files.pythonhosted.org/packages/5b/14/4bf352d3780dd430a1f50ec72b9eba8f16ba288e8d5022ef935589459b86/cupti_python-13.2.0-cp314-cp314-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl",
+      "version": "13.2.0"
+    },
     "torch": {
       "bytes": 526491534,
       "filename": "torch-2.13.0+cu130-cp314-cp314-manylinux_2_28_x86_64.whl",
@@ -35,6 +43,16 @@
     "https://download.pytorch.org/whl/cu130"
   ],
   "known_metadata_conflicts": [],
+  "profiling_overlay": {
+    "artifact": "cupti_python",
+    "destination": "caches/cupti-python-overlay/13.2.0",
+    "distribution": "cupti-python",
+    "libcupti_relative": "targets/x86_64-linux/lib/libcupti.so",
+    "python_abi": "cp314",
+    "toolkit": "13.3.73",
+    "toolkit_root_label": "cuda-13.3",
+    "version": "13.2.0"
+  },
   "python_requirements_lock": {
     "bytes": 18319,
     "path": "environment/python-requirements.lock",

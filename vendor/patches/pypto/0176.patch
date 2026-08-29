@@ -1,7 +1,7 @@
 From e08b6aaf5be7ba2d54122d44cb29b2e894876249 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 11:14:11 +0800
-Subject: [PATCH 176/212] Pack GDN projection into one physical result
+Subject: [PATCH 176/263] Pack GDN projection into one physical result
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 295 +++++++++++------------

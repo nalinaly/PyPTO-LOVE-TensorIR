@@ -1,7 +1,7 @@
 From 09e014ceac2d2cac2f667d182bd7de8f0d0bd259 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Mon, 24 Aug 2026 16:57:42 +0800
-Subject: [PATCH 010/212] compiler: add canonical CompileRequest v1 contract
+Subject: [PATCH 010/263] compiler: add canonical CompileRequest v1 contract
 
 ---
  CMakeLists.txt                               |   1 +

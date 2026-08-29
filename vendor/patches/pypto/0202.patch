@@ -1,7 +1,7 @@
 From 5c7e4e704dba36d065d52e3342a535248ca1a159 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 15:55:53 +0800
-Subject: [PATCH 202/212] Accept row-pitched native pointwise inputs
+Subject: [PATCH 202/263] Accept row-pitched native pointwise inputs
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 7 ++++---

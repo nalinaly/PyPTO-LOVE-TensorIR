@@ -1,0 +1,31 @@
+From 3a10bb6746acd086d9a6ba4165bd37dd92ed5b6b Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 18:17:48 +0800
+Subject: [PATCH 247/263] diagnostic: allow typed TensorIR module dump
+
+---
+ src/compiler/nvidia_typed_tensor_ir_builder.cpp | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index 69ef080a62453922150a1aa06182b1af84f45344..628642e0f8ce0316a15e22d2fed574a59d15b846 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -16,6 +16,7 @@
+ #include <cmath>
+ #include <cstddef>
+ #include <cstdint>
++#include <cstdlib>
+ #include <initializer_list>
+ #include <limits>
+ #include <memory>
+@@ -1928,6 +1929,9 @@ std::optional<BuiltTypedTensorIrModule> BuildTypedTensorIrModule(
+   module.print(stream);
+   stream << '\n';
+   stream.flush();
++  if (std::getenv("PYPTO_DUMP_TYPED_IR") != nullptr) {
++    llvm::errs() << canonical_text;
++  }
+   if (canonical_text.empty() ||
+       canonical_text.size() > kMaximumCanonicalSourceBytes ||
+       canonical_text.find('\0') != std::string::npos) {

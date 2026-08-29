@@ -1,7 +1,7 @@
 From d2f1429b1f874445593e8e4631d89b3f3bf52890 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 01:55:41 +0800
-Subject: [PATCH 127/212] Advance TensorIR delayed input broadcasts
+Subject: [PATCH 127/263] Advance TensorIR delayed input broadcasts
 
 ---
  ...e-broadcasts-until-input-consumption.patch | 154 ++++++++++++++++++

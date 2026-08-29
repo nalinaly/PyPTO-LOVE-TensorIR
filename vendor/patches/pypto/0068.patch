@@ -1,7 +1,7 @@
 From 9aff69fe9b7053cfa4f024e6bfb1233dc3ce9347 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 12:51:02 +0800
-Subject: [PATCH 068/212] codegen: declare broadcast inputs through the
+Subject: [PATCH 068/263] codegen: declare broadcast inputs through the
  stride-0 convention
 
 Layout-propagation lowers broadcast graph inputs by loading unit-stride

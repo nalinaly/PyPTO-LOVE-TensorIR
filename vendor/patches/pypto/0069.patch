@@ -1,7 +1,7 @@
 From 519185d009a1f0e39c2c8c684c0368bf6afa6362 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 12:55:52 +0800
-Subject: [PATCH 069/212] codegen: lower broadcast inputs as full-extent
+Subject: [PATCH 069/263] codegen: lower broadcast inputs as full-extent
  stride-0 loads
 
 The layout-propagation load itself expands stride-0 unit extents, so

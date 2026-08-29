@@ -1,7 +1,7 @@
 From a8898e63938563f56a76576368823b17599e6ddc Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 12:28:51 +0800
-Subject: [PATCH 77/82] Diagnose recurrent scatter layout mapping
+Subject: [PATCH 77/89] Diagnose recurrent scatter layout mapping
 
 ---
  .../TensorToCudaTile/LayoutPropagationImpl.cpp      | 13 +++++++++++++

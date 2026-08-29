@@ -1,7 +1,7 @@
 From 63247ea8402f3aa5b58aaf04ef7b2a008e3859dc Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Mon, 24 Aug 2026 21:58:14 +0800
-Subject: [PATCH 012/212] build: pin TensorIR LLVM source
+Subject: [PATCH 012/263] build: pin TensorIR LLVM source
 
 ---
  .gitmodules                  | 4 ++++

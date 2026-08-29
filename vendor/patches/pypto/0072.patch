@@ -1,7 +1,7 @@
 From add6c0b4991154df199727938343b08481f63f45 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Wed, 26 Aug 2026 13:43:42 +0800
-Subject: [PATCH 072/212] codegen: add bounded structured matmul TensorIR
+Subject: [PATCH 072/263] codegen: add bounded structured matmul TensorIR
  frontend
 
 (cherry picked from commit 6ee412a751fe684c5977828f2d526e9c28d3e787)

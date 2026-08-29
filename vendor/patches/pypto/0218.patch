@@ -1,7 +1,7 @@
 From 8db7be9d6239dfd933c55915fb83dce7083cb5bd Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Sat, 29 Aug 2026 06:32:17 +0800
-Subject: [PATCH 218/218] Refresh locked pipeline build-spec golden
+Subject: [PATCH 218/263] Refresh locked pipeline build-spec golden
 
 ---
  tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp | 2 +-

@@ -1,7 +1,7 @@
 From 6361f110660a77f9a8dc542265575d8f7260b343 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Tue, 25 Aug 2026 10:09:52 +0800
-Subject: [PATCH 044/212] Add parent NVIDIA runtime observation
+Subject: [PATCH 044/263] Add parent NVIDIA runtime observation
 
 ---
  CMakeLists.txt                                |   1 +

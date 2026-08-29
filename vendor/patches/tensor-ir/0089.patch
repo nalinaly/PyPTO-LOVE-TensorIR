@@ -1,0 +1,60 @@
+From db41d0733eb73971ee03a74faca81d1af6e6aef7 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 04:15:43 +0800
+Subject: [PATCH 89/89] Repair gather layout golden tile ranks
+
+---
+ .../TensorToCudaTile/gather_rows_layout.mlir   | 18 ++++++++----------
+ 1 file changed, 8 insertions(+), 10 deletions(-)
+
+diff --git a/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
+index e2a4ac3ba2de4a0a07d27ab2ed683a3550df6bb9..5b92fa9bbcbc44c04df1868fe4d8d72cc6bd9393 100644
+--- a/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
++++ b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
+@@ -27,12 +27,12 @@
+ // CHECK: %[[LOGICAL_MATRIX:.*]] = permute %[[PHYSICAL_MATRIX]] [1, 0] : tile<32x64xf32> -> tile<64x32xf32>
+ // CHECK: store_view_tko weak %[[LOGICAL_MATRIX]]
+ // CHECK-LABEL: entry @gather_single_column
+-// CHECK: %[[COLUMN_DATA:.*]] = make_tensor_view {{.*}}, shape = [1024, 1], strides = [1, 1] : tensor_view<1024x1xsi64, strides=[1,1]>
+-// CHECK: %[[COLUMN_VIEW:.*]] = make_gather_scatter_view %[[COLUMN_DATA]] : gather_scatter_view<tile=(8x1), tensor_view<1024x1xsi64, strides=[1,1]>, sparse_dim=0>
+-// CHECK: %[[COLUMN_NARROW:.*]] = extract {{.*}} : tile<8x1xi32> -> tile<8x1xi32>
+-// CHECK: %[[COLUMN_ROWS:.*]] = reshape %[[COLUMN_NARROW]] : tile<8x1xi32> -> tile<8xi32>
++// CHECK: %[[COLUMN_DATA:.*]] = make_tensor_view {{.*}}, shape = [1024, 1], strides = [1, 1] : tensor_view<1024x1xi64, strides=[1,1]>
++// CHECK: %[[COLUMN_VIEW:.*]] = make_gather_scatter_view %[[COLUMN_DATA]] : gather_scatter_view<tile=(8x1), tensor_view<1024x1xi64, strides=[1,1]>, sparse_dim=0>
++// CHECK: %[[COLUMN_NARROW:.*]] = extract {{.*}} : tile<8xi32> -> tile<8xi32>
++// CHECK: %[[COLUMN_ROWS:.*]] = reshape %[[COLUMN_NARROW]] : tile<8xi32> -> tile<8xi32>
+ // CHECK: load_view_tko weak %[[COLUMN_VIEW]][%[[COLUMN_ROWS]], {{.*}}]
+-// CHECK-SAME: -> tile<8x1xsi64>, token
++// CHECK-SAME: -> tile<8x1xi64>, token
+ // CHECK: store_view_tko weak
+ // CHECK-LABEL: entry @gather_composite_indices
+ // CHECK: make_gather_scatter_view
+@@ -40,9 +40,7 @@
+ // CHECK: store_view_tko weak
+ // CHECK-LABEL: entry @gather_reshaped_columns
+ // CHECK: %[[RESHAPED_VIEW:.*]] = make_gather_scatter_view {{.*}} : gather_scatter_view<tile=(1x64), {{.*}}>
+-// CHECK: %[[INNER_OFFSET:.*]] = muli {{.*}}, {{.*}} : tile<i32>
+-// CHECK: %[[OUTER_OFFSET:.*]] = muli {{.*}}, {{.*}} : tile<i32>
+-// CHECK: %[[RESHAPED_OFFSET:.*]] = addi %[[INNER_OFFSET]], %[[OUTER_OFFSET]] : tile<i32>
++// CHECK: %[[RESHAPED_OFFSET:.*]] = muli {{.*}}, {{.*}} : tile<i32>
+ // CHECK: load_view_tko weak %[[RESHAPED_VIEW]][{{.*}}, %[[RESHAPED_OFFSET]]]
+ // CHECK-SAME: -> tile<1x64xf32>, token
+ // CHECK-NOT: permute
+@@ -92,7 +90,7 @@ module {
+       %data: tensor<1024x1xsi64> {nv_tensor_ir.stride = "(1,1)"},
+       %indices: tensor<32x1xsi32> {nv_tensor_ir.stride = "(1,0)"})
+       -> tensor<32x1xsi64>
+-      attributes {tile_size = array<i32: 8, 1>} {
++      attributes {tile_size = array<i32: 8>} {
+     %gathered = gather_rows %data, %indices
+         : (tensor<1024x1xsi64>, tensor<32x1xsi32>)
+        -> tensor<32x1xsi64>
+@@ -116,7 +114,7 @@ module {
+       %data: tensor<65x16384xf32> {nv_tensor_ir.stride = "(16384,1)"},
+       %indices: tensor<1x16384xsi32> {nv_tensor_ir.stride = "(0,0)"})
+       -> tensor<128x128xf32>
+-      attributes {tile_size = array<i32: 1, 64>} {
++      attributes {tile_size = array<i32: 64>} {
+     %row = gather_rows %data, %indices
+         : (tensor<65x16384xf32>, tensor<1x16384xsi32>)
+        -> tensor<1x16384xf32>

@@ -1,7 +1,7 @@
 From 19d71d94d4fdfc0804def90b90c3b2bf7995547c Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 01:51:56 +0800
-Subject: [PATCH 46/82] Materialize every direct input consumption
+Subject: [PATCH 46/89] Materialize every direct input consumption
 
 ---
  .../LayoutPropagationImpl.cpp                 | 51 +++++--------------

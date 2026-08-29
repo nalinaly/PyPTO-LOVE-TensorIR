@@ -1,7 +1,7 @@
 From 7a15076631b92e9d41964895181a2a8bac11b207 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Mon, 24 Aug 2026 23:37:28 +0800
-Subject: [PATCH 08/82] compiler: validate complete cubin structure
+Subject: [PATCH 08/89] compiler: validate complete cubin structure
 
 ---
  lib/Compiler/CMakeLists.txt                |   3 -

@@ -1,7 +1,7 @@
 From f550d4c33e8fef03e7dabcbf60c3db38b0f0a215 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Sun, 23 Aug 2026 23:09:22 +0800
-Subject: [PATCH 007/212] docs: generalize model-specific compiler comments
+Subject: [PATCH 007/263] docs: generalize model-specific compiler comments
 
 ---
  src/ir/transforms/memory_reuse_pass.cpp | 2 +-

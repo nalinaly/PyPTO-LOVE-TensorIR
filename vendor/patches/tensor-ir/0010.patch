@@ -1,7 +1,7 @@
 From 1357285e8a86af6c447cb34282df569cd3bf8e40 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Tue, 25 Aug 2026 01:10:18 +0800
-Subject: [PATCH 10/82] compiler: expose runtime-free device code validation
+Subject: [PATCH 10/89] compiler: expose runtime-free device code validation
 
 ---
  .../Compiler/CudaTile/CudaTileArtifact.h      | 10 ++++

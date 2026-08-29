@@ -1,7 +1,7 @@
 From 693f907e54675529ac4543648462a3c7278cac79 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 22:31:08 +0800
-Subject: [PATCH 30/82] Materialize compatible multi-output graphs
+Subject: [PATCH 30/89] Materialize compatible multi-output graphs
 
 ---
  lib/Transform/GraphSplitting.cpp    | 73 +++++++++++++++++++++++++----

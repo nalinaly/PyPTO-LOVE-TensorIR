@@ -1,7 +1,7 @@
 From ff7e239cee8f1d0395379af3f6b9b4e97cecacf6 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 20:23:29 +0800
-Subject: [PATCH 081/212] nvidia: accept FP32 literals in BF16 tile kernels
+Subject: [PATCH 081/263] nvidia: accept FP32 literals in BF16 tile kernels
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 6 ++++--

@@ -1,0 +1,96 @@
+From 18b6489847229a14171d501e5d2ffd699c6b4cba Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 03:33:26 +0800
+Subject: [PATCH 87/89] Restore only transposed gathered tile views
+
+---
+ .../LayoutPropagationImpl.cpp                 | 55 ++++++++++++++++---
+ .../TensorToCudaTile/gather_rows_layout.mlir  |  1 +
+ 2 files changed, 49 insertions(+), 7 deletions(-)
+
+diff --git a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+index 04e3bac5ce95beae3ec7b332cd9c99c663855561..9237e8819e9e0f3d983c4a2da277708ae7bf98d6 100644
+--- a/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
++++ b/lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp
+@@ -387,6 +387,23 @@ using BroadcastOpConversion = NoOpConversion<BroadcastOp>;
+ using TransposeOpConversion = NoOpConversion<TransposeOp>;
+ using SliceOpConversion = NoOpConversion<SliceOp>;
+ 
++bool gatherFeedsTransposeView(Value value) {
++  while (value.hasOneUse()) {
++    Operation *user = (*value.getUses().begin()).getOwner();
++    if (auto transpose = dyn_cast<TransposeOp>(user)) {
++      return llvm::any_of(
++          llvm::enumerate(transpose.getPermutation()),
++          [](auto item) { return item.index() != item.value(); });
++    }
++    if (auto reshape = dyn_cast<ReshapeOp>(user)) {
++      value = reshape.getOutput();
++      continue;
++    }
++    return false;
++  }
++  return false;
++}
++
+ class GatherRowsOpConversion : public ConversionPattern<GatherRowsOp> {
+ public:
+   using ConversionPattern<GatherRowsOp>::ConversionPattern;
+@@ -540,14 +557,38 @@ public:
+         rewriter, op.getLoc(), outputType, tokenType,
+         cuda_tile::MemoryOrderingSemantics::WEAK, /*memory_scope=*/nullptr,
+         gatherView, gatherIndices, /*token=*/nullptr, optimizationHints);
+-    FailureOr<Value> result = restoreProjectedRowTile(
+-        rewriter, op.getLoc(), load.getTile(), iterationTileShape, rowDim,
+-        scalarRowProjection, scalarColumnProjection, *columnProjection,
+-        dataElement);
+-    if (failed(result)) {
+-      return op.emitError("failed to restore the projected gather tile");
++    Value result = load.getTile();
++    if (gatherFeedsTransposeView(op.getOutput())) {
++      FailureOr<Value> restored = restoreProjectedRowTile(
++          rewriter, op.getLoc(), result, iterationTileShape, rowDim,
++          scalarRowProjection, scalarColumnProjection, *columnProjection,
++          dataElement);
++      if (failed(restored)) {
++        return op.emitError("failed to restore the projected gather tile");
++      }
++      result = *restored;
++    } else {
++      SmallVector<int64_t> projectedShape(iterationRank, 1);
++      if (!scalarRowProjection) {
++        projectedShape[rowDim] = rowTileSize;
++      }
++      if (!scalarColumnProjection) {
++        for (size_t dim : columnProjection->dimensions) {
++          projectedShape[dim] = iterationTileShape[dim];
++        }
++      }
++      if (!llvm::equal(projectedShape, gatherTileShape)) {
++        result = cuda_tile::ReshapeOp::create(
++            rewriter, op.getLoc(),
++            cuda_tile::TileType::get(projectedShape, dataElement), result);
++      }
++      if (!llvm::equal(projectedShape, iterationTileShape)) {
++        result = cuda_tile::BroadcastOp::create(
++            rewriter, op.getLoc(),
++            cuda_tile::TileType::get(iterationTileShape, dataElement), result);
++      }
+     }
+-    rewriter.replaceOp(op, *result);
++    rewriter.replaceOp(op, result);
+     return success();
+   }
+ };
+diff --git a/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
+index 596fe79ec906be9b4eb1e09d77c4979d2d5ef80e..e2a4ac3ba2de4a0a07d27ab2ed683a3550df6bb9 100644
+--- a/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
++++ b/test/Conversion/TensorToCudaTile/gather_rows_layout.mlir
+@@ -45,6 +45,7 @@
+ // CHECK: %[[RESHAPED_OFFSET:.*]] = addi %[[INNER_OFFSET]], %[[OUTER_OFFSET]] : tile<i32>
+ // CHECK: load_view_tko weak %[[RESHAPED_VIEW]][{{.*}}, %[[RESHAPED_OFFSET]]]
+ // CHECK-SAME: -> tile<1x64xf32>, token
++// CHECK-NOT: permute
+ // CHECK: store_view_tko weak
+ module {
+   nv_tensor_ir.graph @gather_rows(

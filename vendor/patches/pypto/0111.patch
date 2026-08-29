@@ -1,7 +1,7 @@
 From 3fd3c3ac493e94e229690965aa6150509393a5d0 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 00:18:52 +0800
-Subject: [PATCH 111/212] Advance the TensorIR gather lowering
+Subject: [PATCH 111/263] Advance the TensorIR gather lowering
 
 ---
  ...t-gather-index-tile-types-explicitly.patch | 34 +++++++++++++++++++

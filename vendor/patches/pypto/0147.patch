@@ -1,7 +1,7 @@
 From a78bc3fd84c54bacd6d565fc1526e4dd27397301 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 05:43:43 +0800
-Subject: [PATCH 147/212] Generalize cache-write loop matching
+Subject: [PATCH 147/263] Generalize cache-write loop matching
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp     | 11 ++++++---

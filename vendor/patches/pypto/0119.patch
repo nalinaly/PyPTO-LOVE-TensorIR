@@ -1,7 +1,7 @@
 From 90dae9d16e446acdf45ff9ade6d12fe4e684b91b Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 01:09:32 +0800
-Subject: [PATCH 119/212] Advance TensorIR layout diagnostics
+Subject: [PATCH 119/263] Advance TensorIR layout diagnostics
 
 ---
  .../0013-Name-layout-inference-failures.patch | 25 +++++++++++++++++++

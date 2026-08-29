@@ -1,7 +1,7 @@
 From 8bd2c88be7914537ddefa3f5be14f4ae27835a51 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 02:27:08 +0800
-Subject: [PATCH 134/212] Advance TensorIR one-shot input materialization
+Subject: [PATCH 134/263] Advance TensorIR one-shot input materialization
 
 ---
  ...rialize-inputs-in-one-shot-consumers.patch | 112 ++++++++++++++++++

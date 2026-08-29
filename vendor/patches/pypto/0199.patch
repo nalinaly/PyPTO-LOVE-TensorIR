@@ -1,7 +1,7 @@
 From d2733a86be0bf3a501611af6333520da62d6ef09 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 15:26:24 +0800
-Subject: [PATCH 199/212] Accept row-pitched QK preparation inputs
+Subject: [PATCH 199/263] Accept row-pitched QK preparation inputs
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 4 ++--

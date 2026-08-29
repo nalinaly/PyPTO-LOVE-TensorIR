@@ -1,0 +1,148 @@
+From 6fd9aaeeba8932c545ddcb0a0eebe48ea114b60b Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 17:00:31 +0800
+Subject: [PATCH 242/263] Lower recurrent GDN output as per-head matmuls
+
+---
+ .../nvidia_typed_tensor_ir_builder.cpp        | 103 +++++++++++++-----
+ 1 file changed, 75 insertions(+), 28 deletions(-)
+
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index fe03f7bfaa5f33b3090f6b537dac77455451dab6..0239a6de40659f5e5173a1c3fe311e82ad0cfbc0 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -824,16 +824,33 @@ class NativeGdnRecurrentBuilder {
+         {1, 1, spec_.value_heads, spec_.value_dim});
+     const auto parameter_group_type = wide_value_group_type;
+     const auto dt_parameter_group_type = value_group_type;
+-    const auto query_full_type = Tensor(
++    const auto head_state_box_type = Tensor(
+         TypedTensorIrElementType::FP32,
+-        {spec_.query_heads, heads_per_query, spec_.value_dim,
+-         spec_.key_dim});
+-    const auto output_column_type = Tensor(
++        {1, 1, spec_.value_dim, spec_.key_dim});
++    const auto head_state_type = Tensor(
+         TypedTensorIrElementType::FP32,
+-        {spec_.query_heads, heads_per_query, spec_.value_dim, 1});
+-    const auto output_column_bf16_type = Tensor(
++        {spec_.value_dim, spec_.key_dim});
++    const auto head_query_box_type = Tensor(
++        TypedTensorIrElementType::FP32,
++        {1, 1, 1, spec_.key_dim});
++    const auto head_query_type = Tensor(
++        TypedTensorIrElementType::FP32,
++        {1, spec_.key_dim});
++    const auto head_query_column_type = Tensor(
++        TypedTensorIrElementType::FP32,
++        {spec_.key_dim, 1});
++    const auto head_output_type = Tensor(
++        TypedTensorIrElementType::FP32,
++        {spec_.value_dim, 1});
++    const auto head_output_bf16_type = Tensor(
+         TypedTensorIrElementType::BF16,
+-        {spec_.query_heads, heads_per_query, spec_.value_dim, 1});
++        {spec_.value_dim, 1});
++    const auto head_row_type = Tensor(
++        TypedTensorIrElementType::BF16,
++        {1, spec_.value_dim});
++    const auto all_heads_type = Tensor(
++        TypedTensorIrElementType::BF16,
++        {spec_.value_heads, spec_.value_dim});
+     const auto output_box_type = Tensor(
+         TypedTensorIrElementType::BF16,
+         {1, 1, spec_.value_heads, spec_.value_dim});
+@@ -977,9 +994,11 @@ class NativeGdnRecurrentBuilder {
+ 
+         if (token + 1 != spec_.tokens_per_request) {
+           token_outputs.push_back(BuildOutput(
+-              scaled_query, current_state,
+-              query_full_type,
+-              output_column_type, output_column_bf16_type, output_box_type));
++              scaled_query, current_state, head_state_box_type,
++              head_state_type, head_query_box_type, head_query_type,
++              head_query_column_type, head_output_type,
++              head_output_bf16_type, head_row_type, all_heads_type,
++              output_box_type));
+         }
+       }
+ 
+@@ -990,9 +1009,11 @@ class NativeGdnRecurrentBuilder {
+               .getOutput();
+       const mlir::Value stored_group = Reshape(stored_state, state_group_type);
+       const mlir::Value final_output = BuildOutput(
+-          final_scaled_query, stored_group,
+-          query_full_type,
+-          output_column_type, output_column_bf16_type, output_box_type);
++          final_scaled_query, stored_group, head_state_box_type,
++          head_state_type, head_query_box_type, head_query_type,
++          head_query_column_type, head_output_type,
++          head_output_bf16_type, head_row_type, all_heads_type,
++          output_box_type);
+       token_outputs.push_back(final_output);
+ 
+       if (token_outputs.size() == 1) {
+@@ -1108,22 +1129,48 @@ class NativeGdnRecurrentBuilder {
+ 
+   mlir::Value BuildOutput(
+       mlir::Value scaled_query, mlir::Value state,
+-      mlir::RankedTensorType query_full_type,
+-      mlir::RankedTensorType output_column_type,
+-      mlir::RankedTensorType output_column_bf16_type,
++      mlir::RankedTensorType head_state_box_type,
++      mlir::RankedTensorType head_state_type,
++      mlir::RankedTensorType head_query_box_type,
++      mlir::RankedTensorType head_query_type,
++      mlir::RankedTensorType head_query_column_type,
++      mlir::RankedTensorType head_output_type,
++      mlir::RankedTensorType head_output_bf16_type,
++      mlir::RankedTensorType head_row_type,
++      mlir::RankedTensorType all_heads_type,
+       mlir::RankedTensorType output_box_type) {
+-    // Keep the output dot product in the vector/reduction domain.  The
+-    // recurrent state is already in natural [V,K] order; reducing the
+-    // elementwise product avoids a second matrix transpose/layout contract
+-    // for the M=1 read while preserving FP32 accumulation.
+-    const mlir::Value query_full =
+-        Broadcast(scaled_query, query_full_type);
+-    const mlir::Value product = Binary<tir::MulOp>(state, query_full);
+-    const mlir::Value output_column =
+-        Reduce(product, output_column_type, {3});
+-    const mlir::Value output =
+-        Convert(output_column, output_column_bf16_type);
+-    return Reshape(output, output_box_type);
++    llvm::SmallVector<mlir::Value> rows;
++    rows.reserve(static_cast<size_t>(spec_.value_heads));
++    for (int64_t value_head = 0; value_head < spec_.value_heads;
++         ++value_head) {
++      const int64_t query_head = value_head /
++                                 (spec_.value_heads / spec_.query_heads);
++      const int64_t group = value_head %
++                            (spec_.value_heads / spec_.query_heads);
++      const mlir::Value state_box = Slice(
++          state, head_state_box_type,
++          {query_head, group, 0, 0},
++          {query_head + 1, group + 1, spec_.value_dim, spec_.key_dim},
++          {1, 1, 1, 1});
++      const mlir::Value state_head = Reshape(state_box, head_state_type);
++      const mlir::Value query_box = Slice(
++          scaled_query, head_query_box_type,
++          {query_head, group, 0, 0},
++          {query_head + 1, group + 1, 1, spec_.key_dim},
++          {1, 1, 1, 1});
++      const mlir::Value query_head_value =
++          Reshape(query_box, head_query_type);
++      const mlir::Value query_column =
++          Reshape(query_head_value, head_query_column_type);
++      const mlir::Value output_column =
++          Matmul(state_head, query_column, head_output_type);
++      const mlir::Value output_bf16 =
++          Convert(output_column, head_output_bf16_type);
++      rows.push_back(Reshape(output_bf16, head_row_type));
++    }
++    const mlir::Value all_heads =
++        Concatenate(rows, all_heads_type, /*dimension=*/0);
++    return Reshape(all_heads, output_box_type);
+   }
+ 
+   mlir::OpBuilder& builder_;

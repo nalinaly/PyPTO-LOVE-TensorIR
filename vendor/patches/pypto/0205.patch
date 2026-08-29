@@ -1,7 +1,7 @@
 From 792c9a0953293fa448aaa9a4856f24ab4bbbb671 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 17:34:50 +0800
-Subject: [PATCH 205/212] Build native matmul with typed TensorIR
+Subject: [PATCH 205/263] Build native matmul with typed TensorIR
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp      |  91 +++++++--

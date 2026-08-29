@@ -1,7 +1,7 @@
 From ca8640e71cd5a95a041f60d8e18672c806f38e42 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Mon, 24 Aug 2026 22:02:21 +0800
-Subject: [PATCH 01/82] build: support private embedded compiler mode
+Subject: [PATCH 01/89] build: support private embedded compiler mode
 
 ---
  CMakeLists.txt                | 37 +++++++++++++++++++++++++++++------

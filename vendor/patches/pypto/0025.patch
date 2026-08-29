@@ -1,7 +1,7 @@
 From 0ba43303944d78f4fa8c7ccde8355749c7c1d0a0 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Tue, 25 Aug 2026 04:04:42 +0800
-Subject: [PATCH 025/212] Compile strict TensorIR artifacts through PyPTO
+Subject: [PATCH 025/263] Compile strict TensorIR artifacts through PyPTO
 
 ---
  3rdparty/nvidia/tensor-ir                     |    2 +-

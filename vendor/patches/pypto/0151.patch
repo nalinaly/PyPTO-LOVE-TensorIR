@@ -1,7 +1,7 @@
 From 12a6e7cf67ba01de8dee9255806b0700337f8fef Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 06:48:17 +0800
-Subject: [PATCH 151/212] Preserve non-dense JIT tensor strides
+Subject: [PATCH 151/263] Preserve non-dense JIT tensor strides
 
 ---
  python/pypto/jit/cache.py                   |   9 +

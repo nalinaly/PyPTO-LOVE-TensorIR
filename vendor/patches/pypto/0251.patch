@@ -1,0 +1,30 @@
+From f0ab91b38ae237c82eaad57be454f783bb5fccee Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 23:06:38 +0800
+Subject: [PATCH 251/263] Use corrected TensorIR scatter result layout
+
+---
+ 3rdparty/nvidia/tensor-ir  | 2 +-
+ cmake/nvidia_backend.cmake | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index eb5fc509d9ac6d7a015a29f8b8330f6d9d15fa6b..3623b37eddbec0f74f014867fca3dd296ec91868 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit eb5fc509d9ac6d7a015a29f8b8330f6d9d15fa6b
++Subproject commit 3623b37eddbec0f74f014867fca3dd296ec91868
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 4f0c3c2936a8802e1868b23ab83d9d78cdac4e0c..4a57abe0344db95cf643729fc8525f54f65f133f 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "eb5fc509d9ac6d7a015a29f8b8330f6d9d15fa6b")
++    "3623b37eddbec0f74f014867fca3dd296ec91868")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

@@ -1,7 +1,7 @@
 From 39ac068670263e2d944ff7c60465c047e06b5315 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 22:37:26 +0800
-Subject: [PATCH 100/212] Vendor TensorIR multi-output stores
+Subject: [PATCH 100/263] Vendor TensorIR multi-output stores
 
 ---
  ...tore-every-layout-propagation-result.patch | 67 +++++++++++++++++++

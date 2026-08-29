@@ -1,7 +1,7 @@
 From 682141f3def18fbf24fb3b059ea53d841d95209e Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Tue, 25 Aug 2026 04:50:38 +0800
-Subject: [PATCH 035/212] Harden tileiras closed-stdio launch
+Subject: [PATCH 035/263] Harden tileiras closed-stdio launch
 
 ---
  3rdparty/nvidia/tensor-ir                     |  2 +-

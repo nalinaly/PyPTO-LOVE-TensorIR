@@ -1,7 +1,7 @@
 From 1cae26fa225b377501ec9e544fa972590bd1b8fe Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 10:19:48 +0800
-Subject: [PATCH 70/82] Infer scatter row axes from indices
+Subject: [PATCH 70/89] Infer scatter row axes from indices
 
 ---
  .../LayoutPropagationImpl.cpp                 | 66 +++++++++----------

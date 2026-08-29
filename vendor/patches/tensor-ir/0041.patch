@@ -1,7 +1,7 @@
 From 2777ef23ad24580854b732e62fb462dea6ba6ef0 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 01:12:45 +0800
-Subject: [PATCH 41/82] Support slicing reduction result layouts
+Subject: [PATCH 41/89] Support slicing reduction result layouts
 
 ---
  lib/Dialect/TensorAttrs.cpp                   | 19 +++++++++++++++++--

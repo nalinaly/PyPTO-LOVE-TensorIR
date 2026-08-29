@@ -1,7 +1,7 @@
 From dfbc4eeec14fd2b52e8dd7f3e714e269fa714452 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Sun, 23 Aug 2026 21:55:32 +0800
-Subject: [PATCH 004/212] tests: accept compact printed function signatures
+Subject: [PATCH 004/263] tests: accept compact printed function signatures
 
 ---
  tests/ut/ir/transforms/test_declared_memref.py | 8 +++++++-

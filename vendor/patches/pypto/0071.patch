@@ -1,7 +1,7 @@
 From 8d6e882c5f77ad9f7bc4bf226826c3fce58f1c36 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 12:59:24 +0800
-Subject: [PATCH 071/212] codegen: row-reduction epilogue graphs with
+Subject: [PATCH 071/263] codegen: row-reduction epilogue graphs with
  post-reduce broadcast
 
 sum -> optional scale/shift/rsqrt over [M,1] -> broadcast -> multiply

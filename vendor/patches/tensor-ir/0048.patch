@@ -1,7 +1,7 @@
 From 9137c902ed01f8836bf004994ef095b6fed77eeb Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 01:56:29 +0800
-Subject: [PATCH 48/82] Compare delayed broadcast tile shapes portably
+Subject: [PATCH 48/89] Compare delayed broadcast tile shapes portably
 
 ---
  lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp | 2 +-

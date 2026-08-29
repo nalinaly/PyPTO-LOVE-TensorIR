@@ -1,7 +1,7 @@
 From 5ddf1e7f231d946af6b5e38eccb8955f71d71b3f Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Wed, 26 Aug 2026 14:03:37 +0800
-Subject: [PATCH 075/212] nvidia: enable broadcast views in pointwise producer
+Subject: [PATCH 075/263] nvidia: enable broadcast views in pointwise producer
 
 ---
  ...e-broadcast-view-tensor-ir-broadcast.patch | 192 ++++++++++++++++++

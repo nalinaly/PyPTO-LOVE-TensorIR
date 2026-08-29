@@ -1,7 +1,7 @@
 From 3ed5fa702e7327676ef3d8a5d57fd251e699a81a Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 11:18:46 +0800
-Subject: [PATCH 177/212] Use plane-major causal convolution state
+Subject: [PATCH 177/263] Use plane-major causal convolution state
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 184 ++++++++++++++---------

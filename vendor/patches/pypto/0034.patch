@@ -1,7 +1,7 @@
 From c33f23f73e289d6dc0d7a1e61d1609f8eac99c76 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Tue, 25 Aug 2026 04:35:24 +0800
-Subject: [PATCH 034/212] Test strict producer backend-off failure
+Subject: [PATCH 034/263] Test strict producer backend-off failure
 
 ---
  tests/ut/compiler/test_artifact.py | 44 ++++++++++++++++++++++++------

@@ -1,7 +1,7 @@
 From 9e36b82173ae48a2501bc1848feae392dcce633b Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Tue, 25 Aug 2026 02:57:27 +0800
-Subject: [PATCH 13/82] Expose CUDA Tile pipeline resource options
+Subject: [PATCH 13/89] Expose CUDA Tile pipeline resource options
 
 ---
  .../Compiler/CudaTile/CudaTileCompiler.h      | 12 +++++++

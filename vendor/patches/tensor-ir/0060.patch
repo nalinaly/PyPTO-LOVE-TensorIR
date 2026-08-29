@@ -1,7 +1,7 @@
 From 4407530b39307866e7d6cc032dcf711c5954f086 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 04:08:55 +0800
-Subject: [PATCH 60/82] Handle unit dimensions in fused matmul layouts
+Subject: [PATCH 60/89] Handle unit dimensions in fused matmul layouts
 
 ---
  include/tensor_ir/Dialect/TensorAttrs.td      |  7 ++-

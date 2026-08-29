@@ -1,7 +1,7 @@
 From db2b888be812dcb8e1919a0ecc8b9d909a7cd2d1 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 11:00:03 +0800
-Subject: [PATCH 71/82] Project contiguous gather columns across reshapes
+Subject: [PATCH 71/89] Project contiguous gather columns across reshapes
 
 ---
  .../LayoutPropagationImpl.cpp                 | 161 ++++++++++++------

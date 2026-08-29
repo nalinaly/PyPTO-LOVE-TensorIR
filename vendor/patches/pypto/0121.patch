@@ -1,7 +1,7 @@
 From c8f643822fa7a064b03450809cbbc11f2249d281 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 01:18:31 +0800
-Subject: [PATCH 121/212] Keep fused QK outputs in packed head layout
+Subject: [PATCH 121/263] Keep fused QK outputs in packed head layout
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 42 ++++++++----------------

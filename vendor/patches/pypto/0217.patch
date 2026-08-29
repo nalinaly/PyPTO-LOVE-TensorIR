@@ -1,7 +1,7 @@
 From 8aa2f57b9d89ea0ddcb257bea4193d1cf6eb8148 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Sat, 29 Aug 2026 06:26:01 +0800
-Subject: [PATCH 217/217] Lock extended TensorIR pipeline specification
+Subject: [PATCH 217/263] Lock extended TensorIR pipeline specification
 
 ---
  cmake/nvidia_backend.cmake                            | 2 +-

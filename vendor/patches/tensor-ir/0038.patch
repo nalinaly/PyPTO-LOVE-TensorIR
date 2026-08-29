@@ -1,7 +1,7 @@
 From 494ebe55345a00a2e9ad034725b7c464217e7308 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 00:41:28 +0800
-Subject: [PATCH 38/82] Scale dense gather coordinates to element offsets
+Subject: [PATCH 38/89] Scale dense gather coordinates to element offsets
 
 ---
  lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp | 8 +++++++-

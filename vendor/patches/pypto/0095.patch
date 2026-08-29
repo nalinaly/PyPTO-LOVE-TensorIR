@@ -1,7 +1,7 @@
 From e44e66f4b6d654e395fd7faaf513df3877388a6f Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 22:23:50 +0800
-Subject: [PATCH 095/212] Support native fused add RMSNorm outputs
+Subject: [PATCH 095/263] Support native fused add RMSNorm outputs
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp      | 350 +++++++++++++++++-

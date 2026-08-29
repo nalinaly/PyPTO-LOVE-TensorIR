@@ -1,0 +1,46 @@
+From 005d956d029a1ae9f2a3da9ae122416f8343b0ec Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 14:21:09 +0800
+Subject: [PATCH 227/263] Allow strided tensors in native attention
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 12 ++++++------
+ 1 file changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 38573791106ed164f1473c437207b265a921b740..7df3e077076ae00a23841626e1320bacb56147c0 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -6638,26 +6638,26 @@ NativeTileAttentionGraph AnalyzeNativeTileAttention(
+     Reject("native attention result must have direction Out",
+            &function->params_[result_index]->span_);
+   }
+-  const StaticTensor query = ReadStaticTensor(
++  const StaticTensor query = ReadStaticNdStridedTensor(
+       function->params_[0]->GetType(), function->params_[0]->span_,
+       "native attention query");
+-  const StaticTensor key = ReadStaticTensor(
++  const StaticTensor key = ReadStaticNdStridedTensor(
+       function->params_[1]->GetType(), function->params_[1]->span_,
+       "native attention key");
+-  const StaticTensor value = ReadStaticTensor(
++  const StaticTensor value = ReadStaticNdStridedTensor(
+       function->params_[2]->GetType(), function->params_[2]->span_,
+       "native attention value");
+   std::optional<StaticTensor> additive_mask;
+   if (has_additive_mask) {
+-    additive_mask = ReadStaticTensor(
++    additive_mask = ReadStaticNdStridedTensor(
+         function->params_[3]->GetType(), function->params_[3]->span_,
+         "native attention additive mask");
+   }
+-  const StaticTensor result = ReadStaticTensor(
++  const StaticTensor result = ReadStaticNdStridedTensor(
+       function->params_[result_index]->GetType(),
+       function->params_[result_index]->span_,
+       "native attention output");
+-  const StaticTensor declared = ReadStaticTensor(
++  const StaticTensor declared = ReadStaticNdStridedTensor(
+       function->return_types_[0], function->span_, "native attention return");
+   if (query.dtype != DataType::BF16 || key.dtype != DataType::BF16 ||
+       value.dtype != DataType::BF16 || result.dtype != DataType::BF16 ||

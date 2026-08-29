@@ -1,7 +1,7 @@
 From 5863644501e402f7a99db807ef123ac968712b32 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 22:03:27 +0800
-Subject: [PATCH 093/212] Lower native tile linear projections
+Subject: [PATCH 093/263] Lower native tile linear projections
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp     | 197 +++++++++++++++++++

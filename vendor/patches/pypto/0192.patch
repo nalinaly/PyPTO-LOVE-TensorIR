@@ -1,7 +1,7 @@
 From ab6a4aee8a6bae422d1f76e2ea2e5cba092bce24 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 12:40:53 +0800
-Subject: [PATCH 192/212] Align GDN outer products with state layout
+Subject: [PATCH 192/263] Align GDN outer products with state layout
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 13 ++++---------

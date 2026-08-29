@@ -1,7 +1,7 @@
 From 50e16afb8d2dc9437fdd05db1e66df70ccd0e016 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 12:15:06 +0800
-Subject: [PATCH 186/212] Order final GDN output after state scatter
+Subject: [PATCH 186/263] Order final GDN output after state scatter
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 131 ++++++++---------------

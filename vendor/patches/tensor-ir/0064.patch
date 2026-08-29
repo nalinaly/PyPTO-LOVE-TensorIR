@@ -1,7 +1,7 @@
 From 6b7599a57efea5fc67e1a696b6a2142671f0b95d Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 05:27:09 +0800
-Subject: [PATCH 64/82] Add row scatter layout lowering
+Subject: [PATCH 64/89] Add row scatter layout lowering
 
 ---
  include/tensor_ir/Dialect/TensorOps.td        |  34 +++

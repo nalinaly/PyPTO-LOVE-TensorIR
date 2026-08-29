@@ -1,0 +1,266 @@
+From 0ffd510a0ce85b784c8a50cfeb9bd375b964a4ad Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 02:05:20 +0800
+Subject: [PATCH 252/263] Use head-major paged prefill TensorIR ABI
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp      | 51 ++++++++++++--
+ .../nvidia_typed_tensor_ir_builder.cpp        | 32 +++------
+ tests/ut/cpp/structured_compile_test.cpp      | 70 +++++++++++++++++++
+ 3 files changed, 125 insertions(+), 28 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 21c612c1f15d80f98e938d43b1f7016633becaae..4120721aa2f3f76b8583e9403afc05c1eb7cbef3 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -6285,23 +6285,23 @@ NativeTilePagedPrefillGraph AnalyzeNativeTilePagedPrefill(
+       virtual_to_physical.shape[0] <= 0 ||
+       virtual_to_physical.shape[1] != 1 ||
+       query.dense_strides.size() != 3 || query.dense_strides[2] != 1 ||
+-      query.dense_strides[1] != query.shape[2] ||
+       result.dtype != query.dtype || result.shape != query.shape ||
+       result.dense_strides.size() != 3 || result.dense_strides[2] != 1 ||
+-      result.dense_strides[1] != result.shape[2] ||
+       !SameTensor(result, declared)) {
+     Reject("native paged prefill tensor types or ranks are invalid",
+            &function->span_);
+   }
+-  const int64_t query_rows = query.shape[0];
+-  const int64_t q_heads = query.shape[1];
++  const int64_t q_heads = query.shape[0];
++  const int64_t query_rows = query.shape[1];
+   const int64_t head_dim = query.shape[2];
+   const int64_t cache_rows = key_cache.shape[0];
+   const int64_t tokens = request_index.shape[1];
+   if (query_rows <= 0 || q_heads <= 0 || head_dim <= 0 ||
+       q_heads > std::numeric_limits<int64_t>::max() / head_dim ||
+-      query.dense_strides[0] < q_heads * head_dim ||
+-      result.dense_strides[0] < q_heads * head_dim ||
++      query.dense_strides[0] != head_dim ||
++      query.dense_strides[1] < q_heads * head_dim ||
++      result.dense_strides[0] != head_dim ||
++      result.dense_strides[1] < q_heads * head_dim ||
+       head_dim % 128 != 0 || cache_rows <= 0 || tokens <= 0 ||
+       tokens % 16 != 0 || key_cache.shape[1] % head_dim != 0 ||
+       req_to_token.shape[0] <= 0 || req_to_token.shape[1] < tokens ||
+@@ -6482,6 +6482,45 @@ NativeTilePagedPrefillGraph AnalyzeNativeTilePagedPrefill(
+       !store_call || !ir::IsOp(store_call, "tile.store")) {
+     Reject("native paged prefill output sequence is invalid", &query_body->span_);
+   }
++  const auto q_head_assignment =
++      ir::As<ir::AssignStmt>(q_group_body->stmts_[0]);
++  const auto query_load_assignment =
++      ir::As<ir::AssignStmt>(query_body->stmts_[0]);
++  const auto query_load =
++      query_load_assignment
++          ? ir::As<ir::Call>(query_load_assignment->value_)
++          : nullptr;
++  const auto query_offsets =
++      query_load && query_load->args_.size() >= 2
++          ? ir::As<ir::MakeTuple>(query_load->args_[1])
++          : nullptr;
++  const auto store_offsets =
++      store_call && store_call->args_.size() == 3
++          ? ir::As<ir::MakeTuple>(store_call->args_[1])
++          : nullptr;
++  const auto query_column =
++      query_offsets && query_offsets->elements_.size() == 3
++          ? ir::As<ir::ConstInt>(query_offsets->elements_[2])
++          : nullptr;
++  const auto store_column =
++      store_offsets && store_offsets->elements_.size() == 3
++          ? ir::As<ir::ConstInt>(store_offsets->elements_[2])
++          : nullptr;
++  if (!q_head_assignment || !q_head_assignment->var_ || !query_load ||
++      query_load->args_.empty() ||
++      query_load->args_[0].get() != function->params_[0].get() ||
++      !query_offsets || query_offsets->elements_.size() != 3 ||
++      query_offsets->elements_[0].get() != q_head_assignment->var_.get() ||
++      query_offsets->elements_[1].get() != query_loop->loop_var_.get() ||
++      !query_column || query_column->value_ != 0 || !store_offsets ||
++      store_offsets->elements_.size() != 3 ||
++      store_offsets->elements_[0].get() != q_head_assignment->var_.get() ||
++      store_offsets->elements_[1].get() != query_loop->loop_var_.get() ||
++      !store_column || store_column->value_ != 0 ||
++      store_call->args_[2].get() != function->params_[8].get()) {
++    Reject("native paged prefill query/result head-major indexing is invalid",
++           &query_body->span_);
++  }
+   const auto scale_assignment = ir::As<ir::AssignStmt>(query_body->stmts_[3]);
+   const auto scale_call = scale_assignment
+                               ? ir::As<ir::Call>(scale_assignment->value_)
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index eb8cfcaa3285aaf33541fad3a02262c2338fe00c..b8eb6847e29d0994025a6ef2f3fe0096b5e2eab9 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -417,10 +417,11 @@ bool ValidateNativePagedPrefillSpec(
+   const auto& prefix_tokens = spec.inputs[5];
+   const auto& mapping = spec.inputs[6];
+   if (query.element_type != TypedTensorIrElementType::BF16 ||
+-      query.shape != std::vector<int64_t>({spec.query_rows, spec.query_heads,
++      query.shape != std::vector<int64_t>({spec.query_heads, spec.query_rows,
+                                            spec.head_dim}) ||
+       query.shape.size() != 3 || query.strides[2] != 1 ||
+-      query.strides[1] < spec.head_dim ||
++      query.strides[0] != spec.head_dim ||
++      query.strides[1] < spec.query_heads * spec.head_dim ||
+       key_cache.element_type != TypedTensorIrElementType::BF16 ||
+       value_cache.element_type != TypedTensorIrElementType::BF16 ||
+       key_cache.shape != value_cache.shape || key_cache.shape.size() != 2 ||
+@@ -439,8 +440,8 @@ bool ValidateNativePagedPrefillSpec(
+       mapping.strides[0] < 1 ||
+       spec.result.element_type != TypedTensorIrElementType::BF16 ||
+       spec.result.shape != query.shape || spec.result.strides[2] != 1 ||
+-      spec.result.strides[1] < spec.head_dim ||
+-      spec.result.strides[0] < spec.query_heads * spec.head_dim) {
++      spec.result.strides[0] != spec.head_dim ||
++      spec.result.strides[1] < spec.query_heads * spec.head_dim) {
+     return reject("tensor dtype, shape, or stride contract is invalid");
+   }
+   if (spec.query_rows <= 0 || spec.query_heads <= 0 || spec.kv_heads <= 0 ||
+@@ -846,9 +847,6 @@ mlir::Value BuildNativePagedPrefillBatched(
+       builder, TypedTensorIrElementType::BF16,
+       {queries_per_kv, tokens, head_dim});
+   const auto query_box_type = TensorType(
+-      builder, TypedTensorIrElementType::BF16,
+-      {spec.query_rows, queries_per_kv, head_dim});
+-  const auto query_group_type = TensorType(
+       builder, TypedTensorIrElementType::BF16,
+       {queries_per_kv, spec.query_rows, head_dim});
+   const auto position_column_type = TensorType(
+@@ -877,9 +875,6 @@ mlir::Value BuildNativePagedPrefillBatched(
+   const auto head_result_type = TensorType(
+       builder, TypedTensorIrElementType::BF16,
+       {queries_per_kv, spec.query_rows, head_dim});
+-  const auto head_box_type = TensorType(
+-      builder, TypedTensorIrElementType::BF16,
+-      {spec.query_rows, queries_per_kv, head_dim});
+   const auto result_type = TensorType(
+       builder, TypedTensorIrElementType::BF16, spec.result.shape);
+   const auto prefix_scalar_type = TensorType(
+@@ -1053,17 +1048,13 @@ mlir::Value BuildNativePagedPrefillBatched(
+                        .getOutput();
+     }
+     const int64_t q_start = kv_head * queries_per_kv;
+-    const mlir::Value query_box = tir::SliceOp::create(
++    const mlir::Value query = tir::SliceOp::create(
+         builder, location, query_box_type, arguments[0],
+-        llvm::ArrayRef<int64_t>{0, q_start, 0},
+-        llvm::ArrayRef<int64_t>{spec.query_rows, q_start + queries_per_kv,
++        llvm::ArrayRef<int64_t>{q_start, 0, 0},
++        llvm::ArrayRef<int64_t>{q_start + queries_per_kv, spec.query_rows,
+                                 head_dim},
+         llvm::ArrayRef<int64_t>{1, 1, 1})
+         .getOutput();
+-    const mlir::Value query = tir::TransposeOp::create(
+-        builder, location, query_group_type, query_box,
+-        llvm::ArrayRef<int64_t>{1, 0, 2})
+-        .getOutput();
+     const mlir::Value scores = tir::MatmulOp::create(
+         builder, location, score_type, query, key_batch)
+         .getC();
+@@ -1108,14 +1099,11 @@ mlir::Value BuildNativePagedPrefillBatched(
+     const mlir::Value head = tir::ConvertOp::create(
+         builder, location, head_result_type, mixed)
+         .getOutput();
+-    head_boxes.push_back(tir::TransposeOp::create(
+-                              builder, location, head_box_type, head,
+-                              llvm::ArrayRef<int64_t>{1, 0, 2})
+-                              .getOutput());
++    head_boxes.push_back(head);
+   }
+   if (head_boxes.size() == 1) return head_boxes.front();
+   return tir::ConcatenateOp::create(builder, location, result_type, head_boxes,
+-                                    /*dimension=*/1)
++                                    /*dimension=*/0)
+       .getOutput();
+ }
+ 
+diff --git a/tests/ut/cpp/structured_compile_test.cpp b/tests/ut/cpp/structured_compile_test.cpp
+index b927f35a9f12e428c5ad6e34d6a526696c3c53bc..dd8d2bbfd6450255d05ed398952377c76682ee2e 100644
+--- a/tests/ut/cpp/structured_compile_test.cpp
++++ b/tests/ut/cpp/structured_compile_test.cpp
+@@ -1059,6 +1059,74 @@ int TestRealStructuredMatmulProducerSuccess() {
+   return 0;
+ }
+ 
++int TestTypedPagedPrefillHeadMajorModuleBuilder() {
++#if defined(PYPTO_ENABLE_NVIDIA_COMPILER_BACKEND)
++  using pypto::codegen::nvidia::NativePagedPrefillTensorIrSpec;
++  using pypto::codegen::nvidia::TypedTensorIrElementType;
++  using pypto::codegen::nvidia::TypedTensorIrModuleKind;
++  using pypto::codegen::nvidia::TypedTensorIrModuleSpec;
++  using pypto::codegen::nvidia::TypedTensorIrTensorSpec;
++  using pypto::compiler::detail::BuildTypedTensorIrModule;
++
++  const auto tensor = [](TypedTensorIrElementType element_type,
++                         std::vector<int64_t> shape,
++                         std::vector<int64_t> strides) {
++    return TypedTensorIrTensorSpec{element_type, std::move(shape),
++                                   std::move(strides), true};
++  };
++  TypedTensorIrModuleSpec module_spec;
++  module_spec.kind = TypedTensorIrModuleKind::NativePagedPrefill;
++  NativePagedPrefillTensorIrSpec& spec = module_spec.native_paged_prefill;
++  spec.query_rows = 19;
++  spec.query_heads = 8;
++  spec.kv_heads = 2;
++  spec.tokens = 32;
++  spec.head_dim = 256;
++  spec.cache_rows = 257;
++  spec.scale = 1.0 / std::sqrt(256.0);
++  spec.inputs = {
++      tensor(TypedTensorIrElementType::BF16, {8, 19, 256}, {256, 2048, 1}),
++      tensor(TypedTensorIrElementType::BF16, {257, 512}, {512, 1}),
++      tensor(TypedTensorIrElementType::BF16, {257, 512}, {512, 1}),
++      tensor(TypedTensorIrElementType::INT32, {2, 260}, {260, 1}),
++      tensor(TypedTensorIrElementType::INT64, {1, 32}, {0, 0}),
++      tensor(TypedTensorIrElementType::INT32, {1, 32}, {0, 0}),
++      tensor(TypedTensorIrElementType::INT64, {257, 1}, {1, 1}),
++  };
++  spec.result = tensor(TypedTensorIrElementType::BF16, {8, 19, 256},
++                       {256, 2048, 1});
++
++  std::string diagnostic;
++  auto built = BuildTypedTensorIrModule(module_spec, diagnostic);
++  REQUIRE(built.has_value());
++  REQUIRE(diagnostic.empty());
++  REQUIRE(built->module);
++  const std::string source(built->canonical_source.begin(),
++                           built->canonical_source.end());
++  REQUIRE(source.find("tensor<8x19x256xbf16>") != std::string::npos);
++  REQUIRE(source.find("permutation = [1, 0, 2]") == std::string::npos);
++  REQUIRE(source.find("concatenate") != std::string::npos);
++
++  const CompileRequest request = MakeRequest();
++  const CanonicalSchedule schedule =
++      MakeSchedule(std::vector<uint32_t>{1, 1, 1, 128});
++  const auto options =
++      pypto::compiler::detail::ResolveStrictTensorIrProducerOptions(request,
++                                                                    schedule);
++  pypto::compiler::detail::NvidiaTensorIrCompilationInput producer_input;
++  producer_input.typed_module_spec = module_spec;
++  const uint64_t before = GetStrictNvidiaProducerInvocationCountForTesting();
++  auto compiled = CompileNvidiaProducerOnce(producer_input, request, options);
++  REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before + 1);
++  REQUIRE(compiled.GetKernelAbi().GetEntryFunctionName() ==
++          "pypto_fused_pointwise");
++  REQUIRE(compiled.GetKernelAbi().GetArgumentLayout().GetInputOperandCount() ==
++          NativePagedPrefillTensorIrSpec::kInputCount);
++  REQUIRE(compiled.GetSourceIrDigest().size() == 64);
++#endif
++  return 0;
++}
++
+ int TestTypedGdnModuleBuilder() {
+ #if defined(PYPTO_ENABLE_NVIDIA_COMPILER_BACKEND)
+   using pypto::codegen::nvidia::NativeGdnRecurrentTensorIrSpec;
+@@ -1265,6 +1333,8 @@ int main() {
+   if (const int result = TestRealFusedPointwiseProducerSuccess()) return result;
+   if (const int result = TestRealRowReductionProducerSuccess()) return result;
+   if (const int result = TestRealStructuredMatmulProducerSuccess()) return result;
++  if (const int result = TestTypedPagedPrefillHeadMajorModuleBuilder())
++    return result;
+   if (const int result = TestTypedGdnModuleBuilder()) return result;
+   if (const int result = TestTypedGdnProjectionModuleBuilder()) return result;
+   if (const int result = TestTypedSigmoidAndMulModuleBuilder()) return result;

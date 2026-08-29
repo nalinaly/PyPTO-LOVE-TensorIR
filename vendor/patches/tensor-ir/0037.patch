@@ -1,7 +1,7 @@
 From 353850f736de4e0793d5f716b9733ab2ea6aa77f Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 00:36:36 +0800
-Subject: [PATCH 37/82] Admit row gathers in the CUDA Tile frontend
+Subject: [PATCH 37/89] Admit row gathers in the CUDA Tile frontend
 
 ---
  lib/Compiler/CudaTile/CudaTileFrontend.cpp | 1 +

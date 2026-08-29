@@ -1,7 +1,7 @@
 From 20fab98254e0b14a587e0abf285bec951bf9382c Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 09:02:04 +0800
-Subject: [PATCH 69/82] Infer gather row axes from indices
+Subject: [PATCH 69/89] Infer gather row axes from indices
 
 ---
  .../LayoutPropagationImpl.cpp                 | 54 ++++++++-----------

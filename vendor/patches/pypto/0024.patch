@@ -1,7 +1,7 @@
 From 4a82f2e40ce518d16fcbeec647061649564c42af Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Tue, 25 Aug 2026 02:37:18 +0800
-Subject: [PATCH 024/212] Require loadable Cubin section mapping
+Subject: [PATCH 024/263] Require loadable Cubin section mapping
 
 ---
  3rdparty/nvidia/tensor-ir                       |  2 +-

@@ -1,0 +1,90 @@
+From 4fe2f0ab255901a004106156822770ea7ac9470e Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 04:27:24 +0800
+Subject: [PATCH 263/263] Align structured compiler fixtures with typed layouts
+
+---
+ tests/ut/compiler/test_structured_compile.py | 20 ++++++++++++++------
+ 1 file changed, 14 insertions(+), 6 deletions(-)
+
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index fa0c9d1adad7497d34a4f355b4a144c2ce5dd007..ca597b1e54630efba17763c30b008c83c71b0895 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -40,6 +40,9 @@ from pypto.pypto_core import ir
+ _PAGED_CACHE_VIEW = pl.TensorView(
+     stride=[2048, 1], layout=ir.TensorLayout.ND
+ )
++_PAGED_PREFILL_VIEW = pl.TensorView(
++    stride=[256, 512, 1], layout=ir.TensorLayout.ND
++)
+ _SWIGLU_INPUT_VIEW = pl.TensorView(
+     stride=[7168, 1], layout=ir.TensorLayout.ND
+ )
+@@ -489,7 +492,7 @@ def _native_tile_paged_cache_write(
+ 
+ @pl.jit
+ def _native_tile_paged_prefill(
+-    query: pl.Tensor[[2, 2, 256], pl.BF16],
++    query: pl.Tensor[[2, 2, 256], pl.BF16, _PAGED_PREFILL_VIEW],
+     key_cache: pl.Tensor[[1024, 256], pl.BF16, _PAGED_CACHE_VIEW],
+     value_cache: pl.Tensor[[1024, 256], pl.BF16, _PAGED_CACHE_VIEW],
+     req_to_token: pl.Tensor[[65, 4096], pl.INT32],
+@@ -497,14 +500,17 @@ def _native_tile_paged_prefill(
+     prefix_tokens: pl.Tensor[[1, 16], pl.INT32],
+     virtual_to_physical: pl.Tensor[[1024, 1], pl.INT64],
+     scale: pl.FP32,
+-    out: pl.Out[pl.Tensor[[2, 2, 256], pl.BF16]],
++    out: pl.Out[
++        pl.Tensor[[2, 2, 256], pl.BF16, _PAGED_PREFILL_VIEW]
++    ],
+ ):
+     with pl.at(level=pl.Level.CORE_GROUP):
+         request_id = pl.read(request_index, [0, 0])
+         prefix_token_count = pl.read(prefix_tokens, [0, 0])
+         positions = pl.tile.ci(0, [1, 16], dtype=pl.INT32)
++        q_heads = query.shape[0]
+         kv_heads = key_cache.shape[1] // query.shape[2]
+-        queries_per_kv = query.shape[1] // kv_heads
++        queries_per_kv = q_heads // kv_heads
+         for kv_head in pl.range(kv_heads):
+             keys = pl.tile.create(
+                 [256, 16],
+@@ -540,7 +546,7 @@ def _native_tile_paged_prefill(
+                 for query_row in pl.range(2):
+                     query_box = pl.load(
+                         query,
+-                        [query_row, q_head, 0],
++                        [q_head, query_row, 0],
+                         [1, 1, 256],
+                         target_memory=pl.MemorySpace.Mat,
+                     )
+@@ -579,7 +585,7 @@ def _native_tile_paged_prefill(
+                     )
+                     result = pl.cast(mixed, target_type=pl.BF16)
+                     result_box = pl.reshape(result, [1, 1, 256])
+-                    pl.store(result_box, [query_row, q_head, 0], out)
++                    pl.store(result_box, [q_head, query_row, 0], out)
+     return out
+ 
+ 
+@@ -961,8 +967,10 @@ def _assert_native_paged_prefill_compilation(request: CompileRequest) -> None:
+     ]
+     assert descriptors[1].strides == [2048, 1]
+     assert descriptors[2].strides == [2048, 1]
++    assert descriptors[0].strides == [256, 512, 1]
+     assert descriptors[4].strides == [0, 0]
+     assert descriptors[5].strides == [0, 0]
++    assert descriptors[7].strides == [256, 512, 1]
+     assert not prefill.artifact.fallback_used
+ 
+ 
+@@ -970,7 +978,7 @@ def _assert_row_pitched_swiglu_compilation(request: CompileRequest) -> None:
+     row_pitched_swiglu = compile_structured_strict(
+         _native_tile_row_pitched_silu_and_mul.specialize(),
+         request,
+-        _schedule(128),
++        _schedule([1, 128]),
+     )
+     kernel = row_pitched_swiglu.artifact.kernel_abi
+     assert kernel.entry_function_name == "pypto_fused_pointwise"

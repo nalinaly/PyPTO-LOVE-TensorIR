@@ -1,7 +1,7 @@
 From fa6aa909b78f3acda7e29eed173e1be84d02f95c Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 22:33:55 +0800
-Subject: [PATCH 099/212] Vendor TensorIR multi-output lowering
+Subject: [PATCH 099/263] Vendor TensorIR multi-output lowering
 
 ---
  ...ompatible-multi-output-layout-graphs.patch | 68 +++++++++++++++++++

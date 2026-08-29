@@ -1,7 +1,7 @@
 From d1b90b767d6be8e3907a01d41655eedbc621df2f Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 02:48:44 +0800
-Subject: [PATCH 138/212] Advance TensorIR fused gather indices
+Subject: [PATCH 138/263] Advance TensorIR fused gather indices
 
 ---
  ...her-index-producers-into-fused-space.patch | 41 +++++++++++++++++++

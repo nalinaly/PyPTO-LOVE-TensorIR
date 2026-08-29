@@ -1,0 +1,34 @@
+From 9221daf23788447e9c02dec270b452f639776f28 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 18:28:26 +0800
+Subject: [PATCH 249/263] Use signed TensorIR integer constants
+
+---
+ src/compiler/nvidia_typed_tensor_ir_builder.cpp | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index 7d09240abac0ce21e3261d8bfd8b80cc3fae0772..b24b2a82fc9318d08c1bdddd6b06021e70940ac3 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -928,7 +928,8 @@ mlir::Value BuildNativePagedPrefill(
+     const mlir::Value row_offset = tir::ConstantOp::create(
+                                        builder, location,
+                                        builder.getIntegerAttr(
+-                                           builder.getIntegerType(32),
++                                           builder.getIntegerType(
++                                               32, mlir::IntegerType::Signed),
+                                            query_row + 1))
+                                        .getResult();
+     const mlir::Value row_offset_splat = tir::SplatOp::create(
+@@ -1183,7 +1184,9 @@ mlir::Value BuildNativePagedPrefillBatched(
+   const mlir::Value one = tir::ConstantOp::create(
+                               builder, location,
+                               builder.getIntegerAttr(
+-                                  builder.getIntegerType(32), 1))
++                                  builder.getIntegerType(
++                                      32, mlir::IntegerType::Signed),
++                                  1))
+                               .getResult();
+   const mlir::Value one_column = tir::SplatOp::create(
+       builder, location, position_column_type, one, mlir::ValueRange{})

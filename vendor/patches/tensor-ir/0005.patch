@@ -1,7 +1,7 @@
 From 156b8f7e86c27ec6875bee539a321bda95b1c576 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Mon, 24 Aug 2026 22:51:34 +0800
-Subject: [PATCH 05/82] compiler: expose deterministic CUDA Tile artifacts
+Subject: [PATCH 05/89] compiler: expose deterministic CUDA Tile artifacts
 
 ---
  .../Compiler/CudaTile/CudaTileArtifact.h      |  96 ++++++

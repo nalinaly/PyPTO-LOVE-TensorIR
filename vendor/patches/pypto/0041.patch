@@ -1,7 +1,7 @@
 From c087170444270cbe00f83e1fbf127ddcf3e33926 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Tue, 25 Aug 2026 06:50:32 +0800
-Subject: [PATCH 041/212] Fix ArtifactCache corruption assertion
+Subject: [PATCH 041/263] Fix ArtifactCache corruption assertion
 
 ---
  tests/ut/compiler/test_artifact.py | 4 ++--

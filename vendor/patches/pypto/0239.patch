@@ -1,0 +1,26 @@
+From 20d6ff99f13424a08af96c4f5c69a5dd694f1ad3 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 16:42:02 +0800
+Subject: [PATCH 239/263] Reshape recurrent GDN query for output matmul
+
+---
+ src/compiler/nvidia_typed_tensor_ir_builder.cpp | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index ea3875a665065c6a7073ff3d35ba53d900e4e72d..fca9a868d5954c6f4a729ea5f042cc6c6721dad9 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -1113,8 +1113,10 @@ class NativeGdnRecurrentBuilder {
+       mlir::RankedTensorType output_column_type,
+       mlir::RankedTensorType output_column_bf16_type,
+       mlir::RankedTensorType output_box_type) {
+-    const mlir::Value query_column =
+-        Transpose(scaled_query, query_column_type, {0, 1, 3, 2});
++    // The query's two matrix dimensions are [1, K].  Reinterpreting that
++    // one-row vector as [K, 1] preserves the linear element order and avoids
++    // asking layout propagation to transpose a loop-carried computed tile.
++    const mlir::Value query_column = Reshape(scaled_query, query_column_type);
+     const mlir::Value output_column =
+         Matmul(state, query_column, output_column_type);
+     const mlir::Value output =

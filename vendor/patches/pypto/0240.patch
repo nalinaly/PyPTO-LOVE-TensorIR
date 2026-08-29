@@ -1,0 +1,72 @@
+From cacc48a5c7e7dee131c69e51e4f1e3ef4dc2b7dd Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 16:48:12 +0800
+Subject: [PATCH 240/263] Use typed reduction for recurrent GDN output
+
+---
+ .../nvidia_typed_tensor_ir_builder.cpp        | 26 ++++++++++++-------
+ 1 file changed, 16 insertions(+), 10 deletions(-)
+
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index fca9a868d5954c6f4a729ea5f042cc6c6721dad9..a430f96b59acc2e3f85a8b4f34c23b5aeb1e98f6 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -826,9 +826,10 @@ class NativeGdnRecurrentBuilder {
+         {1, 1, spec_.value_heads, spec_.value_dim});
+     const auto parameter_group_type = wide_value_group_type;
+     const auto dt_parameter_group_type = value_group_type;
+-    const auto query_column_type = Tensor(
++    const auto query_full_type = Tensor(
+         TypedTensorIrElementType::FP32,
+-        {spec_.query_heads, heads_per_query, spec_.key_dim, 1});
++        {spec_.query_heads, heads_per_query, spec_.value_dim,
++         spec_.key_dim});
+     const auto output_column_type = Tensor(
+         TypedTensorIrElementType::FP32,
+         {spec_.query_heads, heads_per_query, spec_.value_dim, 1});
+@@ -980,7 +981,8 @@ class NativeGdnRecurrentBuilder {
+ 
+         if (token + 1 != spec_.tokens_per_request) {
+           token_outputs.push_back(BuildOutput(
+-              scaled_query, current_state, query_column_type,
++              scaled_query, current_state,
++              query_full_type,
+               output_column_type, output_column_bf16_type, output_box_type));
+         }
+       }
+@@ -992,7 +994,8 @@ class NativeGdnRecurrentBuilder {
+               .getOutput();
+       const mlir::Value stored_group = Reshape(stored_state, state_group_type);
+       const mlir::Value final_output = BuildOutput(
+-          final_scaled_query, stored_group, query_column_type,
++          final_scaled_query, stored_group,
++          query_full_type,
+           output_column_type, output_column_bf16_type, output_box_type);
+       token_outputs.push_back(final_output);
+ 
+@@ -1109,16 +1112,19 @@ class NativeGdnRecurrentBuilder {
+ 
+   mlir::Value BuildOutput(
+       mlir::Value scaled_query, mlir::Value state,
+-      mlir::RankedTensorType query_column_type,
++      mlir::RankedTensorType query_full_type,
+       mlir::RankedTensorType output_column_type,
+       mlir::RankedTensorType output_column_bf16_type,
+       mlir::RankedTensorType output_box_type) {
+-    // The query's two matrix dimensions are [1, K].  Reinterpreting that
+-    // one-row vector as [K, 1] preserves the linear element order and avoids
+-    // asking layout propagation to transpose a loop-carried computed tile.
+-    const mlir::Value query_column = Reshape(scaled_query, query_column_type);
++    // Keep the output dot product in the vector/reduction domain.  The
++    // recurrent state is already in natural [V,K] order; reducing the
++    // elementwise product avoids a second matrix transpose/layout contract
++    // for the M=1 read while preserving FP32 accumulation.
++    const mlir::Value query_full =
++        Broadcast(scaled_query, query_full_type);
++    const mlir::Value product = Binary<tir::MulOp>(state, query_full);
+     const mlir::Value output_column =
+-        Matmul(state, query_column, output_column_type);
++        Reduce(product, output_column_type, {3});
+     const mlir::Value output =
+         Convert(output_column, output_column_bf16_type);
+     return Reshape(output, output_box_type);

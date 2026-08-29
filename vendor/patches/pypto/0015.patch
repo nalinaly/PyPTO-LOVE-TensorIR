@@ -1,7 +1,7 @@
 From 5f755687674bd23a513e913cd6f2f20e8b6397ef Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Mon, 24 Aug 2026 22:25:56 +0800
-Subject: [PATCH 015/212] build: finalize embedded TensorIR consumer boundary
+Subject: [PATCH 015/263] build: finalize embedded TensorIR consumer boundary
 
 ---
  3rdparty/nvidia/tensor-ir                           | 2 +-

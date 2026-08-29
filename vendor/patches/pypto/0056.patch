@@ -1,7 +1,7 @@
 From faefd0a1df29b4bdb3434f5f6e5f73757387ae3e Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 01:15:30 +0800
-Subject: [PATCH 056/212] test: rebind row-sum goldens to the +0-normalized
+Subject: [PATCH 056/263] test: rebind row-sum goldens to the +0-normalized
  sources
 
 The FP32 rank-one/rank-two sum fixtures grow by the constant/splat/add

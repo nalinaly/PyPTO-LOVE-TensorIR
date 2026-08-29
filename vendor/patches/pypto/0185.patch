@@ -1,7 +1,7 @@
 From 31379171a962f09bad274662f998fe4f2aa9c5b0 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 12:11:55 +0800
-Subject: [PATCH 185/212] Flatten GDN mutation anchors
+Subject: [PATCH 185/263] Flatten GDN mutation anchors
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 30 ++++++++++++------------

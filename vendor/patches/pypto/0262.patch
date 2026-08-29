@@ -1,0 +1,30 @@
+From af107d14d1c4ce17aefb7079a66717ba80c37955 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 04:16:05 +0800
+Subject: [PATCH 262/263] Pin runnable gather layout golden
+
+---
+ 3rdparty/nvidia/tensor-ir  | 2 +-
+ cmake/nvidia_backend.cmake | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/3rdparty/nvidia/tensor-ir b/3rdparty/nvidia/tensor-ir
+index 5a8a50d164adf6ffda4d9eb0ae2051bf23095f7c..db41d0733eb73971ee03a74faca81d1af6e6aef7 160000
+--- a/3rdparty/nvidia/tensor-ir
++++ b/3rdparty/nvidia/tensor-ir
+@@ -1 +1 @@
+-Subproject commit 5a8a50d164adf6ffda4d9eb0ae2051bf23095f7c
++Subproject commit db41d0733eb73971ee03a74faca81d1af6e6aef7
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index 1175924004a287ac1842087c560e048c5bef01ad..d5d434060f71bfc01884c364e5b4c73e64546504 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "5a8a50d164adf6ffda4d9eb0ae2051bf23095f7c")
++    "db41d0733eb73971ee03a74faca81d1af6e6aef7")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

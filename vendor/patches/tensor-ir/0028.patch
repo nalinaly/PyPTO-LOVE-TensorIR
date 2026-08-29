@@ -1,7 +1,7 @@
 From f8e9272e14b7176ca10f43419db305cd46e88979 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 21:09:09 +0800
-Subject: [PATCH 28/82] Preserve bounded diagnostics in strict compilation
+Subject: [PATCH 28/89] Preserve bounded diagnostics in strict compilation
  errors
 
 ---

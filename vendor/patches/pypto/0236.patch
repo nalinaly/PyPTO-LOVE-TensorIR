@@ -1,0 +1,22 @@
+From 9111b5ba4095366aca14ccc2950c55645725a2c2 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 15:23:28 +0800
+Subject: [PATCH 236/263] Complete typed attention tensor construction
+
+---
+ src/compiler/nvidia_typed_tensor_ir_builder.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index 5550ae04f37c5d33b233a42c83a09b7facaf458e..b6998e595cc96e8dba8c5ca0a45832013991fa55 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -608,7 +608,7 @@ mlir::Value BuildNativeAttention(
+   const auto key_transposed_type = TensorType(
+       builder, TypedTensorIrElementType::BF16, {head_dim, tokens});
+   const auto probability_type =
+-      Tensor(builder, TypedTensorIrElementType::BF16, {rows, tokens});
++      TensorType(builder, TypedTensorIrElementType::BF16, {rows, tokens});
+   const auto accumulation_type = TensorType(
+       builder, TypedTensorIrElementType::FP32, {rows, value_dim});
+   const auto result_type =

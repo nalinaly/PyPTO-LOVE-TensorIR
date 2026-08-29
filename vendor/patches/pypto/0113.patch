@@ -1,7 +1,7 @@
 From 618958d71a07e0de7caf7360c83e7523011b325a Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 00:29:56 +0800
-Subject: [PATCH 113/212] Lower native tile row gathers
+Subject: [PATCH 113/263] Lower native tile row gathers
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp     | 230 +++++++++++++++++++

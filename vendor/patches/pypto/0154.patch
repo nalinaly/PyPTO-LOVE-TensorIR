@@ -1,7 +1,7 @@
 From 564099691f35b944bd35542ba56bad0f70edd611 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 07:30:38 +0800
-Subject: [PATCH 154/212] Add single-graph GDN recurrent emitter
+Subject: [PATCH 154/263] Add single-graph GDN recurrent emitter
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 896 +++++++++++++++++++++++

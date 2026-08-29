@@ -1,7 +1,7 @@
 From 2351bd533e2232c6cc2a7035c8dbb784e19469cb Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 20:18:19 +0800
-Subject: [PATCH 078/212] nvidia: accept native jit pointwise tiles
+Subject: [PATCH 078/263] nvidia: accept native jit pointwise tiles
 
 ---
  python/pypto/jit/decorator.py                |  29 ++

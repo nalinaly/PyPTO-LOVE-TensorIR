@@ -1,7 +1,7 @@
 From 81cfceec9751782d556aea431c015ff54006fb6b Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Mon, 24 Aug 2026 23:20:28 +0800
-Subject: [PATCH 017/212] build: harden private TensorIR artifact boundary
+Subject: [PATCH 017/263] build: harden private TensorIR artifact boundary
 
 ---
  3rdparty/nvidia/tensor-ir                     |   2 +-

@@ -1,7 +1,7 @@
 From e364baefc4a76c8b87b9c870a7b490a8aab40dd9 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 22:52:47 +0800
-Subject: [PATCH 102/212] Lower native gated RMSNorm
+Subject: [PATCH 102/263] Lower native gated RMSNorm
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp     | 318 +++++++++++++++++++

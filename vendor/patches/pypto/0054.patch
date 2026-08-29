@@ -1,7 +1,7 @@
 From 62eb88251df5bdad95277a9d619d20da9bf121eb Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Wed, 26 Aug 2026 16:17:48 +0800
-Subject: [PATCH 054/212] test: construct immutable row reduction descriptors
+Subject: [PATCH 054/263] test: construct immutable row reduction descriptors
 
 ---
  tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp | 8 ++++++--

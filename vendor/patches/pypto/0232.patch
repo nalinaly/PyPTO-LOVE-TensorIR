@@ -1,0 +1,409 @@
+From 7b37e66ca480594e7747b3f8a677020e07cf96cd Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 14:48:14 +0800
+Subject: [PATCH 232/263] Add native paged cache gather graph
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 368 +++++++++++++++++++++++
+ 1 file changed, 368 insertions(+)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 7df3e077076ae00a23841626e1320bacb56147c0..1fcbab58bad2b9e6fb06deef5ac3dd7fe4287562 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -4655,6 +4655,17 @@ struct NativeTilePagedCacheWriteGraph {
+   StaticTensor result;
+ };
+ 
++struct NativeTilePagedGatherGraph {
++  StaticTensor cache;
++  StaticTensor req_to_token;
++  StaticTensor request_index;
++  StaticTensor virtual_to_physical;
++  StaticTensor result;
++  int64_t tokens;
++  int64_t cache_rows;
++  int64_t row_width;
++};
++
+ struct NativeTilePagedPrefillGraph {
+   StaticTensor query;
+   StaticTensor key_cache;
+@@ -5875,6 +5886,241 @@ NativeTilePagedCacheWriteGraph AnalyzeNativeTilePagedCacheWrite(
+       result};
+ }
+ 
++bool IsNativeTilePagedGatherCandidate(const ir::ProgramPtr& program) {
++  if (!IsNativeTilePointwiseCandidate(program)) return false;
++  const ir::FunctionPtr& function = program->functions_.begin()->second;
++  if (function->params_.size() != 5) return false;
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = top && top->stmts_.size() == 2
++                         ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
++                         : nullptr;
++  // The request read is followed by one static slot loop. Keep this probe
++  // narrow so malformed unrelated CHIP programs still reach their normal
++  // diagnostics instead of being claimed by the gather emitter.
++  const auto scope_body = scope ? ir::As<ir::SeqStmts>(scope->body_) : nullptr;
++  if (!scope_body || scope_body->stmts_.size() != 2 ||
++      !ir::As<ir::AssignStmt>(scope_body->stmts_[0])) {
++    return false;
++  }
++  const auto loop = ir::As<ir::ForStmt>(scope_body->stmts_[1]);
++  const auto loop_body = loop ? ir::As<ir::SeqStmts>(loop->body_) : nullptr;
++  if (!loop_body || loop_body->stmts_.size() != 5) return false;
++  const auto request_assignment =
++      ir::As<ir::AssignStmt>(scope_body->stmts_[0]);
++  const auto request_call =
++      request_assignment ? ir::As<ir::Call>(request_assignment->value_)
++                          : nullptr;
++  const auto virtual_assignment =
++      ir::As<ir::AssignStmt>(loop_body->stmts_[0]);
++  const auto physical_assignment =
++      ir::As<ir::AssignStmt>(loop_body->stmts_[1]);
++  const auto cast_assignment = ir::As<ir::AssignStmt>(loop_body->stmts_[2]);
++  const auto load_assignment = ir::As<ir::AssignStmt>(loop_body->stmts_[3]);
++  const auto store_statement = ir::As<ir::EvalStmt>(loop_body->stmts_[4]);
++  const auto virtual_call = virtual_assignment
++                                ? ir::As<ir::Call>(virtual_assignment->value_)
++                                : nullptr;
++  const auto physical_call =
++      physical_assignment ? ir::As<ir::Call>(physical_assignment->value_)
++                          : nullptr;
++  const auto physical_cast =
++      cast_assignment ? ir::As<ir::Cast>(cast_assignment->value_) : nullptr;
++  const auto load_call =
++      load_assignment ? ir::As<ir::Call>(load_assignment->value_) : nullptr;
++  const auto store_call =
++      store_statement ? ir::As<ir::Call>(store_statement->expr_) : nullptr;
++  return request_call && ir::IsOp(request_call, "tensor.read") &&
++         virtual_call && ir::IsOp(virtual_call, "tensor.read") &&
++         physical_call && ir::IsOp(physical_call, "tensor.read") &&
++         physical_cast && load_call && ir::IsOp(load_call, "tile.load") &&
++         store_call && ir::IsOp(store_call, "tile.store");
++}
++
++NativeTilePagedGatherGraph AnalyzeNativeTilePagedGather(
++    const ir::ProgramPtr& program) {
++  const auto& [global, function] = *program->functions_.begin();
++  if (!global || !function || global->name_ != function->name_ ||
++      function->requires_runtime_binding_ ||
++      function->func_type_ != ir::FunctionType::Orchestration ||
++      !function->level_.has_value() || *function->level_ != ir::Level::CHIP ||
++      !function->role_.has_value() ||
++      *function->role_ != ir::Role::Orchestrator || !function->attrs_.empty()) {
++    Reject("native paged gather must be one canonical CHIP @pl.jit function",
++           function ? &function->span_ : &program->span_);
++  }
++  if (function->params_.size() != 5 ||
++      function->param_directions_.size() != 5 ||
++      function->return_types_.size() != 1) {
++    Reject("native paged gather requires cache, request metadata, mapping and output",
++           &function->span_);
++  }
++  for (size_t index = 0; index < 4; ++index) {
++    if (function->param_directions_[index] != ir::ParamDirection::In) {
++      Reject("native paged gather inputs must have direction In",
++             &function->params_[index]->span_);
++    }
++  }
++  if (function->param_directions_[4] != ir::ParamDirection::Out) {
++    Reject("native paged gather output must have direction Out",
++           &function->params_[4]->span_);
++  }
++
++  const StaticTensor cache = ReadStaticNdStridedTensor(
++      function->params_[0]->GetType(), function->params_[0]->span_,
++      "native paged gather cache");
++  const StaticTensor req_to_token = ReadStaticIntegerTensor(
++      function->params_[1]->GetType(), function->params_[1]->span_,
++      "native paged gather request table");
++  StaticTensor request_index = ReadStaticIntegerTensor(
++      function->params_[2]->GetType(), function->params_[2]->span_,
++      "native paged gather request index");
++  const StaticTensor virtual_to_physical = ReadStaticIntegerTensor(
++      function->params_[3]->GetType(), function->params_[3]->span_,
++      "native paged gather virtual-to-physical table");
++  const StaticTensor result = ReadStaticNdStridedTensor(
++      function->params_[4]->GetType(), function->params_[4]->span_,
++      "native paged gather output");
++  const StaticTensor declared = ReadStaticNdStridedTensor(
++      function->return_types_[0], function->span_,
++      "native paged gather declared output");
++  if (cache.dtype != DataType::BF16 || cache.shape.size() != 2 ||
++      cache.dense_strides[1] != 1 ||
++      cache.dense_strides[0] < cache.shape[1] ||
++      req_to_token.dtype != DataType::INT32 || req_to_token.shape.size() != 2 ||
++      request_index.dtype != DataType::INT64 || request_index.shape.size() != 2 ||
++      request_index.shape[0] != 1 ||
++      virtual_to_physical.dtype != DataType::INT64 ||
++      virtual_to_physical.shape.size() != 2 ||
++      virtual_to_physical.shape[1] != 1 ||
++      result.dtype != DataType::BF16 || result.shape.size() != 2 ||
++      result.shape[1] != cache.shape[1] || !SameTensor(result, declared) ||
++      result.shape[0] != request_index.shape[1] ||
++      req_to_token.shape[1] < request_index.shape[1]) {
++    Reject("native paged gather tensor geometry is invalid", &function->span_);
++  }
++  request_index.dense_strides = {0, 0};
++
++  const auto top = ir::As<ir::SeqStmts>(function->body_);
++  const auto scope = top && top->stmts_.size() == 2
++                         ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
++                         : nullptr;
++  const auto body = scope ? ir::As<ir::SeqStmts>(scope->body_) : nullptr;
++  const auto returned = top && top->stmts_.size() == 2
++                            ? ir::As<ir::ReturnStmt>(top->stmts_[1])
++                            : nullptr;
++  const auto returned_var =
++      returned && returned->value_.size() == 1
++          ? ir::As<ir::Var>(returned->value_[0])
++          : nullptr;
++  if (!scope || scope->split_ != ir::SplitMode::None ||
++      !scope->attrs_.empty() || !body || body->stmts_.size() != 2 ||
++      !returned_var || returned_var.get() != function->params_[4].get()) {
++    Reject("native paged gather scope or return is invalid", &function->span_);
++  }
++  const auto request_assignment = ir::As<ir::AssignStmt>(body->stmts_[0]);
++  const auto loop = ir::As<ir::ForStmt>(body->stmts_[1]);
++  const auto loop_stop = loop ? ir::As<ir::ConstInt>(loop->stop_) : nullptr;
++  const auto loop_body = loop ? ir::As<ir::SeqStmts>(loop->body_) : nullptr;
++  if (!request_assignment || !request_assignment->var_ || !loop ||
++      !loop_stop || loop_stop->value_ != result.shape[0] ||
++      loop->kind_ != ir::ForKind::Sequential || !loop->iter_args_.empty() ||
++      !loop->return_vars_.empty() || !loop_body ||
++      loop_body->stmts_.size() != 5) {
++    Reject("native paged gather slot loop is invalid", &function->span_);
++  }
++  const auto virtual_assignment =
++      ir::As<ir::AssignStmt>(loop_body->stmts_[0]);
++  const auto physical_assignment =
++      ir::As<ir::AssignStmt>(loop_body->stmts_[1]);
++  const auto cast_assignment = ir::As<ir::AssignStmt>(loop_body->stmts_[2]);
++  const auto load_assignment = ir::As<ir::AssignStmt>(loop_body->stmts_[3]);
++  const auto store_statement = ir::As<ir::EvalStmt>(loop_body->stmts_[4]);
++  const auto request_call = ir::As<ir::Call>(request_assignment->value_);
++  const auto virtual_call = virtual_assignment
++                                ? ir::As<ir::Call>(virtual_assignment->value_)
++                                : nullptr;
++  const auto physical_call =
++      physical_assignment ? ir::As<ir::Call>(physical_assignment->value_)
++                          : nullptr;
++  const auto physical_cast =
++      cast_assignment ? ir::As<ir::Cast>(cast_assignment->value_) : nullptr;
++  const auto load_call =
++      load_assignment ? ir::As<ir::Call>(load_assignment->value_) : nullptr;
++  const auto store_call =
++      store_statement ? ir::As<ir::Call>(store_statement->expr_) : nullptr;
++  const auto request_indices =
++      request_call && request_call->args_.size() == 2
++          ? ir::As<ir::MakeTuple>(request_call->args_[1])
++          : nullptr;
++  const auto virtual_indices =
++      virtual_call && virtual_call->args_.size() == 2
++          ? ir::As<ir::MakeTuple>(virtual_call->args_[1])
++          : nullptr;
++  const auto physical_indices =
++      physical_call && physical_call->args_.size() == 2
++          ? ir::As<ir::MakeTuple>(physical_call->args_[1])
++          : nullptr;
++  const auto physical_column =
++      physical_indices && physical_indices->elements_.size() == 2
++          ? ir::As<ir::ConstInt>(physical_indices->elements_[1])
++          : nullptr;
++  const auto cast_type = physical_cast
++                             ? ir::As<ir::ScalarType>(physical_cast->GetType())
++                             : nullptr;
++  const auto load_source =
++      load_call && !load_call->args_.empty()
++          ? ir::As<ir::Var>(load_call->args_[0])
++          : nullptr;
++  const auto store_source =
++      store_call && store_call->args_.size() == 3
++          ? ir::As<ir::Var>(store_call->args_[0])
++          : nullptr;
++  const auto store_target =
++      store_call && store_call->args_.size() == 3
++          ? ir::As<ir::Var>(store_call->args_[2])
++          : nullptr;
++  if (!request_call || !ir::IsOp(request_call, "tensor.read") ||
++      request_call->args_.size() != 2 ||
++      request_call->args_[0].get() != function->params_[2].get() ||
++      !request_indices || request_indices->elements_.size() != 2 ||
++      !ir::As<ir::ConstInt>(request_indices->elements_[0]) ||
++      !ir::As<ir::ConstInt>(request_indices->elements_[1]) ||
++      !virtual_assignment || !virtual_assignment->var_ || !virtual_call ||
++      !ir::IsOp(virtual_call, "tensor.read") || virtual_call->args_.size() != 2 ||
++      virtual_call->args_[0].get() != function->params_[1].get() ||
++      !virtual_indices || virtual_indices->elements_.size() != 2 ||
++      virtual_indices->elements_[0].get() != request_assignment->var_.get() ||
++      virtual_indices->elements_[1].get() != loop->loop_var_.get() ||
++      !physical_assignment || !physical_assignment->var_ || !physical_call ||
++      !ir::IsOp(physical_call, "tensor.read") || physical_call->args_.size() != 2 ||
++      physical_call->args_[0].get() != function->params_[3].get() ||
++      !physical_indices || physical_indices->elements_.size() != 2 ||
++      physical_indices->elements_[0].get() != virtual_assignment->var_.get() ||
++      !physical_column || physical_column->value_ != 0 ||
++      !cast_assignment || !cast_assignment->var_ || !physical_cast ||
++      physical_cast->operand_.get() != physical_assignment->var_.get() ||
++      !cast_type || cast_type->dtype_ != DataType::INT32 || !load_call ||
++      !ir::IsOp(load_call, "tile.load") || !load_source ||
++      load_source.get() != function->params_[0].get() || !store_call ||
++      !ir::IsOp(store_call, "tile.store") || !store_source ||
++      store_source.get() != load_assignment->var_.get() || !store_target ||
++      store_target.get() != function->params_[4].get()) {
++    Reject("native paged gather operation sequence is invalid",
++           &body->span_);
++  }
++  const StaticTensor loaded = ReadStaticTile(
++      load_assignment->var_->GetType(), load_assignment->var_->span_,
++      "native paged gather loaded row");
++  if (loaded.dtype != DataType::BF16 || loaded.shape.size() != 2 ||
++      loaded.shape[0] != 1 || loaded.shape[1] != cache.shape[1]) {
++    Reject("native paged gather loaded row shape is invalid",
++           &load_assignment->span_);
++  }
++  return NativeTilePagedGatherGraph{
++      cache, req_to_token, request_index, virtual_to_physical, result,
++      result.shape[0], cache.shape[0], cache.shape[1]};
++}
++
+ bool IsNativeTilePagedPrefillCandidate(const ir::ProgramPtr& program) {
+   if (!IsNativeTilePointwiseCandidate(program)) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+@@ -8546,6 +8792,107 @@ std::string EmitNativeTilePagedCacheWriteSource(
+   return source;
+ }
+ 
++std::string EmitNativeTilePagedGatherSource(
++    const NativeTilePagedGatherGraph& graph) {
++  StaticTensor request_prefix{DataType::INT32,
++                              {graph.req_to_token.shape[0], graph.tokens}, {}};
++  request_prefix.dense_strides =
++      MakeDenseStridesForMetadata(request_prefix.shape);
++  StaticTensor index_row{DataType::INT32, {1, graph.tokens}, {}};
++  index_row.dense_strides = MakeDenseStridesForMetadata(index_row.shape);
++  StaticTensor virtual_column{DataType::INT32, {graph.tokens, 1}, {}};
++  virtual_column.dense_strides =
++      MakeDenseStridesForMetadata(virtual_column.shape);
++  StaticTensor physical_column_i64 = virtual_column;
++  physical_column_i64.dtype = DataType::INT64;
++  StaticTensor physical_column = virtual_column;
++  StaticTensor physical_indices{DataType::INT32,
++                                {graph.tokens, graph.row_width}, {}};
++  physical_indices.dense_strides =
++      MakeDenseStridesForMetadata(physical_indices.shape);
++
++  const std::string cache_type = TensorTypeText(graph.cache);
++  const std::string request_table_type =
++      TensorTypeText(graph.req_to_token);
++  const std::string request_index_type =
++      TensorTypeText(graph.request_index);
++  const std::string mapping_type =
++      TensorTypeText(graph.virtual_to_physical);
++  const std::string request_prefix_type = TensorTypeText(request_prefix);
++  const std::string index_row_type = TensorTypeText(index_row);
++  const std::string virtual_column_type = TensorTypeText(virtual_column);
++  const std::string physical_column_i64_type =
++      TensorTypeText(physical_column_i64);
++  const std::string physical_column_type = TensorTypeText(physical_column);
++  const std::string physical_indices_type = TensorTypeText(physical_indices);
++  const std::string result_type = TensorWithStrideText(graph.result);
++
++  std::string source;
++  source.reserve(2048);
++  source += "module {\n  nv_tensor_ir.graph @";
++  source += kFusedPointwiseEntryName;
++  source += "(\n    %arg0: ";
++  source += TensorWithStrideText(graph.cache);
++  source += ",\n    %arg1: ";
++  source += TensorWithStrideText(graph.req_to_token);
++  source += ",\n    %arg2: ";
++  source += TensorWithStrideText(graph.request_index);
++  source += ",\n    %arg3: ";
++  source += TensorWithStrideText(graph.virtual_to_physical);
++  source += "\n  ) -> (";
++  source += result_type;
++  source += ") {";
++  source += "\n    %request_index32 = convert %arg2 : ";
++  source += request_index_type;
++  source += " -> ";
++  source += index_row_type;
++  source += "\n    %request_prefix = slice %arg1 starts = [0, 0] limits = [";
++  source += std::to_string(graph.req_to_token.shape[0]);
++  source += ", ";
++  source += std::to_string(graph.tokens);
++  source += "] strides = [1, 1] : ";
++  source += request_table_type;
++  source += " -> ";
++  source += request_prefix_type;
++  source += "\n    %request_row = gather_rows %request_prefix, %request_index32 : (";
++  source += request_prefix_type;
++  source += ", ";
++  source += index_row_type;
++  source += ") -> ";
++  source += index_row_type;
++  source += "\n    %virtual_column = transpose %request_row permutation = [1, 0] : ";
++  source += index_row_type;
++  source += " -> ";
++  source += virtual_column_type;
++  source += "\n    %physical_column_i64 = gather_rows %arg3, %virtual_column : (";
++  source += mapping_type;
++  source += ", ";
++  source += virtual_column_type;
++  source += ") -> ";
++  source += physical_column_i64_type;
++  source += "\n    %physical_column = convert %physical_column_i64 : ";
++  source += physical_column_i64_type;
++  source += " -> ";
++  source += physical_column_type;
++  source += "\n    %physical_indices = broadcast %physical_column : ";
++  source += physical_column_type;
++  source += " -> ";
++  source += physical_indices_type;
++  source += "\n    %result0 = gather_rows %arg0, %physical_indices : (";
++  source += cache_type;
++  source += ", ";
++  source += physical_indices_type;
++  source += ") -> ";
++  source += result_type;
++  source += "\n    results %result0 : ";
++  source += result_type;
++  source += "\n  }\n}\n";
++  if (source.size() > kMaximumCanonicalSourceBytes) {
++    Reject("canonical TensorIR source exceeds 16 MiB");
++  }
++  return source;
++}
++
+ std::string EmitNativeTilePagedPrefillSource(
+     const NativeTilePagedPrefillGraph& graph) {
+   const int64_t queries_per_kv = graph.q_heads / graph.kv_heads;
+@@ -10104,6 +10451,27 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+                           EmitNativeTilePagedCacheWriteSource(graph),
+                           std::move(metadata), /*input_count=*/6);
+   }
++  if (IsNativeTilePagedGatherCandidate(program)) {
++    const NativeTilePagedGatherGraph graph =
++        AnalyzeNativeTilePagedGather(program);
++    std::vector<TensorIrValueMetadata> metadata;
++    metadata.reserve(5);
++    const std::array<StaticTensor, 4> inputs = {
++        graph.cache, graph.req_to_token, graph.request_index,
++        graph.virtual_to_physical};
++    for (uint32_t index = 0; index < inputs.size(); ++index) {
++      const StaticTensor& input = inputs[index];
++      metadata.push_back(TensorIrValueMetadata(
++          TensorIrValueRole::Input, index, input.dtype, input.shape,
++          input.dense_strides, /*has_explicit_strides=*/true));
++    }
++    metadata.push_back(TensorIrValueMetadata(
++        TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
++        graph.result.dense_strides, /*has_explicit_strides=*/true));
++    return TensorIrModule(TensorIrModuleKind::FusedPointwise,
++                          EmitNativeTilePagedGatherSource(graph),
++                          std::move(metadata), /*input_count=*/4);
++  }
+   if (IsNativeTilePagedPrefillCandidate(program)) {
+     const NativeTilePagedPrefillGraph graph =
+         AnalyzeNativeTilePagedPrefill(program);

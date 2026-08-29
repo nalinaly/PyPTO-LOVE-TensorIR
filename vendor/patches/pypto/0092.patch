@@ -1,7 +1,7 @@
 From 6054392ad011a036e7d2ce8d9437fc66ade9524e Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 21:47:34 +0800
-Subject: [PATCH 092/212] nvidia: lower native tile GDN state updates
+Subject: [PATCH 092/263] nvidia: lower native tile GDN state updates
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 182 +++++++++++++++++++++++

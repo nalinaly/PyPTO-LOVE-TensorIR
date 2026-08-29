@@ -1,7 +1,7 @@
 From 44f03f09555d9cca7a2fc1e9017b923b1ac7726f Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 17:41:15 +0800
-Subject: [PATCH 207/212] Accept integer tiles in native gather rows
+Subject: [PATCH 207/263] Accept integer tiles in native gather rows
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 12 +++++++++---

@@ -1,7 +1,7 @@
 From 2fecdac20724624b5f445ef7c5253c1eba9c83f3 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 08:37:53 +0800
-Subject: [PATCH 157/212] Fix mutation-effect test namespaces
+Subject: [PATCH 157/263] Fix mutation-effect test namespaces
 
 ---
  tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp | 1 +

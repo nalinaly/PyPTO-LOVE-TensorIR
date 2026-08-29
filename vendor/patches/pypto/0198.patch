@@ -1,7 +1,7 @@
 From 79f9f16485e18f46a6d52269045a0d2577ec7e80 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 15:08:47 +0800
-Subject: [PATCH 198/212] Build native GDN with typed TensorIR ops
+Subject: [PATCH 198/263] Build native GDN with typed TensorIR ops
 
 ---
  cmake/nvidia_backend.cmake                    |    3 +-

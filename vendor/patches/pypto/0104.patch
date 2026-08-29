@@ -1,7 +1,7 @@
 From 8ff2231c69d6ba04398a259fbada5b03153d909d Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 23:09:59 +0800
-Subject: [PATCH 104/212] Segment causal convolution TensorIR lowering
+Subject: [PATCH 104/263] Segment causal convolution TensorIR lowering
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 200 ++++++++++++++++++++++-

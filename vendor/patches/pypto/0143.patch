@@ -1,7 +1,7 @@
 From 5f5f06c91066e37df41114458dd206a5650fc02e Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 05:08:00 +0800
-Subject: [PATCH 143/212] Advance TensorIR scalar-row gathers
+Subject: [PATCH 143/263] Advance TensorIR scalar-row gathers
 
 ---
  ...-Lower-scalar-row-gather-projections.patch | 121 ++++++++++++++++++

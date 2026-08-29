@@ -1,7 +1,7 @@
 From 04da10448b8dbb95d91ae73252b34bff628407ad Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 12:31:15 +0800
-Subject: [PATCH 78/82] Permute scatter tiles into physical column order
+Subject: [PATCH 78/89] Permute scatter tiles into physical column order
 
 ---
  .../LayoutPropagationImpl.cpp                 | 49 +++++++++++++------

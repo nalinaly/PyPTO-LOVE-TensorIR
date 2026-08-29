@@ -1,7 +1,7 @@
 From 441dae13b56dd9e5a81c7f3c58051149d7a992f9 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 08:58:53 +0800
-Subject: [PATCH 161/212] Unroll batched paged request gathers
+Subject: [PATCH 161/263] Unroll batched paged request gathers
 
 ---
  3rdparty/nvidia/tensor-ir                |  2 +-

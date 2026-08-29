@@ -1,0 +1,253 @@
+From 8f8c684b616093f758cee24dd4135ed3d4b9d23d Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 13:54:07 +0800
+Subject: [PATCH 225/263] Support additive masked attention
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 117 +++++++++++++++++------
+ 1 file changed, 89 insertions(+), 28 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index e9365ef1bf7d47af9db1664ef61a3a31645f719c..f7c935e29001837ca5ba185bc8b89d27f3c0d336 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -3997,7 +3997,9 @@ NativeTileGatedRmsNormGraph AnalyzeNativeTileGatedRmsNorm(
+ bool IsNativeTileStatefulCausalConvCandidate(const ir::ProgramPtr& program) {
+   if (!IsNativeTilePointwiseCandidate(program)) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+-  if (function->params_.size() != 5) return false;
++  if (function->params_.size() != 5 && function->params_.size() != 6) {
++    return false;
++  }
+   const auto top = ir::As<ir::SeqStmts>(function->body_);
+   const auto scope = top && !top->stmts_.empty()
+                          ? ir::As<ir::InCoreScopeStmt>(top->stmts_[0])
+@@ -4620,6 +4622,7 @@ struct NativeTileAttentionGraph {
+   StaticTensor query;
+   StaticTensor key;
+   StaticTensor value;
++  std::optional<StaticTensor> additive_mask;
+   StaticTensor result;
+   double scale;
+ };
+@@ -6604,6 +6607,8 @@ bool IsNativeTileAttentionCandidate(const ir::ProgramPtr& program) {
+ NativeTileAttentionGraph AnalyzeNativeTileAttention(
+     const ir::ProgramPtr& program) {
+   const auto& [global, function] = *program->functions_.begin();
++  const bool has_additive_mask = function && function->params_.size() == 6;
++  const size_t result_index = has_additive_mask ? 5 : 4;
+   if (!global || !function || global->name_ != function->name_ ||
+       function->requires_runtime_binding_ ||
+       function->func_type_ != ir::FunctionType::Orchestration ||
+@@ -6613,17 +6618,22 @@ NativeTileAttentionGraph AnalyzeNativeTileAttention(
+     Reject("native attention must be one canonical CHIP @pl.jit function",
+            function ? &function->span_ : &program->span_);
+   }
+-  if (function->params_.size() != 5 ||
+-      function->param_directions_.size() != 5 ||
+-      function->param_directions_[0] != ir::ParamDirection::In ||
+-      function->param_directions_[1] != ir::ParamDirection::In ||
+-      function->param_directions_[2] != ir::ParamDirection::In ||
+-      function->param_directions_[3] != ir::ParamDirection::In ||
+-      function->param_directions_[4] != ir::ParamDirection::Out ||
++  if ((!has_additive_mask && function->params_.size() != 5) ||
++      function->param_directions_.size() != function->params_.size() ||
+       function->return_types_.size() != 1) {
+-    Reject("native attention requires Q, K, V, scale and one output",
++    Reject("native attention requires Q, K, V, optional mask, scale and one output",
+            &function->span_);
+   }
++  for (size_t index = 0; index < result_index; ++index) {
++    if (function->param_directions_[index] != ir::ParamDirection::In) {
++      Reject("native attention inputs must have direction In",
++             &function->params_[index]->span_);
++    }
++  }
++  if (function->param_directions_[result_index] != ir::ParamDirection::Out) {
++    Reject("native attention result must have direction Out",
++           &function->params_[result_index]->span_);
++  }
+   const StaticTensor query = ReadStaticTensor(
+       function->params_[0]->GetType(), function->params_[0]->span_,
+       "native attention query");
+@@ -6633,8 +6643,15 @@ NativeTileAttentionGraph AnalyzeNativeTileAttention(
+   const StaticTensor value = ReadStaticTensor(
+       function->params_[2]->GetType(), function->params_[2]->span_,
+       "native attention value");
++  std::optional<StaticTensor> additive_mask;
++  if (has_additive_mask) {
++    additive_mask = ReadStaticTensor(
++        function->params_[3]->GetType(), function->params_[3]->span_,
++        "native attention additive mask");
++  }
+   const StaticTensor result = ReadStaticTensor(
+-      function->params_[4]->GetType(), function->params_[4]->span_,
++      function->params_[result_index]->GetType(),
++      function->params_[result_index]->span_,
+       "native attention output");
+   const StaticTensor declared = ReadStaticTensor(
+       function->return_types_[0], function->span_, "native attention return");
+@@ -6645,6 +6662,10 @@ NativeTileAttentionGraph AnalyzeNativeTileAttention(
+       query.shape[1] != key.shape[1] || key.shape[0] != value.shape[0] ||
+       query.shape[0] != result.shape[0] ||
+       value.shape[1] != result.shape[1] || !SameTensor(result, declared) ||
++      (additive_mask.has_value() &&
++       (additive_mask->dtype != DataType::FP32 ||
++        additive_mask->shape !=
++            std::vector<int64_t>{query.shape[0], key.shape[0]})) ||
+       query.shape[1] % 128 != 0 || key.shape[0] % 16 != 0 ||
+       value.shape[1] % 16 != 0) {
+     Reject("native attention Q/K/V/output shapes are incompatible",
+@@ -6663,7 +6684,8 @@ NativeTileAttentionGraph AnalyzeNativeTileAttention(
+           ? ir::As<ir::Var>(returned->value_[0])
+           : nullptr;
+   if (!scope || scope->split_ != ir::SplitMode::None || !scope->attrs_.empty() ||
+-      !returned_var || returned_var.get() != function->params_[4].get()) {
++      !returned_var ||
++      returned_var.get() != function->params_[result_index].get()) {
+     Reject("native attention scope or return is invalid", &function->span_);
+   }
+   const auto body = ir::As<ir::SeqStmts>(scope->body_);
+@@ -6687,30 +6709,49 @@ NativeTileAttentionGraph AnalyzeNativeTileAttention(
+   const auto loop = ir::As<ir::ForStmt>(body->stmts_[3]);
+   const auto stop = loop ? ir::As<ir::ConstInt>(loop->stop_) : nullptr;
+   const auto leaf = loop ? ir::As<ir::SeqStmts>(loop->body_) : nullptr;
++  const size_t expected_leaf_size = has_additive_mask ? 16 : 14;
+   if (!loop || !stop || stop->value_ != query.shape[0] ||
+       loop->kind_ != ir::ForKind::Sequential || !loop->iter_args_.empty() ||
+-      !loop->return_vars_.empty() || !leaf || leaf->stmts_.size() != 14) {
++      !loop->return_vars_.empty() || !leaf ||
++      leaf->stmts_.size() != expected_leaf_size) {
+     Reject("native attention query-row loop is invalid", &body->stmts_[3]->span_);
+   }
+-  constexpr std::array<std::string_view, 13> kInnerOps = {
+-      "tile.load",        "tile.matmul",       "tile.muls",
+-      "tile.create",      "tile.row_max",      "tile.row_expand_sub",
+-      "tile.exp",         "tile.create",       "tile.row_sum",
+-      "tile.row_expand_div", "tile.cast",      "tile.matmul",
+-      "tile.cast"};
+-  std::array<ir::AssignStmtPtr, 13> inner_assignments;
+-  std::array<ir::CallPtr, 13> inner_calls;
++  const std::vector<std::string_view> inner_ops = has_additive_mask
++      ? std::vector<std::string_view>{
++            "tile.load", "tile.matmul", "tile.muls", "tile.load", "tile.add",
++            "tile.create", "tile.row_max", "tile.row_expand_sub", "tile.exp",
++            "tile.create", "tile.row_sum", "tile.row_expand_div", "tile.cast",
++            "tile.matmul", "tile.cast"}
++      : std::vector<std::string_view>{
++            "tile.load", "tile.matmul", "tile.muls", "tile.create",
++            "tile.row_max", "tile.row_expand_sub", "tile.exp", "tile.create",
++            "tile.row_sum", "tile.row_expand_div", "tile.cast", "tile.matmul",
++            "tile.cast"};
++  std::vector<ir::AssignStmtPtr> inner_assignments(inner_ops.size());
++  std::vector<ir::CallPtr> inner_calls(inner_ops.size());
+   for (size_t index = 0; index < inner_assignments.size(); ++index) {
+     inner_assignments[index] = ir::As<ir::AssignStmt>(leaf->stmts_[index]);
+     inner_calls[index] = inner_assignments[index]
+                              ? ir::As<ir::Call>(inner_assignments[index]->value_)
+                              : nullptr;
+     if (!inner_calls[index] ||
+-        !ir::IsOp(inner_calls[index], std::string(kInnerOps[index]))) {
++        !ir::IsOp(inner_calls[index], std::string(inner_ops[index]))) {
+       Reject("native attention tile operation sequence is invalid",
+              &leaf->stmts_[index]->span_);
+     }
+   }
++  if (has_additive_mask) {
++    const auto mask_source = !inner_calls[3]->args_.empty()
++                                 ? ir::As<ir::Var>(inner_calls[3]->args_[0])
++                                 : nullptr;
++    if (!mask_source || mask_source.get() != function->params_[3].get() ||
++        inner_calls[4]->args_.size() != 2 ||
++        inner_calls[4]->args_[0].get() != inner_assignments[2]->var_.get() ||
++        inner_calls[4]->args_[1].get() != inner_assignments[3]->var_.get()) {
++      Reject("native masked attention additive-mask sequence is invalid",
++             &leaf->span_);
++    }
++  }
+   const auto store_statement = ir::As<ir::EvalStmt>(leaf->stmts_.back());
+   const auto store_call =
+       store_statement ? ir::As<ir::Call>(store_statement->expr_) : nullptr;
+@@ -6730,7 +6771,8 @@ NativeTileAttentionGraph AnalyzeNativeTileAttention(
+     Reject("native attention scale must equal 1/sqrt(head_dim)",
+            &inner_calls[2]->span_);
+   }
+-  return NativeTileAttentionGraph{query, key, value, result, scale->value_};
++  return NativeTileAttentionGraph{query, key, value, additive_mask, result,
++                                  scale->value_};
+ }
+ 
+ bool IsNativeTileRopeCandidate(const ir::ProgramPtr& program) {
+@@ -9039,6 +9081,9 @@ std::string EmitNativeTileAttentionSource(
+   const std::string key_type = TensorTypeText(graph.key);
+   const std::string key_transposed_type = TensorTypeText(key_transposed);
+   const std::string value_type = TensorTypeText(graph.value);
++  const std::string mask_type = graph.additive_mask.has_value()
++                                    ? TensorTypeText(*graph.additive_mask)
++                                    : std::string{};
+   const std::string score_type = TensorTypeText(score);
+   const std::string row_type = TensorTypeText(row);
+   const std::string probability_type = TensorTypeText(probability);
+@@ -9055,6 +9100,10 @@ std::string EmitNativeTileAttentionSource(
+   source += TensorWithStrideText(graph.key);
+   source += ",\n    %arg2: ";
+   source += TensorWithStrideText(graph.value);
++  if (graph.additive_mask.has_value()) {
++    source += ",\n    %arg3: ";
++    source += TensorWithStrideText(*graph.additive_mask);
++  }
+   source += "\n  ) -> (";
+   source += TensorWithStrideText(graph.result);
+   source += ") {\n    %kt = transpose %arg1 permutation = [1, 0] : ";
+@@ -9073,7 +9122,15 @@ std::string EmitNativeTileAttentionSource(
+   source += score_type;
+   source += "\n    %scaled = mul %scores, %scale_splat : ";
+   source += score_type;
+-  source += "\n    %rowmax = reduce(%scaled) <dimensions = [1], reduction_mode = <max>> : ";
++  const std::string softmax_input =
++      graph.additive_mask.has_value() ? "%masked" : "%scaled";
++  if (graph.additive_mask.has_value()) {
++    source += "\n    %masked = add %scaled, %arg3 : ";
++    source += mask_type;
++  }
++  source += "\n    %rowmax = reduce(";
++  source += softmax_input;
++  source += ") <dimensions = [1], reduction_mode = <max>> : ";
+   source += score_type;
+   source += " -> ";
+   source += row_type;
+@@ -9081,7 +9138,9 @@ std::string EmitNativeTileAttentionSource(
+   source += row_type;
+   source += " -> ";
+   source += score_type;
+-  source += "\n    %centered = sub %scaled, %max_broadcast : ";
++  source += "\n    %centered = sub ";
++  source += softmax_input;
++  source += ", %max_broadcast : ";
+   source += score_type;
+   source += "\n    %exponent = exp %centered : ";
+   source += score_type;
+@@ -10088,9 +10147,11 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+   if (IsNativeTileAttentionCandidate(program)) {
+     const NativeTileAttentionGraph graph = AnalyzeNativeTileAttention(program);
+     std::vector<TensorIrValueMetadata> metadata;
+-    metadata.reserve(4);
+-    const std::array<StaticTensor, 3> inputs = {
+-        graph.query, graph.key, graph.value};
++    metadata.reserve(graph.additive_mask.has_value() ? 5 : 4);
++    std::vector<StaticTensor> inputs = {graph.query, graph.key, graph.value};
++    if (graph.additive_mask.has_value()) {
++      inputs.push_back(*graph.additive_mask);
++    }
+     for (uint32_t index = 0; index < inputs.size(); ++index) {
+       metadata.push_back(TensorIrValueMetadata(
+           TensorIrValueRole::Input, index, inputs[index].dtype,
+@@ -10102,7 +10163,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+         graph.result.dense_strides, /*has_explicit_strides=*/true));
+     return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+                           EmitNativeTileAttentionSource(graph),
+-                          std::move(metadata), /*input_count=*/3);
++                          std::move(metadata), inputs.size());
+   }
+   if (IsNativeTileRopeCandidate(program)) {
+     const NativeTileRopeGraph graph = AnalyzeNativeTileRope(program);

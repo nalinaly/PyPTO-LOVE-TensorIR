@@ -1,7 +1,7 @@
 From 042878dd6825bb65ed03f22db7b067fb96277623 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Mon, 24 Aug 2026 01:40:18 +0800
-Subject: [PATCH 009/212] compiler: add NVIDIA target identity and SM120 traits
+Subject: [PATCH 009/263] compiler: add NVIDIA target identity and SM120 traits
 
 Source-reviewed candidate only. Native build, C++/binding tests, wheel packaging, TensorIR bridge, CUDA query, compilation and launch remain unverified until the protected-workload heavy gate closes and the single-DSO object-boundary commit lands first.
 ---

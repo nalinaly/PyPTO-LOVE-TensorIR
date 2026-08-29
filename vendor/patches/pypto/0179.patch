@@ -1,7 +1,7 @@
 From 8955cc108b8a1c229a8cb53ea6025f006b6e59fe Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 11:51:43 +0800
-Subject: [PATCH 179/212] Anchor state mutations in recurrent results
+Subject: [PATCH 179/263] Anchor state mutations in recurrent results
 
 ---
  3rdparty/nvidia/tensor-ir                |   2 +-

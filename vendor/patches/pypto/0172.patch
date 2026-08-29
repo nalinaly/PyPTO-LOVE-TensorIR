@@ -1,7 +1,7 @@
 From 2cc286016d2dfe113d25432e3ba8f1e5ef1afe4d Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 10:52:24 +0800
-Subject: [PATCH 172/212] Preserve state row axes through index broadcasts
+Subject: [PATCH 172/263] Preserve state row axes through index broadcasts
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 20 ++++++++++++++++++--

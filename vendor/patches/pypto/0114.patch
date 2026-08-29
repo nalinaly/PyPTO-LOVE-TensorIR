@@ -1,7 +1,7 @@
 From e86e3ef4543b8f6b660350d78a42b5b689f35ceb Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 00:32:41 +0800
-Subject: [PATCH 114/212] Allow integer zero-stride TensorIR inputs
+Subject: [PATCH 114/263] Allow integer zero-stride TensorIR inputs
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 23 +++++++++++++++++++----

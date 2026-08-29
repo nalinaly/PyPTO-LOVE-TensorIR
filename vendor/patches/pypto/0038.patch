@@ -1,7 +1,7 @@
 From 54aa9afb9b6afb9b7b5d82805c9be332f94bcfe6 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Tue, 25 Aug 2026 05:12:56 +0800
-Subject: [PATCH 038/212] Fail closed on TensorIR scratch scan errors
+Subject: [PATCH 038/263] Fail closed on TensorIR scratch scan errors
 
 ---
  3rdparty/nvidia/tensor-ir                     |   2 +-

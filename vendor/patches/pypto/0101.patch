@@ -1,7 +1,7 @@
 From 225cb32f7df59a98b0f33460eece88c4e6ab89f4 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 22:43:57 +0800
-Subject: [PATCH 101/212] Vendor corrected multi-output golden
+Subject: [PATCH 101/263] Vendor corrected multi-output golden
 
 ---
  ...06-Fix-multi-output-golden-tile-rank.patch | 25 +++++++++++++++++++

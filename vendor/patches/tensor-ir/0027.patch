@@ -1,7 +1,7 @@
 From d540d54760de9ed5e112088d27cc0eded9ccbb14 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 18:36:34 +0800
-Subject: [PATCH 27/82] Lower zero-stride broadcast views into pointwise
+Subject: [PATCH 27/89] Lower zero-stride broadcast views into pointwise
 
 ---
  include/tensor_ir/Dialect/TensorOps.td        |  8 ++--

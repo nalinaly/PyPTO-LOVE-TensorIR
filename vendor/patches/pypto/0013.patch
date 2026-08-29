@@ -1,7 +1,7 @@
 From 94cdad75e68db80de67876a4c9350139b771cae3 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Mon, 24 Aug 2026 22:02:31 +0800
-Subject: [PATCH 013/212] build: pin private TensorIR mode
+Subject: [PATCH 013/263] build: pin private TensorIR mode
 
 ---
  3rdparty/nvidia/tensor-ir | 2 +-

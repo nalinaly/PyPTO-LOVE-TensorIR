@@ -1,7 +1,7 @@
 From f2270c6cebae9edcb6558c0c1f7afb21f1028737 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Mon, 24 Aug 2026 22:17:35 +0800
-Subject: [PATCH 02/82] build: export compiler dependency headers
+Subject: [PATCH 02/89] build: export compiler dependency headers
 
 ---
  lib/Compiler/CMakeLists.txt | 11 +++++++++++

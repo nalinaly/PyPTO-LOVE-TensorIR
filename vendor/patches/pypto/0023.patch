@@ -1,7 +1,7 @@
 From 9894f5babdca17d27de7b89540e28fc5c3b3e199 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Tue, 25 Aug 2026 02:32:48 +0800
-Subject: [PATCH 023/212] Add strict NVIDIA Artifact v1 contract
+Subject: [PATCH 023/263] Add strict NVIDIA Artifact v1 contract
 
 ---
  3rdparty/nvidia/tensor-ir                     |    2 +-

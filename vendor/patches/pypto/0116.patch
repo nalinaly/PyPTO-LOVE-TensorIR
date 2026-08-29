@@ -1,7 +1,7 @@
 From 97fe8b66bb862c6c908e55cac08ab42bf01928a1 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 00:41:56 +0800
-Subject: [PATCH 116/212] Fix TensorIR gather column coordinates
+Subject: [PATCH 116/263] Fix TensorIR gather column coordinates
 
 ---
  ...ather-coordinates-to-element-offsets.patch | 47 +++++++++++++++++++

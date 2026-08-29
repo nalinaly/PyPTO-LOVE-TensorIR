@@ -1,7 +1,7 @@
 From f3bcaaccdfb169080628d56e461653b0ba3e0ad5 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Tue, 25 Aug 2026 05:46:00 +0800
-Subject: [PATCH 039/212] Bind every strict compiler input gitlink
+Subject: [PATCH 039/263] Bind every strict compiler input gitlink
 
 ---
  cmake/nvidia_backend.cmake                    | 24 ++++++++++++++++++-

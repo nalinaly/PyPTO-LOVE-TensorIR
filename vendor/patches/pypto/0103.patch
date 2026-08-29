@@ -1,7 +1,7 @@
 From 4eb0cbd9bbcd3379a215d11f60f5e3fd643ea0e0 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 23:06:43 +0800
-Subject: [PATCH 103/212] Lower native causal depthwise convolution
+Subject: [PATCH 103/263] Lower native causal depthwise convolution
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp     | 303 +++++++++++++++++++

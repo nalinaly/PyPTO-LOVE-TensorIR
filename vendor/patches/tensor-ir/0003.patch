@@ -1,7 +1,7 @@
 From 233ab6ed25f0ae9c6c4b122072bd31079f8fa185 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Mon, 24 Aug 2026 22:24:26 +0800
-Subject: [PATCH 03/82] build: avoid CUDA toolkit runpath leakage
+Subject: [PATCH 03/89] build: avoid CUDA toolkit runpath leakage
 
 ---
  lib/Support/CMakeLists.txt | 17 +++++++++++------

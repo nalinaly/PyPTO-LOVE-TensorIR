@@ -1,7 +1,7 @@
 From 9144e2f92303d86fd307a915e8a1a760533101d0 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 05:27:38 +0800
-Subject: [PATCH 145/212] Advance TensorIR row scatter
+Subject: [PATCH 145/263] Advance TensorIR row scatter
 
 ---
  ...0037-Add-row-scatter-layout-lowering.patch | 439 ++++++++++++++++++

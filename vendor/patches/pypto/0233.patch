@@ -1,0 +1,32 @@
+From ef0e08c9e923c11f7c30f3a103a31de10ce10bc1 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 14:50:37 +0800
+Subject: [PATCH 233/263] Fix paged gather result type annotation
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 1fcbab58bad2b9e6fb06deef5ac3dd7fe4287562..b1104cdcc1fa2e5532499beb8ef2e15585c144dd 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -8825,7 +8825,8 @@ std::string EmitNativeTilePagedGatherSource(
+       TensorTypeText(physical_column_i64);
+   const std::string physical_column_type = TensorTypeText(physical_column);
+   const std::string physical_indices_type = TensorTypeText(physical_indices);
+-  const std::string result_type = TensorWithStrideText(graph.result);
++  const std::string result_type = TensorTypeText(graph.result);
++  const std::string result_with_stride = TensorWithStrideText(graph.result);
+ 
+   std::string source;
+   source.reserve(2048);
+@@ -8840,7 +8841,7 @@ std::string EmitNativeTilePagedGatherSource(
+   source += ",\n    %arg3: ";
+   source += TensorWithStrideText(graph.virtual_to_physical);
+   source += "\n  ) -> (";
+-  source += result_type;
++  source += result_with_stride;
+   source += ") {";
+   source += "\n    %request_index32 = convert %arg2 : ";
+   source += request_index_type;

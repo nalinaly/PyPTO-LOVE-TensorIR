@@ -1,7 +1,7 @@
 From 8ad445b0af6422be6274544de2138335fa20c56f Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 12:38:39 +0800
-Subject: [PATCH 80/82] Probe unpermuted recurrent scatter tiles
+Subject: [PATCH 80/89] Probe unpermuted recurrent scatter tiles
 
 ---
  lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp | 1 +

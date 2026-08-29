@@ -1,7 +1,7 @@
 From 6b77d6634f0039e1730a3c3766ea2fb6f960af30 Mon Sep 17 00:00:00 2001
 From: pypto zcode <zcode@pypto.local>
 Date: Thu, 27 Aug 2026 07:48:20 +0800
-Subject: [PATCH 074/212] test: repair matmul negative fixtures for the
+Subject: [PATCH 074/263] test: repair matmul negative fixtures for the
  replayed base
 
 The replayed candidates were source-reviewed but never built. Three

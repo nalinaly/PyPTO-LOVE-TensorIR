@@ -1,7 +1,7 @@
 From c754a4a01edd201f92fe388266650ddf2df471fa Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 01:47:50 +0800
-Subject: [PATCH 124/212] Advance TensorIR rewrite-owned loads
+Subject: [PATCH 124/263] Advance TensorIR rewrite-owned loads
 
 ---
  ...ey-lazy-input-loads-by-rewrite-owner.patch | 76 +++++++++++++++++++

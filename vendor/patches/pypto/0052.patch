@@ -1,7 +1,7 @@
 From 1daa7e57893eeb821752ca0fcf07daec4d46080e Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Wed, 26 Aug 2026 09:25:28 +0800
-Subject: [PATCH 052/212] codegen: add bounded row reduction TensorIR frontend
+Subject: [PATCH 052/263] codegen: add bounded row reduction TensorIR frontend
 
 ---
  docs/en/dev/backend/01-nvidia-target-info.md  |  63 ++-

@@ -1,7 +1,7 @@
 From fa85e5a2c917af78ef94576073eb91c0891c4384 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Tue, 25 Aug 2026 17:59:59 +0800
-Subject: [PATCH 048/212] compiler: version canonical schedule identity
+Subject: [PATCH 048/263] compiler: version canonical schedule identity
 
 ---
  docs/en/dev/backend/01-nvidia-target-info.md |  28 +

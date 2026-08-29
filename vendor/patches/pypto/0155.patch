@@ -1,7 +1,7 @@
 From e85c1ed30a1eec501732584f852cea88d0249eca Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 07:42:26 +0800
-Subject: [PATCH 155/212] Add stateful causal convolution emitter
+Subject: [PATCH 155/263] Add stateful causal convolution emitter
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 588 +++++++++++++++++++++++

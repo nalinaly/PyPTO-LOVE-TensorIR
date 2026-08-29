@@ -1,7 +1,7 @@
 From a8a5072e3337e541f9a42a6788cb1d8390a6292f Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 14:26:54 +0800
-Subject: [PATCH 197/212] Lower native BF16 GDN dt bias
+Subject: [PATCH 197/263] Lower native BF16 GDN dt bias
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 39 +++++++++++++++++++-----

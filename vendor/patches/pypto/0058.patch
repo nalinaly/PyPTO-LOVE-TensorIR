@@ -1,7 +1,7 @@
 From 67b484189ad1245095d529513b8767c534160962 Mon Sep 17 00:00:00 2001
 From: pypto zcode <zcode@pypto.local>
 Date: Thu, 27 Aug 2026 10:48:56 +0800
-Subject: [PATCH 058/212] chore: ignore agent worktrees in the clean-source
+Subject: [PATCH 058/263] chore: ignore agent worktrees in the clean-source
  guard
 
 ---

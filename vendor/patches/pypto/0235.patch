@@ -1,0 +1,58 @@
+From fedf4ae962d4f403e3805bba697cd7a18b9f48ba Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 15:22:41 +0800
+Subject: [PATCH 235/263] Use typed tensor factories for attention builders
+
+---
+ .../nvidia_typed_tensor_ir_builder.cpp        | 20 +++++++++----------
+ 1 file changed, 10 insertions(+), 10 deletions(-)
+
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index 3c09725f07fa4037bb8755dd79a5d33c88ce4ffb..5550ae04f37c5d33b233a42c83a09b7facaf458e 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -605,14 +605,14 @@ mlir::Value BuildNativeAttention(
+       builder, TypedTensorIrElementType::FP32, {rows, tokens});
+   const auto row_type =
+       TensorType(builder, TypedTensorIrElementType::FP32, {rows, 1});
+-  const auto key_transposed_type = Tensor(
++  const auto key_transposed_type = TensorType(
+       builder, TypedTensorIrElementType::BF16, {head_dim, tokens});
+   const auto probability_type =
+       Tensor(builder, TypedTensorIrElementType::BF16, {rows, tokens});
+-  const auto accumulation_type = Tensor(
++  const auto accumulation_type = TensorType(
+       builder, TypedTensorIrElementType::FP32, {rows, value_dim});
+   const auto result_type =
+-      Tensor(builder, TypedTensorIrElementType::BF16, spec.result.shape);
++      TensorType(builder, TypedTensorIrElementType::BF16, spec.result.shape);
+ 
+   const mlir::Value key_transposed = tir::TransposeOp::create(
+       builder, location, key_transposed_type, arguments[1],
+@@ -688,19 +688,19 @@ mlir::Value BuildNativePagedGather(
+   const int64_t tokens = spec.tokens;
+   const int64_t row_width = spec.row_width;
+   const auto index_type =
+-      Tensor(builder, TypedTensorIrElementType::INT32, {1, tokens});
++      TensorType(builder, TypedTensorIrElementType::INT32, {1, tokens});
+   const auto request_prefix_type =
+-      Tensor(builder, TypedTensorIrElementType::INT32, {request_rows, tokens});
++      TensorType(builder, TypedTensorIrElementType::INT32, {request_rows, tokens});
+   const auto virtual_column_type =
+-      Tensor(builder, TypedTensorIrElementType::INT32, {tokens, 1});
++      TensorType(builder, TypedTensorIrElementType::INT32, {tokens, 1});
+   const auto physical_column_type =
+-      Tensor(builder, TypedTensorIrElementType::INT64, {tokens, 1});
++      TensorType(builder, TypedTensorIrElementType::INT64, {tokens, 1});
+   const auto physical_column_i32_type =
+-      Tensor(builder, TypedTensorIrElementType::INT32, {tokens, 1});
+-  const auto physical_indices_type = Tensor(
++      TensorType(builder, TypedTensorIrElementType::INT32, {tokens, 1});
++  const auto physical_indices_type = TensorType(
+       builder, TypedTensorIrElementType::INT32, {tokens, row_width});
+   const auto result_type =
+-      Tensor(builder, TypedTensorIrElementType::BF16, spec.result.shape);
++      TensorType(builder, TypedTensorIrElementType::BF16, spec.result.shape);
+ 
+   const mlir::Value request_index = tir::ConvertOp::create(
+       builder, location, index_type, arguments[2])

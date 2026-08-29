@@ -1,7 +1,7 @@
 From a99fc6c3792d027008ece40570dedacca44c2a97 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 21:05:24 +0800
-Subject: [PATCH 086/212] nvidia: bind RoPE to full-width frequency ABI
+Subject: [PATCH 086/263] nvidia: bind RoPE to full-width frequency ABI
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp     | 45 ++++++++++++++------

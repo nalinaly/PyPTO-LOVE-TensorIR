@@ -1,7 +1,7 @@
 From b25081afbeb53c9a882c68b440d06baa9e0f6b31 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Tue, 25 Aug 2026 02:35:29 +0800
-Subject: [PATCH 12/82] Bind Cubin sections to load segments
+Subject: [PATCH 12/89] Bind Cubin sections to load segments
 
 ---
  lib/Compiler/CudaTile/CudaTileArtifact.cpp | 52 +++++++++++++++++++---

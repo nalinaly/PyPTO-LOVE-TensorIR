@@ -1,7 +1,7 @@
 From a589f79cc6bd22ddefab9d72091890d594e81b9b Mon Sep 17 00:00:00 2001
 From: pypto zcode <zcode@pypto.local>
 Date: Thu, 27 Aug 2026 10:44:31 +0800
-Subject: [PATCH 057/212] codegen: extend FusedPointwiseV2 with
+Subject: [PATCH 057/263] codegen: extend FusedPointwiseV2 with
  div/abs/sqrt/log/sin/cos/max/min
 
 Register nine more bounded pointwise operators in the fused-pointwise

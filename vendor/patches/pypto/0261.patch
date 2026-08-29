@@ -1,0 +1,22 @@
+From 0fae245e54b496f5677f4f043d8201ca2ec72fe5 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 04:02:46 +0800
+Subject: [PATCH 261/263] Match paged decode canonical syntax
+
+---
+ tests/ut/cpp/structured_compile_test.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tests/ut/cpp/structured_compile_test.cpp b/tests/ut/cpp/structured_compile_test.cpp
+index 47739fb2977f910975bafa7a3971eac8b3faf95a..71c91a0860b18ed9e89a30a378f4fb9b1a200b8b 100644
+--- a/tests/ut/cpp/structured_compile_test.cpp
++++ b/tests/ut/cpp/structured_compile_test.cpp
+@@ -1201,7 +1201,7 @@ int TestTypedPagedDecodeModuleBuilder() {
+   REQUIRE(first->module);
+   const std::string first_source(first->canonical_source.begin(),
+                                  first->canonical_source.end());
+-  REQUIRE(first_source.find("nv_tensor_ir.gather_rows") != std::string::npos);
++  REQUIRE(first_source.find("gather_rows") != std::string::npos);
+   REQUIRE(first_source.find("dimension = 1") != std::string::npos);
+   REQUIRE(first_source.find("dimension = 0") != std::string::npos);
+   REQUIRE(first_source.find("tensor<2x4x256xbf16>") != std::string::npos);

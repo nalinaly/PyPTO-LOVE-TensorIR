@@ -1,7 +1,7 @@
 From 08a9c755156a88bdb293087ce1bc9f7ce7dd018c Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 17:38:48 +0800
-Subject: [PATCH 206/212] Support integer native gather rows
+Subject: [PATCH 206/263] Support integer native gather rows
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 50 +++++++++++++++++-------

@@ -1,7 +1,7 @@
 From be77cc98ab292b58d55fb1e717092a39cbfc50df Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 05:07:31 +0800
-Subject: [PATCH 63/82] Lower scalar-row gather projections
+Subject: [PATCH 63/89] Lower scalar-row gather projections
 
 ---
  .../LayoutPropagationImpl.cpp                 | 32 +++++++++++++------

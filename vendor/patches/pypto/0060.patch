@@ -1,7 +1,7 @@
 From c4565dbe0cdf33f291440b04ec49ee7c0531b67e Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 11:52:02 +0800
-Subject: [PATCH 060/212] test: print failing REQUIRE site in codegen test
+Subject: [PATCH 060/263] test: print failing REQUIRE site in codegen test
 
 ---
  tests/ut/cpp/tensor_ir_codegen_test.cpp | 13 ++++++++-----

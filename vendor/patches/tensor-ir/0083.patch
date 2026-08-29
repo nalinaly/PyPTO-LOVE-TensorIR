@@ -1,7 +1,7 @@
 From 1ce28c3f90aad4ae111075e64ee53b3549d65422 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Sat, 29 Aug 2026 06:55:09 +0800
-Subject: [PATCH 83/83] Make TileIR assembler timeout explicit
+Subject: [PATCH 83/89] Make TileIR assembler timeout explicit
 
 ---
  .../Compiler/CudaTile/CudaTileCompiler.h          |  6 ++++++

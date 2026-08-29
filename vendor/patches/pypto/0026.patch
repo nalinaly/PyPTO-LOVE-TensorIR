@@ -1,7 +1,7 @@
 From 8f312cea96610cb3dc847e9aa6d3c5f527bb387d Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Tue, 25 Aug 2026 04:14:12 +0800
-Subject: [PATCH 026/212] Fix strict producer test fixtures
+Subject: [PATCH 026/263] Fix strict producer test fixtures
 
 ---
  tests/ut/cpp/artifact_test.cpp                | 2 +-

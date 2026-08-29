@@ -1,7 +1,7 @@
 From d762737b3e387cc8eb5ca14ec0f9f1b79d72330f Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 20:22:34 +0800
-Subject: [PATCH 080/212] test: exercise native NVIDIA tiles in BF16
+Subject: [PATCH 080/263] test: exercise native NVIDIA tiles in BF16
 
 ---
  tests/ut/compiler/test_structured_compile.py | 12 ++++++------

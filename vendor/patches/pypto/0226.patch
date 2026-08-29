@@ -1,0 +1,35 @@
+From 78d54e1351d453b344045f0e359fa1e6e9acbc2d Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 14:04:13 +0800
+Subject: [PATCH 226/263] Recognize masked attention programs
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index f7c935e29001837ca5ba185bc8b89d27f3c0d336..38573791106ed164f1473c437207b265a921b740 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -5414,7 +5414,9 @@ NativeTileGdnRecurrentGraph AnalyzeNativeTileGdnRecurrent(
+ bool IsNativeTileGdnUpdateCandidate(const ir::ProgramPtr& program) {
+   if (!IsNativeTilePointwiseCandidate(program)) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+-  if (function->params_.size() != 5) return false;
++  if (function->params_.size() != 5 && function->params_.size() != 6) {
++    return false;
++  }
+   const auto top = ir::As<ir::SeqStmts>(function->body_);
+   const auto scope = ir::As<ir::InCoreScopeStmt>(top->stmts_[0]);
+   const TileLoopNest loop_nest = UnwrapStaticTileLoops(scope->body_);
+@@ -6590,7 +6592,9 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+ bool IsNativeTileAttentionCandidate(const ir::ProgramPtr& program) {
+   if (!IsNativeTilePointwiseCandidate(program)) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;
+-  if (function->params_.size() != 5) return false;
++  if (function->params_.size() != 5 && function->params_.size() != 6) {
++    return false;
++  }
+   const auto top = ir::As<ir::SeqStmts>(function->body_);
+   const auto scope = ir::As<ir::InCoreScopeStmt>(top->stmts_[0]);
+   const auto body = ir::As<ir::SeqStmts>(scope->body_);

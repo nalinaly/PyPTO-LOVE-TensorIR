@@ -1,7 +1,7 @@
 From 485d993d54463f4c3432eb92fd2737bbd813aa88 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Sat, 29 Aug 2026 08:33:36 +0800
-Subject: [PATCH 221/222] Cache strict artifacts before CUDA assembly
+Subject: [PATCH 221/263] Cache strict artifacts before CUDA assembly
 
 ---
  3rdparty/nvidia/tensor-ir                     |   2 +-

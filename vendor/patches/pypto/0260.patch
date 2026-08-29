@@ -1,0 +1,22 @@
+From 10a8b0287c103f6362734371a15a42eb9b4fbf93 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 03:56:37 +0800
+Subject: [PATCH 260/263] Pin TensorIR gather relayout warning fix
+
+---
+ cmake/nvidia_backend.cmake | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/cmake/nvidia_backend.cmake b/cmake/nvidia_backend.cmake
+index c0a987cfc3421b3654588747ce11e4727c158ae6..1175924004a287ac1842087c560e048c5bef01ad 100644
+--- a/cmake/nvidia_backend.cmake
++++ b/cmake/nvidia_backend.cmake
+@@ -36,7 +36,7 @@ foreach(_required_source
+ endforeach()
+ 
+ set(PYPTO_NVIDIA_TENSOR_IR_REVISION
+-    "18b6489847229a14171d501e5d2ffd699c6b4cba")
++    "5a8a50d164adf6ffda4d9eb0ae2051bf23095f7c")
+ set(PYPTO_NVIDIA_CUDA_TILE_REVISION
+     "af2417041cc939b87ef56d92cfdcf61737c5457e")
+ set(PYPTO_NVIDIA_LLVM_REVISION

@@ -1,7 +1,7 @@
 From 2745b8aa082daf18af537462905fb7366dbd2f8c Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 12:10:25 +0800
-Subject: [PATCH 184/212] Lock pruned concat detachment
+Subject: [PATCH 184/263] Lock pruned concat detachment
 
 ---
  3rdparty/nvidia/tensor-ir  | 2 +-

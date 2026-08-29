@@ -1,7 +1,7 @@
 From 1c701ec6f7e7c547f6af02862603981f64e01091 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Tue, 25 Aug 2026 02:31:43 +0800
-Subject: [PATCH 11/82] Validate CUDA Cubin entry parameter ABI
+Subject: [PATCH 11/89] Validate CUDA Cubin entry parameter ABI
 
 ---
  .../Compiler/CudaTile/CudaTileArtifact.h      |  14 +-

@@ -1,7 +1,7 @@
 From 891db5d1ead056921d0d3eabfeba4703d71b0999 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 01:01:42 +0800
-Subject: [PATCH 118/212] Lower fused QK RMSNorm and partial RoPE
+Subject: [PATCH 118/263] Lower fused QK RMSNorm and partial RoPE
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 498 +++++++++++++++++++++++

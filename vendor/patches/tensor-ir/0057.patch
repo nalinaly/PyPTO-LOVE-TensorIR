@@ -1,7 +1,7 @@
 From d045a84ab258057c5bbd716459c1fcbf1d9f3123 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 02:42:09 +0800
-Subject: [PATCH 57/82] Project gather rows through fused layouts
+Subject: [PATCH 57/89] Project gather rows through fused layouts
 
 ---
  .../LayoutPropagationImpl.cpp                 | 110 +++++++++++++++---

@@ -1,7 +1,7 @@
 From 07ab9ea1feb5f5cc5557c7b7c67e7ad33d15974e Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Tue, 25 Aug 2026 17:10:33 +0800
-Subject: [PATCH 047/212] codegen: emit canonical TensorIR from static add HIR
+Subject: [PATCH 047/263] codegen: emit canonical TensorIR from static add HIR
 
 ---
  CMakeLists.txt                           |   1 +

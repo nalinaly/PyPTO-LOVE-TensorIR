@@ -1,7 +1,7 @@
 From 2b76febf595e4cd59323543927bcea4e4939cc2d Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 02:24:45 +0800
-Subject: [PATCH 133/212] Advance TensorIR nested gather validation
+Subject: [PATCH 133/263] Advance TensorIR nested gather validation
 
 ---
  ...ate-gather-tiles-in-their-real-space.patch | 32 +++++++++++++++++++

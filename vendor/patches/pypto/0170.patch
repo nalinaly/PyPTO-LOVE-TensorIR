@@ -1,7 +1,7 @@
 From 2faefb64d3b81484a100f6a2d839f57abfe5ca35 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 10:20:15 +0800
-Subject: [PATCH 170/212] Pin indirect scatter row projection
+Subject: [PATCH 170/263] Pin indirect scatter row projection
 
 ---
  3rdparty/nvidia/tensor-ir  | 2 +-

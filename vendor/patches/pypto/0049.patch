@@ -1,7 +1,7 @@
 From c4cf755b7ef2998cdfb7499a76b80b280bafdf2d Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Tue, 25 Aug 2026 19:20:40 +0800
-Subject: [PATCH 049/212] compiler: derive structured frontend build identity
+Subject: [PATCH 049/263] compiler: derive structured frontend build identity
 
 ---
  CMakeLists.txt                                |   1 +

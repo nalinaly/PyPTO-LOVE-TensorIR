@@ -1,7 +1,7 @@
 From 5c91d1e17e47502931c6be7a036f8b1902457e56 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 20:26:10 +0800
-Subject: [PATCH 082/212] nvidia: lift direct static tile loop nests
+Subject: [PATCH 082/263] nvidia: lift direct static tile loop nests
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp     | 28 +++++++++++---------

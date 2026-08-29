@@ -1,0 +1,49 @@
+From af598371b82aeef041515047dabcee1e45954346 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 18:24:17 +0800
+Subject: [PATCH 248/263] Keep paged-prefill virtual indices explicitly typed
+
+---
+ src/compiler/nvidia_typed_tensor_ir_builder.cpp | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index 628642e0f8ce0316a15e22d2fed574a59d15b846..7d09240abac0ce21e3261d8bfd8b80cc3fae0772 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -822,6 +822,8 @@ mlir::Value BuildNativePagedPrefill(
+       TensorType(builder, TypedTensorIrElementType::INT32, {1, tokens});
+   const auto request_prefix_type = TensorType(
+       builder, TypedTensorIrElementType::INT32, {request_rows, tokens});
++  const auto virtual_column_type =
++      TensorType(builder, TypedTensorIrElementType::INT32, {tokens, 1});
+   const auto physical_column_type =
+       TensorType(builder, TypedTensorIrElementType::INT64, {tokens, 1});
+   const auto physical_column_i32_type =
+@@ -875,7 +877,7 @@ mlir::Value BuildNativePagedPrefill(
+       builder, location, index_row_type, request_prefix, request_index)
+                                       .getOutput();
+   const mlir::Value virtual_column = tir::TransposeOp::create(
+-      builder, location, physical_column_type, request_row,
++      builder, location, virtual_column_type, request_row,
+       llvm::ArrayRef<int64_t>{1, 0})
+       .getOutput();
+   const mlir::Value physical_column = tir::GatherRowsOp::create(
+@@ -1057,6 +1059,8 @@ mlir::Value BuildNativePagedPrefillBatched(
+       TensorType(builder, TypedTensorIrElementType::INT32, {1, tokens});
+   const auto request_prefix_type = TensorType(
+       builder, TypedTensorIrElementType::INT32, {request_rows, tokens});
++  const auto virtual_column_type =
++      TensorType(builder, TypedTensorIrElementType::INT32, {tokens, 1});
+   const auto physical_column_type =
+       TensorType(builder, TypedTensorIrElementType::INT64, {tokens, 1});
+   const auto physical_column_i32_type =
+@@ -1135,7 +1139,7 @@ mlir::Value BuildNativePagedPrefillBatched(
+       builder, location, index_row_type, request_prefix, request_index)
+                                       .getOutput();
+   const mlir::Value virtual_column = tir::TransposeOp::create(
+-      builder, location, physical_column_type, request_row,
++      builder, location, virtual_column_type, request_row,
+       llvm::ArrayRef<int64_t>{1, 0})
+       .getOutput();
+   const mlir::Value physical_column = tir::GatherRowsOp::create(

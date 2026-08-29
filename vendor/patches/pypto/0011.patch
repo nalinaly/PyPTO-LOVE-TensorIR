@@ -1,7 +1,7 @@
 From 9b3cf71b6ff2a535aabdd053684a60b47450fac0 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Mon, 24 Aug 2026 19:19:03 +0800
-Subject: [PATCH 011/212] compiler: add canonical KernelBuildSpec v1 contract
+Subject: [PATCH 011/263] compiler: add canonical KernelBuildSpec v1 contract
 
 ---
  CMakeLists.txt                                |   2 +

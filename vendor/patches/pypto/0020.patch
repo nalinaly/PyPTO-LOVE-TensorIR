@@ -1,7 +1,7 @@
 From 6ce17761cb26b6593ce8a6f0f8a82cb0cf251cc9 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Tue, 25 Aug 2026 00:31:55 +0800
-Subject: [PATCH 020/212] compiler: share bounded canonical MessagePack codec
+Subject: [PATCH 020/263] compiler: share bounded canonical MessagePack codec
 
 ---
  CMakeLists.txt                          |   1 +

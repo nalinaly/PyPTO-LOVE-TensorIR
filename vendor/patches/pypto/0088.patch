@@ -1,7 +1,7 @@
 From 45c107073ebbb335b53624084a15538e69a82a58 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 21:10:17 +0800
-Subject: [PATCH 088/212] build: lock diagnostic TensorIR revision
+Subject: [PATCH 088/263] build: lock diagnostic TensorIR revision
 
 ---
  cmake/nvidia_backend.cmake                          | 2 +-

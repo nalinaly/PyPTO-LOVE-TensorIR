@@ -1,7 +1,7 @@
 From dbdea6d21371bc14568ffceb31f3535923e2b9e6 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 11:00:26 +0800
-Subject: [PATCH 174/212] Lock contiguous state projection TensorIR
+Subject: [PATCH 174/263] Lock contiguous state projection TensorIR
 
 ---
  cmake/nvidia_backend.cmake | 2 +-

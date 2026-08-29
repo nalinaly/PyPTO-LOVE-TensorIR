@@ -1,0 +1,31 @@
+From 63f3eb59a343da9f506901d545dc34c20bc19375 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 17:06:52 +0800
+Subject: [PATCH 244/263] Align typed GDN state add with transpose consumer
+
+---
+ src/compiler/nvidia_typed_tensor_ir_builder.cpp | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index 6ffefe69f3ba71164286fc2d35ba4eab9dea01e1..84aede201a77a10da0e3d458294677bbc470e11e 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -55,6 +55,8 @@ using codegen::nvidia::TypedTensorIrTensorSpec;
+ constexpr std::string_view kEntryName = "pypto_fused_pointwise";
+ constexpr std::string_view kStructuredMatmulEntryName =
+     "pypto_structured_matmul";
++constexpr std::string_view kAlignedAddAttribute =
++    "_pypto_align_rhs_trailing_transpose";
+ constexpr size_t kMaximumCanonicalSourceBytes = 16ULL * 1024ULL * 1024ULL;
+ constexpr size_t kMaximumCapturedDiagnosticBytes = 64ULL * 1024ULL;
+ constexpr int64_t kMaximumBatchTokenProduct = 4096;
+@@ -973,6 +975,8 @@ class NativeGdnRecurrentBuilder {
+         const mlir::Value outer_flat = Reshape(outer, state_row_type);
+         auto updated_flat = tir::AddOp::create(
+             builder_, location_, state_row_type, decayed_flat, outer_flat);
++        updated_flat->setAttr(kAlignedAddAttribute,
++                              builder_.getBoolAttr(true));
+         current_state = Reshape(updated_flat.getOutput(), state_group_type);
+ 
+         if (token + 1 != spec_.tokens_per_request) {

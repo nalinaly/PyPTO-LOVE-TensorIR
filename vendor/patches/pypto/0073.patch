@@ -1,7 +1,7 @@
 From 2d0ccd44640ba27e5d910af4ec8ee354c5b4f826 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Wed, 26 Aug 2026 14:03:37 +0800
-Subject: [PATCH 073/212] codegen: harden structured matmul bounds and goldens
+Subject: [PATCH 073/263] codegen: harden structured matmul bounds and goldens
 
 (cherry picked from commit d7551176ded1db74c3f185d443f1397a83029bb0)
 (cherry picked from commit b561c3a8baa3a8f089a2ab9c7b41b6678cc8f089)

@@ -1,7 +1,7 @@
 From 8a9ab856dc3358749628e324d5d774ef4ef2c11c Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 11:02:04 +0800
-Subject: [PATCH 175/212] Slice rank-two state index columns directly
+Subject: [PATCH 175/263] Slice rank-two state index columns directly
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 34 ++++++------------------

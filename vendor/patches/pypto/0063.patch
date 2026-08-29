@@ -1,7 +1,7 @@
 From c8f271ce1eb08fb1ae8e0f7cdc7e933d3c504d3e Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 12:23:33 +0800
-Subject: [PATCH 063/212] test: expect shape-mismatch rejection for broadcast
+Subject: [PATCH 063/263] test: expect shape-mismatch rejection for broadcast
  misuse
 
 ---

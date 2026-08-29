@@ -1,7 +1,7 @@
 From ca706bae6bbe94e2c0a7157ef1bac35fd1006cec Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 22:28:31 +0800
-Subject: [PATCH 097/212] Lock TensorIR multi-output revision
+Subject: [PATCH 097/263] Lock TensorIR multi-output revision
 
 ---
  cmake/nvidia_backend.cmake                          | 2 +-

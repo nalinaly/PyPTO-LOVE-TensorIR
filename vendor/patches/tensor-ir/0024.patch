@@ -1,7 +1,7 @@
 From bbe6c731379e3af6280aa07469371860dacb740b Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Tue, 25 Aug 2026 04:51:47 +0800
-Subject: [PATCH 24/82] Tolerate transient tileiras scratch churn
+Subject: [PATCH 24/89] Tolerate transient tileiras scratch churn
 
 ---
  lib/Compiler/CudaTile/TileIRAssembly.cpp | 14 ++++++++++----

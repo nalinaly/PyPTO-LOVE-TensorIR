@@ -1,7 +1,7 @@
 From a52d80bf1d2f96645e25c8db807c7c5dfa738291 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Tue, 25 Aug 2026 00:49:17 +0800
-Subject: [PATCH 021/212] compiler: hash artifact bytes without copying
+Subject: [PATCH 021/263] compiler: hash artifact bytes without copying
 
 ---
  src/compiler/digest.cpp      | 145 +++++++++++++++++++++--------------

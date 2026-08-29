@@ -1,7 +1,7 @@
 From e3ad04acacf33a6e1cfd44b0017c9eec93f94bad Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 12:45:00 +0800
-Subject: [PATCH 195/212] Mark GDN outer tile alignment
+Subject: [PATCH 195/263] Mark GDN outer tile alignment
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 3 ++-

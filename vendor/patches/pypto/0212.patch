@@ -1,7 +1,7 @@
 From 9e13b4301faeee482bb63e16e7991d0b597a5a51 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 20:54:44 +0800
-Subject: [PATCH 212/212] Build FP32 sigmoid multiply with typed TensorIR
+Subject: [PATCH 212/263] Build FP32 sigmoid multiply with typed TensorIR
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp      | 202 +++++++++++++++++-

@@ -1,0 +1,22 @@
+From 0134289b287d637cfd025a38288ac15a4db9ffb4 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 14:33:12 +0800
+Subject: [PATCH 229/263] Fix paged materialization experiment source
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index d3c0776dfd37480bd158aed72f62ebc09af3f1f2..63276a70130ba3923cf0ee5bed0a33bd93b82518 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -8850,6 +8850,8 @@ std::string EmitNativeTilePagedPrefillSource(
+     source += "\n    %kt_" + kv_suffix + " = transpose %k_materialized_" + kv_suffix +
+               " permutation = [1, 0] : ";
+     source += gathered_type;
++    source += " -> ";
++    source += gathered_transposed_type;
+     source += "\n    %v_table_" + kv_suffix +
+               " = slice %arg2 starts = [0, " +
+               std::to_string(column_start) + "] limits = [" +

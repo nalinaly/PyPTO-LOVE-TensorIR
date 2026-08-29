@@ -1,7 +1,7 @@
 From a62d90337119660234f3ef9821c6ae6c00d195a1 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Sun, 23 Aug 2026 21:56:34 +0800
-Subject: [PATCH 006/212] tests: gate symlink probe under redirecting editable
+Subject: [PATCH 006/263] tests: gate symlink probe under redirecting editable
  installs
 
 ---

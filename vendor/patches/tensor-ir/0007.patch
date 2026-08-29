@@ -1,7 +1,7 @@
 From e0998b9ec42cf590ca389c9ffba3c9cd0d5b6571 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Mon, 24 Aug 2026 23:34:05 +0800
-Subject: [PATCH 07/82] compiler: fully validate emitted device artifacts
+Subject: [PATCH 07/89] compiler: fully validate emitted device artifacts
 
 ---
  lib/Compiler/CMakeLists.txt                |  4 ++

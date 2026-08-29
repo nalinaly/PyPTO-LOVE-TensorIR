@@ -1,7 +1,7 @@
 From f34c3f57890785e7e02bc78491bd7ca3de519d88 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 07:51:15 +0800
-Subject: [PATCH 156/212] Add GDN projection split emitter
+Subject: [PATCH 156/263] Add GDN projection split emitter
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 254 +++++++++++++++++++++++

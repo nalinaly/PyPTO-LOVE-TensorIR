@@ -1,7 +1,7 @@
 From 9b90f15d41822e2f5c9abca93f51afa3a9d368db Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Sat, 29 Aug 2026 06:36:41 +0800
-Subject: [PATCH 219/219] Refresh callable build-spec golden
+Subject: [PATCH 219/263] Refresh callable build-spec golden
 
 ---
  tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp | 2 +-

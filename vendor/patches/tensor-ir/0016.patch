@@ -1,7 +1,7 @@
 From 96201e1a1fd36bafab23cd9dc9501c8ffd43a6e7 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Tue, 25 Aug 2026 04:15:52 +0800
-Subject: [PATCH 16/82] Preserve bounded tileiras memory semantics
+Subject: [PATCH 16/89] Preserve bounded tileiras memory semantics
 
 ---
  lib/Compiler/CudaTile/TileIRAssembly.cpp | 7 ++++++-

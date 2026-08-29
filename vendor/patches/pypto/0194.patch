@@ -1,7 +1,7 @@
 From 5f514d0ff7f7182ac1aedbcec215341236394773 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 12:42:24 +0800
-Subject: [PATCH 194/212] Canonicalize GDN state updates through flat rows
+Subject: [PATCH 194/263] Canonicalize GDN state updates through flat rows
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp | 19 +++++++++++++++++--

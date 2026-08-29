@@ -1,7 +1,7 @@
 From 6245d2baeb6f815b61464f63759c251a9a6abac0 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 12:31:54 +0800
-Subject: [PATCH 79/82] Construct permuted scatter tile types explicitly
+Subject: [PATCH 79/89] Construct permuted scatter tile types explicitly
 
 ---
  lib/Conversion/TensorToCudaTile/LayoutPropagationImpl.cpp | 4 +++-

@@ -1,7 +1,7 @@
 From 91b3feec1b6164ccd3170ec3c29f9354474a5860 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 04:21:46 +0800
-Subject: [PATCH 140/212] Advance TensorIR fused unit dimensions
+Subject: [PATCH 140/263] Advance TensorIR fused unit dimensions
 
 ---
  ...t-dimensions-in-fused-matmul-layouts.patch | 227 ++++++++++++++++++

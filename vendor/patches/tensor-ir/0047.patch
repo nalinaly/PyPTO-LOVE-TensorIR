@@ -1,7 +1,7 @@
 From 0494d49737aaf83511ae30b1f9a1afcb71e091d8 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 01:55:15 +0800
-Subject: [PATCH 47/82] Delay pure broadcasts until input consumption
+Subject: [PATCH 47/89] Delay pure broadcasts until input consumption
 
 ---
  .../LayoutPropagationImpl.cpp                 | 78 +++++++++----------

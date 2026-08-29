@@ -1,7 +1,7 @@
 From 6cdb50c69008ce99af1d8cd88f6ff2852b76573f Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 00:15:40 +0800
-Subject: [PATCH 34/82] Add row gather layout lowering
+Subject: [PATCH 34/89] Add row gather layout lowering
 
 ---
  include/tensor_ir/Dialect/TensorOps.td        |  35 ++++++

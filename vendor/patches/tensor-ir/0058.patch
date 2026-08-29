@@ -1,7 +1,7 @@
 From 032d67a4fdf83f03613fba745ea5ce2aa6b66df3 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 02:42:15 +0800
-Subject: [PATCH 58/82] Restore propagated reduction result rank
+Subject: [PATCH 58/89] Restore propagated reduction result rank
 
 ---
  .../TensorToCudaTile/ReductionOps.cpp         | 23 ++++++++++++++-----

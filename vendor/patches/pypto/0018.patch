@@ -1,7 +1,7 @@
 From 186f84ad564c88438a5b29f8d7cab5d25dad1066 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Mon, 24 Aug 2026 23:39:16 +0800
-Subject: [PATCH 018/212] test: close artifact primitive review findings
+Subject: [PATCH 018/263] test: close artifact primitive review findings
 
 ---
  3rdparty/nvidia/tensor-ir                     |  2 +-

@@ -1,7 +1,7 @@
 From f7dae4ff9093ebf847496b8485bcaf616b667a46 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 23:30:26 +0800
-Subject: [PATCH 106/212] Lower native tile row reductions
+Subject: [PATCH 106/263] Lower native tile row reductions
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp     | 131 +++++++++++++++++++

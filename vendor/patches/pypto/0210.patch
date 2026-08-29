@@ -1,7 +1,7 @@
 From 933662368c04ff71c75afdf200b47e59c9570b02 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 19:19:48 +0800
-Subject: [PATCH 210/212] Build GDN projection with typed TensorIR
+Subject: [PATCH 210/263] Build GDN projection with typed TensorIR
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp      |  22 +++-

@@ -1,7 +1,7 @@
 From 2a04185272278e5ea796b8237df9f21ca9c796c5 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Sun, 23 Aug 2026 21:55:08 +0800
-Subject: [PATCH 003/212] parser: disambiguate class source fallback by
+Subject: [PATCH 003/263] parser: disambiguate class source fallback by
  definition line
 
 ---

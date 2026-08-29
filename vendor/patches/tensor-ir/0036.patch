@@ -1,7 +1,7 @@
 From b61650ee4331a1841c43c39e8fa6d6d130652663 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 00:24:33 +0800
-Subject: [PATCH 36/82] Use TensorIR signed indices in gather golden
+Subject: [PATCH 36/89] Use TensorIR signed indices in gather golden
 
 ---
  test/Conversion/TensorToCudaTile/gather_rows_layout.mlir | 4 ++--

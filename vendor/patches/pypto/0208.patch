@@ -1,7 +1,7 @@
 From f60ebd3a2324030e8b0b83b85f9cf06e41762eb9 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 18:25:55 +0800
-Subject: [PATCH 208/212] Build native SwiGLU with FP32 typed TensorIR
+Subject: [PATCH 208/263] Build native SwiGLU with FP32 typed TensorIR
 
 ---
  src/codegen/nvidia/tensor_ir_codegen.cpp      | 204 +++++++++++++++++-

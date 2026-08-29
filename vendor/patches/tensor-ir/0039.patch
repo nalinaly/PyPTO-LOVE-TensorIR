@@ -1,7 +1,7 @@
 From 9b6c0b293a32dc3fdcb2c20a05be1618ac33d084 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 00:45:14 +0800
-Subject: [PATCH 39/82] Make gather golden robust to constant hoisting
+Subject: [PATCH 39/89] Make gather golden robust to constant hoisting
 
 ---
  test/Conversion/TensorToCudaTile/gather_rows_layout.mlir | 3 +--

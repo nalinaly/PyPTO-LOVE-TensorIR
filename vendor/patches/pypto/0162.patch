@@ -1,7 +1,7 @@
 From 50608d5db4867dccdcd7e8e12f37521153b547fb Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 09:02:35 +0800
-Subject: [PATCH 162/212] Pin indirect gather row projection
+Subject: [PATCH 162/263] Pin indirect gather row projection
 
 ---
  3rdparty/nvidia/tensor-ir  | 2 +-

@@ -1,7 +1,7 @@
 From 7f6c6cd62975560423127a252371b87b1a86893c Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 08:50:37 +0800
-Subject: [PATCH 66/82] Handle scalar gather projections
+Subject: [PATCH 66/89] Handle scalar gather projections
 
 ---
  .../LayoutPropagationImpl.cpp                 | 20 +++++++++++--------

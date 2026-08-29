@@ -1,7 +1,7 @@
 From 6c79f96bd40d08abd7f2dfaba4f32b7373530fae Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Fri, 28 Aug 2026 00:16:01 +0800
-Subject: [PATCH 109/212] Vendor TensorIR row gather lowering
+Subject: [PATCH 109/263] Vendor TensorIR row gather lowering
 
 ---
  .../0007-Add-row-gather-layout-lowering.patch | 327 ++++++++++++++++++

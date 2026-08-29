@@ -1,7 +1,7 @@
 From 5cbd9d641277b12724e9eef26bd582833892cba0 Mon Sep 17 00:00:00 2001
 From: zhaosiying12138 <neucszhaopeng2016@163.com>
 Date: Thu, 27 Aug 2026 23:56:56 +0800
-Subject: [PATCH 108/212] Refresh canonical producer source goldens
+Subject: [PATCH 108/263] Refresh canonical producer source goldens
 
 ---
  .../structured_tensor_ir_build_spec_test.cpp  | 30 +++++++++----------
