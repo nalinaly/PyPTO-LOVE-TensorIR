@@ -416,6 +416,34 @@ class BoundedGpuPolicyTest(unittest.TestCase):
         reason, _count = gpu.host_floor_update(gpu.HOST_EMERGENCY_ABORT_KIB - 1, 0)
         self.assertEqual(reason, "host-memory-emergency-floor")
 
+    def test_nvidia_telemetry_allows_one_failure_then_fails_closed(self) -> None:
+        self.assertEqual(gpu.NVIDIA_AUDIT_FAILURE_CONSECUTIVE_SAMPLES, 2)
+        reason, count = gpu.nvidia_audit_failure_update(0)
+        self.assertIsNone(reason)
+        self.assertEqual(count, 1)
+        reason, count = gpu.nvidia_audit_failure_update(count)
+        self.assertEqual(reason, "nvidia-telemetry-unavailable")
+        self.assertEqual(count, 2)
+
+    def test_nvidia_telemetry_failure_record_preserves_timeout_boundary(self) -> None:
+        error = gpu.subprocess.TimeoutExpired(["nvidia-smi", "--query-gpu=x"], 10)
+        self.assertEqual(
+            gpu.nvidia_audit_failure_record(
+                error, phase="runtime", sample_index=17
+            ),
+            {
+                "phase": "runtime",
+                "sample_index": 17,
+                "error_type": "TimeoutExpired",
+                "error": (
+                    "Command '['nvidia-smi', '--query-gpu=x']' timed out "
+                    "after 10 seconds"
+                ),
+                "command": ["nvidia-smi", "--query-gpu=x"],
+                "timeout_seconds": 10,
+            },
+        )
+
     def test_child_must_be_selected_python_and_workspace_script(self) -> None:
         command = ["--", self.python, "-B", self.script, "--example"]
         self.assertEqual(gpu.validate_child(command), command[1:])

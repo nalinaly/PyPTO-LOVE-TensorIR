@@ -31,6 +31,7 @@ HOST_ABORT_KIB = 12 * 1024 * 1024
 HOST_EMERGENCY_ABORT_KIB = 11 * 1024 * 1024
 HOST_FLOOR_CONSECUTIVE_SAMPLES = 3
 GPU_FREE_FLOOR_MIB = 4 * 1024
+NVIDIA_AUDIT_FAILURE_CONSECUTIVE_SAMPLES = 2
 POLL_SECONDS = 1
 
 
@@ -56,6 +57,36 @@ def host_floor_update(
             return "host-memory-floor", consecutive_below_floor
         return None, consecutive_below_floor
     return None, 0
+
+
+def nvidia_audit_failure_update(
+    consecutive_failures: int,
+) -> tuple[str | None, int]:
+    consecutive_failures += 1
+    reason = (
+        "nvidia-telemetry-unavailable"
+        if consecutive_failures >= NVIDIA_AUDIT_FAILURE_CONSECUTIVE_SAMPLES
+        else None
+    )
+    return reason, consecutive_failures
+
+
+def nvidia_audit_failure_record(
+    error: Exception, *, phase: str, sample_index: int
+) -> dict[str, object]:
+    record: dict[str, object] = {
+        "phase": phase,
+        "sample_index": sample_index,
+        "error_type": type(error).__name__,
+        "error": str(error),
+    }
+    if isinstance(error, subprocess.TimeoutExpired):
+        command = error.cmd
+        record["command"] = (
+            list(command) if isinstance(command, (list, tuple)) else command
+        )
+        record["timeout_seconds"] = error.timeout
+    return record
 
 
 def process_stat_full(
@@ -462,6 +493,9 @@ def main() -> int:
             "host_emergency_abort_floor_kib": HOST_EMERGENCY_ABORT_KIB,
             "host_floor_consecutive_samples": HOST_FLOOR_CONSECUTIVE_SAMPLES,
             "gpu_free_floor_mib": GPU_FREE_FLOOR_MIB,
+            "nvidia_audit_failure_consecutive_samples": (
+                NVIDIA_AUDIT_FAILURE_CONSECUTIVE_SAMPLES
+            ),
             "protected_zero_nvidia_required": True,
             "external_process_signals": False,
             "termination_signal_scope": (
@@ -496,6 +530,9 @@ def main() -> int:
     maximum_owned_sid_rss = 0
     below_host_floor_samples = 0
     maximum_consecutive_below_host_floor = 0
+    consecutive_nvidia_audit_failures = 0
+    maximum_consecutive_nvidia_audit_failures = 0
+    nvidia_audit_failures: list[dict[str, object]] = []
     abort_reason: str | None = None
     latest_audit = initial_audit
     try:
@@ -521,9 +558,31 @@ def main() -> int:
             if time.monotonic() >= deadline:
                 abort_reason = "owned-run-timeout"
                 break
-            latest_audit = audit(
-                run_id, int(metadata["pgid"]), int(metadata["sid"])
-            )
+            try:
+                latest_audit = audit(
+                    run_id, int(metadata["pgid"]), int(metadata["sid"])
+                )
+            except Exception as error:
+                nvidia_audit_failures.append(
+                    nvidia_audit_failure_record(
+                        error, phase="runtime", sample_index=samples
+                    )
+                )
+                (
+                    abort_reason,
+                    consecutive_nvidia_audit_failures,
+                ) = nvidia_audit_failure_update(
+                    consecutive_nvidia_audit_failures
+                )
+                maximum_consecutive_nvidia_audit_failures = max(
+                    maximum_consecutive_nvidia_audit_failures,
+                    consecutive_nvidia_audit_failures,
+                )
+                if abort_reason is not None:
+                    break
+                time.sleep(POLL_SECONDS)
+                continue
+            consecutive_nvidia_audit_failures = 0
             if not audit_ok(latest_audit, child_running=True):
                 abort_reason = "nvidia-coexistence-audit"
                 break
@@ -548,12 +607,32 @@ def main() -> int:
             short_tmp_parent, short_tmp_alias, short_tmp_target
         )
 
-    post_audit = audit()
+    post_audit: dict[str, object] | None = None
+    for attempt in range(1, NVIDIA_AUDIT_FAILURE_CONSECUTIVE_SAMPLES + 1):
+        try:
+            post_audit = audit()
+            break
+        except Exception as error:
+            nvidia_audit_failures.append(
+                nvidia_audit_failure_record(
+                    error, phase="post-exit", sample_index=attempt
+                )
+            )
+            if attempt < NVIDIA_AUDIT_FAILURE_CONSECUTIVE_SAMPLES:
+                time.sleep(POLL_SECONDS)
+    post_audit_available = post_audit is not None
+    if post_audit is None:
+        post_audit = {
+            "status": "unavailable",
+            "failure_count": NVIDIA_AUDIT_FAILURE_CONSECUTIVE_SAMPLES,
+        }
     metadata.update(
         {
             "status": (
                 "aborted"
                 if abort_reason
+                else "post-audit-unavailable"
+                if not post_audit_available
                 else "exited"
                 if stop_run.session_cleanup_is_natural(
                     metadata["session_cleanup"]
@@ -571,6 +650,10 @@ def main() -> int:
             "maximum_consecutive_below_host_floor": (
                 maximum_consecutive_below_host_floor
             ),
+            "maximum_consecutive_nvidia_audit_failures": (
+                maximum_consecutive_nvidia_audit_failures
+            ),
+            "nvidia_audit_failures": nvidia_audit_failures,
             "latest_runtime_audit": latest_audit,
             "post_audit": post_audit,
         }
@@ -579,6 +662,7 @@ def main() -> int:
     if (
         abort_reason is not None
         or not stop_run.session_cleanup_is_natural(metadata["session_cleanup"])
+        or not post_audit_available
         or not audit_ok(post_audit, child_running=False)
     ):
         return 75
