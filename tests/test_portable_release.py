@@ -45,6 +45,9 @@ def test_bootstrap_has_no_workstation_runtime_defaults() -> None:
     assert "PYPTO_KERNEL_CUDA_DRIVER_LABEL" in source
     assert "PYPTO_KERNEL_CUDART" in source
     assert "loaded_dso_path" in source
+    assert "compile_structured_strict_cached" in source
+    assert "artifact.cache_key_digest" in source
+    assert "hexdigest()[:16]" not in source
 
 
 def test_release_model_geometry_loader_is_exact_and_fail_closed(tmp_path: Path) -> None:
