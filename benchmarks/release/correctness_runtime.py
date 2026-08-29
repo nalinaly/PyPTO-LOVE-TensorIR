@@ -127,15 +127,6 @@ def _generate(torch, one_batch, runner, monitor=None):
 
         def traced_forward(*args, **kwargs):
             window = None
-            torch.cuda.synchronize()
-            completed_before = int(monitor.stats()["buffers_completed"])
-            monitor.flush(forced=True)
-            deadline = time.monotonic() + CUPTI_BUFFER_COMPLETION_TIMEOUT_SECONDS
-            while (
-                int(monitor.stats()["buffers_completed"]) <= completed_before
-                and time.monotonic() < deadline
-            ):
-                time.sleep(0.001)
             monitor.begin_trace_window()
             try:
                 return original_forward(*args, **kwargs)
