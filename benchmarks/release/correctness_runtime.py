@@ -5,9 +5,12 @@ from __future__ import annotations
 from dataclasses import asdict, replace
 import hashlib
 import json
+import multiprocessing
 from pathlib import Path
+import time
 import traceback
 
+from .cupti_overlay import activate_overlay
 from .evidence_identity import collect_run_identity
 from .lanes import (
     prepare_worker_environment,
@@ -35,6 +38,7 @@ from .workload import (
 
 
 MAX_TRACE_ATTEMPTS = 10
+CUPTI_BUFFER_COMPLETION_TIMEOUT_SECONDS = 1.0
 ROOT = Path(__file__).resolve().parents[2]
 THRESHOLDS = {
     "cosine_similarity_min": 0.98,
@@ -66,9 +70,7 @@ _COMPILE_SNAPSHOT_FIELDS = frozenset(
 )
 
 
-def _model_record(
-    model_path: Path, model_spec: Qwen35ModelSpec
-) -> dict[str, object]:
+def _model_record(model_path: Path, model_spec: Qwen35ModelSpec) -> dict[str, object]:
     config = model_path / "config.json"
     if not config.is_file():
         raise ReleaseContractError(f"model config is missing: {config}")
@@ -130,6 +132,14 @@ def _generate(torch, one_batch, runner, monitor=None):
                 return original_forward(*args, **kwargs)
             finally:
                 torch.cuda.synchronize()
+                completed_before = int(monitor.stats()["buffers_completed"])
+                monitor.flush(forced=True)
+                deadline = time.monotonic() + CUPTI_BUFFER_COMPLETION_TIMEOUT_SECONDS
+                while (
+                    int(monitor.stats()["buffers_completed"]) <= completed_before
+                    and time.monotonic() < deadline
+                ):
+                    time.sleep(0.001)
                 window = monitor.end_trace_window()
                 windows.append(window)
 
@@ -187,9 +197,7 @@ def _token_sequence_mismatch(
             )
             if expected_token != observed_token
         ),
-        min(len(expected), len(observed))
-        if len(expected) != len(observed)
-        else None,
+        min(len(expected), len(observed)) if len(expected) != len(observed) else None,
     )
     return {
         "first_mismatch_step": mismatch,
@@ -355,6 +363,77 @@ def _run_engine_sequences(
             publish_progress("shutdown-complete")
 
 
+def _engine_sequence_process(
+    model_path: str,
+    expected_output_ids: list[int],
+    run_dir: str,
+    sender,
+) -> None:
+    try:
+        sender.send(
+            {
+                "ok": True,
+                "value": _run_engine_sequences(
+                    Path(model_path), expected_output_ids, Path(run_dir)
+                ),
+            }
+        )
+    except BaseException as error:
+        sender.send(
+            {
+                "ok": False,
+                "error_type": type(error).__name__,
+                "error": str(error),
+                "traceback": traceback.format_exc(),
+            }
+        )
+    finally:
+        sender.close()
+
+
+def _run_engine_sequences_isolated(
+    model_path: Path,
+    expected_output_ids: list[int],
+    run_dir: Path,
+) -> tuple[list[dict[str, object]], dict[str, object], dict[str, object]]:
+    context = multiprocessing.get_context("spawn")
+    receiver, sender = context.Pipe(duplex=False)
+    process = context.Process(
+        target=_engine_sequence_process,
+        args=(str(model_path), expected_output_ids, str(run_dir), sender),
+        daemon=False,
+    )
+    process.start()
+    sender.close()
+    try:
+        payload = receiver.recv()
+    except EOFError as error:
+        process.join()
+        raise ReleaseContractError(
+            "SGLang Engine correctness child exited without a result: "
+            f"exit_code={process.exitcode}"
+        ) from error
+    finally:
+        receiver.close()
+    process.join()
+    if process.exitcode != 0:
+        raise ReleaseContractError(
+            f"SGLang Engine correctness child failed: exit_code={process.exitcode}"
+        )
+    if payload.get("ok") is not True:
+        raise ReleaseContractError(
+            "SGLang Engine correctness child failed: "
+            f"{payload.get('error_type')}: {payload.get('error')}\n"
+            f"{payload.get('traceback')}"
+        )
+    value = payload.get("value")
+    if not isinstance(value, tuple) or len(value) != 3:
+        raise ReleaseContractError(
+            "SGLang Engine correctness child returned an invalid payload"
+        )
+    return value
+
+
 def run_reference(model_path: Path, run_id: str, run_dir: Path) -> int:
     lane = "sglang-matched"
     model_path = model_path.resolve(strict=True)
@@ -504,6 +583,27 @@ def _device_fingerprint(torch) -> str:
     )
 
 
+def _merge_coverage_event(event_aggregates: dict[str, object], event) -> None:
+    previous = event_aggregates.get(event.activity_id)
+    if previous is None:
+        event_aggregates[event.activity_id] = event
+        return
+    if (
+        replace(
+            event,
+            call_count=previous.call_count,
+            gpu_time_ns=previous.gpu_time_ns,
+        )
+        != previous
+    ):
+        raise ReleaseContractError("conflicting activity identity across trace windows")
+    event_aggregates[event.activity_id] = replace(
+        previous,
+        call_count=previous.call_count + event.call_count,
+        gpu_time_ns=previous.gpu_time_ns + event.gpu_time_ns,
+    )
+
+
 def _coverage_request(
     *,
     torch,
@@ -539,18 +639,7 @@ def _coverage_request(
             if previous != artifact:
                 raise ReleaseContractError("conflicting artifact across trace windows")
         for event in normalized.events:
-            identity = json.dumps(
-                event.identity_dict(), sort_keys=True, separators=(",", ":")
-            )
-            previous = event_aggregates.get(identity)
-            if previous is None:
-                event_aggregates[identity] = event
-            else:
-                event_aggregates[identity] = replace(
-                    previous,
-                    call_count=previous.call_count + event.call_count,
-                    gpu_time_ns=previous.gpu_time_ns + event.gpu_time_ns,
-                )
+            _merge_coverage_event(event_aggregates, event)
     artifact_values = list(artifacts.values())
     events = list(event_aggregates.values())
     if not closed_world:
@@ -707,8 +796,8 @@ def run_candidate(
             raise ReleaseContractError(
                 "reference output token sequence does not contain 64 steps"
             )
-        engine_requests, engine_requested, engine_resolved = _run_engine_sequences(
-            model_path, expected_output_ids, run_dir
+        engine_requests, engine_requested, engine_resolved = (
+            _run_engine_sequences_isolated(model_path, expected_output_ids, run_dir)
         )
         engine_progress_path = run_dir / "qwen35-engine-progress.json"
         report["engine"] = {
@@ -731,6 +820,8 @@ def run_candidate(
                 "end-to-end SGLang Engine output differs from the frozen reference"
             )
 
+        cupti_overlay = activate_overlay()
+        report["cupti_overlay"] = cupti_overlay
         import torch
         from torch.profiler import _cupti_monitor as monitor_api
 

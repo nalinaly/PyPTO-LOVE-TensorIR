@@ -38,15 +38,15 @@ class SourceReleaseTest(unittest.TestCase):
 
     def test_exact_release_boundaries_and_gitlinks_are_locked(self) -> None:
         repositories = self.lock["repositories"]
-        self.assertEqual(repositories["pypto"]["commit_count"], 223)
-        self.assertEqual(repositories["tensor_ir"]["commit_count"], 84)
+        self.assertEqual(repositories["pypto"]["commit_count"], 263)
+        self.assertEqual(repositories["tensor_ir"]["commit_count"], 89)
         self.assertEqual(
             repositories["pypto"]["head_commit"],
-            "de37c7dcf93482ca3cfb42f18583ad4c999794e7",
+            "4fe2f0ab255901a004106156822770ea7ac9470e",
         )
         self.assertEqual(
             repositories["tensor_ir"]["head_commit"],
-            "eb5fc509d9ac6d7a015a29f8b8330f6d9d15fa6b",
+            "db41d0733eb73971ee03a74faca81d1af6e6aef7",
         )
         self.assertEqual(
             repositories["pypto"]["gitlinks"],
@@ -57,11 +57,11 @@ class SourceReleaseTest(unittest.TestCase):
         report = source_release.verify_release_artifacts(ROOT, self.lock)
         self.assertEqual(
             report["packages"]["pypto-kernels"]["source_commit"],
-            "775ae22be4afc0ae8674b4eb8177e6aacbfdcc6b",
+            "a92a13ead6041f4464c9c337b17a4a5fae85e3e5",
         )
         self.assertEqual(
             report["packages"]["pypto-framework-plugins"]["source_commit"],
-            "e6ec0aac8cb91beb6102717c063bbbea2e344f62",
+            "f11bf6015303ab932d6bfce624f1f1e9e9dfbe13",
         )
         for package in report["packages"].values():
             self.assertEqual(package["source_tree"], package["prefix_tree"])
@@ -71,8 +71,8 @@ class SourceReleaseTest(unittest.TestCase):
         report = source_release.verify_release_artifacts(ROOT, self.lock)
         self.assertTrue(report["pypto"]["bundle"]["clone_probe"])
         self.assertTrue(report["tensor_ir"]["bundle"]["clone_probe"])
-        self.assertEqual(report["pypto"]["patch_series"]["patch_count"], 223)
-        self.assertEqual(report["tensor_ir"]["patch_series"]["patch_count"], 84)
+        self.assertEqual(report["pypto"]["patch_series"]["patch_count"], 263)
+        self.assertEqual(report["tensor_ir"]["patch_series"]["patch_count"], 89)
 
     def test_every_patch_replays_to_the_locked_tree(self) -> None:
         report = source_release.replay_all_patch_series(ROOT, self.lock)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import importlib.util
 import json
 from pathlib import Path
@@ -46,9 +47,7 @@ def test_candidate_compile_cache_evidence_is_strict_but_hit_is_observational() -
     assert evidence["cache_hit_observed"] is True
     assert evidence["cache_hit_required"] is False
     assert evidence["coverage_identity_includes_snapshot"] is False
-    assert evidence["disposition_counts"] == {
-        value: 1 for value in dispositions
-    }
+    assert evidence["disposition_counts"] == {value: 1 for value in dispositions}
     evidence["records"][0]["cache_key"] = "mutated"
     assert source[0]["cache_key"] == "a" * 64
 
@@ -155,9 +154,7 @@ def _write_model_spec_fixture(root: Path) -> dict[str, Path]:
 
 def test_model_correctness_spec_drives_both_model_contracts(tmp_path: Path) -> None:
     paths = _write_model_spec_fixture(tmp_path)
-    small = workload.resolve_qwen35_model_spec(
-        tmp_path, paths["Qwen3.5-0.8B"]
-    )
+    small = workload.resolve_qwen35_model_spec(tmp_path, paths["Qwen3.5-0.8B"])
     large = workload.resolve_qwen35_model_spec(tmp_path, paths["Qwen3.5-9B"])
     assert small.record() == {
         "manifest_name": "Qwen3.5-0.8B",
@@ -175,16 +172,12 @@ def test_model_correctness_spec_drives_both_model_contracts(tmp_path: Path) -> N
         "num_hidden_layers": 32,
         "expected_inductor_calls": 32 * 64,
     }
-    assert model_tool._report_name(small, "reference") == (
-        "qwen35-0.8b-reference.json"
-    )
+    assert model_tool._report_name(small, "reference") == ("qwen35-0.8b-reference.json")
     assert model_tool._report_name(small, "candidate") == (
         "qwen35-0.8b-correctness.json"
     )
     assert model_tool._report_name(large, "reference") == "qwen35-9b-reference.json"
-    assert model_tool._report_name(large, "candidate") == (
-        "qwen35-9b-correctness.json"
-    )
+    assert model_tool._report_name(large, "candidate") == ("qwen35-9b-correctness.json")
     assert workload.workload_record(small)["model_id"] == "Qwen/Qwen3.5-0.8B"
     assert workload.workload_record(large) == workload.workload_record()
 
@@ -319,14 +312,10 @@ def test_lane_memory_and_provider_qualifications_are_explicit() -> None:
         "sglang-optimized", model, optimized_memory_mode="matched"
     )
     small_pypto = lanes.server_kwargs("pypto", Path("Qwen3.5-0.8B"))
-    small_matched = lanes.server_kwargs(
-        "sglang-matched", Path("Qwen3.5-0.8B")
-    )
+    small_matched = lanes.server_kwargs("sglang-matched", Path("Qwen3.5-0.8B"))
     for config in (pypto, matched, optimized, qualified_optimized):
         assert "language_model_only" not in config
-        assert config["json_model_override_args"] == (
-            '{"language_model_only":true}'
-        )
+        assert config["json_model_override_args"] == ('{"language_model_only":true}')
     assert pypto["cpu_offload_gb"] == matched["cpu_offload_gb"] == 2
     assert pypto["mem_fraction_static"] == matched["mem_fraction_static"] == 0.78
     assert small_pypto["cpu_offload_gb"] == small_matched["cpu_offload_gb"] == 0
@@ -480,9 +469,10 @@ def test_operator_manifest_covers_compile_numerical_and_graph_gates() -> None:
             "packages/pypto-kernels/tests/test_portable_release.py",
         ],
     }
-    assert [path.name for path in operator_tool._structure_sources(
-        ROOT / "packages/pypto-kernels"
-    )] == ["test_operators.py", "test_portable_release.py"]
+    assert [
+        path.name
+        for path in operator_tool._structure_sources(ROOT / "packages/pypto-kernels")
+    ] == ["test_operators.py", "test_portable_release.py"]
     resolved = operator_tool._operator_suites(ROOT / "packages/pypto-kernels")
     assert [item[0]["id"] for item in resolved] == [item["id"] for item in suites]
     assert all(source.is_file() for _raw, source, _scope, _args in resolved)
@@ -544,7 +534,7 @@ def test_operator_manifest_locks_real_model_shape_and_launch_contracts() -> None
         for item in stateful
     )
     paged = suites["paged-attention"]["case_expectations"]
-    assert suites["paged-attention"]["expected_case_count"] == 12
+    assert suites["paged-attention"]["expected_case_count"] == 14
     decode_launches = {
         item["where"]["case"]: item["equals"]
         for item in paged
@@ -650,6 +640,76 @@ def test_engine_token_mismatch_evidence_is_exact_and_length_aware() -> None:
         "expected_token_id": None,
         "observed_token_id": None,
     }
+
+
+def test_engine_acceptance_isolated_before_parent_cupti_start() -> None:
+    source = (ROOT / "benchmarks/release/correctness_runtime.py").read_text(
+        encoding="utf-8"
+    )
+    candidate = source[source.index("def run_candidate(") :]
+    assert candidate.index("_run_engine_sequences_isolated(") < candidate.index(
+        "from torch.profiler import _cupti_monitor"
+    )
+    isolated = source[
+        source.index("def _run_engine_sequences_isolated(") : source.index(
+            "def run_reference("
+        )
+    ]
+    assert 'multiprocessing.get_context("spawn")' in isolated
+
+
+@dataclass(frozen=True)
+class _FakeCoverageEvent:
+    activity_id: str
+    provider: str
+    call_count: int
+    gpu_time_ns: int
+
+
+def test_cross_window_coverage_events_aggregate_by_activity_id() -> None:
+    aggregates: dict[str, object] = {}
+    correctness_runtime._merge_coverage_event(
+        aggregates, _FakeCoverageEvent("same", "pypto", 2, 11)
+    )
+    correctness_runtime._merge_coverage_event(
+        aggregates, _FakeCoverageEvent("same", "pypto", 3, 17)
+    )
+    assert aggregates == {"same": _FakeCoverageEvent("same", "pypto", 5, 28)}
+    with pytest.raises(workload.ReleaseContractError, match="conflicting activity"):
+        correctness_runtime._merge_coverage_event(
+            aggregates, _FakeCoverageEvent("same", "external", 1, 1)
+        )
+
+
+def test_cupti_profiler_overlay_is_hash_locked_without_prefix_install() -> None:
+    artifacts = json.loads(
+        (ROOT / "environment/python-artifacts.json").read_text(encoding="utf-8")
+    )
+    runtime = json.loads(
+        (ROOT / "environment/release-runtime.json").read_text(encoding="utf-8")
+    )
+    overlay = artifacts["profiling_overlay"]
+    wheel = artifacts["artifacts"]["cupti_python"]
+    assert overlay == {
+        "artifact": "cupti_python",
+        "destination": "caches/cupti-python-overlay/13.2.0",
+        "distribution": "cupti-python",
+        "libcupti_relative": "targets/x86_64-linux/lib/libcupti.so",
+        "python_abi": "cp314",
+        "toolkit": "13.3.73",
+        "toolkit_root_label": "cuda-13.3",
+        "version": "13.2.0",
+    }
+    assert wheel["sha256"] == (
+        "d57ad6cad9a757dcda2fdd4b7eaa9994991c739d569073e6d78820a25dee0ab7"
+    )
+    assert runtime["cuda"]["cupti_python_distribution_required"] is False
+    assert runtime["cuda"]["cupti_python_mode"] == "hash-locked-overlay"
+    source = (ROOT / "benchmarks/release/correctness_runtime.py").read_text(
+        encoding="utf-8"
+    )
+    assert "monitor.flush(forced=True)" in source
+    assert 'monitor.stats()["buffers_completed"]' in source
 
 
 def test_operator_manifest_paths_cannot_escape_or_own_output() -> None:

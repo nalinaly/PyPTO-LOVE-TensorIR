@@ -524,6 +524,15 @@ def verify_release_artifacts(
         or environment_lock.get("build_parallelism") != 24
     ):
         raise SourceReleaseError("environment lock identity or parallelism differs")
+    cuda_runtime = environment_lock.get("cuda")
+    if (
+        not isinstance(cuda_runtime, dict)
+        or cuda_runtime.get("cupti_python_distribution_required") is not False
+        or cuda_runtime.get("cupti_python_mode") != "hash-locked-overlay"
+        or cuda_runtime.get("cupti_python_overlay") != "13.2.0"
+        or cuda_runtime.get("cupti_python_toolkit") != "13.3.73"
+    ):
+        raise SourceReleaseError("CUPTI profiler overlay runtime identity differs")
     if (
         environment_lock.get("source_identities", {}).get("sglang")
         != repositories["sglang"]["head_commit"]
@@ -563,10 +572,13 @@ def verify_release_artifacts(
             raise SourceReleaseError(f"Python artifact lock disagrees on {label}")
     python_artifacts = artifact_lock.get("artifacts")
     if not isinstance(python_artifacts, dict) or set(python_artifacts) != {
+        "cupti_python",
         "torch",
         "triton",
     }:
-        raise SourceReleaseError("Python artifact set must be exactly Torch and Triton")
+        raise SourceReleaseError(
+            "Python artifact set must be exactly cupti-python, Torch, and Triton"
+        )
     for name, metadata in python_artifacts.items():
         if (
             not isinstance(metadata, dict)
@@ -576,6 +588,29 @@ def verify_release_artifacts(
             or metadata["bytes"] <= 0
         ):
             raise SourceReleaseError(f"invalid locked Python artifact: {name}")
+    overlay = artifact_lock.get("profiling_overlay")
+    if (
+        not isinstance(overlay, dict)
+        or set(overlay)
+        != {
+            "artifact",
+            "destination",
+            "distribution",
+            "libcupti_relative",
+            "python_abi",
+            "toolkit",
+            "toolkit_root_label",
+            "version",
+        }
+        or overlay.get("artifact") != "cupti_python"
+        or overlay.get("distribution") != "cupti-python"
+        or overlay.get("version") != python_artifacts["cupti_python"].get("version")
+        or overlay.get("python_abi") != "cp314"
+        or overlay.get("toolkit") != "13.3.73"
+        or overlay.get("toolkit_root_label") != "cuda-13.3"
+        or python_artifacts["cupti_python"].get("purpose") != "profiling-overlay"
+    ):
+        raise SourceReleaseError("cupti-python profiling overlay identity differs")
     conda_path = root / str(locked_environment_files["conda-linux-64.lock"]["path"])
     conda_lines = [
         line.strip()
@@ -622,7 +657,9 @@ def verify_release_artifacts(
         if not package_path.is_dir() or package_path.is_symlink():
             raise SourceReleaseError(f"package snapshot is missing: {package_path}")
         if any(path.name == ".git" for path in package_path.rglob(".git")):
-            raise SourceReleaseError(f"package snapshot contains nested Git state: {name}")
+            raise SourceReleaseError(
+                f"package snapshot contains nested Git state: {name}"
+            )
         source_commit = str(spec["source_commit"])
         _git(root, "cat-file", "-e", f"{source_commit}^{{commit}}")
         reachable = _run(

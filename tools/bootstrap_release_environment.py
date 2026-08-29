@@ -23,6 +23,13 @@ from collections.abc import Iterable, Mapping
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from benchmarks.release.cupti_overlay import (  # noqa: E402
+    materialize_overlay,
+    validate_overlay,
+)
+
 ENVIRONMENT_DIR = ROOT / "environment"
 CONDA_LOCK = ENVIRONMENT_DIR / "conda-linux-64.lock"
 PYTHON_LOCK = ENVIRONMENT_DIR / "python-requirements.lock"
@@ -245,6 +252,7 @@ def create_environments(
         create_conda_prefix(conda, destination, base_prefix=base_prefix)
         remove_candidate_distributions(destination)
         install_locked_python(destination, artifact_lock, wheelhouse=wheelhouse)
+    overlay = materialize_overlay(wheelhouse, allow_download=wheelhouse is None)
     candidate = installed_distributions(CANDIDATE_PREFIX)
     baseline = installed_distributions(BASELINE_PREFIX)
     if candidate != baseline:
@@ -258,6 +266,7 @@ def create_environments(
         "baseline": str(BASELINE_PREFIX.relative_to(ROOT)),
         "distributions": len(candidate),
         "accelerated_from_base_prefix": base_prefix is not None,
+        "cupti_overlay": overlay,
     }
 
 
@@ -291,6 +300,7 @@ def finalize_environments() -> dict[str, object]:
         raise EnvironmentBootstrapError(
             "source bootstrap must materialize .sources/sglang before finalization"
         )
+    overlay = validate_overlay()
     candidate = installed_distributions(CANDIDATE_PREFIX)
     baseline = installed_distributions(BASELINE_PREFIX)
     candidate_names = set(candidate)
@@ -323,6 +333,7 @@ def finalize_environments() -> dict[str, object]:
             }
             for name, value in identities.items()
         },
+        "cupti_overlay": overlay,
     }
 
 

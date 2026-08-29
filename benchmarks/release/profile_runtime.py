@@ -10,6 +10,7 @@ import re
 import traceback
 
 from .correctness_runtime import _generate, _load_runner, _shutdown_runner
+from .cupti_overlay import activate_overlay
 from .evidence_identity import collect_run_identity
 from .lanes import (
     execution_feature_record,
@@ -270,6 +271,7 @@ def run(
     monitor_api = None
     handles = []
     try:
+        report["cupti_overlay"] = activate_overlay()
         import torch
         from torch.profiler import _cupti_monitor as monitor_api
 
