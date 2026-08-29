@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -14,7 +15,22 @@ from pypto_plugins.torch import pointwise_codegen as pc
 class PointwiseCodegenTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        cls.cache_directory = tempfile.TemporaryDirectory()
+        cache_root = Path(cls.cache_directory.name).resolve()
+        cache_root.chmod(0o700)
+        cls.previous_cache_root = os.environ.get("PYPTO_CACHE_DIR")
+        os.environ["PYPTO_CACHE_DIR"] = str(cache_root)
         cls.modules = pc.bootstrap_pypto()
+        pc.clear_caches_for_testing()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        pc.clear_caches_for_testing()
+        if cls.previous_cache_root is None:
+            os.environ.pop("PYPTO_CACHE_DIR", None)
+        else:
+            os.environ["PYPTO_CACHE_DIR"] = cls.previous_cache_root
+        cls.cache_directory.cleanup()
 
     def test_fp32_add_mul_chain_compiles_deterministically(self) -> None:
         builder = pc.PointwiseProgramBuilder((256,), "float32")
@@ -42,6 +58,11 @@ class PointwiseCodegenTest(unittest.TestCase):
         self.assertEqual(artifact.argument_count, 3)
         self.assertEqual(artifact.workspace_bytes, 0)
         self.assertFalse(artifact.fallback_used)
+        self.assertEqual(len(artifact.artifact_cache_key_sha256), 64)
+        self.assertIn(
+            artifact.artifact_cache_disposition,
+            pc._PERSISTENT_CACHE_DISPOSITIONS,
+        )
         self.assertEqual(artifact.dso_sha256, pc.pypto_dso_sha256())
         self.assertEqual(artifact.pypto_source, native_source)
         self.assertEqual(
@@ -54,6 +75,15 @@ class PointwiseCodegenTest(unittest.TestCase):
         )
         self.assertEqual(evidence.artifact_sha256, artifact.artifact_sha256)
         self.assertEqual(evidence.pypto_source, native_source)
+        observation = evidence.to_dict()["artifact_cache_observation"]
+        self.assertEqual(
+            observation["cache_key_sha256"],
+            artifact.artifact_cache_key_sha256,
+        )
+        self.assertEqual(
+            observation["disposition"],
+            artifact.artifact_cache_disposition,
+        )
         with pc.capture_pointwise_artifacts() as capture:
             again = pc.compile_pointwise(builder.build(), tile=128)
         self.assertEqual(capture.single_artifact(), artifact)
