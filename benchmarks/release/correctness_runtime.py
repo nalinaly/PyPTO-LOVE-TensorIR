@@ -127,6 +127,7 @@ def _generate(torch, one_batch, runner, monitor=None):
 
         def traced_forward(*args, **kwargs):
             window = None
+            torch.cuda.synchronize()
             monitor.begin_trace_window()
             try:
                 return original_forward(*args, **kwargs)
