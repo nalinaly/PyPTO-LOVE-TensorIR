@@ -382,54 +382,21 @@ def create_attention_backend(model_runner: Any) -> Any:
                     stream,
                 )
                 request_table = self.req_to_token_pool.req_to_token
-                batch_size = int(q.shape[0])
-                lengths = self._cpu_lengths(
-                    forward_batch.seq_lens_cpu, batch_size, "sequence-length"
-                )
                 bucket = self._bucket_tokens(
                     forward_batch, int(request_table.shape[1])
                 )
-                output = torch.empty(
-                    tuple(q.shape), dtype=torch.bfloat16, device=q.device
+                return attention.paged_attention_decode(
+                    q,
+                    key_cache,
+                    value_cache,
+                    request_table,
+                    forward_batch.req_pool_indices,
+                    forward_batch.seq_lens,
+                    self.virtual_to_physical,
+                    kv_heads=int(layer.tp_k_head_num),
+                    bucket_tokens=bucket,
+                    stream=stream,
                 )
-                for batch_index, valid_length in enumerate(lengths):
-                    request_index = forward_batch.req_pool_indices[
-                        batch_index : batch_index + 1
-                    ]
-                    gathered_key = attention.paged_gather(
-                        key_cache,
-                        request_table,
-                        request_index,
-                        self.virtual_to_physical,
-                        bucket_tokens=bucket,
-                        stream=stream,
-                    )
-                    gathered_value = attention.paged_gather(
-                        value_cache,
-                        request_table,
-                        request_index,
-                        self.virtual_to_physical,
-                        bucket_tokens=bucket,
-                        stream=stream,
-                    )
-                    mask = attention.causal_mask(
-                        [valid_length],
-                        bucket,
-                        device=q.device,
-                        stream=stream,
-                    )
-                    query_row = q[batch_index : batch_index + 1]
-                    output_row = output[batch_index : batch_index + 1]
-                    self._masked_attention_rows(
-                        query_row,
-                        gathered_key,
-                        gathered_value,
-                        mask,
-                        output_row,
-                        layer,
-                        stream,
-                    )
-                return output
 
         def forward_extend(
             self,
@@ -488,48 +455,35 @@ def create_attention_backend(model_runner: Any) -> Any:
                     "extend-prefix-length",
                     allow_zero=True,
                 )
-                valid_lengths = [
-                    prefix_lengths[0] + row + 1 for row in range(int(q.shape[0]))
-                ]
-                if any(length > bucket for length in valid_lengths):
+                if prefix_lengths[0] + int(q.shape[0]) > bucket:
                     raise BackendNotReadyError(
                         "PyPTO causal prefill valid lengths exceed the token bucket."
                     )
-                mask = attention.causal_mask(
-                    valid_lengths,
-                    bucket,
-                    device=q.device,
-                    stream=stream,
-                )
-                gathered_key = attention.paged_gather(
+                prefix_tokens = forward_batch.extend_prefix_lens
+                if (
+                    prefix_tokens is None
+                    or prefix_tokens.ndim != 1
+                    or prefix_tokens.numel() != 1
+                    or prefix_tokens.dtype is not torch.int32
+                    or not prefix_tokens.is_contiguous()
+                    or prefix_tokens.device != q.device
+                ):
+                    raise BackendNotReadyError(
+                        "PyPTO causal prefill needs one contiguous CUDA INT32 "
+                        "prefix length."
+                    )
+                return attention.paged_attention_prefill(
+                    q,
                     key_cache,
-                    request_table,
-                    forward_batch.req_pool_indices,
-                    self.virtual_to_physical,
-                    bucket_tokens=bucket,
-                    stream=stream,
-                )
-                gathered_value = attention.paged_gather(
                     value_cache,
                     request_table,
                     forward_batch.req_pool_indices,
+                    prefix_tokens,
                     self.virtual_to_physical,
+                    kv_heads=int(layer.tp_k_head_num),
                     bucket_tokens=bucket,
                     stream=stream,
                 )
-                output = torch.empty(
-                    tuple(q.shape), dtype=torch.bfloat16, device=q.device
-                )
-                self._masked_attention_rows(
-                    q,
-                    gathered_key,
-                    gathered_value,
-                    mask,
-                    output,
-                    layer,
-                    stream,
-                )
-                return output
 
         def support_triton(self):
             return False

@@ -70,6 +70,14 @@ MAMBA_INDICES_TARGET = (
 UNIFIED_MAMBA_TRANSLATE_TARGET = (
     "sglang.srt.mem_cache.unified_memory_pool.UnifiedMambaSlotAllocator.translate"
 )
+INPUT_BUFFER_STAGE_TARGETS = (
+    "sglang.srt.model_executor.runner_utils.buffers."
+    "DecodeInputBuffers.populate_from_forward_batch",
+    "sglang.srt.model_executor.runner_utils.buffers."
+    "PrefillInputBuffers.populate_from_forward_batch",
+    "sglang.srt.model_executor.cuda_graph_buffer_registry."
+    "CudaGraphBufferRegistry.fill_from",
+)
 QWEN_LANGUAGE_MODEL_ONLY_ARCHITECTURES = (
     "Qwen3_5ForConditionalGeneration",
 )
@@ -1101,6 +1109,13 @@ def _unified_mamba_translate_around(original_fn, allocator, virtual_ids):
     return _integer_gather(allocator.virtual_to_physical, virtual_ids)
 
 
+def _input_buffer_stage_around(original_fn, *args, **kwargs):
+    from .activity_trace import annotate_framework_activity
+
+    with annotate_framework_activity("sglang.input-buffer-staging"):
+        return original_fn(*args, **kwargs)
+
+
 def _require_callable_hook_target(target: str) -> None:
     parts = target.split(".")
     for count in range(len(parts) - 1, 0, -1):
@@ -1446,6 +1461,8 @@ def _register_impl() -> None:
         _unified_mamba_translate_around,
         HookType.AROUND,
     )
+    for target in INPUT_BUFFER_STAGE_TARGETS:
+        HookRegistry.register(target, _input_buffer_stage_around, HookType.AROUND)
     for target in TRITON_SUPPORT_TARGETS:
         HookRegistry.register(target, _support_triton_around, HookType.AROUND)
 

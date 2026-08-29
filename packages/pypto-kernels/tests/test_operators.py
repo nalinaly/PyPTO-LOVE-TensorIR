@@ -808,7 +808,7 @@ def test_paged_prefill_is_one_causal_gqa_graph():
             13, 8, 2, 16, 256, 1024, 65, 4096, query_row_stride=4096
         )
     )
-    assert "pl.TensorView(stride=[4096, 256, 1]" in pitched_query
+    assert "pl.TensorView(stride=[256, 4096, 1]" in pitched_query
     pitched_result = str(
         attention.build_paged_prefill(
             13,
@@ -823,13 +823,89 @@ def test_paged_prefill_is_one_causal_gqa_graph():
             result_row_stride=8192,
         )
     )
-    assert "pl.TensorView(stride=[8192, 256, 1]" in pitched_result
+    assert "pl.TensorView(stride=[256, 8192, 1]" in pitched_result
 
     large_model = attention.build_paged_prefill(13, 16, 4, 16, 256, 1024, 65, 4096)
     large_rendered = str(large_model)
     assert "kv_heads: pl.Scalar[pl.INDEX] = 4" in large_rendered
     assert "queries_per_kv: pl.Scalar[pl.INDEX] = 16 // kv_heads" in large_rendered
     assert large_rendered.count("pl.tile.gather_row") == 2
+
+
+def test_paged_prefill_tiles_follow_canonical_iteration_rank():
+    assert attention._paged_prefill_tiles(1, 1, 1) == [128]
+    assert attention._paged_prefill_tiles(19, 1, 1) == [1, 128]
+    assert attention._paged_prefill_tiles(19, 4, 1) == [1, 1, 128]
+    assert attention._paged_prefill_tiles(19, 8, 2) == [1, 1, 1, 128]
+    with pytest.raises(ValueError, match="positive divisible GQA geometry"):
+        attention._paged_prefill_tiles(19, 7, 2)
+
+
+def test_paged_prefill_launches_head_major_zero_copy_views(monkeypatch):
+    query_rows, q_heads, kv_heads, head_dim = 19, 8, 2, 256
+    query_width = q_heads * head_dim
+    query = torch.empty((query_rows, query_width), dtype=torch.bfloat16)
+    key_cache = torch.empty((257, kv_heads * head_dim), dtype=torch.bfloat16)
+    value_cache = torch.empty_like(key_cache)
+    req_to_token = torch.empty((2, 260), dtype=torch.int32)
+    request_index = torch.empty((1,), dtype=torch.int64)
+    prefix_tokens = torch.empty((1,), dtype=torch.int32)
+    virtual_to_physical = torch.empty((257,), dtype=torch.int64)
+    compile_calls = []
+    launches = []
+
+    monkeypatch.setattr(
+        attention,
+        "compile_paged_prefill_for",
+        lambda *shape: compile_calls.append(shape) or "head-major-prefill",
+    )
+    monkeypatch.setattr(
+        attention,
+        "_launch_paged_prefill_graph",
+        lambda graph, operands, stream: launches.append((graph, operands, stream)),
+    )
+
+    result = attention.paged_attention_prefill(
+        query,
+        key_cache,
+        value_cache,
+        req_to_token,
+        request_index,
+        prefix_tokens,
+        virtual_to_physical,
+        kv_heads=kv_heads,
+        bucket_tokens=32,
+        stream=SimpleNamespace(cuda_stream=123),
+    )
+
+    assert compile_calls == [
+        (
+            query_rows,
+            q_heads,
+            kv_heads,
+            32,
+            head_dim,
+            257,
+            2,
+            260,
+            kv_heads * head_dim,
+            257,
+            query_width,
+            query_width,
+        )
+    ]
+    assert len(launches) == 1
+    graph, operands, stream = launches[0]
+    assert graph == "head-major-prefill"
+    assert stream.cuda_stream == 123
+    query_view, *_metadata, result_view = operands
+    assert tuple(query_view.shape) == (q_heads, query_rows, head_dim)
+    assert tuple(query_view.stride()) == (head_dim, query_width, 1)
+    assert query_view.data_ptr() == query.data_ptr()
+    assert tuple(result_view.shape) == (q_heads, query_rows, head_dim)
+    assert tuple(result_view.stride()) == (head_dim, query_width, 1)
+    assert tuple(result.shape) == (query_rows, query_width)
+    assert result_view.untyped_storage().data_ptr() == result.untyped_storage().data_ptr()
 
 
 def test_linear_is_one_native_tile_graph():

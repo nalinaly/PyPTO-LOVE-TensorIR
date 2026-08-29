@@ -62,6 +62,17 @@ def _annotation(record) -> str:
     )
 
 
+def _framework_annotation(source_node: str) -> str:
+    return json.dumps(
+        {
+            "kind": trace.FRAMEWORK_ANNOTATION_KIND,
+            "provider": trace.FRAMEWORK_PROVIDER,
+            "schema_version": trace.FRAMEWORK_ANNOTATION_SCHEMA_VERSION,
+            "source_node": source_node,
+        }
+    )
+
+
 def test_artifact_record_comes_from_native_artifact() -> None:
     record = _record()
     assert record.artifact_id == "pypto-artifact-v1:identity-digest"
@@ -96,6 +107,20 @@ def test_launch_annotation_rejects_unbalanced_stack(monkeypatch) -> None:
     with pytest.raises(StrictCoverageError, match="unbalanced"):
         with trace.annotate_artifact_launch(_record()):
             pass
+
+
+def test_framework_annotation_uses_active_cupti_window(monkeypatch) -> None:
+    monitor = _Monitor()
+    monkeypatch.setattr(trace, "_active_monitor", lambda: monitor)
+    with trace.annotate_framework_activity("sglang.input-buffer-staging"):
+        pass
+    payload = json.loads(monitor.annotations[0])
+    assert payload == {
+        "kind": trace.FRAMEWORK_ANNOTATION_KIND,
+        "provider": "sglang.framework",
+        "schema_version": trace.FRAMEWORK_ANNOTATION_SCHEMA_VERSION,
+        "source_node": "sglang.input-buffer-staging",
+    }
 
 
 def test_normalize_cupti_window_joins_artifact_and_runtime_activities() -> None:
@@ -160,6 +185,38 @@ def test_normalize_marks_uncorrelated_kernel_as_external() -> None:
     assert event.provider == "cuda.external"
     assert event.provenance is not None
     assert event.provenance.origin is ProvenanceOrigin.EXTERNAL
+
+
+def test_normalize_classifies_annotated_framework_bookkeeping() -> None:
+    normalized = trace.normalize_cupti_window(
+        {
+            "start_ns": 10,
+            "user_annotations": {
+                "7": _framework_annotation("sglang.input-buffer-staging")
+            },
+            "events": [
+                {
+                    "kind": "external_correlation",
+                    "external_id": 7,
+                    "correlation_id": 41,
+                },
+                {
+                    "kind": "kernel",
+                    "name": "at::native::multi_tensor_apply_kernel",
+                    "correlation_id": 41,
+                    "start_ns": 20,
+                    "end_ns": 70,
+                },
+            ],
+        },
+        dropped_records=0,
+    )
+    assert normalized.artifacts == ()
+    event = normalized.events[0]
+    assert event.scope is EventScope.FRAMEWORK
+    assert event.provider == "sglang.framework"
+    assert event.provenance is not None
+    assert event.provenance.artifact_id == "framework:sglang.input-buffer-staging"
 
 
 def test_normalize_rejects_drops_name_mismatch_and_unused_annotations() -> None:
