@@ -19,6 +19,7 @@ from benchmarks.release import (  # noqa: E402
     lanes,
     performance_runtime,
     profile_runtime,
+    sglang_compat,
     workload,
 )
 
@@ -384,6 +385,61 @@ def test_formal_worker_rejects_diagnostic_runtime_overrides(
     monkeypatch.setenv("PYPTO_KERNEL_CUDART", "/diagnostic/libcudart.so")
     with pytest.raises(workload.ReleaseContractError, match="diagnostic runtime"):
         lanes.prepare_worker_environment("pypto")
+
+
+def test_shared_gemma_offload_compatibility_is_strict_and_backend_neutral() -> None:
+    class FakeDevice:
+        def __init__(self, kind: str):
+            self.type = kind
+
+        def __eq__(self, other: object) -> bool:
+            return isinstance(other, FakeDevice) and self.type == other.type
+
+        def __str__(self) -> str:
+            return self.type
+
+    class FakeTensor:
+        def __init__(self, device: str):
+            self.device = FakeDevice(device)
+
+        def to(self, *, device: FakeDevice):
+            return FakeTensor(device.type)
+
+    same = SimpleNamespace(gemma_weight=FakeTensor("cpu"))
+    assert sglang_compat._colocate_gemma_weight(same, FakeTensor("cpu")) is False
+
+    offloaded = SimpleNamespace(gemma_weight=FakeTensor("cuda"))
+    assert sglang_compat._colocate_gemma_weight(offloaded, FakeTensor("cpu")) is True
+    assert offloaded.gemma_weight.device.type == "cpu"
+
+    unsupported = SimpleNamespace(gemma_weight=FakeTensor("cpu"))
+    with pytest.raises(workload.ReleaseContractError, match="unsupported device split"):
+        sglang_compat._colocate_gemma_weight(unsupported, FakeTensor("cuda"))
+
+    class FakeGemmaRMSNorm:
+        def _weight_loader(self, param, loaded_weight):
+            assert self.gemma_weight.device == param.device
+            return loaded_weight
+
+    first = sglang_compat._install_on_class(FakeGemmaRMSNorm)
+    second = sglang_compat._install_on_class(FakeGemmaRMSNorm)
+    assert first["disposition"] == "installed"
+    assert second["disposition"] == "already-installed"
+    layer = FakeGemmaRMSNorm()
+    layer.gemma_weight = FakeTensor("cuda")
+    param = FakeTensor("cpu")
+    assert layer._weight_loader(param, "loaded") == "loaded"
+    assert layer.gemma_weight.device.type == "cpu"
+
+    record = sglang_compat.compatibility_record(
+        installed=True, disposition="installed"
+    )
+    assert record["applies_equally_to_lanes"] == [
+        "pypto",
+        "sglang-matched",
+        "sglang-optimized",
+    ]
+    assert record["scope"] == "model-weight-load-only"
 
 
 def test_controller_commands_route_through_generalized_bounded_controls(

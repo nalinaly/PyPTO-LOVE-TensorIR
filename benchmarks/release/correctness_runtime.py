@@ -18,6 +18,7 @@ from .lanes import (
     server_kwargs,
     validate_resolved_backends,
 )
+from .sglang_compat import install_gemma_rmsnorm_offload_compatibility
 from .workload import (
     MEASURED_REQUESTS,
     OUTPUT_TOKENS,
@@ -104,6 +105,7 @@ def _load_runner(
     from sglang.srt.server_args import PortArgs, ServerArgs
 
     load_plugins()
+    compatibility = install_gemma_rmsnorm_offload_compatibility()
     requested = server_kwargs(lane, model_path, optimized_memory_mode)
     args = ServerArgs(**requested)
     _set_envs_and_config(args)
@@ -115,7 +117,7 @@ def _load_runner(
     ports = PortArgs.init_new(args)
     one_batch.get_tokenizer = lambda *_args, **_kwargs: None
     runner, _tokenizer = one_batch.load_model(args, ports, gpu_id=0, tp_rank=0)
-    return torch, one_batch, runner, requested, resolved
+    return torch, one_batch, runner, requested, resolved, compatibility
 
 
 def _generate(torch, one_batch, runner, monitor=None):
@@ -455,9 +457,12 @@ def run_reference(model_path: Path, run_id: str, run_dir: Path) -> int:
     }
     runner = None
     try:
-        torch, one_batch, runner, requested, resolved = _load_runner(lane, model_path)
+        torch, one_batch, runner, requested, resolved, compatibility = _load_runner(
+            lane, model_path
+        )
         report["requested_server_config"] = requested
         report["resolved_backends"] = resolved
+        report["shared_runtime_compatibility"] = compatibility
         warm_ids, _warm_logits, _windows = _generate(torch, one_batch, runner)
         if len(warm_ids) != OUTPUT_TOKENS:
             raise ReleaseContractError("reference warmup did not complete")
@@ -828,9 +833,12 @@ def run_candidate(
         if torch.cuda.is_initialized():
             raise ReleaseContractError("CUPTI must start before CUDA initialization")
         monitor = monitor_api.start_collection(run_dir / "cupti-monitor")
-        torch, one_batch, runner, requested, resolved = _load_runner(lane, model_path)
+        torch, one_batch, runner, requested, resolved, compatibility = _load_runner(
+            lane, model_path
+        )
         report["requested_server_config"] = requested
         report["resolved_backends"] = resolved
+        report["shared_runtime_compatibility"] = compatibility
         reference = (
             torch.load(reference_tensor_path, map_location="cpu", weights_only=True)
             .float()

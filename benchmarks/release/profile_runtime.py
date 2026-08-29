@@ -278,11 +278,12 @@ def run(
         if torch.cuda.is_initialized():
             raise ReleaseContractError("CUPTI must start before CUDA initialization")
         monitor = monitor_api.start_collection(run_dir / "cupti-monitor")
-        torch, one_batch, runner, requested, resolved = _load_runner(
+        torch, one_batch, runner, requested, resolved, compatibility = _load_runner(
             lane, model_path, optimized_memory_mode
         )
         report["requested_server_config"] = requested
         report["resolved_backends"] = resolved
+        report["shared_runtime_compatibility"] = compatibility
         report["execution_features"] = execution_feature_record(requested, resolved)
         warm_ids, _warm_logits, _warm_windows = _generate(torch, one_batch, runner)
         if len(warm_ids) != OUTPUT_TOKENS:
