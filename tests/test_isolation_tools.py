@@ -164,6 +164,13 @@ class IsolationEnvironmentTest(unittest.TestCase):
                 path == ROOT or ROOT in path.parents,
                 f"{name} escaped the workspace: {path}",
             )
+        artifact_cache = pathlib.Path(environment["PYPTO_CACHE_DIR"])
+        self.assertEqual(
+            artifact_cache,
+            ROOT / "caches" / "pypto" / "artifact-cache",
+        )
+        self.assertFalse(artifact_cache.is_symlink())
+        self.assertEqual(artifact_cache.stat().st_mode & 0o7777, 0o700)
 
     def test_cpu_only_coexistence_marker_is_explicit_not_ambient(self) -> None:
         original = run_isolated.os.environ.get(

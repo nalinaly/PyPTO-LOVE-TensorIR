@@ -689,7 +689,7 @@ def isolated_environment(
         "TORCHINDUCTOR_CACHE_DIR": cache_root / "torchinductor" / run_id,
         "TRITON_CACHE_DIR": cache_root / "triton" / run_id,
         "CUDA_CACHE_PATH": cache_root / "cuda" / run_id,
-        "PYPTO_CACHE_DIR": cache_root / "pypto",
+        "PYPTO_CACHE_DIR": cache_root / "pypto" / "artifact-cache",
         "PIP_CACHE_DIR": cache_root / "pip",
         "UV_CACHE_DIR": cache_root / "uv",
         "CONDA_PKGS_DIRS": cache_root / "conda-pkgs",
@@ -701,6 +701,10 @@ def isolated_environment(
     }
     for path in paths.values():
         path.mkdir(parents=True, exist_ok=True)
+    artifact_cache_root = paths["PYPTO_CACHE_DIR"]
+    if artifact_cache_root.is_symlink():
+        raise ValueError("PYPTO_CACHE_DIR must not be a symbolic link")
+    artifact_cache_root.chmod(0o700)
 
     environment.update({name: str(path) for name, path in paths.items()})
     sglang_source_root = (
