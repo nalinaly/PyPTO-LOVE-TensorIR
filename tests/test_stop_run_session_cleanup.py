@@ -75,6 +75,63 @@ def _write_process(
     )
 
 
+def _write_sanitized_tileiras(
+    proc: Path,
+    metadata: dict[str, object],
+    *,
+    pid: int,
+    pgid: int,
+    sid: int,
+    start_ticks: int,
+    cwd: Path,
+) -> None:
+    _write_process(
+        proc,
+        metadata,
+        pid=pid,
+        pgid=pgid,
+        sid=sid,
+        start_ticks=start_ticks,
+        cwd=cwd,
+    )
+    compiler_name = "tensor-ir-a1b2c3"
+    compiler_dir = Path(metadata["run_dir"]) / "tmp" / compiler_name
+    compiler_dir.mkdir(parents=True, exist_ok=True)
+    executable = compiler_dir / "tensor-ir-123456.tileiras"
+    executable.write_bytes(b"verified tileiras")
+    output = Path(metadata["tmpdir"]) / compiler_name / "tensor-ir-output.cubin"
+    bytecode = Path(metadata["tmpdir"]) / compiler_name / "tensor-ir-input.tilebc"
+    process_root = proc / str(pid)
+    (process_root / "exe").symlink_to(executable)
+    (process_root / "cmdline").write_bytes(
+        b"\0".join(
+            value.encode()
+            for value in (
+                str(Path(metadata["tmpdir"]) / compiler_name / executable.name),
+                "--gpu-name=sm_120",
+                f"--output-file={output}",
+                str(bytecode),
+            )
+        )
+        + b"\0"
+    )
+    environment = {
+        "PATH": "/producer:/usr/bin:/bin",
+        "CUDA_HOME": "/usr/local/cuda-13.3",
+        "CUDA_PATH": "/usr/local/cuda-13.3",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TZ": "UTC",
+        "HOME": "/nonexistent",
+        "TMPDIR": str(Path(metadata["tmpdir"]) / compiler_name),
+        "CUDA_CACHE_DISABLE": "1",
+    }
+    (process_root / "environ").write_bytes(
+        b"\0".join(f"{key}={value}".encode() for key, value in environment.items())
+        + b"\0"
+    )
+
+
 def test_leader_gone_cleanup_terminates_only_verified_same_sid_residuals(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -323,3 +380,154 @@ def test_natural_wait_accepts_a_residual_that_exits_without_signal(
     )
     assert signals == []
     assert stop_run.session_cleanup_is_natural(cleanup)
+
+
+def test_sanitized_tileiras_child_is_verified_by_sid_and_owned_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    metadata = _metadata(workspace)
+    alias = Path("/tmp/pypto-ipc-test/t")
+    metadata["tmpdir"] = str(alias)
+    metadata["short_tmp_alias"] = {
+        "path": str(alias),
+        "target": str(Path(metadata["run_dir"]) / "tmp"),
+    }
+    proc = tmp_path / "proc"
+    proc.mkdir()
+    _write_sanitized_tileiras(
+        proc,
+        metadata,
+        pid=501,
+        pgid=501,
+        sid=int(metadata["sid"]),
+        start_ticks=51,
+        cwd=workspace,
+    )
+    monkeypatch.setattr(stop_run, "ROOT", workspace)
+    snapshot = stop_run.session_member_snapshot(501, metadata, proc)
+    assert snapshot["identity_kind"] == "sanitized-tileiras"
+    assert snapshot["sid"] == metadata["sid"]
+
+    signals = []
+
+    def send(pid: int, requested: signal.Signals) -> None:
+        signals.append((pid, requested))
+        shutil.rmtree(proc / str(pid))
+
+    cleanup = stop_run.terminate_verified_session_residuals(
+        metadata,
+        term_wait_seconds=0,
+        kill_wait_seconds=0,
+        poll_seconds=0.001,
+        proc_root=proc,
+        send_signal=send,
+    )
+    assert cleanup["complete"] is True
+    assert cleanup["rejected"] == []
+    assert signals == [(501, signal.SIGTERM)]
+
+
+def test_sanitized_tileiras_rejects_foreign_paths_and_marker_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    metadata = _metadata(workspace)
+    proc = tmp_path / "proc"
+    proc.mkdir()
+    _write_sanitized_tileiras(
+        proc,
+        metadata,
+        pid=601,
+        pgid=601,
+        sid=int(metadata["sid"]),
+        start_ticks=61,
+        cwd=workspace,
+    )
+    monkeypatch.setattr(stop_run, "ROOT", workspace)
+    process_root = proc / "601"
+    arguments = (process_root / "cmdline").read_bytes().split(b"\0")
+    arguments[2] = b"--output-file=/tmp/foreign.cubin"
+    (process_root / "cmdline").write_bytes(b"\0".join(arguments))
+    with pytest.raises(stop_run.SessionOwnershipError, match="escaped"):
+        stop_run.session_member_snapshot(601, metadata, proc)
+
+    _write_process(
+        proc,
+        metadata,
+        pid=602,
+        pgid=602,
+        sid=int(metadata["sid"]),
+        start_ticks=62,
+        cwd=workspace,
+        environment_changes={"PYPTO_RUN_ID": "foreign-run"},
+    )
+    with pytest.raises(stop_run.SessionOwnershipError, match="differs"):
+        stop_run.session_member_snapshot(602, metadata, proc)
+
+
+def test_sanitized_tileiras_allows_unreadable_execve_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    metadata = _metadata(workspace)
+    proc = tmp_path / "proc"
+    proc.mkdir()
+    _write_sanitized_tileiras(
+        proc,
+        metadata,
+        pid=701,
+        pgid=701,
+        sid=int(metadata["sid"]),
+        start_ticks=71,
+        cwd=workspace,
+    )
+    monkeypatch.setattr(stop_run, "ROOT", workspace)
+    monkeypatch.setattr(
+        stop_run,
+        "process_environment",
+        lambda _pid, _proc_root=proc: (_ for _ in ()).throw(PermissionError()),
+    )
+    snapshot = stop_run.session_member_snapshot(701, metadata, proc)
+    assert snapshot["identity_kind"] == "sanitized-tileiras"
+
+
+def test_transient_rejection_does_not_poison_a_naturally_empty_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    metadata = _metadata(workspace)
+    proc = tmp_path / "proc"
+    proc.mkdir()
+    _write_process(
+        proc,
+        metadata,
+        pid=801,
+        pgid=801,
+        sid=int(metadata["sid"]),
+        start_ticks=81,
+        cwd=workspace,
+        environment_changes={"PYPTO_RUN_ID": "foreign-run"},
+    )
+    monkeypatch.setattr(stop_run, "ROOT", workspace)
+    monkeypatch.setattr(
+        stop_run.time,
+        "sleep",
+        lambda _seconds: shutil.rmtree(proc / "801"),
+    )
+    cleanup = stop_run.terminate_verified_session_residuals(
+        metadata,
+        natural_wait_seconds=1.0,
+        term_wait_seconds=0,
+        kill_wait_seconds=0,
+        poll_seconds=0.001,
+        proc_root=proc,
+        send_signal=lambda _pid, _requested: pytest.fail("signal was not expected"),
+    )
+    assert cleanup["complete"] is True
+    assert cleanup["rejected"] == []
+    assert cleanup["rejected_observations"]

@@ -116,6 +116,19 @@ def process_cwd(pid: int, proc_root: pathlib.Path = pathlib.Path("/proc")) -> pa
     return pathlib.Path(os.readlink(proc_root / str(pid) / "cwd")).resolve()
 
 
+def process_executable(
+    pid: int, proc_root: pathlib.Path = pathlib.Path("/proc")
+) -> pathlib.Path:
+    return pathlib.Path(os.readlink(proc_root / str(pid) / "exe")).resolve()
+
+
+def process_arguments(
+    pid: int, proc_root: pathlib.Path = pathlib.Path("/proc")
+) -> list[str]:
+    raw = (proc_root / str(pid) / "cmdline").read_bytes()
+    return [item.decode(errors="replace") for item in raw.split(b"\0") if item]
+
+
 def _session_metadata(metadata: dict[str, object]) -> tuple[int, str, pathlib.Path, str]:
     if metadata.get("workspace") != str(ROOT):
         raise SessionOwnershipError("recorded session belongs to another workspace")
@@ -160,6 +173,109 @@ def _session_metadata(metadata: dict[str, object]) -> tuple[int, str, pathlib.Pa
     return sid, run_id, expected_run_dir, tmpdir
 
 
+def _relative_to_owned_tmp(
+    raw: str, metadata: dict[str, object]
+) -> tuple[pathlib.Path, pathlib.Path]:
+    _sid, _run_id, run_dir, tmpdir = _session_metadata(metadata)
+    path = pathlib.Path(raw)
+    if not path.is_absolute() or ".." in path.parts:
+        raise SessionOwnershipError(f"native child path is not absolute: {raw}")
+    for root in (pathlib.Path(tmpdir), run_dir / "tmp"):
+        try:
+            return path.relative_to(root), root
+        except ValueError:
+            continue
+    raise SessionOwnershipError(f"native child path escaped owned TMPDIR: {raw}")
+
+
+def _sanitized_tileiras_snapshot(
+    pid: int,
+    metadata: dict[str, object],
+    *,
+    start_ticks: int,
+    pgid: int,
+    sid: int,
+    cwd: pathlib.Path,
+    environment: dict[str, str] | None,
+    proc_root: pathlib.Path,
+) -> dict[str, object]:
+    executable = process_executable(pid, proc_root)
+    arguments = process_arguments(pid, proc_root)
+    executable_relative, _root = _relative_to_owned_tmp(str(executable), metadata)
+    if (
+        len(executable_relative.parts) != 2
+        or not executable_relative.parts[0].startswith("tensor-ir-")
+        or not executable_relative.name.startswith("tensor-ir-")
+        or executable_relative.suffix != ".tileiras"
+        or len(arguments) != 4
+        or arguments[1] != "--gpu-name=sm_120"
+        or not arguments[2].startswith("--output-file=")
+    ):
+        raise SessionOwnershipError(
+            f"PID {pid} is not a canonical sanitized tileiras child"
+        )
+    compiler_directory = executable_relative.parts[0]
+    path_arguments = (
+        arguments[0],
+        arguments[2].removeprefix("--output-file="),
+        arguments[3],
+    )
+    relatives = [
+        _relative_to_owned_tmp(value, metadata)[0] for value in path_arguments
+    ]
+    if (
+        any(len(relative.parts) != 2 for relative in relatives)
+        or any(relative.parts[0] != compiler_directory for relative in relatives)
+        or relatives[0].name != executable_relative.name
+        or relatives[1].suffix != ".cubin"
+        or relatives[2].suffix != ".tilebc"
+    ):
+        raise SessionOwnershipError(
+            f"PID {pid} tileiras arguments escaped its compiler directory"
+        )
+    if environment is not None:
+        expected_names = {
+            "PATH",
+            "CUDA_HOME",
+            "CUDA_PATH",
+            "LANG",
+            "LC_ALL",
+            "TZ",
+            "HOME",
+            "TMPDIR",
+            "CUDA_CACHE_DISABLE",
+        }
+        if (
+            set(environment) != expected_names
+            or environment.get("LANG") != "C"
+            or environment.get("LC_ALL") != "C"
+            or environment.get("TZ") != "UTC"
+            or environment.get("HOME") != "/nonexistent"
+            or environment.get("CUDA_CACHE_DISABLE") != "1"
+        ):
+            raise SessionOwnershipError(
+                f"PID {pid} tileiras environment differs from the sanitized contract"
+            )
+        tmp_relative, _tmp_root = _relative_to_owned_tmp(
+            environment["TMPDIR"], metadata
+        )
+        if tmp_relative != pathlib.Path(compiler_directory):
+            raise SessionOwnershipError(
+                f"PID {pid} tileiras TMPDIR differs from its compiler directory"
+            )
+    return {
+        "pid": pid,
+        "start_ticks": start_ticks,
+        "pgid": pgid,
+        "sid": sid,
+        "cwd": str(cwd),
+        "tmpdir": str(pathlib.Path(metadata["tmpdir"]) / compiler_directory),
+        "identity_kind": "sanitized-tileiras",
+        "executable": str(executable),
+        "arguments": arguments,
+    }
+
+
 def session_process_ids(
     sid: int, proc_root: pathlib.Path = pathlib.Path("/proc")
 ) -> list[int]:
@@ -186,7 +302,25 @@ def session_member_snapshot(
     start_ticks, pgid, observed_sid, state = process_stat_full(pid, proc_root)
     if observed_sid != sid or state == "Z":
         raise SessionOwnershipError(f"PID {pid} left the recorded live session")
-    environment = process_environment(pid, proc_root)
+    cwd = process_cwd(pid, proc_root)
+    workspace = ROOT.resolve()
+    if cwd != workspace and workspace not in cwd.parents:
+        raise SessionOwnershipError(
+            f"PID {pid} cwd escaped the recorded workspace: {cwd}"
+        )
+    try:
+        environment = process_environment(pid, proc_root)
+    except PermissionError:
+        return _sanitized_tileiras_snapshot(
+            pid,
+            metadata,
+            start_ticks=start_ticks,
+            pgid=pgid,
+            sid=observed_sid,
+            cwd=cwd,
+            environment=None,
+            proc_root=proc_root,
+        )
     expected_mode = metadata.get("mode")
     expected_profile = metadata.get("framework_profile")
     mismatches = {
@@ -201,14 +335,25 @@ def session_member_snapshot(
         if type(expected) is not str or environment.get(name) != expected
     }
     if mismatches:
+        control_names = {
+            "PYPTO_RUN_ID",
+            "PYPTO_WORKSPACE_ROOT",
+            "PYPTO_RUN_MODE",
+            "PYPTO_FRAMEWORK_PROFILE",
+        }
+        if control_names.isdisjoint(environment):
+            return _sanitized_tileiras_snapshot(
+                pid,
+                metadata,
+                start_ticks=start_ticks,
+                pgid=pgid,
+                sid=observed_sid,
+                cwd=cwd,
+                environment=environment,
+                proc_root=proc_root,
+            )
         raise SessionOwnershipError(
             f"PID {pid} environment differs from recorded run: {mismatches}"
-        )
-    cwd = process_cwd(pid, proc_root)
-    workspace = ROOT.resolve()
-    if cwd != workspace and workspace not in cwd.parents:
-        raise SessionOwnershipError(
-            f"PID {pid} cwd escaped the recorded workspace: {cwd}"
         )
     return {
         "pid": pid,
@@ -217,6 +362,7 @@ def session_member_snapshot(
         "sid": observed_sid,
         "cwd": str(cwd),
         "tmpdir": environment["TMPDIR"],
+        "identity_kind": "run-environment",
     }
 
 
@@ -283,23 +429,25 @@ def terminate_verified_session_residuals(
     sid, _run_id, _run_dir, _tmpdir = _session_metadata(metadata)
     term_signaled: dict[int, dict[str, object]] = {}
     kill_signaled: dict[int, dict[str, object]] = {}
-    rejected: dict[tuple[int, str], dict[str, object]] = {}
+    rejected_observations: dict[tuple[int, str], dict[str, object]] = {}
 
-    def scan() -> list[dict[str, object]]:
+    def scan() -> tuple[list[dict[str, object]], list[dict[str, object]]]:
         verified, failures = verified_session_members(metadata, proc_root)
         for failure in failures:
-            rejected[(int(failure["pid"]), str(failure["error"]))] = failure
-        return verified
+            rejected_observations[
+                (int(failure["pid"]), str(failure["error"]))
+            ] = failure
+        return verified, failures
 
     natural_deadline = time.monotonic() + natural_wait_seconds
-    members = scan()
-    while members and time.monotonic() < natural_deadline:
+    members, current_rejected = scan()
+    while (members or current_rejected) and time.monotonic() < natural_deadline:
         time.sleep(poll_seconds)
-        members = scan()
+        members, current_rejected = scan()
 
     term_deadline = time.monotonic() + term_wait_seconds
     while True:
-        members = scan()
+        members, _failures = scan()
         for member in members:
             pid = int(member["pid"])
             if pid in term_signaled:
@@ -315,12 +463,12 @@ def terminate_verified_session_residuals(
                     term_signaled[pid] = member
             except (OSError, RuntimeError, ValueError) as error:
                 failure = {"pid": pid, "error": f"{type(error).__name__}: {error}"}
-                rejected[(pid, failure["error"])] = failure
+                rejected_observations[(pid, failure["error"])] = failure
         if not members or time.monotonic() >= term_deadline:
             break
         time.sleep(poll_seconds)
 
-    remaining = scan()
+    remaining, _failures = scan()
     for member in remaining:
         pid = int(member["pid"])
         try:
@@ -334,22 +482,25 @@ def terminate_verified_session_residuals(
                 kill_signaled[pid] = member
         except (OSError, RuntimeError, ValueError) as error:
             failure = {"pid": pid, "error": f"{type(error).__name__}: {error}"}
-            rejected[(pid, failure["error"])] = failure
+            rejected_observations[(pid, failure["error"])] = failure
 
     kill_deadline = time.monotonic() + kill_wait_seconds
-    survivors = scan()
+    survivors, current_rejected = scan()
     while survivors and time.monotonic() < kill_deadline:
         time.sleep(poll_seconds)
-        survivors = scan()
+        survivors, current_rejected = scan()
     return {
         "schema": 1,
         "kind": "pypto-owned-session-cleanup",
         "sid": sid,
         "term_signaled": [term_signaled[pid] for pid in sorted(term_signaled)],
         "kill_signaled": [kill_signaled[pid] for pid in sorted(kill_signaled)],
-        "rejected": [rejected[key] for key in sorted(rejected)],
+        "rejected": current_rejected,
+        "rejected_observations": [
+            rejected_observations[key] for key in sorted(rejected_observations)
+        ],
         "survivors": survivors,
-        "complete": not rejected and not survivors,
+        "complete": not current_rejected and not survivors,
     }
 
 
