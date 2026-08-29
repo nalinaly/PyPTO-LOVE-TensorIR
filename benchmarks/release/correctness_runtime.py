@@ -247,15 +247,32 @@ def _compile_cache_evidence(
 
 
 def _run_engine_sequences(
-    model_path: Path, expected_output_ids: list[int]
+    model_path: Path,
+    expected_output_ids: list[int],
+    run_dir: Path,
 ) -> tuple[list[dict[str, object]], dict[str, object], dict[str, object]]:
     prepare_worker_environment("pypto")
     import sglang as sgl
 
     requested = server_kwargs("pypto", model_path)
+    progress_path = run_dir / "qwen35-engine-progress.json"
+
+    def publish_progress(stage: str, request_index: int | None = None) -> None:
+        payload: dict[str, object] = {
+            "schema": SCHEMA_VERSION,
+            "kind": "qwen35-engine-correctness-progress",
+            "stage": stage,
+        }
+        if request_index is not None:
+            payload["request_index"] = request_index
+        atomic_json(progress_path, payload)
+        print(json.dumps(payload, sort_keys=True), flush=True)
+
     engine = None
     try:
+        publish_progress("engine-construction-start")
         engine = sgl.Engine(**requested)
+        publish_progress("engine-construction-complete")
         resolved = resolved_backend_record(engine.server_args)
         validate_resolved_backends("pypto", resolved)
 
@@ -277,14 +294,18 @@ def _run_engine_sequences(
                 raise ReleaseContractError("SGLang Engine returned no output token IDs")
             return [int(value) for value in response["output_ids"]]
 
+        publish_progress("warmup-start", -1)
         warmup = generate(-1)
+        publish_progress("warmup-complete", -1)
         if len(warmup) != OUTPUT_TOKENS:
             raise ReleaseContractError(
                 "SGLang Engine warmup did not generate 64 tokens"
             )
         requests = []
         for request_index in range(MEASURED_REQUESTS):
+            publish_progress("request-start", request_index)
             output_ids = generate(request_index)
+            publish_progress("request-complete", request_index)
             exact = output_ids == expected_output_ids
             requests.append(
                 {
@@ -302,7 +323,9 @@ def _run_engine_sequences(
         return requests, requested, resolved
     finally:
         if engine is not None:
+            publish_progress("shutdown-start")
             engine.shutdown()
+            publish_progress("shutdown-complete")
 
 
 def run_reference(model_path: Path, run_id: str, run_dir: Path) -> int:
@@ -658,8 +681,9 @@ def run_candidate(
                 "reference output token sequence does not contain 64 steps"
             )
         engine_requests, engine_requested, engine_resolved = _run_engine_sequences(
-            model_path, expected_output_ids
+            model_path, expected_output_ids, run_dir
         )
+        engine_progress_path = run_dir / "qwen35-engine-progress.json"
         report["engine"] = {
             "entrypoint": "sglang.Engine offline API",
             "requested_server_config": engine_requested,
@@ -670,6 +694,10 @@ def run_candidate(
                 {item["output_sequence_sha256"] for item in engine_requests}
             )
             == 1,
+            "progress": {
+                "path": str(engine_progress_path),
+                "sha256": sha256_file(engine_progress_path),
+            },
         }
 
         import torch
