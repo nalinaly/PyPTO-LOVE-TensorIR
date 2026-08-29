@@ -715,9 +715,10 @@ def test_cupti_profiler_overlay_is_hash_locked_without_prefix_install() -> None:
             "torch_runner.forward = traced_forward"
         )
     ]
-    assert traced_forward.index("torch.cuda.synchronize()") < traced_forward.index(
-        "monitor.begin_trace_window()"
-    )
+    synchronize = traced_forward.index("torch.cuda.synchronize()")
+    pre_window_flush = traced_forward.index("monitor.flush(forced=True)")
+    begin_window = traced_forward.index("monitor.begin_trace_window()")
+    assert synchronize < pre_window_flush < begin_window
 
 
 def test_operator_manifest_paths_cannot_escape_or_own_output() -> None:
