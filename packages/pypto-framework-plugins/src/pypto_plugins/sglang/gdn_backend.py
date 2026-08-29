@@ -17,10 +17,13 @@ def create_gdn_backend(model_runner: Any) -> Any:
     from sglang.srt.layers.attention.hybrid_linear_attn_backend import (
         MambaAttnBackendBase,
     )
+    from ..activity_trace import annotate_framework_activity
     from .state_bundle import _debug_event, attach_state_bundle
     from .stream import pypto_stream
 
-    def debug_state_stats(state: Any, indices: Any, stream: Any) -> dict[str, object] | None:
+    def debug_state_stats(
+        state: Any, indices: Any, stream: Any
+    ) -> dict[str, object] | None:
         if not os.environ.get("PYPTO_STATE_DEBUG_REPORT"):
             return None
         stream.synchronize()
@@ -109,9 +112,7 @@ def create_gdn_backend(model_runner: Any) -> Any:
                 mamba_cache_indices = self.req_to_token_pool.get_mamba_indices(
                     forward_batch.req_pool_indices
                 )
-                mamba_cache_indices = self._translate_mamba_indices(
-                    mamba_cache_indices
-                )
+                mamba_cache_indices = self._translate_mamba_indices(mamba_cache_indices)
                 from sglang.srt.layers.attention.hybrid_linear_attn_backend import (
                     ForwardMetadata,
                 )
@@ -132,7 +133,8 @@ def create_gdn_backend(model_runner: Any) -> Any:
                     replayssm_write_pos=None,
                     replayssm_force_flush=None,
                 )
-            return super()._forward_metadata(forward_batch)
+            with annotate_framework_activity("sglang.gdn-query-metadata"):
+                return super()._forward_metadata(forward_batch)
 
         @staticmethod
         def _validate_wrapper_kwargs(layer: Any, kwargs: dict[str, Any]) -> None:
