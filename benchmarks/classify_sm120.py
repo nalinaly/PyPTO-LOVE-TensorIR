@@ -90,17 +90,53 @@ def main(argv: list[str] | None = None) -> int:
         ("attention", attention.build(1, 128, 128, 128), [64]),
         (
             "attention_paged_decode_0_8b",
-            attention.build_paged_decode(1, 8, 2, 16, 256, 1024, 65, 4096),
+            attention.build_paged_decode(
+                1,
+                4,
+                1,
+                16,
+                256,
+                1024,
+                65,
+                4096,
+                cache_row_stride=512,
+                query_row_stride=2048,
+                result_row_stride=2048,
+            ),
             [1, 64],
         ),
         (
             "attention_paged_decode_9b",
-            attention.build_paged_decode(1, 16, 4, 16, 256, 1024, 65, 4096),
+            attention.build_paged_decode(
+                1,
+                4,
+                1,
+                16,
+                256,
+                1024,
+                65,
+                4096,
+                cache_row_stride=1024,
+                query_row_stride=4096,
+                result_row_stride=4096,
+            ),
             [1, 64],
         ),
         (
             "attention_paged_decode_batch2_strided_0_8b",
-            attention.build_paged_decode(2, 8, 2, 16, 256, 1024, 65, 4096, 2048),
+            attention.build_paged_decode(
+                2,
+                4,
+                1,
+                16,
+                256,
+                1024,
+                65,
+                4096,
+                cache_row_stride=2048,
+                query_row_stride=2048,
+                result_row_stride=2048,
+            ),
             [1, 1, 64],
         ),
         (
@@ -150,10 +186,30 @@ def main(argv: list[str] | None = None) -> int:
             [1, 1, 64],
         ),
     )
+    decode_launch_counts = {
+        "attention_paged_decode_0_8b": attention._paged_decode_partition_count(2),
+        "attention_paged_decode_9b": attention._paged_decode_partition_count(4),
+        "attention_paged_decode_batch2_strided_0_8b": (
+            attention._paged_decode_partition_count(2)
+        ),
+    }
     results = []
     for name, program, tiles in cases:
         result = classify(program, tiles)
-        results.append({"case": name, "tiles": tiles, **result})
+        record = {"case": name, "tiles": tiles, **result}
+        if name in decode_launch_counts:
+            launches = decode_launch_counts[name]
+            record.update(
+                {
+                    "compiled_artifacts": 1,
+                    "launch_count": launches,
+                    "attention_launches": launches,
+                    "attention_launch_topology": (
+                        "one_reused_single_kv_head_artifact_launch_per_kv_head"
+                    ),
+                }
+            )
+        results.append(record)
     all_compiled = all(item["status"] == "compiled" for item in results)
     dso = loaded_dso_path()
     result = {

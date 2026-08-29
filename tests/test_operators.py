@@ -337,11 +337,27 @@ def test_attention_is_one_native_tile_graph():
     assert "tensor." not in rendered
 
 
-def test_paged_attention_decode_gathers_physical_kv_rows_in_one_graph():
-    program = attention.build_paged_decode(1, 8, 2, 16, 256, 1024, 65, 4096)
+def test_paged_attention_decode_builds_one_kv_group_graph():
+    assert attention._paged_decode_partition_count(2) == 2
+    assert attention._paged_decode_partition_count(4) == 4
+    with pytest.raises(ValueError, match="positive KV heads"):
+        attention._paged_decode_partition_count(0)
+    program = attention.build_paged_decode(
+        1,
+        4,
+        1,
+        16,
+        256,
+        1024,
+        65,
+        4096,
+        cache_row_stride=512,
+        query_row_stride=2048,
+        result_row_stride=2048,
+    )
     rendered = str(program)
     assert len(_one_program(program).body.stmts) == 2
-    assert "pl.range(8)" in rendered and "pl.range(16)" in rendered
+    assert "pl.range(4)" in rendered and "pl.range(16)" in rendered
     assert rendered.count("pl.tensor.read") == 4
     assert "physical_i64" in rendered and "virtual_to_physical" in rendered
     assert "pl.cast" in rendered
@@ -354,7 +370,22 @@ def test_paged_attention_decode_gathers_physical_kv_rows_in_one_graph():
     assert "pl.tile.row_max" in rendered and "pl.tile.row_sum" in rendered
     assert rendered.count("pl.tile.store") == 1
 
-    wide_program = attention.build_paged_decode(1, 8, 2, 512, 256, 1024, 65, 4096)
+    assert "pl.TensorView(stride=[2048, 256, 1]" in rendered
+    assert "pl.TensorView(stride=[512, 1]" in rendered
+
+    wide_program = attention.build_paged_decode(
+        1,
+        4,
+        1,
+        512,
+        256,
+        1024,
+        65,
+        4096,
+        cache_row_stride=512,
+        query_row_stride=2048,
+        result_row_stride=2048,
+    )
     wide_rendered = str(wide_program)
     assert "pl.range(512)" in wide_rendered
     assert "pl.tile.ci" in wide_rendered
@@ -362,23 +393,175 @@ def test_paged_attention_decode_gathers_physical_kv_rows_in_one_graph():
     assert "pl.tile.sels" in wide_rendered
 
     large_model_program = attention.build_paged_decode(
-        1, 16, 4, 16, 256, 1024, 65, 4096
+        1,
+        4,
+        1,
+        16,
+        256,
+        1024,
+        65,
+        4096,
+        cache_row_stride=1024,
+        query_row_stride=4096,
+        result_row_stride=4096,
     )
     large_model_rendered = str(large_model_program)
-    assert "pl.range(16)" in large_model_rendered
+    assert "pl.range(4)" in large_model_rendered
     assert large_model_rendered.count("pl.tile.gather_row") == 2
     assert large_model_rendered.count("pl.tile.matmul") == 2
 
-    batched_program = attention.build_paged_decode(2, 8, 2, 16, 256, 1024, 65, 4096)
+    batched_program = attention.build_paged_decode(
+        2,
+        4,
+        1,
+        16,
+        256,
+        1024,
+        65,
+        4096,
+        cache_row_stride=2048,
+        query_row_stride=2048,
+        result_row_stride=2048,
+    )
     batched_rendered = str(batched_program)
     assert "pl.range(2)" in batched_rendered
     assert batched_rendered.count("pl.tile.gather_row") == 2
-    pitched_query = str(
-        attention.build_paged_decode(
-            1, 8, 2, 16, 256, 1024, 65, 4096, query_row_stride=4096
-        )
+
+
+def test_paged_attention_decode_reuses_one_artifact_and_zero_copy_views(
+    monkeypatch,
+):
+    batch_size, q_heads, kv_heads, head_dim = 2, 8, 2, 256
+    query_width = q_heads * head_dim
+    cache_width = kv_heads * head_dim
+    query_row_stride, cache_row_stride = 4096, 2048
+    query_backing = torch.empty(
+        7 + (batch_size - 1) * query_row_stride + query_width,
+        dtype=torch.bfloat16,
     )
-    assert "pl.TensorView(stride=[4096, 256, 1]" in pitched_query
+    query = query_backing.as_strided(
+        (batch_size, query_width),
+        (query_row_stride, 1),
+        storage_offset=7,
+    )
+    cache_elements = 11 + (1024 - 1) * cache_row_stride + cache_width
+    key_backing = torch.empty(cache_elements, dtype=torch.bfloat16)
+    value_backing = torch.empty(cache_elements + 2, dtype=torch.bfloat16)
+    key_cache = key_backing.as_strided(
+        (1024, cache_width), (cache_row_stride, 1), storage_offset=11
+    )
+    value_cache = value_backing.as_strided(
+        (1024, cache_width), (cache_row_stride, 1), storage_offset=13
+    )
+    req_to_token = torch.empty((65, 4096), dtype=torch.int32)
+    request_index = torch.empty((batch_size,), dtype=torch.int64)
+    valid_tokens = torch.empty((batch_size,), dtype=torch.int64)
+    virtual_to_physical = torch.empty((1024,), dtype=torch.int64)
+    compile_calls = []
+    launches = []
+    allocations = []
+    real_empty = torch.empty
+
+    def fake_compile(*args):
+        compile_calls.append(args)
+        return "one-kv-group-artifact"
+
+    def fake_launch(graph_key, operands, cuda_stream):
+        launches.append((graph_key, operands, cuda_stream))
+
+    def recording_empty(*args, **kwargs):
+        result = real_empty(*args, **kwargs)
+        allocations.append(result)
+        return result
+
+    monkeypatch.setattr(attention, "compile_paged_decode_for", fake_compile)
+    monkeypatch.setattr(attention, "launch_graph", fake_launch)
+    monkeypatch.setattr(torch, "empty", recording_empty)
+    result = attention.paged_attention_decode(
+        query,
+        key_cache,
+        value_cache,
+        req_to_token,
+        request_index,
+        valid_tokens,
+        virtual_to_physical,
+        kv_heads=kv_heads,
+        bucket_tokens=16,
+        stream=SimpleNamespace(cuda_stream=123),
+    )
+
+    assert compile_calls == [
+        (
+            batch_size,
+            4,
+            1,
+            16,
+            head_dim,
+            1024,
+            65,
+            4096,
+            cache_row_stride,
+            1024,
+            query_row_stride,
+            query_width,
+        )
+    ]
+    assert len(allocations) == 1
+    assert result is allocations[0]
+    assert tuple(result.shape) == (batch_size, query_width)
+    assert len(launches) == kv_heads
+    assert {launch[0] for launch in launches} == {"one-kv-group-artifact"}
+    assert {launch[2] for launch in launches} == {123}
+    for kv_head, (_graph_key, operands, _stream) in enumerate(launches):
+        query_group, key_group, value_group, *_metadata, result_group = operands
+        assert tuple(query_group.shape) == (batch_size, 4, head_dim)
+        assert tuple(query_group.stride()) == (query_row_stride, head_dim, 1)
+        assert query_group.storage_offset() == 7 + kv_head * 4 * head_dim
+        assert query_group.untyped_storage().data_ptr() == query.untyped_storage().data_ptr()
+        for cache_group, cache, base_offset in (
+            (key_group, key_cache, 11),
+            (value_group, value_cache, 13),
+        ):
+            assert tuple(cache_group.shape) == (1024, head_dim)
+            assert tuple(cache_group.stride()) == (cache_row_stride, 1)
+            assert cache_group.storage_offset() == base_offset + kv_head * head_dim
+            assert (
+                cache_group.untyped_storage().data_ptr()
+                == cache.untyped_storage().data_ptr()
+            )
+        assert tuple(result_group.shape) == (batch_size, 4, head_dim)
+        assert tuple(result_group.stride()) == (query_width, head_dim, 1)
+        assert result_group.storage_offset() == kv_head * 4 * head_dim
+        assert (
+            result_group.untyped_storage().data_ptr()
+            == result.untyped_storage().data_ptr()
+        )
+
+
+def test_paged_attention_decode_result_stride_is_in_artifact_identity(monkeypatch):
+    builds = []
+    compilations = []
+
+    def fake_build(*shape):
+        builds.append(shape)
+        return shape
+
+    def fake_compile(program, tiles, **metadata):
+        compilations.append((program, tiles, metadata))
+        return f"decode-artifact-{len(compilations)}"
+
+    monkeypatch.setattr(attention, "_paged_decode_cache", {})
+    monkeypatch.setattr(attention, "build_paged_decode", fake_build)
+    monkeypatch.setattr(attention, "compile_graph", fake_compile)
+    common = (1, 4, 1, 16, 256, 1024, 65, 4096, 1024, 1024, 4096)
+    dense_result = attention.compile_paged_decode_for(*common, 1024)
+    pitched_result = attention.compile_paged_decode_for(*common, 4096)
+    reused_pitched_result = attention.compile_paged_decode_for(*common, 4096)
+
+    assert dense_result == "decode-artifact-1"
+    assert pitched_result == reused_pitched_result == "decode-artifact-2"
+    assert [shape[-1] for shape in builds] == [1024, 4096]
+    assert len(compilations) == 2
 
 
 def test_paged_cache_layout_accepts_static_row_pitch() -> None:
@@ -606,7 +789,7 @@ if __name__ == "__main__":
     test_qk_norm_partial_rope_gate_is_one_native_graph()
     test_rope_is_one_native_tile_graph()
     test_attention_is_one_native_tile_graph()
-    test_paged_attention_decode_gathers_physical_kv_rows_in_one_graph()
+    test_paged_attention_decode_builds_one_kv_group_graph()
     test_paged_cache_write_declares_mutation_and_one_graph()
     test_paged_prefill_is_one_causal_gqa_graph()
     test_linear_is_one_native_tile_graph()
