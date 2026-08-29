@@ -641,7 +641,7 @@ def main(argv: list[str] | None = None) -> int:
             reference_batches.append(torch.stack(reference_heads))
         paged_ref = torch.stack(reference_batches).view(batch_size, -1)
         max_abs_diff = float((paged_out.float() - paged_ref).abs().max())
-        attention_launches = attention._paged_decode_partition_count(kv_heads)
+        attention_launches = attention._paged_decode_partition_count(q_heads)
         cases.append(
             {
                 "case": label,
@@ -650,7 +650,7 @@ def main(argv: list[str] | None = None) -> int:
                 "launch_count": attention_launches,
                 "attention_launches": attention_launches,
                 "attention_launch_topology": (
-                    "one_reused_single_kv_head_artifact_launch_per_kv_head"
+                    "one_reused_single_q_head_artifact_launch_per_q_head"
                 ),
                 "compiled_artifacts": 1,
                 "kv_heads": kv_heads,

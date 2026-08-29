@@ -640,11 +640,7 @@ def compile_paged_decode_for(
     if cached is not None:
         return cached
     program = build_paged_decode(*shape_key)
-    tile_shape = (
-        [_ROW_TILE, _VALUE_TILE]
-        if batch_size == 1
-        else [1, _ROW_TILE, _VALUE_TILE]
-    )
+    tile_shape = _paged_decode_tiles(batch_size, q_heads)
     graph_key = compile_graph(
         program,
         tile_shape,
@@ -656,10 +652,19 @@ def compile_paged_decode_for(
     return graph_key
 
 
-def _paged_decode_partition_count(kv_heads: int) -> int:
-    if kv_heads <= 0:
-        raise ValueError("paged decode partitioning needs positive KV heads")
-    return kv_heads
+def _paged_decode_tiles(batch_size: int, q_heads: int) -> list[int]:
+    """Match canonical removal of unit batch/head iteration dimensions."""
+
+    if batch_size <= 0 or q_heads <= 0:
+        raise ValueError("paged decode tiles need positive batch and Q heads")
+    iteration_rank = int(batch_size != 1) + int(q_heads != 1)
+    return [*([1] * iteration_rank), _VALUE_TILE]
+
+
+def _paged_decode_partition_count(q_heads: int) -> int:
+    if q_heads <= 0:
+        raise ValueError("paged decode partitioning needs positive Q heads")
+    return q_heads
 
 
 def _validate_paged_cache_write_shape(
@@ -1042,9 +1047,11 @@ def paged_attention_decode(
     ``request_index`` and ``valid_tokens`` contain one device value per batch
     row. Each valid length must be in ``[1, bucket_tokens]``; keeping both
     tensors on-device avoids decode-time host synchronization and an
-    intermediate ``kv_indices`` kernel. GQA is partitioned into one KV head
-    and its Q-head group per launch. All groups reuse one compiled artifact;
-    row-pitched views target their columns in the preallocated full output.
+    intermediate ``kv_indices`` kernel. Decode is partitioned into one Q head
+    per launch. Every Q head reuses one compiled artifact, while zero-copy
+    row-pitched views select its Q column, mapped KV head and output column.
+    This keeps the complete static token bucket in one exact softmax while
+    avoiding the tile assembler's multi-head fusion explosion.
     """
 
     import torch
@@ -1124,7 +1131,7 @@ def paged_attention_decode(
     queries_per_kv = q_heads // kv_heads
     graph_key = compile_paged_decode_for(
         batch_size,
-        queries_per_kv,
+        1,
         1,
         tokens,
         head_dim,
@@ -1148,20 +1155,20 @@ def paged_attention_decode(
         (batch_size, tokens), (1, 0)
     )
     mapping_view = virtual_to_physical.view(mapping_rows, 1)
-    group_width = queries_per_kv * head_dim
     query_storage_offset = int(query.storage_offset())
     key_storage_offset = int(key_cache.storage_offset())
     value_storage_offset = int(value_cache.storage_offset())
     result_storage_offset = int(out.storage_offset())
     # as_strided only creates tensor metadata: no gather/copy/concatenation
     # kernel is inserted between these same-stream PyPTO launches.
-    for kv_head in range(_paged_decode_partition_count(kv_heads)):
-        group_column = kv_head * group_width
+    for q_head in range(_paged_decode_partition_count(q_heads)):
+        kv_head = q_head // queries_per_kv
+        query_column = q_head * head_dim
         cache_column = kv_head * head_dim
         query_group = query.as_strided(
-            (batch_size, queries_per_kv, head_dim),
+            (batch_size, 1, head_dim),
             (query_row_stride, head_dim, 1),
-            storage_offset=query_storage_offset + group_column,
+            storage_offset=query_storage_offset + query_column,
         )
         key_group = key_cache.as_strided(
             (cache_rows, head_dim),
@@ -1174,9 +1181,9 @@ def paged_attention_decode(
             storage_offset=value_storage_offset + cache_column,
         )
         result_group = out.as_strided(
-            (batch_size, queries_per_kv, head_dim),
+            (batch_size, 1, head_dim),
             (result_row_stride, head_dim, 1),
-            storage_offset=result_storage_offset + group_column,
+            storage_offset=result_storage_offset + query_column,
         )
         launch_graph(
             graph_key,

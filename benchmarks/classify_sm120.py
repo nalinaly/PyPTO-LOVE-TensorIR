@@ -92,9 +92,9 @@ def main(argv: list[str] | None = None) -> int:
             "attention_paged_decode_0_8b",
             attention.build_paged_decode(
                 1,
-                4,
                 1,
-                16,
+                1,
+                96,
                 256,
                 1024,
                 65,
@@ -103,15 +103,15 @@ def main(argv: list[str] | None = None) -> int:
                 query_row_stride=2048,
                 result_row_stride=2048,
             ),
-            [1, 64],
+            [64],
         ),
         (
             "attention_paged_decode_9b",
             attention.build_paged_decode(
                 1,
-                4,
                 1,
-                16,
+                1,
+                96,
                 256,
                 1024,
                 65,
@@ -120,13 +120,13 @@ def main(argv: list[str] | None = None) -> int:
                 query_row_stride=4096,
                 result_row_stride=4096,
             ),
-            [1, 64],
+            [64],
         ),
         (
             "attention_paged_decode_batch2_strided_0_8b",
             attention.build_paged_decode(
                 2,
-                4,
+                1,
                 1,
                 16,
                 256,
@@ -137,7 +137,7 @@ def main(argv: list[str] | None = None) -> int:
                 query_row_stride=2048,
                 result_row_stride=2048,
             ),
-            [1, 1, 64],
+            [1, 64],
         ),
         (
             "attention_paged_cache_write_0_8b",
@@ -187,10 +187,10 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     decode_launch_counts = {
-        "attention_paged_decode_0_8b": attention._paged_decode_partition_count(2),
-        "attention_paged_decode_9b": attention._paged_decode_partition_count(4),
+        "attention_paged_decode_0_8b": attention._paged_decode_partition_count(8),
+        "attention_paged_decode_9b": attention._paged_decode_partition_count(16),
         "attention_paged_decode_batch2_strided_0_8b": (
-            attention._paged_decode_partition_count(2)
+            attention._paged_decode_partition_count(8)
         ),
     }
     results = []
@@ -205,7 +205,7 @@ def main(argv: list[str] | None = None) -> int:
                     "launch_count": launches,
                     "attention_launches": launches,
                     "attention_launch_topology": (
-                        "one_reused_single_kv_head_artifact_launch_per_kv_head"
+                        "one_reused_single_q_head_artifact_launch_per_q_head"
                     ),
                 }
             )

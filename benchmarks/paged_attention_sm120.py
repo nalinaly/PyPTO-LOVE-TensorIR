@@ -42,9 +42,10 @@ def main(argv: list[str] | None = None) -> int:
         valid_counts: tuple[int, ...],
         label: str,
         cache_row_stride: int | None = None,
+        bucket_tokens: int = 16,
     ) -> None:
         print(f"START {label}", flush=True)
-        bucket_tokens, head_dim = 16, 256
+        head_dim = 256
         cache_rows, request_rows, max_context_len = 1024, 65, 4096
         batch_size = len(valid_counts)
         row_width = kv_heads * head_dim
@@ -197,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
         correct = bool(
             torch.allclose(output.float(), reference, rtol=RTOL, atol=ATOL)
         )
-        attention_launches = attention._paged_decode_partition_count(kv_heads)
+        attention_launches = attention._paged_decode_partition_count(q_heads)
         cases.append(
             {
                 "case": label,
@@ -205,7 +206,7 @@ def main(argv: list[str] | None = None) -> int:
                 "launch_count": attention_launches,
                 "attention_launches": attention_launches,
                 "attention_launch_topology": (
-                    "one_reused_single_kv_head_artifact_launch_per_kv_head"
+                    "one_reused_single_q_head_artifact_launch_per_q_head"
                 ),
                 "compiled_artifacts": 1,
                 "kv_heads": kv_heads,
@@ -391,6 +392,13 @@ def main(argv: list[str] | None = None) -> int:
         valid_counts=(13, 7),
         label="decode_batch2_0_8b_valid13_7_strided",
         cache_row_stride=2048,
+    )
+    run_decode(
+        q_heads=8,
+        kv_heads=2,
+        valid_counts=(83,),
+        label="decode_0_8b_valid83_bucket96",
+        bucket_tokens=96,
     )
     run_prefill(q_heads=8, kv_heads=2, label="prefill_0_8b_prefix2_extend13")
     run_prefill(q_heads=16, kv_heads=4, label="prefill_9b_prefix2_extend13")
