@@ -60,15 +60,15 @@
         },
         {
           "where": {"case": "attention_paged_decode_0_8b"},
-          "equals": {"status": "compiled", "compiled_artifacts": 1, "launch_count": 2, "attention_launches": 2, "attention_launch_topology": "one_reused_single_kv_head_artifact_launch_per_kv_head"}
+          "equals": {"status": "compiled", "compiled_artifacts": 1, "launch_count": 8, "attention_launches": 8, "attention_launch_topology": "one_reused_single_q_head_artifact_launch_per_q_head"}
         },
         {
           "where": {"case": "attention_paged_decode_9b"},
-          "equals": {"status": "compiled", "compiled_artifacts": 1, "launch_count": 4, "attention_launches": 4, "attention_launch_topology": "one_reused_single_kv_head_artifact_launch_per_kv_head"}
+          "equals": {"status": "compiled", "compiled_artifacts": 1, "launch_count": 16, "attention_launches": 16, "attention_launch_topology": "one_reused_single_q_head_artifact_launch_per_q_head"}
         },
         {
           "where": {"case": "attention_paged_decode_batch2_strided_0_8b"},
-          "equals": {"status": "compiled", "compiled_artifacts": 1, "launch_count": 2, "attention_launches": 2, "attention_launch_topology": "one_reused_single_kv_head_artifact_launch_per_kv_head"}
+          "equals": {"status": "compiled", "compiled_artifacts": 1, "launch_count": 8, "attention_launches": 8, "attention_launch_topology": "one_reused_single_q_head_artifact_launch_per_q_head"}
         },
         {
           "where": {"case": "attention_paged_cache_write_9b"},
@@ -194,19 +194,23 @@
       "path": "packages/pypto-kernels/benchmarks/paged_attention_sm120.py",
       "result": "paged-attention-result.json",
       "success_field": "all_correct",
-      "expected_case_count": 10,
+      "expected_case_count": 12,
       "case_expectations": [
         {
           "where": {"case": "decode_0_8b_valid13"},
-          "equals": {"correct": true, "kv_heads": 2, "launches": 2, "launch_count": 2, "attention_launches": 2, "compiled_artifacts": 1, "attention_launch_topology": "one_reused_single_kv_head_artifact_launch_per_kv_head"}
+          "equals": {"correct": true, "kv_heads": 2, "launches": 8, "launch_count": 8, "attention_launches": 8, "compiled_artifacts": 1, "attention_launch_topology": "one_reused_single_q_head_artifact_launch_per_q_head"}
         },
         {
           "where": {"case": "decode_9b_valid16"},
-          "equals": {"correct": true, "kv_heads": 4, "launches": 4, "launch_count": 4, "attention_launches": 4, "compiled_artifacts": 1, "attention_launch_topology": "one_reused_single_kv_head_artifact_launch_per_kv_head"}
+          "equals": {"correct": true, "kv_heads": 4, "launches": 16, "launch_count": 16, "attention_launches": 16, "compiled_artifacts": 1, "attention_launch_topology": "one_reused_single_q_head_artifact_launch_per_q_head"}
         },
         {
           "where": {"case": "decode_batch2_0_8b_valid13_7_strided"},
-          "equals": {"correct": true, "kv_heads": 2, "launches": 2, "launch_count": 2, "attention_launches": 2, "compiled_artifacts": 1, "attention_launch_topology": "one_reused_single_kv_head_artifact_launch_per_kv_head"}
+          "equals": {"correct": true, "kv_heads": 2, "launches": 8, "launch_count": 8, "attention_launches": 8, "compiled_artifacts": 1, "attention_launch_topology": "one_reused_single_q_head_artifact_launch_per_q_head"}
+        },
+        {
+          "where": {"case": "decode_0_8b_valid83_bucket96"},
+          "equals": {"correct": true, "kv_heads": 2, "launches": 8, "launch_count": 8, "attention_launches": 8, "compiled_artifacts": 1, "attention_launch_topology": "one_reused_single_q_head_artifact_launch_per_q_head"}
         },
         {
           "where": {"case": "prefill_0_8b_prefix2_extend13"},

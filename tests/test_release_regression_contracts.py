@@ -512,18 +512,18 @@ def test_operator_manifest_locks_real_model_shape_and_launch_contracts() -> None
     } == {
         "attention_paged_decode_0_8b": {
             "compiled_artifacts": 1,
-            "launch_count": 2,
-            "attention_launches": 2,
+            "launch_count": 8,
+            "attention_launches": 8,
         },
         "attention_paged_decode_9b": {
             "compiled_artifacts": 1,
-            "launch_count": 4,
-            "attention_launches": 4,
+            "launch_count": 16,
+            "attention_launches": 16,
         },
         "attention_paged_decode_batch2_strided_0_8b": {
             "compiled_artifacts": 1,
-            "launch_count": 2,
-            "attention_launches": 2,
+            "launch_count": 8,
+            "attention_launches": 8,
         },
     }
     numerical = suites["handwritten-numerical"]["case_expectations"]
@@ -544,7 +544,7 @@ def test_operator_manifest_locks_real_model_shape_and_launch_contracts() -> None
         for item in stateful
     )
     paged = suites["paged-attention"]["case_expectations"]
-    assert suites["paged-attention"]["expected_case_count"] == 10
+    assert suites["paged-attention"]["expected_case_count"] == 12
     decode_launches = {
         item["where"]["case"]: item["equals"]
         for item in paged
@@ -559,9 +559,10 @@ def test_operator_manifest_locks_real_model_shape_and_launch_contracts() -> None
         )
         for case, values in decode_launches.items()
     } == {
-        "decode_0_8b_valid13": (2, 2, 2, 1),
-        "decode_9b_valid16": (4, 4, 4, 1),
-        "decode_batch2_0_8b_valid13_7_strided": (2, 2, 2, 1),
+        "decode_0_8b_valid13": (2, 8, 8, 1),
+        "decode_9b_valid16": (4, 16, 16, 1),
+        "decode_batch2_0_8b_valid13_7_strided": (2, 8, 8, 1),
+        "decode_0_8b_valid83_bucket96": (2, 8, 8, 1),
     }
     assert any(
         item["where"] == {"case": "prefill_9b_prefix2_extend13"}

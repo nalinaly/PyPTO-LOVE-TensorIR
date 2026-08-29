@@ -503,14 +503,17 @@ def test_attention_is_one_native_tile_graph():
     assert "tensor." not in rendered
 
 
-def test_paged_attention_decode_builds_one_kv_group_graph():
-    assert attention._paged_decode_partition_count(2) == 2
-    assert attention._paged_decode_partition_count(4) == 4
-    with pytest.raises(ValueError, match="positive KV heads"):
+def test_paged_attention_decode_builds_one_q_head_graph():
+    assert attention._paged_decode_partition_count(8) == 8
+    assert attention._paged_decode_partition_count(16) == 16
+    assert attention._paged_decode_tiles(1, 1) == [64]
+    assert attention._paged_decode_tiles(1, 4) == [1, 64]
+    assert attention._paged_decode_tiles(2, 1) == [1, 64]
+    with pytest.raises(ValueError, match="positive Q heads"):
         attention._paged_decode_partition_count(0)
     program = attention.build_paged_decode(
         1,
-        4,
+        1,
         1,
         16,
         256,
@@ -523,7 +526,7 @@ def test_paged_attention_decode_builds_one_kv_group_graph():
     )
     rendered = str(program)
     assert len(_one_program(program).body.stmts) == 2
-    assert "pl.range(4)" in rendered and "pl.range(16)" in rendered
+    assert "pl.range(1)" in rendered and "pl.range(16)" in rendered
     assert rendered.count("pl.tensor.read") == 4
     assert "physical_i64" in rendered and "virtual_to_physical" in rendered
     assert "pl.cast" in rendered
@@ -541,7 +544,7 @@ def test_paged_attention_decode_builds_one_kv_group_graph():
 
     wide_program = attention.build_paged_decode(
         1,
-        4,
+        1,
         1,
         512,
         256,
@@ -560,7 +563,7 @@ def test_paged_attention_decode_builds_one_kv_group_graph():
 
     large_model_program = attention.build_paged_decode(
         1,
-        4,
+        1,
         1,
         16,
         256,
@@ -572,13 +575,13 @@ def test_paged_attention_decode_builds_one_kv_group_graph():
         result_row_stride=4096,
     )
     large_model_rendered = str(large_model_program)
-    assert "pl.range(4)" in large_model_rendered
+    assert "pl.range(1)" in large_model_rendered
     assert large_model_rendered.count("pl.tile.gather_row") == 2
     assert large_model_rendered.count("pl.tile.matmul") == 2
 
     batched_program = attention.build_paged_decode(
         2,
-        4,
+        1,
         1,
         16,
         256,
@@ -630,7 +633,7 @@ def test_paged_attention_decode_reuses_one_artifact_and_zero_copy_views(
 
     def fake_compile(*args):
         compile_calls.append(args)
-        return "one-kv-group-artifact"
+        return "one-q-head-artifact"
 
     def fake_launch(graph_key, operands, cuda_stream):
         launches.append((graph_key, operands, cuda_stream))
@@ -659,7 +662,7 @@ def test_paged_attention_decode_reuses_one_artifact_and_zero_copy_views(
     assert compile_calls == [
         (
             batch_size,
-            4,
+            1,
             1,
             16,
             head_dim,
@@ -675,14 +678,15 @@ def test_paged_attention_decode_reuses_one_artifact_and_zero_copy_views(
     assert len(allocations) == 1
     assert result is allocations[0]
     assert tuple(result.shape) == (batch_size, query_width)
-    assert len(launches) == kv_heads
-    assert {launch[0] for launch in launches} == {"one-kv-group-artifact"}
+    assert len(launches) == q_heads
+    assert {launch[0] for launch in launches} == {"one-q-head-artifact"}
     assert {launch[2] for launch in launches} == {123}
-    for kv_head, (_graph_key, operands, _stream) in enumerate(launches):
+    for q_head, (_graph_key, operands, _stream) in enumerate(launches):
+        kv_head = q_head // (q_heads // kv_heads)
         query_group, key_group, value_group, *_metadata, result_group = operands
-        assert tuple(query_group.shape) == (batch_size, 4, head_dim)
+        assert tuple(query_group.shape) == (batch_size, 1, head_dim)
         assert tuple(query_group.stride()) == (query_row_stride, head_dim, 1)
-        assert query_group.storage_offset() == 7 + kv_head * 4 * head_dim
+        assert query_group.storage_offset() == 7 + q_head * head_dim
         assert query_group.untyped_storage().data_ptr() == query.untyped_storage().data_ptr()
         for cache_group, cache, base_offset in (
             (key_group, key_cache, 11),
@@ -695,9 +699,9 @@ def test_paged_attention_decode_reuses_one_artifact_and_zero_copy_views(
                 cache_group.untyped_storage().data_ptr()
                 == cache.untyped_storage().data_ptr()
             )
-        assert tuple(result_group.shape) == (batch_size, 4, head_dim)
+        assert tuple(result_group.shape) == (batch_size, 1, head_dim)
         assert tuple(result_group.stride()) == (query_width, head_dim, 1)
-        assert result_group.storage_offset() == kv_head * 4 * head_dim
+        assert result_group.storage_offset() == q_head * head_dim
         assert (
             result_group.untyped_storage().data_ptr()
             == result.untyped_storage().data_ptr()
@@ -719,7 +723,7 @@ def test_paged_attention_decode_result_stride_is_in_artifact_identity(monkeypatc
     monkeypatch.setattr(attention, "_paged_decode_cache", {})
     monkeypatch.setattr(attention, "build_paged_decode", fake_build)
     monkeypatch.setattr(attention, "compile_graph", fake_compile)
-    common = (1, 4, 1, 16, 256, 1024, 65, 4096, 1024, 1024, 4096)
+    common = (1, 1, 1, 16, 256, 1024, 65, 4096, 1024, 1024, 4096)
     dense_result = attention.compile_paged_decode_for(*common, 1024)
     pitched_result = attention.compile_paged_decode_for(*common, 4096)
     reused_pitched_result = attention.compile_paged_decode_for(*common, 4096)
@@ -728,6 +732,7 @@ def test_paged_attention_decode_result_stride_is_in_artifact_identity(monkeypatc
     assert pitched_result == reused_pitched_result == "decode-artifact-2"
     assert [shape[-1] for shape in builds] == [1024, 4096]
     assert len(compilations) == 2
+    assert [tiles for _program, tiles, _metadata in compilations] == [[64], [64]]
 
 
 def test_paged_cache_layout_accepts_static_row_pitch() -> None:
@@ -955,7 +960,7 @@ if __name__ == "__main__":
     test_qk_norm_partial_rope_gate_is_one_native_graph()
     test_rope_is_one_native_tile_graph()
     test_attention_is_one_native_tile_graph()
-    test_paged_attention_decode_builds_one_kv_group_graph()
+    test_paged_attention_decode_builds_one_q_head_graph()
     test_paged_cache_write_declares_mutation_and_one_graph()
     test_paged_prefill_is_one_causal_gqa_graph()
     test_linear_is_one_native_tile_graph()
