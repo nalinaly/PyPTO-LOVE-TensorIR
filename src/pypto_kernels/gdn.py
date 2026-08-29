@@ -294,7 +294,7 @@ def _recurrent_tiles(
     head_groups = value_heads // q_heads
     outer_extents = (batch_size, tokens_per_request, q_heads, head_groups)
     tiles = [1 for extent in outer_extents if extent > 1]
-    tiles.append(1 << min(6, value_dim.bit_length() - 1))
+    tiles.append(1 << min(7, value_dim.bit_length() - 1))
     return tiles
 
 

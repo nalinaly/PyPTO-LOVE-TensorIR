@@ -286,7 +286,7 @@ def test_compile_snapshot_uses_full_cache_key_and_returns_detached_copy(
 
 
 def test_each_operator_is_one_program():
-    assert attention.GRAPHS == 4  # dense + decode + cache write + prefill
+    assert attention.GRAPHS == 7  # dense + masked + gather + decode + cache write + prefill + copy
     assert all(
         graphs == 1
         for graphs in (
@@ -890,9 +890,9 @@ def test_gdn_recurrent_is_one_mutation_declared_graph():
 
 
 def test_gdn_recurrent_schedule_omits_unit_iteration_dimensions():
-    assert gdn._recurrent_tiles(1, 1, 16, 16, 128) == [1, 64]
-    assert gdn._recurrent_tiles(1, 1, 8, 16, 128) == [1, 1, 64]
-    assert gdn._recurrent_tiles(2, 1, 8, 16, 128) == [1, 1, 1, 64]
+    assert gdn._recurrent_tiles(1, 1, 16, 16, 128) == [1, 128]
+    assert gdn._recurrent_tiles(1, 1, 8, 16, 128) == [1, 1, 128]
+    assert gdn._recurrent_tiles(2, 1, 8, 16, 128) == [1, 1, 1, 128]
     assert gdn._recurrent_tiles(1, 1, 1, 1, 48) == [32]
 
 

@@ -16,13 +16,16 @@ _VALUE_TILE = 64
 _MAX_FUSED_PREFILL_KV_HEADS = 2
 _lock = threading.RLock()
 _cache: dict[tuple[int, int, int, int], str] = {}
+_masked_cache: dict[tuple[int, ...], str] = {}
+_paged_gather_cache: dict[tuple[int, ...], str] = {}
 _paged_decode_cache: dict[tuple[int, ...], str] = {}
 _paged_cache_write_cache: dict[tuple[int, ...], str] = {}
 _paged_prefill_cache: dict[tuple[int, ...], str] = {}
+_row_pitch_copy_cache: dict[tuple[int, int, int], str] = {}
 
 STATUS = "native-tile executable"
 PAGED_DECODE_STATUS = "native-tile executable"
-GRAPHS = 4
+GRAPHS = 7
 
 
 @pl.jit
@@ -81,6 +84,95 @@ def attention_kernel(
             mixed = pl.matmul(probability_bf16, value_tile, out_dtype=pl.FP32)
             result = pl.cast(mixed, target_type=pl.BF16)
             pl.store(result, [row, 0], out)
+    return out
+
+
+@pl.jit
+def masked_attention_kernel(
+    query: pl.Tensor,
+    key: pl.Tensor,
+    value: pl.Tensor,
+    additive_mask: pl.Tensor,
+    scale: pl.FP32,
+    out: pl.Out[pl.Tensor],
+):
+    """Dense attention with one explicit FP32 additive score mask."""
+
+    with pl.at(level=pl.Level.CORE_GROUP):
+        key_tile = pl.load(
+            key,
+            [0, 0],
+            [key.shape[0], key.shape[1]],
+            target_memory=pl.MemorySpace.Mat,
+        )
+        value_tile = pl.load(
+            value,
+            [0, 0],
+            [value.shape[0], value.shape[1]],
+            target_memory=pl.MemorySpace.Mat,
+        )
+        key_transposed = pl.tile.transpose_view(key_tile)
+        for row in pl.range(query.shape[0]):
+            query_tile = pl.load(
+                query,
+                [row, 0],
+                [1, query.shape[1]],
+                target_memory=pl.MemorySpace.Mat,
+            )
+            score = pl.matmul(query_tile, key_transposed, out_dtype=pl.FP32)
+            scaled = pl.mul(score, scale)
+            mask = pl.load(
+                additive_mask,
+                [row, 0],
+                [1, key.shape[0]],
+                target_memory=pl.MemorySpace.Vec,
+            )
+            masked = pl.add(scaled, mask)
+            max_scratch = pl.create_tile(
+                [1, key.shape[0]],
+                dtype=pl.FP32,
+                target_memory=pl.MemorySpace.Vec,
+            )
+            row_max = pl.row_max(masked, max_scratch)
+            centered = pl.row_expand_sub(masked, row_max)
+            exponent = pl.exp(centered)
+            sum_scratch = pl.create_tile(
+                [1, key.shape[0]],
+                dtype=pl.FP32,
+                target_memory=pl.MemorySpace.Vec,
+            )
+            row_sum = pl.row_sum(exponent, sum_scratch)
+            probability = pl.row_expand_div(exponent, row_sum)
+            probability_bf16 = pl.cast(probability, target_type=pl.BF16)
+            mixed = pl.matmul(probability_bf16, value_tile, out_dtype=pl.FP32)
+            result = pl.cast(mixed, target_type=pl.BF16)
+            pl.store(result, [row, 0], out)
+    return out
+
+
+@pl.jit
+def paged_gather_kernel(
+    cache: pl.Tensor,
+    req_to_token: pl.Tensor,
+    request_index: pl.Tensor,
+    virtual_to_physical: pl.Tensor,
+    out: pl.Out[pl.Tensor],
+):
+    """Materialize one request's mapped cache rows into contiguous storage."""
+
+    with pl.at(level=pl.Level.CORE_GROUP):
+        request_id = pl.read(request_index, [0, 0])
+        for slot in pl.range(out.shape[0]):
+            virtual = pl.read(req_to_token, [request_id, slot])
+            physical_i64 = pl.read(virtual_to_physical, [virtual, 0])
+            physical = pl.cast(physical_i64, pl.INT32)
+            value = pl.load(
+                cache,
+                [physical, 0],
+                [1, cache.shape[1]],
+                target_memory=pl.MemorySpace.Vec,
+            )
+            pl.store(value, [slot, 0], out)
     return out
 
 
@@ -222,6 +314,24 @@ def paged_cache_write_kernel(
             pl.store(value_tile, [physical_row_i32, 0], value_cache)
             anchor = pl.add(key_tile, value_tile)
             pl.store(anchor, [row, 0], out)
+    return out
+
+
+@pl.jit
+def row_pitch_copy_kernel(
+    source: pl.Tensor,
+    out: pl.Out[pl.Tensor],
+):
+    """Copy row-pitched BF16 input into dense row-major storage."""
+
+    with pl.at(level=pl.Level.CORE_GROUP):
+        for row in pl.range(source.shape[0]):
+            for column_block in pl.range(source.shape[1] // 128):
+                value = pl.load(
+                    source, [row, column_block * 128], [1, 128]
+                )
+                copied = pl.add(value, 0.0)
+                pl.store(copied, [row, column_block * 128], out)
     return out
 
 
@@ -494,6 +604,116 @@ def compile_for(rows: int, tokens: int, head_dim: int, value_dim: int) -> str:
     )
     with _lock:
         _cache[shape_key] = graph_key
+    return graph_key
+
+
+def compile_masked_for(
+    rows: int,
+    tokens: int,
+    head_dim: int,
+    value_dim: int,
+    query_row_stride: int,
+    key_row_stride: int,
+    value_row_stride: int,
+    mask_row_stride: int,
+    result_row_stride: int | None = None,
+) -> str:
+    """Compile dense attention with an explicit additive score mask."""
+
+    _validate_shape(rows, tokens, head_dim, value_dim)
+    if result_row_stride is None:
+        result_row_stride = value_dim
+    if (
+        query_row_stride < head_dim
+        or key_row_stride < head_dim
+        or value_row_stride < value_dim
+        or mask_row_stride < tokens
+        or result_row_stride < value_dim
+    ):
+        raise ValueError("masked attention row strides overlap logical rows")
+    shape_key = (
+        rows,
+        tokens,
+        head_dim,
+        value_dim,
+        query_row_stride,
+        key_row_stride,
+        value_row_stride,
+        mask_row_stride,
+        result_row_stride,
+    )
+    cached = _masked_cache.get(shape_key)
+    if cached is not None:
+        return cached
+
+    import torch
+
+    query = (
+        torch.empty((rows, head_dim), dtype=torch.bfloat16, device="meta")
+        if query_row_stride == head_dim
+        else torch.empty_strided(
+            (rows, head_dim),
+            (query_row_stride, 1),
+            dtype=torch.bfloat16,
+            device="meta",
+        )
+    )
+    key = (
+        torch.empty((tokens, head_dim), dtype=torch.bfloat16, device="meta")
+        if key_row_stride == head_dim
+        else torch.empty_strided(
+            (tokens, head_dim),
+            (key_row_stride, 1),
+            dtype=torch.bfloat16,
+            device="meta",
+        )
+    )
+    value = (
+        torch.empty((tokens, value_dim), dtype=torch.bfloat16, device="meta")
+        if value_row_stride == value_dim
+        else torch.empty_strided(
+            (tokens, value_dim),
+            (value_row_stride, 1),
+            dtype=torch.bfloat16,
+            device="meta",
+        )
+    )
+    additive_mask = (
+        torch.empty((rows, tokens), dtype=torch.float32, device="meta")
+        if mask_row_stride == tokens
+        else torch.empty_strided(
+            (rows, tokens),
+            (mask_row_stride, 1),
+            dtype=torch.float32,
+            device="meta",
+        )
+    )
+    out = (
+        torch.empty((rows, value_dim), dtype=torch.bfloat16, device="meta")
+        if result_row_stride == value_dim
+        else torch.empty_strided(
+            (rows, value_dim),
+            (result_row_stride, 1),
+            dtype=torch.bfloat16,
+            device="meta",
+        )
+    )
+    graph_key = compile_jit_kernel(
+        masked_attention_kernel,
+        (
+            query,
+            key,
+            value,
+            additive_mask,
+            1.0 / math.sqrt(head_dim),
+            out,
+        ),
+        _dense_tiles(rows),
+        provider="pypto.attention",
+        source_node="pypto_kernels.attention:masked_attention",
+    )
+    with _lock:
+        _masked_cache[shape_key] = graph_key
     return graph_key
 
 
@@ -851,6 +1071,196 @@ def _validate_paged_prefill_shape(
         )
 
 
+def _validate_paged_gather_shape(
+    tokens: int,
+    row_width: int,
+    cache_rows: int,
+    request_rows: int,
+    max_context_len: int,
+    cache_row_stride: int,
+    mapping_rows: int,
+) -> None:
+    if (
+        tokens <= 0
+        or tokens % 16
+        or row_width <= 0
+        or row_width % 128
+        or cache_rows <= 0
+        or request_rows <= 0
+        or max_context_len < tokens
+        or cache_row_stride < row_width
+        or mapping_rows <= 0
+    ):
+        raise ValueError(
+            "paged gather needs positive dimensions, a 16-token bucket, "
+            "and a 128-aligned cache row"
+        )
+
+
+def build_paged_gather(
+    tokens: int,
+    row_width: int,
+    cache_rows: int,
+    request_rows: int,
+    max_context_len: int,
+    cache_row_stride: int | None = None,
+    mapping_rows: int | None = None,
+) -> Any:
+    if cache_row_stride is None:
+        cache_row_stride = row_width
+    if mapping_rows is None:
+        mapping_rows = cache_rows
+    _validate_paged_gather_shape(
+        tokens,
+        row_width,
+        cache_rows,
+        request_rows,
+        max_context_len,
+        cache_row_stride,
+        mapping_rows,
+    )
+    import torch
+
+    cache = torch.empty_strided(
+        (cache_rows, row_width),
+        (cache_row_stride, 1),
+        dtype=torch.bfloat16,
+        device="meta",
+    )
+    req_to_token = torch.empty(
+        (request_rows, max_context_len), dtype=torch.int32, device="meta"
+    )
+    request_index = torch.empty_strided(
+        (1, tokens), (0, 0), dtype=torch.int64, device="meta"
+    )
+    virtual_to_physical = torch.empty(
+        (mapping_rows, 1), dtype=torch.int64, device="meta"
+    )
+    out = torch.empty((tokens, row_width), dtype=torch.bfloat16, device="meta")
+    return paged_gather_kernel.specialize(
+        cache,
+        req_to_token,
+        request_index,
+        virtual_to_physical,
+        out,
+    )
+
+
+def compile_paged_gather_for(
+    tokens: int,
+    row_width: int,
+    cache_rows: int,
+    request_rows: int,
+    max_context_len: int,
+    cache_row_stride: int | None = None,
+    mapping_rows: int | None = None,
+) -> str:
+    if cache_row_stride is None:
+        cache_row_stride = row_width
+    if mapping_rows is None:
+        mapping_rows = cache_rows
+    _validate_paged_gather_shape(
+        tokens,
+        row_width,
+        cache_rows,
+        request_rows,
+        max_context_len,
+        cache_row_stride,
+        mapping_rows,
+    )
+    shape_key = (
+        tokens,
+        row_width,
+        cache_rows,
+        request_rows,
+        max_context_len,
+        cache_row_stride,
+        mapping_rows,
+    )
+    cached = _paged_gather_cache.get(shape_key)
+    if cached is not None:
+        return cached
+    graph_key = compile_graph(
+        build_paged_gather(*shape_key),
+        [1, 128],
+        provider="pypto.attention",
+        source_node="pypto_kernels.attention:paged_gather",
+    )
+    with _lock:
+        _paged_gather_cache[shape_key] = graph_key
+    return graph_key
+
+
+def paged_gather(
+    cache: Any,
+    req_to_token: Any,
+    request_index: Any,
+    virtual_to_physical: Any,
+    *,
+    bucket_tokens: int,
+    stream: Any = None,
+) -> Any:
+    """Materialize one mapped request's cache rows with one native graph."""
+
+    import torch
+
+    cache_row_stride = _paged_cache_row_stride(
+        cache, cache, operation="paged gather"
+    )
+    mapping_rows = _mapping_rows(
+        virtual_to_physical, device=cache.device, operation="paged gather"
+    )
+    if (
+        req_to_token.ndim != 2
+        or req_to_token.dtype is not torch.int32
+        or not req_to_token.is_contiguous()
+        or request_index.ndim != 1
+        or request_index.numel() != 1
+        or request_index.dtype is not torch.int64
+        or not request_index.is_contiguous()
+        or any(
+            tensor.device != cache.device
+            for tensor in (req_to_token, request_index, virtual_to_physical)
+        )
+    ):
+        raise ValueError(
+            "paged gather needs contiguous device request metadata with one INT64 index"
+        )
+    cache_rows, row_width = map(int, cache.shape)
+    request_rows, max_context_len = map(int, req_to_token.shape)
+    _validate_paged_gather_shape(
+        int(bucket_tokens),
+        row_width,
+        cache_rows,
+        request_rows,
+        max_context_len,
+        cache_row_stride,
+        mapping_rows,
+    )
+    if stream is None:
+        stream = torch.cuda.current_stream(cache.device)
+    graph_key = compile_paged_gather_for(
+        int(bucket_tokens),
+        row_width,
+        cache_rows,
+        request_rows,
+        max_context_len,
+        cache_row_stride,
+        mapping_rows,
+    )
+    out = torch.empty(
+        (int(bucket_tokens), row_width), dtype=torch.bfloat16, device=cache.device
+    )
+    request_index_view = request_index.as_strided((1, int(bucket_tokens)), (0, 0))
+    mapping_view = virtual_to_physical.view(mapping_rows, 1)
+    launch_graph(
+        graph_key,
+        (cache, req_to_token, request_index_view, mapping_view, out),
+        stream.cuda_stream,
+    )
+    return out
+
+
 def _paged_prefill_partition_count(kv_heads: int) -> int:
     if kv_heads <= 0:
         raise ValueError("paged prefill partitioning needs positive KV heads")
@@ -861,6 +1271,58 @@ def _launch_paged_prefill_graph(
     graph_key: str, operands: tuple[Any, ...], stream: Any
 ) -> None:
     launch_graph(graph_key, operands, stream.cuda_stream)
+
+
+def _compile_row_pitch_copy(rows: int, columns: int, row_stride: int) -> str:
+    if (
+        rows <= 0
+        or columns <= 0
+        or columns % 128
+        or row_stride < columns
+    ):
+        raise ValueError(
+            "row-pitch copy needs positive BF16 rows, 128-aligned columns and "
+            "a covering row stride"
+        )
+    shape_key = (rows, columns, row_stride)
+    cached = _row_pitch_copy_cache.get(shape_key)
+    if cached is not None:
+        return cached
+
+    import torch
+
+    source = torch.empty_strided(
+        (rows, columns),
+        (row_stride, 1),
+        dtype=torch.bfloat16,
+        device="meta",
+    )
+    out = torch.empty((rows, columns), dtype=torch.bfloat16, device="meta")
+    graph_key = compile_graph(
+        row_pitch_copy_kernel.specialize(source, out),
+        [1, 128],
+        provider="pypto.attention",
+        source_node="pypto_kernels.attention:row_pitch_copy",
+    )
+    with _lock:
+        _row_pitch_copy_cache[shape_key] = graph_key
+    return graph_key
+
+
+def _contiguous_prefill_query(query: Any, stream: Any) -> Any:
+    """Stage a pitched query through one native graph when rank-3 loads cannot."""
+
+    import torch
+
+    rows, columns = map(int, query.shape)
+    if int(query.stride(0)) == columns:
+        return query
+    out = torch.empty(
+        (rows, columns), dtype=torch.bfloat16, device=query.device
+    )
+    graph_key = _compile_row_pitch_copy(rows, columns, int(query.stride(0)))
+    launch_graph(graph_key, (query, out), stream.cuda_stream)
+    return out
 
 
 def build_paged_prefill(
@@ -994,7 +1456,9 @@ def compile_paged_prefill_for(
         return cached
     graph_key = compile_graph(
         build_paged_prefill(*shape_key),
-        [1, 1, 128] if kv_heads == 1 else [1, 1, 1, 128],
+        # TensorIR keeps the statically unrolled KV-group dimension when
+        # multiple KV heads are fused; a single KV head has a rank-3 space.
+        [1, 1, 1, 128] if kv_heads > 1 else [1, 1, 128],
         provider="pypto.attention",
         source_node="pypto_kernels.attention:paged_prefill",
     )
@@ -1027,6 +1491,108 @@ def attention(query: Any, key: Any, value: Any, stream: Any = None) -> Any:
     out = torch.empty((rows, value_dim), dtype=torch.bfloat16, device=query.device)
     launch_graph(graph_key, (query, key, value, out), stream.cuda_stream)
     return out
+
+
+def masked_attention(
+    query: Any,
+    key: Any,
+    value: Any,
+    additive_mask: Any,
+    stream: Any = None,
+    out: Any = None,
+) -> Any:
+    """Run dense attention with a caller-provided FP32 additive score mask."""
+
+    import torch
+
+    query_row_stride = _tensor_row_stride(
+        query, operation="masked attention query"
+    )
+    key_row_stride = _tensor_row_stride(key, operation="masked attention key")
+    value_row_stride = _tensor_row_stride(
+        value, operation="masked attention value"
+    )
+    rows, head_dim = map(int, query.shape)
+    tokens = int(key.shape[0])
+    value_dim = int(value.shape[1])
+    if tuple(key.shape) != (tokens, head_dim) or int(value.shape[0]) != tokens:
+        raise ValueError("masked attention Q/K/V dimensions are incompatible")
+    if (
+        additive_mask.ndim != 2
+        or tuple(additive_mask.shape) != (rows, tokens)
+        or additive_mask.dtype is not torch.float32
+        or int(additive_mask.stride(1)) != 1
+        or int(additive_mask.stride(0)) < tokens
+        or additive_mask.device != query.device
+        or any(tensor.device != query.device for tensor in (key, value))
+    ):
+        raise ValueError(
+            "masked attention needs a row-pitched FP32 [rows,tokens] mask "
+            "on the Q/K/V device"
+        )
+    if out is None:
+        out = torch.empty(
+            (rows, value_dim), dtype=torch.bfloat16, device=query.device
+        )
+    elif (
+        out.ndim != 2
+        or out.dtype is not torch.bfloat16
+        or tuple(out.shape) != (rows, value_dim)
+        or int(out.stride(1)) != 1
+        or int(out.stride(0)) < value_dim
+        or out.device != query.device
+    ):
+        raise ValueError(
+            "masked attention output must be a row-pitched BF16 [rows,value_dim] view"
+        )
+    if stream is None:
+        stream = torch.cuda.current_stream(query.device)
+    graph_key = compile_masked_for(
+        rows,
+        tokens,
+        head_dim,
+        value_dim,
+        query_row_stride,
+        key_row_stride,
+        value_row_stride,
+        int(additive_mask.stride(0)),
+        int(out.stride(0)),
+    )
+    launch_graph(
+        graph_key,
+        (query, key, value, additive_mask, out),
+        stream.cuda_stream,
+    )
+    return out
+
+
+def causal_mask(
+    valid_lengths: list[int],
+    bucket_tokens: int,
+    *,
+    device: Any,
+    stream: Any = None,
+) -> Any:
+    """Build an additive causal mask on the caller's CUDA stream."""
+
+    import torch
+
+    if not valid_lengths or bucket_tokens <= 0 or bucket_tokens % 16:
+        raise ValueError("causal mask needs non-empty 16-aligned dimensions")
+    if any(length <= 0 or length > bucket_tokens for length in valid_lengths):
+        raise ValueError("causal mask valid lengths must fit the token bucket")
+    if stream is None:
+        stream = torch.cuda.current_stream(device)
+    with torch.cuda.stream(stream):
+        mask = torch.full(
+            (len(valid_lengths), bucket_tokens),
+            torch.finfo(torch.float32).min,
+            dtype=torch.float32,
+            device=device,
+        )
+        for row, length in enumerate(valid_lengths):
+            mask[row, :length] = 0.0
+    return mask
 
 
 def paged_attention_decode(
@@ -1349,6 +1915,8 @@ def paged_attention_prefill(
     request_rows, max_context_len = map(int, req_to_token.shape)
     if stream is None:
         stream = torch.cuda.current_stream(query.device)
+    query = _contiguous_prefill_query(query, stream)
+    query_row_stride = int(query.stride(0))
     query_view = query.view(query_rows, q_heads, head_dim)
     out = torch.empty(
         (query_rows, q_heads, head_dim),

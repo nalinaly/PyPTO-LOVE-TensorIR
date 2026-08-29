@@ -220,30 +220,54 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"DONE {label} correct={correct} max_abs={max_abs_diff}", flush=True)
 
-    def run_prefill(*, q_heads: int, kv_heads: int, label: str) -> None:
+    def run_prefill(
+        *,
+        q_heads: int,
+        kv_heads: int,
+        label: str,
+        query_rows: int = 13,
+        prefix_count: int = 2,
+        bucket_tokens: int = 16,
+        dirty_tail: int = 0,
+        cache_row_stride: int | None = None,
+        query_row_stride: int | None = None,
+        cache_rows: int = 1024,
+        request_rows: int = 65,
+        max_context_len: int = 4096,
+        request_row: int = 9,
+    ) -> None:
         print(f"START {label}", flush=True)
-        query_rows, prefix_count, bucket_tokens, head_dim = 13, 2, 16, 256
-        cache_rows, request_rows, max_context_len, request_row = 1024, 65, 4096, 9
+        head_dim = 256
         row_width = kv_heads * head_dim
-        query = (
-            torch.randn(
-                query_rows,
-                q_heads * head_dim,
-                device="cuda",
-                dtype=torch.bfloat16,
-            )
-            * 0.2
+        cache_row_stride = cache_row_stride or row_width
+        query_width = q_heads * head_dim
+        query_row_stride = query_row_stride or query_width
+        query_storage = torch.full(
+            ((query_rows - 1) * query_row_stride + query_width,),
+            17.0,
+            device="cuda",
+            dtype=torch.bfloat16,
         )
-        key_cache = (
-            torch.randn(
-                cache_rows,
-                row_width,
-                device="cuda",
-                dtype=torch.bfloat16,
-            )
-            * 0.2
+        query = torch.as_strided(
+            query_storage,
+            (query_rows, query_width),
+            (query_row_stride, 1),
         )
-        value_cache = torch.randn_like(key_cache) * 0.2
+        query.normal_().mul_(0.2)
+        key_cache = torch.empty_strided(
+            (cache_rows, row_width),
+            (cache_row_stride, 1),
+            device="cuda",
+            dtype=torch.bfloat16,
+        )
+        value_cache = torch.empty_strided(
+            (cache_rows, row_width),
+            (cache_row_stride, 1),
+            device="cuda",
+            dtype=torch.bfloat16,
+        )
+        key_cache.normal_().mul_(0.2)
+        value_cache.normal_().mul_(0.2)
         key_cache[0].zero_()
         value_cache[0].fill_(8.0)
         req_to_token = torch.zeros(
@@ -253,15 +277,24 @@ def main(argv: list[str] | None = None) -> int:
             dtype=torch.int32,
         )
         valid_total = prefix_count + query_rows
-        selected = torch.randperm(cache_rows - 1, device="cuda")[:valid_total] + 1
+        selected = (
+            torch.randperm(cache_rows - 1, device="cuda")[
+                : valid_total + dirty_tail
+            ]
+            + 1
+        )
         virtual = torch.arange(
-            1, valid_total + 1, device="cuda", dtype=torch.int64
+            1, valid_total + dirty_tail + 1, device="cuda", dtype=torch.int64
         )
         virtual_to_physical = torch.arange(
             cache_rows, device="cuda", dtype=torch.int64
         )
         virtual_to_physical[virtual] = selected
-        req_to_token[request_row, :valid_total] = virtual.to(torch.int32)
+        req_to_token[request_row, :valid_total] = virtual[:valid_total].to(torch.int32)
+        if dirty_tail:
+            req_to_token[
+                request_row, valid_total : valid_total + dirty_tail
+            ] = virtual[valid_total:].to(torch.int32)
         current_key = (
             torch.randn(
                 query_rows,
@@ -368,6 +401,9 @@ def main(argv: list[str] | None = None) -> int:
                 "prefix_tokens": prefix_count,
                 "query_rows": query_rows,
                 "bucket_tokens": bucket_tokens,
+                "dirty_tail_tokens": dirty_tail,
+                "cache_row_stride": cache_row_stride,
+                "query_row_stride": query_row_stride,
                 "max_abs_diff": max_abs_diff,
                 "correct": correct,
             }
@@ -402,6 +438,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     run_prefill(q_heads=8, kv_heads=2, label="prefill_0_8b_prefix2_extend13")
     run_prefill(q_heads=16, kv_heads=4, label="prefill_9b_prefix2_extend13")
+    run_prefill(
+        q_heads=8,
+        kv_heads=2,
+        label="prefill_0_8b_prefix0_extend19_bucket32_dirty_tail3",
+        query_rows=19,
+        prefix_count=0,
+        bucket_tokens=32,
+        dirty_tail=3,
+        cache_row_stride=512,
+        query_row_stride=4608,
+        cache_rows=257,
+        request_rows=2,
+        max_context_len=260,
+        request_row=1,
+    )
 
     all_correct = all(bool(case["correct"]) for case in cases)
     dso = loaded_dso_path()
