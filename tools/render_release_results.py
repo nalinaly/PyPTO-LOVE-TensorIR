@@ -138,24 +138,50 @@ def _controller_evidence(
     locked = read_json(locked_path)
     post_identity = read_json(identity_path)
     post = controller.get("post_audit")
+    policy = controller.get("policy")
+    session_cleanup = controller.get("session_cleanup")
     if (
-        controller.get("mode") != "gpu-bounded"
+        controller.get("schema") != 2
+        or controller.get("mode") != "gpu-bounded"
         or controller.get("framework_profile") != expected_profile
         or controller.get("status") != "exited"
         or controller.get("return_code") != 0
         or controller.get("abort_reason") is not None
         or not isinstance(post, dict)
+        or not isinstance(policy, dict)
     ):
         raise ReleaseContractError(
             f"bounded GPU controller did not accept the run: {controller_path}"
         )
-    policy = controller.get("policy") or {}
     if (
-        policy.get("launch_admission_floor_kib") is not None
+        policy.get("schema") != 2
+        or policy.get("kind") != "pypto-gpu-resource-policy"
+        or policy.get("launch_admission_floor_kib") is not None
         or policy.get("host_abort_floor_kib") != 12 * 1024**2
         or policy.get("host_emergency_abort_floor_kib") != 11 * 1024**2
         or policy.get("gpu_free_floor_mib") != 4 * 1024
+        or policy.get("host_floor_consecutive_samples") != 3
+        or policy.get("external_process_signals") is not False
         or policy.get("formal_identity_verified") is not True
+        or policy.get("termination_signal_scope")
+        != "verified-pgid-then-verified-session-residuals"
+        or policy.get("successful_exit_cleanup") != "natural-session-empty"
+        or policy.get("rss_accounting_scope") != "owned-session-id"
+        or type(controller.get("pid")) is not int
+        or type(controller.get("pgid")) is not int
+        or type(controller.get("sid")) is not int
+        or controller["pid"] != controller["pgid"]
+        or controller["pid"] != controller["sid"]
+        or type(controller.get("maximum_owned_sid_rss_kib")) is not int
+        or controller["maximum_owned_sid_rss_kib"] < 0
+        or not isinstance(session_cleanup, dict)
+        or session_cleanup.get("kind") != "pypto-owned-session-cleanup"
+        or session_cleanup.get("sid") != controller.get("sid")
+        or session_cleanup.get("complete") is not True
+        or session_cleanup.get("term_signaled") != []
+        or session_cleanup.get("kill_signaled") != []
+        or session_cleanup.get("rejected") != []
+        or session_cleanup.get("survivors") != []
     ):
         raise ReleaseContractError(f"bounded resource policy drifted: {controller_path}")
     immutable = None
@@ -200,6 +226,7 @@ def _cpu_controller_evidence(report_path: Path) -> list[dict[str, str]]:
     controller = read_json(controller_path)
     policy = controller.get("policy")
     low_memory_samples = controller.get("low_memory_samples")
+    session_cleanup = controller.get("session_cleanup")
     if (
         controller.get("schema") != 2
         or controller.get("mode") != "cpu-bounded"
@@ -223,7 +250,10 @@ def _cpu_controller_evidence(report_path: Path) -> list[dict[str, str]]:
         or policy.get("emergency_action")
         != "terminate-owned-pgid-after-consecutive-samples"
         or policy.get("external_process_signals") is not False
-        or policy.get("signal_scope") != "verified-owned-pgid-only"
+        or policy.get("pause_signal_scope") != "verified-owned-pgid-only"
+        or policy.get("termination_signal_scope")
+        != "verified-pgid-then-verified-session-residuals"
+        or policy.get("successful_exit_cleanup") != "natural-session-empty"
         or policy.get("rss_accounting_scope") != "owned-session-id"
         or type(controller.get("pid")) is not int
         or type(controller.get("pgid")) is not int
@@ -237,6 +267,14 @@ def _cpu_controller_evidence(report_path: Path) -> list[dict[str, str]]:
         or not isinstance(low_memory_samples, list)
         or controller.get("low_memory_sample_count") != len(low_memory_samples)
         or controller.get("sample_period_ms") != 200
+        or not isinstance(session_cleanup, dict)
+        or session_cleanup.get("kind") != "pypto-owned-session-cleanup"
+        or session_cleanup.get("sid") != controller.get("sid")
+        or session_cleanup.get("complete") is not True
+        or session_cleanup.get("term_signaled") != []
+        or session_cleanup.get("kill_signaled") != []
+        or session_cleanup.get("rejected") != []
+        or session_cleanup.get("survivors") != []
         or type(controller.get("maximum_consecutive_emergency_samples")) is not int
         or not 0 <= controller["maximum_consecutive_emergency_samples"] < 3
     ):

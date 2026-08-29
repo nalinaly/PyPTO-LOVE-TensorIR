@@ -291,7 +291,11 @@ def memory_policy_record(mode: str) -> dict[str, object]:
         ),
         "parallelism": 24,
         "external_process_signals": False,
-        "signal_scope": "verified-owned-pgid-only",
+        "pause_signal_scope": "verified-owned-pgid-only",
+        "termination_signal_scope": (
+            "verified-pgid-then-verified-session-residuals"
+        ),
+        "successful_exit_cleanup": "natural-session-empty",
         "rss_accounting_scope": "owned-session-id",
     }
 
@@ -359,24 +363,37 @@ def write_run_id(path: pathlib.Path, run_id: str) -> None:
 
 def terminate_owned(
     metadata: dict[str, object], process: subprocess.Popen[bytes]
-) -> None:
-    if process.poll() is not None:
-        return
+) -> dict[str, object]:
+    primary_error = None
+    continued = False
     try:
         stop_run.signal_verified(metadata, signal.SIGCONT)
+        continued = True
     except (OSError, RuntimeError):
         pass
+    term_signaled = False
     try:
         stop_run.signal_verified(metadata, signal.SIGTERM)
-    except (OSError, RuntimeError):
-        return
-    try:
-        process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
+        term_signaled = True
+    except ProcessLookupError:
+        pass
+    except (OSError, RuntimeError) as error:
+        primary_error = f"{type(error).__name__}: {error}"
+    cleanup = stop_run.terminate_verified_session_residuals(metadata)
+    cleanup["primary_pgid"] = {
+        "continued": continued,
+        "term_signaled": term_signaled,
+        "error": primary_error,
+    }
+    cleanup["complete"] = bool(cleanup["complete"] and primary_error is None)
+    metadata["session_cleanup"] = cleanup
+    if process.poll() is None:
         try:
-            stop_run.signal_verified(metadata, signal.SIGKILL)
-        except (OSError, RuntimeError):
-            pass
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            cleanup["complete"] = False
+            cleanup["coordinator_wait_timeout"] = True
+    return cleanup
 
 
 def verify_formal_environment_identity(
@@ -493,6 +510,7 @@ def main() -> int:
         "schema": PROCESS_SCHEMA_VERSION,
         "mode": "cpu-bounded",
         "run_id": run_id,
+        "run_dir": str(run_dir),
         "workspace": str(ROOT),
         "environment": args.environment,
         "framework_profile": args.framework_profile,
@@ -500,6 +518,7 @@ def main() -> int:
         "pid": process.pid,
         "pgid": pgid,
         "sid": sid,
+        "tmpdir": environment["TMPDIR"],
         "start_ticks": isolation.process_start_ticks(process.pid),
         "status": "running",
         "locked_mem_available_kib": locked_available,
@@ -577,7 +596,15 @@ def main() -> int:
             time.sleep(POLL_SECONDS)
         if abort_reason is not None:
             terminate_owned(metadata, process)
-        return_code = process.wait()
+            return_code = 75 if process.poll() is None else process.wait()
+        else:
+            return_code = process.wait()
+        if "session_cleanup" not in metadata:
+            metadata["session_cleanup"] = (
+                stop_run.terminate_verified_session_residuals(
+                    metadata, natural_wait_seconds=2.0
+                )
+            )
     except BaseException:
         terminate_owned(metadata, process)
         raise
@@ -586,7 +613,17 @@ def main() -> int:
 
     metadata.update(
         {
-            "status": "aborted" if abort_reason else "exited",
+            "status": (
+                "aborted"
+                if abort_reason
+                else "exited"
+                if stop_run.session_cleanup_is_natural(
+                    metadata["session_cleanup"]
+                )
+                else "cleanup-forced"
+                if metadata["session_cleanup"]["complete"]
+                else "cleanup-incomplete"
+            ),
             "return_code": return_code,
             "abort_reason": abort_reason,
             "samples": samples,
@@ -603,7 +640,12 @@ def main() -> int:
         }
     )
     isolation.atomic_json(metadata_path, metadata)
-    return 75 if abort_reason else return_code
+    return (
+        75
+        if abort_reason
+        or not stop_run.session_cleanup_is_natural(metadata["session_cleanup"])
+        else return_code
+    )
 
 
 if __name__ == "__main__":

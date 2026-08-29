@@ -299,6 +299,16 @@ def test_renderer_requires_nonpausing_pytest_cpu_policy(
         "sample_period_ms": 200,
         "maximum_consecutive_emergency_samples": 1,
         "maximum_owned_sid_rss_kib": 14 * 1024**2,
+        "session_cleanup": {
+            "schema": 1,
+            "kind": "pypto-owned-session-cleanup",
+            "sid": 777,
+            "term_signaled": [],
+            "kill_signaled": [],
+            "rejected": [],
+            "survivors": [],
+            "complete": True,
+        },
         "policy": {
             "schema": 2,
             "kind": "pypto-cpu-memory-policy",
@@ -314,7 +324,11 @@ def test_renderer_requires_nonpausing_pytest_cpu_policy(
             "emergency_action": "terminate-owned-pgid-after-consecutive-samples",
             "parallelism": 24,
             "external_process_signals": False,
-            "signal_scope": "verified-owned-pgid-only",
+            "pause_signal_scope": "verified-owned-pgid-only",
+            "termination_signal_scope": (
+                "verified-pgid-then-verified-session-residuals"
+            ),
+            "successful_exit_cleanup": "natural-session-empty",
             "rss_accounting_scope": "owned-session-id",
             "formal_identity_verified": True,
         },
@@ -327,6 +341,88 @@ def test_renderer_requires_nonpausing_pytest_cpu_policy(
     process.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(renderer.ReleaseContractError, match="did not accept"):
         renderer._cpu_controller_evidence(report)
+
+
+def test_renderer_requires_complete_gpu_session_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(renderer, "ROOT", tmp_path)
+    run = tmp_path / "runs/gpu-policy"
+    run.mkdir(parents=True)
+    report = run / "performance.json"
+    gpu = {
+        "name": "NVIDIA GeForce RTX 5090",
+        "compute_capability": "12.0",
+        "memory_mib": "24576",
+        "driver": "test-driver",
+    }
+    audit = {
+        "gpu": gpu,
+        "external_compute_pids": [],
+        "protected_compute_pids": [],
+        "protected_runtime_mapping_pids": [],
+        "unreadable_protected_maps": [],
+        "owned_compute_pids": [],
+    }
+    for name in ("initial-audit.json", "locked-audit.json", "post-identity-audit.json"):
+        (run / name).write_text(json.dumps(audit), encoding="utf-8")
+    process = run / "process.json"
+    payload = {
+        "schema": 2,
+        "mode": "gpu-bounded",
+        "framework_profile": "pypto",
+        "status": "exited",
+        "return_code": 0,
+        "abort_reason": None,
+        "pid": 888,
+        "pgid": 888,
+        "sid": 888,
+        "maximum_owned_sid_rss_kib": 1024,
+        "policy": {
+            "schema": 2,
+            "kind": "pypto-gpu-resource-policy",
+            "launch_admission_floor_kib": None,
+            "host_abort_floor_kib": 12 * 1024**2,
+            "host_emergency_abort_floor_kib": 11 * 1024**2,
+            "host_floor_consecutive_samples": 3,
+            "gpu_free_floor_mib": 4 * 1024,
+            "external_process_signals": False,
+            "formal_identity_verified": True,
+            "termination_signal_scope": (
+                "verified-pgid-then-verified-session-residuals"
+            ),
+            "successful_exit_cleanup": "natural-session-empty",
+            "rss_accounting_scope": "owned-session-id",
+        },
+        "session_cleanup": {
+            "schema": 1,
+            "kind": "pypto-owned-session-cleanup",
+            "sid": 888,
+            "term_signaled": [],
+            "kill_signaled": [],
+            "rejected": [],
+            "survivors": [],
+            "complete": True,
+        },
+        "post_audit": audit,
+    }
+    process.write_text(json.dumps(payload), encoding="utf-8")
+    evidence, observed_gpu = renderer._controller_evidence(report, "pypto")
+    assert observed_gpu["compute_capability"] == "12.0"
+    assert any(item["role"] == "gpu-controller" for item in evidence)
+
+    payload["session_cleanup"]["complete"] = False
+    payload["session_cleanup"]["survivors"] = [{"pid": 42}]
+    process.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(renderer.ReleaseContractError, match="policy drifted"):
+        renderer._controller_evidence(report, "pypto")
+
+    payload["session_cleanup"]["complete"] = True
+    payload["session_cleanup"]["survivors"] = []
+    payload["session_cleanup"]["term_signaled"] = [{"pid": 42}]
+    process.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(renderer.ReleaseContractError, match="policy drifted"):
+        renderer._controller_evidence(report, "pypto")
 
 
 def test_release_closure_sources_are_workstation_portable() -> None:

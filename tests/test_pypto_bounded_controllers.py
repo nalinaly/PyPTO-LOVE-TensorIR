@@ -63,7 +63,13 @@ class BoundedCpuCommandTest(unittest.TestCase):
         )
         self.assertEqual(pytest_policy["emergency_abort_consecutive_samples"], 3)
         self.assertFalse(pytest_policy["external_process_signals"])
-        self.assertEqual(pytest_policy["signal_scope"], "verified-owned-pgid-only")
+        self.assertEqual(
+            pytest_policy["pause_signal_scope"], "verified-owned-pgid-only"
+        )
+        self.assertEqual(
+            pytest_policy["termination_signal_scope"],
+            "verified-pgid-then-verified-session-residuals",
+        )
         self.assertEqual(pytest_policy["rss_accounting_scope"], "owned-session-id")
         build_policy = cpu.memory_policy_record(cpu.PAUSE_DRAIN_MODE)
         self.assertTrue(build_policy["pause_enabled"])
@@ -316,7 +322,14 @@ class BoundedCpuCommandTest(unittest.TestCase):
         process.poll.return_value = None
         process.wait.return_value = 0
         metadata = {"pid": 101, "pgid": 101, "sid": 101, "start_ticks": 7}
-        with mock.patch.object(cpu.stop_run, "signal_verified") as verified:
+        with (
+            mock.patch.object(cpu.stop_run, "signal_verified") as verified,
+            mock.patch.object(
+                cpu.stop_run,
+                "terminate_verified_session_residuals",
+                return_value={"complete": True},
+            ),
+        ):
             cpu.terminate_owned(metadata, process)
         self.assertEqual(
             verified.call_args_list,
@@ -342,6 +355,7 @@ class BoundedGpuPolicyTest(unittest.TestCase):
         cls.script = str((ROOT / "tools/run_pypto_gpu_bounded.py").resolve(strict=True))
 
     def test_policy_has_runtime_safety_floors_not_22_gib_admission(self) -> None:
+        self.assertEqual(gpu.PROCESS_SCHEMA_VERSION, 2)
         self.assertEqual(gpu.HOST_ABORT_KIB, 12 * 1024 * 1024)
         self.assertEqual(gpu.HOST_EMERGENCY_ABORT_KIB, 11 * 1024 * 1024)
         self.assertEqual(gpu.HOST_FLOOR_CONSECUTIVE_SAMPLES, 3)
@@ -364,6 +378,25 @@ class BoundedGpuPolicyTest(unittest.TestCase):
             self.assertEqual(alias.resolve(), target.resolve())
             gpu.remove_short_tmp_alias(parent, alias, observed_target)
             self.assertFalse(parent.exists())
+
+    def test_gpu_controller_rss_counts_the_owned_session_not_only_pgid(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            proc = pathlib.Path(directory)
+
+            def process(pid: int, pgid: int, sid: int, rss_kib: int) -> None:
+                root = proc / str(pid)
+                root.mkdir()
+                fields = ["S", "1", str(pgid), str(sid), *(["0"] * 15), "123"]
+                (root / "stat").write_text(
+                    f"{pid} (tileiras worker {pid}) " + " ".join(fields)
+                )
+                (root / "status").write_text(f"VmRSS:\t{rss_kib} kB\n")
+
+            process(201, 701, 990, 300)
+            process(202, 702, 990, 400)
+            process(203, 703, 991, 800)
+            self.assertEqual(gpu.process_stat_full(201, proc), (701, 990, 123))
+            self.assertEqual(gpu.owned_sid_rss_kib(990, proc), 700)
 
     def test_host_floor_debounces_noise_but_emergency_aborts_immediately(self) -> None:
         just_below = gpu.HOST_ABORT_KIB - 1
@@ -494,8 +527,12 @@ class BoundedGpuPolicyTest(unittest.TestCase):
             ),
             mock.patch.object(
                 gpu,
-                "process_stat",
-                side_effect=lambda pid: (700 if pid == 91 else 800, 1),
+                "process_stat_full",
+                side_effect=lambda pid: (
+                    700 if pid == 91 else 800,
+                    900 if pid == 91 else 901,
+                    1,
+                ),
             ),
             mock.patch.object(
                 gpu, "process_environment", side_effect=FileNotFoundError
@@ -509,8 +546,15 @@ class BoundedGpuPolicyTest(unittest.TestCase):
         process = mock.Mock()
         process.poll.return_value = None
         process.wait.return_value = 0
-        metadata = {"pid": 101, "pgid": 101, "start_ticks": 7}
-        with mock.patch.object(gpu.stop_run, "signal_verified") as verified:
+        metadata = {"pid": 101, "pgid": 101, "sid": 101, "start_ticks": 7}
+        with (
+            mock.patch.object(gpu.stop_run, "signal_verified") as verified,
+            mock.patch.object(
+                gpu.stop_run,
+                "terminate_verified_session_residuals",
+                return_value={"complete": True},
+            ),
+        ):
             gpu.terminate_owned(metadata, process)
         verified.assert_called_once_with(metadata, signal.SIGTERM)
 

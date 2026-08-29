@@ -26,6 +26,7 @@ ALLOWED_ENVIRONMENT_PROFILES = {
     "pypto-release": "pypto",
     "sglang-baseline": "baseline",
 }
+PROCESS_SCHEMA_VERSION = 2
 HOST_ABORT_KIB = 12 * 1024 * 1024
 HOST_EMERGENCY_ABORT_KIB = 11 * 1024 * 1024
 HOST_FLOOR_CONSECUTIVE_SAMPLES = 3
@@ -57,11 +58,18 @@ def host_floor_update(
     return None, 0
 
 
-def process_stat(pid: int) -> tuple[int, int]:
-    fields = pathlib.Path(f"/proc/{pid}/stat").read_text().rpartition(")")[2].split()
+def process_stat_full(
+    pid: int, proc_root: pathlib.Path = pathlib.Path("/proc")
+) -> tuple[int, int, int]:
+    fields = (proc_root / str(pid) / "stat").read_text().rpartition(")")[2].split()
     if len(fields) <= 19:
         raise BoundedGpuError(f"malformed /proc/{pid}/stat")
-    return int(fields[2]), int(fields[19])
+    return int(fields[2]), int(fields[3]), int(fields[19])
+
+
+def process_stat(pid: int) -> tuple[int, int]:
+    pgid, _sid, start_ticks = process_stat_full(pid)
+    return pgid, start_ticks
 
 
 def owned_pgid_rss_kib(pgid: int) -> int:
@@ -72,6 +80,28 @@ def owned_pgid_rss_kib(pgid: int) -> int:
         try:
             observed_pgid, _start_ticks = process_stat(int(entry.name))
             if observed_pgid != pgid:
+                continue
+            for line in (entry / "status").read_text().splitlines():
+                if line.startswith("VmRSS:"):
+                    total += int(line.split()[1])
+                    break
+        except (FileNotFoundError, PermissionError, ProcessLookupError, ValueError):
+            continue
+    return total
+
+
+def owned_sid_rss_kib(
+    sid: int, proc_root: pathlib.Path = pathlib.Path("/proc")
+) -> int:
+    total = 0
+    for entry in proc_root.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            _observed_pgid, observed_sid, _start_ticks = process_stat_full(
+                int(entry.name), proc_root
+            )
+            if observed_sid != sid:
                 continue
             for line in (entry / "status").read_text().splitlines():
                 if line.startswith("VmRSS:"):
@@ -121,7 +151,9 @@ def validate_child(
 
 
 def audit(
-    run_id: str | None = None, owned_pgid: int | None = None
+    run_id: str | None = None,
+    owned_pgid: int | None = None,
+    owned_sid: int | None = None,
 ) -> dict[str, object]:
     gpu = preflight.nvidia_identity()
     free_mib = int(gpu["memory_mib"]) - int(gpu["used_mib"])
@@ -136,18 +168,20 @@ def audit(
     external_compute: list[int] = []
     for pid in sorted(compute_pids):
         pgid_owned = False
-        if owned_pgid is not None:
+        sid_owned = False
+        if owned_pgid is not None or owned_sid is not None:
             try:
-                observed_pgid, _start_ticks = process_stat(pid)
-                pgid_owned = observed_pgid == owned_pgid
+                observed_pgid, observed_sid, _start_ticks = process_stat_full(pid)
+                pgid_owned = owned_pgid is not None and observed_pgid == owned_pgid
+                sid_owned = owned_sid is not None and observed_sid == owned_sid
             except (OSError, ValueError):
                 pass
         try:
             environment = process_environment(pid)
         except OSError:
-            (owned_compute if pgid_owned else external_compute).append(pid)
+            (owned_compute if pgid_owned or sid_owned else external_compute).append(pid)
             continue
-        if pgid_owned or (
+        if pgid_owned or sid_owned or (
             run_id is not None and environment.get("PYPTO_RUN_ID") == run_id
         ):
             owned_compute.append(pid)
@@ -180,20 +214,30 @@ def audit_ok(report: dict[str, object], *, child_running: bool) -> bool:
 
 def terminate_owned(
     metadata: dict[str, object], process: subprocess.Popen[bytes]
-) -> None:
-    if process.poll() is not None:
-        return
+) -> dict[str, object]:
+    primary_error = None
+    term_signaled = False
     try:
         stop_run.signal_verified(metadata, signal.SIGTERM)
-    except (OSError, RuntimeError):
-        return
-    try:
-        process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
+        term_signaled = True
+    except ProcessLookupError:
+        pass
+    except (OSError, RuntimeError) as error:
+        primary_error = f"{type(error).__name__}: {error}"
+    cleanup = stop_run.terminate_verified_session_residuals(metadata)
+    cleanup["primary_pgid"] = {
+        "term_signaled": term_signaled,
+        "error": primary_error,
+    }
+    cleanup["complete"] = bool(cleanup["complete"] and primary_error is None)
+    metadata["session_cleanup"] = cleanup
+    if process.poll() is None:
         try:
-            stop_run.signal_verified(metadata, signal.SIGKILL)
-        except (OSError, RuntimeError):
-            pass
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            cleanup["complete"] = False
+            cleanup["coordinator_wait_timeout"] = True
+    return cleanup
 
 
 def create_short_tmp_alias(
@@ -392,20 +436,27 @@ def main() -> int:
         )
         lease.close()
         raise
+    pgid = os.getpgid(process.pid)
+    sid = os.getsid(process.pid)
     metadata: dict[str, object] = {
-        "schema": 1,
+        "schema": PROCESS_SCHEMA_VERSION,
         "mode": "gpu-bounded",
         "run_id": run_id,
+        "run_dir": str(run_dir),
         "workspace": str(ROOT),
         "environment": args.environment,
         "framework_profile": args.framework_profile,
         "command": command,
         "pid": process.pid,
-        "pgid": os.getpgid(process.pid),
+        "pgid": pgid,
+        "sid": sid,
+        "tmpdir": environment["TMPDIR"],
         "start_ticks": isolation.process_start_ticks(process.pid),
         "status": "running",
         "locked_mem_available_kib": locked_available,
         "policy": {
+            "schema": 2,
+            "kind": "pypto-gpu-resource-policy",
             "launch_admission_floor_kib": None,
             "host_abort_floor_kib": HOST_ABORT_KIB,
             "host_emergency_abort_floor_kib": HOST_EMERGENCY_ABORT_KIB,
@@ -413,6 +464,11 @@ def main() -> int:
             "gpu_free_floor_mib": GPU_FREE_FLOOR_MIB,
             "protected_zero_nvidia_required": True,
             "external_process_signals": False,
+            "termination_signal_scope": (
+                "verified-pgid-then-verified-session-residuals"
+            ),
+            "successful_exit_cleanup": "natural-session-empty",
+            "rss_accounting_scope": "owned-session-id",
             "formal_identity_verified": args.environment != "pypto-nvidia",
         },
         "environment_access_lock": {
@@ -429,14 +485,15 @@ def main() -> int:
     metadata_path = run_dir / "process.json"
     isolation.atomic_json(metadata_path, metadata)
     print(
-        f"PYPTO_GPU_BOUNDED_RUN_ID={run_id} PID={process.pid} PGID={metadata['pgid']}",
+        f"PYPTO_GPU_BOUNDED_RUN_ID={run_id} PID={process.pid} "
+        f"PGID={metadata['pgid']} SID={metadata['sid']}",
         flush=True,
     )
 
     deadline = time.monotonic() + args.timeout_seconds
     minimum_available = initial_available
     samples = 0
-    maximum_owned_rss = 0
+    maximum_owned_sid_rss = 0
     below_host_floor_samples = 0
     maximum_consecutive_below_host_floor = 0
     abort_reason: str | None = None
@@ -445,8 +502,8 @@ def main() -> int:
         while process.poll() is None:
             available = mem_available_kib()
             minimum_available = min(minimum_available, available)
-            maximum_owned_rss = max(
-                maximum_owned_rss, owned_pgid_rss_kib(int(metadata["pgid"]))
+            maximum_owned_sid_rss = max(
+                maximum_owned_sid_rss, owned_sid_rss_kib(int(metadata["sid"]))
             )
             samples += 1
             abort_reason, below_host_floor_samples = host_floor_update(
@@ -464,14 +521,24 @@ def main() -> int:
             if time.monotonic() >= deadline:
                 abort_reason = "owned-run-timeout"
                 break
-            latest_audit = audit(run_id, int(metadata["pgid"]))
+            latest_audit = audit(
+                run_id, int(metadata["pgid"]), int(metadata["sid"])
+            )
             if not audit_ok(latest_audit, child_running=True):
                 abort_reason = "nvidia-coexistence-audit"
                 break
             time.sleep(POLL_SECONDS)
         if abort_reason is not None:
             terminate_owned(metadata, process)
-        return_code = process.wait()
+            return_code = 75 if process.poll() is None else process.wait()
+        else:
+            return_code = process.wait()
+        if "session_cleanup" not in metadata:
+            metadata["session_cleanup"] = (
+                stop_run.terminate_verified_session_residuals(
+                    metadata, natural_wait_seconds=2.0
+                )
+            )
     except BaseException:
         terminate_owned(metadata, process)
         raise
@@ -484,13 +551,23 @@ def main() -> int:
     post_audit = audit()
     metadata.update(
         {
-            "status": "aborted" if abort_reason else "exited",
+            "status": (
+                "aborted"
+                if abort_reason
+                else "exited"
+                if stop_run.session_cleanup_is_natural(
+                    metadata["session_cleanup"]
+                )
+                else "cleanup-forced"
+                if metadata["session_cleanup"]["complete"]
+                else "cleanup-incomplete"
+            ),
             "return_code": return_code,
             "abort_reason": abort_reason,
             "samples": samples,
             "initial_mem_available_kib": initial_available,
             "minimum_mem_available_kib": minimum_available,
-            "maximum_owned_pgid_rss_kib": maximum_owned_rss,
+            "maximum_owned_sid_rss_kib": maximum_owned_sid_rss,
             "maximum_consecutive_below_host_floor": (
                 maximum_consecutive_below_host_floor
             ),
@@ -499,7 +576,11 @@ def main() -> int:
         }
     )
     isolation.atomic_json(metadata_path, metadata)
-    if abort_reason is not None or not audit_ok(post_audit, child_running=False):
+    if (
+        abort_reason is not None
+        or not stop_run.session_cleanup_is_natural(metadata["session_cleanup"])
+        or not audit_ok(post_audit, child_running=False)
+    ):
         return 75
     return return_code
 
