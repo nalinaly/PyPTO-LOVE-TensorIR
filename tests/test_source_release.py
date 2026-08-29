@@ -57,14 +57,15 @@ class SourceReleaseTest(unittest.TestCase):
         report = source_release.verify_release_artifacts(ROOT, self.lock)
         self.assertEqual(
             report["packages"]["pypto-kernels"]["source_commit"],
-            "bcd1a16f0cacdf4e5c196f6d7a7375fe117a61ab",
+            "c2c426876ddedd769982d748dc4c73a448e391db",
         )
         self.assertEqual(
             report["packages"]["pypto-framework-plugins"]["source_commit"],
-            "6c363a1cddebc73d0f4134f198c921ec9f1d0e7c",
+            "e6ec0aac8cb91beb6102717c063bbbea2e344f62",
         )
         for package in report["packages"].values():
             self.assertEqual(package["source_tree"], package["prefix_tree"])
+            self.assertTrue(package["reachable_from_head"])
 
     def test_bundles_are_hash_locked_and_materializable(self) -> None:
         report = source_release.verify_release_artifacts(ROOT, self.lock)

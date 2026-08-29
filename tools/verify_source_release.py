@@ -625,6 +625,16 @@ def verify_release_artifacts(
             raise SourceReleaseError(f"package snapshot contains nested Git state: {name}")
         source_commit = str(spec["source_commit"])
         _git(root, "cat-file", "-e", f"{source_commit}^{{commit}}")
+        reachable = _run(
+            ["git", "merge-base", "--is-ancestor", source_commit, "HEAD"],
+            cwd=root,
+            check=False,
+        )
+        if reachable.returncode != 0:
+            raise SourceReleaseError(
+                f"package source commit is not reachable from HEAD: {name} "
+                f"{source_commit}"
+            )
         source_tree = _git(root, "rev-parse", f"{source_commit}^{{tree}}")
         prefix_tree = _git(root, "rev-parse", f"HEAD:{spec['path']}")
         if (
@@ -649,6 +659,7 @@ def verify_release_artifacts(
             "source_commit": source_commit,
             "source_tree": source_tree,
             "prefix_tree": prefix_tree,
+            "reachable_from_head": True,
             "version": spec["version"],
         }
     results["packages"] = package_results
