@@ -14,11 +14,64 @@ sys.path.insert(0, str(ROOT))
 
 from benchmarks.release import (  # noqa: E402
     controllers,
+    correctness_runtime,
     lanes,
     performance_runtime,
     profile_runtime,
     workload,
 )
+
+
+def _compile_snapshot_record(disposition: str) -> dict[str, str]:
+    return {
+        "source_node": "pypto_kernels.attention:paged_decode",
+        "provider": "pypto.attention",
+        "cache_key": "a" * 64,
+        "build_spec_identity": "b" * 64,
+        "artifact_identity": "c" * 64,
+        "disposition": disposition,
+    }
+
+
+def test_candidate_compile_cache_evidence_is_strict_but_hit_is_observational() -> None:
+    dispositions = (
+        "Uncached",
+        "CacheHit",
+        "CompiledAndPublished",
+        "CompiledAndValidatedExisting",
+    )
+    source = [_compile_snapshot_record(value) for value in dispositions]
+    evidence = correctness_runtime._compile_cache_evidence(source)
+    assert evidence["record_count"] == 4
+    assert evidence["cache_hit_observed"] is True
+    assert evidence["cache_hit_required"] is False
+    assert evidence["coverage_identity_includes_snapshot"] is False
+    assert evidence["disposition_counts"] == {
+        value: 1 for value in dispositions
+    }
+    evidence["records"][0]["cache_key"] = "mutated"
+    assert source[0]["cache_key"] == "a" * 64
+
+    no_hit = correctness_runtime._compile_cache_evidence(
+        [_compile_snapshot_record("CompiledAndPublished")]
+    )
+    assert no_hit["cache_hit_observed"] is False
+    assert no_hit["cache_hit_required"] is False
+
+
+def test_candidate_compile_cache_evidence_rejects_invalid_records() -> None:
+    with pytest.raises(
+        workload.ReleaseContractError, match="no PyPTO compile snapshot"
+    ):
+        correctness_runtime._compile_cache_evidence([])
+    with pytest.raises(workload.ReleaseContractError, match="unknown disposition"):
+        correctness_runtime._compile_cache_evidence(
+            [_compile_snapshot_record("CacheHitAfterWait")]
+        )
+    malformed = _compile_snapshot_record("CacheHit")
+    malformed["cache_key"] = "a" * 16
+    with pytest.raises(workload.ReleaseContractError, match="invalid cache_key"):
+        correctness_runtime._compile_cache_evidence([malformed])
 
 
 def load_tool(name: str):

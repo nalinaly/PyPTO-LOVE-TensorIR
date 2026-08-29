@@ -17,11 +17,26 @@ DSO_PATH = os.environ.get("PYPTO_KERNEL_DSO_PATH")
 PYPTO_PACKAGE = os.environ.get("PYPTO_KERNEL_PACKAGE_PATH")
 _DRIVER_LABEL_ENV = "PYPTO_KERNEL_CUDA_DRIVER_LABEL"
 _CUDART_PATH_ENV = "PYPTO_KERNEL_CUDART"
+_ARTIFACT_CACHE_ENV = "PYPTO_CACHE_DIR"
+_STRICT_COVERAGE_ENV = "PYPTO_STRICT_COVERAGE"
+_COMPILE_DISPOSITIONS = frozenset(
+    {
+        "Uncached",
+        "CacheHit",
+        "CompiledAndPublished",
+        "CompiledAndValidatedExisting",
+    }
+)
 
 _lock = threading.RLock()
 _modules: dict[str, Any] | None = None
 _sources_revision: str | None = None
 _runtime_expectation: tuple[str, str] | None = None
+_artifact_cache_handle: Any | None = None
+_artifact_cache_pid: int | None = None
+_artifact_cache_root: str | None = None
+_compile_snapshot_pid = os.getpid()
+_COMPILE_SNAPSHOT: list[dict[str, str]] = []
 
 
 def _kernel_sources_revision() -> str:
@@ -222,6 +237,131 @@ def _live_runtime_expectation() -> tuple[str, str]:
     return value
 
 
+def _strict_coverage_enabled() -> bool:
+    return os.environ.get(_STRICT_COVERAGE_ENV) == "1"
+
+
+def _reset_process_snapshot_locked(process_id: int) -> None:
+    global _compile_snapshot_pid
+    if process_id != _compile_snapshot_pid:
+        _COMPILE_SNAPSHOT.clear()
+        _compile_snapshot_pid = process_id
+
+
+def _artifact_cache_for(compiler: Any) -> Any | None:
+    """Return the process-local lazy ArtifactCache for the configured root."""
+
+    global _artifact_cache_handle, _artifact_cache_pid, _artifact_cache_root
+    process_id = os.getpid()
+    root = os.environ.get(_ARTIFACT_CACHE_ENV)
+    with _lock:
+        _reset_process_snapshot_locked(process_id)
+        if root is None:
+            _artifact_cache_handle = None
+            _artifact_cache_pid = process_id
+            _artifact_cache_root = None
+            if _strict_coverage_enabled():
+                raise RuntimeError(
+                    "strict coverage requires an absolute PYPTO_CACHE_DIR"
+                )
+            return None
+        if not root or not os.path.isabs(root):
+            raise RuntimeError(
+                "PYPTO_CACHE_DIR must be a non-empty absolute path"
+            )
+        if (
+            _artifact_cache_handle is not None
+            and _artifact_cache_pid == process_id
+            and _artifact_cache_root == root
+        ):
+            return _artifact_cache_handle
+        handle = compiler.ArtifactCache(root)
+        _artifact_cache_handle = handle
+        _artifact_cache_pid = process_id
+        _artifact_cache_root = root
+        return handle
+
+
+def _compile_structured(
+    compiler: Any,
+    program: Any,
+    request: Any,
+    schedule: Any,
+) -> Any:
+    cache = _artifact_cache_for(compiler)
+    if cache is None:
+        return compiler.compile_structured_strict(program, request, schedule)
+    cached_compile = getattr(compiler, "compile_structured_strict_cached", None)
+    if not callable(cached_compile):
+        raise RuntimeError(
+            "configured ArtifactCache requires compile_structured_strict_cached"
+        )
+    return cached_compile(program, request, schedule, cache)
+
+
+def _lowercase_sha256(value: Any, *, field: str) -> str:
+    if (
+        type(value) is not str
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise RuntimeError(f"{field} must be one lowercase SHA-256 digest")
+    return value
+
+
+def _artifact_cache_key(artifact: Any) -> str:
+    return _lowercase_sha256(
+        artifact.cache_key_digest, field="Artifact cache key"
+    )
+
+
+def _disposition_name(disposition: Any) -> str:
+    name = getattr(disposition, "name", None)
+    if not isinstance(name, str):
+        name = str(disposition).rsplit(".", 1)[-1]
+    if name not in _COMPILE_DISPOSITIONS:
+        raise RuntimeError(
+            f"structured compile returned unknown disposition {name!r}"
+        )
+    return name
+
+
+def _record_compile_snapshot(
+    result: Any,
+    *,
+    provider: str,
+    source_node: str,
+    cache_key: str,
+) -> None:
+    if not provider or not source_node:
+        raise RuntimeError("compile snapshot provenance must be non-empty")
+    record = {
+        "source_node": source_node,
+        "provider": provider,
+        "cache_key": _lowercase_sha256(cache_key, field="compile cache key"),
+        "build_spec_identity": _lowercase_sha256(
+            result.build_spec.identity_digest,
+            field="KernelBuildSpec identity",
+        ),
+        "artifact_identity": _lowercase_sha256(
+            result.artifact.identity_digest,
+            field="Artifact identity",
+        ),
+        "disposition": _disposition_name(result.disposition),
+    }
+    with _lock:
+        _reset_process_snapshot_locked(os.getpid())
+        _COMPILE_SNAPSHOT.append(record)
+
+
+def artifact_compile_snapshot() -> list[dict[str, str]]:
+    """Return a detached copy of this process's structured compile records."""
+
+    with _lock:
+        _reset_process_snapshot_locked(os.getpid())
+        return [dict(record) for record in _COMPILE_SNAPSHOT]
+
+
 def compile_graph(
     program: Any,
     tiles: list[int],
@@ -290,9 +430,12 @@ def compile_graph(
             parameter("uniform_signature", ScheduleValueKind.Boolean, "false"),
         ],
     )
-    result = compiler.compile_structured_strict(program, request, schedule)
+    result = _compile_structured(compiler, program, request, schedule)
     artifact = result.artifact
-    key = hashlib.sha256(bytes(artifact.device_code)).hexdigest()[:16]
+    key = _artifact_cache_key(artifact)
+    resolved_source_node = source_node or (
+        f"pypto-kernels:{artifact.kernel_abi.entry_function_name}"
+    )
     try:
         from pypto_plugins.activity_trace import artifact_record_from_runtime
     except ImportError:
@@ -305,10 +448,15 @@ def compile_graph(
         artifact_record = artifact_record_from_runtime(
             artifact,
             provider=provider,
-            source_node=source_node
-            or f"pypto-kernels:{artifact.kernel_abi.entry_function_name}",
+            source_node=resolved_source_node,
             kernels_revision=_kernel_sources_revision(),
         )
+    _record_compile_snapshot(
+        result,
+        provider=provider,
+        source_node=resolved_source_node,
+        cache_key=key,
+    )
     with _lock:
         _GRAPHS[key] = (artifact, request)
         _GRAPH_RECORDS[key] = artifact_record

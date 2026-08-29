@@ -119,6 +119,172 @@ def test_launch_graph_wraps_executable_in_artifact_annotation(monkeypatch):
     assert launched == [("packet", 123)]
 
 
+def test_compile_structured_uses_uncached_only_without_configured_cache(
+    monkeypatch,
+):
+    uncached_calls = []
+    cached_calls = []
+    compiler = SimpleNamespace(
+        compile_structured_strict=lambda *args: uncached_calls.append(args)
+        or "uncached",
+        compile_structured_strict_cached=lambda *args: cached_calls.append(args)
+        or "cached",
+    )
+    monkeypatch.delenv("PYPTO_CACHE_DIR", raising=False)
+    monkeypatch.delenv("PYPTO_STRICT_COVERAGE", raising=False)
+    monkeypatch.setattr(_boot, "_artifact_cache_handle", None)
+    monkeypatch.setattr(_boot, "_artifact_cache_pid", None)
+    monkeypatch.setattr(_boot, "_artifact_cache_root", None)
+
+    assert _boot._compile_structured(compiler, "program", "request", "schedule") == "uncached"
+    assert uncached_calls == [("program", "request", "schedule")]
+    assert cached_calls == []
+
+
+def test_compile_structured_cold_and_warm_share_one_lazy_cache_handle(monkeypatch):
+    created = []
+    uncached_calls = []
+    cached_calls = []
+
+    class FakeArtifactCache:
+        def __init__(self, root):
+            self.root = root
+            created.append(self)
+
+    compiler = SimpleNamespace(
+        ArtifactCache=FakeArtifactCache,
+        compile_structured_strict=lambda *args: uncached_calls.append(args),
+        compile_structured_strict_cached=lambda *args: cached_calls.append(args)
+        or ("cold" if len(cached_calls) == 1 else "warm"),
+    )
+    monkeypatch.setenv("PYPTO_CACHE_DIR", "/cache/root")
+    monkeypatch.setenv("PYPTO_STRICT_COVERAGE", "1")
+    monkeypatch.setattr(_boot, "_artifact_cache_handle", None)
+    monkeypatch.setattr(_boot, "_artifact_cache_pid", None)
+    monkeypatch.setattr(_boot, "_artifact_cache_root", None)
+
+    assert _boot._compile_structured(compiler, "p", "r", "s") == "cold"
+    assert _boot._compile_structured(compiler, "p", "r", "s") == "warm"
+    assert len(created) == 1
+    assert created[0].root == "/cache/root"
+    assert [call[-1] for call in cached_calls] == [created[0], created[0]]
+    assert uncached_calls == []
+
+
+def test_artifact_cache_rebuilds_after_pid_change_and_resets_snapshot(monkeypatch):
+    created = []
+    current_pid = [101]
+
+    class FakeArtifactCache:
+        def __init__(self, root):
+            self.root = root
+            created.append(self)
+
+    compiler = SimpleNamespace(ArtifactCache=FakeArtifactCache)
+    monkeypatch.setenv("PYPTO_CACHE_DIR", "/cache/root")
+    monkeypatch.setattr(_boot.os, "getpid", lambda: current_pid[0])
+    monkeypatch.setattr(_boot, "_artifact_cache_handle", None)
+    monkeypatch.setattr(_boot, "_artifact_cache_pid", None)
+    monkeypatch.setattr(_boot, "_artifact_cache_root", None)
+    monkeypatch.setattr(_boot, "_compile_snapshot_pid", current_pid[0])
+    monkeypatch.setattr(_boot, "_COMPILE_SNAPSHOT", [{"parent": "record"}])
+
+    parent_cache = _boot._artifact_cache_for(compiler)
+    assert _boot._artifact_cache_for(compiler) is parent_cache
+    current_pid[0] = 202
+    child_cache = _boot._artifact_cache_for(compiler)
+    assert child_cache is not parent_cache
+    assert len(created) == 2
+    assert _boot.artifact_compile_snapshot() == []
+
+
+def test_artifact_cache_configuration_fails_closed(monkeypatch):
+    compiler = SimpleNamespace(
+        ArtifactCache=lambda _root: (_ for _ in ()).throw(
+            RuntimeError("unsafe or missing cache root")
+        )
+    )
+    monkeypatch.setattr(_boot, "_artifact_cache_handle", None)
+    monkeypatch.setattr(_boot, "_artifact_cache_pid", None)
+    monkeypatch.setattr(_boot, "_artifact_cache_root", None)
+
+    monkeypatch.delenv("PYPTO_CACHE_DIR", raising=False)
+    monkeypatch.setenv("PYPTO_STRICT_COVERAGE", "1")
+    with pytest.raises(RuntimeError, match="strict coverage requires"):
+        _boot._artifact_cache_for(compiler)
+
+    monkeypatch.setenv("PYPTO_STRICT_COVERAGE", "0")
+    monkeypatch.setenv("PYPTO_CACHE_DIR", "relative/cache")
+    with pytest.raises(RuntimeError, match="non-empty absolute"):
+        _boot._artifact_cache_for(compiler)
+
+    monkeypatch.setenv("PYPTO_CACHE_DIR", "/missing/cache")
+    with pytest.raises(RuntimeError, match="unsafe or missing"):
+        _boot._artifact_cache_for(compiler)
+
+    compiler_without_cached_api = SimpleNamespace(
+        ArtifactCache=lambda _root: object(),
+        compile_structured_strict=lambda *_args: "uncached",
+    )
+    monkeypatch.setenv("PYPTO_CACHE_DIR", "/cache/root")
+    with pytest.raises(RuntimeError, match="requires compile_structured_strict_cached"):
+        _boot._compile_structured(
+            compiler_without_cached_api, "program", "request", "schedule"
+        )
+
+
+def test_compile_snapshot_uses_full_cache_key_and_returns_detached_copy(
+    monkeypatch,
+):
+    monkeypatch.setattr(_boot, "_compile_snapshot_pid", _boot.os.getpid())
+    monkeypatch.setattr(_boot, "_COMPILE_SNAPSHOT", [])
+    cache_key = "a" * 64
+    artifact = SimpleNamespace(
+        cache_key_digest=cache_key,
+        identity_digest="c" * 64,
+    )
+    assert _boot._artifact_cache_key(artifact) == cache_key
+
+    for disposition in sorted(_boot._COMPILE_DISPOSITIONS):
+        result = SimpleNamespace(
+            build_spec=SimpleNamespace(identity_digest="b" * 64),
+            artifact=artifact,
+            disposition=SimpleNamespace(name=disposition),
+        )
+        _boot._record_compile_snapshot(
+            result,
+            provider="pypto.attention",
+            source_node="pypto_kernels.attention:paged_decode",
+            cache_key=cache_key,
+        )
+    snapshot = _boot.artifact_compile_snapshot()
+    assert len(snapshot) == 4
+    assert {record["disposition"] for record in snapshot} == set(
+        _boot._COMPILE_DISPOSITIONS
+    )
+    assert all(record["cache_key"] == cache_key for record in snapshot)
+    assert all(record["build_spec_identity"] == "b" * 64 for record in snapshot)
+    assert all(record["artifact_identity"] == "c" * 64 for record in snapshot)
+    snapshot[0]["cache_key"] = "mutated"
+    assert _boot.artifact_compile_snapshot()[0]["cache_key"] == cache_key
+
+    with pytest.raises(RuntimeError, match="lowercase SHA-256"):
+        _boot._artifact_cache_key(
+            SimpleNamespace(cache_key_digest="d" * 16)
+        )
+    with pytest.raises(RuntimeError, match="unknown disposition"):
+        _boot._record_compile_snapshot(
+            SimpleNamespace(
+                build_spec=SimpleNamespace(identity_digest="b" * 64),
+                artifact=artifact,
+                disposition=SimpleNamespace(name="CacheHitAfterWait"),
+            ),
+            provider="pypto.attention",
+            source_node="pypto_kernels.attention:paged_decode",
+            cache_key=cache_key,
+        )
+
+
 def test_each_operator_is_one_program():
     assert attention.GRAPHS == 4  # dense + decode + cache write + prefill
     assert all(

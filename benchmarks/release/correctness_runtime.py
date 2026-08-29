@@ -46,6 +46,24 @@ THRESHOLDS = {
     "top5_token_overlap_min": 3,
     "exact_greedy_token_ids": True,
 }
+_COMPILE_CACHE_DISPOSITIONS = frozenset(
+    {
+        "Uncached",
+        "CacheHit",
+        "CompiledAndPublished",
+        "CompiledAndValidatedExisting",
+    }
+)
+_COMPILE_SNAPSHOT_FIELDS = frozenset(
+    {
+        "source_node",
+        "provider",
+        "cache_key",
+        "build_spec_identity",
+        "artifact_identity",
+        "disposition",
+    }
+)
 
 
 def _model_record(
@@ -156,6 +174,76 @@ def _shutdown_runner() -> None:
 
 def _tensor_raw_sha256(tensor) -> str:
     return hashlib.sha256(tensor.contiguous().numpy().tobytes()).hexdigest()
+
+
+def _is_lowercase_sha256(value: object) -> bool:
+    return (
+        type(value) is str
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _compile_cache_evidence(
+    snapshot: object | None = None,
+) -> dict[str, object]:
+    """Validate main-process compile records without changing coverage identity."""
+
+    if snapshot is None:
+        from pypto_kernels._boot import artifact_compile_snapshot
+
+        snapshot = artifact_compile_snapshot()
+    if type(snapshot) is not list or not snapshot:
+        raise ReleaseContractError(
+            "candidate main process produced no PyPTO compile snapshot"
+        )
+    records: list[dict[str, str]] = []
+    disposition_counts = {
+        disposition: 0 for disposition in sorted(_COMPILE_CACHE_DISPOSITIONS)
+    }
+    for index, raw in enumerate(snapshot):
+        if type(raw) is not dict or set(raw) != _COMPILE_SNAPSHOT_FIELDS:
+            raise ReleaseContractError(
+                f"compile snapshot record {index} has an invalid schema"
+            )
+        if any(
+            type(raw[field]) is not str or not str(raw[field]).strip()
+            for field in ("source_node", "provider")
+        ):
+            raise ReleaseContractError(
+                f"compile snapshot record {index} has empty provenance"
+            )
+        for field in (
+            "cache_key",
+            "build_spec_identity",
+            "artifact_identity",
+        ):
+            if not _is_lowercase_sha256(raw[field]):
+                raise ReleaseContractError(
+                    f"compile snapshot record {index} has invalid {field}"
+                )
+        disposition = raw["disposition"]
+        if disposition not in _COMPILE_CACHE_DISPOSITIONS:
+            raise ReleaseContractError(
+                f"compile snapshot record {index} has unknown disposition "
+                f"{disposition!r}"
+            )
+        disposition_counts[disposition] += 1
+        records.append(dict(raw))
+    return {
+        "scope": "candidate-main-process",
+        "records": records,
+        "record_count": len(records),
+        "disposition_counts": disposition_counts,
+        "cache_hit_observed": disposition_counts["CacheHit"] > 0,
+        "cache_hit_required": False,
+        "cache_hit_requirement_reason": (
+            "SGLang Engine warmup runs in another process and may compile a "
+            "different static graph set; cross-process reuse is reported but "
+            "is not a correctness acceptance gate"
+        ),
+        "coverage_identity_includes_snapshot": False,
+    }
 
 
 def _run_engine_sequences(
@@ -679,6 +767,7 @@ def run_candidate(
                 "candidate tokenizer does not encode the frozen 19-token prompt"
             )
         evidence_identity = collect_run_identity(ROOT, "pypto", model_path)
+        compile_cache = _compile_cache_evidence()
         report.update(
             {
                 "status": "complete" if all_passed else "failed",
@@ -698,6 +787,7 @@ def run_candidate(
                     expected_output_ids, skip_special_tokens=False
                 ),
                 "collector_stats": stats,
+                "compile_cache": compile_cache,
                 "evidence_identity": evidence_identity,
             }
         )
