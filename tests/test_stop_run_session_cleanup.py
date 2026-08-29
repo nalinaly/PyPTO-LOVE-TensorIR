@@ -327,6 +327,41 @@ def test_gpu_short_tmp_alias_metadata_remains_valid_after_alias_removal(
     assert stop_run._session_metadata(metadata)[3] == str(alias)
 
 
+def test_marked_worker_accepts_only_tmpdir_below_owned_run_storage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    metadata = _metadata(workspace)
+    proc = tmp_path / "proc"
+    proc.mkdir()
+    nested_tmp = Path(metadata["run_dir"]) / "temporary"
+    nested_tmp.mkdir()
+    _write_process(
+        proc,
+        metadata,
+        pid=351,
+        pgid=351,
+        sid=int(metadata["sid"]),
+        start_ticks=35,
+        cwd=workspace,
+        environment_changes={"TMPDIR": str(nested_tmp)},
+    )
+    monkeypatch.setattr(stop_run, "ROOT", workspace)
+    snapshot = stop_run.session_member_snapshot(351, metadata, proc)
+    assert snapshot["identity_kind"] == "run-environment"
+    assert snapshot["tmpdir"] == str(nested_tmp)
+
+    foreign_tmp = tmp_path / "foreign"
+    foreign_tmp.mkdir()
+    environment = (proc / "351/environ").read_bytes().replace(
+        str(nested_tmp).encode(), str(foreign_tmp).encode()
+    )
+    (proc / "351/environ").write_bytes(environment)
+    with pytest.raises(stop_run.SessionOwnershipError, match="TMPDIR"):
+        stop_run.session_member_snapshot(351, metadata, proc)
+
+
 def test_natural_cleanup_requires_zero_signals_and_no_residuals() -> None:
     cleanup = {
         "schema": 1,

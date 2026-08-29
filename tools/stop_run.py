@@ -173,19 +173,19 @@ def _session_metadata(metadata: dict[str, object]) -> tuple[int, str, pathlib.Pa
     return sid, run_id, expected_run_dir, tmpdir
 
 
-def _relative_to_owned_tmp(
+def _relative_to_owned_storage(
     raw: str, metadata: dict[str, object]
 ) -> tuple[pathlib.Path, pathlib.Path]:
     _sid, _run_id, run_dir, tmpdir = _session_metadata(metadata)
     path = pathlib.Path(raw)
     if not path.is_absolute() or ".." in path.parts:
         raise SessionOwnershipError(f"native child path is not absolute: {raw}")
-    for root in (pathlib.Path(tmpdir), run_dir / "tmp"):
+    for root in (pathlib.Path(tmpdir), run_dir / "tmp", run_dir):
         try:
             return path.relative_to(root), root
         except ValueError:
             continue
-    raise SessionOwnershipError(f"native child path escaped owned TMPDIR: {raw}")
+    raise SessionOwnershipError(f"native child path escaped owned run storage: {raw}")
 
 
 def _sanitized_tileiras_snapshot(
@@ -201,10 +201,12 @@ def _sanitized_tileiras_snapshot(
 ) -> dict[str, object]:
     executable = process_executable(pid, proc_root)
     arguments = process_arguments(pid, proc_root)
-    executable_relative, _root = _relative_to_owned_tmp(str(executable), metadata)
+    executable_relative, _root = _relative_to_owned_storage(
+        str(executable), metadata
+    )
     if (
-        len(executable_relative.parts) != 2
-        or not executable_relative.parts[0].startswith("tensor-ir-")
+        len(executable_relative.parts) < 2
+        or not executable_relative.parent.name.startswith("tensor-ir-")
         or not executable_relative.name.startswith("tensor-ir-")
         or executable_relative.suffix != ".tileiras"
         or len(arguments) != 4
@@ -214,18 +216,17 @@ def _sanitized_tileiras_snapshot(
         raise SessionOwnershipError(
             f"PID {pid} is not a canonical sanitized tileiras child"
         )
-    compiler_directory = executable_relative.parts[0]
+    compiler_directory = executable_relative.parent
     path_arguments = (
         arguments[0],
         arguments[2].removeprefix("--output-file="),
         arguments[3],
     )
     relatives = [
-        _relative_to_owned_tmp(value, metadata)[0] for value in path_arguments
+        _relative_to_owned_storage(value, metadata)[0] for value in path_arguments
     ]
     if (
-        any(len(relative.parts) != 2 for relative in relatives)
-        or any(relative.parts[0] != compiler_directory for relative in relatives)
+        any(relative.parent != compiler_directory for relative in relatives)
         or relatives[0].name != executable_relative.name
         or relatives[1].suffix != ".cubin"
         or relatives[2].suffix != ".tilebc"
@@ -256,10 +257,10 @@ def _sanitized_tileiras_snapshot(
             raise SessionOwnershipError(
                 f"PID {pid} tileiras environment differs from the sanitized contract"
             )
-        tmp_relative, _tmp_root = _relative_to_owned_tmp(
+        tmp_relative, _tmp_root = _relative_to_owned_storage(
             environment["TMPDIR"], metadata
         )
-        if tmp_relative != pathlib.Path(compiler_directory):
+        if tmp_relative != compiler_directory:
             raise SessionOwnershipError(
                 f"PID {pid} tileiras TMPDIR differs from its compiler directory"
             )
@@ -269,7 +270,9 @@ def _sanitized_tileiras_snapshot(
         "pgid": pgid,
         "sid": sid,
         "cwd": str(cwd),
-        "tmpdir": str(pathlib.Path(metadata["tmpdir"]) / compiler_directory),
+        "tmpdir": environment["TMPDIR"] if environment is not None else str(
+            pathlib.Path(metadata["run_dir"]) / compiler_directory
+        ),
         "identity_kind": "sanitized-tileiras",
         "executable": str(executable),
         "arguments": arguments,
@@ -330,10 +333,13 @@ def session_member_snapshot(
             ("PYPTO_WORKSPACE_ROOT", str(ROOT)),
             ("PYPTO_RUN_MODE", expected_mode),
             ("PYPTO_FRAMEWORK_PROFILE", expected_profile),
-            ("TMPDIR", expected_tmpdir),
         )
         if type(expected) is not str or environment.get(name) != expected
     }
+    try:
+        _relative_to_owned_storage(environment.get("TMPDIR", ""), metadata)
+    except SessionOwnershipError:
+        mismatches["TMPDIR"] = (environment.get("TMPDIR"), expected_tmpdir)
     if mismatches:
         control_names = {
             "PYPTO_RUN_ID",
