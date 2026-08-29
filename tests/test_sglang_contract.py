@@ -23,6 +23,7 @@ from pypto_plugins.sglang_plugin import (
     LINEAR_BACKEND_RESOLVER_TARGET,
     LM_HEAD_TARGET,
     INPUT_BUFFER_STAGE_TARGETS,
+    POSITION_STAGE_TARGET,
     PRUNED_STATES_TARGET,
     QK_RMSNORM_ROPE_GATE_TARGET,
     SILU_AND_MUL_TARGET,
@@ -45,6 +46,7 @@ from pypto_plugins.sglang_plugin import (
     _qk_rmsnorm_rope_gate_around,
     _lm_head_around,
     _input_buffer_stage_around,
+    _position_stage_around,
     _pruned_states_around,
     _silu_and_mul_around,
     _silu_forward_cuda_around,
@@ -117,9 +119,7 @@ ACTIVATION_SOURCE = (
 
 def test_qwen35_language_model_only_compatibility_is_bounded_and_idempotent() -> None:
     class FakeServerArgs:
-        LANGUAGE_MODEL_ONLY_ARCHITECTURES = (
-            "MuseGlimmerForConditionalGeneration",
-        )
+        LANGUAGE_MODEL_ONLY_ARCHITECTURES = ("MuseGlimmerForConditionalGeneration",)
 
     expected = (
         "MuseGlimmerForConditionalGeneration",
@@ -312,9 +312,29 @@ def test_input_buffer_staging_has_explicit_framework_annotation(monkeypatch) -> 
     assert INPUT_BUFFER_STAGE_TARGETS[1].endswith(
         "PrefillInputBuffers.populate_from_forward_batch"
     )
-    assert INPUT_BUFFER_STAGE_TARGETS[2].endswith(
-        "CudaGraphBufferRegistry.fill_from"
+    assert INPUT_BUFFER_STAGE_TARGETS[2].endswith("CudaGraphBufferRegistry.fill_from")
+
+
+def test_position_staging_has_explicit_framework_annotation(monkeypatch) -> None:
+    observed = []
+
+    @contextmanager
+    def annotation(source_node):
+        observed.append(source_node)
+        yield
+
+    monkeypatch.setattr(
+        "pypto_plugins.activity_trace.annotate_framework_activity", annotation
     )
+    marker = object()
+    assert _position_stage_around(
+        lambda backend, prefix, *, total: (backend, prefix, total),
+        "pypto",
+        marker,
+        total=19,
+    ) == ("pypto", marker, 19)
+    assert observed == ["sglang.position-staging"]
+    assert POSITION_STAGE_TARGET.endswith("forward_batch_info.compute_position")
 
 
 def test_gemma_rmsnorm_hook_is_preloaded_and_registered() -> None:
@@ -327,9 +347,7 @@ def test_gemma_rmsnorm_hook_is_preloaded_and_registered() -> None:
 
 
 def test_gemma_rmsnorm_offload_colocates_derived_weight() -> None:
-    assert GEMMA_RMSNORM_WEIGHT_LOADER_TARGET.endswith(
-        "GemmaRMSNorm._weight_loader"
-    )
+    assert GEMMA_RMSNORM_WEIGHT_LOADER_TARGET.endswith("GemmaRMSNorm._weight_loader")
 
     class FakeTensor:
         def __init__(self, device: str):
@@ -348,14 +366,15 @@ def test_gemma_rmsnorm_offload_colocates_derived_weight() -> None:
         return "loaded"
 
     assert (
-        _gemma_rmsnorm_weight_loader_around(original, layer, param, loaded)
-        == "loaded"
+        _gemma_rmsnorm_weight_loader_around(original, layer, param, loaded) == "loaded"
     )
     assert layer.gemma_weight.device.type == "cpu"
     assert calls == [(layer, param, loaded)]
 
 
-def test_linear_swiglu_and_lm_head_hooks_are_pinned_and_fail_closed(monkeypatch) -> None:
+def test_linear_swiglu_and_lm_head_hooks_are_pinned_and_fail_closed(
+    monkeypatch,
+) -> None:
     assert UNQUANTIZED_LINEAR_TARGET.endswith("UnquantizedLinearMethod.apply")
     assert SILU_AND_MUL_TARGET.endswith("activation.silu_and_mul")
     assert SILU_FORWARD_CUDA_TARGET.endswith("SiluAndMul.forward_cuda")
@@ -371,13 +390,17 @@ def test_linear_swiglu_and_lm_head_hooks_are_pinned_and_fail_closed(monkeypatch)
         "pypto_plugins.sglang_plugin._pypto_compute_selected", lambda: False
     )
     token = object()
-    assert _unquantized_linear_around(
-        lambda *args: token, object(), object(), object(), None
-    ) is token
+    assert (
+        _unquantized_linear_around(
+            lambda *args: token, object(), object(), object(), None
+        )
+        is token
+    )
     assert _silu_and_mul_around(lambda *args: token, object(), None) is token
-    assert _lm_head_around(
-        lambda *args: token, object(), object(), object(), None
-    ) is token
+    assert (
+        _lm_head_around(lambda *args: token, object(), object(), object(), None)
+        is token
+    )
     assert _embedding_around(lambda *args: token, object(), object(), object()) is token
 
     monkeypatch.setattr(
@@ -501,7 +524,9 @@ def test_pinned_silu_forward_cuda_boundary_is_exact() -> None:
     assert len(calls[0].args) == 2
 
 
-def test_silu_forward_cuda_hook_reaches_functional_inductor_boundary(monkeypatch) -> None:
+def test_silu_forward_cuda_hook_reaches_functional_inductor_boundary(
+    monkeypatch,
+) -> None:
     import pypto_plugins.sglang_plugin as plugin
 
     operator = object()
@@ -606,23 +631,18 @@ def test_fla_gated_rmsnorm_routes_only_exact_pypto_contract(monkeypatch) -> None
     assert calls[0][3] == {"eps": 1.0e-6, "stream": "worker-stream"}
 
     with pytest.raises(BackendNotReadyError, match="activation='swish'"):
-        _fla_gated_rmsnorm_around(
-            original, x, weight, None, gate, activation="silu"
-        )
+        _fla_gated_rmsnorm_around(original, x, weight, None, gate, activation="silu")
     selection.linear_attn_backend = "triton"
     selection.linear_attn_decode_backend = "triton"
     selection.linear_attn_prefill_backend = "triton"
     assert (
-        _fla_gated_rmsnorm_around(original, x, weight, None, gate)
-        == "original-result"
+        _fla_gated_rmsnorm_around(original, x, weight, None, gate) == "original-result"
     )
     assert len(delegated) == 1
 
 
 def test_qk_rmsnorm_rope_gate_hook_is_preloaded_and_registered() -> None:
-    assert QK_RMSNORM_ROPE_GATE_TARGET.endswith(
-        "fused_qk_gemma_rmsnorm_rope_gate"
-    )
+    assert QK_RMSNORM_ROPE_GATE_TARGET.endswith("fused_qk_gemma_rmsnorm_rope_gate")
     text = SGLANG_PLUGIN.read_text(encoding="utf-8")
     assert "qk_rmsnorm_rope.qk_rmsnorm_rope_gate(" in text
     assert callable(_qk_rmsnorm_rope_gate_around)
