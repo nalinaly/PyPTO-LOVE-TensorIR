@@ -173,6 +173,8 @@ def test_callable_cache_compiles_once_and_reuses_prewarmed_artifact(monkeypatch)
         pypto_source=source,
         pypto_source_sha256=hashlib.sha256(source.encode("utf-8")).hexdigest(),
         cache_identity_sha256="4" * 64,
+        artifact_cache_key_sha256="6" * 64,
+        artifact_cache_disposition="CacheHit",
         source_node="torch-inductor:4444444444444444",
         dso_sha256="5" * 64,
     )
@@ -275,7 +277,9 @@ def test_registry_is_locked_and_pid_bound(monkeypatch) -> None:
         REGISTRY.snapshot()
 
 
-def test_compile_and_prewarm_share_one_locked_transaction(monkeypatch) -> None:
+def test_compile_and_prewarm_share_one_locked_transaction(
+    monkeypatch, tmp_path
+) -> None:
     import pypto_plugins.activity_trace as activity_trace
 
     info = SimpleNamespace(
@@ -297,6 +301,8 @@ def test_compile_and_prewarm_share_one_locked_transaction(monkeypatch) -> None:
     class Artifact:
         device_code = b"cubin"
         fallback_used = False
+        cache_key_digest = "8" * 64
+        identity_digest = "9" * 64
 
         @staticmethod
         def serialize():
@@ -306,7 +312,15 @@ def test_compile_and_prewarm_share_one_locked_transaction(monkeypatch) -> None:
     result = SimpleNamespace(
         artifact=Artifact(),
         build_spec=SimpleNamespace(serialize=lambda: b"build-spec"),
+        disposition=SimpleNamespace(name="CompiledAndPublished"),
     )
+
+    created_caches = []
+
+    class ArtifactCache:
+        def __init__(self, root):
+            self.root = root
+            created_caches.append(self)
 
     class Compiler:
         @staticmethod
@@ -314,15 +328,22 @@ def test_compile_and_prewarm_share_one_locked_transaction(monkeypatch) -> None:
             return info
 
         @staticmethod
-        def compile_structured_strict(*_args):
+        def compile_structured_strict_cached(*args):
             assert pointwise_codegen._COMPILE_LOCK._is_owned()
+            assert args[-1] is created_caches[0]
             return result
+
+    Compiler.ArtifactCache = ArtifactCache
 
     builder = pointwise_codegen.PointwiseProgramBuilder((128,), "float32")
     value = builder.add_input("value")
     output = builder.emit("tensor.neg", [value])
     builder.mark_output(output)
     pointwise_codegen.clear_caches_for_testing()
+    cache_root = tmp_path / "artifact-cache"
+    cache_root.mkdir(mode=0o700)
+    monkeypatch.setenv("PYPTO_CACHE_DIR", str(cache_root.resolve()))
+    monkeypatch.setenv("PYPTO_STRICT_COVERAGE", "1")
     monkeypatch.setattr(
         pointwise_codegen,
         "bootstrap_pypto",
@@ -356,3 +377,6 @@ def test_compile_and_prewarm_share_one_locked_transaction(monkeypatch) -> None:
     )
     assert prewarmed == [artifact.kernel_name]
     assert artifact.dso_sha256 == "7" * 64
+    assert artifact.artifact_cache_key_sha256 == "8" * 64
+    assert artifact.artifact_cache_disposition == "CompiledAndPublished"
+    assert len(created_caches) == 1

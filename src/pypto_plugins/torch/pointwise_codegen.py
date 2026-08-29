@@ -18,7 +18,17 @@ from typing import Any, Iterator
 from ..errors import StrictCoverageError
 
 _DSO_ENVIRONMENT = "PYPTO_PLUGINS_PYPTO_DSO"
+_ARTIFACT_CACHE_ENVIRONMENT = "PYPTO_CACHE_DIR"
+_STRICT_COVERAGE_ENVIRONMENT = "PYPTO_STRICT_COVERAGE"
 POINTWISE_CODEGEN_REVISION = "audited-generated-source-v2-20260829"
+_PERSISTENT_CACHE_DISPOSITIONS = frozenset(
+    {
+        "Uncached",
+        "CacheHit",
+        "CompiledAndPublished",
+        "CompiledAndValidatedExisting",
+    }
+)
 
 _lock = threading.Lock()
 _pypto_modules: dict[str, ModuleType] | None = None
@@ -806,6 +816,8 @@ class PointwiseArtifact:
     pypto_source: str
     pypto_source_sha256: str
     cache_identity_sha256: str
+    artifact_cache_key_sha256: str
+    artifact_cache_disposition: str
     source_node: str
     dso_sha256: str
 
@@ -816,6 +828,7 @@ class PointwiseArtifact:
             self.cubin_sha256,
             self.pypto_source_sha256,
             self.cache_identity_sha256,
+            self.artifact_cache_key_sha256,
             self.dso_sha256,
         )
         if not all(_is_sha256(value) for value in digests):
@@ -831,6 +844,10 @@ class PointwiseArtifact:
             raise StrictCoverageError("pointwise source node is not cache-identity bound")
         if self.kernel_name != f"pypto_inductor_{self.cache_identity_sha256[:16]}":
             raise StrictCoverageError("pointwise kernel name is not cache-identity bound")
+        if self.artifact_cache_disposition not in _PERSISTENT_CACHE_DISPOSITIONS:
+            raise StrictCoverageError(
+                "pointwise artifact has an invalid persistent-cache disposition"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -869,6 +886,8 @@ class PointwiseSourceEvidence:
     entry_name: str
     source_node: str
     cache_identity_sha256: str
+    artifact_cache_key_sha256: str
+    artifact_cache_disposition: str
     build_spec_sha256: str
     artifact_id: str
     artifact_sha256: str
@@ -884,6 +903,10 @@ class PointwiseSourceEvidence:
             "entry_name": self.entry_name,
             "source_node": self.source_node,
             "cache_identity_sha256": self.cache_identity_sha256,
+            "artifact_cache_observation": {
+                "cache_key_sha256": self.artifact_cache_key_sha256,
+                "disposition": self.artifact_cache_disposition,
+            },
             "build_spec_sha256": self.build_spec_sha256,
             "artifact_id": self.artifact_id,
             "artifact_sha256": self.artifact_sha256,
@@ -940,6 +963,8 @@ def record_wrapper_launch_source(
             or str(native_artifact.kernel_abi.entry_function_name)
             != artifact.entry_name
             or bool(native_artifact.fallback_used) != artifact.fallback_used
+            or str(native_artifact.cache_key_digest)
+            != artifact.artifact_cache_key_sha256
             or retained_source_node != artifact.source_node
             or retained_dso != artifact.dso_sha256
         ):
@@ -1003,6 +1028,8 @@ def pointwise_source_evidence(
             or str(native_artifact.kernel_abi.entry_function_name)
             != artifact.entry_name
             or bool(native_artifact.fallback_used) != artifact.fallback_used
+            or str(native_artifact.cache_key_digest)
+            != artifact.artifact_cache_key_sha256
             or _RUNTIME_SOURCE_NODES.get(artifact.kernel_name)
             != artifact.source_node
             or _RUNTIME_DSO_SHA256.get(artifact.kernel_name) != artifact.dso_sha256
@@ -1045,6 +1072,8 @@ def pointwise_source_evidence(
             entry_name=artifact.entry_name,
             source_node=artifact.source_node,
             cache_identity_sha256=artifact.cache_identity_sha256,
+            artifact_cache_key_sha256=artifact.artifact_cache_key_sha256,
+            artifact_cache_disposition=artifact.artifact_cache_disposition,
             build_spec_sha256=artifact.build_spec_sha256,
             artifact_id=artifact_id,
             artifact_sha256=artifact.artifact_sha256,
@@ -1230,6 +1259,8 @@ def current_backend_revision_identity() -> BackendRevisionIdentity:
     return _backend_revision_identity(info, pypto_dso_sha256())
 
 
+_ARTIFACT_CACHE_LOCK = threading.Lock()
+_ARTIFACT_CACHE_STATE: tuple[int, str, Any, Any] | None = None
 _COMPILE_LOCK = threading.RLock()
 _COMPILE_CACHE: dict[
     tuple[NativePointwiseProgram | NativeReductionProgram, int, BackendRevisionIdentity],
@@ -1237,6 +1268,117 @@ _COMPILE_CACHE: dict[
 ] = {}
 _CAPTURE_LOCK = threading.RLock()
 _ACTIVE_CAPTURE: "PointwiseArtifactCapture | None" = None
+
+
+def _artifact_cache_root() -> str | None:
+    value = os.environ.get(_ARTIFACT_CACHE_ENVIRONMENT)
+    if value is None:
+        if os.environ.get(_STRICT_COVERAGE_ENVIRONMENT) == "1":
+            raise StrictCoverageError(
+                "strict coverage requires an absolute PYPTO_CACHE_DIR"
+            )
+        return None
+    if not value or value != value.strip() or not os.path.isabs(value):
+        raise StrictCoverageError(
+            "PYPTO_CACHE_DIR must be one non-empty absolute canonical path"
+        )
+    try:
+        resolved = pathlib.Path(value).resolve(strict=True)
+    except OSError as error:
+        raise StrictCoverageError(
+            f"PYPTO_CACHE_DIR is missing or inaccessible: {value}"
+        ) from error
+    if str(resolved) != value or not resolved.is_dir():
+        raise StrictCoverageError(
+            "PYPTO_CACHE_DIR must be an existing canonical directory without symlinks"
+        )
+    return value
+
+
+def _artifact_cache_for(compiler: Any) -> Any | None:
+    """Return one strict ArtifactCache handle per process and absolute root."""
+
+    global _ARTIFACT_CACHE_LOCK, _ARTIFACT_CACHE_STATE
+    root = _artifact_cache_root()
+    if root is None:
+        return None
+    cache_type = getattr(compiler, "ArtifactCache", None)
+    cached_compile = getattr(compiler, "compile_structured_strict_cached", None)
+    if not callable(cache_type) or not callable(cached_compile):
+        raise StrictCoverageError(
+            "configured ArtifactCache requires compile_structured_strict_cached; "
+            "the legacy compiler API cannot service this cache"
+        )
+    process_id = os.getpid()
+    observed = _ARTIFACT_CACHE_STATE
+    if observed is not None and observed[0] != process_id:
+        # A fork can strand a Python lock in the acquired state. The child must
+        # never reuse that lock or the creator-bound C++ ArtifactCache handle.
+        _ARTIFACT_CACHE_LOCK = threading.Lock()
+    with _ARTIFACT_CACHE_LOCK:
+        observed = _ARTIFACT_CACHE_STATE
+        if observed is not None:
+            owner_pid, configured_root, owner_compiler, handle = observed
+            if configured_root != root:
+                raise StrictCoverageError(
+                    "PYPTO_CACHE_DIR changed after ArtifactCache initialization"
+                )
+            if owner_pid == process_id:
+                if owner_compiler is not compiler:
+                    raise StrictCoverageError(
+                        "PyPTO compiler module changed after ArtifactCache initialization"
+                    )
+                return handle
+        try:
+            handle = cache_type(root)
+        except Exception as error:
+            raise StrictCoverageError(
+                f"PYPTO_CACHE_DIR was rejected by ArtifactCache: {error}"
+            ) from error
+        _ARTIFACT_CACHE_STATE = (process_id, root, compiler, handle)
+        return handle
+
+
+def _compile_structured(
+    compiler: Any,
+    program: Any,
+    request: Any,
+    schedule: Any,
+) -> Any:
+    cache = _artifact_cache_for(compiler)
+    if cache is None:
+        uncached_compile = getattr(compiler, "compile_structured_strict", None)
+        if not callable(uncached_compile):
+            raise StrictCoverageError(
+                "PyPTO compiler lacks compile_structured_strict"
+            )
+        return uncached_compile(program, request, schedule)
+    return compiler.compile_structured_strict_cached(
+        program,
+        request,
+        schedule,
+        cache,
+    )
+
+
+def _persistent_cache_disposition(disposition: Any) -> str:
+    name = getattr(disposition, "name", None)
+    if not isinstance(name, str):
+        name = str(disposition).rsplit(".", 1)[-1]
+    if name not in _PERSISTENT_CACHE_DISPOSITIONS:
+        raise StrictCoverageError(
+            f"structured cached compile returned invalid disposition {name!r}"
+        )
+    return name
+
+
+def _persistent_cache_key(artifact: Any) -> str:
+    value = str(artifact.cache_key_digest)
+    if not _is_sha256(value):
+        raise StrictCoverageError(
+            "structured cached compile returned an invalid full cache key"
+        )
+    return value
 
 
 class PointwiseArtifactCapture:
@@ -1308,9 +1450,27 @@ def compile_cache_snapshot() -> tuple[tuple[str, str], ...]:
         )
 
 
+def artifact_cache_snapshot() -> tuple[tuple[str, str, str], ...]:
+    """Return persistent-cache outcomes without changing coverage identity."""
+
+    _require_owner_process()
+    with _COMPILE_LOCK:
+        return tuple(
+            sorted(
+                (
+                    artifact.cache_identity_sha256,
+                    artifact.artifact_cache_key_sha256,
+                    artifact.artifact_cache_disposition,
+                )
+                for artifact in _COMPILE_CACHE.values()
+            )
+        )
+
+
 def clear_caches_for_testing() -> None:
     """Clear process caches; only tests may call this without process restart."""
 
+    global _ARTIFACT_CACHE_STATE
     _require_owner_process()
     with _CAPTURE_LOCK:
         if _ACTIVE_CAPTURE is not None:
@@ -1322,6 +1482,8 @@ def clear_caches_for_testing() -> None:
         _RUNTIME_DEVICE_INDICES.clear()
         _RUNTIME_DSO_SHA256.clear()
         _RUNTIME_WRAPPER_SOURCES.clear()
+    with _ARTIFACT_CACHE_LOCK:
+        _ARTIFACT_CACHE_STATE = None
     _NATIVE_SOURCE_CACHE.clear()
     _REDUCTION_SOURCE_CACHE.clear()
 
@@ -1396,7 +1558,8 @@ def compile_pointwise(
             pypto_source_sha = hashlib.sha256(
                 pypto_source.encode("utf-8")
             ).hexdigest()
-            result = compiler.compile_structured_strict(
+            result = _compile_structured(
+                compiler,
                 specialized,
                 request,
                 schedule,
@@ -1406,6 +1569,10 @@ def compile_pointwise(
                     "a trace window began during PyPTO artifact compilation"
                 )
             artifact = result.artifact
+            artifact_cache_key = _persistent_cache_key(artifact)
+            artifact_cache_disposition = _persistent_cache_disposition(
+                result.disposition
+            )
             kernel = artifact.kernel_abi
             cubin = bytes(artifact.device_code)
             cubin_sha = hashlib.sha256(cubin).hexdigest()
@@ -1441,6 +1608,8 @@ def compile_pointwise(
                 pypto_source=pypto_source,
                 pypto_source_sha256=pypto_source_sha,
                 cache_identity_sha256=identity_sha,
+                artifact_cache_key_sha256=artifact_cache_key,
+                artifact_cache_disposition=artifact_cache_disposition,
                 source_node=source_node,
                 dso_sha256=dso_sha256,
             )
@@ -1500,6 +1669,7 @@ __all__ = (
     "BackendRevisionIdentity",
     "PointwiseProgramBuilder",
     "PointwiseTensorSpec",
+    "artifact_cache_snapshot",
     "bootstrap_pypto",
     "capture_pointwise_artifacts",
     "clear_caches_for_testing",
