@@ -1,0 +1,212 @@
+From de37c7dcf93482ca3cfb42f18583ad4c999794e7 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 09:03:06 +0800
+Subject: [PATCH 223/223] Support row-pitched paged decode outputs
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp     |  11 +-
+ tests/ut/compiler/test_structured_compile.py | 103 +++++++++++++++----
+ 2 files changed, 93 insertions(+), 21 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index ba630db47bb65a1db1897b79c8752d8a32a25af8..b25cfddc909384d922759a67feb58e1a1bded81a 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -6237,10 +6237,10 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+   const StaticTensor virtual_to_physical = ReadStaticIntegerTensor(
+       function->params_[6]->GetType(), function->params_[6]->span_,
+       "native paged decode virtual-to-physical table");
+-  const StaticTensor result = ReadStaticTensor(
++  const StaticTensor result = ReadStaticNdStridedTensor(
+       function->params_[8]->GetType(), function->params_[8]->span_,
+       "native paged decode output");
+-  const StaticTensor declared = ReadStaticTensor(
++  const StaticTensor declared = ReadStaticNdStridedTensor(
+       function->return_types_[0], function->span_,
+       "native paged decode declared output");
+   if (query.dtype != DataType::BF16 || key_cache.dtype != DataType::BF16 ||
+@@ -6259,6 +6259,10 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+       req_to_token.shape.size() != 2 || request_index.shape.size() != 2 ||
+       valid_tokens.shape.size() != 2 || result.dtype != query.dtype ||
+       result.shape != query.shape ||
++      query.dense_strides.size() != 3 || query.dense_strides[2] != 1 ||
++      query.dense_strides[1] != query.shape[2] ||
++      result.dense_strides.size() != 3 || result.dense_strides[2] != 1 ||
++      result.dense_strides[1] != result.shape[2] ||
+       !SameTensor(result, declared)) {
+     Reject("native paged decode tensor types or ranks are invalid",
+            &function->span_);
+@@ -6270,6 +6274,9 @@ NativeTilePagedDecodeGraph AnalyzeNativeTilePagedDecode(
+   const int64_t tokens = request_index.shape[1];
+   if (batch_size <= 0 || q_heads <= 0 || head_dim <= 0 || cache_rows <= 0 ||
+       tokens <= 0 ||
++      q_heads > std::numeric_limits<int64_t>::max() / head_dim ||
++      query.dense_strides[0] < q_heads * head_dim ||
++      result.dense_strides[0] < q_heads * head_dim ||
+       head_dim % 128 != 0 || tokens % 16 != 0 ||
+       key_cache.shape[1] % head_dim != 0 ||
+       req_to_token.shape[0] <= 0 || req_to_token.shape[1] < tokens ||
+diff --git a/tests/ut/compiler/test_structured_compile.py b/tests/ut/compiler/test_structured_compile.py
+index 830ddb4476e2363c81e7f524fa66cd6d8070ff3d..f446e9e344b0d31bbdd77480e8f123c705907de3 100644
+--- a/tests/ut/compiler/test_structured_compile.py
++++ b/tests/ut/compiler/test_structured_compile.py
+@@ -14,6 +14,7 @@ from pathlib import Path
+ import pypto
+ import pypto.language as pl
+ import pytest
++import torch
+ from pypto.compiler import (
+     Artifact,
+     ArtifactArgumentPackingPolicy,
+@@ -39,12 +40,6 @@ from pypto.pypto_core import ir
+ _PAGED_CACHE_VIEW = pl.TensorView(
+     stride=[2048, 1], layout=ir.TensorLayout.ND
+ )
+-_PAGED_DECODE_CACHE_VIEW = pl.TensorView(
+-    stride=[512, 1], layout=ir.TensorLayout.ND
+-)
+-_PAGED_DECODE_HEAD_GROUP_VIEW = pl.TensorView(
+-    stride=[2048, 256, 1], layout=ir.TensorLayout.ND
+-)
+ _SWIGLU_INPUT_VIEW = pl.TensorView(
+     stride=[7168, 1], layout=ir.TensorLayout.ND
+ )
+@@ -333,17 +328,15 @@ def _native_tile_attention(
+ 
+ @pl.jit
+ def _native_tile_paged_decode(
+-    query: pl.Tensor[[1, 4, 256], pl.BF16, _PAGED_DECODE_HEAD_GROUP_VIEW],
+-    key_cache: pl.Tensor[[1024, 256], pl.BF16, _PAGED_DECODE_CACHE_VIEW],
+-    value_cache: pl.Tensor[[1024, 256], pl.BF16, _PAGED_DECODE_CACHE_VIEW],
+-    req_to_token: pl.Tensor[[65, 4096], pl.INT32],
+-    request_index: pl.Tensor[[1, 16], pl.INT64],
+-    valid_tokens: pl.Tensor[[1, 16], pl.INT64],
+-    virtual_to_physical: pl.Tensor[[1024, 1], pl.INT64],
++    query: pl.Tensor,
++    key_cache: pl.Tensor,
++    value_cache: pl.Tensor,
++    req_to_token: pl.Tensor,
++    request_index: pl.Tensor,
++    valid_tokens: pl.Tensor,
++    virtual_to_physical: pl.Tensor,
+     scale: pl.FP32,
+-    out: pl.Out[
+-        pl.Tensor[[1, 4, 256], pl.BF16, _PAGED_DECODE_HEAD_GROUP_VIEW]
+-    ],
++    out: pl.Out[pl.Tensor],
+ ):
+     with pl.at(level=pl.Level.CORE_GROUP):
+         for batch_row in pl.range(1):
+@@ -422,6 +415,48 @@ def _native_tile_paged_decode(
+     return out
+ 
+ 
++def _paged_decode_program(
++    *, result_strides: tuple[int, int, int] | None = (2048, 256, 1)
++):
++    query = torch.empty_strided(
++        (1, 4, 256), (2048, 256, 1), dtype=torch.bfloat16, device="meta"
++    )
++    key_cache = torch.empty_strided(
++        (1024, 256), (512, 1), dtype=torch.bfloat16, device="meta"
++    )
++    value_cache = torch.empty_strided(
++        (1024, 256), (512, 1), dtype=torch.bfloat16, device="meta"
++    )
++    req_to_token = torch.empty((65, 4096), dtype=torch.int32, device="meta")
++    request_index = torch.empty_strided(
++        (1, 16), (1, 0), dtype=torch.int64, device="meta"
++    )
++    valid_tokens = torch.empty_strided(
++        (1, 16), (1, 0), dtype=torch.int64, device="meta"
++    )
++    virtual_to_physical = torch.empty(
++        (1024, 1), dtype=torch.int64, device="meta"
++    )
++    out = (
++        torch.empty((1, 4, 256), dtype=torch.bfloat16, device="meta")
++        if result_strides is None
++        else torch.empty_strided(
++            (1, 4, 256), result_strides, dtype=torch.bfloat16, device="meta"
++        )
++    )
++    return _native_tile_paged_decode.specialize(
++        query,
++        key_cache,
++        value_cache,
++        req_to_token,
++        request_index,
++        valid_tokens,
++        virtual_to_physical,
++        0.0625,
++        out,
++    )
++
++
+ @pl.jit
+ def _native_tile_paged_cache_write(
+     key_cache: pl.InOut[pl.Tensor[[1024, 512], pl.BF16, _PAGED_CACHE_VIEW]],
+@@ -813,7 +848,7 @@ def _schedule(tile_size: int | list[int] = 16) -> CanonicalSchedule:
+ 
+ def _assert_native_paged_decode_compilation(request: CompileRequest) -> None:
+     paged_decode = compile_structured_strict(
+-        _native_tile_paged_decode.specialize(scale=0.0625),
++        _paged_decode_program(),
+         request,
+         _schedule([1, 64]),
+     )
+@@ -842,6 +877,36 @@ def _assert_native_paged_decode_compilation(request: CompileRequest) -> None:
+     assert descriptors[7].strides == [2048, 256, 1]
+     assert not paged_decode.artifact.fallback_used
+ 
++    dense_decode = compile_structured_strict(
++        _paged_decode_program(result_strides=None),
++        request,
++        _schedule([1, 64]),
++    )
++    dense_result = dense_decode.artifact.kernel_abi.argument_layout.operand_descriptors[7]
++    assert dense_result.strides == [1024, 256, 1]
++    assert dense_decode.build_spec.result_abi_digest != paged_decode.build_spec.result_abi_digest
++    assert dense_decode.artifact.cache_key_digest != paged_decode.artifact.cache_key_digest
++    assert not dense_decode.artifact.fallback_used
++
++
++def test_native_paged_decode_rejects_invalid_output_strides() -> None:
++    request = _request(get_nvidia_backend_build_info())
++    for strides in (
++        (1023, 256, 1),
++        (2048, 255, 1),
++        (2048, 256, 2),
++        (0, 256, 1),
++    ):
++        with pytest.raises(
++            ValueError,
++            match="native paged decode (tensor types or ranks|static geometry)",
++        ):
++            compile_structured_strict(
++                _paged_decode_program(result_strides=strides),
++                request,
++                _schedule([1, 64]),
++            )
++
+ 
+ def _assert_native_paged_cache_write_compilation(request: CompileRequest) -> None:
+     cache_write = compile_structured_strict(
+@@ -1129,7 +1194,7 @@ def test_compile_structured_strict_functional() -> None:
+             _native_tile_causal_conv1d.specialize(),
+             _native_tile_rope.specialize(),
+             _native_tile_attention.specialize(scale=0.08838834764831843),
+-            _native_tile_paged_decode.specialize(scale=0.0625),
++            _paged_decode_program(),
+             _native_tile_paged_cache_write.specialize(),
+             _native_tile_paged_prefill.specialize(scale=0.0625),
+             _native_tile_linear.specialize(),
+@@ -1317,7 +1382,7 @@ def test_compile_structured_strict_cached_cold_then_warm(
+     paged_root.mkdir(mode=0o700)
+     paged_root.chmod(0o700)
+     paged_cache = ArtifactCache(str(paged_root))
+-    paged_program = _native_tile_paged_decode.specialize(scale=0.0625)
++    paged_program = _paged_decode_program()
+     paged_schedule = _schedule([1, 64])
+     paged_cold = compile_structured_strict_cached(
+         paged_program, request, paged_schedule, paged_cache
