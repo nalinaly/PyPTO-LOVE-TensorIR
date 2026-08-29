@@ -34,6 +34,7 @@ class CoverageMode(str, Enum):
 
 class EventScope(str, Enum):
     MODEL_FORWARD = "model-forward"
+    FRAMEWORK = "framework"
     RUNTIME = "runtime"
     SAMPLING = "sampling"
 
@@ -64,6 +65,7 @@ OPERATOR_LIBRARY_PROVIDERS = frozenset(
     {"pypto.matmul", "pypto.attention", "pypto.gdn"}
 )
 ALLOWED_SAMPLING_PROVIDERS = frozenset({"pypto.sampling", "sglang.sampling"})
+ALLOWED_FRAMEWORK_PROVIDERS = frozenset({"sglang.framework"})
 TRACE_COLLECTOR = "pypto.activity-trace.v1"
 TRACE_COLLECTOR_REVISION = "pypto.activity-trace.v1-normalizer-schema-1"
 FRAMEWORK_PROFILE = "pypto"
@@ -620,6 +622,36 @@ class CoverageAuditor:
                 self._dispositions[event.activity_id] = "excluded"
                 return
 
+            if event.scope is EventScope.FRAMEWORK:
+                provenance = event.provenance
+                if event.activity is not ActivityKind.COMPUTE:
+                    self._event_violation(
+                        event,
+                        "framework-non-compute",
+                        "framework bookkeeping must be classified as compute",
+                    )
+                    return
+                if event.provider not in ALLOWED_FRAMEWORK_PROVIDERS:
+                    self._event_violation(
+                        event,
+                        "framework-provider",
+                        f"framework provider is not recognized: {event.provider}",
+                    )
+                    return
+                if (
+                    provenance is None
+                    or provenance.origin is not ProvenanceOrigin.EXTERNAL
+                    or not provenance.artifact_id.startswith("framework:")
+                ):
+                    self._event_violation(
+                        event,
+                        "framework-provenance",
+                        "framework compute requires explicit bookkeeping provenance",
+                    )
+                    return
+                self._dispositions[event.activity_id] = "excluded"
+                return
+
             if event.scope is EventScope.SAMPLING:
                 if event.provider not in ALLOWED_SAMPLING_PROVIDERS:
                     self._event_violation(
@@ -872,6 +904,7 @@ class CoverageAuditor:
 
 
 __all__ = [
+    "ALLOWED_FRAMEWORK_PROVIDERS",
     "ALLOWED_PYPTO_PROVIDERS",
     "ALLOWED_SAMPLING_PROVIDERS",
     "ActivityKind",

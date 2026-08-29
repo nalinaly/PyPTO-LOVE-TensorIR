@@ -22,6 +22,7 @@ from pypto_plugins.sglang_plugin import (
     GEMMA_RMSNORM_WEIGHT_LOADER_TARGET,
     LINEAR_BACKEND_RESOLVER_TARGET,
     LM_HEAD_TARGET,
+    INPUT_BUFFER_STAGE_TARGETS,
     PRUNED_STATES_TARGET,
     QK_RMSNORM_ROPE_GATE_TARGET,
     SILU_AND_MUL_TARGET,
@@ -43,6 +44,7 @@ from pypto_plugins.sglang_plugin import (
     _gemma_rmsnorm_weight_loader_around,
     _qk_rmsnorm_rope_gate_around,
     _lm_head_around,
+    _input_buffer_stage_around,
     _pruned_states_around,
     _silu_and_mul_around,
     _silu_forward_cuda_around,
@@ -281,6 +283,38 @@ def test_pypto_scheduler_metadata_never_selects_triton() -> None:
     assert _support_triton_around(original, "flashinfer") is True
     assert delegated == ["flashinfer"]
     assert len(TRITON_SUPPORT_TARGETS) == 4
+
+
+def test_input_buffer_staging_has_explicit_framework_annotation(monkeypatch) -> None:
+    observed = []
+
+    @contextmanager
+    def annotation(source_node):
+        observed.append(source_node)
+        yield
+
+    monkeypatch.setattr(
+        "pypto_plugins.activity_trace.annotate_framework_activity", annotation
+    )
+    destinations = [object()]
+    sources = [object()]
+    assert _input_buffer_stage_around(
+        lambda dst, src, *, flag: (dst, src, flag),
+        destinations,
+        sources,
+        flag=True,
+    ) == (destinations, sources, True)
+    assert observed == ["sglang.input-buffer-staging"]
+    assert len(INPUT_BUFFER_STAGE_TARGETS) == 3
+    assert INPUT_BUFFER_STAGE_TARGETS[0].endswith(
+        "DecodeInputBuffers.populate_from_forward_batch"
+    )
+    assert INPUT_BUFFER_STAGE_TARGETS[1].endswith(
+        "PrefillInputBuffers.populate_from_forward_batch"
+    )
+    assert INPUT_BUFFER_STAGE_TARGETS[2].endswith(
+        "CudaGraphBufferRegistry.fill_from"
+    )
 
 
 def test_gemma_rmsnorm_hook_is_preloaded_and_registered() -> None:

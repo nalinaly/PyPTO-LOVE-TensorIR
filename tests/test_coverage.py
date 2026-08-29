@@ -305,18 +305,32 @@ def test_runtime_memcpy_memset_and_sampling_are_visible_but_excluded(tmp_path: P
         2,
         50,
     )
-    events = [model, memcpy, memset, sampling]
+    framework = KernelEvent(
+        "activity:framework-copy",
+        EventScope.FRAMEWORK,
+        ActivityKind.COMPUTE,
+        "sglang.framework",
+        "multi_tensor_apply_kernel",
+        1,
+        20,
+        KernelProvenance(
+            origin=ProvenanceOrigin.EXTERNAL,
+            artifact_id="framework:sglang.input-buffer-staging",
+        ),
+    )
+    events = [model, memcpy, memset, sampling, framework]
     instance = auditor(tmp_path, events, [item])
     record_all(instance, events)
     summary = instance.finalize(event_stream_complete=True)
     assert (summary.covered_calls, summary.total_calls) == (2, 2)
     assert (summary.covered_gpu_time_ns, summary.total_gpu_time_ns) == (400, 400)
-    assert summary.excluded_event_groups == 3
+    assert summary.excluded_event_groups == 4
     payload = json.loads(instance.report_path.read_text())
     assert {entry["activity_id"] for entry in payload["excluded"]} == {
         "activity:memcpy",
         "activity:memset",
         "activity:sampling",
+        "activity:framework-copy",
     }
 
 

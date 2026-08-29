@@ -27,6 +27,9 @@ from .errors import StrictCoverageError
 
 ANNOTATION_KIND = "pypto.artifact-launch.v1"
 ANNOTATION_SCHEMA_VERSION = 1
+FRAMEWORK_ANNOTATION_KIND = "pypto.framework-bookkeeping.v1"
+FRAMEWORK_ANNOTATION_SCHEMA_VERSION = 1
+FRAMEWORK_PROVIDER = "sglang.framework"
 
 _lock = RLock()
 _artifact_registry: dict[str, ArtifactRecord] = {}
@@ -112,6 +115,25 @@ def _annotation_payload(record: ArtifactRecord) -> str:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class FrameworkAnnotation:
+    provider: str
+    source_node: str
+
+
+def _framework_annotation_payload(source_node: str) -> str:
+    if type(source_node) is not str or not source_node or source_node != source_node.strip():
+        raise ValueError("framework source_node must be a non-empty trimmed string")
+    return _canonical_json(
+        {
+            "kind": FRAMEWORK_ANNOTATION_KIND,
+            "provider": FRAMEWORK_PROVIDER,
+            "schema_version": FRAMEWORK_ANNOTATION_SCHEMA_VERSION,
+            "source_node": source_node,
+        }
+    )
+
+
 @contextmanager
 def annotate_artifact_launch(record: ArtifactRecord) -> Iterator[None]:
     """Correlate one native launch when an active trace window exists."""
@@ -131,6 +153,30 @@ def annotate_artifact_launch(record: ArtifactRecord) -> Iterator[None]:
         if popped_id != external_id:
             raise StrictCoverageError(
                 "CUPTI PyPTO annotation stack is unbalanced: "
+                f"pushed={external_id} popped={popped_id}"
+            )
+
+
+@contextmanager
+def annotate_framework_activity(source_node: str) -> Iterator[None]:
+    """Correlate explicitly excluded SGLang framework bookkeeping compute."""
+
+    monitor = _active_monitor()
+    if monitor is None or not bool(monitor.stats().get("trace_window_active")):
+        yield
+        return
+    external_id = monitor.push_user_annotation(
+        _framework_annotation_payload(source_node)
+    )
+    if type(external_id) is not int or external_id <= 0:
+        raise StrictCoverageError("CUPTI rejected the framework annotation")
+    try:
+        yield
+    finally:
+        popped_id = monitor.pop_user_annotation()
+        if popped_id != external_id:
+            raise StrictCoverageError(
+                "CUPTI framework annotation stack is unbalanced: "
                 f"pushed={external_id} popped={popped_id}"
             )
 
@@ -158,7 +204,7 @@ def _artifact_record_from_payload(payload: object) -> ArtifactRecord:
         ) from error
 
 
-def _decode_annotation(value: object) -> ArtifactRecord | None:
+def _decode_annotation(value: object) -> ArtifactRecord | FrameworkAnnotation | None:
     if type(value) is not str:
         raise StrictCoverageError("CUPTI user annotation must be a string")
     try:
@@ -168,6 +214,22 @@ def _decode_annotation(value: object) -> ArtifactRecord | None:
     if type(payload) is not dict:
         return None
     kind = payload.get("kind")
+    if kind == FRAMEWORK_ANNOTATION_KIND:
+        if set(payload) != {"kind", "provider", "schema_version", "source_node"}:
+            raise StrictCoverageError(
+                "framework CUPTI annotation has unknown fields"
+            )
+        if (
+            payload["schema_version"] != FRAMEWORK_ANNOTATION_SCHEMA_VERSION
+            or payload["provider"] != FRAMEWORK_PROVIDER
+            or type(payload["source_node"]) is not str
+            or not payload["source_node"]
+            or payload["source_node"] != payload["source_node"].strip()
+        ):
+            raise StrictCoverageError("invalid framework CUPTI annotation")
+        return FrameworkAnnotation(
+            provider=payload["provider"], source_node=payload["source_node"]
+        )
     if kind != ANNOTATION_KIND:
         if isinstance(kind, str) and kind.startswith("pypto."):
             raise StrictCoverageError(f"unknown PyPTO CUPTI annotation kind: {kind}")
@@ -218,7 +280,7 @@ def normalize_cupti_window(
     if type(raw_events) is not list or type(raw_annotations) is not dict:
         raise StrictCoverageError("CUPTI trace window is missing events or annotations")
 
-    annotations: dict[int, ArtifactRecord] = {}
+    annotations: dict[int, ArtifactRecord | FrameworkAnnotation] = {}
     for raw_id, value in raw_annotations.items():
         try:
             external_id = int(raw_id)
@@ -281,6 +343,16 @@ def normalize_cupti_window(
                     origin=ProvenanceOrigin.EXTERNAL,
                     artifact_id=f"cupti-kernel:{correlation_id}:{raw_name}",
                 )
+                event_scope = scope
+            elif isinstance(record, FrameworkAnnotation):
+                used_annotations.add(external_id)
+                provider = record.provider
+                kernel_name = raw_name
+                provenance = KernelProvenance(
+                    origin=ProvenanceOrigin.EXTERNAL,
+                    artifact_id=f"framework:{record.source_node}",
+                )
+                event_scope = EventScope.FRAMEWORK
             else:
                 if not _raw_kernel_matches_artifact(raw_name, record.kernel_name):
                     raise StrictCoverageError(
@@ -297,7 +369,14 @@ def normalize_cupti_window(
                     compiler_revision=record.compiler_revision,
                     kernels_revision=record.kernels_revision,
                 )
-            key = (scope, ActivityKind.COMPUTE, provider, kernel_name, provenance)
+                event_scope = scope
+            key = (
+                event_scope,
+                ActivityKind.COMPUTE,
+                provider,
+                kernel_name,
+                provenance,
+            )
         elif kind == "gpu_memcpy":
             copy_name = "Memcpy:" + ":".join(
                 str(int(raw.get(field, 0)))
@@ -359,7 +438,11 @@ def normalize_cupti_window(
         )
     artifacts = tuple(
         sorted(
-            {annotations[item].artifact_id: annotations[item] for item in used_annotations}.values(),
+            {
+                annotations[item].artifact_id: annotations[item]
+                for item in used_annotations
+                if isinstance(annotations[item], ArtifactRecord)
+            }.values(),
             key=lambda record: record.artifact_id,
         )
     )
@@ -375,6 +458,7 @@ __all__ = (
     "ANNOTATION_SCHEMA_VERSION",
     "NormalizedActivityTrace",
     "annotate_artifact_launch",
+    "annotate_framework_activity",
     "artifact_record_from_runtime",
     "artifact_registry_snapshot",
     "clear_artifact_registry_for_testing",

@@ -24,7 +24,7 @@ def create_gdn_backend(model_runner: Any) -> Any:
         if not os.environ.get("PYPTO_STATE_DEBUG_REPORT"):
             return None
         stream.synchronize()
-        selected = state.index_select(0, indices.to(dtype=torch.int64)).float()
+        selected = state.index_select(0, indices.long()).float()
         return {
             "max_abs": float(selected.abs().max().item()),
             "nonzero": int(torch.count_nonzero(selected).item()),
