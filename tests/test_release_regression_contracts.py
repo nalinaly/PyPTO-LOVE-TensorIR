@@ -629,6 +629,29 @@ def test_operator_case_expectations_fail_closed() -> None:
         )
 
 
+def test_engine_token_mismatch_evidence_is_exact_and_length_aware() -> None:
+    assert correctness_runtime._token_sequence_mismatch([1, 2, 3], [1, 9, 3]) == {
+        "first_mismatch_step": 1,
+        "expected_token_id": 2,
+        "observed_token_id": 9,
+    }
+    assert correctness_runtime._token_sequence_mismatch([1, 2], [1]) == {
+        "first_mismatch_step": 1,
+        "expected_token_id": 2,
+        "observed_token_id": None,
+    }
+    assert correctness_runtime._token_sequence_mismatch([1], [1, 2]) == {
+        "first_mismatch_step": 1,
+        "expected_token_id": None,
+        "observed_token_id": 2,
+    }
+    assert correctness_runtime._token_sequence_mismatch([1, 2], [1, 2]) == {
+        "first_mismatch_step": None,
+        "expected_token_id": None,
+        "observed_token_id": None,
+    }
+
+
 def test_operator_manifest_paths_cannot_escape_or_own_output() -> None:
     for value in ("../escape.py", "/absolute.py", "a/./b.py"):
         with pytest.raises(workload.ReleaseContractError, match="relative path"):

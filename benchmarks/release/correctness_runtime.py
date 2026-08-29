@@ -176,6 +176,36 @@ def _tensor_raw_sha256(tensor) -> str:
     return hashlib.sha256(tensor.contiguous().numpy().tobytes()).hexdigest()
 
 
+def _token_sequence_mismatch(
+    expected: list[int], observed: list[int]
+) -> dict[str, int | None]:
+    mismatch = next(
+        (
+            index
+            for index, (expected_token, observed_token) in enumerate(
+                zip(expected, observed, strict=False)
+            )
+            if expected_token != observed_token
+        ),
+        min(len(expected), len(observed))
+        if len(expected) != len(observed)
+        else None,
+    )
+    return {
+        "first_mismatch_step": mismatch,
+        "expected_token_id": (
+            expected[mismatch]
+            if mismatch is not None and mismatch < len(expected)
+            else None
+        ),
+        "observed_token_id": (
+            observed[mismatch]
+            if mismatch is not None and mismatch < len(observed)
+            else None
+        ),
+    }
+
+
 def _is_lowercase_sha256(value: object) -> bool:
     return (
         type(value) is str
@@ -313,12 +343,9 @@ def _run_engine_sequences(
                     "output_token_ids": output_ids,
                     "output_sequence_sha256": canonical_json_sha256(output_ids),
                     "exact_output_sequence": exact,
+                    **_token_sequence_mismatch(expected_output_ids, output_ids),
                     "passed": exact,
                 }
-            )
-        if not all(item["passed"] for item in requests):
-            raise ReleaseContractError(
-                "end-to-end SGLang Engine output differs from the frozen reference"
             )
         return requests, requested, resolved
     finally:
@@ -689,7 +716,7 @@ def run_candidate(
             "requested_server_config": engine_requested,
             "resolved_backends": engine_resolved,
             "requests": engine_requests,
-            "all_passed": True,
+            "all_passed": all(item["passed"] for item in engine_requests),
             "stable_output": len(
                 {item["output_sequence_sha256"] for item in engine_requests}
             )
@@ -699,6 +726,10 @@ def run_candidate(
                 "sha256": sha256_file(engine_progress_path),
             },
         }
+        if report["engine"]["all_passed"] is not True:
+            raise ReleaseContractError(
+                "end-to-end SGLang Engine output differs from the frozen reference"
+            )
 
         import torch
         from torch.profiler import _cupti_monitor as monitor_api
