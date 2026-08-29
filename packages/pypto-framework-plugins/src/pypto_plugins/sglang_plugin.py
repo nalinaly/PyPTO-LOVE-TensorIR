@@ -78,9 +78,8 @@ INPUT_BUFFER_STAGE_TARGETS = (
     "sglang.srt.model_executor.cuda_graph_buffer_registry."
     "CudaGraphBufferRegistry.fill_from",
 )
-QWEN_LANGUAGE_MODEL_ONLY_ARCHITECTURES = (
-    "Qwen3_5ForConditionalGeneration",
-)
+POSITION_STAGE_TARGET = "sglang.srt.model_executor.forward_batch_info.compute_position"
+QWEN_LANGUAGE_MODEL_ONLY_ARCHITECTURES = ("Qwen3_5ForConditionalGeneration",)
 
 _linear_prepack_lock = threading.RLock()
 _linear_prepack_cache: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
@@ -129,6 +128,7 @@ def _record_differential(kind: str, name: str, candidate, reference) -> None:
     with _differential_lock:
         _differential_records.append(record)
         if not _differential_writer_registered:
+
             def write_report() -> None:
                 output = Path(path)
                 output.parent.mkdir(parents=True, exist_ok=True)
@@ -296,9 +296,9 @@ def _gdn_projection_around(
         mixed_width = 2 * num_heads_qk * head_qk + num_heads_v * head_v
         reference = (
             projected_qkvz[:, :mixed_width].contiguous(),
-            projected_qkvz[:, mixed_width:].contiguous().view(
-                rows, num_heads_v, head_v
-            ),
+            projected_qkvz[:, mixed_width:]
+            .contiguous()
+            .view(rows, num_heads_v, head_v),
             projected_ba[:, :num_heads_v].contiguous(),
             projected_ba[:, num_heads_v:].contiguous(),
         )
@@ -306,8 +306,10 @@ def _gdn_projection_around(
             zip(result, reference, strict=True)
         ):
             _record_differential(
-                "gdn_projection", f"projection_output_{index}",
-                candidate_value, reference_value
+                "gdn_projection",
+                f"projection_output_{index}",
+                candidate_value,
+                reference_value,
             )
     return result
 
@@ -358,17 +360,15 @@ def _gemma_rmsnorm_around(
     reference_residual = (
         residual.clone() if differential and residual is not None else residual
     )
+
     def torch_reference(value):
         import torch
 
         wide = value.float()
         inverse = torch.rsqrt(
-            wide.square().mean(dim=-1, keepdim=True)
-            + layer.variance_epsilon
+            wide.square().mean(dim=-1, keepdim=True) + layer.variance_epsilon
         )
-        return (
-            wide * inverse * (1.0 + layer.weight.data.float())
-        ).to(value.dtype)
+        return (wide * inverse * (1.0 + layer.weight.data.float())).to(value.dtype)
 
     with pypto_stream(x.device) as stream:
         if residual is None:
@@ -381,9 +381,7 @@ def _gemma_rmsnorm_around(
             result = output.reshape(original_shape)
             if differential:
                 reference = torch_reference(x)
-                _record_differential(
-                    "gemma_rmsnorm", "rmsnorm", result, reference
-                )
+                _record_differential("gemma_rmsnorm", "rmsnorm", result, reference)
             return result
         if x.ndim != 2 or residual.ndim != 2:
             raise BackendNotReadyError(
@@ -403,15 +401,15 @@ def _gemma_rmsnorm_around(
                 zip(result, reference, strict=True)
             ):
                 _record_differential(
-                    "gemma_rmsnorm", f"fused_output_{index}",
-                    candidate_value, reference_value
+                    "gemma_rmsnorm",
+                    f"fused_output_{index}",
+                    candidate_value,
+                    reference_value,
                 )
         return result
 
 
-def _gemma_rmsnorm_weight_loader_around(
-    original_fn, layer, param, loaded_weight
-):
+def _gemma_rmsnorm_weight_loader_around(original_fn, layer, param, loaded_weight):
     """Keep Gemma's derived buffer colocated with an offloaded parameter."""
 
     derived = getattr(layer, "gemma_weight", None)
@@ -422,9 +420,10 @@ def _gemma_rmsnorm_weight_loader_around(
             "pinned Gemma RMSNorm weight-loader tensor contract changed"
         )
     if param_device != derived_device:
-        if getattr(param_device, "type", None) != "cpu" or getattr(
-            derived_device, "type", None
-        ) != "cuda":
+        if (
+            getattr(param_device, "type", None) != "cpu"
+            or getattr(derived_device, "type", None) != "cuda"
+        ):
             raise BackendNotReadyError(
                 "Gemma RMSNorm offload produced an unsupported device split"
             )
@@ -500,9 +499,7 @@ def _fla_gated_rmsnorm_around(
     from .sglang.stream import pypto_stream
 
     if gated_rmsnorm.STATUS != "native-tile executable":
-        raise BackendNotReadyError(
-            "PyPTO gated RMSNorm operator is not executable."
-        )
+        raise BackendNotReadyError("PyPTO gated RMSNorm operator is not executable.")
     original_shape = tuple(x.shape)
     x_flat = x.reshape(-1, original_shape[-1])
     z_flat = z.reshape(-1, original_shape[-1])
@@ -524,13 +521,9 @@ def _fla_gated_rmsnorm_around(
         )
         gate_wide = z.float()
         reference = (
-            normalized
-            * weight.float()
-            * (gate_wide * torch.sigmoid(gate_wide))
+            normalized * weight.float() * (gate_wide * torch.sigmoid(gate_wide))
         ).to(x.dtype)
-        _record_differential(
-            "gated_rmsnorm", "gdn_output_norm", result, reference
-        )
+        _record_differential("gated_rmsnorm", "gdn_output_norm", result, reference)
     return result
 
 
@@ -630,21 +623,15 @@ def _qk_rmsnorm_rope_gate_around(
         import torch
 
         tokens = int(reference_q_gate.shape[0])
-        q_interleaved = reference_q_gate.view(
-            tokens, num_q_heads, 2, head_dim
-        )
+        q_interleaved = reference_q_gate.view(tokens, num_q_heads, 2, head_dim)
         q_source = q_interleaved[:, :, 0, :]
         gate_reference = q_interleaved[:, :, 1, :].contiguous()
         k_source = reference_key.view(tokens, num_kv_heads, head_dim)
 
         def normalize(value, weight):
             wide = value.float()
-            inverse = torch.rsqrt(
-                wide.square().mean(dim=-1, keepdim=True) + float(eps)
-            )
-            return (
-                wide * inverse * (1.0 + weight.float())
-            ).to(value.dtype).float()
+            inverse = torch.rsqrt(wide.square().mean(dim=-1, keepdim=True) + float(eps))
+            return (wide * inverse * (1.0 + weight.float())).to(value.dtype).float()
 
         cache = cos_sin_cache.index_select(
             0, reference_positions.to(torch.int64)
@@ -673,8 +660,10 @@ def _qk_rmsnorm_rope_gate_around(
             zip(result, reference, strict=True)
         ):
             _record_differential(
-                "qk_rmsnorm_rope", f"qkv_output_{index}",
-                candidate_value, reference_value
+                "qk_rmsnorm_rope",
+                f"qkv_output_{index}",
+                candidate_value,
+                reference_value,
             )
     return result
 
@@ -722,9 +711,7 @@ def _fused_sigmoid_mul_around(
     from .sglang.stream import pypto_stream
 
     if sigmoid_mul.STATUS != "native-tile executable":
-        raise BackendNotReadyError(
-            "PyPTO sigmoid-mul operator is not executable."
-        )
+        raise BackendNotReadyError("PyPTO sigmoid-mul operator is not executable.")
     differential = bool(os.environ.get("PYPTO_DIFFERENTIAL_REPORT"))
     reference_output = attn_output.clone() if differential else None
     reference_gate = gate.clone() if differential else None
@@ -739,12 +726,9 @@ def _fused_sigmoid_mul_around(
         import torch
 
         reference = (
-            reference_output.float()
-            * torch.sigmoid(reference_gate.float())
+            reference_output.float() * torch.sigmoid(reference_gate.float())
         ).to(reference_output.dtype)
-        _record_differential(
-            "sigmoid_mul", "attention_output_gate", result, reference
-        )
+        _record_differential("sigmoid_mul", "attention_output_gate", result, reference)
     return result
 
 
@@ -780,9 +764,7 @@ def _unquantized_linear_around(original_fn, method, layer, x, bias=None):
     launch_weight = weight.data
     if logical_features % 128:
         padded_features = ((logical_features + 127) // 128) * 128
-        source_signature = getattr(
-            weight, "_pypto_offload_source_signature", None
-        )
+        source_signature = getattr(weight, "_pypto_offload_source_signature", None)
         if source_signature is None:
             signature = (
                 "resident",
@@ -924,9 +906,9 @@ def _silu_forward_cuda_around(original_fn, operator, input):
     if os.environ.get("PYPTO_DIFFERENTIAL_REPORT"):
         import torch
 
-        reference = (
-            torch.nn.functional.silu(gate.float()) * up.float()
-        ).to(torch.bfloat16)
+        reference = (torch.nn.functional.silu(gate.float()) * up.float()).to(
+            torch.bfloat16
+        )
         _record_differential("silu_and_mul", "packed_swiglu", result, reference)
     return result
 
@@ -974,9 +956,7 @@ def _lm_head_around(
         previous = torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction
         torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = False
         try:
-            reference = original_fn(
-                processor, hidden_states, lm_head, embedding_bias
-            )
+            reference = original_fn(processor, hidden_states, lm_head, embedding_bias)
         finally:
             torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = previous
         _record_differential("lm_head", "lm_head", result, reference.float())
@@ -1116,6 +1096,13 @@ def _input_buffer_stage_around(original_fn, *args, **kwargs):
         return original_fn(*args, **kwargs)
 
 
+def _position_stage_around(original_fn, *args, **kwargs):
+    from .activity_trace import annotate_framework_activity
+
+    with annotate_framework_activity("sglang.position-staging"):
+        return original_fn(*args, **kwargs)
+
+
 def _require_callable_hook_target(target: str) -> None:
     parts = target.split(".")
     for count in range(len(parts) - 1, 0, -1):
@@ -1149,9 +1136,7 @@ def _enable_qwen_language_model_only(server_args_class=None) -> tuple[str, ...]:
         from sglang.srt.server_args import ServerArgs
 
         server_args_class = ServerArgs
-    current = getattr(
-        server_args_class, "LANGUAGE_MODEL_ONLY_ARCHITECTURES", None
-    )
+    current = getattr(server_args_class, "LANGUAGE_MODEL_ONLY_ARCHITECTURES", None)
     if not isinstance(current, tuple) or not all(
         isinstance(name, str) and name for name in current
     ):
@@ -1264,9 +1249,7 @@ def _enable_qwen_text_only_weight_filter(loader_module=None):
         from sglang.srt.model_loader import weight_utils
 
         for st_file in hf_weights_files:
-            with safetensors.safe_open(
-                st_file, framework="pt", device="cpu"
-            ) as handle:
+            with safetensors.safe_open(st_file, framework="pt", device="cpu") as handle:
                 for name in handle.keys():
                     if _qwen_text_only_weight_name(name):
                         yield name, handle.get_tensor(name)
@@ -1312,9 +1295,7 @@ def _enable_offloader_tied_parameter_support(offloader_module=None):
             module = args[0]
             replacements = args[1]
             try:
-                parameters = dict(
-                    module.named_parameters(remove_duplicate=False)
-                )
+                parameters = dict(module.named_parameters(remove_duplicate=False))
             except (AttributeError, TypeError) as error:
                 raise BackendNotReadyError(
                     "pinned SGLang offloader module parameter contract changed"
@@ -1373,6 +1354,7 @@ def _register_impl() -> None:
         PRUNED_STATES_TARGET,
         MAMBA_INDICES_TARGET,
         UNIFIED_MAMBA_TRANSLATE_TARGET,
+        POSITION_STAGE_TARGET,
         *TRITON_SUPPORT_TARGETS,
     )
     for target in hook_targets:
@@ -1463,6 +1445,11 @@ def _register_impl() -> None:
     )
     for target in INPUT_BUFFER_STAGE_TARGETS:
         HookRegistry.register(target, _input_buffer_stage_around, HookType.AROUND)
+    HookRegistry.register(
+        POSITION_STAGE_TARGET,
+        _position_stage_around,
+        HookType.AROUND,
+    )
     for target in TRITON_SUPPORT_TARGETS:
         HookRegistry.register(target, _support_triton_around, HookType.AROUND)
 
@@ -1489,7 +1476,5 @@ def register() -> None:
         try:
             _register_impl()
         except Exception as exc:
-            raise SystemExit(
-                f"PyPTO SGLang plugin registration failed: {exc}"
-            ) from exc
+            raise SystemExit(f"PyPTO SGLang plugin registration failed: {exc}") from exc
         _registered = True
