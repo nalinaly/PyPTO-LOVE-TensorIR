@@ -1,0 +1,36 @@
+From b9d24b470c9a113e382916b586785112274c373f Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 08:39:57 +0800
+Subject: [PATCH 222/222] Fix phase-one rejection counters
+
+---
+ tests/ut/cpp/structured_compile_test.cpp | 13 +++++++++++--
+ 1 file changed, 11 insertions(+), 2 deletions(-)
+
+diff --git a/tests/ut/cpp/structured_compile_test.cpp b/tests/ut/cpp/structured_compile_test.cpp
+index 37060ee431113b66ca51b69191ea38691205c678..b927f35a9f12e428c5ad6e34d6a526696c3c53bc 100644
+--- a/tests/ut/cpp/structured_compile_test.cpp
++++ b/tests/ut/cpp/structured_compile_test.cpp
+@@ -708,11 +708,20 @@ int TestRealProducerSuccess() {
+       "normalized NVIDIA producer result identity"));
+   REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before_request_seal + 1);
+ 
+-  const uint64_t before_rejection = GetStrictNvidiaProducerInvocationCountForTesting();
++  const uint64_t before_rejection_prepare =
++      GetStrictNvidiaPrepareInvocationCountForTesting();
++  const uint64_t before_rejection =
++      GetStrictNvidiaProducerInvocationCountForTesting();
++  const uint64_t before_rejection_assembler =
++      GetStrictNvidiaAssemblerInvocationCountForTesting();
+   REQUIRE(RejectsRuntime(
+       [&] { (void)CompileStructuredStrict(MakeProgram(), request, MakeSchedule("128")); },
+       "private TensorIR producer failed with status 3"));
+-  REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before_rejection + 1);
++  REQUIRE(GetStrictNvidiaPrepareInvocationCountForTesting() ==
++          before_rejection_prepare + 1);
++  REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before_rejection);
++  REQUIRE(GetStrictNvidiaAssemblerInvocationCountForTesting() ==
++          before_rejection_assembler);
+ #endif
+   return 0;
+ }

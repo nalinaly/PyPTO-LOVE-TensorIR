@@ -1,15 +1,15 @@
 {
   "base_commit": "e2d0f78ae6d709c0d6ee345a48db2c3d621a4b09",
   "base_tree": "a46f244a62dfab663fbeb899eb62ee8a042a0b41",
-  "commit_count": 220,
+  "commit_count": 222,
   "format_patch_options": [
     "--binary",
     "--full-index",
     "--no-signature",
     "--numbered-files"
   ],
-  "head_commit": "61ec894eebfd6d9ac2c232be38892c5b54eefa53",
-  "head_tree": "398c9442985f9b4f830f8aa0e0b3748ab41b6c95",
+  "head_commit": "b9d24b470c9a113e382916b586785112274c373f",
+  "head_tree": "323d53fb242da12827da9bde6d0c5fac819c8deb",
   "patches": [
     {
       "bytes": 1579,
@@ -1770,6 +1770,22 @@
       "sha256": "444d34ce2674feb546050ba93abf7ab55280ff2f11e48f3cf0048089eaadfc02",
       "source_commit": "61ec894eebfd6d9ac2c232be38892c5b54eefa53",
       "subject": "[PATCH 220/220] Wire bounded assembler timeout through TensorIR"
+    },
+    {
+      "bytes": 96136,
+      "file": "0221.patch",
+      "order": 221,
+      "sha256": "96592505cca81b5e904006117bb9a7f6be28b7788ded473f8019a8c224158a91",
+      "source_commit": "485d993d54463f4c3432eb92fd2737bbd813aa88",
+      "subject": "[PATCH 221/222] Cache strict artifacts before CUDA assembly"
+    },
+    {
+      "bytes": 1804,
+      "file": "0222.patch",
+      "order": 222,
+      "sha256": "6917b0bdbcc2aa0adc56f840394c9174fefa8b358b6c45bd5d60816e082a793f",
+      "source_commit": "b9d24b470c9a113e382916b586785112274c373f",
+      "subject": "[PATCH 222/222] Fix phase-one rejection counters"
     }
   ],
   "repository": "pypto",

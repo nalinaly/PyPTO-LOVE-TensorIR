@@ -1,0 +1,647 @@
+From eb5fc509d9ac6d7a015a29f8b8330f6d9d15fa6b Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sat, 29 Aug 2026 08:23:25 +0800
+Subject: [PATCH 84/84] Split CUDA Tile preparation from assembly
+
+---
+ .../Compiler/CudaTile/CudaTileArtifact.h      | 112 ++++++++++
+ .../Compiler/CudaTile/CudaTileCompiler.h      |  16 ++
+ lib/Compiler/CudaTile/CudaTileCompiler.cpp    | 138 ++++++++-----
+ test/CMakeLists.txt                           |   3 +
+ test/Tools/prepared_artifact_api.mlir         |  15 ++
+ test/lit.cfg.py                               |   1 +
+ test/tools/CMakeLists.txt                     |  13 ++
+ test/tools/CudaTilePreparedArtifactTest.cpp   | 194 ++++++++++++++++++
+ 8 files changed, 444 insertions(+), 48 deletions(-)
+ create mode 100644 test/Tools/prepared_artifact_api.mlir
+ create mode 100644 test/tools/CMakeLists.txt
+ create mode 100644 test/tools/CudaTilePreparedArtifactTest.cpp
+
+diff --git a/include/tensor_ir/Compiler/CudaTile/CudaTileArtifact.h b/include/tensor_ir/Compiler/CudaTile/CudaTileArtifact.h
+index 741355f6e38f262a3abedcf57c9ce7cd16a73565..1f2b18eaea5eaa8a6d457c06a695d02ef1d047ea 100644
+--- a/include/tensor_ir/Compiler/CudaTile/CudaTileArtifact.h
++++ b/include/tensor_ir/Compiler/CudaTile/CudaTileArtifact.h
+@@ -20,6 +20,8 @@
+ 
+ namespace mlir::nv_tensor_ir::backend::cuda_tile {
+ 
++class CudaTileCompiler;
++
+ /// Device-code representation selected by the CUDA Tile producer.
+ enum class CudaTileArtifactKind : uint32_t {
+   TileIR = 0,
+@@ -58,6 +60,116 @@ Status validateCudaTileDeviceCode(
+     llvm::StringRef entryFunctionName,
+     llvm::ArrayRef<uint32_t> kernelArgumentSizes);
+ 
++/// Immutable output of TensorIR-to-CUDA-Tile lowering before final device-code
++/// assembly.
++///
++/// The value owns the exact TileIR bytecode, complete callable ABI metadata,
++/// and the already-resolved assembler identity.  It is intentionally
++/// move-only and can only be created by CudaTileCompiler, so final assembly
++/// cannot be mixed with a second CudaTileCompileOptions value.
++class CudaTilePreparedArtifact {
++public:
++  CudaTilePreparedArtifact() = delete;
++  CudaTilePreparedArtifact(const CudaTilePreparedArtifact &) = delete;
++  CudaTilePreparedArtifact &
++  operator=(const CudaTilePreparedArtifact &) = delete;
++  CudaTilePreparedArtifact(CudaTilePreparedArtifact &&) = default;
++  CudaTilePreparedArtifact &operator=(CudaTilePreparedArtifact &&) = default;
++
++  [[nodiscard]] llvm::ArrayRef<char> getTileIRBytecode() const {
++    return tileIRBytecode_;
++  }
++  [[nodiscard]] CudaTileArtifactKind getRequestedArtifactKind() const {
++    return requestedArtifactKind_;
++  }
++  [[nodiscard]] const SmTarget &getRequestedTarget() const {
++    return requestedTarget_;
++  }
++  [[nodiscard]] const mlir::cuda_tile::BytecodeVersion &
++  getTileIRBytecodeVersion() const {
++    return tileIRBytecodeVersion_;
++  }
++  [[nodiscard]] const std::string &getRuntimeKernelName() const {
++    return runtimeKernelName_;
++  }
++  [[nodiscard]] const std::string &getEntryFunctionName() const {
++    return entryFunctionName_;
++  }
++  [[nodiscard]] const ::tensor_ir::rt::KernelArgLayout &getArgLayout() const {
++    return argLayout_;
++  }
++  [[nodiscard]] CudaTileArgumentPackingPolicy
++  getArgumentPackingPolicy() const {
++    return argumentPackingPolicy_;
++  }
++  [[nodiscard]] CudaTileGridPolicy getGridPolicy() const {
++    return gridPolicy_;
++  }
++  [[nodiscard]] const std::array<int32_t, 3> &getStaticGrid() const {
++    return staticGrid_;
++  }
++  [[nodiscard]] uint64_t getWorkspaceSizeBytes() const {
++    return workspaceSizeBytes_;
++  }
++  [[nodiscard]] uint64_t getWorkspaceAlignmentBytes() const {
++    return workspaceAlignmentBytes_;
++  }
++  [[nodiscard]] bool getEnvironmentOverridesEnabled() const {
++    return environmentOverridesEnabled_;
++  }
++  [[nodiscard]] bool getArtifactFallbackAllowed() const {
++    return artifactFallbackAllowed_;
++  }
++  [[nodiscard]] const std::string &getTileIRAssemblerPath() const {
++    return tileIRAssemblerPath_;
++  }
++  [[nodiscard]] const std::string &getTileIRAssemblerVersion() const {
++    return tileIRAssemblerVersion_;
++  }
++  [[nodiscard]] const std::string &getTileIRAssemblerSha256() const {
++    return tileIRAssemblerSha256_;
++  }
++  [[nodiscard]] unsigned getTileIRAssemblerTimeoutSeconds() const {
++    return tileIRAssemblerTimeoutSeconds_;
++  }
++  [[nodiscard]] const std::string &getCompileOptionsIdentity() const {
++    return compileOptionsIdentity_;
++  }
++
++private:
++  friend class CudaTileCompiler;
++
++  CudaTilePreparedArtifact(
++      SmTarget requestedTarget,
++      mlir::cuda_tile::BytecodeVersion tileIRBytecodeVersion)
++      : requestedTarget_(requestedTarget),
++        tileIRBytecodeVersion_(tileIRBytecodeVersion) {}
++
++  llvm::SmallVector<char, 0> tileIRBytecode_;
++  CudaTileArtifactKind requestedArtifactKind_ = CudaTileArtifactKind::TileIR;
++  SmTarget requestedTarget_;
++  mlir::cuda_tile::BytecodeVersion tileIRBytecodeVersion_;
++
++  std::string runtimeKernelName_;
++  std::string entryFunctionName_;
++  ::tensor_ir::rt::KernelArgLayout argLayout_;
++  CudaTileArgumentPackingPolicy argumentPackingPolicy_ =
++      CudaTileArgumentPackingPolicy::PointerOnly;
++  CudaTileGridPolicy gridPolicy_ = CudaTileGridPolicy::Static;
++  std::array<int32_t, 3> staticGrid_ = {1, 1, 1};
++
++  uint64_t workspaceSizeBytes_ = 0;
++  uint64_t workspaceAlignmentBytes_ = 1;
++
++  bool environmentOverridesEnabled_ = true;
++  bool artifactFallbackAllowed_ = true;
++  std::string tileIRAssemblerPath_;
++  std::string tileIRAssemblerVersion_;
++  std::string tileIRAssemblerSha256_;
++  unsigned tileIRAssemblerTimeoutSeconds_ = 0;
++  std::string compileOptionsIdentity_;
++};
++
+ /// Process- and device-independent output of TensorIR CUDA Tile compilation.
+ ///
+ /// This value deliberately contains no CUDA module, kernel, context, stream,
+diff --git a/include/tensor_ir/Compiler/CudaTile/CudaTileCompiler.h b/include/tensor_ir/Compiler/CudaTile/CudaTileCompiler.h
+index de811bbe682d991f876cff64ff24cdead94b07eb..b6cd9773d98640bee90d499879ce1a174e6cf054 100644
+--- a/include/tensor_ir/Compiler/CudaTile/CudaTileCompiler.h
++++ b/include/tensor_ir/Compiler/CudaTile/CudaTileCompiler.h
+@@ -93,6 +93,22 @@ public:
+   StatusOr<::tensor_ir::rt::IRuntimeKernelPtr>
+   compile(mlir::ModuleOp module, const CompileOptions &options) override;
+ 
++  /// Lower TensorIR and retain exact TileIR plus callable metadata without
++  /// invoking the external assembler.
++  StatusOr<CudaTilePreparedArtifact>
++  prepareToArtifact(mlir::ModuleOp module,
++                    const CudaTileCompileOptions &options);
++
++  /// Parse and lower TensorIR source without invoking the external assembler.
++  StatusOr<CudaTilePreparedArtifact>
++  prepareToArtifact(llvm::StringRef source,
++                    const CudaTileCompileOptions &options);
++
++  /// Finalize one prepared value using only the assembler identity sealed into
++  /// that value.  No second compile-options value can be supplied.
++  StatusOr<CudaTileCompiledArtifact>
++  assemblePreparedArtifact(CudaTilePreparedArtifact prepared);
++
+   /// Compile to a process-independent value before runtime reconstruction.
+   StatusOr<CudaTileCompiledArtifact>
+   compileToArtifact(mlir::ModuleOp module,
+diff --git a/lib/Compiler/CudaTile/CudaTileCompiler.cpp b/lib/Compiler/CudaTile/CudaTileCompiler.cpp
+index af297eead26ce849142c94b1c1dca7e61366f04b..0b77aa34ce9f8ba9a3771c988aac7625c5ead175 100644
+--- a/lib/Compiler/CudaTile/CudaTileCompiler.cpp
++++ b/lib/Compiler/CudaTile/CudaTileCompiler.cpp
+@@ -283,7 +283,7 @@ CudaTileCompiler::compile(mlir::ModuleOp module,
+   return rtk;
+ }
+ 
+-StatusOr<CudaTileCompiledArtifact> CudaTileCompiler::compileToArtifact(
++StatusOr<CudaTilePreparedArtifact> CudaTileCompiler::prepareToArtifact(
+     llvm::StringRef source, const CudaTileCompileOptions &options) {
+   mlir::DialectRegistry registry;
+   mlir::nv_tensor_ir::registerDialects(registry);
+@@ -323,15 +323,15 @@ StatusOr<CudaTileCompiledArtifact> CudaTileCompiler::compileToArtifact(
+         (capturedDiagnostics.empty() ? std::string()
+                                      : "\n" + capturedDiagnostics));
+   }
+-  auto compiled = compileToArtifact(*module, options);
+-  if (!compiled.ok() && !capturedDiagnostics.empty()) {
+-    return Status::CompilationError(compiled.status().message() + "\n" +
++  auto prepared = prepareToArtifact(*module, options);
++  if (!prepared.ok() && !capturedDiagnostics.empty()) {
++    return Status::CompilationError(prepared.status().message() + "\n" +
+                                     capturedDiagnostics);
+   }
+-  return compiled;
++  return prepared;
+ }
+ 
+-StatusOr<CudaTileCompiledArtifact> CudaTileCompiler::compileToArtifact(
++StatusOr<CudaTilePreparedArtifact> CudaTileCompiler::prepareToArtifact(
+     mlir::ModuleOp module, const CudaTileCompileOptions &cudaTileOptions) {
+   TIR_RETURN_IF_ERROR(cudaTileOptions.validate());
+ 
+@@ -354,8 +354,9 @@ StatusOr<CudaTileCompiledArtifact> CudaTileCompiler::compileToArtifact(
+   }
+   compiler::cuda_tile::CudaTileFrontendResult frontend = std::move(*frontendOr);
+ 
+-  llvm::SmallVector<char, 0> tileirBytecode;
+-  llvm::raw_svector_ostream os(tileirBytecode);
++  CudaTilePreparedArtifact prepared(cudaTileOptions.computeCapability,
++                                    cudaTileOptions.bytecodeVersion);
++  llvm::raw_svector_ostream os(prepared.tileIRBytecode_);
+   if (failed(mlir::cuda_tile::writeBytecode(
+           os, frontend.cudaTileModule, cudaTileOptions.bytecodeVersion))) {
+     return Status::CompilationError("Failed to write tile-ir bytecode");
+@@ -369,7 +370,8 @@ StatusOr<CudaTileCompiledArtifact> CudaTileCompiler::compileToArtifact(
+       llvm::errs() << "Warning: cannot dump Tile IR bytecode to '"
+                    << debug.dumpTileIRBCPath << "': " << ec.message() << "\n";
+     } else {
+-      bcOs.write(tileirBytecode.data(), tileirBytecode.size());
++      bcOs.write(prepared.tileIRBytecode_.data(),
++                 prepared.tileIRBytecode_.size());
+     }
+   }
+ 
+@@ -382,22 +384,55 @@ StatusOr<CudaTileCompiledArtifact> CudaTileCompiler::compileToArtifact(
+                                       "': " + bufOrErr.getError().message());
+     }
+     llvm::StringRef bc = (*bufOrErr)->getBuffer();
+-    tileirBytecode.assign(bc.begin(), bc.end());
++    prepared.tileIRBytecode_.assign(bc.begin(), bc.end());
++  }
++
++  auto staticGrid = compiler::cuda_tile::computeStaticGridSize(frontend);
++  if (failed(staticGrid)) {
++    return Status::CompilationError(
++        "Static grid size exceeds the CUDA int32 launch ABI");
+   }
++  prepared.requestedArtifactKind_ = cudaTileOptions.artifactKind;
++  prepared.runtimeKernelName_ = std::move(frontend.runtimeKernelName);
++  prepared.entryFunctionName_ = std::move(frontend.entryFunctionName);
++  prepared.staticGrid_ = *staticGrid;
++  prepared.argLayout_ = std::move(frontend.argLayout);
++  prepared.argumentPackingPolicy_ =
++      prepared.argLayout_.uniformSignature ||
++              prepared.argLayout_.hasDynamicShapes()
++          ? CudaTileArgumentPackingPolicy::Flat
++          : CudaTileArgumentPackingPolicy::PointerOnly;
++  prepared.gridPolicy_ = frontend.useRuntimeGrid
++                             ? CudaTileGridPolicy::TileBasedRuntime
++                             : CudaTileGridPolicy::Static;
++  prepared.environmentOverridesEnabled_ =
++      cudaTileOptions.allowEnvironmentOverrides;
++  prepared.artifactFallbackAllowed_ = cudaTileOptions.allowArtifactFallback;
++  prepared.tileIRAssemblerPath_ = cudaTileOptions.tileIRAssemblerPath;
++  prepared.tileIRAssemblerVersion_ = cudaTileOptions.tileIRAssemblerVersion;
++  prepared.tileIRAssemblerSha256_ = cudaTileOptions.tileIRAssemblerSha256;
++  prepared.tileIRAssemblerTimeoutSeconds_ =
++      cudaTileOptions.tileIRAssemblerTimeoutSeconds;
++  prepared.compileOptionsIdentity_ = cudaTileOptions.toUniqueString();
++  return prepared;
++}
+ 
+-  if (cudaTileOptions.artifactKind == CudaTileArtifactKind::Cubin) {
++StatusOr<CudaTileCompiledArtifact>
++CudaTileCompiler::assemblePreparedArtifact(
++    CudaTilePreparedArtifact prepared) {
++  if (prepared.requestedArtifactKind_ == CudaTileArtifactKind::Cubin) {
+     TIR_ASSIGN_OR_RETURN(
+         auto cubin,
+-        assembleTileIRToCubin(tileirBytecode,
+-                              cudaTileOptions.computeCapability,
+-                              cudaTileOptions.bytecodeVersion,
+-                              cudaTileOptions.tileIRAssemblerPath,
+-                              cudaTileOptions.tileIRAssemblerVersion,
+-                              cudaTileOptions.tileIRAssemblerSha256,
+-                              cudaTileOptions.tileIRAssemblerTimeoutSeconds));
++        assembleTileIRToCubin(prepared.tileIRBytecode_,
++                              prepared.requestedTarget_,
++                              prepared.tileIRBytecodeVersion_,
++                              prepared.tileIRAssemblerPath_,
++                              prepared.tileIRAssemblerVersion_,
++                              prepared.tileIRAssemblerSha256_,
++                              prepared.tileIRAssemblerTimeoutSeconds_));
+     if (cubin) {
+-      tileirBytecode = std::move(*cubin);
+-    } else if (!cudaTileOptions.allowArtifactFallback) {
++      prepared.tileIRBytecode_ = std::move(*cubin);
++    } else if (!prepared.artifactFallbackAllowed_) {
+       return Status::CompilationError(
+           "Cubin was requested but no compatible TileIR assembler is "
+           "available");
+@@ -405,41 +440,48 @@ StatusOr<CudaTileCompiledArtifact> CudaTileCompiler::compileToArtifact(
+   }
+ 
+   TIR_ASSIGN_OR_RETURN(auto actualArtifactKind,
+-                       detectCudaTileArtifactKind(tileirBytecode));
++                       detectCudaTileArtifactKind(prepared.tileIRBytecode_));
+   CudaTileCompiledArtifact artifact(
+-      cudaTileOptions.computeCapability, cudaTileOptions.computeCapability,
+-      cudaTileOptions.bytecodeVersion);
+-  artifact.deviceCode = std::move(tileirBytecode);
+-  artifact.requestedArtifactKind = cudaTileOptions.artifactKind;
++      prepared.requestedTarget_, prepared.requestedTarget_,
++      prepared.tileIRBytecodeVersion_);
++  artifact.deviceCode = std::move(prepared.tileIRBytecode_);
++  artifact.requestedArtifactKind = prepared.requestedArtifactKind_;
+   artifact.actualArtifactKind = actualArtifactKind;
+-  artifact.runtimeKernelName = std::move(frontend.runtimeKernelName);
+-  artifact.entryFunctionName = std::move(frontend.entryFunctionName);
+-  auto staticGrid = compiler::cuda_tile::computeStaticGridSize(frontend);
+-  if (failed(staticGrid)) {
+-    return Status::CompilationError(
+-        "Static grid size exceeds the CUDA int32 launch ABI");
+-  }
+-  artifact.staticGrid = *staticGrid;
+-  artifact.argLayout = std::move(frontend.argLayout);
+-  artifact.argumentPackingPolicy =
+-      artifact.argLayout.uniformSignature ||
+-              artifact.argLayout.hasDynamicShapes()
+-          ? CudaTileArgumentPackingPolicy::Flat
+-          : CudaTileArgumentPackingPolicy::PointerOnly;
+-  artifact.gridPolicy = frontend.useRuntimeGrid
+-                            ? CudaTileGridPolicy::TileBasedRuntime
+-                            : CudaTileGridPolicy::Static;
++  artifact.runtimeKernelName = std::move(prepared.runtimeKernelName_);
++  artifact.entryFunctionName = std::move(prepared.entryFunctionName_);
++  artifact.argLayout = std::move(prepared.argLayout_);
++  artifact.argumentPackingPolicy = prepared.argumentPackingPolicy_;
++  artifact.gridPolicy = prepared.gridPolicy_;
++  artifact.staticGrid = prepared.staticGrid_;
++  artifact.workspaceSizeBytes = prepared.workspaceSizeBytes_;
++  artifact.workspaceAlignmentBytes = prepared.workspaceAlignmentBytes_;
+   artifact.environmentOverridesEnabled =
+-      cudaTileOptions.allowEnvironmentOverrides;
+-  artifact.artifactFallbackAllowed = cudaTileOptions.allowArtifactFallback;
+-  artifact.tileIRAssemblerPath = cudaTileOptions.tileIRAssemblerPath;
+-  artifact.tileIRAssemblerVersion = cudaTileOptions.tileIRAssemblerVersion;
+-  artifact.tileIRAssemblerSha256 = cudaTileOptions.tileIRAssemblerSha256;
+-  artifact.compileOptionsIdentity = cudaTileOptions.toUniqueString();
++      prepared.environmentOverridesEnabled_;
++  artifact.artifactFallbackAllowed = prepared.artifactFallbackAllowed_;
++  artifact.tileIRAssemblerPath =
++      std::move(prepared.tileIRAssemblerPath_);
++  artifact.tileIRAssemblerVersion =
++      std::move(prepared.tileIRAssemblerVersion_);
++  artifact.tileIRAssemblerSha256 =
++      std::move(prepared.tileIRAssemblerSha256_);
++  artifact.compileOptionsIdentity =
++      std::move(prepared.compileOptionsIdentity_);
+   TIR_RETURN_IF_ERROR(artifact.validate());
+   return artifact;
+ }
+ 
++StatusOr<CudaTileCompiledArtifact> CudaTileCompiler::compileToArtifact(
++    llvm::StringRef source, const CudaTileCompileOptions &options) {
++  TIR_ASSIGN_OR_RETURN(auto prepared, prepareToArtifact(source, options));
++  return assemblePreparedArtifact(std::move(prepared));
++}
++
++StatusOr<CudaTileCompiledArtifact> CudaTileCompiler::compileToArtifact(
++    mlir::ModuleOp module, const CudaTileCompileOptions &options) {
++  TIR_ASSIGN_OR_RETURN(auto prepared, prepareToArtifact(module, options));
++  return assemblePreparedArtifact(std::move(prepared));
++}
++
+ Status CudaTileCompileOptions::validateDerived() const {
+   if (ctaCount <= 0) {
+     return Status::InvalidArgument("CTA count must be greater than 0");
+diff --git a/test/CMakeLists.txt b/test/CMakeLists.txt
+index e9f625a9f355daee476840e54b0f1255ef6a70a9..d311306f036d9adbcccc247eec3e23baeb2ab448 100644
+--- a/test/CMakeLists.txt
++++ b/test/CMakeLists.txt
+@@ -1,4 +1,6 @@
+ if(TENSOR_IR_INCLUDE_TESTS)
++  add_subdirectory(tools)
++
+   # Passed to lit.site.cfg.py.in to set up the path where to find libraries.
+   set(MLIR_LIB_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
+ 
+@@ -18,6 +20,7 @@ if(TENSOR_IR_INCLUDE_TESTS)
+   set(MLIR_TEST_DEPENDS
+     FileCheck
+     not
++    tensor_ir-cuda-tile-artifact-test
+     tensor_ir-compiler
+     tensor_ir-opt
+   )
+diff --git a/test/Tools/prepared_artifact_api.mlir b/test/Tools/prepared_artifact_api.mlir
+new file mode 100644
+index 0000000000000000000000000000000000000000..01b127e0d1d5fef163fdfaff42611c60c8a68db0
+--- /dev/null
++++ b/test/Tools/prepared_artifact_api.mlir
+@@ -0,0 +1,15 @@
++// RUN: tensor_ir-cuda-tile-artifact-test %s | FileCheck %s
++
++// CHECK: prepared-metadata: ok
++// CHECK-NEXT: wrapper-parity: ok
++// CHECK-NEXT: assembler-boundary: ok
++
++module {
++  nv_tensor_ir.graph @prepared_artifact_add(
++    %lhs: tensor<16xf32> {nv_tensor_ir.stride = "(1)"},
++    %rhs: tensor<16xf32> {nv_tensor_ir.stride = "(1)"}
++  ) -> (tensor<16xf32> {nv_tensor_ir.stride = "(1)"}) {
++    %sum = add %lhs, %rhs : tensor<16xf32>
++    results %sum : tensor<16xf32>
++  }
++}
+diff --git a/test/lit.cfg.py b/test/lit.cfg.py
+index bb33cc35e26fd46c262f74a35f3cc6643d0538be..0c8f6c0de95dab3d45f5988d95395dbd3b6921d9 100644
+--- a/test/lit.cfg.py
++++ b/test/lit.cfg.py
+@@ -90,6 +90,7 @@ tool_dirs = [
+ ]
+ 
+ tools = [
++    "tensor_ir-cuda-tile-artifact-test",
+     "tensor_ir-compiler",
+     "tensor_ir-opt",
+     "FileCheck",
+diff --git a/test/tools/CMakeLists.txt b/test/tools/CMakeLists.txt
+new file mode 100644
+index 0000000000000000000000000000000000000000..0c72e389697219ea7988f5de2a1a9bd116356bec
+--- /dev/null
++++ b/test/tools/CMakeLists.txt
+@@ -0,0 +1,13 @@
++add_llvm_executable(tensor_ir-cuda-tile-artifact-test
++  CudaTilePreparedArtifactTest.cpp
++  PARTIAL_SOURCES_INTENDED
++)
++
++llvm_update_compile_flags(tensor_ir-cuda-tile-artifact-test)
++
++target_link_libraries(tensor_ir-cuda-tile-artifact-test
++  PRIVATE
++    NVTensorIR::Compiler
++)
++
++mlir_check_all_link_libraries(tensor_ir-cuda-tile-artifact-test)
+diff --git a/test/tools/CudaTilePreparedArtifactTest.cpp b/test/tools/CudaTilePreparedArtifactTest.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..a3b590a744b70235860fdb4ade742f49814755ee
+--- /dev/null
++++ b/test/tools/CudaTilePreparedArtifactTest.cpp
+@@ -0,0 +1,194 @@
++// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++
++#include "tensor_ir/Compiler/CudaTile/CudaTileCompiler.h"
++
++#include "llvm/ADT/ArrayRef.h"
++#include "llvm/Support/MemoryBuffer.h"
++#include "llvm/Support/raw_ostream.h"
++
++#include <cstddef>
++#include <cstdint>
++#include <string>
++#include <type_traits>
++#include <utility>
++
++using namespace mlir::nv_tensor_ir;
++using namespace mlir::nv_tensor_ir::backend::cuda_tile;
++
++static_assert(!std::is_copy_constructible_v<CudaTilePreparedArtifact>);
++static_assert(!std::is_copy_assignable_v<CudaTilePreparedArtifact>);
++static_assert(std::is_move_constructible_v<CudaTilePreparedArtifact>);
++
++namespace {
++
++bool sameTarget(const SmTarget &lhs, const SmTarget &rhs) {
++  return lhs.getComputeCapabilityVersion() ==
++             rhs.getComputeCapabilityVersion() &&
++         lhs.getPortability() == rhs.getPortability() &&
++         lhs.toString() == rhs.toString();
++}
++
++bool sameBytecodeVersion(const mlir::cuda_tile::BytecodeVersion &lhs,
++                         const mlir::cuda_tile::BytecodeVersion &rhs) {
++  return lhs.getMajor() == rhs.getMajor() && lhs.getMinor() == rhs.getMinor() &&
++         lhs.getTag() == rhs.getTag();
++}
++
++bool sameDescriptor(const ::tensor_ir::rt::TensorArgDesc &lhs,
++                    const ::tensor_ir::rt::TensorArgDesc &rhs) {
++  return lhs.rank == rhs.rank && lhs.staticShape == rhs.staticShape &&
++         lhs.staticStrides == rhs.staticStrides &&
++         lhs.numDynSizes == rhs.numDynSizes &&
++         lhs.numDynStrides == rhs.numDynStrides &&
++         lhs.hasExplicitStrides == rhs.hasExplicitStrides &&
++         lhs.isScalar == rhs.isScalar &&
++         lhs.scalarSizeInBytes == rhs.scalarSizeInBytes;
++}
++
++bool sameLayout(const ::tensor_ir::rt::KernelArgLayout &lhs,
++                const ::tensor_ir::rt::KernelArgLayout &rhs) {
++  if (lhs.tensorDescs.size() != rhs.tensorDescs.size() ||
++      lhs.tileSizes != rhs.tileSizes || lhs.numInputs != rhs.numInputs ||
++      lhs.totalKernelArgs != rhs.totalKernelArgs ||
++      lhs.gridShapeTensorIdx != rhs.gridShapeTensorIdx ||
++      lhs.uniformSignature != rhs.uniformSignature) {
++    return false;
++  }
++  for (size_t index = 0; index < lhs.tensorDescs.size(); ++index) {
++    if (!sameDescriptor(lhs.tensorDescs[index], rhs.tensorDescs[index])) {
++      return false;
++    }
++  }
++  return true;
++}
++
++bool sameArtifact(const CudaTileCompiledArtifact &lhs,
++                  const CudaTileCompiledArtifact &rhs) {
++  return lhs.schemaVersion == rhs.schemaVersion &&
++         lhs.deviceCode == rhs.deviceCode &&
++         lhs.requestedArtifactKind == rhs.requestedArtifactKind &&
++         lhs.actualArtifactKind == rhs.actualArtifactKind &&
++         sameTarget(lhs.requestedTarget, rhs.requestedTarget) &&
++         sameTarget(lhs.actualTarget, rhs.actualTarget) &&
++         sameBytecodeVersion(lhs.tileIRBytecodeVersion,
++                             rhs.tileIRBytecodeVersion) &&
++         lhs.runtimeKernelName == rhs.runtimeKernelName &&
++         lhs.entryFunctionName == rhs.entryFunctionName &&
++         sameLayout(lhs.argLayout, rhs.argLayout) &&
++         lhs.argumentPackingPolicy == rhs.argumentPackingPolicy &&
++         lhs.gridPolicy == rhs.gridPolicy &&
++         lhs.staticGrid == rhs.staticGrid &&
++         lhs.workspaceSizeBytes == rhs.workspaceSizeBytes &&
++         lhs.workspaceAlignmentBytes == rhs.workspaceAlignmentBytes &&
++         lhs.environmentOverridesEnabled ==
++             rhs.environmentOverridesEnabled &&
++         lhs.artifactFallbackAllowed == rhs.artifactFallbackAllowed &&
++         lhs.tileIRAssemblerPath == rhs.tileIRAssemblerPath &&
++         lhs.tileIRAssemblerVersion == rhs.tileIRAssemblerVersion &&
++         lhs.tileIRAssemblerSha256 == rhs.tileIRAssemblerSha256 &&
++         lhs.compileOptionsIdentity == rhs.compileOptionsIdentity;
++}
++
++int fail(llvm::StringRef message) {
++  llvm::errs() << "error: " << message << "\n";
++  return 1;
++}
++
++} // namespace
++
++int main(int argc, char **argv) {
++  if (argc != 2) {
++    return fail("expected exactly one TensorIR source path");
++  }
++  auto sourceOr = llvm::MemoryBuffer::getFile(argv[1]);
++  if (!sourceOr) {
++    return fail("failed to read TensorIR source");
++  }
++  auto target = SmTarget::fromCc(120, ArchPortability::arch_conditional);
++  if (failed(target)) {
++    return fail("failed to construct sm_120a target");
++  }
++
++  CudaTileCompileOptions tileIROptions(*target);
++  tileIROptions.tileSize = {16};
++  tileIROptions.maxTileCandidates = 0;
++  tileIROptions.allowEnvironmentOverrides = false;
++  tileIROptions.allowArtifactFallback = false;
++  tileIROptions.artifactKind = CudaTileArtifactKind::TileIR;
++
++  CudaTileCompiler compiler;
++  auto preparedOr = compiler.prepareToArtifact(
++      (*sourceOr)->getBuffer(), tileIROptions);
++  if (!preparedOr.ok()) {
++    return fail("prepareToArtifact failed: " + preparedOr.status().message());
++  }
++  CudaTilePreparedArtifact prepared = std::move(*preparedOr);
++  if (prepared.getTileIRBytecode().empty() ||
++      prepared.getRequestedArtifactKind() !=
++          CudaTileArtifactKind::TileIR ||
++      !sameTarget(prepared.getRequestedTarget(), *target) ||
++      prepared.getRuntimeKernelName().empty() ||
++      prepared.getEntryFunctionName().empty() ||
++      prepared.getArgLayout().tensorDescs.empty() ||
++      prepared.getStaticGrid()[0] <= 0 ||
++      prepared.getWorkspaceSizeBytes() != 0 ||
++      prepared.getWorkspaceAlignmentBytes() != 1 ||
++      prepared.getEnvironmentOverridesEnabled() ||
++      prepared.getArtifactFallbackAllowed() ||
++      prepared.getTileIRAssemblerTimeoutSeconds() !=
++          tileIROptions.tileIRAssemblerTimeoutSeconds ||
++      prepared.getCompileOptionsIdentity() !=
++          tileIROptions.toUniqueString()) {
++    return fail("prepared metadata differs from the resolved compile options");
++  }
++  llvm::outs() << "prepared-metadata: ok\n";
++
++  auto splitOr = compiler.assemblePreparedArtifact(std::move(prepared));
++  if (!splitOr.ok()) {
++    return fail("assemblePreparedArtifact failed: " +
++                splitOr.status().message());
++  }
++  auto wrappedOr =
++      compiler.compileToArtifact((*sourceOr)->getBuffer(), tileIROptions);
++  if (!wrappedOr.ok()) {
++    return fail("compileToArtifact failed: " + wrappedOr.status().message());
++  }
++  if (!sameArtifact(*splitOr, *wrappedOr)) {
++    return fail("two-stage result differs from compileToArtifact wrapper");
++  }
++  llvm::outs() << "wrapper-parity: ok\n";
++
++  CudaTileCompileOptions cubinOptions = tileIROptions;
++  cubinOptions.artifactKind = CudaTileArtifactKind::Cubin;
++  cubinOptions.tileIRAssemblerPath =
++      "/tensor-ir-test/nonexistent/tileiras";
++  cubinOptions.tileIRAssemblerVersion = "test-only";
++  cubinOptions.tileIRAssemblerSha256 = std::string(64, '0');
++  auto cubinPreparedOr = compiler.prepareToArtifact(
++      (*sourceOr)->getBuffer(), cubinOptions);
++  if (!cubinPreparedOr.ok()) {
++    return fail("Cubin preparation unexpectedly invoked the assembler: " +
++                cubinPreparedOr.status().message());
++  }
++  if (cubinPreparedOr->getRequestedArtifactKind() !=
++          CudaTileArtifactKind::Cubin ||
++      cubinPreparedOr->getTileIRAssemblerPath() !=
++          cubinOptions.tileIRAssemblerPath ||
++      cubinPreparedOr->getTileIRAssemblerVersion() !=
++          cubinOptions.tileIRAssemblerVersion ||
++      cubinPreparedOr->getTileIRAssemblerSha256() !=
++          cubinOptions.tileIRAssemblerSha256) {
++    return fail("Cubin preparation did not seal the assembler identity");
++  }
++  auto cubinOr =
++      compiler.assemblePreparedArtifact(std::move(*cubinPreparedOr));
++  if (cubinOr.ok() ||
++      cubinOr.status().message().find(
++          "Cubin was requested but no compatible TileIR assembler") ==
++          std::string::npos) {
++    return fail("assembler failure was not confined to final assembly");
++  }
++  llvm::outs() << "assembler-boundary: ok\n";
++  return 0;
++}
