@@ -97,7 +97,7 @@ def _graph_count(module: object, source: Path) -> int:
         ) from error
     primary = _integer_declaration(tree, "GRAPHS", None)
     expected_primary = (
-        4
+        7
         if module.__name__.endswith(".attention")
         else 2
         if module.__name__.endswith((".embedding", ".linear"))

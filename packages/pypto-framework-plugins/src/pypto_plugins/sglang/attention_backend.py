@@ -28,6 +28,7 @@ def create_attention_backend(model_runner: Any) -> Any:
 
         def __init__(self, runner: Any):
             super().__init__()
+            self._attention_ops = attention
             self.device = runner.device
             self.req_to_token_pool = runner.req_to_token_pool
             self.token_to_kv_pool = runner.token_to_kv_pool
@@ -116,6 +117,80 @@ def create_attention_backend(model_runner: Any) -> Any:
                     f"{table_width}."
                 )
             return bucket
+
+        @staticmethod
+        def _cpu_lengths(
+            value: Any, expected: int, name: str, *, allow_zero: bool = False
+        ) -> list[int]:
+            if value is None:
+                raise BackendNotReadyError(
+                    f"PyPTO attention needs the CPU {name} mirror."
+                )
+            if isinstance(value, torch.Tensor):
+                if value.device.type != "cpu":
+                    raise BackendNotReadyError(
+                        f"PyPTO attention {name} mirror is not on CPU."
+                    )
+                values = [int(item) for item in value.reshape(-1).tolist()]
+            else:
+                values = [int(item) for item in value]
+            lower_bound = 0 if allow_zero else 1
+            if len(values) != expected or any(item < lower_bound for item in values):
+                raise BackendNotReadyError(
+                    f"PyPTO attention received invalid CPU {name} metadata."
+                )
+            return values
+
+        def _masked_attention_rows(
+            self,
+            query: Any,
+            key: Any,
+            value: Any,
+            mask: Any,
+            output: Any,
+            layer: Any,
+            stream: Any,
+        ) -> None:
+            rows, query_width = map(int, query.shape)
+            head_dim = int(layer.qk_head_dim)
+            q_heads = query_width // head_dim
+            kv_heads = int(layer.tp_k_head_num)
+            queries_per_kv = q_heads // kv_heads
+            q_view = query.as_strided(
+                (rows, q_heads, head_dim),
+                (int(query.stride(0)), head_dim, 1),
+                storage_offset=int(query.storage_offset()),
+            )
+            output_view = output.as_strided(
+                (rows, q_heads, head_dim),
+                (int(output.stride(0)), head_dim, 1),
+                storage_offset=int(output.storage_offset()),
+            )
+            key_stride = int(key.stride(0))
+            value_stride = int(value.stride(0))
+            key_offset = int(key.storage_offset())
+            value_offset = int(value.storage_offset())
+            for q_head in range(q_heads):
+                kv_head = q_head // queries_per_kv
+                column = kv_head * head_dim
+                key_head = key.as_strided(
+                    (int(key.shape[0]), head_dim),
+                    (key_stride, 1),
+                    storage_offset=key_offset + column,
+                )
+                value_head = value.as_strided(
+                    (int(value.shape[0]), head_dim),
+                    (value_stride, 1),
+                    storage_offset=value_offset + column,
+                )
+                self._attention_ops.masked_attention(
+                    q_view[:, q_head],
+                    key_head,
+                    value_head,
+                    mask,
+                    stream=stream,
+                    out=output_view[:, q_head],
+                )
 
         @staticmethod
         def _validate_layer(layer: Any) -> None:
@@ -307,19 +382,54 @@ def create_attention_backend(model_runner: Any) -> Any:
                     stream,
                 )
                 request_table = self.req_to_token_pool.req_to_token
-                bucket = self._bucket_tokens(forward_batch, int(request_table.shape[1]))
-                return attention.paged_attention_decode(
-                    q,
-                    key_cache,
-                    value_cache,
-                    request_table,
-                    forward_batch.req_pool_indices,
-                    forward_batch.seq_lens,
-                    self.virtual_to_physical,
-                    kv_heads=layer.tp_k_head_num,
-                    bucket_tokens=bucket,
-                    stream=stream,
+                batch_size = int(q.shape[0])
+                lengths = self._cpu_lengths(
+                    forward_batch.seq_lens_cpu, batch_size, "sequence-length"
                 )
+                bucket = self._bucket_tokens(
+                    forward_batch, int(request_table.shape[1])
+                )
+                output = torch.empty(
+                    tuple(q.shape), dtype=torch.bfloat16, device=q.device
+                )
+                for batch_index, valid_length in enumerate(lengths):
+                    request_index = forward_batch.req_pool_indices[
+                        batch_index : batch_index + 1
+                    ]
+                    gathered_key = attention.paged_gather(
+                        key_cache,
+                        request_table,
+                        request_index,
+                        self.virtual_to_physical,
+                        bucket_tokens=bucket,
+                        stream=stream,
+                    )
+                    gathered_value = attention.paged_gather(
+                        value_cache,
+                        request_table,
+                        request_index,
+                        self.virtual_to_physical,
+                        bucket_tokens=bucket,
+                        stream=stream,
+                    )
+                    mask = attention.causal_mask(
+                        [valid_length],
+                        bucket,
+                        device=q.device,
+                        stream=stream,
+                    )
+                    query_row = q[batch_index : batch_index + 1]
+                    output_row = output[batch_index : batch_index + 1]
+                    self._masked_attention_rows(
+                        query_row,
+                        gathered_key,
+                        gathered_value,
+                        mask,
+                        output_row,
+                        layer,
+                        stream,
+                    )
+                return output
 
         def forward_extend(
             self,
@@ -372,18 +482,54 @@ def create_attention_backend(model_runner: Any) -> Any:
                 )
                 request_table = self.req_to_token_pool.req_to_token
                 bucket = self._bucket_tokens(forward_batch, int(request_table.shape[1]))
-                return attention.paged_attention_prefill(
-                    q,
+                prefix_lengths = self._cpu_lengths(
+                    forward_batch.extend_prefix_lens_cpu,
+                    1,
+                    "extend-prefix-length",
+                    allow_zero=True,
+                )
+                valid_lengths = [
+                    prefix_lengths[0] + row + 1 for row in range(int(q.shape[0]))
+                ]
+                if any(length > bucket for length in valid_lengths):
+                    raise BackendNotReadyError(
+                        "PyPTO causal prefill valid lengths exceed the token bucket."
+                    )
+                mask = attention.causal_mask(
+                    valid_lengths,
+                    bucket,
+                    device=q.device,
+                    stream=stream,
+                )
+                gathered_key = attention.paged_gather(
                     key_cache,
-                    value_cache,
                     request_table,
                     forward_batch.req_pool_indices,
-                    forward_batch.extend_prefix_lens,
                     self.virtual_to_physical,
-                    kv_heads=layer.tp_k_head_num,
                     bucket_tokens=bucket,
                     stream=stream,
                 )
+                gathered_value = attention.paged_gather(
+                    value_cache,
+                    request_table,
+                    forward_batch.req_pool_indices,
+                    self.virtual_to_physical,
+                    bucket_tokens=bucket,
+                    stream=stream,
+                )
+                output = torch.empty(
+                    tuple(q.shape), dtype=torch.bfloat16, device=q.device
+                )
+                self._masked_attention_rows(
+                    q,
+                    gathered_key,
+                    gathered_value,
+                    mask,
+                    output,
+                    layer,
+                    stream,
+                )
+                return output
 
         def support_triton(self):
             return False

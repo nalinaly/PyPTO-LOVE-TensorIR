@@ -2,10 +2,26 @@
 
 from __future__ import annotations
 
+import json
+import os
+from pathlib import Path
 import threading
+import time
 from typing import Any
 
 from ..errors import BackendNotReadyError
+
+
+def _debug_event(kind: str, **fields: object) -> None:
+    path = os.environ.get("PYPTO_STATE_DEBUG_REPORT")
+    if not path:
+        return
+    payload = {"kind": kind, "pid": os.getpid(), "time": time.monotonic(), **fields}
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps(payload, sort_keys=True) + "\n")
+        stream.flush()
 
 
 class PyPTOStateBundle:
@@ -19,6 +35,14 @@ class PyPTOStateBundle:
         self._recurrent_clear_by_layer: dict[int, tuple[Any, ...]] = {}
         self._recurrent_clear_geometry: dict[int, tuple[object, ...]] = {}
         self._geometry_by_layer: dict[int, tuple[int, int, object, object]] = {}
+        layer_ids = getattr(pool, "mamba_layer_ids", ())
+        if not isinstance(layer_ids, (list, tuple)) or any(
+            type(layer_id) is not int or layer_id < 0 for layer_id in layer_ids
+        ):
+            raise BackendNotReadyError(
+                "PyPTO StateBundle requires static non-negative Mamba layer IDs."
+            )
+        self._expected_layer_ids = frozenset(layer_ids)
         self._pending_clear_layers: set[int] = set()
         self._pending_clear_count = 0
 
@@ -47,6 +71,13 @@ class PyPTOStateBundle:
                 )
             state = self._conv_by_layer.get(layer_id)
             if state is None:
+                if (
+                    self._expected_layer_ids
+                    and layer_id not in self._expected_layer_ids
+                ):
+                    raise BackendNotReadyError(
+                        "PyPTO StateBundle received an unknown Mamba layer ID."
+                    )
                 state = torch.zeros(
                     (slots, 3, channels),
                     dtype=upstream_conv.dtype,
@@ -59,6 +90,14 @@ class PyPTOStateBundle:
                     device=upstream_conv.device,
                 )
                 self._geometry_by_layer[layer_id] = geometry
+                if self._pending_clear_count and not self._expected_layer_ids:
+                    self._pending_clear_layers.add(layer_id)
+            _debug_event(
+                "conv_for_layer",
+                layer_id=int(layer_id),
+                pending_layers=sorted(self._pending_clear_layers),
+                pending_count=self._pending_clear_count,
+            )
             return state
 
     @staticmethod
@@ -78,8 +117,16 @@ class PyPTOStateBundle:
     def clear_slots(self, indices: Any) -> None:
         selected = self._indices(indices)
         with self._lock:
-            self._pending_clear_layers = set(self._conv_by_layer)
+            self._pending_clear_layers = set(
+                self._expected_layer_ids or self._conv_by_layer
+            )
             self._pending_clear_count = int(selected.numel())
+            _debug_event(
+                "clear_slots",
+                indices=selected.detach().cpu().tolist(),
+                pending_layers=sorted(self._pending_clear_layers),
+                pending_count=self._pending_clear_count,
+            )
 
     def prepare_recurrent_clear(
         self,
@@ -143,6 +190,13 @@ class PyPTOStateBundle:
 
         with self._lock:
             if layer_id not in self._pending_clear_layers:
+                _debug_event(
+                    "take_clear_payload_miss",
+                    layer_id=int(layer_id),
+                    batch_size=int(batch_size),
+                    pending_layers=sorted(self._pending_clear_layers),
+                    pending_count=self._pending_clear_count,
+                )
                 return None
             if batch_size != self._pending_clear_count:
                 raise BackendNotReadyError(
@@ -155,6 +209,14 @@ class PyPTOStateBundle:
                     "PyPTO StateBundle has no preallocated clear payload."
                 )
             self._pending_clear_layers.remove(layer_id)
+            if not self._pending_clear_layers:
+                self._pending_clear_count = 0
+            _debug_event(
+                "take_clear_payload_hit",
+                layer_id=int(layer_id),
+                batch_size=int(batch_size),
+                remaining_layers=sorted(self._pending_clear_layers),
+            )
             return zero_input[: batch_size * 3], recurrent
 
     def copy_from(self, src_indices: Any, dst_indices: Any) -> None:

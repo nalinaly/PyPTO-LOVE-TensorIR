@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import os
 from typing import Any
 
 from ..errors import BackendNotReadyError
@@ -15,8 +17,33 @@ def create_gdn_backend(model_runner: Any) -> Any:
     from sglang.srt.layers.attention.hybrid_linear_attn_backend import (
         MambaAttnBackendBase,
     )
-    from .state_bundle import attach_state_bundle
+    from .state_bundle import _debug_event, attach_state_bundle
     from .stream import pypto_stream
+
+    def debug_state_stats(state: Any, indices: Any, stream: Any) -> dict[str, object] | None:
+        if not os.environ.get("PYPTO_STATE_DEBUG_REPORT"):
+            return None
+        stream.synchronize()
+        selected = state.index_select(0, indices.to(dtype=torch.int64)).float()
+        return {
+            "max_abs": float(selected.abs().max().item()),
+            "nonzero": int(torch.count_nonzero(selected).item()),
+            "nan": int(torch.isnan(selected).sum().item()),
+        }
+
+    def debug_tensor_fingerprint(tensor: Any, stream: Any) -> dict[str, object] | None:
+        if not os.environ.get("PYPTO_STATE_DEBUG_REPORT"):
+            return None
+        stream.synchronize()
+        host = tensor.detach().contiguous().cpu()
+        payload = host.view(torch.uint8).numpy().tobytes()
+        wide = host.float()
+        return {
+            "shape": list(host.shape),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "max_abs": float(wide.abs().max().item()),
+            "sum": float(wide.sum().item()),
+        }
 
     class PyPTOGDNAttnBackend(MambaAttnBackendBase):
         needs_cpu_seq_lens = True
@@ -168,6 +195,15 @@ def create_gdn_backend(model_runner: Any) -> Any:
             )
             recurrent_state = layer_cache.temporal
             state_indices = self.forward_metadata.mamba_cache_indices
+            _debug_event(
+                "gdn_run",
+                layer_id=int(layer.layer_id),
+                batch_size=int(batch_size),
+                tokens_per_request=int(tokens_per_request),
+                state_indices=state_indices.detach().cpu().tolist(),
+                pending_layers=sorted(self._pypto_state_bundle._pending_clear_layers),
+                pending_count=self._pypto_state_bundle._pending_clear_count,
+            )
             self._pypto_state_bundle.prepare_recurrent_clear(
                 layer.layer_id,
                 mixed_qkv,
@@ -178,11 +214,27 @@ def create_gdn_backend(model_runner: Any) -> Any:
                 batch_size,
             )
             with pypto_stream(mixed_qkv.device) as stream:
+                prefill_input = None
+                if tokens_per_request > 1:
+                    prefill_input = {
+                        "mixed_qkv": debug_tensor_fingerprint(mixed_qkv, stream),
+                        "a": debug_tensor_fingerprint(a, stream),
+                        "b": debug_tensor_fingerprint(b, stream),
+                    }
                 clear_payload = self._pypto_state_bundle.take_clear_payload(
                     layer.layer_id, batch_size
                 )
                 if clear_payload is not None:
+                    _debug_event(
+                        "gdn_clear_payload_used",
+                        layer_id=int(layer.layer_id),
+                        batch_size=int(batch_size),
+                    )
                     clear_input, recurrent_clear = clear_payload
+                    conv_before = debug_state_stats(conv_state, state_indices, stream)
+                    recurrent_before = debug_state_stats(
+                        recurrent_state, state_indices, stream
+                    )
                     causal_conv1d.causal_conv1d(
                         clear_input,
                         layer.conv_weights,
@@ -192,6 +244,7 @@ def create_gdn_backend(model_runner: Any) -> Any:
                         tokens_per_request=3,
                         stream=stream,
                     )
+                    conv_after = debug_state_stats(conv_state, state_indices, stream)
                     gdn.gdn_recurrent(
                         *recurrent_clear,
                         recurrent_state,
@@ -199,6 +252,23 @@ def create_gdn_backend(model_runner: Any) -> Any:
                         batch_size=batch_size,
                         tokens_per_request=1,
                         stream=stream,
+                    )
+                    recurrent_after = debug_state_stats(
+                        recurrent_state, state_indices, stream
+                    )
+                    _debug_event(
+                        "gdn_clear_state_stats",
+                        layer_id=int(layer.layer_id),
+                        conv_before=conv_before,
+                        conv_after=conv_after,
+                        recurrent_before=recurrent_before,
+                        recurrent_after=recurrent_after,
+                    )
+                else:
+                    _debug_event(
+                        "gdn_clear_payload_absent",
+                        layer_id=int(layer.layer_id),
+                        batch_size=int(batch_size),
                     )
                 convolved = causal_conv1d.causal_conv1d(
                     mixed_qkv,
@@ -221,6 +291,13 @@ def create_gdn_backend(model_runner: Any) -> Any:
                     tokens_per_request=tokens_per_request,
                     stream=stream,
                 )
+                if tokens_per_request > 1:
+                    _debug_event(
+                        "gdn_prefill_fingerprint",
+                        layer_id=int(layer.layer_id),
+                        inputs=prefill_input,
+                        output=debug_tensor_fingerprint(recurrent, stream),
+                    )
             return recurrent
 
         def forward_decode(
