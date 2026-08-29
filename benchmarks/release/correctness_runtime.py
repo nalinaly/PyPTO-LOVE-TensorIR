@@ -18,7 +18,7 @@ from .lanes import (
     server_kwargs,
     validate_resolved_backends,
 )
-from .sglang_compat import install_gemma_rmsnorm_offload_compatibility
+from .sglang_compat import install_sglang_release_compatibility
 from .workload import (
     MEASURED_REQUESTS,
     OUTPUT_TOKENS,
@@ -105,7 +105,7 @@ def _load_runner(
     from sglang.srt.server_args import PortArgs, ServerArgs
 
     load_plugins()
-    compatibility = install_gemma_rmsnorm_offload_compatibility()
+    compatibility = install_sglang_release_compatibility()
     requested = server_kwargs(lane, model_path, optimized_memory_mode)
     args = ServerArgs(**requested)
     _set_envs_and_config(args)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import inspect
 
 from .workload import ReleaseContractError
 
@@ -10,7 +11,9 @@ from .workload import ReleaseContractError
 GEMMA_RMSNORM_WEIGHT_LOADER_TARGET = (
     "sglang.srt.layers.layernorm.GemmaRMSNorm._weight_loader"
 )
-_MARKER = "_pypto_release_gemma_offload_compatible"
+OFFLOADER_FUNCTIONAL_CALL_TARGET = "sglang.srt.utils.offloader.functional_call"
+_GEMMA_MARKER = "_pypto_release_gemma_offload_compatible"
+_OFFLOADER_MARKER = "_pypto_untied_parameter_compatible"
 
 
 def _colocate_gemma_weight(layer: object, param: object) -> bool:
@@ -43,8 +46,13 @@ def _colocate_gemma_weight(layer: object, param: object) -> bool:
 
 def _install_on_class(gemma_rmsnorm: type) -> dict[str, object]:
     current = gemma_rmsnorm._weight_loader
-    if getattr(current, _MARKER, False):
-        return compatibility_record(installed=True, disposition="already-installed")
+    if getattr(current, _GEMMA_MARKER, False):
+        return _component_record(
+            name="gemma-rmsnorm-derived-weight-colocation",
+            target=GEMMA_RMSNORM_WEIGHT_LOADER_TARGET,
+            scope="model-weight-load-only",
+            disposition="already-installed",
+        )
 
     @functools.wraps(current)
     def compatible_weight_loader(layer, param, loaded_weight):
@@ -56,9 +64,14 @@ def _install_on_class(gemma_rmsnorm: type) -> dict[str, object]:
             )
         return result
 
-    setattr(compatible_weight_loader, _MARKER, True)
+    setattr(compatible_weight_loader, _GEMMA_MARKER, True)
     gemma_rmsnorm._weight_loader = compatible_weight_loader
-    return compatibility_record(installed=True, disposition="installed")
+    return _component_record(
+        name="gemma-rmsnorm-derived-weight-colocation",
+        target=GEMMA_RMSNORM_WEIGHT_LOADER_TARGET,
+        scope="model-weight-load-only",
+        disposition="installed",
+    )
 
 
 def install_gemma_rmsnorm_offload_compatibility() -> dict[str, object]:
@@ -69,15 +82,97 @@ def install_gemma_rmsnorm_offload_compatibility() -> dict[str, object]:
     return _install_on_class(GemmaRMSNorm)
 
 
-def compatibility_record(
-    *, installed: bool, disposition: str
+def _install_offloader_functional_call(offloader_module: object) -> dict[str, object]:
+    current = getattr(offloader_module, "functional_call", None)
+    if not callable(current):
+        raise ReleaseContractError(
+            "pinned SGLang offloader functional_call contract changed"
+        )
+    if getattr(current, _OFFLOADER_MARKER, False):
+        return _component_record(
+            name="offloader-explicit-parameter-aliases",
+            target=OFFLOADER_FUNCTIONAL_CALL_TARGET,
+            scope="cpu-offloaded-module-forward",
+            disposition="already-installed",
+        )
+    try:
+        parameters = inspect.signature(current).parameters
+    except (TypeError, ValueError) as error:
+        raise ReleaseContractError(
+            "pinned SGLang offloader functional_call is not inspectable"
+        ) from error
+    if "tie_weights" not in parameters:
+        raise ReleaseContractError(
+            "pinned SGLang offloader functional_call lacks tie_weights"
+        )
+
+    @functools.wraps(current)
+    def functional_call_with_explicit_aliases(*args, **kwargs):
+        if "tie_weights" in kwargs and kwargs["tie_weights"] is not False:
+            raise ReleaseContractError(
+                "Qwen offload requires functional_call tie_weights=False"
+            )
+        kwargs["tie_weights"] = False
+        if len(args) >= 2 and isinstance(args[1], dict):
+            module = args[0]
+            replacements = args[1]
+            try:
+                named_parameters = dict(
+                    module.named_parameters(remove_duplicate=False)
+                )
+            except (AttributeError, TypeError) as error:
+                raise ReleaseContractError(
+                    "pinned SGLang offloader module parameter contract changed"
+                ) from error
+            for name, replacement in replacements.items():
+                original = named_parameters.get(name)
+                if original is None or not hasattr(replacement, "shape"):
+                    continue
+                replacement._pypto_offload_source_signature = (
+                    "offloaded",
+                    int(original.data_ptr()),
+                    int(original._version),
+                    tuple(original.shape),
+                )
+        return current(*args, **kwargs)
+
+    setattr(functional_call_with_explicit_aliases, _OFFLOADER_MARKER, True)
+    offloader_module.functional_call = functional_call_with_explicit_aliases
+    return _component_record(
+        name="offloader-explicit-parameter-aliases",
+        target=OFFLOADER_FUNCTIONAL_CALL_TARGET,
+        scope="cpu-offloaded-module-forward",
+        disposition="installed",
+    )
+
+
+def install_sglang_release_compatibility() -> dict[str, object]:
+    """Install every backend-neutral compatibility fix for the pinned runtime."""
+
+    from sglang.srt.utils import offloader
+
+    components = [
+        install_gemma_rmsnorm_offload_compatibility(),
+        _install_offloader_functional_call(offloader),
+    ]
+    return {
+        "name": "pinned-sglang-shared-release-compatibility",
+        "applies_equally_to_lanes": ["pypto", "sglang-matched", "sglang-optimized"],
+        "components": components,
+        "all_installed": all(component["installed"] for component in components),
+        "performance_claim_scope": (
+            "shared correctness compatibility; no component is credited to PyPTO"
+        ),
+    }
+
+
+def _component_record(
+    *, name: str, target: str, scope: str, disposition: str
 ) -> dict[str, object]:
     return {
-        "name": "sglang-gemma-rmsnorm-offload-device-colocation",
-        "target": GEMMA_RMSNORM_WEIGHT_LOADER_TARGET,
-        "applies_equally_to_lanes": ["pypto", "sglang-matched", "sglang-optimized"],
-        "scope": "model-weight-load-only",
-        "installed": installed,
+        "name": name,
+        "target": target,
+        "scope": scope,
+        "installed": True,
         "disposition": disposition,
-        "performance_claim_scope": "excluded-from-steady-state-kernel-comparison",
     }

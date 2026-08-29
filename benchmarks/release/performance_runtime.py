@@ -27,7 +27,7 @@ from .lanes import (
     server_kwargs,
     validate_resolved_backends,
 )
-from .sglang_compat import install_gemma_rmsnorm_offload_compatibility
+from .sglang_compat import install_sglang_release_compatibility
 from .workload import (
     COMPILE_WARMUPS,
     MEASURED_REQUESTS,
@@ -68,7 +68,7 @@ def run_scheduler_with_release_metrics(*args, **kwargs):
 
     import dataclasses
     import torch
-    compatibility = install_gemma_rmsnorm_offload_compatibility()
+    compatibility = install_sglang_release_compatibility()
     from sglang.srt.compilation.compilation_counter import compilation_counter
     from sglang.srt.managers.scheduler import Scheduler, run_scheduler_process
 

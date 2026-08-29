@@ -431,15 +431,55 @@ def test_shared_gemma_offload_compatibility_is_strict_and_backend_neutral() -> N
     assert layer._weight_loader(param, "loaded") == "loaded"
     assert layer.gemma_weight.device.type == "cpu"
 
-    record = sglang_compat.compatibility_record(
-        installed=True, disposition="installed"
+    calls = []
+
+    def functional_call(module, state, *, args=None, kwargs=None, tie_weights=True):
+        calls.append((module, state, args, kwargs, tie_weights))
+        return "called"
+
+    offloader = SimpleNamespace(functional_call=functional_call)
+    offloader_first = sglang_compat._install_offloader_functional_call(offloader)
+    offloader_second = sglang_compat._install_offloader_functional_call(offloader)
+    assert offloader_first["disposition"] == "installed"
+    assert offloader_second["disposition"] == "already-installed"
+
+    original = SimpleNamespace(
+        data_ptr=lambda: 1234,
+        _version=7,
+        shape=(2, 3),
     )
+    replacement = SimpleNamespace(shape=(2, 3))
+    module = SimpleNamespace(
+        named_parameters=lambda *, remove_duplicate: [("alias", original)]
+    )
+    assert offloader.functional_call(module, {"alias": replacement}) == "called"
+    assert calls[-1][-1] is False
+    assert replacement._pypto_offload_source_signature == (
+        "offloaded",
+        1234,
+        7,
+        (2, 3),
+    )
+    with pytest.raises(workload.ReleaseContractError, match="tie_weights=False"):
+        offloader.functional_call(module, {}, tie_weights=True)
+
+    record = {
+        "applies_equally_to_lanes": [
+            "pypto",
+            "sglang-matched",
+            "sglang-optimized",
+        ],
+        "components": [first, offloader_first],
+    }
     assert record["applies_equally_to_lanes"] == [
         "pypto",
         "sglang-matched",
         "sglang-optimized",
     ]
-    assert record["scope"] == "model-weight-load-only"
+    assert [component["scope"] for component in record["components"]] == [
+        "model-weight-load-only",
+        "cpu-offloaded-module-forward",
+    ]
 
 
 def test_controller_commands_route_through_generalized_bounded_controls(
