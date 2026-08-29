@@ -197,10 +197,18 @@ def main(argv: list[str] | None = None) -> int:
         correct = bool(
             torch.allclose(output.float(), reference, rtol=RTOL, atol=ATOL)
         )
+        attention_launches = attention._paged_decode_partition_count(kv_heads)
         cases.append(
             {
                 "case": label,
-                "launches": 1,
+                "launches": attention_launches,
+                "launch_count": attention_launches,
+                "attention_launches": attention_launches,
+                "attention_launch_topology": (
+                    "one_reused_single_kv_head_artifact_launch_per_kv_head"
+                ),
+                "compiled_artifacts": 1,
+                "kv_heads": kv_heads,
                 "batch_size": batch_size,
                 "bucket_tokens": bucket_tokens,
                 "cache_row_stride": cache_row_stride,

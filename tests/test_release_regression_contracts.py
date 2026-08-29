@@ -441,9 +441,38 @@ def test_operator_manifest_locks_real_model_shape_and_launch_contracts() -> None
     )
     suites = {item["id"]: item for item in manifest["gpu_suites"]}
     compiled = suites["handwritten-compile-classification"]["case_expectations"]
-    assert len(compiled) == 18
-    assert len({item["where"]["case"] for item in compiled}) == 18
-    assert all(item["equals"] == {"status": "compiled"} for item in compiled)
+    assert len(compiled) == 20
+    assert len({item["where"]["case"] for item in compiled}) == 20
+    assert all(item["equals"]["status"] == "compiled" for item in compiled)
+    compiled_by_case = {item["where"]["case"]: item["equals"] for item in compiled}
+    assert {
+        case: {
+            "compiled_artifacts": compiled_by_case[case]["compiled_artifacts"],
+            "launch_count": compiled_by_case[case]["launch_count"],
+            "attention_launches": compiled_by_case[case]["attention_launches"],
+        }
+        for case in (
+            "attention_paged_decode_0_8b",
+            "attention_paged_decode_9b",
+            "attention_paged_decode_batch2_strided_0_8b",
+        )
+    } == {
+        "attention_paged_decode_0_8b": {
+            "compiled_artifacts": 1,
+            "launch_count": 2,
+            "attention_launches": 2,
+        },
+        "attention_paged_decode_9b": {
+            "compiled_artifacts": 1,
+            "launch_count": 4,
+            "attention_launches": 4,
+        },
+        "attention_paged_decode_batch2_strided_0_8b": {
+            "compiled_artifacts": 1,
+            "launch_count": 2,
+            "attention_launches": 2,
+        },
+    }
     numerical = suites["handwritten-numerical"]["case_expectations"]
     assert {
         item["where"]["case"]
@@ -462,6 +491,25 @@ def test_operator_manifest_locks_real_model_shape_and_launch_contracts() -> None
         for item in stateful
     )
     paged = suites["paged-attention"]["case_expectations"]
+    assert suites["paged-attention"]["expected_case_count"] == 10
+    decode_launches = {
+        item["where"]["case"]: item["equals"]
+        for item in paged
+        if item["where"]["case"].startswith("decode_")
+    }
+    assert {
+        case: (
+            values["kv_heads"],
+            values["launches"],
+            values["attention_launches"],
+            values["compiled_artifacts"],
+        )
+        for case, values in decode_launches.items()
+    } == {
+        "decode_0_8b_valid13": (2, 2, 2, 1),
+        "decode_9b_valid16": (4, 4, 4, 1),
+        "decode_batch2_0_8b_valid13_7_strided": (2, 2, 2, 1),
+    }
     assert any(
         item["where"] == {"case": "prefill_9b_prefix2_extend13"}
         and item["equals"]

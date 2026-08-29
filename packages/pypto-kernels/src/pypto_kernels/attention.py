@@ -367,6 +367,7 @@ def _validate_paged_decode_shape(
     cache_row_stride: int,
     mapping_rows: int,
     query_row_stride: int,
+    result_row_stride: int,
 ) -> None:
     if (
         batch_size <= 0
@@ -380,6 +381,7 @@ def _validate_paged_decode_shape(
         or cache_row_stride < kv_heads * head_dim
         or mapping_rows <= 0
         or query_row_stride < q_heads * head_dim
+        or result_row_stride < q_heads * head_dim
         or q_heads % kv_heads
         or head_dim % 128
         or tokens % 16
@@ -507,6 +509,7 @@ def build_paged_decode(
     cache_row_stride: int | None = None,
     mapping_rows: int | None = None,
     query_row_stride: int | None = None,
+    result_row_stride: int | None = None,
 ) -> Any:
     cache_width = kv_heads * head_dim
     if cache_row_stride is None:
@@ -515,6 +518,8 @@ def build_paged_decode(
         mapping_rows = cache_rows
     if query_row_stride is None:
         query_row_stride = q_heads * head_dim
+    if result_row_stride is None:
+        result_row_stride = q_heads * head_dim
     _validate_paged_decode_shape(
         batch_size,
         q_heads,
@@ -527,6 +532,7 @@ def build_paged_decode(
         cache_row_stride,
         mapping_rows,
         query_row_stride,
+        result_row_stride,
     )
     import torch
 
@@ -560,8 +566,11 @@ def build_paged_decode(
     virtual_to_physical = torch.empty(
         (mapping_rows, 1), dtype=torch.int64, device="meta"
     )
-    out = torch.empty(
-        (batch_size, q_heads, head_dim), dtype=torch.bfloat16, device="meta"
+    out = torch.empty_strided(
+        (batch_size, q_heads, head_dim),
+        (result_row_stride, head_dim, 1),
+        dtype=torch.bfloat16,
+        device="meta",
     )
     return paged_attention_decode_kernel.specialize(
         query,
@@ -588,6 +597,7 @@ def compile_paged_decode_for(
     cache_row_stride: int | None = None,
     mapping_rows: int | None = None,
     query_row_stride: int | None = None,
+    result_row_stride: int | None = None,
 ) -> str:
     cache_width = kv_heads * head_dim
     if cache_row_stride is None:
@@ -596,6 +606,8 @@ def compile_paged_decode_for(
         mapping_rows = cache_rows
     if query_row_stride is None:
         query_row_stride = q_heads * head_dim
+    if result_row_stride is None:
+        result_row_stride = q_heads * head_dim
     _validate_paged_decode_shape(
         batch_size,
         q_heads,
@@ -608,6 +620,7 @@ def compile_paged_decode_for(
         cache_row_stride,
         mapping_rows,
         query_row_stride,
+        result_row_stride,
     )
     shape_key = (
         batch_size,
@@ -621,6 +634,7 @@ def compile_paged_decode_for(
         cache_row_stride,
         mapping_rows,
         query_row_stride,
+        result_row_stride,
     )
     cached = _paged_decode_cache.get(shape_key)
     if cached is not None:
@@ -640,6 +654,12 @@ def compile_paged_decode_for(
     with _lock:
         _paged_decode_cache[shape_key] = graph_key
     return graph_key
+
+
+def _paged_decode_partition_count(kv_heads: int) -> int:
+    if kv_heads <= 0:
+        raise ValueError("paged decode partitioning needs positive KV heads")
+    return kv_heads
 
 
 def _validate_paged_cache_write_shape(
@@ -1022,7 +1042,9 @@ def paged_attention_decode(
     ``request_index`` and ``valid_tokens`` contain one device value per batch
     row. Each valid length must be in ``[1, bucket_tokens]``; keeping both
     tensors on-device avoids decode-time host synchronization and an
-    intermediate ``kv_indices`` kernel.
+    intermediate ``kv_indices`` kernel. GQA is partitioned into one KV head
+    and its Q-head group per launch. All groups reuse one compiled artifact;
+    row-pitched views target their columns in the preallocated full output.
     """
 
     import torch
@@ -1077,6 +1099,7 @@ def paged_attention_decode(
     if query_width % head_dim:
         raise ValueError("paged decode query width must divide into Q heads")
     q_heads = query_width // head_dim
+    result_row_stride = query_width
     _validate_paged_decode_shape(
         batch_size,
         q_heads,
@@ -1089,6 +1112,7 @@ def paged_attention_decode(
         cache_row_stride,
         mapping_rows,
         query_row_stride,
+        result_row_stride,
     )
     expected_cache_shape = (cache_rows, kv_heads * head_dim)
     if tuple(key_cache.shape) != expected_cache_shape or tuple(
@@ -1097,10 +1121,11 @@ def paged_attention_decode(
         raise ValueError("paged decode cache shape is incompatible with KV heads")
     if stream is None:
         stream = torch.cuda.current_stream(query.device)
+    queries_per_kv = q_heads // kv_heads
     graph_key = compile_paged_decode_for(
         batch_size,
-        q_heads,
-        kv_heads,
+        queries_per_kv,
+        1,
         tokens,
         head_dim,
         cache_rows,
@@ -1109,28 +1134,65 @@ def paged_attention_decode(
         cache_row_stride,
         mapping_rows,
         query_row_stride,
+        result_row_stride,
     )
-    query_view = query.view(batch_size, q_heads, head_dim)
     out = torch.empty(
-        (batch_size, q_heads, head_dim),
+        (batch_size, query_width),
         dtype=torch.bfloat16,
         device=query.device,
     )
-    launch_graph(
-        graph_key,
-        (
-            query_view,
-            key_cache,
-            value_cache,
-            req_to_token,
-            request_index.as_strided((batch_size, tokens), (1, 0)),
-            valid_tokens.as_strided((batch_size, tokens), (1, 0)),
-            virtual_to_physical.view(mapping_rows, 1),
-            out,
-        ),
-        stream.cuda_stream,
+    request_index_view = request_index.as_strided(
+        (batch_size, tokens), (1, 0)
     )
-    return out.view(batch_size, query_width)
+    valid_tokens_view = valid_tokens.as_strided(
+        (batch_size, tokens), (1, 0)
+    )
+    mapping_view = virtual_to_physical.view(mapping_rows, 1)
+    group_width = queries_per_kv * head_dim
+    query_storage_offset = int(query.storage_offset())
+    key_storage_offset = int(key_cache.storage_offset())
+    value_storage_offset = int(value_cache.storage_offset())
+    result_storage_offset = int(out.storage_offset())
+    # as_strided only creates tensor metadata: no gather/copy/concatenation
+    # kernel is inserted between these same-stream PyPTO launches.
+    for kv_head in range(_paged_decode_partition_count(kv_heads)):
+        group_column = kv_head * group_width
+        cache_column = kv_head * head_dim
+        query_group = query.as_strided(
+            (batch_size, queries_per_kv, head_dim),
+            (query_row_stride, head_dim, 1),
+            storage_offset=query_storage_offset + group_column,
+        )
+        key_group = key_cache.as_strided(
+            (cache_rows, head_dim),
+            (cache_row_stride, 1),
+            storage_offset=key_storage_offset + cache_column,
+        )
+        value_group = value_cache.as_strided(
+            (cache_rows, head_dim),
+            (cache_row_stride, 1),
+            storage_offset=value_storage_offset + cache_column,
+        )
+        result_group = out.as_strided(
+            (batch_size, queries_per_kv, head_dim),
+            (result_row_stride, head_dim, 1),
+            storage_offset=result_storage_offset + group_column,
+        )
+        launch_graph(
+            graph_key,
+            (
+                query_group,
+                key_group,
+                value_group,
+                req_to_token,
+                request_index_view,
+                valid_tokens_view,
+                mapping_view,
+                result_group,
+            ),
+            stream.cuda_stream,
+        )
+    return out
 
 
 def paged_cache_write(
