@@ -198,18 +198,77 @@ def _controller_evidence(
 def _cpu_controller_evidence(report_path: Path) -> list[dict[str, str]]:
     controller_path = _evidence_path(report_path.parent / "process.json")
     controller = read_json(controller_path)
+    policy = controller.get("policy")
+    low_memory_samples = controller.get("low_memory_samples")
     if (
-        controller.get("mode") != "cpu-bounded"
+        controller.get("schema") != 2
+        or controller.get("mode") != "cpu-bounded"
         or controller.get("framework_profile") != "pypto"
         or controller.get("status") != "exited"
         or controller.get("return_code") != 0
         or controller.get("abort_reason") is not None
-        or controller.get("policy", {}).get("parallelism") != CPU_JOBS
-        or controller.get("policy", {}).get("launch_admission_floor_kib") is not None
-        or controller.get("policy", {}).get("formal_identity_verified") is not True
+        or not isinstance(policy, dict)
+        or policy.get("schema") != 2
+        or policy.get("kind") != "pypto-cpu-memory-policy"
+        or policy.get("workload_mode") != "pytest-resident-workers"
+        or policy.get("parallelism") != CPU_JOBS
+        or policy.get("launch_admission_floor_kib") is not None
+        or policy.get("pause_enabled") is not False
+        or policy.get("pause_memory_floor_kib") is not None
+        or policy.get("resume_memory_floor_kib") is not None
+        or policy.get("low_memory_recording_floor_kib") != 12 * 1024**2
+        or policy.get("emergency_abort_memory_floor_kib") != 6 * 1024**2
+        or policy.get("emergency_abort_consecutive_samples") != 3
+        or policy.get("low_memory_action") != "record-and-continue"
+        or policy.get("emergency_action")
+        != "terminate-owned-pgid-after-consecutive-samples"
+        or policy.get("external_process_signals") is not False
+        or policy.get("signal_scope") != "verified-owned-pgid-only"
+        or policy.get("rss_accounting_scope") != "owned-session-id"
+        or type(controller.get("pid")) is not int
+        or type(controller.get("pgid")) is not int
+        or type(controller.get("sid")) is not int
+        or controller["pid"] != controller["pgid"]
+        or controller["pid"] != controller["sid"]
+        or type(controller.get("maximum_owned_sid_rss_kib")) is not int
+        or controller["maximum_owned_sid_rss_kib"] < 0
+        or policy.get("formal_identity_verified") is not True
+        or controller.get("pauses") != []
+        or not isinstance(low_memory_samples, list)
+        or controller.get("low_memory_sample_count") != len(low_memory_samples)
+        or controller.get("sample_period_ms") != 200
+        or type(controller.get("maximum_consecutive_emergency_samples")) is not int
+        or not 0 <= controller["maximum_consecutive_emergency_samples"] < 3
     ):
         raise ReleaseContractError(
             f"bounded CPU controller did not accept the run: {controller_path}"
+        )
+    for sample in low_memory_samples:
+        if (
+            not isinstance(sample, dict)
+            or type(sample.get("sample_index")) is not int
+            or type(sample.get("mem_available_kib")) is not int
+            or sample["mem_available_kib"] >= 12 * 1024**2
+            or type(sample.get("owned_sid_rss_kib")) is not int
+            or type(sample.get("consecutive_emergency_samples")) is not int
+            or not 0 <= sample["consecutive_emergency_samples"] < 3
+        ):
+            raise ReleaseContractError(
+                f"bounded CPU low-memory evidence is malformed: {controller_path}"
+            )
+    if low_memory_samples and max(
+        sample["owned_sid_rss_kib"] for sample in low_memory_samples
+    ) > controller["maximum_owned_sid_rss_kib"]:
+        raise ReleaseContractError(
+            f"bounded CPU session RSS evidence is inconsistent: {controller_path}"
+        )
+    observed_emergency_max = max(
+        (sample["consecutive_emergency_samples"] for sample in low_memory_samples),
+        default=0,
+    )
+    if observed_emergency_max != controller["maximum_consecutive_emergency_samples"]:
+        raise ReleaseContractError(
+            f"bounded CPU emergency-sample evidence is inconsistent: {controller_path}"
         )
     return [_input(controller_path, "cpu-controller")]
 

@@ -24,12 +24,19 @@ ALLOWED_ENVIRONMENT_PROFILES = {
     "pypto-release": "pypto",
     "sglang-baseline": "baseline",
 }
-# CPU pytest workers retain imported Torch pages while SIGSTOPed.  A 16/17 GiB
-# hysteresis can therefore self-lock a valid 24-worker run without releasing a
-# byte.  The 12/13 GiB policy preserves a substantial host reserve while the
-# owned-PGID RSS audit remains the authoritative workload measurement.
+# CMake/CTest subprocesses can drain after the owned process group is paused.
+# Pytest-xdist workers retain imported Torch pages and cannot: stopping all 24
+# workers below a pause floor self-locks the run.  Keep these as explicit,
+# auditable policies instead of applying one memory action to both workloads.
+PROCESS_SCHEMA_VERSION = 2
+POLICY_SCHEMA_VERSION = 2
+PAUSE_DRAIN_MODE = "pause-drain"
+PYTEST_RESIDENT_MODE = "pytest-resident-workers"
 PAUSE_MEMORY_KIB = 12 * 1024 * 1024
 RESUME_MEMORY_KIB = 13 * 1024 * 1024
+PYTEST_LOW_MEMORY_RECORD_KIB = 12 * 1024 * 1024
+PYTEST_EMERGENCY_MEMORY_KIB = 6 * 1024 * 1024
+PYTEST_EMERGENCY_CONSECUTIVE_SAMPLES = 3
 POLL_SECONDS = 0.2
 
 
@@ -44,21 +51,25 @@ def mem_available_kib() -> int:
     raise BoundedCpuError("/proc/meminfo has no MemAvailable field")
 
 
-def process_stat(pid: int) -> tuple[int, int]:
-    fields = pathlib.Path(f"/proc/{pid}/stat").read_text().rpartition(")")[2].split()
+def process_stat(
+    pid: int, proc_root: pathlib.Path = pathlib.Path("/proc")
+) -> tuple[int, int, int]:
+    fields = (proc_root / str(pid) / "stat").read_text().rpartition(")")[2].split()
     if len(fields) <= 19:
         raise BoundedCpuError(f"malformed /proc/{pid}/stat")
-    return int(fields[2]), int(fields[19])
+    return int(fields[2]), int(fields[3]), int(fields[19])
 
 
-def owned_pgid_rss_kib(pgid: int) -> int:
+def owned_sid_rss_kib(sid: int, proc_root: pathlib.Path = pathlib.Path("/proc")) -> int:
     total = 0
-    for entry in pathlib.Path("/proc").iterdir():
+    for entry in proc_root.iterdir():
         if not entry.name.isdigit():
             continue
         try:
-            observed_pgid, _start_ticks = process_stat(int(entry.name))
-            if observed_pgid != pgid:
+            _observed_pgid, observed_sid, _start_ticks = process_stat(
+                int(entry.name), proc_root
+            )
+            if observed_sid != sid:
                 continue
             for line in (entry / "status").read_text().splitlines():
                 if line.startswith("VmRSS:"):
@@ -202,6 +213,145 @@ def validate_command(
     return command
 
 
+def workload_mode(command: list[str], environment: pathlib.Path = ENVIRONMENT) -> str:
+    executable = pathlib.Path(command[0]).resolve(strict=True)
+    if executable in {
+        (environment / "bin/cmake").resolve(strict=True),
+        (environment / "bin/ctest").resolve(strict=True),
+    }:
+        return PAUSE_DRAIN_MODE
+    expected_python = (environment / "bin/python").resolve(strict=True)
+    if executable != expected_python:
+        raise BoundedCpuError("validated CPU command has no workload policy")
+    arguments = command[1:]
+    if arguments[:1] == ["-B"]:
+        arguments = arguments[1:]
+    if arguments[:2] == ["-m", "pytest"]:
+        return PYTEST_RESIDENT_MODE
+    if not arguments:
+        raise BoundedCpuError("validated Python command has no workload policy")
+    script = pathlib.Path(arguments[0]).resolve(strict=True)
+    if script == (ROOT / "tools/build_release.py").resolve(strict=True):
+        if arguments.count("--_worker") != 1:
+            raise BoundedCpuError("release build policy requires one --_worker stage")
+        worker_index = arguments.index("--_worker")
+        if worker_index + 1 >= len(arguments) or arguments[worker_index + 1] not in {
+            "wheels",
+            "native",
+            "ctest",
+            "install",
+        }:
+            raise BoundedCpuError("release build policy has an unknown worker stage")
+        if arguments.count("--_jobs") != 1:
+            raise BoundedCpuError("release build worker requires one --_jobs 24")
+        jobs_index = arguments.index("--_jobs")
+        if jobs_index + 1 >= len(arguments) or arguments[jobs_index + 1] != "24":
+            raise BoundedCpuError("release build worker requires one --_jobs 24")
+        return PAUSE_DRAIN_MODE
+    if script == (ROOT / "tools/run_operator_regression.py").resolve(strict=True):
+        if arguments[1:].count("--_worker-structure") != 1:
+            raise BoundedCpuError(
+                "operator CPU worker policy requires --_worker-structure"
+            )
+        if arguments.count("--_jobs") != 1:
+            raise BoundedCpuError("operator CPU worker requires one --_jobs 24")
+        jobs_index = arguments.index("--_jobs")
+        if jobs_index + 1 >= len(arguments) or arguments[jobs_index + 1] != "24":
+            raise BoundedCpuError("operator CPU worker requires one --_jobs 24")
+        return PYTEST_RESIDENT_MODE
+    raise BoundedCpuError(f"Python CPU workload has no memory policy: {script}")
+
+
+def memory_policy_record(mode: str) -> dict[str, object]:
+    if mode not in {PAUSE_DRAIN_MODE, PYTEST_RESIDENT_MODE}:
+        raise BoundedCpuError(f"unknown CPU workload mode: {mode}")
+    pause_enabled = mode == PAUSE_DRAIN_MODE
+    return {
+        "schema": POLICY_SCHEMA_VERSION,
+        "kind": "pypto-cpu-memory-policy",
+        "workload_mode": mode,
+        "launch_admission_floor_kib": None,
+        "pause_enabled": pause_enabled,
+        "pause_memory_floor_kib": PAUSE_MEMORY_KIB if pause_enabled else None,
+        "resume_memory_floor_kib": RESUME_MEMORY_KIB if pause_enabled else None,
+        "low_memory_recording_floor_kib": (
+            None if pause_enabled else PYTEST_LOW_MEMORY_RECORD_KIB
+        ),
+        "emergency_abort_memory_floor_kib": (
+            None if pause_enabled else PYTEST_EMERGENCY_MEMORY_KIB
+        ),
+        "emergency_abort_consecutive_samples": (
+            None if pause_enabled else PYTEST_EMERGENCY_CONSECUTIVE_SAMPLES
+        ),
+        "low_memory_action": (
+            "pause-owned-pgid" if pause_enabled else "record-and-continue"
+        ),
+        "emergency_action": (
+            None if pause_enabled else "terminate-owned-pgid-after-consecutive-samples"
+        ),
+        "parallelism": 24,
+        "external_process_signals": False,
+        "signal_scope": "verified-owned-pgid-only",
+        "rss_accounting_scope": "owned-session-id",
+    }
+
+
+def memory_policy_update(
+    mode: str,
+    available_kib: int,
+    *,
+    paused: bool,
+    consecutive_emergency_samples: int,
+) -> tuple[str | None, bool, int]:
+    """Return (action, paused, emergency_count) for one host-memory sample."""
+
+    if type(available_kib) is not int or available_kib < 0:
+        raise ValueError("MemAvailable sample must be a non-negative integer")
+    if (
+        type(consecutive_emergency_samples) is not int
+        or consecutive_emergency_samples < 0
+    ):
+        raise ValueError("emergency sample count must be a non-negative integer")
+    if mode == PAUSE_DRAIN_MODE:
+        if not paused and available_kib < PAUSE_MEMORY_KIB:
+            return "pause", True, 0
+        if paused and available_kib >= RESUME_MEMORY_KIB:
+            return "resume", False, 0
+        return None, paused, 0
+    if mode != PYTEST_RESIDENT_MODE:
+        raise BoundedCpuError(f"unknown CPU workload mode: {mode}")
+    if paused:
+        raise BoundedCpuError("pytest resident-worker policy must never be paused")
+    count = (
+        consecutive_emergency_samples + 1
+        if available_kib < PYTEST_EMERGENCY_MEMORY_KIB
+        else 0
+    )
+    return (
+        "abort" if count >= PYTEST_EMERGENCY_CONSECUTIVE_SAMPLES else None,
+        False,
+        count,
+    )
+
+
+def low_memory_sample_record(
+    mode: str,
+    *,
+    sample_index: int,
+    available_kib: int,
+    owned_sid_rss_kib: int,
+    consecutive_emergency_samples: int,
+) -> dict[str, int] | None:
+    if mode != PYTEST_RESIDENT_MODE or available_kib >= PYTEST_LOW_MEMORY_RECORD_KIB:
+        return None
+    return {
+        "sample_index": sample_index,
+        "mem_available_kib": available_kib,
+        "owned_sid_rss_kib": owned_sid_rss_kib,
+        "consecutive_emergency_samples": consecutive_emergency_samples,
+    }
+
+
 def write_run_id(path: pathlib.Path, run_id: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     isolation.atomic_json(path, {"schema_version": 1, "run_id": run_id})
@@ -297,20 +447,11 @@ def main() -> int:
         args.environment, args.framework_profile
     )
     command = validate_command(args.command, environment_prefix)
+    selected_workload_mode = workload_mode(command, environment_prefix)
     initial_available = mem_available_kib()
-    if initial_available < PAUSE_MEMORY_KIB:
-        raise BoundedCpuError(
-            f"MemAvailable {initial_available} KiB is already below 12 GiB pause floor"
-        )
 
     lease = isolation.acquire_environment_lock(args.environment, "shared")
     locked_available = mem_available_kib()
-    if locked_available < PAUSE_MEMORY_KIB:
-        lease.close()
-        raise BoundedCpuError(
-            "MemAvailable fell below the 12 GiB pause floor while acquiring "
-            "the environment lock"
-        )
     timestamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
     run_id = f"pypto-cpu-bounded-{timestamp}-{os.getpid()}-{secrets.token_hex(3)}"
     run_dir = ROOT / "runs" / run_id
@@ -346,8 +487,10 @@ def main() -> int:
         start_new_session=True,
         pass_fds=(lease.descriptor,),
     )
+    pgid = os.getpgid(process.pid)
+    sid = os.getsid(process.pid)
     metadata: dict[str, object] = {
-        "schema": 1,
+        "schema": PROCESS_SCHEMA_VERSION,
         "mode": "cpu-bounded",
         "run_id": run_id,
         "workspace": str(ROOT),
@@ -355,16 +498,13 @@ def main() -> int:
         "framework_profile": args.framework_profile,
         "command": command,
         "pid": process.pid,
-        "pgid": os.getpgid(process.pid),
+        "pgid": pgid,
+        "sid": sid,
         "start_ticks": isolation.process_start_ticks(process.pid),
         "status": "running",
         "locked_mem_available_kib": locked_available,
         "policy": {
-            "launch_admission_floor_kib": None,
-            "pause_memory_floor_kib": PAUSE_MEMORY_KIB,
-            "resume_memory_floor_kib": RESUME_MEMORY_KIB,
-            "parallelism": 24,
-            "external_process_signals": False,
+            **memory_policy_record(selected_workload_mode),
             "formal_identity_verified": args.environment != "pypto-nvidia",
         },
         "environment_access_lock": {
@@ -377,24 +517,27 @@ def main() -> int:
     metadata_path = run_dir / "process.json"
     isolation.atomic_json(metadata_path, metadata)
     print(
-        f"PYPTO_CPU_BOUNDED_RUN_ID={run_id} PID={process.pid} PGID={metadata['pgid']}",
+        f"PYPTO_CPU_BOUNDED_RUN_ID={run_id} PID={process.pid} "
+        f"PGID={metadata['pgid']} SID={metadata['sid']}",
         flush=True,
     )
 
     deadline = time.monotonic() + args.timeout_seconds
-    minimum_available = initial_available
-    maximum_owned_rss = 0
+    minimum_available = min(initial_available, locked_available)
+    maximum_owned_sid_rss = 0
     samples = 0
     pauses: list[dict[str, object]] = []
+    low_memory_samples: list[dict[str, int]] = []
     paused = False
+    consecutive_emergency_samples = 0
+    maximum_consecutive_emergency_samples = 0
     abort_reason: str | None = None
     try:
         while process.poll() is None:
             available = mem_available_kib()
             minimum_available = min(minimum_available, available)
-            maximum_owned_rss = max(
-                maximum_owned_rss, owned_pgid_rss_kib(int(metadata["pgid"]))
-            )
+            owned_sid_rss = owned_sid_rss_kib(int(metadata["sid"]))
+            maximum_owned_sid_rss = max(maximum_owned_sid_rss, owned_sid_rss)
             samples += 1
             if shutil.disk_usage(ROOT).free < minimum_disk:
                 abort_reason = "workspace-disk-floor"
@@ -402,14 +545,35 @@ def main() -> int:
             if time.monotonic() >= deadline:
                 abort_reason = "owned-run-timeout"
                 break
-            if not paused and available < PAUSE_MEMORY_KIB:
+            action, next_paused, consecutive_emergency_samples = memory_policy_update(
+                selected_workload_mode,
+                available,
+                paused=paused,
+                consecutive_emergency_samples=consecutive_emergency_samples,
+            )
+            maximum_consecutive_emergency_samples = max(
+                maximum_consecutive_emergency_samples,
+                consecutive_emergency_samples,
+            )
+            low_memory_sample = low_memory_sample_record(
+                selected_workload_mode,
+                sample_index=samples,
+                available_kib=available,
+                owned_sid_rss_kib=owned_sid_rss,
+                consecutive_emergency_samples=consecutive_emergency_samples,
+            )
+            if low_memory_sample is not None:
+                low_memory_samples.append(low_memory_sample)
+            if action == "pause":
                 stop_run.signal_verified(metadata, signal.SIGSTOP)
-                paused = True
                 pauses.append({"action": "pause", "mem_available_kib": available})
-            elif paused and available >= RESUME_MEMORY_KIB:
+            elif action == "resume":
                 stop_run.signal_verified(metadata, signal.SIGCONT)
-                paused = False
                 pauses.append({"action": "resume", "mem_available_kib": available})
+            elif action == "abort":
+                abort_reason = "host-memory-emergency-floor"
+                break
+            paused = next_paused
             time.sleep(POLL_SECONDS)
         if abort_reason is not None:
             terminate_owned(metadata, process)
@@ -429,8 +593,13 @@ def main() -> int:
             "sample_period_ms": int(POLL_SECONDS * 1000),
             "initial_mem_available_kib": initial_available,
             "minimum_mem_available_kib": minimum_available,
-            "maximum_owned_pgid_rss_kib": maximum_owned_rss,
+            "maximum_owned_sid_rss_kib": maximum_owned_sid_rss,
             "pauses": pauses,
+            "low_memory_samples": low_memory_samples,
+            "low_memory_sample_count": len(low_memory_samples),
+            "maximum_consecutive_emergency_samples": (
+                maximum_consecutive_emergency_samples
+            ),
         }
     )
     isolation.atomic_json(metadata_path, metadata)

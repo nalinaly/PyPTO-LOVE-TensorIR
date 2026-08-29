@@ -41,10 +41,35 @@ class BoundedCpuCommandTest(unittest.TestCase):
         cls.build = str((ROOT / "builds/pypto-paged-f34c3f5").resolve(strict=True))
 
     def test_policy_retires_22_gib_and_pins_parallel_24(self) -> None:
+        self.assertEqual(cpu.PROCESS_SCHEMA_VERSION, 2)
+        self.assertEqual(cpu.POLICY_SCHEMA_VERSION, 2)
         self.assertEqual(cpu.PAUSE_MEMORY_KIB, 12 * 1024 * 1024)
         self.assertEqual(cpu.RESUME_MEMORY_KIB, 13 * 1024 * 1024)
+        self.assertEqual(cpu.PYTEST_LOW_MEMORY_RECORD_KIB, 12 * 1024 * 1024)
+        self.assertEqual(cpu.PYTEST_EMERGENCY_MEMORY_KIB, 6 * 1024 * 1024)
+        self.assertEqual(cpu.PYTEST_EMERGENCY_CONSECUTIVE_SAMPLES, 3)
         self.assertEqual(cpu.POLL_SECONDS, 0.2)
         self.assertFalse(hasattr(cpu, "LAUNCH_MEMORY_KIB"))
+        self.assertIsNone(
+            cpu.memory_policy_record(cpu.PYTEST_RESIDENT_MODE)[
+                "launch_admission_floor_kib"
+            ]
+        )
+        pytest_policy = cpu.memory_policy_record(cpu.PYTEST_RESIDENT_MODE)
+        self.assertFalse(pytest_policy["pause_enabled"])
+        self.assertIsNone(pytest_policy["pause_memory_floor_kib"])
+        self.assertEqual(
+            pytest_policy["emergency_abort_memory_floor_kib"], 6 * 1024 * 1024
+        )
+        self.assertEqual(pytest_policy["emergency_abort_consecutive_samples"], 3)
+        self.assertFalse(pytest_policy["external_process_signals"])
+        self.assertEqual(pytest_policy["signal_scope"], "verified-owned-pgid-only")
+        self.assertEqual(pytest_policy["rss_accounting_scope"], "owned-session-id")
+        build_policy = cpu.memory_policy_record(cpu.PAUSE_DRAIN_MODE)
+        self.assertTrue(build_policy["pause_enabled"])
+        self.assertEqual(build_policy["pause_memory_floor_kib"], 12 * 1024 * 1024)
+        self.assertEqual(build_policy["resume_memory_floor_kib"], 13 * 1024 * 1024)
+        self.assertIsNone(build_policy["emergency_abort_memory_floor_kib"])
 
     def test_accepts_only_exact_workspace_build_and_ctest_commands(self) -> None:
         for command in (
@@ -123,6 +148,183 @@ class BoundedCpuCommandTest(unittest.TestCase):
                 ["--", python, "-B", "-m", "pytest", "-n2", "tests"],
                 environment,
             )
+
+    def test_workload_policy_classifies_build_and_resident_pytest(self) -> None:
+        release = cpu.validate_environment_profile("pypto-release", "pypto")
+        python = str((release / "bin/python").resolve(strict=True))
+        direct_pytest = cpu.validate_command(
+            ["--", python, "-B", "-m", "pytest", "-n24", "tests"], release
+        )
+        structure_worker = cpu.validate_command(
+            [
+                "--",
+                python,
+                "-B",
+                str((ROOT / "tools/run_operator_regression.py").resolve(strict=True)),
+                "--_worker-structure",
+                "--_jobs",
+                "24",
+            ],
+            release,
+        )
+        build_worker = cpu.validate_command(
+            [
+                "--",
+                python,
+                "-B",
+                str((ROOT / "tools/build_release.py").resolve(strict=True)),
+                "--_worker",
+                "native",
+                "--_jobs",
+                "24",
+            ],
+            release,
+        )
+        self.assertEqual(
+            cpu.workload_mode(direct_pytest, release), cpu.PYTEST_RESIDENT_MODE
+        )
+        self.assertEqual(
+            cpu.workload_mode(structure_worker, release), cpu.PYTEST_RESIDENT_MODE
+        )
+        self.assertEqual(cpu.workload_mode(build_worker, release), cpu.PAUSE_DRAIN_MODE)
+        changed_jobs = list(structure_worker)
+        changed_jobs[changed_jobs.index("--_jobs") + 1] = "2"
+        with self.assertRaises(cpu.BoundedCpuError):
+            cpu.workload_mode(changed_jobs, release)
+        changed_stage = list(build_worker)
+        changed_stage[changed_stage.index("--_worker") + 1] = "unknown"
+        with self.assertRaises(cpu.BoundedCpuError):
+            cpu.workload_mode(changed_stage, release)
+        for command in (
+            [self.cmake, "--build", self.build, "--parallel", "24"],
+            [self.ctest, "--test-dir", self.build, "-j24"],
+        ):
+            self.assertEqual(cpu.workload_mode(command), cpu.PAUSE_DRAIN_MODE)
+
+    def test_pytest_low_memory_never_pauses_and_three_emergency_samples_abort(
+        self,
+    ) -> None:
+        count = 0
+        for available in (
+            cpu.PYTEST_LOW_MEMORY_RECORD_KIB - 1,
+            cpu.PYTEST_EMERGENCY_MEMORY_KIB,
+        ):
+            action, paused, count = cpu.memory_policy_update(
+                cpu.PYTEST_RESIDENT_MODE,
+                available,
+                paused=False,
+                consecutive_emergency_samples=count,
+            )
+            self.assertIsNone(action)
+            self.assertFalse(paused)
+            self.assertEqual(count, 0)
+        for expected_count in (1, 2):
+            action, paused, count = cpu.memory_policy_update(
+                cpu.PYTEST_RESIDENT_MODE,
+                cpu.PYTEST_EMERGENCY_MEMORY_KIB - 1,
+                paused=False,
+                consecutive_emergency_samples=count,
+            )
+            self.assertIsNone(action)
+            self.assertFalse(paused)
+            self.assertEqual(count, expected_count)
+        action, paused, count = cpu.memory_policy_update(
+            cpu.PYTEST_RESIDENT_MODE,
+            cpu.PYTEST_EMERGENCY_MEMORY_KIB - 1,
+            paused=False,
+            consecutive_emergency_samples=count,
+        )
+        self.assertEqual(action, "abort")
+        self.assertFalse(paused)
+        self.assertEqual(count, 3)
+        self.assertEqual(
+            cpu.low_memory_sample_record(
+                cpu.PYTEST_RESIDENT_MODE,
+                sample_index=7,
+                available_kib=cpu.PYTEST_EMERGENCY_MEMORY_KIB - 1,
+                owned_sid_rss_kib=14 * 1024 * 1024,
+                consecutive_emergency_samples=count,
+            ),
+            {
+                "sample_index": 7,
+                "mem_available_kib": cpu.PYTEST_EMERGENCY_MEMORY_KIB - 1,
+                "owned_sid_rss_kib": 14 * 1024 * 1024,
+                "consecutive_emergency_samples": 3,
+            },
+        )
+        self.assertIsNone(
+            cpu.low_memory_sample_record(
+                cpu.PAUSE_DRAIN_MODE,
+                sample_index=7,
+                available_kib=0,
+                owned_sid_rss_kib=0,
+                consecutive_emergency_samples=0,
+            )
+        )
+        with self.assertRaises(cpu.BoundedCpuError):
+            cpu.memory_policy_update(
+                cpu.PYTEST_RESIDENT_MODE,
+                cpu.PYTEST_EMERGENCY_MEMORY_KIB - 1,
+                paused=True,
+                consecutive_emergency_samples=0,
+            )
+
+    def test_cmake_ctest_policy_still_pauses_and_resumes_with_hysteresis(self) -> None:
+        action, paused, count = cpu.memory_policy_update(
+            cpu.PAUSE_DRAIN_MODE,
+            cpu.PAUSE_MEMORY_KIB - 1,
+            paused=False,
+            consecutive_emergency_samples=0,
+        )
+        self.assertEqual((action, paused, count), ("pause", True, 0))
+        action, paused, count = cpu.memory_policy_update(
+            cpu.PAUSE_DRAIN_MODE,
+            cpu.RESUME_MEMORY_KIB - 1,
+            paused=paused,
+            consecutive_emergency_samples=count,
+        )
+        self.assertEqual((action, paused, count), (None, True, 0))
+        action, paused, count = cpu.memory_policy_update(
+            cpu.PAUSE_DRAIN_MODE,
+            cpu.RESUME_MEMORY_KIB,
+            paused=paused,
+            consecutive_emergency_samples=count,
+        )
+        self.assertEqual((action, paused, count), ("resume", False, 0))
+
+    def test_owned_session_rss_includes_workers_with_distinct_pgids(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            proc = pathlib.Path(directory)
+
+            def process(pid: int, pgid: int, sid: int, rss_kib: int) -> None:
+                root = proc / str(pid)
+                root.mkdir()
+                fields = ["S", "1", str(pgid), str(sid), *(["0"] * 15), "123"]
+                (root / "stat").write_text(
+                    f"{pid} (pytest worker {pid}) " + " ".join(fields)
+                )
+                (root / "status").write_text(f"Name:\tworker\nVmRSS:\t{rss_kib} kB\n")
+
+            process(101, 501, 900, 100)
+            process(102, 502, 900, 200)
+            process(103, 503, 901, 400)
+            self.assertEqual(cpu.process_stat(101, proc), (501, 900, 123))
+            self.assertEqual(cpu.owned_sid_rss_kib(900, proc), 300)
+
+    def test_cpu_termination_signals_only_the_verified_target_group(self) -> None:
+        process = mock.Mock()
+        process.poll.return_value = None
+        process.wait.return_value = 0
+        metadata = {"pid": 101, "pgid": 101, "sid": 101, "start_ticks": 7}
+        with mock.patch.object(cpu.stop_run, "signal_verified") as verified:
+            cpu.terminate_owned(metadata, process)
+        self.assertEqual(
+            verified.call_args_list,
+            [
+                mock.call(metadata, signal.SIGCONT),
+                mock.call(metadata, signal.SIGTERM),
+            ],
+        )
 
     def test_cpu_environment_profile_pairs_are_allowlisted(self) -> None:
         self.assertEqual(

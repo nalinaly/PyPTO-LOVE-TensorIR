@@ -262,6 +262,73 @@ def test_release_summary_sanitizer_rejects_machine_paths_and_placeholders() -> N
         renderer._require_sanitized({"result": "pending formal GPU gate"})
 
 
+def test_renderer_requires_nonpausing_pytest_cpu_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(renderer, "ROOT", tmp_path)
+    run = tmp_path / "runs/cpu-policy"
+    run.mkdir(parents=True)
+    report = run / "operator-structure.json"
+    process = run / "process.json"
+    payload = {
+        "schema": 2,
+        "mode": "cpu-bounded",
+        "framework_profile": "pypto",
+        "status": "exited",
+        "return_code": 0,
+        "abort_reason": None,
+        "pid": 777,
+        "pgid": 777,
+        "sid": 777,
+        "pauses": [],
+        "low_memory_samples": [
+            {
+                "sample_index": 3,
+                "mem_available_kib": 11 * 1024**2,
+                "owned_sid_rss_kib": 14 * 1024**2,
+                "consecutive_emergency_samples": 0,
+            },
+            {
+                "sample_index": 4,
+                "mem_available_kib": 5 * 1024**2,
+                "owned_sid_rss_kib": 14 * 1024**2,
+                "consecutive_emergency_samples": 1,
+            },
+        ],
+        "low_memory_sample_count": 2,
+        "sample_period_ms": 200,
+        "maximum_consecutive_emergency_samples": 1,
+        "maximum_owned_sid_rss_kib": 14 * 1024**2,
+        "policy": {
+            "schema": 2,
+            "kind": "pypto-cpu-memory-policy",
+            "workload_mode": "pytest-resident-workers",
+            "launch_admission_floor_kib": None,
+            "pause_enabled": False,
+            "pause_memory_floor_kib": None,
+            "resume_memory_floor_kib": None,
+            "low_memory_recording_floor_kib": 12 * 1024**2,
+            "emergency_abort_memory_floor_kib": 6 * 1024**2,
+            "emergency_abort_consecutive_samples": 3,
+            "low_memory_action": "record-and-continue",
+            "emergency_action": "terminate-owned-pgid-after-consecutive-samples",
+            "parallelism": 24,
+            "external_process_signals": False,
+            "signal_scope": "verified-owned-pgid-only",
+            "rss_accounting_scope": "owned-session-id",
+            "formal_identity_verified": True,
+        },
+    }
+    process.write_text(json.dumps(payload), encoding="utf-8")
+    evidence = renderer._cpu_controller_evidence(report)
+    assert evidence[0]["role"] == "cpu-controller"
+
+    payload["policy"]["pause_enabled"] = True
+    process.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(renderer.ReleaseContractError, match="did not accept"):
+        renderer._cpu_controller_evidence(report)
+
+
 def test_release_closure_sources_are_workstation_portable() -> None:
     for relative in (
         "benchmarks/release/evidence_identity.py",
