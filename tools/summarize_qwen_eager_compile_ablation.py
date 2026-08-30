@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare one full-model eager control with the accepted matched timing pair."""
+"""Compare one full-model eager control with a resource-valid matched subset."""
 
 from __future__ import annotations
 
@@ -18,6 +18,78 @@ from benchmarks.release.workload import sha256_file, workload_record  # noqa: E4
 
 
 METRICS = ("e2e_ms", "ttft_ms", "tpot_ms", "output_tokens_per_second")
+GPU_FREE_FLOOR_BYTES = 4 * 1024**3
+HOST_FREE_FLOOR_KIB = 12 * 1024**2
+
+
+def validate_eager_resources(resources: object) -> dict[str, object]:
+    if not isinstance(resources, dict) or resources.get("nvml_error") is not None:
+        raise SystemExit("eager control lacks valid NVML telemetry")
+    summary = resources.get("summary")
+    if not isinstance(summary, dict):
+        raise SystemExit("eager control lacks a resource summary")
+    if (
+        type(summary.get("minimum_gpu_memory_free_bytes")) is not int
+        or int(summary["minimum_gpu_memory_free_bytes"]) < GPU_FREE_FLOOR_BYTES
+        or type(summary.get("minimum_mem_available_kib")) is not int
+        or int(summary["minimum_mem_available_kib"]) < HOST_FREE_FLOOR_KIB
+        or type(summary.get("sample_count")) is not int
+        or int(summary["sample_count"]) <= 0
+        or summary.get("thermal_throttle_observed") is not False
+    ):
+        raise SystemExit("eager control is not resource-qualified")
+    return {
+        "accepted": True,
+        "gpu_free_floor_bytes": GPU_FREE_FLOOR_BYTES,
+        "host_free_floor_kib": HOST_FREE_FLOOR_KIB,
+        "minimum_gpu_memory_free_bytes": summary["minimum_gpu_memory_free_bytes"],
+        "minimum_mem_available_kib": summary["minimum_mem_available_kib"],
+        "sample_count": summary["sample_count"],
+        "thermal_throttle_observed": False,
+    }
+
+
+def validate_matched_subset(summary: object) -> dict[str, object]:
+    if not isinstance(summary, dict):
+        raise SystemExit("matched summary is not an object")
+    status = summary.get("status")
+    invalidation = summary.get("acceptance")
+    if status == "complete":
+        source_boundary = "source pair is complete"
+    elif (
+        status == "invalidated-resource-floor"
+        and isinstance(invalidation, dict)
+        and invalidation.get("accepted") is False
+        and invalidation.get("affected_lane") == "pypto"
+    ):
+        source_boundary = (
+            "source pair is invalidated by the PyPTO resource floor; only the "
+            "independently resource-valid matched subset is consumed"
+        )
+    else:
+        raise SystemExit("matched summary has no consumable matched subset")
+    lane = summary.get("lanes", {}).get("sglang-matched", {})
+    starts = lane.get("starts", []) if isinstance(lane, dict) else []
+    if len(starts) != 4:
+        raise SystemExit("matched subset does not contain four starts")
+    for start in starts:
+        resources = start.get("resources") if isinstance(start, dict) else None
+        if (
+            not isinstance(resources, dict)
+            or type(resources.get("minimum_gpu_memory_free_bytes")) is not int
+            or int(resources["minimum_gpu_memory_free_bytes"])
+            < GPU_FREE_FLOOR_BYTES
+            or resources.get("thermal_throttle_observed") is not False
+        ):
+            raise SystemExit("matched subset is not resource-qualified")
+    return {
+        "source_pair_status": status,
+        "source_pair_accepted": status == "complete",
+        "matched_subset_resource_accepted": True,
+        "matched_starts": 4,
+        "gpu_free_floor_bytes": GPU_FREE_FLOOR_BYTES,
+        "evidence_boundary": source_boundary,
+    }
 
 
 def main() -> int:
@@ -36,8 +108,8 @@ def main() -> int:
         or eager.get("workload") != workload_record()
     ):
         raise SystemExit("eager report is not the expected timing-only control")
-    if matched.get("status") != "complete":
-        raise SystemExit("matched summary is not complete")
+    eager_resource_boundary = validate_eager_resources(eager.get("resources"))
+    matched_boundary = validate_matched_subset(matched)
     matched_metrics = matched["lanes"]["sglang-matched"]["metrics"]
     eager_metrics = eager["metrics"]
     result = {
@@ -51,6 +123,7 @@ def main() -> int:
             "report": eager_path.relative_to(ROOT).as_posix(),
             "report_sha256": sha256_file(eager_path),
             "comparison_mode": eager["comparison_mode"],
+            "resource_boundary": eager_resource_boundary,
             "metrics_p50": {
                 metric: float(eager_metrics[metric]["p50"]) for metric in METRICS
             },
@@ -75,6 +148,7 @@ def main() -> int:
             ),
             "backend_invocation_observed": False,
             "effective_compile": False,
+            "source_pair_boundary": matched_boundary,
         },
         "observed_difference": {
             metric: {

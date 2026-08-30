@@ -31,6 +31,7 @@ def _load_tool(name: str):
 
 operator_performance_tool = _load_tool("run_operator_performance.py")
 performance_pair_tool = _load_tool("summarize_qwen_performance_pair.py")
+eager_compile_tool = _load_tool("summarize_qwen_eager_compile_ablation.py")
 
 
 def _resolved_record(lane: str) -> dict[str, object]:
@@ -133,6 +134,48 @@ def test_pair_summary_accepts_exact_resource_floors(tmp_path: Path) -> None:
     assert summary["minimum_gpu_memory_free_bytes"] == 4 * 1024**3
     assert summary["minimum_mem_available_kib"] == 16 * 1024**2
     assert identity["uuid"] == "GPU-test"
+
+
+def test_eager_control_can_consume_only_valid_matched_subset_of_invalid_pair() -> None:
+    matched_start = {
+        "resources": {
+            "minimum_gpu_memory_free_bytes": 5 * 1024**3,
+            "thermal_throttle_observed": False,
+        }
+    }
+    summary = {
+        "status": "invalidated-resource-floor",
+        "acceptance": {"accepted": False, "affected_lane": "pypto"},
+        "lanes": {"sglang-matched": {"starts": [matched_start] * 4}},
+    }
+    boundary = eager_compile_tool.validate_matched_subset(summary)
+    assert boundary["source_pair_accepted"] is False
+    assert boundary["matched_subset_resource_accepted"] is True
+
+
+def test_eager_control_rejects_subfloor_matched_subset() -> None:
+    matched_start = {
+        "resources": {
+            "minimum_gpu_memory_free_bytes": 4 * 1024**3 - 1,
+            "thermal_throttle_observed": False,
+        }
+    }
+    summary = {
+        "status": "invalidated-resource-floor",
+        "acceptance": {"accepted": False, "affected_lane": "pypto"},
+        "lanes": {"sglang-matched": {"starts": [matched_start] * 4}},
+    }
+    with pytest.raises(SystemExit, match="not resource-qualified"):
+        eager_compile_tool.validate_matched_subset(summary)
+
+
+def test_eager_control_resource_gate_uses_high_frequency_summary() -> None:
+    resources = _performance_report("sglang-matched", 0, 1.0)["resources"]
+    boundary = eager_compile_tool.validate_eager_resources(resources)
+    assert boundary["accepted"] is True
+    resources["summary"]["minimum_gpu_memory_free_bytes"] = 4 * 1024**3 - 1
+    with pytest.raises(SystemExit, match="not resource-qualified"):
+        eager_compile_tool.validate_eager_resources(resources)
 
 
 def test_performance_summary_uses_start_medians_and_matched_pytorch_sampler() -> None:

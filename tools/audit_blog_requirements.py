@@ -196,6 +196,23 @@ def check_performance(errors: list[str]) -> None:
         or eager.get("interpretation", {}).get("whole_model_torch_compile_speedup_percent") is not None
     ):
         errors.append("full-model eager control must remain explicitly non-causal")
+    if eager is not None:
+        eager_resource = eager.get("eager_control", {}).get("resource_boundary", {})
+        matched_boundary = eager.get("matched_compile_requested", {}).get(
+            "source_pair_boundary", {}
+        )
+        pair_path = ROOT / "state/evidence/qwen35-9b-performance-pair-current.json"
+        if (
+            eager_resource.get("accepted") is not True
+            or eager_resource.get("gpu_free_floor_bytes") != 4 * 1024**3
+            or matched_boundary.get("source_pair_status")
+            != "invalidated-resource-floor"
+            or matched_boundary.get("source_pair_accepted") is not False
+            or matched_boundary.get("matched_subset_resource_accepted") is not True
+            or eager.get("matched_compile_requested", {}).get("summary_sha256")
+            != sha256(pair_path)
+        ):
+            errors.append("full-model eager control resource/source boundary drifted")
     for relative in (
         "benchmarks/release/performance_runtime.py",
         "benchmarks/release/operator_performance_runtime.py",

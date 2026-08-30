@@ -10,7 +10,16 @@
       "ttft_ms": 72.808101
     },
     "report": "runs/pypto-gpu-bounded-20260830T151752Z-2415413-cbaeb1/qwen35-9b-performance-sglang-matched.json",
-    "report_sha256": "3d7310641c183085f9ab809cc0ef88b33cca934e22ffab5b980f284fc7c5fa1d"
+    "report_sha256": "3d7310641c183085f9ab809cc0ef88b33cca934e22ffab5b980f284fc7c5fa1d",
+    "resource_boundary": {
+      "accepted": true,
+      "gpu_free_floor_bytes": 4294967296,
+      "host_free_floor_kib": 12582912,
+      "minimum_gpu_memory_free_bytes": 4688674816,
+      "minimum_mem_available_kib": 46834852,
+      "sample_count": 361,
+      "thermal_throttle_observed": false
+    }
   },
   "interpretation": {
     "causal_compile_measurement": "not_available",
@@ -30,8 +39,16 @@
       "tpot_ms": 64.60733019444444,
       "ttft_ms": 69.80546275
     },
+    "source_pair_boundary": {
+      "evidence_boundary": "source pair is invalidated by the PyPTO resource floor; only the independently resource-valid matched subset is consumed",
+      "gpu_free_floor_bytes": 4294967296,
+      "matched_starts": 4,
+      "matched_subset_resource_accepted": true,
+      "source_pair_accepted": false,
+      "source_pair_status": "invalidated-resource-floor"
+    },
     "summary": "state/evidence/qwen35-9b-performance-pair-current.json",
-    "summary_sha256": "971370f6662b5c2185699c7798f201b238a9b4413385c48fd3d78ee29f6584c3"
+    "summary_sha256": "351b95af985422a86fbc9196572710d3850b3d4e5c653a50edb3c803e85be195"
   },
   "observed_difference": {
     "e2e_ms": {
@@ -48,7 +65,7 @@
     }
   },
   "performance_only": true,
-  "recorded_at": "2026-08-30T15:39:37.057743+00:00",
+  "recorded_at": "2026-08-30T17:08:43.595081+00:00",
   "schema": 1,
   "status": "complete",
   "workload": {

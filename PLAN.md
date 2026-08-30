@@ -1685,6 +1685,12 @@ tests include an exact-floor pass and a one-byte-below rejection. Correctness,
 stability and 100% model-forward coverage gates are independent and remain
 accepted.
 
+The timing-only eager sidecar is regenerated against the invalidated pair. Its
+single eager run and all four matched starts independently pass the resource
+floors, so that non-causal control remains usable; it records that the source
+pair is not accepted and consumes only the matched subset. The audit binds its
+source SHA and forbids promoting the observed difference to a compile speedup.
+
 Resume performance work only after protected workloads leave. First rerun four
 PyPTO and four matched starts under the same frozen workload with the repaired
 controller and summarizer; all eight reports must pass their 100 ms resource
