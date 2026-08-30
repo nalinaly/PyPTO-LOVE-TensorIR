@@ -43,6 +43,12 @@ from .workload import (
 MAX_TRACE_ATTEMPTS = 10
 CUPTI_BUFFER_COMPLETION_TIMEOUT_SECONDS = 1.0
 ROOT = Path(__file__).resolve().parents[2]
+SEMANTIC_ORACLE_THRESHOLDS = {
+    "first_step_cosine_min": 0.98,
+    "first_step_max_abs_max": 3.0,
+    "first_step_top5_overlap_min": 3,
+    "short_prefix_tokens": 16,
+}
 THRESHOLDS = {
     "cosine_similarity_min": 0.98,
     "max_abs_error_max": 3.0,
@@ -304,6 +310,88 @@ def _compile_cache_evidence(
     }
 
 
+def _validate_semantic_oracle(
+    torch,
+    oracle_path: Path,
+    reference_logits,
+    reference_output_ids: Sequence[int],
+    workload: dict[str, object],
+    model: dict[str, object],
+) -> dict[str, object]:
+    """Reconcile the independent Transformers first-step semantic oracle."""
+
+    oracle_path = oracle_path.resolve(strict=True)
+    oracle = read_json(oracle_path)
+    if (
+        oracle.get("status") != "complete"
+        or oracle.get("kind") != "qwen35-transformers-semantic-oracle"
+        or oracle.get("workload") != workload
+    ):
+        raise ReleaseContractError(
+            "semantic oracle is incomplete or uses a different chat workload"
+        )
+    oracle_model = oracle.get("model")
+    if not isinstance(oracle_model, dict) or any(
+        oracle_model.get(field) != model.get(field)
+        for field in ("manifest_name", "model_id", "model_size", "revision")
+    ):
+        raise ReleaseContractError("semantic oracle model identity differs")
+    smoke = oracle.get("semantic_smoke")
+    if not isinstance(smoke, dict) or smoke.get("passed") is not True:
+        raise ReleaseContractError("semantic oracle smoke did not pass")
+    logits_record = oracle.get("first_logits")
+    if not isinstance(logits_record, dict):
+        raise ReleaseContractError("semantic oracle has no first-logits record")
+    logits_path = Path(str(logits_record.get("path"))).resolve(strict=True)
+    if sha256_file(logits_path) != logits_record.get("file_sha256"):
+        raise ReleaseContractError("semantic oracle first-logits hash changed")
+    oracle_logits = torch.load(
+        logits_path, map_location="cpu", weights_only=True
+    ).float()
+    reference_first = reference_logits[0].float().cpu().contiguous()
+    if list(oracle_logits.shape) != list(reference_first.shape):
+        raise ReleaseContractError("semantic oracle first-logits shape differs")
+    difference = (reference_first - oracle_logits).abs()
+    cosine = torch.nn.functional.cosine_similarity(
+        reference_first.view(1, -1), oracle_logits.view(1, -1)
+    )[0]
+    reference_top = torch.topk(reference_first, k=5).indices.tolist()
+    oracle_top = torch.topk(oracle_logits, k=5).indices.tolist()
+    prefix = list(oracle.get("output_token_ids", []))
+    compared = min(len(prefix), len(reference_output_ids))
+    prefix_exact = (
+        compared > 0
+        and prefix[:compared] == list(reference_output_ids)[:compared]
+    )
+    result = {
+        "path": str(oracle_path),
+        "sha256": sha256_file(oracle_path),
+        "thresholds": dict(SEMANTIC_ORACLE_THRESHOLDS),
+        "first_step_max_abs": float(difference.max()),
+        "first_step_mean_abs": float(difference.mean()),
+        "first_step_cosine": float(cosine),
+        "first_step_top5_overlap": len(set(reference_top) & set(oracle_top)),
+        "first_step_top1_equal": reference_top[0] == oracle_top[0],
+        "short_prefix_tokens_compared": compared,
+        "short_prefix_exact": prefix_exact,
+        "oracle_output_sequence_sha256": oracle.get("output_sequence_sha256"),
+        "passed": bool(
+            float(cosine) >= SEMANTIC_ORACLE_THRESHOLDS["first_step_cosine_min"]
+            and float(difference.max())
+            <= SEMANTIC_ORACLE_THRESHOLDS["first_step_max_abs_max"]
+            and len(set(reference_top) & set(oracle_top))
+            >= SEMANTIC_ORACLE_THRESHOLDS["first_step_top5_overlap_min"]
+            and reference_top[0] == oracle_top[0]
+            and prefix_exact
+        ),
+    }
+    if result["passed"] is not True:
+        raise ReleaseContractError(
+            "SGLang reference does not reconcile with the independent Transformers oracle"
+        )
+    return result
+
+
 def _run_engine_sequences(
     model_path: Path,
     expected_output_ids: list[int],
@@ -466,7 +554,12 @@ def _run_engine_sequences_isolated(
     return value
 
 
-def run_reference(model_path: Path, run_id: str, run_dir: Path) -> int:
+def run_reference(
+    model_path: Path,
+    run_id: str,
+    run_dir: Path,
+    semantic_oracle_path: Path,
+) -> int:
     lane = "sglang-matched"
     model_path = model_path.resolve(strict=True)
     model_spec = resolve_qwen35_model_spec(ROOT, model_path)
@@ -526,6 +619,14 @@ def run_reference(model_path: Path, run_id: str, run_dir: Path) -> int:
             raise ReleaseContractError(
                 "tokenizer revision raw diagnostic encoding changed"
             )
+        semantic_oracle = _validate_semantic_oracle(
+            torch,
+            semantic_oracle_path,
+            logits,
+            output_ids,
+            resolved_workload,
+            model,
+        )
         evidence_identity = collect_run_identity(ROOT, "baseline", model_path)
         report.update(
             {
@@ -548,6 +649,7 @@ def run_reference(model_path: Path, run_id: str, run_dir: Path) -> int:
                         "logits_raw_sha256": _tensor_raw_sha256(logits),
                     }
                 ),
+                "semantic_oracle": semantic_oracle,
                 "evidence_identity": evidence_identity,
             }
         )
@@ -819,6 +921,18 @@ def run_candidate(
             raise ReleaseContractError(
                 "reference thresholds differ from release policy"
             )
+        semantic_oracle = reference_report.get("semantic_oracle")
+        if (
+            not isinstance(semantic_oracle, dict)
+            or semantic_oracle.get("passed") is not True
+            or type(semantic_oracle.get("sha256")) is not str
+        ):
+            raise ReleaseContractError(
+                "reference report has no reconciled semantic oracle"
+            )
+        oracle_report_path = Path(str(semantic_oracle.get("path"))).resolve(strict=True)
+        if sha256_file(oracle_report_path) != semantic_oracle.get("sha256"):
+            raise ReleaseContractError("reference semantic oracle report hash changed")
         reference_model = reference_report.get("model")
         if not isinstance(reference_model, dict) or any(
             reference_model.get(field) != model[field]

@@ -27,7 +27,9 @@ names and claims:
 2. **Chat-template release workload:** the pinned model tokenizer applies its
    checked-in chat template to one `user` message with
    `add_generation_prompt=true` and the explicitly recorded thinking-mode
-   setting. At the current pinned revisions this is expected to produce 29 IDs,
+   setting. The release uses `enable_thinking=false` so the fixed 64-token window
+   shows the direct answer rather than a partial reasoning trace. At the current
+   pinned revisions this is expected to produce 31 IDs,
    but the IDs, rendered template text, tokenizer/config/template SHA-256 and
    token count are generated and verified from both model snapshots rather than
    copied by hand. This exact formatted sequence is the input for the stock
@@ -420,7 +422,8 @@ in prose while still being absent from a reproducible release:
    it must never be copied into a whole-model claim.
 5. **The model claim remains ordered and fail-closed.**  Run Qwen3.5-0.8B first
    and Qwen3.5-9B only after the smaller model passes.  Each model requires the
-   frozen generated chat-template input (currently expected to be 29 IDs) plus
+   frozen generated non-thinking chat-template input (currently expected to be
+   31 IDs) plus
    64 generated IDs, three fresh starts, ten warm requests per
    start, exact greedy token IDs/text, prefill/decode logit and state/cache
    tolerances frozen before measurement, 100% non-vacuous PyPTO compute

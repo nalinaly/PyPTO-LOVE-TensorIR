@@ -4,7 +4,7 @@
   "additionalProperties": false,
   "properties": {
     "chat_template_kwargs": {
-      "const": {"add_generation_prompt": true, "enable_thinking": true}
+      "const": {"add_generation_prompt": true, "enable_thinking": false}
     },
     "concurrency": {"const": 1},
     "greedy": {"const": true},
@@ -14,14 +14,14 @@
     "output_tokens": {"const": 64},
     "prompt": {"const": "为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？"},
     "prompt_token_ids": {
-      "const": [248045, 846, 198, 144277, 103426, 108169, 95967, 236, 124094, 26076, 96212, 103182, 108076, 96799, 24273, 95761, 104224, 109276, 95726, 111104, 115110, 10992, 248046, 198, 248045, 74455, 198, 248068, 198]
+      "const": [248045, 846, 198, 144277, 103426, 108169, 95967, 236, 124094, 26076, 96212, 103182, 108076, 96799, 24273, 95761, 104224, 109276, 95726, 111104, 115110, 10992, 248046, 198, 248045, 74455, 198, 248068, 271, 248069, 271]
     },
-    "prompt_tokens": {"const": 29},
+    "prompt_tokens": {"const": 31},
     "raw_prompt_token_ids": {
       "const": [144277, 103426, 108169, 95967, 236, 124094, 26076, 96212, 103182, 108076, 96799, 24273, 95761, 104224, 109276, 95726, 111104, 115110, 10992]
     },
     "raw_prompt_tokens": {"const": 19},
-    "rendered_input": {"const": "<|im_start|>user\n为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？<|im_end|>\n<|im_start|>assistant\n<think>\n"},
+    "rendered_input": {"const": "<|im_start|>user\n为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"},
     "tokenizer_files": {
       "const": {
         "chat_template.jinja": "a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715",
@@ -30,7 +30,7 @@
         "config.json": "d0883072e01861ed0b2d47be3c16c36a8e81c224c7ffaa310c6558fb3f932b05"
       }
     },
-    "workload_kind": {"const": "qwen35-chat-template-thinking"}
+    "workload_kind": {"const": "qwen35-chat-template-nonthinking"}
   },
   "required": [
     "concurrency",

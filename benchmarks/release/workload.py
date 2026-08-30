@@ -199,7 +199,7 @@ def workload_record(
             f"chat workload model ID differs for {model_spec.manifest_name}"
         )
     return {
-        "workload_kind": "qwen35-chat-template-thinking",
+        "workload_kind": "qwen35-chat-template-nonthinking",
         "model_id": model_spec.model_id,
         "model_size": model_spec.model_size,
         "prompt": PROMPT,

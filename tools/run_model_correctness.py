@@ -47,6 +47,7 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("mode", choices=("reference", "candidate", "all"))
     value.add_argument("--model-path", type=Path, required=True)
     value.add_argument("--reference-report", type=Path)
+    value.add_argument("--semantic-oracle", type=Path)
     value.add_argument("--timeout-seconds", type=int, default=14400)
     value.add_argument("--dry-run", action="store_true")
     value.add_argument("--_worker", action="store_true", help=argparse.SUPPRESS)
@@ -56,7 +57,11 @@ def parser() -> argparse.ArgumentParser:
 def _worker(args: argparse.Namespace) -> int:
     run_id, run_dir = require_run_directory(ROOT)
     if args.mode == "reference":
-        return run_reference(args.model_path, run_id, run_dir)
+        if args.semantic_oracle is None:
+            raise ReleaseContractError("reference worker requires --semantic-oracle")
+        return run_reference(
+            args.model_path, run_id, run_dir, args.semantic_oracle
+        )
     if args.mode != "candidate":
         raise ReleaseContractError("all mode is control-only")
     if args.reference_report is None:
@@ -70,6 +75,12 @@ def main() -> int:
         raise ReleaseContractError("timeout must be positive")
     if args.mode in {"reference", "all"} and args.reference_report is not None:
         raise ReleaseContractError(f"{args.mode} mode does not accept --reference-report")
+    if args.mode in {"reference", "all"} and args.semantic_oracle is None:
+        raise ReleaseContractError(
+            f"{args.mode} mode requires --semantic-oracle"
+        )
+    if args.mode == "candidate" and args.semantic_oracle is not None:
+        raise ReleaseContractError("candidate mode does not accept --semantic-oracle")
     if args.mode == "candidate" and args.reference_report is None:
         raise ReleaseContractError("candidate mode requires --reference-report")
     if args._worker:
@@ -90,6 +101,10 @@ def main() -> int:
         if reference_report is not None:
             worker_args.extend(
                 ("--reference-report", str(reference_report.resolve()))
+            )
+        if mode == "reference" and args.semantic_oracle is not None:
+            worker_args.extend(
+                ("--semantic-oracle", str(args.semantic_oracle.resolve()))
             )
         if mode == "reference":
 

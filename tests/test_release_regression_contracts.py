@@ -98,11 +98,11 @@ def test_exact_workload_has_one_machine_readable_source_of_truth() -> None:
     assert manifest["prompt"] == (
         "为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？"
     )
-    assert len(manifest["prompt_token_ids"]) == 29
-    assert manifest["prompt_tokens"] == 29
+    assert len(manifest["prompt_token_ids"]) == 31
+    assert manifest["prompt_tokens"] == 31
     assert len(manifest["raw_prompt_token_ids"]) == 19
     assert manifest["raw_prompt_tokens"] == 19
-    assert manifest["workload_kind"] == "qwen35-chat-template-thinking"
+    assert manifest["workload_kind"] == "qwen35-chat-template-nonthinking"
     assert manifest["output_tokens"] == 64
     assert manifest["concurrency"] == 1
     assert manifest["greedy"] is True
@@ -115,10 +115,10 @@ def test_chat_workload_is_reproducible_from_both_pinned_tokenizers() -> None:
         spec = workload.resolve_qwen35_model_spec(ROOT, model_path)
         record, resolution = workload.verify_chat_workload(model_path, spec)
         assert resolution["verified"] is True
-        assert resolution["input_token_count"] == 29
-        assert record["prompt_tokens"] == 29
+        assert resolution["input_token_count"] == 31
+        assert record["prompt_tokens"] == 31
         assert record["raw_prompt_tokens"] == 19
-        assert record["rendered_input"].endswith("<think>\n")
+        assert record["rendered_input"].endswith("</think>\n\n")
 
 
 def test_workload_schema_freezes_every_field() -> None:
@@ -140,7 +140,14 @@ def test_release_parallelism_and_sample_counts_are_frozen() -> None:
 
 def test_model_correctness_all_mode_is_one_public_closed_loop() -> None:
     args = model_tool.parser().parse_args(
-        ["all", "--model-path", "models/Qwen3.5-9B", "--dry-run"]
+        [
+            "all",
+            "--model-path",
+            "models/Qwen3.5-9B",
+            "--semantic-oracle",
+            "runs/semantic-oracle-qwen35-0.8b-chat-nonthinking.json",
+            "--dry-run",
+        ]
     )
     assert args.mode == "all"
     assert args.reference_report is None
