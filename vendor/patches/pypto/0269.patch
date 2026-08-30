@@ -1,0 +1,73 @@
+From 4d27236a3a8b7f978d1778896c4124f3a21d765a Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 12:46:27 +0800
+Subject: [PATCH 269/298] compiler: preserve rank-one TensorIR ABI strides
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp        |  6 +++---
+ src/compiler/nvidia_typed_tensor_ir_builder.cpp | 17 +++++++++++------
+ 2 files changed, 14 insertions(+), 9 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 043143e2ffa1508bc9516979a25fa611ae74e517..a96d3f2bd11ec174540653afb2bcc285d31ebcb7 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -4767,7 +4767,7 @@ TypedTensorIrOperationSpec MakeGenericOperation(
+   operation.kind = kind;
+   operation.operands = std::move(operands);
+   operation.result = MakeTypedTensorIrTensorSpec(
+-      result, /*has_explicit_strides=*/true);
++      result, /*has_explicit_strides=*/result.shape.size() >= 2);
+   return operation;
+ }
+ 
+@@ -4788,10 +4788,10 @@ TypedTensorIrModuleSpec MakeGenericFusedPointwiseTensorIrSpec(
+   spec.inputs.reserve(graph.input_tensors.size());
+   for (const StaticTensor& input : graph.input_tensors) {
+     spec.inputs.push_back(MakeTypedTensorIrTensorSpec(
+-        input, /*has_explicit_strides=*/true));
++        input, /*has_explicit_strides=*/input.shape.size() >= 2));
+   }
+   spec.results.push_back(MakeTypedTensorIrTensorSpec(
+-      graph.tensor, /*has_explicit_strides=*/true));
++      graph.tensor, /*has_explicit_strides=*/graph.tensor.shape.size() >= 2));
+ 
+   const auto append_operation = [&](TypedTensorIrOperationSpec operation) {
+     spec.operations.push_back(std::move(operation));
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index d14356e1537d818bea3853db24908a1738e56f2b..7115933bb5428e6d80e4753ab3f8bd0a4534a9ff 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -611,8 +611,9 @@ bool IsValidGenericTensorSpec(const TypedTensorIrTensorSpec& tensor,
+     return allow_scalar && tensor.strides.empty() &&
+            !tensor.has_explicit_strides;
+   }
+-  if (!tensor.has_explicit_strides || tensor.shape.size() > 32 ||
+-      tensor.shape.size() != tensor.strides.size()) {
++  if (tensor.shape.size() > 32 ||
++      tensor.shape.size() != tensor.strides.size() ||
++      tensor.has_explicit_strides != (tensor.shape.size() >= 2)) {
+     return false;
+   }
+   return std::all_of(tensor.shape.begin(), tensor.shape.end(),
+@@ -2365,12 +2366,16 @@ std::optional<BuiltTypedTensorIrModule> BuildTypedTensorIrModule(
+       builder, location, entry_name, function_type, /*arg_attrs=*/nullptr,
+       /*res_attrs=*/nullptr);
+   for (size_t index = 0; index < inputs.size(); ++index) {
+-    graph.setArgAttr(index, tir::TensorIRDialect::getStrideAttrName(),
+-                     MakeStrideAttribute(builder, inputs[index].strides));
++    if (inputs[index].has_explicit_strides) {
++      graph.setArgAttr(index, tir::TensorIRDialect::getStrideAttrName(),
++                       MakeStrideAttribute(builder, inputs[index].strides));
++    }
+   }
+   for (size_t index = 0; index < results.size(); ++index) {
+-    graph.setResultAttr(index, tir::TensorIRDialect::getStrideAttrName(),
+-                        MakeStrideAttribute(builder, results[index].strides));
++    if (results[index].has_explicit_strides) {
++      graph.setResultAttr(index, tir::TensorIRDialect::getStrideAttrName(),
++                          MakeStrideAttribute(builder, results[index].strides));
++    }
+   }
+   mlir::Block* entry = graph.addEntryBlock();
+   builder.setInsertionPointToStart(entry);

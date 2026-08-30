@@ -1,0 +1,105 @@
+From 397f99f885f7a4ac70a8e7cda7a6f31f042c7121 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 15:52:05 +0800
+Subject: [PATCH 298/298] test: lint NVIDIA TensorIR construction through typed
+ ops
+
+---
+ tests/lint/check_nvidia_typed_codegen.py      | 47 +++++++++++++++++++
+ .../tools/test_check_nvidia_typed_codegen.py  | 33 +++++++++++++
+ 2 files changed, 80 insertions(+)
+ create mode 100644 tests/lint/check_nvidia_typed_codegen.py
+ create mode 100644 tests/ut/tools/test_check_nvidia_typed_codegen.py
+
+diff --git a/tests/lint/check_nvidia_typed_codegen.py b/tests/lint/check_nvidia_typed_codegen.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..9e6eb8ee7d27130bd5a2997dd04d23e378dad244
+--- /dev/null
++++ b/tests/lint/check_nvidia_typed_codegen.py
+@@ -0,0 +1,47 @@
++#!/usr/bin/env python3
++"""Reject textual TensorIR construction in the NVIDIA codegen boundary.
++
++Canonical TensorIR modules must be described by typed specs and materialized by
++the MLIR builder.  This small source lint intentionally has no dependency on
++the compiler build, so it can run in pre-commit and source-release checks.
++"""
++
++from __future__ import annotations
++
++import argparse
++from pathlib import Path
++import re
++import sys
++
++
++FORBIDDEN = (
++    re.compile(r"\bsource\s*\+="),
++    re.compile(r"\bsource\s*\.append\s*\("),
++)
++
++
++def find_violations(root: Path) -> list[str]:
++    codegen = (root / "src/codegen/nvidia").resolve()
++    violations: list[str] = []
++    for path in sorted(codegen.glob("*.cpp")):
++        for line_number, line in enumerate(path.read_text().splitlines(), 1):
++            if any(pattern.search(line) for pattern in FORBIDDEN):
++                violations.append(f"{path.relative_to(root)}:{line_number}: {line.strip()}")
++    return violations
++
++
++def main(argv: list[str] | None = None) -> int:
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
++    args = parser.parse_args(argv)
++    violations = find_violations(args.root.resolve())
++    if violations:
++        print("textual NVIDIA TensorIR construction is forbidden:", file=sys.stderr)
++        print("\n".join(violations), file=sys.stderr)
++        return 1
++    print("typed NVIDIA TensorIR source lint: pass")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/tests/ut/tools/test_check_nvidia_typed_codegen.py b/tests/ut/tools/test_check_nvidia_typed_codegen.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..30689fd08c24456c1825937e0706f78a5456aa2b
+--- /dev/null
++++ b/tests/ut/tools/test_check_nvidia_typed_codegen.py
+@@ -0,0 +1,33 @@
++"""Tests for the typed NVIDIA TensorIR source lint."""
++
++from __future__ import annotations
++
++import importlib.util
++from pathlib import Path
++
++
++def _load_lint():
++    path = Path(__file__).resolve().parents[2] / "lint" / "check_nvidia_typed_codegen.py"
++    spec = importlib.util.spec_from_file_location("typed_nvidia_lint", path)
++    assert spec and spec.loader
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++    return module
++
++
++def test_current_nvidia_codegen_has_no_textual_builder(tmp_path: Path):
++    lint = _load_lint()
++    (tmp_path / "src/codegen/nvidia").mkdir(parents=True)
++    (tmp_path / "src/codegen/nvidia/ok.cpp").write_text("auto x = 1;\n")
++    assert lint.find_violations(tmp_path) == []
++
++
++def test_lint_rejects_source_concatenation(tmp_path: Path):
++    lint = _load_lint()
++    (tmp_path / "src/codegen/nvidia").mkdir(parents=True)
++    (tmp_path / "src/codegen/nvidia/bad.cpp").write_text(
++        "std::string source;\nsource += \"module\";\n"
++    )
++    violations = lint.find_violations(tmp_path)
++    assert len(violations) == 1
++    assert "bad.cpp:2" in violations[0]

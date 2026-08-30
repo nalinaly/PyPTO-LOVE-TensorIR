@@ -1,0 +1,25 @@
+From fc56544da18359cf23568cf6981da22d5c8222cb Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 13:12:49 +0800
+Subject: [PATCH 272/298] codegen: retain legacy add source identity during
+ migration
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 8ee685d058e3e4b2361837914c8828f72494f860..5ba2032ec51997b7a7483eaee58416510cc93fa5 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -9667,8 +9667,8 @@ TensorIrModule EmitLegacyStaticAddV1(const ir::ProgramPtr& program) {
+ 
+   return TensorIrModule(
+       TensorIrModuleKind::LegacyStaticAddV1,
+-      MakeGenericLegacyAddTensorIrSpec(declared_result, operand_indices[0],
+-                                       operand_indices[1]),
++      EmitLegacyStaticAddSource(declared_result, operand_indices[0],
++                                operand_indices[1]),
+       std::move(metadata), /*input_count=*/2);
+ }
+ 

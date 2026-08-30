@@ -1,0 +1,51 @@
+From abaa71263adbd28944eb2c6dde12d715c3925074 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 12:43:24 +0800
+Subject: [PATCH 268/298] codegen: preserve generic fused SSA value ids
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index f9098b48644c1df60cbd53d30fb5024c6dd90031..043143e2ffa1508bc9516979a25fa611ae74e517 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -4807,6 +4807,8 @@ TypedTensorIrModuleSpec MakeGenericFusedPointwiseTensorIrSpec(
+   }
+ 
+   uint32_t last_value = std::numeric_limits<uint32_t>::max();
++  std::vector<uint32_t> instruction_values;
++  instruction_values.reserve(graph.instructions.size());
+   for (const FusedPointwiseInstruction& instruction : graph.instructions) {
+     std::vector<uint32_t> operands;
+     operands.reserve(instruction.tensor_operands.size() +
+@@ -4821,8 +4823,10 @@ TypedTensorIrModuleSpec MakeGenericFusedPointwiseTensorIrSpec(
+         }
+         operands.push_back(value);
+       } else if (operand.kind == FusedTensorOperandKind::PreviousResult) {
+-        operands.push_back(static_cast<uint32_t>(
+-            graph.input_count + operand.input_index));
++        if (operand.input_index >= instruction_values.size()) {
++          InternalReject("generic TensorIR previous result is unresolved");
++        }
++        operands.push_back(instruction_values[operand.input_index]);
+       } else {
+         InternalReject("generic TensorIR operand kind is invalid");
+       }
+@@ -4838,6 +4842,7 @@ TypedTensorIrModuleSpec MakeGenericFusedPointwiseTensorIrSpec(
+           TypedTensorIrOpKind::Splat, {constant}, scalar_splat));
+       last_value = append_operation(MakeGenericOperation(
+           TypedTensorIrOpKind::Mul, {operands[1], splat}, graph.tensor));
++      instruction_values.push_back(last_value);
+       continue;
+     }
+     if (instruction.scalar.has_value()) {
+@@ -4850,6 +4855,7 @@ TypedTensorIrModuleSpec MakeGenericFusedPointwiseTensorIrSpec(
+     last_value = append_operation(
+         MakeGenericOperation(GenericOpKind(instruction.tensor_ir_op),
+                              std::move(operands), graph.tensor));
++    instruction_values.push_back(last_value);
+   }
+   if (last_value == std::numeric_limits<uint32_t>::max()) {
+     InternalReject("generic TensorIR fused pointwise graph has no result");

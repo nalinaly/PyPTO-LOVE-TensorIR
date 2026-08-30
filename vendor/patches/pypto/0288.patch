@@ -1,0 +1,24 @@
+From 5e07f2add987a9fbd556c17f45217c641682555b Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 15:19:54 +0800
+Subject: [PATCH 288/298] compiler: scope comparator validation to cmp ops
+
+---
+ src/compiler/nvidia_typed_tensor_ir_builder.cpp | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index 6aa53f0962c6485575b8412ce829cd07ac6e2c78..5cd17e9c75cccb6c8e4336cff9126236fc1857a6 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -678,6 +678,10 @@ bool ValidateGenericTensorIrSpec(const GenericTensorIrModuleSpec& spec,
+       case TypedTensorIrOpKind::Div:
+       case TypedTensorIrOpKind::Max:
+       case TypedTensorIrOpKind::Min:
++        if (operation.operands.size() != 2) {
++          return reject("binary operation requires exactly two operands");
++        }
++        break;
+       case TypedTensorIrOpKind::Cmp:
+         if (operation.operands.size() != 2) {
+           return reject("binary operation requires exactly two operands");

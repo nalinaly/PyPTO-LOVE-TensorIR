@@ -1,0 +1,39 @@
+From 99e7a57a1f794cdf5e26a1044fefb434de7c5e9a Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 14:08:54 +0800
+Subject: [PATCH 279/298] codegen: route legacy add and row reduction through
+ typed ops
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index eb235bd497b867f6aa2a9e78b82d093853264d4e..a35a1282ce9e01169b05af4b061fd94036111ef7 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -10350,8 +10350,8 @@ TensorIrModule EmitLegacyStaticAddV1(const ir::ProgramPtr& program) {
+ 
+   return TensorIrModule(
+       TensorIrModuleKind::LegacyStaticAddV1,
+-      EmitLegacyStaticAddSource(declared_result, operand_indices[0],
+-                                operand_indices[1]),
++      MakeGenericLegacyAddTensorIrSpec(declared_result, operand_indices[0],
++                                       operand_indices[1]),
+       std::move(metadata), /*input_count=*/2);
+ }
+ 
+@@ -10870,9 +10870,10 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+     metadata.push_back(TensorIrValueMetadata(
+         TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
+         graph.result.dense_strides, graph.result.shape.size() >= 2));
+-    return TensorIrModule(TensorIrModuleKind::RowReduction,
+-                          EmitRowReductionSource(graph), std::move(metadata),
+-                          /*input_count=*/1);
++    return TensorIrModule(
++        TensorIrModuleKind::RowReduction,
++        MakeGenericRowReductionTensorIrSpec(graph), std::move(metadata),
++        /*input_count=*/1);
+   }
+   if (IsStructuredMatmulCandidate(program)) {
+     const StructuredMatmulGraph graph = AnalyzeStructuredMatmul(program);

@@ -1,0 +1,31 @@
+From d8ba85783f4bec8f2470ef6932e2ac1fbc048836 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 15:00:49 +0800
+Subject: [PATCH 286/298] compiler: build generic comparisons with signless i1
+
+---
+ src/compiler/nvidia_typed_tensor_ir_builder.cpp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index 1cbcf96e344cee15e671ca554ea9f3e211b0d68a..87fbdd5f6db456a2829db46bd2ffc1d53e77bd81 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -772,7 +772,7 @@ mlir::Type ElementType(mlir::OpBuilder& builder,
+     return builder.getIntegerType(64, mlir::IntegerType::Signed);
+   }
+   if (element_type == TypedTensorIrElementType::BOOL) {
+-    return builder.getIntegerType(1, mlir::IntegerType::Signless);
++    return builder.getIntegerType(1);
+   }
+   llvm_unreachable("unknown typed TensorIR element type");
+ }
+@@ -1700,7 +1700,7 @@ mlir::TypedAttr GenericConstantAttribute(
+           static_cast<int64_t>(operation.scalar));
+     case TypedTensorIrElementType::BOOL:
+       return builder.getIntegerAttr(
+-          builder.getIntegerType(1, mlir::IntegerType::Signless),
++          builder.getIntegerType(1),
+           operation.scalar != 0.0 ? 1 : 0);
+   }
+   llvm_unreachable("unknown generic TensorIR constant type");

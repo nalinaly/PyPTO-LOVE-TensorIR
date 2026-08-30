@@ -1,0 +1,137 @@
+From c77471c8374302b39925381435a1af8181a391e9 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 13:04:34 +0800
+Subject: [PATCH 271/298] codegen: move scalar and reduction paths to typed
+ TensorIR
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp      | 49 ++++++++++++++++---
+ .../nvidia/typed_tensor_ir_module_spec.h      |  2 +
+ .../nvidia_typed_tensor_ir_builder.cpp        |  6 ++-
+ 3 files changed, 48 insertions(+), 9 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 2c3d3641107d8cdbe81301aef2b20d8e2f5710de..8ee685d058e3e4b2361837914c8828f72494f860 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -4797,6 +4797,10 @@ class GenericTensorIrSpecBuilder {
+     return static_cast<uint32_t>(index);
+   }
+ 
++  void SetEntryName(std::string_view entry_name) {
++    module_spec_.generic.entry_name = std::string(entry_name);
++  }
++
+   uint32_t Append(TypedTensorIrOperationSpec operation) {
+     module_spec_.generic.operations.push_back(std::move(operation));
+     return static_cast<uint32_t>(input_count_ +
+@@ -5003,6 +5007,33 @@ TypedTensorIrModuleSpec MakeGenericRowReductionEpilogueTensorIrSpec(
+   return std::move(builder).Finish({output});
+ }
+ 
++TypedTensorIrModuleSpec MakeGenericLegacyAddTensorIrSpec(
++    const StaticTensor& result, size_t lhs_index, size_t rhs_index) {
++  GenericTensorIrSpecBuilder builder({result, result});
++  builder.SetEntryName(kLegacyStaticAddEntryName);
++  builder.AddResult(result);
++  const uint32_t output = builder.TensorOp(
++      TypedTensorIrOpKind::Add,
++      {builder.Input(lhs_index), builder.Input(rhs_index)}, result);
++  return std::move(builder).Finish({output});
++}
++
++TypedTensorIrModuleSpec MakeGenericRowReductionTensorIrSpec(
++    const RowReductionGraph& graph) {
++  GenericTensorIrSpecBuilder builder({graph.input});
++  builder.SetEntryName(kRowReductionEntryName);
++  builder.AddResult(graph.result);
++  TypedTensorIrOperationSpec operation = MakeGenericOperation(
++      TypedTensorIrOpKind::Reduce, {builder.Input(0)}, graph.result);
++  operation.dimensions = {
++      static_cast<int32_t>(graph.input.shape.size() - 1)};
++  operation.reduction_mode =
++      graph.mode == RowReductionMode::Sum ? TypedTensorIrReductionMode::Add
++                                          : TypedTensorIrReductionMode::Max;
++  const uint32_t output = builder.Append(std::move(operation));
++  return std::move(builder).Finish({output});
++}
++
+ uint32_t AppendWeightedRmsNorm(GenericTensorIrSpecBuilder& builder,
+                                uint32_t input_value, uint32_t weight_value,
+                                const StaticTensor& input,
+@@ -9636,7 +9667,8 @@ TensorIrModule EmitLegacyStaticAddV1(const ir::ProgramPtr& program) {
+ 
+   return TensorIrModule(
+       TensorIrModuleKind::LegacyStaticAddV1,
+-      EmitLegacyStaticAddSource(declared_result, operand_indices[0], operand_indices[1]),
++      MakeGenericLegacyAddTensorIrSpec(declared_result, operand_indices[0],
++                                       operand_indices[1]),
+       std::move(metadata), /*input_count=*/2);
+ }
+ 
+@@ -9695,9 +9727,10 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+     metadata.push_back(TensorIrValueMetadata(
+         TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
+         graph.result.dense_strides, graph.result.shape.size() >= 2));
+-    return TensorIrModule(TensorIrModuleKind::RowReduction,
+-                          EmitRowReductionSource(graph), std::move(metadata),
+-                          /*input_count=*/1);
++    return TensorIrModule(
++        TensorIrModuleKind::RowReduction,
++        MakeGenericRowReductionTensorIrSpec(graph), std::move(metadata),
++        /*input_count=*/1);
+   }
+   if (IsNativeTileStatefulCausalConvCandidate(program)) {
+     const NativeTileStatefulCausalConvGraph graph =
+@@ -10171,10 +10204,10 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+     metadata.push_back(TensorIrValueMetadata(
+         TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
+         graph.result.dense_strides, /*has_explicit_strides=*/true));
+-    return TensorIrModule(TensorIrModuleKind::StructuredMatmul,
+-                          EmitStructuredMatmulSource(graph), std::move(metadata),
+-                          /*input_count=*/2,
+-                          /*contraction_extent=*/static_cast<uint64_t>(graph.k));
++    return TensorIrModule(
++        TensorIrModuleKind::StructuredMatmul,
++        MakeStructuredMatmulTensorIrSpec(graph), std::move(metadata),
++        /*input_count=*/2, /*contraction_extent=*/static_cast<uint64_t>(graph.k));
+   }
+ 
+   FusedPointwiseGraph graph = AnalyzeFusedPointwise(program);
+diff --git a/src/codegen/nvidia/typed_tensor_ir_module_spec.h b/src/codegen/nvidia/typed_tensor_ir_module_spec.h
+index ab4ce52f23c08aaa26d161a6f7f7bc89682adc80..ae40341c7a5f228a774cbf67e868e92b7d2a8420 100644
+--- a/src/codegen/nvidia/typed_tensor_ir_module_spec.h
++++ b/src/codegen/nvidia/typed_tensor_ir_module_spec.h
+@@ -15,6 +15,7 @@
+ #include <array>
+ #include <cstddef>
+ #include <cstdint>
++#include <string>
+ #include <vector>
+ 
+ namespace pypto::codegen::nvidia {
+@@ -213,6 +214,7 @@ struct TypedTensorIrOperationSpec {
+  * in insertion order and are built only through TensorIR OpBuilder APIs.
+  */
+ struct GenericTensorIrModuleSpec {
++  std::string entry_name = "pypto_fused_pointwise";
+   std::vector<TypedTensorIrTensorSpec> inputs;
+   std::vector<TypedTensorIrTensorSpec> results;
+   std::vector<TypedTensorIrOperationSpec> operations;
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index 7115933bb5428e6d80e4753ab3f8bd0a4534a9ff..91f55aceb746d3e52b7c69b797487ae0831c2467 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -2342,7 +2342,11 @@ std::optional<BuiltTypedTensorIrModule> BuildTypedTensorIrModule(
+   } else if (spec.kind == TypedTensorIrModuleKind::Generic) {
+     inputs = spec.generic.inputs;
+     results = spec.generic.results;
+-    entry_name = kEntryName;
++    if (spec.generic.entry_name.empty() || spec.generic.entry_name.size() > 96) {
++      diagnostic = "generic typed TensorIR entry name is empty or too long";
++      return std::nullopt;
++    }
++    entry_name = spec.generic.entry_name;
+   } else {
+     inputs.assign(spec.native_silu_and_mul.inputs.begin(),
+                   spec.native_silu_and_mul.inputs.end());

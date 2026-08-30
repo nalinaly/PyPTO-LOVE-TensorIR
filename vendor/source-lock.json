@@ -43,9 +43,9 @@
   "packages": {
     "pypto-framework-plugins": {
       "path": "packages/pypto-framework-plugins",
-      "prefix_tree": "fc139c708b2223c71744a6b839f4f15f52220097",
-      "source_commit": "10527f44fbd7691434310b30f6ea6780c40b6d8c",
-      "source_tree": "fc139c708b2223c71744a6b839f4f15f52220097",
+      "prefix_tree": "3119fde8eb0e5a80ed485a39b03753bc4b844d7e",
+      "source_commit": "1fb3b45e58f8a8e5fb917b487f9f6c699cebce7b",
+      "source_tree": "3119fde8eb0e5a80ed485a39b03753bc4b844d7e",
       "version": "0.1.0.dev0"
     },
     "pypto-kernels": {
@@ -108,12 +108,12 @@
       "base_tree": "a46f244a62dfab663fbeb899eb62ee8a042a0b41",
       "bundle": {
         "base_ref": "refs/tags/upstream-base",
-        "bytes": 9041397,
+        "bytes": 9161527,
         "head_ref": "refs/heads/nvidia-sm120",
         "path": "vendor/git/pypto.bundle",
-        "sha256": "b2493443df1fc8d1ceb7afb5a568d8934feb74399c7ac8992b6c81119c4de85e"
+        "sha256": "49f1a25c7c68cc746d10deada6f978c18f9b62eb61cfbb7e47d212f482fb703d"
       },
-      "commit_count": 263,
+      "commit_count": 298,
       "gitlinks": {
         "3rdparty/libbacktrace": "6f8310e238fc3ce68f42f391cbe93fd156bb2c23",
         "3rdparty/msgpack-c": "919908742b4fdbc575e77fe1a8657e70c9573c44",
@@ -122,14 +122,14 @@
         "3rdparty/nvidia/tensor-ir": "db41d0733eb73971ee03a74faca81d1af6e6aef7",
         "runtime": "93adc3865e65fd72655f571f2e4165cf5ac02616"
       },
-      "head_commit": "4fe2f0ab255901a004106156822770ea7ac9470e",
-      "head_tree": "f456075955cbf57caf121e6a4374ec731cf58f70",
+      "head_commit": "397f99f885f7a4ac70a8e7cda7a6f31f042c7121",
+      "head_tree": "62f7b2b22bf002c320a1767584e8107091639677",
       "origin_url": "https://github.com/hw-native-sys/pypto.git",
       "patch_series": {
         "directory": "vendor/patches/pypto",
         "manifest": "vendor/patches/pypto/series.json",
-        "manifest_bytes": 84270,
-        "manifest_sha256": "5416b5527eed5c31dad5a85058020953d7783c9ad1ba51f124a8dff0b8c229a2"
+        "manifest_bytes": 95841,
+        "manifest_sha256": "9bce7f6bb4b9fa502e16b599717a070cccab2476a4f3c59b197a5150a1737c90"
       },
       "shallow_boundary": "e2d0f78ae6d709c0d6ee345a48db2c3d621a4b09"
     },

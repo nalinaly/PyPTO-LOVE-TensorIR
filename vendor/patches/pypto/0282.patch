@@ -1,0 +1,49 @@
+From af64fa7f03a8fae484e383331845236996eca1f5 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 14:19:19 +0800
+Subject: [PATCH 282/298] test: finalize typed source identity goldens
+
+---
+ tests/ut/cpp/structured_compile_test.cpp | 14 +-------------
+ 1 file changed, 1 insertion(+), 13 deletions(-)
+
+diff --git a/tests/ut/cpp/structured_compile_test.cpp b/tests/ut/cpp/structured_compile_test.cpp
+index 534ce3e95acbed33b95f362e9bd0f959f25af78b..83bb81cb567d7c64377bae6e990dd101f917c5a7 100644
+--- a/tests/ut/cpp/structured_compile_test.cpp
++++ b/tests/ut/cpp/structured_compile_test.cpp
+@@ -12,7 +12,6 @@
+ #include <any>
+ #include <array>
+ #include <cmath>
+-#include <cstdio>
+ #include <cstdint>
+ #include <functional>
+ #include <filesystem>
+@@ -558,11 +557,6 @@ int TestRealProducerSuccess() {
+   const KernelBuildSpec& build_spec = result.GetBuildSpec();
+   const Artifact& artifact = result.GetArtifact();
+   const auto& kernel = artifact.GetKernelAbi();
+-  std::fprintf(stderr, "NEW_FP32 source=%s static=%s kernel=%s size=%zu code=%s\\n",
+-               build_spec.GetSourceIrDigest().c_str(),
+-               build_spec.GetStaticSpecializationDigest().c_str(),
+-               kernel.GetIdentityDigest().c_str(), artifact.GetDeviceCode().size(),
+-               artifact.GetDeviceCodeSha256().c_str());
+   REQUIRE(kernel.GetRuntimeKernelName() == "tensor_ir_rtk");
+   REQUIRE(kernel.GetEntryFunctionName() == "pypto_vector_add");
+   REQUIRE(kernel.GetArgumentPackingPolicy() ==
+@@ -629,14 +623,8 @@ int TestRealProducerSuccess() {
+   REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before_bf16 + 1);
+   const KernelBuildSpec& bf16_spec = bf16_result.GetBuildSpec();
+   const Artifact& bf16_artifact = bf16_result.GetArtifact();
+-  std::fprintf(stderr, "NEW_BF16 source=%s static=%s kernel=%s size=%zu code=%s\\n",
+-               bf16_spec.GetSourceIrDigest().c_str(),
+-               bf16_spec.GetStaticSpecializationDigest().c_str(),
+-               bf16_artifact.GetKernelAbi().GetIdentityDigest().c_str(),
+-               bf16_artifact.GetDeviceCode().size(),
+-               bf16_artifact.GetDeviceCodeSha256().c_str());
+   REQUIRE(bf16_spec.GetSourceIrDigest() ==
+-          "c22f2459ad794e89f88de1bbd427f17876c6059b9fd222be706dd5ce300a0a7f");
++          "10d45d414bf9915193bfbdf630a5a5444b9701ebc5e10b4670fa68b3d42ad16a");
+   REQUIRE(bf16_spec.GetStaticSpecializationDigest() ==
+           "146fbdd823eb18c77190894a272a39d1298b557acf8d3156226d44d5ce7a6051");
+   REQUIRE(bf16_spec.GetSymbolicSpecializationDigest() ==

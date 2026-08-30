@@ -1,0 +1,34 @@
+From e6b1c406129e44e36959c8de2fa66b83e26b89e9 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 14:26:15 +0800
+Subject: [PATCH 284/298] test: bind typed producer source identity at
+ finalization
+
+---
+ tests/ut/cpp/structured_compile_test.cpp | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/tests/ut/cpp/structured_compile_test.cpp b/tests/ut/cpp/structured_compile_test.cpp
+index fa4516d70038171975a9f9e7670808765b4671ec..6a041ff1eb3a6508b2c04ea52c24502ed28b2c1a 100644
+--- a/tests/ut/cpp/structured_compile_test.cpp
++++ b/tests/ut/cpp/structured_compile_test.cpp
+@@ -675,7 +675,8 @@ int TestRealProducerSuccess() {
+       prepared_source.GetResolvedOptions());
+   REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before_source_seal + 1);
+   const KernelBuildSpec source_spec =
+-      FinalizeStructuredTensorIrBuildSpec(prepared_source, source_sealed.GetKernelAbi());
++      FinalizeStructuredTensorIrBuildSpec(prepared_source, source_sealed.GetKernelAbi(),
++                                          source_sealed.GetSourceIrDigest());
+   const KernelBuildSpec rebound_source(
+       std::string(64, 'd'), source_spec.GetCallableAbiDigest(), source_spec.GetSemanticRoute(),
+       source_spec.GetPipelineRevision(), source_spec.GetResolvedSchedule(),
+@@ -700,7 +701,8 @@ int TestRealProducerSuccess() {
+   const auto prepared_request_b =
+       PrepareStructuredTensorIrCompilation(MakeProgram(), request_b, MakeSchedule());
+   const KernelBuildSpec request_b_spec =
+-      FinalizeStructuredTensorIrBuildSpec(prepared_request_b, request_sealed.GetKernelAbi());
++      FinalizeStructuredTensorIrBuildSpec(prepared_request_b, request_sealed.GetKernelAbi(),
++                                          request_sealed.GetSourceIrDigest());
+   REQUIRE(RejectsInternal(
+       [&] {
+         (void)CreateArtifactFromNormalized(request_b, request_b_spec, std::move(request_sealed));

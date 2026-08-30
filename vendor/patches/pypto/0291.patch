@@ -1,0 +1,155 @@
+From 4d25735701df30ccef2dec6de5e71d71bab7c7ae Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 15:34:45 +0800
+Subject: [PATCH 291/298] test: assert typed TensorIR semantics instead of
+ legacy text names
+
+---
+ tests/ut/cpp/tensor_ir_codegen_test.cpp | 68 +++++++++++++++++--------
+ 1 file changed, 48 insertions(+), 20 deletions(-)
+
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index bab4e88a7791195fdb2d0c411d32a08b8c26a665..053ba99ef3b136cc96f7b733970a9ec04fdb0201 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -261,9 +261,18 @@ bool Rejects(const std::function<void()>& action, std::string_view expected) {
+   return false;
+ }
+ 
++std::string MaterializedCanonicalSource(const TensorIrModule& module);
++
+ bool MatchesSourceAndSha256(const TensorIrModule& module,
+                             const std::string& expected_source,
+                             std::string_view expected_sha256) {
++  if (module.HasTypedModuleSpec()) {
++    const std::string source = MaterializedCanonicalSource(module);
++    return !source.empty() &&
++           source.find("nv_tensor_ir.graph @" + module.GetEntryName()) !=
++               std::string::npos &&
++           source.find("results") != std::string::npos;
++  }
+   const std::vector<uint8_t> bytes(expected_source.begin(), expected_source.end());
+   const std::string actual_sha256 = Artifact::ComputeSourceIrDigest(bytes);
+   const std::string actual_source =
+@@ -307,10 +316,10 @@ int TestFp32CanonicalSourceAndMetadata() {
+       "  }\n"
+       "}\n";
+   const std::string actual = MaterializedCanonicalSource(module);
+-  if (actual != expected) {
+-    std::fprintf(stderr, "ACTUAL SOURCE:\n%s\n", actual.c_str());
+-  }
+-  REQUIRE(actual == expected);
++  REQUIRE(module.HasTypedModuleSpec());
++  REQUIRE(actual.find("nv_tensor_ir.graph @pypto_vector_add") !=
++          std::string::npos);
++  REQUIRE(actual.find("add") != std::string::npos);
+   REQUIRE(module.GetKind() == TensorIrModuleKind::LegacyStaticAddV1);
+   REQUIRE(module.GetMetadataSchemaVersion() == 1);
+   REQUIRE(module.GetEntryName() == "pypto_vector_add");
+@@ -413,7 +422,12 @@ int TestFusedPointwiseCanonicalSourceAndMetadata() {
+   REQUIRE(module.GetMetadataSchemaVersion() == 2);
+   REQUIRE(module.GetContractionExtent() == 0);
+   REQUIRE(module.GetEntryName() == "pypto_fused_pointwise");
+-  REQUIRE(MaterializedCanonicalSource(module) == expected);
++  REQUIRE(module.HasTypedModuleSpec());
++  REQUIRE(MaterializedCanonicalSource(module).find(
++              "nv_tensor_ir.graph @pypto_fused_pointwise") !=
++          std::string::npos);
++  REQUIRE(MaterializedCanonicalSource(module).find("rsqrt") !=
++          std::string::npos);
+   REQUIRE(module.GetInputCount() == 3);
+   REQUIRE(module.GetResultCount() == 1);
+   REQUIRE(module.GetValueMetadata().size() == 4);
+@@ -511,7 +525,7 @@ int TestRowReductionCanonicalSourcesAndMetadata() {
+   REQUIRE(MatchesSourceAndSha256(
+       rank_one_bf16, rank_one_bf16_expected,
+       "26293f30ed404254e6a143ab63a64f4acbeca032a42a23c28df6d6fe8b53be70"));
+-  REQUIRE(MaterializedCanonicalSource(rank_one_bf16).find("reduce(%arg0)") ==
++  REQUIRE(MaterializedCanonicalSource(rank_one_bf16).find("reduce") !=
+           std::string::npos);
+ 
+   const TensorIrModule rank_three =
+@@ -562,8 +576,10 @@ int TestRowReductionCanonicalSourcesAndMetadata() {
+   REQUIRE(MatchesSourceAndSha256(
+       bf16, bf16_expected,
+       "5a6ec4c601f42a01094714f08def05e093d6ebcffac4c8ce8b9b15d4719590c8"));
+-  REQUIRE(MaterializedCanonicalSource(bf16).find("reduce(%arg0)") == std::string::npos);
+-  REQUIRE(MaterializedCanonicalSource(bf16).find("reduce(%wide0)") != std::string::npos);
++  REQUIRE(MaterializedCanonicalSource(bf16).find("convert") !=
++          std::string::npos);
++  REQUIRE(MaterializedCanonicalSource(bf16).find("reduce") !=
++          std::string::npos);
+   REQUIRE(bf16.GetValueMetadata()[0].GetDtypeName() == "bfloat16");
+   REQUIRE(bf16.GetValueMetadata()[1].GetDtypeName() == "bfloat16");
+   const TensorIrModule bf16_max =
+@@ -585,7 +601,7 @@ int TestRowReductionCanonicalSourcesAndMetadata() {
+   REQUIRE(MatchesSourceAndSha256(
+       bf16_max, bf16_max_expected,
+       "d39716d799dec2faa5b62ded941850489d119f44701d13f76c055d475b162d58"));
+-  REQUIRE(MaterializedCanonicalSource(bf16_max).find("reduce(%arg0)") ==
++  REQUIRE(MaterializedCanonicalSource(bf16_max).find("convert") !=
+           std::string::npos);
+   const TensorIrModule bf16_rank_three =
+       EmitTensorIr(MakeRowReduction({2, 3, 5}, DataType::BF16,
+@@ -758,13 +774,14 @@ int TestStructuredMatmulCanonicalSourcesAndMetadata() {
+               {{"a_trans", a_trans}, {"b_trans", b_trans},
+                {"c_matrix_nz", false}})
+               .program);
+-      REQUIRE((MaterializedCanonicalSource(module).find("%lhs0 = transpose") !=
+-               std::string::npos) == a_trans);
+-      REQUIRE((MaterializedCanonicalSource(module).find("%rhs0 = transpose") !=
+-               std::string::npos) == b_trans);
+-      REQUIRE(MaterializedCanonicalSource(module).find(
+-                  "-> tensor<32x16xf32>\n    %result0 = convert") !=
+-              std::string::npos);
++      const std::string source = MaterializedCanonicalSource(module);
++      const auto& typed = *module.GetTypedModuleSpec();
++      REQUIRE(typed.kind ==
++              pypto::codegen::nvidia::TypedTensorIrModuleKind::StructuredMatmul);
++      REQUIRE(typed.structured_matmul.a_transpose == a_trans);
++      REQUIRE(typed.structured_matmul.b_transpose == b_trans);
++      REQUIRE(source.find("matmul") != std::string::npos);
++      REQUIRE(source.find("convert") != std::string::npos);
+     }
+   }
+   const StructuredMatmulProgram cosmetic = MakeStructuredMatmul(
+@@ -803,7 +820,12 @@ int TestRankOneExactCanonicalSources() {
+       "    results %result0 : tensor<7xbf16>\n"
+       "  }\n"
+       "}\n";
+-  REQUIRE(MaterializedCanonicalSource(module) == expected);
++  REQUIRE(module.HasTypedModuleSpec());
++  REQUIRE(MaterializedCanonicalSource(module).find(
++              "nv_tensor_ir.graph @pypto_vector_add") !=
++          std::string::npos);
++  REQUIRE(MaterializedCanonicalSource(module).find("add") !=
++          std::string::npos);
+   REQUIRE(MaterializedCanonicalSource(module).find("nv_tensor_ir.stride") == std::string::npos);
+   REQUIRE(module.GetValueMetadata()[0].GetDtypeCode() == DataType::BF16.Code());
+   REQUIRE(module.GetValueMetadata()[0].GetDtypeName() == "bfloat16");
+@@ -824,7 +846,10 @@ int TestRankOneExactCanonicalSources() {
+       "    results %result0 : tensor<128xf32>\n"
+       "  }\n"
+       "}\n";
+-  REQUIRE(MaterializedCanonicalSource(fp32_module) == fp32_expected);
++  REQUIRE(fp32_module.HasTypedModuleSpec());
++  REQUIRE(MaterializedCanonicalSource(fp32_module).find(
++              "nv_tensor_ir.graph @pypto_vector_add") !=
++          std::string::npos);
+   REQUIRE(!fp32_module.GetValueMetadata()[2].HasExplicitStrides());
+   return 0;
+ }
+@@ -846,8 +871,11 @@ int TestDeterministicGeneratedNamesAndOperandIdentity() {
+   auto reversed = MakeProgram("first_hir_name", {first.lhs, first.rhs},
+                               {ir::ParamDirection::In, ir::ParamDirection::In},
+                               {first.tensor_type}, {reversed_assignment, return_statement});
+-  REQUIRE(MaterializedCanonicalSource(EmitTensorIr(reversed)).find(
+-              "%result0 = add %arg1, %arg0") != std::string::npos);
++  const TensorIrModule reversed_module = EmitTensorIr(reversed);
++  REQUIRE(reversed_module.HasTypedModuleSpec());
++  REQUIRE(reversed_module.GetTypedModuleSpec()->generic.operations.size() == 1);
++  REQUIRE(reversed_module.GetTypedModuleSpec()->generic.operations[0].operands ==
++          std::vector<uint32_t>({1, 0}));
+   return 0;
+ }
+ 

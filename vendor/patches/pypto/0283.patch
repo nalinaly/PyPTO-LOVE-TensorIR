@@ -1,0 +1,32 @@
+From d291263334797e9903200f4eeb1f2eb658656f51 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 14:23:18 +0800
+Subject: [PATCH 283/298] test: use typed producer input in structured seam
+ checks
+
+---
+ tests/ut/cpp/structured_compile_test.cpp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/tests/ut/cpp/structured_compile_test.cpp b/tests/ut/cpp/structured_compile_test.cpp
+index 83bb81cb567d7c64377bae6e990dd101f917c5a7..fa4516d70038171975a9f9e7670808765b4671ec 100644
+--- a/tests/ut/cpp/structured_compile_test.cpp
++++ b/tests/ut/cpp/structured_compile_test.cpp
+@@ -671,7 +671,7 @@ int TestRealProducerSuccess() {
+       PrepareStructuredTensorIrCompilation(MakeProgram(), request, MakeSchedule());
+   const uint64_t before_source_seal = GetStrictNvidiaProducerInvocationCountForTesting();
+   auto source_sealed = CompileNvidiaProducerOnce(
+-      prepared_source.GetCanonicalSource(), prepared_source.GetCompileRequest(),
++      prepared_source.GetProducerInput(), prepared_source.GetCompileRequest(),
+       prepared_source.GetResolvedOptions());
+   REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before_source_seal + 1);
+   const KernelBuildSpec source_spec =
+@@ -693,7 +693,7 @@ int TestRealProducerSuccess() {
+       PrepareStructuredTensorIrCompilation(MakeProgram(), request, MakeSchedule());
+   const uint64_t before_request_seal = GetStrictNvidiaProducerInvocationCountForTesting();
+   auto request_sealed = CompileNvidiaProducerOnce(
+-      prepared_request_a.GetCanonicalSource(), prepared_request_a.GetCompileRequest(),
++      prepared_request_a.GetProducerInput(), prepared_request_a.GetCompileRequest(),
+       prepared_request_a.GetResolvedOptions());
+   REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before_request_seal + 1);
+   const CompileRequest request_b = MakeRequest(96);

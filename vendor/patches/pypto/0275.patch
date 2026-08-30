@@ -1,0 +1,198 @@
+From 26eea9fc0443098b3754c905f972cd52cbc706fa Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 13:33:52 +0800
+Subject: [PATCH 275/298] codegen: lower GDN and paged cache helpers with typed
+ ops
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 149 ++++++++++++++++++++++-
+ 1 file changed, 145 insertions(+), 4 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index f3763fd1a76978cdfb5c16e9c273f44aacb8b0eb..97f613a7e935a2026718ffac7f730e9895de04c7 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -5198,6 +5198,147 @@ TypedTensorIrModuleSpec MakeGenericRopeTensorIrSpec(
+   return std::move(builder).Finish({output});
+ }
+ 
++TypedTensorIrModuleSpec MakeGenericGdnUpdateTensorIrSpec(
++    const NativeTileGdnUpdateGraph& graph) {
++  GenericTensorIrSpecBuilder builder(
++      {graph.state, graph.decay, graph.decay, graph.value});
++  builder.AddResult(graph.result);
++  const uint32_t decay = builder.TensorOp(
++      TypedTensorIrOpKind::Broadcast, {builder.Input(1)}, graph.state);
++  const uint32_t beta = builder.TensorOp(
++      TypedTensorIrOpKind::Broadcast, {builder.Input(2)}, graph.state);
++  const uint32_t value = builder.TensorOp(
++      TypedTensorIrOpKind::Broadcast, {builder.Input(3)}, graph.state);
++  const uint32_t decayed = builder.TensorOp(
++      TypedTensorIrOpKind::Mul, {builder.Input(0), decay}, graph.state);
++  const uint32_t outer = builder.TensorOp(
++      TypedTensorIrOpKind::Mul, {beta, value}, graph.state);
++  const uint32_t output = builder.TensorOp(
++      TypedTensorIrOpKind::Add, {decayed, outer}, graph.result);
++  return std::move(builder).Finish({output});
++}
++
++TypedTensorIrModuleSpec MakeGenericGdnReadTensorIrSpec(
++    const NativeTileGdnReadGraph& graph) {
++  StaticTensor query_batched = graph.query;
++  query_batched.shape = {graph.query.shape[0], 1, graph.query.shape[1]};
++  query_batched.dense_strides =
++      MakeDenseStridesForMetadata(query_batched.shape);
++  StaticTensor read_batched = graph.result;
++  read_batched.shape = {graph.result.shape[0], 1, graph.result.shape[1]};
++  read_batched.dtype = DataType::FP32;
++  read_batched.dense_strides = MakeDenseStridesForMetadata(read_batched.shape);
++  StaticTensor wide_query = graph.query;
++  wide_query.dtype = DataType::FP32;
++  StaticTensor wide_value = graph.value;
++  wide_value.dtype = DataType::FP32;
++  StaticTensor dot = wide_query;
++  dot.shape[1] = 1;
++  dot.dense_strides = {1, 1};
++
++  GenericTensorIrSpecBuilder builder(
++      {graph.query, graph.query, graph.query, graph.query, graph.value,
++       graph.state});
++  builder.AddResult(graph.result);
++  const uint32_t qdecay = builder.TensorOp(
++      TypedTensorIrOpKind::Mul, {builder.Input(0), builder.Input(1)},
++      graph.query);
++  const uint32_t qbatch = builder.TensorOp(
++      TypedTensorIrOpKind::Reshape, {qdecay}, query_batched);
++  const uint32_t read_batch = builder.TensorOp(
++      TypedTensorIrOpKind::Matmul, {qbatch, builder.Input(5)}, read_batched);
++  const uint32_t read = builder.TensorOp(
++      TypedTensorIrOpKind::Reshape, {read_batch}, wide_value);
++  const uint32_t qwide = builder.TensorOp(
++      TypedTensorIrOpKind::Convert, {builder.Input(0)}, wide_query);
++  const uint32_t gwide = builder.TensorOp(
++      TypedTensorIrOpKind::Convert, {builder.Input(2)}, wide_query);
++  const uint32_t kwide = builder.TensorOp(
++      TypedTensorIrOpKind::Convert, {builder.Input(3)}, wide_query);
++  const uint32_t vwide = builder.TensorOp(
++      TypedTensorIrOpKind::Convert, {builder.Input(4)}, wide_value);
++  const uint32_t gexp =
++      builder.TensorOp(TypedTensorIrOpKind::Exp, {gwide}, wide_query);
++  const uint32_t one = builder.Constant(DataType::FP32, 1.0);
++  const uint32_t gshift = builder.TensorOp(
++      TypedTensorIrOpKind::Add, {gexp, builder.Splat(one, wide_query)},
++      wide_query);
++  const uint32_t softplus =
++      builder.TensorOp(TypedTensorIrOpKind::Log, {gshift}, wide_query);
++  const uint32_t gated_key = builder.TensorOp(
++      TypedTensorIrOpKind::Mul, {softplus, kwide}, wide_query);
++  const uint32_t composed = builder.TensorOp(
++      TypedTensorIrOpKind::Mul, {qwide, gated_key}, wide_query);
++  TypedTensorIrOperationSpec reduction = MakeGenericReduction(
++      {composed}, dot, TypedTensorIrReductionMode::Add);
++  const uint32_t dot_value = builder.Append(std::move(reduction));
++  const uint32_t dot_broadcast = builder.TensorOp(
++      TypedTensorIrOpKind::Broadcast, {dot_value}, wide_value);
++  const uint32_t delta = builder.TensorOp(
++      TypedTensorIrOpKind::Mul, {vwide, dot_broadcast}, wide_value);
++  const uint32_t combined = builder.TensorOp(
++      TypedTensorIrOpKind::Add, {read, delta}, wide_value);
++  const uint32_t output = builder.TensorOp(
++      TypedTensorIrOpKind::Convert, {combined}, graph.result);
++  return std::move(builder).Finish({output});
++}
++
++TypedTensorIrModuleSpec MakeGenericPagedCacheWriteTensorIrSpec(
++    const NativeTilePagedCacheWriteGraph& graph) {
++  const int64_t tokens = graph.key.shape[0];
++  StaticTensor virtual_column{DataType::INT64, {tokens, 1}, {1, 1}};
++  StaticTensor virtual_column_i32 = virtual_column;
++  virtual_column_i32.dtype = DataType::INT32;
++  StaticTensor physical_column = virtual_column;
++  StaticTensor physical_column_i32 = virtual_column_i32;
++  StaticTensor physical_i32 = graph.physical_row;
++  physical_i32.dtype = DataType::INT32;
++  GenericTensorIrSpecBuilder builder(
++      {graph.key_cache, graph.value_cache, graph.physical_row,
++       graph.virtual_to_physical, graph.key, graph.value});
++  builder.AddResult(graph.result);
++  const uint32_t virtual_value = builder.Append([&] {
++    TypedTensorIrOperationSpec operation = MakeGenericOperation(
++        TypedTensorIrOpKind::Slice, {builder.Input(2)}, virtual_column);
++    operation.starts = {0, 0};
++    operation.limits = {tokens, 1};
++    operation.strides = {1, 1};
++    return operation;
++  }());
++  const uint32_t virtual_i32 = builder.TensorOp(
++      TypedTensorIrOpKind::Convert, {virtual_value}, virtual_column_i32);
++  const uint32_t physical_value = builder.TensorOp(
++      TypedTensorIrOpKind::GatherRows,
++      {builder.Input(3), virtual_i32}, physical_column);
++  const uint32_t physical_i32_value = builder.TensorOp(
++      TypedTensorIrOpKind::Convert, {physical_value}, physical_column_i32);
++  const uint32_t physical_full = builder.TensorOp(
++      TypedTensorIrOpKind::Broadcast, {physical_i32_value}, physical_i32);
++  const uint32_t stored_key = builder.TensorOp(
++      TypedTensorIrOpKind::ScatterRows,
++      {builder.Input(0), physical_full, builder.Input(4)}, graph.key);
++  const uint32_t stored_value = builder.TensorOp(
++      TypedTensorIrOpKind::ScatterRows,
++      {builder.Input(1), physical_full, builder.Input(5)}, graph.value);
++  const uint32_t output = builder.TensorOp(
++      TypedTensorIrOpKind::Add, {stored_key, stored_value}, graph.result);
++  return std::move(builder).Finish({output});
++}
++
++TypedTensorIrModuleSpec MakeGenericGatherRowsTensorIrSpec(
++    const NativeTileGatherRowsGraph& graph) {
++  StaticTensor indices32 = graph.indices;
++  indices32.dtype = DataType::INT32;
++  GenericTensorIrSpecBuilder builder({graph.data, graph.indices});
++  builder.AddResult(graph.result);
++  const uint32_t converted = builder.TensorOp(
++      TypedTensorIrOpKind::Convert, {builder.Input(1)}, indices32);
++  const uint32_t output = builder.TensorOp(
++      TypedTensorIrOpKind::GatherRows, {builder.Input(0), converted},
++      graph.result);
++  return std::move(builder).Finish({output});
++}
++
+ TypedTensorIrModuleSpec MakeNativeGdnRecurrentTensorIrSpec(
+     const NativeTileGdnRecurrentGraph& graph) {
+   TypedTensorIrModuleSpec module_spec;
+@@ -9764,7 +9905,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+         graph.result.shape, graph.result.dense_strides,
+         /*has_explicit_strides=*/true));
+     return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+-                          EmitNativeTileGatherRowsSource(graph),
++                          MakeGenericGatherRowsTensorIrSpec(graph),
+                           std::move(metadata), /*input_count=*/2);
+   }
+   if (IsNativeTileRowReductionCandidate(program)) {
+@@ -9901,7 +10042,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+         TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
+         graph.result.dense_strides, /*has_explicit_strides=*/true));
+     return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+-                          EmitNativeTileGdnUpdateSource(graph),
++                          MakeGenericGdnUpdateTensorIrSpec(graph),
+                           std::move(metadata), /*input_count=*/4);
+   }
+   if (IsNativeTileGdnReadCandidate(program)) {
+@@ -9924,7 +10065,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+         TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
+         graph.result.dense_strides, /*has_explicit_strides=*/true));
+     return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+-                          EmitNativeTileGdnReadSource(graph),
++                          MakeGenericGdnReadTensorIrSpec(graph),
+                           std::move(metadata), /*input_count=*/6);
+   }
+   if (IsNativeTilePagedCacheWriteCandidate(program)) {
+@@ -9954,7 +10095,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+         TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
+         graph.result.dense_strides, /*has_explicit_strides=*/true));
+     return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+-                          EmitNativeTilePagedCacheWriteSource(graph),
++                          MakeGenericPagedCacheWriteTensorIrSpec(graph),
+                           std::move(metadata), /*input_count=*/6);
+   }
+   if (IsNativeTilePagedGatherCandidate(program)) {

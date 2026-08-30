@@ -1,15 +1,15 @@
 {
   "base_commit": "e2d0f78ae6d709c0d6ee345a48db2c3d621a4b09",
   "base_tree": "a46f244a62dfab663fbeb899eb62ee8a042a0b41",
-  "commit_count": 263,
+  "commit_count": 298,
   "format_patch_options": [
     "--binary",
     "--full-index",
     "--no-signature",
     "--numbered-files"
   ],
-  "head_commit": "4fe2f0ab255901a004106156822770ea7ac9470e",
-  "head_tree": "f456075955cbf57caf121e6a4374ec731cf58f70",
+  "head_commit": "397f99f885f7a4ac70a8e7cda7a6f31f042c7121",
+  "head_tree": "62f7b2b22bf002c320a1767584e8107091639677",
   "patches": [
     {
       "bytes": 1579,
@@ -2114,6 +2114,286 @@
       "sha256": "1a4c6f1214f46a60ae034d6161a8a66feffc3f574980f9fd9b37c58d7d1ce605",
       "source_commit": "4fe2f0ab255901a004106156822770ea7ac9470e",
       "subject": "Subject: [PATCH 263/263] Align structured compiler fixtures with typed layouts"
+    },
+    {
+      "bytes": 29594,
+      "file": "0264.patch",
+      "order": 264,
+      "sha256": "914d303db8fa9f1fb959c36b0de8d403de281213d12fa26e77af49e609a00c22",
+      "source_commit": "129962b5a892d8e34de9ea75d546b6f5cab50e44",
+      "subject": "Subject: [PATCH 264/298] compiler: add typed generic TensorIR graph builder"
+    },
+    {
+      "bytes": 1401,
+      "file": "0265.patch",
+      "order": 265,
+      "sha256": "0f8429cc9ba187980f15adbebf257bc70255fd9a225e85349e394b1d1f8b431f",
+      "source_commit": "80a512801b30486066b3d8d0827f494f95bc8cb1",
+      "subject": "Subject: [PATCH 265/298] compiler: fix generic TensorIR operation typing"
+    },
+    {
+      "bytes": 4517,
+      "file": "0266.patch",
+      "order": 266,
+      "sha256": "a15d9e67c36b01bbdb1301681e667f40e7ee6574c698f3dc37e0e04225ff77a5",
+      "source_commit": "2e980e4047cce63cee8a96c0be8b8f6c204b2f24",
+      "subject": "Subject: [PATCH 266/298] test: cover generic typed TensorIR graphs"
+    },
+    {
+      "bytes": 13135,
+      "file": "0267.patch",
+      "order": 267,
+      "sha256": "1b5dcdbabede34cf055ea0ed6fa2455f5d884378efa778f47c440ca38ecb6557",
+      "source_commit": "3a5ac6a8d91b586a24152f71253cc8913daea307",
+      "subject": "Subject: [PATCH 267/298] codegen: lower fused pointwise through typed graph builder"
+    },
+    {
+      "bytes": 2545,
+      "file": "0268.patch",
+      "order": 268,
+      "sha256": "bf4f09312ad6fde00efb980c5f6ee37262993c4cee543c7b12e486eb31bf1cdd",
+      "source_commit": "abaa71263adbd28944eb2c6dde12d715c3925074",
+      "subject": "Subject: [PATCH 268/298] codegen: preserve generic fused SSA value ids"
+    },
+    {
+      "bytes": 3756,
+      "file": "0269.patch",
+      "order": 269,
+      "sha256": "2a26773e976f3e3cb0796fa743d050327136155d7710268b354d48da0f0a8f55",
+      "source_commit": "4d27236a3a8b7f978d1778896c4124f3a21d765a",
+      "subject": "Subject: [PATCH 269/298] compiler: preserve rank-one TensorIR ABI strides"
+    },
+    {
+      "bytes": 15181,
+      "file": "0270.patch",
+      "order": 270,
+      "sha256": "86f6d5aec55cc7ee6a65e0f81258bf6d39f0fe3a41cf09c90f576231eb71f2a8",
+      "source_commit": "54407ec9da4ccfd05276fd2419efc75e4a2d0879",
+      "subject": "Subject: [PATCH 270/298] codegen: lower RMSNorm epilogues through typed TensorIR"
+    },
+    {
+      "bytes": 6615,
+      "file": "0271.patch",
+      "order": 271,
+      "sha256": "48e889c28ae7fc1243e40bd2740ab2d48d7882f7f0e5edf20db80fb8203e563c",
+      "source_commit": "c77471c8374302b39925381435a1af8181a391e9",
+      "subject": "Subject: [PATCH 271/298] codegen: move scalar and reduction paths to typed TensorIR"
+    },
+    {
+      "bytes": 1119,
+      "file": "0272.patch",
+      "order": 272,
+      "sha256": "12f3c37415c5458f455362035c97f02120c7d74e8f1dbfd7b9d9f6d1e47ee1ff",
+      "source_commit": "fc56544da18359cf23568cf6981da22d5c8222cb",
+      "subject": "Subject: [PATCH 272/298] codegen: retain legacy add source identity during migration"
+    },
+    {
+      "bytes": 5312,
+      "file": "0273.patch",
+      "order": 273,
+      "sha256": "6307cc927f0fdeceb88d92fbd7bca4d8fb706e8b1d658bd6dc48dd3070e158fb",
+      "source_commit": "340419fae70244a6ec0178a57388997d1e09d9df",
+      "subject": "Subject: [PATCH 273/298] codegen: build RoPE with typed TensorIR operations"
+    },
+    {
+      "bytes": 1528,
+      "file": "0274.patch",
+      "order": 274,
+      "sha256": "c4ee1761e640393ddc3f938ca5f8454e845e4071c81e09a61e48bc895033f589",
+      "source_commit": "a4e13e9f8af1010ade84f10a85a3d5abe87b442b",
+      "subject": "Subject: [PATCH 274/298] codegen: use input shape for typed RoPE result"
+    },
+    {
+      "bytes": 10017,
+      "file": "0275.patch",
+      "order": 275,
+      "sha256": "a88f6812d75520b60df0dfc19cf5b71d2bc399b0c126b718de6dd14c4f972575",
+      "source_commit": "26eea9fc0443098b3754c905f972cd52cbc706fa",
+      "subject": "Subject: [PATCH 275/298] codegen: lower GDN and paged cache helpers with typed ops"
+    },
+    {
+      "bytes": 11259,
+      "file": "0276.patch",
+      "order": 276,
+      "sha256": "b419fe8195d83f4a6c16ee6a82207646bfe34e76217dda63a9dd3c1259d40e7a",
+      "source_commit": "1353770b6f785d83855bc0db52941abbbecf1f90",
+      "subject": "Subject: [PATCH 276/298] codegen: lower QK RMSNorm and RoPE with typed ops"
+    },
+    {
+      "bytes": 5449,
+      "file": "0277.patch",
+      "order": 277,
+      "sha256": "bf05bf4abc6c2bcf62fb2a2106717e2a31b8e8cb91057adb39ad8755f33ec2c1",
+      "source_commit": "5741def9e3b1a8492b313aacf26f5a55eca47762",
+      "subject": "Subject: [PATCH 277/298] codegen: lower segmented causal convolution with typed ops"
+    },
+    {
+      "bytes": 14257,
+      "file": "0278.patch",
+      "order": 278,
+      "sha256": "b2d73f3d95e7cbb5e416923f4fc84d35c68f5cebb56cf578ad9d05fd9249cd63",
+      "source_commit": "99c7aa550589544f5ef9f1b27a541a9a583d40e6",
+      "subject": "Subject: [PATCH 278/298] codegen: lower stateful causal convolution with typed ops"
+    },
+    {
+      "bytes": 1902,
+      "file": "0279.patch",
+      "order": 279,
+      "sha256": "662da09a07b3a0ad3614c6bbb1dc5183f897edfbbe6e83fb98a4ab893166ce52",
+      "source_commit": "99e7a57a1f794cdf5e26a1044fefb434de7c5e9a",
+      "subject": "Subject: [PATCH 279/298] codegen: route legacy add and row reduction through typed ops"
+    },
+    {
+      "bytes": 2367,
+      "file": "0280.patch",
+      "order": 280,
+      "sha256": "5c9514db5e96e6cc91e403f8e8e4d4fe9d5626e4c0e2a4d9eb1a7f03101bdbee",
+      "source_commit": "f5e373b04fdb5f64341c2c28c053ce5bda3d7848",
+      "subject": "Subject: [PATCH 280/298] test: print typed source identities for golden refresh"
+    },
+    {
+      "bytes": 1237,
+      "file": "0281.patch",
+      "order": 281,
+      "sha256": "0e92cb3d195bfd99046cf8d61c90a808ee7999e4cb1b899e9eadbc204658c675",
+      "source_commit": "8150383878b9b69895b771ed26bad9fa17110c24",
+      "subject": "Subject: [PATCH 281/298] test: refresh typed FP32 source digest"
+    },
+    {
+      "bytes": 2591,
+      "file": "0282.patch",
+      "order": 282,
+      "sha256": "f4c316e6b90102109478d0131024806def3d646b865d56eb666124729391c196",
+      "source_commit": "af64fa7f03a8fae484e383331845236996eca1f5",
+      "subject": "Subject: [PATCH 282/298] test: finalize typed source identity goldens"
+    },
+    {
+      "bytes": 1899,
+      "file": "0283.patch",
+      "order": 283,
+      "sha256": "a8c51cc7c73a1f611d1c41028271697648988f3bb9ea40f2e0c8bd177414a39a",
+      "source_commit": "d291263334797e9903200f4eeb1f2eb658656f51",
+      "subject": "Subject: [PATCH 283/298] test: use typed producer input in structured seam checks"
+    },
+    {
+      "bytes": 1965,
+      "file": "0284.patch",
+      "order": 284,
+      "sha256": "d17821f252e86c1217e88d3f88282b297b34dec3730e5f992f29bbef7793689e",
+      "source_commit": "e6b1c406129e44e36959c8de2fa66b83e26b89e9",
+      "subject": "Subject: [PATCH 284/298] test: bind typed producer source identity at finalization"
+    },
+    {
+      "bytes": 99791,
+      "file": "0285.patch",
+      "order": 285,
+      "sha256": "2cc97137e4df745915eaaac8d7996aa86baa05a1b5560fa33364e0931e7fbd11",
+      "source_commit": "04679730316662c68c731be845f4ed9b209ab3f9",
+      "subject": "Subject: [PATCH 285/298] codegen: remove legacy string TensorIR emitters"
+    },
+    {
+      "bytes": 1452,
+      "file": "0286.patch",
+      "order": 286,
+      "sha256": "777cad247a97fdcb9b3941d090878ce3b5f55b80fe76ec402c4c88dd008384b2",
+      "source_commit": "d8ba85783f4bec8f2470ef6932e2ac1fbc048836",
+      "subject": "Subject: [PATCH 286/298] compiler: build generic comparisons with signless i1"
+    },
+    {
+      "bytes": 5967,
+      "file": "0287.patch",
+      "order": 287,
+      "sha256": "3dbea994359fea6aaa45922e34804dd1419243f99cbbb4e8dda9430baa412742",
+      "source_commit": "230faaf2a90ece33fc406883d63b638cd964b00e",
+      "subject": "Subject: [PATCH 287/298] codegen: preserve explicit typed comparison predicates"
+    },
+    {
+      "bytes": 1163,
+      "file": "0288.patch",
+      "order": 288,
+      "sha256": "34915ddce7892343742fb4a22ffd359bf6175b8376c25dfda6fec8e803e6bec9",
+      "source_commit": "5e07f2add987a9fbd556c17f45217c641682555b",
+      "subject": "Subject: [PATCH 288/298] compiler: scope comparator validation to cmp ops"
+    },
+    {
+      "bytes": 16432,
+      "file": "0289.patch",
+      "order": 289,
+      "sha256": "5f9bc6c00a0ada2ef311452d70aa0a509943d9aca558363a5995ce07214cac78",
+      "source_commit": "5b4af8b4b7a38cb8df099d1126ebec6294c1bdab",
+      "subject": "Subject: [PATCH 289/298] test: materialize typed TensorIR sources through builder"
+    },
+    {
+      "bytes": 1208,
+      "file": "0290.patch",
+      "order": 290,
+      "sha256": "0d0ced0d52ba097d99cdca39980aec551c36fb9e9fc0af6665e2635add22d079",
+      "source_commit": "c3403228bb9fc2e9a313b830cf8312ec95dcbee1",
+      "subject": "Subject: [PATCH 290/298] test: print typed source mismatch during migration"
+    },
+    {
+      "bytes": 7862,
+      "file": "0291.patch",
+      "order": 291,
+      "sha256": "91310b50abc6afc571848a83c5ff98262e7b50ca9d01f20f7140ab21c2a3c89f",
+      "source_commit": "4d25735701df30ccef2dec6de5e71d71bab7c7ae",
+      "subject": "Subject: [PATCH 291/298] test: assert typed TensorIR semantics instead of legacy text names"
+    },
+    {
+      "bytes": 7032,
+      "file": "0292.patch",
+      "order": 292,
+      "sha256": "5fc4c69e570fb5947669f1a4f6350365be0994702d242db557f01b740112ca2a",
+      "source_commit": "026537d613f2346a80b25c5f3a9479a47ce2a4de",
+      "subject": "Subject: [PATCH 292/298] test: relax typed MLIR printer-specific assertions"
+    },
+    {
+      "bytes": 6429,
+      "file": "0293.patch",
+      "order": 293,
+      "sha256": "4993835e52263fb27f7fe9b7620a712865004a6db2ad33ad8820c1c46f88b67c",
+      "source_commit": "90bf4f230b1b263ad8f163aec15385b8579307f0",
+      "subject": "Subject: [PATCH 293/298] test: inspect typed TensorIR operation specs"
+    },
+    {
+      "bytes": 3658,
+      "file": "0294.patch",
+      "order": 294,
+      "sha256": "6ff54684e8f3f8b93757381da49241d256c8e3cf27002b326b7fc9bd00c94396",
+      "source_commit": "be924c6cab9c849601c6f3ef20b0485a4f047583",
+      "subject": "Subject: [PATCH 294/298] codegen: preserve typed row reduction accumulation semantics"
+    },
+    {
+      "bytes": 21581,
+      "file": "0295.patch",
+      "order": 295,
+      "sha256": "8f9d116aad2257235b4335a143a71b8114ba29bc4b64f0c9d8efaf49980e65de",
+      "source_commit": "ec026ea4a05e05dada6749881efd1da336d9912b",
+      "subject": "Subject: [PATCH 295/298] test: bind typed preparation finalization to producer source"
+    },
+    {
+      "bytes": 1645,
+      "file": "0296.patch",
+      "order": 296,
+      "sha256": "e830a59bcdfdf86163d9278243062674f7968c1a7219e0fcb4b8801f8bdd2466",
+      "source_commit": "5dc80a998a80735cdf6c6b6f88c499a6f095ddaa",
+      "subject": "Subject: [PATCH 296/298] test: report structured build spec assertion failures"
+    },
+    {
+      "bytes": 2041,
+      "file": "0297.patch",
+      "order": 297,
+      "sha256": "99b93dd8a5589943966636a05967508c3406b0417ea8e79a09da897ab7308ca6",
+      "source_commit": "3181afb4130c8f1fc4d9892ef740382728a62670",
+      "subject": "Subject: [PATCH 297/298] test: refresh typed build identity expectations"
+    },
+    {
+      "bytes": 3908,
+      "file": "0298.patch",
+      "order": 298,
+      "sha256": "4a49a8232b7e74d9b86a0349d091839c51f3fd771b16d1e2ea0c49d5dea483b8",
+      "source_commit": "397f99f885f7a4ac70a8e7cda7a6f31f042c7121",
+      "subject": "Subject: [PATCH 298/298] test: lint NVIDIA TensorIR construction through typed ops"
     }
   ],
   "repository": "pypto",

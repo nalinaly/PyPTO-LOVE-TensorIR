@@ -1,0 +1,22 @@
+From 8150383878b9b69895b771ed26bad9fa17110c24 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 14:17:18 +0800
+Subject: [PATCH 281/298] test: refresh typed FP32 source digest
+
+---
+ tests/ut/cpp/structured_compile_test.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tests/ut/cpp/structured_compile_test.cpp b/tests/ut/cpp/structured_compile_test.cpp
+index dfd4b741e02878b84fa61bcf3c16284066d1ff11..534ce3e95acbed33b95f362e9bd0f959f25af78b 100644
+--- a/tests/ut/cpp/structured_compile_test.cpp
++++ b/tests/ut/cpp/structured_compile_test.cpp
+@@ -588,7 +588,7 @@ int TestRealProducerSuccess() {
+   REQUIRE((kernel.GetGridAbi().GetStaticDimensions() == std::array<uint32_t, 3>{4, 1, 1}));
+   REQUIRE(kernel.GetGridAbi().GetTileSizes() == std::vector<uint32_t>({16}));
+   REQUIRE(build_spec.GetSourceIrDigest() ==
+-          "0e5fbaf1cd70dffa0c81d43a1d2cad454f97cbf9a57ae5247da1cb27f6a049d3");
++          "032c6aac735ac5a3814271e9948c4fea05d9f70e992303af4ef0b47ab36ce90e");
+   REQUIRE(build_spec.GetStaticSpecializationDigest() ==
+           "0bad0b86c36c86808f12b908692925e6493b4c78027da334d612b57bac5459aa");
+   REQUIRE(build_spec.GetSymbolicSpecializationDigest() ==

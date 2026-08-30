@@ -1,0 +1,334 @@
+From 54407ec9da4ccfd05276fd2419efc75e4a2d0879 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 12:54:30 +0800
+Subject: [PATCH 270/298] codegen: lower RMSNorm epilogues through typed
+ TensorIR
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 271 ++++++++++++++++++++++-
+ 1 file changed, 263 insertions(+), 8 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index a96d3f2bd11ec174540653afb2bcc285d31ebcb7..2c3d3641107d8cdbe81301aef2b20d8e2f5710de 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -4780,6 +4780,70 @@ TypedTensorIrOperationSpec MakeGenericConstant(DataType dtype, double value) {
+   return operation;
+ }
+ 
++class GenericTensorIrSpecBuilder {
++ public:
++  explicit GenericTensorIrSpecBuilder(const std::vector<StaticTensor>& inputs) {
++    module_spec_.kind = TypedTensorIrModuleKind::Generic;
++    module_spec_.generic.inputs.reserve(inputs.size());
++    for (const StaticTensor& input : inputs) {
++      module_spec_.generic.inputs.push_back(MakeTypedTensorIrTensorSpec(
++          input, /*has_explicit_strides=*/input.shape.size() >= 2));
++    }
++    input_count_ = inputs.size();
++  }
++
++  uint32_t Input(size_t index) const {
++    if (index >= input_count_) InternalReject("generic TensorIR input index is invalid");
++    return static_cast<uint32_t>(index);
++  }
++
++  uint32_t Append(TypedTensorIrOperationSpec operation) {
++    module_spec_.generic.operations.push_back(std::move(operation));
++    return static_cast<uint32_t>(input_count_ +
++                                 module_spec_.generic.operations.size() - 1);
++  }
++
++  uint32_t TensorOp(TypedTensorIrOpKind kind, std::vector<uint32_t> operands,
++                    const StaticTensor& result) {
++    return Append(MakeGenericOperation(kind, std::move(operands), result));
++  }
++
++  uint32_t TypedTensorOp(TypedTensorIrOpKind kind,
++                         std::vector<uint32_t> operands,
++                         TypedTensorIrTensorSpec result) {
++    TypedTensorIrOperationSpec operation;
++    operation.kind = kind;
++    operation.operands = std::move(operands);
++    operation.result = std::move(result);
++    return Append(std::move(operation));
++  }
++
++  uint32_t Constant(DataType dtype, double value) {
++    return Append(MakeGenericConstant(dtype, value));
++  }
++
++  uint32_t Splat(uint32_t scalar, const StaticTensor& result) {
++    return TensorOp(TypedTensorIrOpKind::Splat, {scalar}, result);
++  }
++
++  void AddResult(const StaticTensor& result) {
++    module_spec_.generic.results.push_back(MakeTypedTensorIrTensorSpec(
++        result, /*has_explicit_strides=*/result.shape.size() >= 2));
++  }
++
++  TypedTensorIrModuleSpec Finish(std::vector<uint32_t> result_values) && {
++    if (module_spec_.generic.results.size() != result_values.size()) {
++      InternalReject("generic TensorIR result count does not match result values");
++    }
++    module_spec_.generic.result_values = std::move(result_values);
++    return std::move(module_spec_);
++  }
++
++ private:
++  TypedTensorIrModuleSpec module_spec_;
++  size_t input_count_ = 0;
++};
++
+ TypedTensorIrModuleSpec MakeGenericFusedPointwiseTensorIrSpec(
+     const FusedPointwiseGraph& graph) {
+   TypedTensorIrModuleSpec module_spec;
+@@ -4864,6 +4928,195 @@ TypedTensorIrModuleSpec MakeGenericFusedPointwiseTensorIrSpec(
+   return module_spec;
+ }
+ 
++TypedTensorIrOperationSpec MakeGenericReduction(
++    std::vector<uint32_t> operands, const StaticTensor& result,
++    TypedTensorIrReductionMode mode) {
++  TypedTensorIrOperationSpec operation = MakeGenericOperation(
++      TypedTensorIrOpKind::Reduce, std::move(operands), result);
++  operation.dimensions = {1};
++  operation.reduction_mode = mode;
++  return operation;
++}
++
++uint32_t AppendRmsNormCore(GenericTensorIrSpecBuilder& builder,
++                           uint32_t input_value, const StaticTensor& input,
++                           const std::vector<RowReductionEpilogueStep>& steps,
++                           bool square_input) {
++  const bool widen = input.dtype == DataType::BF16;
++  StaticTensor compute = input;
++  if (widen) compute.dtype = DataType::FP32;
++  StaticTensor row = compute;
++  row.shape[1] = 1;
++  row.dense_strides = {1, 1};
++
++  uint32_t full_value = input_value;
++  if (widen) {
++    full_value = builder.TensorOp(
++        TypedTensorIrOpKind::Convert, {full_value}, compute);
++  }
++  uint32_t reduction_value = full_value;
++  if (square_input) {
++    reduction_value = builder.TensorOp(
++        TypedTensorIrOpKind::Mul, {full_value, full_value}, compute);
++  }
++  uint32_t current = builder.Append(MakeGenericReduction(
++      {reduction_value}, row, TypedTensorIrReductionMode::Add));
++  const uint32_t zero = builder.Constant(DataType::FP32, 0.0);
++  const uint32_t zero_splat = builder.Splat(zero, row);
++  current = builder.TensorOp(TypedTensorIrOpKind::Add, {current, zero_splat}, row);
++  for (const RowReductionEpilogueStep& step : steps) {
++    if (step.op == "rsqrt") {
++      current = builder.TensorOp(TypedTensorIrOpKind::Rsqrt, {current}, row);
++    } else if (step.op == "reciprocal") {
++      current = builder.TensorOp(TypedTensorIrOpKind::Reciprocal, {current}, row);
++    } else if (step.op == "muls" || step.op == "adds") {
++      const uint32_t constant = builder.Constant(DataType::FP32, step.scalar);
++      const uint32_t splat = builder.Splat(constant, row);
++      current = builder.TensorOp(
++          step.op == "muls" ? TypedTensorIrOpKind::Mul
++                            : TypedTensorIrOpKind::Add,
++          {current, splat}, row);
++    } else {
++      InternalReject("generic TensorIR RMSNorm epilogue operation is invalid");
++    }
++  }
++  const uint32_t broadcast =
++      builder.TensorOp(TypedTensorIrOpKind::Broadcast, {current}, compute);
++  uint32_t output = builder.TensorOp(
++      TypedTensorIrOpKind::Mul, {full_value, broadcast}, compute);
++  if (widen) {
++    output = builder.TensorOp(TypedTensorIrOpKind::Convert, {output}, input);
++  }
++  return output;
++}
++
++TypedTensorIrModuleSpec MakeGenericRowReductionEpilogueTensorIrSpec(
++    const StaticTensor& input, bool square_input,
++    const std::vector<RowReductionEpilogueStep>& steps) {
++  if (input.shape.size() != 2) {
++    InternalReject("generic TensorIR RMSNorm builder requires rank-2 input");
++  }
++  GenericTensorIrSpecBuilder builder({input});
++  builder.AddResult(input);
++  const uint32_t output = AppendRmsNormCore(
++      builder, builder.Input(0), input, steps, square_input);
++  return std::move(builder).Finish({output});
++}
++
++uint32_t AppendWeightedRmsNorm(GenericTensorIrSpecBuilder& builder,
++                               uint32_t input_value, uint32_t weight_value,
++                               const StaticTensor& input,
++                               const StaticTensor& weight, double mean_scale,
++                               double epsilon) {
++  const bool widen = input.dtype == DataType::BF16;
++  StaticTensor compute = input;
++  if (widen) compute.dtype = DataType::FP32;
++  StaticTensor row = compute;
++  row.shape[1] = 1;
++  row.dense_strides = {1, 1};
++  StaticTensor weight_compute = weight;
++  weight_compute.dtype = DataType::FP32;
++
++  uint32_t full_value = input_value;
++  if (widen) full_value = builder.TensorOp(
++      TypedTensorIrOpKind::Convert, {full_value}, compute);
++  uint32_t square = builder.TensorOp(
++      TypedTensorIrOpKind::Mul, {full_value, full_value}, compute);
++  uint32_t current = builder.Append(MakeGenericReduction(
++      {square}, row, TypedTensorIrReductionMode::Add));
++  uint32_t mean = builder.Constant(DataType::FP32, mean_scale);
++  current = builder.TensorOp(TypedTensorIrOpKind::Mul,
++                             {current, builder.Splat(mean, row)}, row);
++  uint32_t epsilon_value = builder.Constant(DataType::FP32, epsilon);
++  current = builder.TensorOp(
++      TypedTensorIrOpKind::Add, {current, builder.Splat(epsilon_value, row)}, row);
++  current = builder.TensorOp(TypedTensorIrOpKind::Rsqrt, {current}, row);
++  const uint32_t inverse_broadcast =
++      builder.TensorOp(TypedTensorIrOpKind::Broadcast, {current}, compute);
++  const uint32_t normalized = builder.TensorOp(
++      TypedTensorIrOpKind::Mul, {full_value, inverse_broadcast}, compute);
++
++  const uint32_t weight_wide = builder.TensorOp(
++      TypedTensorIrOpKind::Convert, {weight_value}, weight_compute);
++  const uint32_t one = builder.Constant(DataType::FP32, 1.0);
++  const uint32_t weight_scale = builder.TensorOp(
++      TypedTensorIrOpKind::Add, {weight_wide, builder.Splat(one, weight_compute)},
++      weight_compute);
++  uint32_t weight_full = weight_scale;
++  if (input.shape[0] != 1) {
++    weight_full = builder.TensorOp(TypedTensorIrOpKind::Broadcast,
++                                   {weight_scale}, compute);
++  }
++  const uint32_t weighted = builder.TensorOp(
++      TypedTensorIrOpKind::Mul, {normalized, weight_full}, compute);
++  return widen ? builder.TensorOp(TypedTensorIrOpKind::Convert, {weighted}, input)
++               : weighted;
++}
++
++TypedTensorIrModuleSpec MakeGenericWeightedRmsNormTensorIrSpec(
++    const NativeTileWeightedRmsNormGraph& graph) {
++  if (graph.input.shape.size() != 2) {
++    InternalReject("generic TensorIR weighted RMSNorm builder requires rank-2 input");
++  }
++  GenericTensorIrSpecBuilder builder({graph.input, graph.weight});
++  builder.AddResult(graph.result);
++  const uint32_t output = AppendWeightedRmsNorm(
++      builder, builder.Input(0), builder.Input(1), graph.input, graph.weight,
++      graph.mean_scale, graph.epsilon);
++  return std::move(builder).Finish({output});
++}
++
++TypedTensorIrModuleSpec MakeGenericFusedAddRmsNormTensorIrSpec(
++    const NativeTileFusedAddRmsNormGraph& graph) {
++  if (graph.input.shape.size() != 2) {
++    InternalReject("generic TensorIR fused RMSNorm builder requires rank-2 input");
++  }
++  GenericTensorIrSpecBuilder builder(
++      {graph.input, graph.input, graph.weight});
++  builder.AddResult(graph.result);
++  builder.AddResult(graph.input);
++  const uint32_t residual = builder.TensorOp(
++      TypedTensorIrOpKind::Add, {builder.Input(0), builder.Input(1)},
++      graph.input);
++  const uint32_t normalized = AppendWeightedRmsNorm(
++      builder, residual, builder.Input(2), graph.input, graph.weight,
++      graph.mean_scale, graph.epsilon);
++  return std::move(builder).Finish({normalized, residual});
++}
++
++TypedTensorIrModuleSpec MakeGenericGatedRmsNormTensorIrSpec(
++    const NativeTileGatedRmsNormGraph& graph) {
++  if (graph.input.shape.size() != 2) {
++    InternalReject("generic TensorIR gated RMSNorm builder requires rank-2 input");
++  }
++  GenericTensorIrSpecBuilder builder(
++      {graph.input, graph.gate, graph.weight});
++  builder.AddResult(graph.result);
++  const uint32_t weighted = AppendWeightedRmsNorm(
++      builder, builder.Input(0), builder.Input(2), graph.input, graph.weight,
++      graph.mean_scale, graph.epsilon);
++  StaticTensor compute = graph.input;
++  compute.dtype = DataType::FP32;
++  const uint32_t gate_wide = builder.TensorOp(
++      TypedTensorIrOpKind::Convert, {builder.Input(1)}, compute);
++  const uint32_t gate_neg =
++      builder.TensorOp(TypedTensorIrOpKind::Neg, {gate_wide}, compute);
++  const uint32_t gate_exp =
++      builder.TensorOp(TypedTensorIrOpKind::Exp, {gate_neg}, compute);
++  const uint32_t one = builder.Constant(DataType::FP32, 1.0);
++  const uint32_t denominator = builder.TensorOp(
++      TypedTensorIrOpKind::Add, {gate_exp, builder.Splat(one, compute)}, compute);
++  const uint32_t sigmoid = builder.TensorOp(
++      TypedTensorIrOpKind::Reciprocal, {denominator}, compute);
++  const uint32_t gate_silu = builder.TensorOp(
++      TypedTensorIrOpKind::Mul, {gate_wide, sigmoid}, compute);
++  const uint32_t gated = builder.TensorOp(
++      TypedTensorIrOpKind::Mul, {weighted, gate_silu}, compute);
++  const uint32_t output = builder.TensorOp(
++      TypedTensorIrOpKind::Convert, {gated}, graph.result);
++  return std::move(builder).Finish({output});
++}
++
+ TypedTensorIrModuleSpec MakeNativeGdnRecurrentTensorIrSpec(
+     const NativeTileGdnRecurrentGraph& graph) {
+   TypedTensorIrModuleSpec module_spec;
+@@ -9745,7 +9998,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+         TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
+         graph.result.dense_strides, /*has_explicit_strides=*/true));
+     return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+-                          EmitNativeTileGatedRmsNormSource(graph),
++                          MakeGenericGatedRmsNormTensorIrSpec(graph),
+                           std::move(metadata), /*input_count=*/3);
+   }
+   if (IsNativeTileFusedAddRmsNormCandidate(program)) {
+@@ -9769,7 +10022,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+           /*has_explicit_strides=*/true));
+     }
+     return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+-                          EmitNativeTileFusedAddRmsNormSource(graph),
++                          MakeGenericFusedAddRmsNormTensorIrSpec(graph),
+                           std::move(metadata), /*input_count=*/3);
+   }
+   if (IsNativeTileWeightedRmsNormCandidate(program)) {
+@@ -9787,7 +10040,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+         TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
+         graph.result.dense_strides, /*has_explicit_strides=*/true));
+     return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+-                          EmitNativeTileWeightedRmsNormSource(graph),
++                          MakeGenericWeightedRmsNormTensorIrSpec(graph),
+                           std::move(metadata), /*input_count=*/2);
+   }
+   if (IsNativeTileRmsNormCandidate(program)) {
+@@ -9804,7 +10057,8 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+         input.dense_strides, input.shape.size() >= 2));
+     return TensorIrModule(
+         TensorIrModuleKind::FusedPointwise,
+-        EmitRowReductionEpilogueSource(input, /*square_input=*/true, steps),
++        MakeGenericRowReductionEpilogueTensorIrSpec(
++            input, /*square_input=*/true, steps),
+         std::move(metadata), /*input_count=*/1);
+   }
+   if (IsNativeTileSigmoidAndMulCandidate(program)) {
+@@ -9883,10 +10137,11 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+           TensorIrValueRole::Result, 0, reduction_input.dtype,
+           reduction_input.shape, reduction_input.dense_strides,
+           reduction_input.shape.size() >= 2));
+-      return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+-                            EmitRowReductionEpilogueSource(
+-                                reduction_input, square_input, steps),
+-                            std::move(metadata), /*input_count=*/1);
++      return TensorIrModule(
++          TensorIrModuleKind::FusedPointwise,
++          MakeGenericRowReductionEpilogueTensorIrSpec(
++              reduction_input, square_input, steps),
++          std::move(metadata), /*input_count=*/1);
+     }
+   }
+   if (IsRowReductionCandidate(program)) {

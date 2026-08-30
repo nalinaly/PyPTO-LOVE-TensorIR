@@ -1,0 +1,680 @@
+From 129962b5a892d8e34de9ea75d546b6f5cab50e44 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 12:22:31 +0800
+Subject: [PATCH 264/298] compiler: add typed generic TensorIR graph builder
+
+---
+ .../nvidia/typed_tensor_ir_module_spec.h      |  77 ++++
+ .../nvidia_typed_tensor_ir_builder.cpp        | 434 ++++++++++++++++--
+ 2 files changed, 475 insertions(+), 36 deletions(-)
+
+diff --git a/src/codegen/nvidia/typed_tensor_ir_module_spec.h b/src/codegen/nvidia/typed_tensor_ir_module_spec.h
+index cdb6473b7f0edf1ef6d4a0512d9f8541bfcb9217..5372ec396f078acb8efd20578692417ed9f53fbd 100644
+--- a/src/codegen/nvidia/typed_tensor_ir_module_spec.h
++++ b/src/codegen/nvidia/typed_tensor_ir_module_spec.h
+@@ -25,6 +25,7 @@ enum class TypedTensorIrElementType : uint8_t {
+   FP32 = 1,
+   INT32 = 2,
+   INT64 = 3,
++  BOOL = 4,
+ };
+ 
+ /** Compiler-neutral description of one static TensorIR graph value. */
+@@ -139,6 +140,80 @@ struct NativeGdnProjectionTensorIrSpec {
+   int64_t gate_width = 0;
+ };
+ 
++/** Typed operation kinds for the bounded generic TensorIR graph builder. */
++enum class TypedTensorIrOpKind : uint8_t {
++  Add = 0,
++  Sub = 1,
++  Mul = 2,
++  Div = 3,
++  Neg = 4,
++  Exp = 5,
++  Rsqrt = 6,
++  Reciprocal = 7,
++  Sin = 8,
++  Cos = 9,
++  Convert = 10,
++  Reduce = 11,
++  Broadcast = 12,
++  Splat = 13,
++  Constant = 14,
++  Reshape = 15,
++  Transpose = 16,
++  Slice = 17,
++  GatherRows = 18,
++  ScatterRows = 19,
++  Concatenate = 20,
++  Iota = 21,
++  Cmp = 22,
++  BinarySelect = 23,
++  Matmul = 24,
++};
++
++/** Comparators accepted by a generic typed TensorIR comparison operation. */
++enum class TypedTensorIrComparator : uint8_t {
++  Eq = 0,
++  Ne = 1,
++  Gt = 2,
++  Ge = 3,
++  Lt = 4,
++  Le = 5,
++};
++
++/** Reduction modes accepted by a generic typed TensorIR reduction operation. */
++enum class TypedTensorIrReductionMode : uint8_t {
++  Add = 0,
++  Max = 1,
++};
++
++/** One SSA operation in a generic typed TensorIR graph. */
++struct TypedTensorIrOperationSpec {
++  TypedTensorIrOpKind kind = TypedTensorIrOpKind::Add;
++  std::vector<uint32_t> operands;
++  TypedTensorIrTensorSpec result;
++  std::vector<int64_t> starts;
++  std::vector<int64_t> limits;
++  std::vector<int64_t> strides;
++  std::vector<int64_t> permutation;
++  std::vector<int32_t> dimensions;
++  int64_t dimension = -1;
++  TypedTensorIrComparator comparator = TypedTensorIrComparator::Eq;
++  TypedTensorIrReductionMode reduction_mode = TypedTensorIrReductionMode::Add;
++  double scalar = 0.0;
++  TypedTensorIrElementType scalar_type = TypedTensorIrElementType::FP32;
++};
++
++/**
++ * Compiler-neutral graph for operations that do not need a bespoke semantic
++ * builder. Inputs/results carry ABI metadata; operation values are SSA-indexed
++ * in insertion order and are built only through TensorIR OpBuilder APIs.
++ */
++struct GenericTensorIrModuleSpec {
++  std::vector<TypedTensorIrTensorSpec> inputs;
++  std::vector<TypedTensorIrTensorSpec> results;
++  std::vector<TypedTensorIrOperationSpec> operations;
++  std::vector<uint32_t> result_values;
++};
++
+ /** Typed TensorIR builders available through the private NVIDIA bridge. */
+ enum class TypedTensorIrModuleKind : uint8_t {
+   NativeGdnRecurrent = 0,
+@@ -150,6 +225,7 @@ enum class TypedTensorIrModuleKind : uint8_t {
+   NativePagedGather = 6,
+   NativePagedPrefill = 7,
+   NativePagedDecode = 8,
++  Generic = 9,
+ };
+ 
+ /** One compiler-neutral request for typed MLIR/TensorIR construction. */
+@@ -164,6 +240,7 @@ struct TypedTensorIrModuleSpec {
+   NativePagedGatherTensorIrSpec native_paged_gather;
+   NativePagedPrefillTensorIrSpec native_paged_prefill;
+   NativePagedDecodeTensorIrSpec native_paged_decode;
++  GenericTensorIrModuleSpec generic;
+ };
+ 
+ }  // namespace pypto::codegen::nvidia
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index 5ef1f260e18c858088c545498525040e363afda1..34b9ce9a1696db094aa19ff10730e69459170f26 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -27,6 +27,7 @@
+ 
+ #include "llvm/ADT/ArrayRef.h"
+ #include "llvm/ADT/SmallVector.h"
++#include "llvm/Support/ErrorHandling.h"
+ #include "llvm/Support/raw_ostream.h"
+ #include "mlir/IR/Builders.h"
+ #include "mlir/IR/BuiltinTypes.h"
+@@ -52,6 +53,10 @@ using codegen::nvidia::StructuredMatmulTensorIrSpec;
+ using codegen::nvidia::TypedTensorIrElementType;
+ using codegen::nvidia::TypedTensorIrModuleKind;
+ using codegen::nvidia::TypedTensorIrModuleSpec;
++using codegen::nvidia::TypedTensorIrOpKind;
++using codegen::nvidia::TypedTensorIrComparator;
++using codegen::nvidia::TypedTensorIrReductionMode;
++using codegen::nvidia::GenericTensorIrModuleSpec;
+ using codegen::nvidia::TypedTensorIrTensorSpec;
+ 
+ constexpr std::string_view kEntryName = "pypto_fused_pointwise";
+@@ -62,6 +67,8 @@ constexpr std::string_view kAlignedAddAttribute =
+ constexpr size_t kMaximumCanonicalSourceBytes = 16ULL * 1024ULL * 1024ULL;
+ constexpr size_t kMaximumCapturedDiagnosticBytes = 64ULL * 1024ULL;
+ constexpr int64_t kMaximumBatchTokenProduct = 4096;
++constexpr size_t kMaximumGenericOperations = 65536;
++constexpr size_t kMaximumGenericValues = 65536;
+ 
+ bool CheckedMultiply(int64_t left, int64_t right, int64_t& result) {
+   if (left <= 0 || right <= 0 ||
+@@ -597,6 +604,148 @@ bool ValidateNativeGdnProjectionSpec(
+   return true;
+ }
+ 
++bool IsValidGenericTensorSpec(const TypedTensorIrTensorSpec& tensor,
++                              bool allow_scalar) {
++  if (tensor.shape.empty()) {
++    return allow_scalar && tensor.strides.empty() &&
++           !tensor.has_explicit_strides;
++  }
++  if (!tensor.has_explicit_strides || tensor.shape.size() > 32 ||
++      tensor.shape.size() != tensor.strides.size()) {
++    return false;
++  }
++  return std::all_of(tensor.shape.begin(), tensor.shape.end(),
++                     [](int64_t dimension) { return dimension > 0; }) &&
++         std::all_of(tensor.strides.begin(), tensor.strides.end(),
++                     [](int64_t stride) { return stride >= 0; });
++}
++
++bool ValidateGenericTensorIrSpec(const GenericTensorIrModuleSpec& spec,
++                                std::string& diagnostic) {
++  const auto reject = [&](std::string message) {
++    diagnostic = "typed TensorIR generic specification rejected: " +
++                 std::move(message);
++    return false;
++  };
++  if (spec.inputs.empty() || spec.inputs.size() > 64 || spec.results.empty() ||
++      spec.results.size() > 16 || spec.operations.empty() ||
++      spec.operations.size() > kMaximumGenericOperations ||
++      spec.result_values.size() != spec.results.size() ||
++      spec.inputs.size() + spec.operations.size() > kMaximumGenericValues) {
++    return reject("input, result, or operation count is outside the bounded range");
++  }
++  for (const auto& input : spec.inputs) {
++    if (!IsValidGenericTensorSpec(input, /*allow_scalar=*/false)) {
++      return reject("inputs must have non-scalar static metadata");
++    }
++  }
++  for (const auto& result : spec.results) {
++    if (!IsValidGenericTensorSpec(result, /*allow_scalar=*/false)) {
++      return reject("results must have non-scalar static metadata");
++    }
++  }
++  size_t value_count = spec.inputs.size();
++  for (const auto& operation : spec.operations) {
++    if (operation.kind == TypedTensorIrOpKind::Constant) {
++      if (!operation.operands.empty() ||
++          !IsValidGenericTensorSpec(operation.result, /*allow_scalar=*/true) ||
++          !operation.result.shape.empty()) {
++        return reject("constant must produce one scalar and take no operands");
++      }
++      if ((operation.scalar_type == TypedTensorIrElementType::FP32 ||
++           operation.scalar_type == TypedTensorIrElementType::BF16) &&
++          !std::isfinite(operation.scalar)) {
++        return reject("floating-point constant must be finite");
++      }
++    } else {
++      if (operation.operands.empty() ||
++          !IsValidGenericTensorSpec(operation.result, /*allow_scalar=*/false)) {
++        return reject("non-constant operation must have tensor result and operands");
++      }
++      for (uint32_t operand : operation.operands) {
++        if (operand >= value_count) {
++          return reject("operation operand is not an earlier SSA value");
++        }
++      }
++    }
++    const size_t rank = operation.result.shape.size();
++    switch (operation.kind) {
++      case TypedTensorIrOpKind::Add:
++      case TypedTensorIrOpKind::Sub:
++      case TypedTensorIrOpKind::Mul:
++      case TypedTensorIrOpKind::Div:
++      case TypedTensorIrOpKind::Cmp:
++        if (operation.operands.size() != 2) {
++          return reject("binary operation requires exactly two operands");
++        }
++        break;
++      case TypedTensorIrOpKind::Neg:
++      case TypedTensorIrOpKind::Exp:
++      case TypedTensorIrOpKind::Rsqrt:
++      case TypedTensorIrOpKind::Reciprocal:
++      case TypedTensorIrOpKind::Sin:
++      case TypedTensorIrOpKind::Cos:
++      case TypedTensorIrOpKind::Convert:
++      case TypedTensorIrOpKind::Broadcast:
++      case TypedTensorIrOpKind::Splat:
++      case TypedTensorIrOpKind::Reshape:
++      case TypedTensorIrOpKind::Transpose:
++      case TypedTensorIrOpKind::Iota:
++        if (operation.operands.size() != 1) {
++          return reject("unary/shape operation requires exactly one operand");
++        }
++        break;
++      case TypedTensorIrOpKind::Reduce:
++        if (operation.operands.size() != 1 || operation.dimensions.empty() ||
++            operation.dimensions.size() > rank) {
++          return reject("reduce has invalid operand or dimensions");
++        }
++        break;
++      case TypedTensorIrOpKind::Constant:
++        break;
++      case TypedTensorIrOpKind::Slice:
++        if (operation.operands.size() != 1 || operation.starts.size() != rank ||
++            operation.limits.size() != rank || operation.strides.size() != rank) {
++          return reject("slice metadata rank does not match its result");
++        }
++        break;
++      case TypedTensorIrOpKind::GatherRows:
++        if (operation.operands.size() != 2) {
++          return reject("gather_rows requires data and indices");
++        }
++        break;
++      case TypedTensorIrOpKind::ScatterRows:
++        if (operation.operands.size() != 3) {
++          return reject("scatter_rows requires data, indices, and updates");
++        }
++        break;
++      case TypedTensorIrOpKind::Concatenate:
++        if (operation.operands.size() < 1 || operation.dimension < 0 ||
++            operation.dimension >= static_cast<int64_t>(rank)) {
++          return reject("concatenate dimension or operands are invalid");
++        }
++        break;
++      case TypedTensorIrOpKind::BinarySelect:
++        if (operation.operands.size() != 3) {
++          return reject("binary_select requires selector and two values");
++        }
++        break;
++      case TypedTensorIrOpKind::Matmul:
++        if (operation.operands.size() != 2 || rank < 2) {
++          return reject("matmul requires two operands and rank at least two");
++        }
++        break;
++    }
++    ++value_count;
++  }
++  for (uint32_t result_value : spec.result_values) {
++    if (result_value >= value_count) {
++      return reject("graph result is not an SSA value in the graph");
++    }
++  }
++  return true;
++}
++
+ mlir::Type ElementType(mlir::OpBuilder& builder,
+                        TypedTensorIrElementType element_type) {
+   if (element_type == TypedTensorIrElementType::BF16) {
+@@ -608,7 +757,13 @@ mlir::Type ElementType(mlir::OpBuilder& builder,
+   if (element_type == TypedTensorIrElementType::INT32) {
+     return builder.getIntegerType(32, mlir::IntegerType::Signed);
+   }
+-  return builder.getIntegerType(64, mlir::IntegerType::Signed);
++  if (element_type == TypedTensorIrElementType::INT64) {
++    return builder.getIntegerType(64, mlir::IntegerType::Signed);
++  }
++  if (element_type == TypedTensorIrElementType::BOOL) {
++    return builder.getIntegerType(1, mlir::IntegerType::Signless);
++  }
++  llvm_unreachable("unknown typed TensorIR element type");
+ }
+ 
+ mlir::RankedTensorType TensorType(
+@@ -1487,6 +1642,193 @@ mlir::Value BuildNativeGdnProjection(
+       .getOutput();
+ }
+ 
++tir::Comparator ToTensorIrComparator(TypedTensorIrComparator comparator) {
++  switch (comparator) {
++    case TypedTensorIrComparator::Eq:
++      return tir::Comparator::eq;
++    case TypedTensorIrComparator::Ne:
++      return tir::Comparator::neq;
++    case TypedTensorIrComparator::Gt:
++      return tir::Comparator::gt;
++    case TypedTensorIrComparator::Ge:
++      return tir::Comparator::ge;
++    case TypedTensorIrComparator::Lt:
++      return tir::Comparator::lt;
++    case TypedTensorIrComparator::Le:
++      return tir::Comparator::le;
++  }
++  llvm_unreachable("unknown generic TensorIR comparator");
++}
++
++tir::ReductionMode ToTensorIrReductionMode(
++    TypedTensorIrReductionMode reduction_mode) {
++  switch (reduction_mode) {
++    case TypedTensorIrReductionMode::Add:
++      return tir::ReductionMode::add;
++    case TypedTensorIrReductionMode::Max:
++      return tir::ReductionMode::max;
++  }
++  llvm_unreachable("unknown generic TensorIR reduction mode");
++}
++
++mlir::Attribute GenericConstantAttribute(
++    mlir::OpBuilder& builder, const TypedTensorIrOperationSpec& operation) {
++  switch (operation.scalar_type) {
++    case TypedTensorIrElementType::FP32:
++    case TypedTensorIrElementType::BF16:
++      return builder.getF32FloatAttr(static_cast<float>(operation.scalar));
++    case TypedTensorIrElementType::INT32:
++      return builder.getIntegerAttr(
++          builder.getIntegerType(32, mlir::IntegerType::Signed),
++          static_cast<int64_t>(operation.scalar));
++    case TypedTensorIrElementType::INT64:
++      return builder.getIntegerAttr(
++          builder.getIntegerType(64, mlir::IntegerType::Signed),
++          static_cast<int64_t>(operation.scalar));
++    case TypedTensorIrElementType::BOOL:
++      return builder.getIntegerAttr(
++          builder.getIntegerType(1, mlir::IntegerType::Signless),
++          operation.scalar != 0.0 ? 1 : 0);
++  }
++  llvm_unreachable("unknown generic TensorIR constant type");
++}
++
++mlir::Value BuildGenericTensorIrOperation(
++    mlir::OpBuilder& builder, mlir::Location location,
++    const TypedTensorIrOperationSpec& operation,
++    const llvm::SmallVector<mlir::Value>& values) {
++  const auto result_type = mlir::RankedTensorType::get(
++      operation.result.shape,
++      ElementType(builder, operation.result.element_type));
++  const auto value = [&](size_t index) -> mlir::Value {
++    return values[operation.operands[index]];
++  };
++  switch (operation.kind) {
++    case TypedTensorIrOpKind::Add:
++      return tir::AddOp::create(builder, location, result_type, value(0),
++                                value(1))
++          .getOutput();
++    case TypedTensorIrOpKind::Sub:
++      return tir::SubOp::create(builder, location, result_type, value(0),
++                                value(1))
++          .getOutput();
++    case TypedTensorIrOpKind::Mul:
++      return tir::MulOp::create(builder, location, result_type, value(0),
++                                value(1))
++          .getOutput();
++    case TypedTensorIrOpKind::Div:
++      return tir::DivOp::create(builder, location, result_type, value(0),
++                                value(1))
++          .getOutput();
++    case TypedTensorIrOpKind::Neg:
++      return tir::NegOp::create(builder, location, result_type, value(0))
++          .getOutput();
++    case TypedTensorIrOpKind::Exp:
++      return tir::ExpOp::create(builder, location, result_type, value(0))
++          .getOutput();
++    case TypedTensorIrOpKind::Rsqrt:
++      return tir::RsqrtOp::create(builder, location, result_type, value(0))
++          .getOutput();
++    case TypedTensorIrOpKind::Reciprocal:
++      return tir::ReciprocalOp::create(builder, location, result_type, value(0))
++          .getOutput();
++    case TypedTensorIrOpKind::Sin:
++      return tir::SinOp::create(builder, location, result_type, value(0))
++          .getOutput();
++    case TypedTensorIrOpKind::Cos:
++      return tir::CosOp::create(builder, location, result_type, value(0))
++          .getOutput();
++    case TypedTensorIrOpKind::Convert:
++      return tir::ConvertOp::create(builder, location, result_type, value(0))
++          .getOutput();
++    case TypedTensorIrOpKind::Reduce:
++      return tir::ReduceOp::create(
++                 builder, location, result_type, value(0), operation.dimensions,
++                 ToTensorIrReductionMode(operation.reduction_mode))
++          .getOutput();
++    case TypedTensorIrOpKind::Broadcast:
++      return tir::BroadcastOp::create(builder, location, result_type, value(0),
++                                      mlir::ValueRange{})
++          .getOutput();
++    case TypedTensorIrOpKind::Splat:
++      return tir::SplatOp::create(builder, location, result_type, value(0),
++                                  mlir::ValueRange{})
++          .getOutput();
++    case TypedTensorIrOpKind::Constant:
++      return tir::ConstantOp::create(builder, location,
++                                     GenericConstantAttribute(builder,
++                                                              operation))
++          .getResult();
++    case TypedTensorIrOpKind::Reshape:
++      return tir::ReshapeOp::create(builder, location, result_type, value(0),
++                                    mlir::ValueRange{})
++          .getOutput();
++    case TypedTensorIrOpKind::Transpose:
++      return tir::TransposeOp::create(builder, location, result_type, value(0),
++                                      operation.permutation)
++          .getOutput();
++    case TypedTensorIrOpKind::Slice:
++      return tir::SliceOp::create(builder, location, result_type, value(0),
++                                  operation.starts, operation.limits,
++                                  operation.strides)
++          .getOutput();
++    case TypedTensorIrOpKind::GatherRows:
++      return tir::GatherRowsOp::create(builder, location, result_type, value(0),
++                                       value(1))
++          .getOutput();
++    case TypedTensorIrOpKind::ScatterRows:
++      return tir::ScatterRowsOp::create(builder, location, result_type, value(0),
++                                        value(1), value(2))
++          .getOutput();
++    case TypedTensorIrOpKind::Concatenate: {
++      llvm::SmallVector<mlir::Value> inputs;
++      inputs.reserve(operation.operands.size());
++      for (size_t index = 0; index < operation.operands.size(); ++index) {
++        inputs.push_back(value(index));
++      }
++      return tir::ConcatenateOp::create(builder, location, result_type, inputs,
++                                        operation.dimension)
++          .getOutput();
++    }
++    case TypedTensorIrOpKind::Iota:
++      return tir::IotaOp::create(builder, location, result_type,
++                                 operation.dimension, mlir::ValueRange{})
++          .getOutput();
++    case TypedTensorIrOpKind::Cmp:
++      return tir::CmpOp::create(builder, location, result_type,
++                                ToTensorIrComparator(operation.comparator),
++                                value(0), value(1))
++          .getOutput();
++    case TypedTensorIrOpKind::BinarySelect:
++      return tir::BinarySelectOp::create(builder, location, result_type, value(0),
++                                         value(1), value(2))
++          .getOutput();
++    case TypedTensorIrOpKind::Matmul:
++      return tir::MatmulOp::create(builder, location, result_type, value(0),
++                                   value(1))
++          .getC();
++  }
++  llvm_unreachable("unknown generic TensorIR operation");
++}
++
++llvm::SmallVector<mlir::Value> BuildGenericTensorIrGraph(
++    mlir::OpBuilder& builder, mlir::Location location,
++    const GenericTensorIrModuleSpec& spec, mlir::Block& entry) {
++  llvm::SmallVector<mlir::Value> values(entry.getArguments().begin(),
++                                        entry.getArguments().end());
++  values.reserve(spec.inputs.size() + spec.operations.size());
++  for (const auto& operation : spec.operations) {
++    values.push_back(
++        BuildGenericTensorIrOperation(builder, location, operation, values));
++  }
++  llvm::SmallVector<mlir::Value> results;
++  results.reserve(spec.result_values.size());
++  for (uint32_t result_value : spec.result_values) {
++    results.push_back(values[result_value]);
++  }
++  return results;
++}
++
+ class NativeGdnRecurrentBuilder {
+  public:
+   NativeGdnRecurrentBuilder(mlir::OpBuilder& builder, mlir::Location location,
+@@ -1903,6 +2245,10 @@ std::optional<BuiltTypedTensorIrModule> BuildTypedTensorIrModule(
+     if (!ValidateNativePagedDecodeSpec(spec.native_paged_decode, diagnostic)) {
+       return std::nullopt;
+     }
++  } else if (spec.kind == TypedTensorIrModuleKind::Generic) {
++    if (!ValidateGenericTensorIrSpec(spec.generic, diagnostic)) {
++      return std::nullopt;
++    }
+   } else {
+     diagnostic = "typed TensorIR module kind is unsupported";
+     return std::nullopt;
+@@ -1923,54 +2269,58 @@ std::optional<BuiltTypedTensorIrModule> BuildTypedTensorIrModule(
+ 
+   llvm::SmallVector<mlir::Type> input_types;
+   std::vector<TypedTensorIrTensorSpec> inputs;
+-  TypedTensorIrTensorSpec result;
++  std::vector<TypedTensorIrTensorSpec> results;
+   std::string_view entry_name;
+   if (spec.kind == TypedTensorIrModuleKind::NativeGdnRecurrent) {
+     inputs.assign(spec.native_gdn_recurrent.inputs.begin(),
+                   spec.native_gdn_recurrent.inputs.end());
+-    result = spec.native_gdn_recurrent.result;
++    results.push_back(spec.native_gdn_recurrent.result);
+     entry_name = kEntryName;
+   } else if (spec.kind == TypedTensorIrModuleKind::StructuredMatmul) {
+     inputs.assign(spec.structured_matmul.inputs.begin(),
+                   spec.structured_matmul.inputs.end());
+-    result = spec.structured_matmul.result;
++    results.push_back(spec.structured_matmul.result);
+     entry_name = kStructuredMatmulEntryName;
+   } else if (spec.kind == TypedTensorIrModuleKind::NativeGdnProjection) {
+     inputs.assign(spec.native_gdn_projection.inputs.begin(),
+                   spec.native_gdn_projection.inputs.end());
+-    result = spec.native_gdn_projection.result;
++    results.push_back(spec.native_gdn_projection.result);
+     entry_name = kEntryName;
+   } else if (spec.kind == TypedTensorIrModuleKind::NativeSigmoidAndMul) {
+     inputs.assign(spec.native_sigmoid_and_mul.inputs.begin(),
+                   spec.native_sigmoid_and_mul.inputs.end());
+-    result = spec.native_sigmoid_and_mul.result;
++    results.push_back(spec.native_sigmoid_and_mul.result);
+     entry_name = kEntryName;
+   } else if (spec.kind == TypedTensorIrModuleKind::NativeAttention) {
+     const auto& attention = spec.native_attention;
+     const size_t input_count =
+         attention.has_additive_mask ? 4 : 3;
+     inputs.assign(attention.inputs.begin(), attention.inputs.begin() + input_count);
+-    result = attention.result;
++    results.push_back(attention.result);
+     entry_name = kEntryName;
+   } else if (spec.kind == TypedTensorIrModuleKind::NativePagedGather) {
+     inputs.assign(spec.native_paged_gather.inputs.begin(),
+                   spec.native_paged_gather.inputs.end());
+-    result = spec.native_paged_gather.result;
++    results.push_back(spec.native_paged_gather.result);
+     entry_name = kEntryName;
+   } else if (spec.kind == TypedTensorIrModuleKind::NativePagedPrefill) {
+     inputs.assign(spec.native_paged_prefill.inputs.begin(),
+                   spec.native_paged_prefill.inputs.end());
+-    result = spec.native_paged_prefill.result;
++    results.push_back(spec.native_paged_prefill.result);
+     entry_name = kEntryName;
+   } else if (spec.kind == TypedTensorIrModuleKind::NativePagedDecode) {
+     inputs.assign(spec.native_paged_decode.inputs.begin(),
+                   spec.native_paged_decode.inputs.end());
+-    result = spec.native_paged_decode.result;
++    results.push_back(spec.native_paged_decode.result);
++    entry_name = kEntryName;
++  } else if (spec.kind == TypedTensorIrModuleKind::Generic) {
++    inputs = spec.generic.inputs;
++    results = spec.generic.results;
+     entry_name = kEntryName;
+   } else {
+     inputs.assign(spec.native_silu_and_mul.inputs.begin(),
+                   spec.native_silu_and_mul.inputs.end());
+-    result = spec.native_silu_and_mul.result;
++    results.push_back(spec.native_silu_and_mul.result);
+     entry_name = kEntryName;
+   }
+   input_types.reserve(inputs.size());
+@@ -1978,10 +2328,14 @@ std::optional<BuiltTypedTensorIrModule> BuildTypedTensorIrModule(
+     input_types.push_back(mlir::RankedTensorType::get(
+         input.shape, ElementType(builder, input.element_type)));
+   }
+-  const mlir::Type result_type = mlir::RankedTensorType::get(
+-      result.shape, ElementType(builder, result.element_type));
++  llvm::SmallVector<mlir::Type> result_types;
++  result_types.reserve(results.size());
++  for (const TypedTensorIrTensorSpec& result : results) {
++    result_types.push_back(mlir::RankedTensorType::get(
++        result.shape, ElementType(builder, result.element_type)));
++  }
+   const mlir::FunctionType function_type =
+-      builder.getFunctionType(input_types, {result_type});
++      builder.getFunctionType(input_types, result_types);
+   auto graph = tir::GraphOp::create(
+       builder, location, entry_name, function_type, /*arg_attrs=*/nullptr,
+       /*res_attrs=*/nullptr);
+@@ -1989,42 +2343,50 @@ std::optional<BuiltTypedTensorIrModule> BuildTypedTensorIrModule(
+     graph.setArgAttr(index, tir::TensorIRDialect::getStrideAttrName(),
+                      MakeStrideAttribute(builder, inputs[index].strides));
+   }
+-  graph.setResultAttr(0, tir::TensorIRDialect::getStrideAttrName(),
+-                      MakeStrideAttribute(builder, result.strides));
++  for (size_t index = 0; index < results.size(); ++index) {
++    graph.setResultAttr(index, tir::TensorIRDialect::getStrideAttrName(),
++                        MakeStrideAttribute(builder, results[index].strides));
++  }
+   mlir::Block* entry = graph.addEntryBlock();
+   builder.setInsertionPointToStart(entry);
+-  mlir::Value built_result;
++  llvm::SmallVector<mlir::Value> built_results;
+   if (spec.kind == TypedTensorIrModuleKind::NativeGdnRecurrent) {
+     NativeGdnRecurrentBuilder gdn_builder(
+         builder, location, spec.native_gdn_recurrent);
+-    built_result = gdn_builder.Build(*entry);
++    built_results.push_back(gdn_builder.Build(*entry));
+   } else if (spec.kind == TypedTensorIrModuleKind::StructuredMatmul) {
+-    built_result = BuildStructuredMatmul(
+-        builder, location, spec.structured_matmul, *entry);
++    built_results.push_back(BuildStructuredMatmul(
++        builder, location, spec.structured_matmul, *entry));
+   } else if (spec.kind == TypedTensorIrModuleKind::NativeGdnProjection) {
+-    built_result = BuildNativeGdnProjection(
+-        builder, location, spec.native_gdn_projection, *entry);
++    built_results.push_back(BuildNativeGdnProjection(
++        builder, location, spec.native_gdn_projection, *entry));
+   } else if (spec.kind == TypedTensorIrModuleKind::NativeSigmoidAndMul) {
+-    built_result = BuildNativeSigmoidAndMul(
+-        builder, location, spec.native_sigmoid_and_mul, *entry);
++    built_results.push_back(BuildNativeSigmoidAndMul(
++        builder, location, spec.native_sigmoid_and_mul, *entry));
+   } else if (spec.kind == TypedTensorIrModuleKind::NativeAttention) {
+-    built_result = BuildNativeAttention(builder, location, spec.native_attention,
+-                                        *entry);
++    built_results.push_back(BuildNativeAttention(builder, location,
++                                                 spec.native_attention, *entry));
+   } else if (spec.kind == TypedTensorIrModuleKind::NativePagedGather) {
+-    built_result = BuildNativePagedGather(
+-        builder, location, spec.native_paged_gather, *entry);
++    built_results.push_back(BuildNativePagedGather(
++        builder, location, spec.native_paged_gather, *entry));
+   } else if (spec.kind == TypedTensorIrModuleKind::NativePagedPrefill) {
+-    built_result = BuildNativePagedPrefillBatched(
+-        builder, location, spec.native_paged_prefill, *entry);
++    built_results.push_back(BuildNativePagedPrefillBatched(
++        builder, location, spec.native_paged_prefill, *entry));
+   } else if (spec.kind == TypedTensorIrModuleKind::NativePagedDecode) {
+-    built_result = BuildNativePagedDecode(
+-        builder, location, spec.native_paged_decode, *entry);
++    built_results.push_back(BuildNativePagedDecode(
++        builder, location, spec.native_paged_decode, *entry));
++  } else if (spec.kind == TypedTensorIrModuleKind::Generic) {
++    built_results = BuildGenericTensorIrGraph(builder, location, spec.generic,
++                                              *entry);
+   } else {
+-    built_result = BuildNativeSiluAndMul(
+-        builder, location, spec.native_silu_and_mul, *entry);
++    built_results.push_back(BuildNativeSiluAndMul(
++        builder, location, spec.native_silu_and_mul, *entry));
++  }
++  if (built_results.size() != results.size()) {
++    diagnostic = "typed TensorIR builder produced an unexpected result count";
++    return std::nullopt;
+   }
+-  (void)tir::ResultsOp::create(builder, location,
+-                               mlir::ValueRange{built_result});
++  (void)tir::ResultsOp::create(builder, location, built_results);
+ 
+   if (mlir::failed(mlir::verify(module))) {
+     if (diagnostic.empty()) {

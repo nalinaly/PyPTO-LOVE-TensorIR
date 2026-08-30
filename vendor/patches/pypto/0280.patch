@@ -1,0 +1,47 @@
+From f5e373b04fdb5f64341c2c28c053ce5bda3d7848 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 14:15:10 +0800
+Subject: [PATCH 280/298] test: print typed source identities for golden
+ refresh
+
+---
+ tests/ut/cpp/structured_compile_test.cpp | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/tests/ut/cpp/structured_compile_test.cpp b/tests/ut/cpp/structured_compile_test.cpp
+index c46badc275eadb4368f89963c735308e18b2c45a..dfd4b741e02878b84fa61bcf3c16284066d1ff11 100644
+--- a/tests/ut/cpp/structured_compile_test.cpp
++++ b/tests/ut/cpp/structured_compile_test.cpp
+@@ -12,6 +12,7 @@
+ #include <any>
+ #include <array>
+ #include <cmath>
++#include <cstdio>
+ #include <cstdint>
+ #include <functional>
+ #include <filesystem>
+@@ -557,6 +558,11 @@ int TestRealProducerSuccess() {
+   const KernelBuildSpec& build_spec = result.GetBuildSpec();
+   const Artifact& artifact = result.GetArtifact();
+   const auto& kernel = artifact.GetKernelAbi();
++  std::fprintf(stderr, "NEW_FP32 source=%s static=%s kernel=%s size=%zu code=%s\\n",
++               build_spec.GetSourceIrDigest().c_str(),
++               build_spec.GetStaticSpecializationDigest().c_str(),
++               kernel.GetIdentityDigest().c_str(), artifact.GetDeviceCode().size(),
++               artifact.GetDeviceCodeSha256().c_str());
+   REQUIRE(kernel.GetRuntimeKernelName() == "tensor_ir_rtk");
+   REQUIRE(kernel.GetEntryFunctionName() == "pypto_vector_add");
+   REQUIRE(kernel.GetArgumentPackingPolicy() ==
+@@ -623,6 +629,12 @@ int TestRealProducerSuccess() {
+   REQUIRE(GetStrictNvidiaProducerInvocationCountForTesting() == before_bf16 + 1);
+   const KernelBuildSpec& bf16_spec = bf16_result.GetBuildSpec();
+   const Artifact& bf16_artifact = bf16_result.GetArtifact();
++  std::fprintf(stderr, "NEW_BF16 source=%s static=%s kernel=%s size=%zu code=%s\\n",
++               bf16_spec.GetSourceIrDigest().c_str(),
++               bf16_spec.GetStaticSpecializationDigest().c_str(),
++               bf16_artifact.GetKernelAbi().GetIdentityDigest().c_str(),
++               bf16_artifact.GetDeviceCode().size(),
++               bf16_artifact.GetDeviceCodeSha256().c_str());
+   REQUIRE(bf16_spec.GetSourceIrDigest() ==
+           "c22f2459ad794e89f88de1bbd427f17876c6059b9fd222be706dd5ce300a0a7f");
+   REQUIRE(bf16_spec.GetStaticSpecializationDigest() ==

@@ -1,0 +1,31 @@
+From a4e13e9f8af1010ade84f10a85a3d5abe87b442b Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 13:22:39 +0800
+Subject: [PATCH 274/298] codegen: use input shape for typed RoPE result
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 2f9c7bb23a36be5079a2ed86251ebe1c34ab69bf..f3763fd1a76978cdfb5c16e9c273f44aacb8b0eb 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -5167,7 +5167,7 @@ TypedTensorIrModuleSpec MakeGenericRopeTensorIrSpec(
+   half.dense_strides = MakeDenseStridesForMetadata(half.shape);
+   GenericTensorIrSpecBuilder builder(
+       {graph.input, graph.frequency, graph.frequency});
+-  builder.AddResult(graph.result);
++  builder.AddResult(graph.input);
+   const int64_t rows = graph.input.shape[0];
+   const int64_t half_width = half.shape[1];
+   const auto slice = [&](uint32_t input, int64_t column_start) {
+@@ -5194,7 +5194,7 @@ TypedTensorIrModuleSpec MakeGenericRopeTensorIrSpec(
+       TypedTensorIrOpKind::Mul, {xlow, sine}, half);
+   const uint32_t high = builder.TensorOp(
+       TypedTensorIrOpKind::Add, {high_cos, low_sin}, half);
+-  const uint32_t output = builder.Concatenate({low, high}, graph.result, 1);
++  const uint32_t output = builder.Concatenate({low, high}, graph.input, 1);
+   return std::move(builder).Finish({output});
+ }
+ 

@@ -1,0 +1,210 @@
+From 1353770b6f785d83855bc0db52941abbbecf1f90 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 13:42:51 +0800
+Subject: [PATCH 276/298] codegen: lower QK RMSNorm and RoPE with typed ops
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 183 ++++++++++++++++++++++-
+ 1 file changed, 182 insertions(+), 1 deletion(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 97f613a7e935a2026718ffac7f730e9895de04c7..51c10c415563f8c0a58ddba155d487032fe7b519 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -5339,6 +5339,187 @@ TypedTensorIrModuleSpec MakeGenericGatherRowsTensorIrSpec(
+   return std::move(builder).Finish({output});
+ }
+ 
++TypedTensorIrModuleSpec MakeGenericQkRmsNormRopeTensorIrSpec(
++    const NativeTileQkRmsNormRopeGraph& graph) {
++  const int64_t tokens = graph.q_gate.shape[0];
++  const int64_t q_heads = graph.q_heads;
++  const int64_t kv_heads = graph.kv_heads;
++  const int64_t head_dim = graph.head_dim;
++  const int64_t rotary_dim = graph.rotary_dim;
++  const int64_t half = rotary_dim / 2;
++  const auto tensor = [](DataType dtype, std::vector<int64_t> shape) {
++    return StaticTensor{dtype, shape, MakeDenseStridesForMetadata(shape)};
++  };
++  const StaticTensor q_gate3 =
++      tensor(DataType::BF16, {tokens, 2 * q_heads, head_dim});
++  const StaticTensor q3 = tensor(DataType::BF16, {tokens, q_heads, head_dim});
++  const StaticTensor k3 =
++      tensor(DataType::BF16, {tokens, kv_heads, head_dim});
++  const StaticTensor qf = tensor(DataType::FP32, q3.shape);
++  const StaticTensor kf = tensor(DataType::FP32, k3.shape);
++  const StaticTensor q_row = tensor(DataType::FP32, {tokens, q_heads, 1});
++  const StaticTensor k_row = tensor(DataType::FP32, {tokens, kv_heads, 1});
++  const StaticTensor weight3 = tensor(DataType::FP32, {1, 1, head_dim});
++  const StaticTensor q_weight_full = tensor(DataType::FP32, q3.shape);
++  const StaticTensor k_weight_full = tensor(DataType::FP32, k3.shape);
++  const StaticTensor cache_rows = tensor(graph.cache.dtype, {tokens, rotary_dim});
++  const StaticTensor cache_rows_f = tensor(DataType::FP32, cache_rows.shape);
++  const StaticTensor cache_half = tensor(DataType::FP32, {tokens, half});
++  const StaticTensor cache_half3 = tensor(DataType::FP32, {tokens, 1, half});
++  const StaticTensor q_half = tensor(DataType::FP32, {tokens, q_heads, half});
++  const StaticTensor k_half = tensor(DataType::FP32, {tokens, kv_heads, half});
++  const StaticTensor q_tail =
++      tensor(DataType::FP32, {tokens, q_heads, head_dim - rotary_dim});
++  const StaticTensor k_tail =
++      tensor(DataType::FP32, {tokens, kv_heads, head_dim - rotary_dim});
++  const StaticTensor q_rotary = tensor(DataType::FP32, {tokens, q_heads, rotary_dim});
++  const StaticTensor k_rotary =
++      tensor(DataType::FP32, {tokens, kv_heads, rotary_dim});
++  StaticTensor positions32 = graph.positions;
++  positions32.dtype = DataType::INT32;
++
++  GenericTensorIrSpecBuilder builder(
++      {graph.q_gate, graph.key, graph.weight, graph.weight, graph.cache,
++       graph.positions});
++  builder.AddResult(graph.result);
++  const auto slice = [&](uint32_t input, const StaticTensor& result,
++                         std::vector<int64_t> starts,
++                         std::vector<int64_t> limits,
++                         std::vector<int64_t> strides) {
++    TypedTensorIrOperationSpec operation = MakeGenericOperation(
++        TypedTensorIrOpKind::Slice, {input}, result);
++    operation.starts = std::move(starts);
++    operation.limits = std::move(limits);
++    operation.strides = std::move(strides);
++    return builder.Append(std::move(operation));
++  };
++  const uint32_t q_gate_3 = builder.TensorOp(
++      TypedTensorIrOpKind::Reshape, {builder.Input(0)}, q_gate3);
++  const uint32_t q3_value = slice(
++      q_gate_3, q3, {0, 0, 0}, {tokens, 2 * q_heads, head_dim}, {1, 2, 1});
++  const uint32_t gate3 = slice(
++      q_gate_3, q3, {0, 1, 0}, {tokens, 2 * q_heads, head_dim}, {1, 2, 1});
++  const uint32_t k3_value = builder.TensorOp(
++      TypedTensorIrOpKind::Reshape, {builder.Input(1)}, k3);
++
++  const auto append_norm = [&](uint32_t input, const StaticTensor& input_type,
++                               const StaticTensor& wide_type,
++                               const StaticTensor& row_type,
++                               const StaticTensor& weight_full_type,
++                               uint32_t weight) {
++    const uint32_t wide = builder.TensorOp(
++        TypedTensorIrOpKind::Convert, {input}, wide_type);
++    const uint32_t square = builder.TensorOp(
++        TypedTensorIrOpKind::Mul, {wide, wide}, wide_type);
++    TypedTensorIrOperationSpec reduce = MakeGenericOperation(
++        TypedTensorIrOpKind::Reduce, {square}, row_type);
++    reduce.dimensions = {2};
++    reduce.reduction_mode = TypedTensorIrReductionMode::Add;
++    uint32_t current = builder.Append(std::move(reduce));
++    const uint32_t mean = builder.Constant(DataType::FP32,
++                                           1.0 / static_cast<double>(head_dim));
++    current = builder.TensorOp(
++        TypedTensorIrOpKind::Mul, {current, builder.Splat(mean, row_type)},
++        row_type);
++    const uint32_t epsilon = builder.Constant(DataType::FP32, graph.epsilon);
++    current = builder.TensorOp(
++        TypedTensorIrOpKind::Add, {current, builder.Splat(epsilon, row_type)},
++        row_type);
++    current = builder.TensorOp(TypedTensorIrOpKind::Rsqrt, {current}, row_type);
++    const uint32_t inverse_full = builder.TensorOp(
++        TypedTensorIrOpKind::Broadcast, {current}, wide_type);
++    const uint32_t normalized = builder.TensorOp(
++        TypedTensorIrOpKind::Mul, {wide, inverse_full}, wide_type);
++    StaticTensor weight_f = graph.weight;
++    weight_f.dtype = DataType::FP32;
++    const uint32_t weight_wide = builder.TensorOp(
++        TypedTensorIrOpKind::Convert, {weight}, weight_f);
++    const uint32_t weight_3 = builder.TensorOp(
++        TypedTensorIrOpKind::Reshape, {weight_wide}, weight3);
++    const uint32_t weight_full = builder.TensorOp(
++        TypedTensorIrOpKind::Broadcast, {weight_3}, weight_full_type);
++    const uint32_t one = builder.Constant(DataType::FP32, 1.0);
++    const uint32_t scale = builder.TensorOp(
++        TypedTensorIrOpKind::Add,
++        {weight_full, builder.Splat(one, weight_full_type)},
++        weight_full_type);
++    const uint32_t weighted = builder.TensorOp(
++        TypedTensorIrOpKind::Mul, {normalized, scale}, wide_type);
++    const uint32_t rounded = builder.TensorOp(
++        TypedTensorIrOpKind::Convert, {weighted}, input_type);
++    return builder.TensorOp(TypedTensorIrOpKind::Convert, {rounded}, wide_type);
++  };
++  const uint32_t q_ready = append_norm(q3_value, q3, qf, q_row,
++                                       q_weight_full, builder.Input(2));
++  const uint32_t k_ready = append_norm(k3_value, k3, kf, k_row,
++                                       k_weight_full, builder.Input(3));
++
++  const uint32_t positions = builder.TensorOp(
++      TypedTensorIrOpKind::Convert, {builder.Input(5)}, positions32);
++  const uint32_t cache_rows_value = builder.TensorOp(
++      TypedTensorIrOpKind::GatherRows, {builder.Input(4), positions},
++      cache_rows);
++  uint32_t cache_wide = cache_rows_value;
++  if (graph.cache.dtype != DataType::FP32) {
++    cache_wide = builder.TensorOp(TypedTensorIrOpKind::Convert,
++                                  {cache_rows_value}, cache_rows_f);
++  }
++  const uint32_t cos2 = slice(cache_wide, cache_half, {0, 0},
++                              {tokens, half}, {1, 1});
++  const uint32_t sin2 = slice(cache_wide, cache_half, {0, half},
++                              {tokens, rotary_dim}, {1, 1});
++  const uint32_t cos3 = builder.TensorOp(
++      TypedTensorIrOpKind::Reshape, {cos2}, cache_half3);
++  const uint32_t sin3 = builder.TensorOp(
++      TypedTensorIrOpKind::Reshape, {sin2}, cache_half3);
++  const uint32_t q_cos = builder.TensorOp(
++      TypedTensorIrOpKind::Broadcast, {cos3}, q_half);
++  const uint32_t q_sin = builder.TensorOp(
++      TypedTensorIrOpKind::Broadcast, {sin3}, q_half);
++  const uint32_t k_cos = builder.TensorOp(
++      TypedTensorIrOpKind::Broadcast, {cos3}, k_half);
++  const uint32_t k_sin = builder.TensorOp(
++      TypedTensorIrOpKind::Broadcast, {sin3}, k_half);
++
++  const auto append_rope = [&](uint32_t ready, const StaticTensor& ready_type,
++                               const StaticTensor& half_type,
++                               const StaticTensor& tail_type,
++                               const StaticTensor& rotary_type,
++                               const StaticTensor& output_type,
++                               uint32_t cosine, uint32_t sine, int64_t heads) {
++    const uint32_t low = slice(ready, half_type, {0, 0, 0},
++                               {tokens, heads, half}, {1, 1, 1});
++    const uint32_t high = slice(ready, half_type, {0, 0, half},
++                                {tokens, heads, rotary_dim}, {1, 1, 1});
++    const uint32_t tail = slice(ready, tail_type, {0, 0, rotary_dim},
++                                {tokens, heads, head_dim}, {1, 1, 1});
++    const uint32_t low_cos = builder.TensorOp(
++        TypedTensorIrOpKind::Mul, {low, cosine}, half_type);
++    const uint32_t high_sin = builder.TensorOp(
++        TypedTensorIrOpKind::Mul, {high, sine}, half_type);
++    const uint32_t rot_low = builder.TensorOp(
++        TypedTensorIrOpKind::Sub, {low_cos, high_sin}, half_type);
++    const uint32_t high_cos = builder.TensorOp(
++        TypedTensorIrOpKind::Mul, {high, cosine}, half_type);
++    const uint32_t low_sin = builder.TensorOp(
++        TypedTensorIrOpKind::Mul, {low, sine}, half_type);
++    const uint32_t rot_high = builder.TensorOp(
++        TypedTensorIrOpKind::Add, {high_cos, low_sin}, half_type);
++    const uint32_t rotary = builder.Concatenate(
++        {rot_low, rot_high}, rotary_type, 2);
++    const uint32_t complete = builder.Concatenate(
++        {rotary, tail}, ready_type, 2);
++    return builder.TensorOp(TypedTensorIrOpKind::Convert, {complete}, output_type);
++  };
++  const uint32_t q_result = append_rope(
++      q_ready, qf, q_half, q_tail, q_rotary, q3, q_cos, q_sin, q_heads);
++  const uint32_t k_result = append_rope(
++      k_ready, kf, k_half, k_tail, k_rotary, k3, k_cos, k_sin, kv_heads);
++  const uint32_t output = builder.Concatenate(
++      {q_result, k_result, gate3}, graph.result, 1);
++  return std::move(builder).Finish({output});
++}
++
+ TypedTensorIrModuleSpec MakeNativeGdnRecurrentTensorIrSpec(
+     const NativeTileGdnRecurrentGraph& graph) {
+   TypedTensorIrModuleSpec module_spec;
+@@ -9885,7 +10066,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+         graph.result.shape, graph.result.dense_strides,
+         /*has_explicit_strides=*/true));
+     return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+-                          EmitNativeTileQkRmsNormRopeSource(graph),
++                          MakeGenericQkRmsNormRopeTensorIrSpec(graph),
+                           std::move(metadata), /*input_count=*/6);
+   }
+   if (IsNativeTileGatherRowsCandidate(program)) {

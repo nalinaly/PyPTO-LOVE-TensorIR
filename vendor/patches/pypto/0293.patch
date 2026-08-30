@@ -1,0 +1,131 @@
+From 90bf4f230b1b263ad8f163aec15385b8579307f0 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 15:38:57 +0800
+Subject: [PATCH 293/298] test: inspect typed TensorIR operation specs
+
+---
+ tests/ut/cpp/tensor_ir_codegen_test.cpp | 48 +++++++++++++++----------
+ 1 file changed, 29 insertions(+), 19 deletions(-)
+
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index a4bf4522377923fa5f02e5c1ef1680c2090a38c4..044c58aaef61c22874ae1e167bd2c3fa6a430271 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -9,6 +9,7 @@
+  * -----------------------------------------------------------------------------------------------------------
+  */
+ 
++#include <algorithm>
+ #include <any>
+ #include <cstdint>
+ #include <cstdio>
+@@ -48,6 +49,7 @@ using pypto::codegen::nvidia::TensorIrModule;
+ using pypto::codegen::nvidia::TensorIrModuleKind;
+ using pypto::codegen::nvidia::TensorIrValueMetadata;
+ using pypto::codegen::nvidia::TensorIrValueRole;
++using pypto::codegen::nvidia::TypedTensorIrOpKind;
+ using pypto::compiler::Artifact;
+ using pypto::compiler::detail::BuildTypedTensorIrModule;
+ 
+@@ -302,6 +304,20 @@ std::string MaterializedCanonicalSource(const TensorIrModule& module) {
+              : std::string{};
+ }
+ 
++bool HasTypedOperation(const TensorIrModule& module,
++                       pypto::codegen::nvidia::TypedTensorIrOpKind kind) {
++  if (!module.HasTypedModuleSpec() ||
++      module.GetTypedModuleSpec()->kind !=
++          pypto::codegen::nvidia::TypedTensorIrModuleKind::Generic) {
++    return false;
++  }
++  const auto& operations = module.GetTypedModuleSpec()->generic.operations;
++  return std::any_of(operations.begin(), operations.end(),
++                     [kind](const auto& operation) {
++                       return operation.kind == kind;
++                     });
++}
++
+ int TestFp32CanonicalSourceAndMetadata() {
+   const ValidProgram valid = MakeValid();
+   const TensorIrModule module = EmitTensorIr(valid.program);
+@@ -525,8 +541,7 @@ int TestRowReductionCanonicalSourcesAndMetadata() {
+   REQUIRE(MatchesSourceAndSha256(
+       rank_one_bf16, rank_one_bf16_expected,
+       "26293f30ed404254e6a143ab63a64f4acbeca032a42a23c28df6d6fe8b53be70"));
+-  REQUIRE(MaterializedCanonicalSource(rank_one_bf16).find("reduce") !=
+-          std::string::npos);
++  REQUIRE(HasTypedOperation(rank_one_bf16, TypedTensorIrOpKind::Reduce));
+ 
+   const TensorIrModule rank_three =
+       EmitTensorIr(MakeRowReduction({2, 3, 5}, DataType::FP32,
+@@ -576,10 +591,8 @@ int TestRowReductionCanonicalSourcesAndMetadata() {
+   REQUIRE(MatchesSourceAndSha256(
+       bf16, bf16_expected,
+       "5a6ec4c601f42a01094714f08def05e093d6ebcffac4c8ce8b9b15d4719590c8"));
+-  REQUIRE(MaterializedCanonicalSource(bf16).find("convert") !=
+-          std::string::npos);
+-  REQUIRE(MaterializedCanonicalSource(bf16).find("reduce") !=
+-          std::string::npos);
++  REQUIRE(HasTypedOperation(bf16, TypedTensorIrOpKind::Convert));
++  REQUIRE(HasTypedOperation(bf16, TypedTensorIrOpKind::Reduce));
+   REQUIRE(bf16.GetValueMetadata()[0].GetDtypeName() == "bfloat16");
+   REQUIRE(bf16.GetValueMetadata()[1].GetDtypeName() == "bfloat16");
+   const TensorIrModule bf16_max =
+@@ -601,8 +614,8 @@ int TestRowReductionCanonicalSourcesAndMetadata() {
+   REQUIRE(MatchesSourceAndSha256(
+       bf16_max, bf16_max_expected,
+       "d39716d799dec2faa5b62ded941850489d119f44701d13f76c055d475b162d58"));
+-  REQUIRE(MaterializedCanonicalSource(bf16_max).find("convert") !=
+-          std::string::npos);
++  REQUIRE(HasTypedOperation(bf16_max, TypedTensorIrOpKind::Convert));
++  REQUIRE(HasTypedOperation(bf16_max, TypedTensorIrOpKind::Reduce));
+   const TensorIrModule bf16_rank_three =
+       EmitTensorIr(MakeRowReduction({2, 3, 5}, DataType::BF16,
+                                     "tensor.row_sum")
+@@ -629,7 +642,7 @@ int TestRowReductionCanonicalSourcesAndMetadata() {
+   REQUIRE(MatchesSourceAndSha256(
+       bf16_rank_three, bf16_rank_three_expected,
+       "ddde1ddbf751b483c1f88e382e524052c63904ac148dcb1ac0164a164e77eeed"));
+-  REQUIRE(bf16_rank_three_source.find("reduce") != std::string::npos);
++  REQUIRE(HasTypedOperation(bf16_rank_three, TypedTensorIrOpKind::Reduce));
+ 
+   const RowReductionProgram cosmetic =
+       MakeRowReduction({3, 5}, DataType::FP32, "tensor.row_sum", {}, {},
+@@ -1310,8 +1323,7 @@ int TestFusedPointwiseBoundsAndScalarFormatting() {
+   REQUIRE(maximum.GetValueMetadata().size() == 17);
+   REQUIRE(maximum.HasTypedModuleSpec());
+   REQUIRE(maximum.GetTypedModuleSpec()->generic.operations.size() >= 64);
+-  REQUIRE(MaterializedCanonicalSource(maximum).find("neg") !=
+-          std::string::npos);
++  REQUIRE(HasTypedOperation(maximum, TypedTensorIrOpKind::Neg));
+ 
+   auto bf16_type = PlainTensor({7}, DataType::BF16);
+   auto input = std::make_shared<ir::Var>("input", bf16_type, TestSpan());
+@@ -1325,10 +1337,8 @@ int TestFusedPointwiseBoundsAndScalarFormatting() {
+   const TensorIrModule minimum = EmitTensorIr(bf16_program);
+   REQUIRE(minimum.GetInputCount() == 1);
+   REQUIRE(minimum.HasTypedModuleSpec());
+-  REQUIRE(MaterializedCanonicalSource(minimum).find("constant") !=
+-          std::string::npos);
+-  REQUIRE(MaterializedCanonicalSource(minimum).find("splat") !=
+-          std::string::npos);
++  REQUIRE(HasTypedOperation(minimum, TypedTensorIrOpKind::Constant));
++  REQUIRE(HasTypedOperation(minimum, TypedTensorIrOpKind::Splat));
+   const std::locale previous_locale = std::locale();
+   std::locale::global(std::locale(std::locale::classic(), new GroupedNumpunct));
+   const std::string hostile_locale_source =
+@@ -2411,10 +2421,10 @@ int TestFusedRmsNormBf16Source() {
+   REQUIRE(module.GetValueMetadata()[0].GetShape() ==
+           std::vector<int64_t>({4, 8}));
+   const std::string source = MaterializedCanonicalSource(module);
+-  REQUIRE(source.find("convert") != std::string::npos);
+-  REQUIRE(source.find("mul") != std::string::npos);
+-  REQUIRE(source.find("reduce") != std::string::npos);
+-  REQUIRE(source.find("broadcast") != std::string::npos);
++  REQUIRE(HasTypedOperation(module, TypedTensorIrOpKind::Convert));
++  REQUIRE(HasTypedOperation(module, TypedTensorIrOpKind::Mul));
++  REQUIRE(HasTypedOperation(module, TypedTensorIrOpKind::Reduce));
++  REQUIRE(HasTypedOperation(module, TypedTensorIrOpKind::Broadcast));
+   return 0;
+ }
+ 

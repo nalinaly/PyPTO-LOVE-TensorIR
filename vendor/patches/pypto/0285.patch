@@ -1,0 +1,2456 @@
+From 04679730316662c68c731be845f4ed9b209ab3f9 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 14:41:17 +0800
+Subject: [PATCH 285/298] codegen: remove legacy string TensorIR emitters
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 2401 ----------------------
+ 1 file changed, 2401 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index a35a1282ce9e01169b05af4b061fd94036111ef7..52d8fe38649530728d266f122babc0875ce896b0 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -436,14 +436,6 @@ bool SameTensor(const StaticTensor& left, const StaticTensor& right) {
+          left.dense_strides == right.dense_strides;
+ }
+ 
+-const char* TensorIrDtype(DataType dtype) {
+-  if (dtype == DataType::BF16) return "bf16";
+-  if (dtype == DataType::FP32) return "f32";
+-  if (dtype == DataType::INT32) return "si32";
+-  if (dtype == DataType::INT64) return "si64";
+-  InternalReject("unsupported dtype reached source emission");
+-}
+-
+ double MaximumFiniteScalar(DataType dtype) {
+   if (dtype == DataType::FP32) {
+     return static_cast<double>(std::numeric_limits<float>::max());
+@@ -462,25 +454,6 @@ void AppendInteger(std::string& output, int64_t value) {
+   output.append(buffer, result.ptr);
+ }
+ 
+-void AppendIndex(std::string& output, size_t value) {
+-  char buffer[32];
+-  const auto result = std::to_chars(buffer, buffer + sizeof(buffer), value);
+-  if (result.ec != std::errc{}) InternalReject("index formatting failed");
+-  output.append(buffer, result.ptr);
+-}
+-
+-void AppendFloat(std::string& output, double value) {
+-  std::ostringstream stream;
+-  stream.imbue(std::locale::classic());
+-  stream << std::setprecision(std::numeric_limits<double>::max_digits10) << value;
+-  std::string formatted = stream.str();
+-  if (formatted.empty() || formatted.size() > 32) {
+-    InternalReject("floating-point formatting produced an invalid bounded token");
+-  }
+-  if (formatted.find_first_of(".eE") == std::string::npos) formatted += ".0";
+-  output += formatted;
+-}
+-
+ std::string JoinIntegers(const std::vector<int64_t>& values, char separator) {
+   std::string output;
+   output.reserve(values.size() * 4);
+@@ -491,53 +464,6 @@ std::string JoinIntegers(const std::vector<int64_t>& values, char separator) {
+   return output;
+ }
+ 
+-std::string TensorTypeText(const StaticTensor& tensor) {
+-  return "tensor<" + JoinIntegers(tensor.shape, 'x') + "x" +
+-         TensorIrDtype(tensor.dtype) + ">";
+-}
+-
+-std::string TensorWithStrideText(const StaticTensor& tensor) {
+-  const std::string type = TensorTypeText(tensor);
+-  if (tensor.shape.size() == 1) return type;
+-  return type + " {nv_tensor_ir.stride = \"(" + JoinIntegers(tensor.dense_strides, ',') +
+-         ")\"}";
+-}
+-
+-std::string EmitLegacyStaticAddSource(const StaticTensor& tensor, size_t lhs_index,
+-                                      size_t rhs_index) {
+-  const std::string type = TensorTypeText(tensor);
+-  const std::string type_with_stride = TensorWithStrideText(tensor);
+-  std::string source;
+-  source.reserve(256 + type_with_stride.size() * 3 + type.size() * 2);
+-  source += "module {\n  nv_tensor_ir.graph @";
+-  source += kLegacyStaticAddEntryName;
+-  source += "(\n    %arg0: ";
+-  source += type_with_stride;
+-  source += ",\n    %arg1: ";
+-  source += type_with_stride;
+-  source += "\n  ) -> ";
+-  if (tensor.shape.size() == 1) {
+-    source += type;
+-  } else {
+-    source += "(";
+-    source += type_with_stride;
+-    source += ")";
+-  }
+-  source += " {\n    %result0 = add %arg";
+-  AppendIndex(source, lhs_index);
+-  source += ", %arg";
+-  AppendIndex(source, rhs_index);
+-  source += " : ";
+-  source += type;
+-  source += "\n    results %result0 : ";
+-  source += type;
+-  source += "\n  }\n}\n";
+-  if (source.size() > kMaximumCanonicalSourceBytes) {
+-    Reject("canonical TensorIR source exceeds 16 MiB");
+-  }
+-  return source;
+-}
+-
+ std::vector<ir::StmtPtr> LegacyBodyStatements(const ir::StmtPtr& body,
+                                               const ir::Span& function_span) {
+   if (!body) Reject("function body must not be null", &function_span);
+@@ -832,1725 +758,6 @@ bool AnalyzeRowReductionV4(const ir::ProgramPtr& program,
+   return true;
+ }
+ 
+-std::string EmitRowReductionEpilogueSource(
+-    const StaticTensor& input, bool square_input,
+-    const std::vector<RowReductionEpilogueStep>& steps) {
+-  const bool widen = input.dtype == DataType::BF16;
+-  StaticTensor compute = input;
+-  if (widen) compute.dtype = DataType::FP32;
+-  StaticTensor row = compute;
+-  row.shape[1] = 1;
+-  row.dense_strides = {1, 1};
+-  const std::string input_type = TensorTypeText(input);
+-  const std::string input_with_stride = TensorWithStrideText(input);
+-  const std::string compute_type = TensorTypeText(compute);
+-  const std::string row_type = TensorTypeText(row);
+-  std::string source;
+-  source += "module {\n  nv_tensor_ir.graph @";
+-  source += kFusedPointwiseEntryName;
+-  source += "(\n    %arg0: ";
+-  source += input_with_stride;
+-  source += "\n  ) -> (";
+-  source += input_with_stride;
+-  source += ") {\n";
+-  std::string full_value = "%arg0";
+-  if (widen) {
+-    source += "    %wide0 = convert %arg0 : ";
+-    source += input_type;
+-    source += " -> ";
+-    source += compute_type;
+-    source += "\n";
+-    full_value = "%wide0";
+-  }
+-  std::string reduction_value = full_value;
+-  if (square_input) {
+-    source += "    %square0 = mul ";
+-    source += full_value;
+-    source += ", ";
+-    source += full_value;
+-    source += " : ";
+-    source += compute_type;
+-    source += "\n";
+-    reduction_value = "%square0";
+-  }
+-  source += "    %reduce0 = reduce(";
+-  source += reduction_value;
+-  source += ") <dimensions = [1], reduction_mode = <add>> : ";
+-  source += compute_type;
+-  source += " -> ";
+-  source += row_type;
+-  source += "\n";
+-  source += "    %sumzero = constant 0.0 : f32\n";
+-  source += "    %sumsplat = splat %sumzero : ";
+-  source += row_type;
+-  source += "\n    %sum0 = add %reduce0, %sumsplat : ";
+-  source += row_type;
+-  source += "\n";
+-  std::string current = "%sum0";
+-  size_t constant_index = 0;
+-  for (const RowReductionEpilogueStep& step : steps) {
+-    if (step.op == "rsqrt" || step.op == "reciprocal") {
+-      source += "    %ep";
+-      AppendIndex(source, constant_index);
+-      source += step.op == "rsqrt" ? " = rsqrt " : " = reciprocal ";
+-      source += current;
+-      source += " : ";
+-      source += row_type;
+-      source += "\n";
+-      current = "%ep" + std::to_string(constant_index);
+-      ++constant_index;
+-      continue;
+-    }
+-    source += "    %c";
+-    AppendIndex(source, constant_index);
+-    source += " = constant ";
+-    AppendFloat(source, step.scalar);
+-    source += " : f32\n    %cs";
+-    AppendIndex(source, constant_index);
+-    source += " = splat %c";
+-    AppendIndex(source, constant_index);
+-    source += " : ";
+-    source += row_type;
+-    source += "\n    %ep";
+-    AppendIndex(source, constant_index);
+-    source += " = ";
+-    source += step.op == "muls" ? "mul" : "add";
+-    source += " ";
+-    source += current;
+-    source += ", %cs";
+-    AppendIndex(source, constant_index);
+-    source += " : ";
+-    source += row_type;
+-    source += "\n";
+-    current = "%ep" + std::to_string(constant_index);
+-    ++constant_index;
+-  }
+-  source += "    %bcast0 = broadcast ";
+-  source += current;
+-  source += " : ";
+-  source += row_type;
+-  source += " -> ";
+-  source += compute_type;
+-  if (widen) {
+-    source += "\n    %scaled0 = mul %wide0, %bcast0 : ";
+-    source += compute_type;
+-    source += "\n    %result0 = convert %scaled0 : ";
+-    source += compute_type;
+-    source += " -> ";
+-    source += input_type;
+-  } else {
+-    source += "\n    %result0 = mul %arg0, %bcast0 : ";
+-    source += input_type;
+-  }
+-  source += "\n    results %result0 : ";
+-  source += input_type;
+-  source += "\n  }\n}\n";
+-  if (source.size() > kMaximumCanonicalSourceBytes) {
+-    Reject("canonical TensorIR source exceeds 16 MiB");
+-  }
+-  return source;
+-}
+-
+-std::string EmitNativeTileWeightedRmsNormSource(
+-    const NativeTileWeightedRmsNormGraph& graph) {
+-  StaticTensor compute = graph.input;
+-  compute.dtype = DataType::FP32;
+-  StaticTensor row = compute;
+-  row.shape[1] = 1;
+-  row.dense_strides = {1, 1};
+-  StaticTensor weight_compute = graph.weight;
+-  weight_compute.dtype = DataType::FP32;
+-
+-  const std::string input_type = TensorTypeText(graph.input);
+-  const std::string compute_type = TensorTypeText(compute);
+-  const std::string row_type = TensorTypeText(row);
+-  const std::string weight_type = TensorTypeText(graph.weight);
+-  const std::string weight_compute_type = TensorTypeText(weight_compute);
+-  std::string source;
+-  source.reserve(3072);
+-  source += "module {\n  nv_tensor_ir.graph @";
+-  source += kFusedPointwiseEntryName;
+-  source += "(\n    %arg0: ";
+-  source += TensorWithStrideText(graph.input);
+-  source += ",\n    %arg1: ";
+-  source += TensorWithStrideText(graph.weight);
+-  source += "\n  ) -> (";
+-  source += TensorWithStrideText(graph.result);
+-  source += ") {\n    %wide = convert %arg0 : ";
+-  source += input_type;
+-  source += " -> ";
+-  source += compute_type;
+-  source += "\n    %square = mul %wide, %wide : ";
+-  source += compute_type;
+-  source += "\n    %sum = reduce(%square) <dimensions = [1], reduction_mode = <add>> : ";
+-  source += compute_type;
+-  source += " -> ";
+-  source += row_type;
+-  source += "\n    %mean_constant = constant ";
+-  AppendFloat(source, graph.mean_scale);
+-  source += " : f32\n    %mean_splat = splat %mean_constant : ";
+-  source += row_type;
+-  source += "\n    %mean = mul %sum, %mean_splat : ";
+-  source += row_type;
+-  source += "\n    %epsilon_constant = constant ";
+-  AppendFloat(source, graph.epsilon);
+-  source += " : f32\n    %epsilon_splat = splat %epsilon_constant : ";
+-  source += row_type;
+-  source += "\n    %shifted = add %mean, %epsilon_splat : ";
+-  source += row_type;
+-  source += "\n    %inverse = rsqrt %shifted : ";
+-  source += row_type;
+-  source += "\n    %inverse_broadcast = broadcast %inverse : ";
+-  source += row_type;
+-  source += " -> ";
+-  source += compute_type;
+-  source += "\n    %normalized = mul %wide, %inverse_broadcast : ";
+-  source += compute_type;
+-  source += "\n    %weight_wide = convert %arg1 : ";
+-  source += weight_type;
+-  source += " -> ";
+-  source += weight_compute_type;
+-  source += "\n    %one = constant 1.0 : f32\n    %one_splat = splat %one : ";
+-  source += weight_compute_type;
+-  source += "\n    %weight_scale = add %weight_wide, %one_splat : ";
+-  source += weight_compute_type;
+-  std::string weight_value = "%weight_scale";
+-  if (graph.input.shape[0] != 1) {
+-    source += "\n    %weight_broadcast = broadcast %weight_scale : ";
+-    source += weight_compute_type;
+-    source += " -> ";
+-    source += compute_type;
+-    weight_value = "%weight_broadcast";
+-  }
+-  source += "\n    %weighted = mul %normalized, ";
+-  source += weight_value;
+-  source += " : ";
+-  source += compute_type;
+-  source += "\n    %result0 = convert %weighted : ";
+-  source += compute_type;
+-  source += " -> ";
+-  source += input_type;
+-  source += "\n    results %result0 : ";
+-  source += input_type;
+-  source += "\n  }\n}\n";
+-  if (source.size() > kMaximumCanonicalSourceBytes) {
+-    Reject("canonical TensorIR source exceeds 16 MiB");
+-  }
+-  return source;
+-}
+-
+-std::string EmitNativeTileFusedAddRmsNormSource(
+-    const NativeTileFusedAddRmsNormGraph& graph) {
+-  StaticTensor compute = graph.input;
+-  compute.dtype = DataType::FP32;
+-  StaticTensor row = compute;
+-  row.shape[1] = 1;
+-  row.dense_strides = {1, 1};
+-  StaticTensor weight_compute = graph.weight;
+-  weight_compute.dtype = DataType::FP32;
+-
+-  const std::string input_type = TensorTypeText(graph.input);
+-  const std::string compute_type = TensorTypeText(compute);
+-  const std::string row_type = TensorTypeText(row);
+-  const std::string weight_type = TensorTypeText(graph.weight);
+-  const std::string weight_compute_type = TensorTypeText(weight_compute);
+-  std::string source;
+-  source.reserve(3584);
+-  source += "module {\n  nv_tensor_ir.graph @";
+-  source += kFusedPointwiseEntryName;
+-  source += "(\n    %arg0: ";
+-  source += TensorWithStrideText(graph.input);
+-  source += ",\n    %arg1: ";
+-  source += TensorWithStrideText(graph.input);
+-  source += ",\n    %arg2: ";
+-  source += TensorWithStrideText(graph.weight);
+-  source += "\n  ) -> (";
+-  source += TensorWithStrideText(graph.result);
+-  source += ", ";
+-  source += TensorWithStrideText(graph.result);
+-  source += ") {\n    %residual0 = add %arg0, %arg1 : ";
+-  source += input_type;
+-  source += "\n    %wide = convert %residual0 : ";
+-  source += input_type;
+-  source += " -> ";
+-  source += compute_type;
+-  source += "\n    %square = mul %wide, %wide : ";
+-  source += compute_type;
+-  source += "\n    %sum = reduce(%square) <dimensions = [1], reduction_mode = <add>> : ";
+-  source += compute_type;
+-  source += " -> ";
+-  source += row_type;
+-  source += "\n    %mean_constant = constant ";
+-  AppendFloat(source, graph.mean_scale);
+-  source += " : f32\n    %mean_splat = splat %mean_constant : ";
+-  source += row_type;
+-  source += "\n    %mean = mul %sum, %mean_splat : ";
+-  source += row_type;
+-  source += "\n    %epsilon_constant = constant ";
+-  AppendFloat(source, graph.epsilon);
+-  source += " : f32\n    %epsilon_splat = splat %epsilon_constant : ";
+-  source += row_type;
+-  source += "\n    %shifted = add %mean, %epsilon_splat : ";
+-  source += row_type;
+-  source += "\n    %inverse = rsqrt %shifted : ";
+-  source += row_type;
+-  source += "\n    %inverse_broadcast = broadcast %inverse : ";
+-  source += row_type;
+-  source += " -> ";
+-  source += compute_type;
+-  source += "\n    %normalized = mul %wide, %inverse_broadcast : ";
+-  source += compute_type;
+-  source += "\n    %weight_wide = convert %arg2 : ";
+-  source += weight_type;
+-  source += " -> ";
+-  source += weight_compute_type;
+-  source += "\n    %one = constant 1.0 : f32\n    %one_splat = splat %one : ";
+-  source += weight_compute_type;
+-  source += "\n    %weight_scale = add %weight_wide, %one_splat : ";
+-  source += weight_compute_type;
+-  std::string weight_value = "%weight_scale";
+-  if (graph.input.shape[0] != 1) {
+-    source += "\n    %weight_broadcast = broadcast %weight_scale : ";
+-    source += weight_compute_type;
+-    source += " -> ";
+-    source += compute_type;
+-    weight_value = "%weight_broadcast";
+-  }
+-  source += "\n    %weighted = mul %normalized, ";
+-  source += weight_value;
+-  source += " : ";
+-  source += compute_type;
+-  source += "\n    %result0 = convert %weighted : ";
+-  source += compute_type;
+-  source += " -> ";
+-  source += input_type;
+-  source += "\n    results %result0, %residual0 : ";
+-  source += input_type;
+-  source += ", ";
+-  source += input_type;
+-  source += "\n  }\n}\n";
+-  if (source.size() > kMaximumCanonicalSourceBytes) {
+-    Reject("canonical TensorIR source exceeds 16 MiB");
+-  }
+-  return source;
+-}
+-
+-std::string EmitNativeTileGatedRmsNormSource(
+-    const NativeTileGatedRmsNormGraph& graph) {
+-  StaticTensor compute = graph.input;
+-  compute.dtype = DataType::FP32;
+-  StaticTensor row = compute;
+-  row.shape[1] = 1;
+-  row.dense_strides = {1, 1};
+-  StaticTensor weight_compute = graph.weight;
+-  weight_compute.dtype = DataType::FP32;
+-
+-  const std::string input_type = TensorTypeText(graph.input);
+-  const std::string compute_type = TensorTypeText(compute);
+-  const std::string row_type = TensorTypeText(row);
+-  const std::string weight_type = TensorTypeText(graph.weight);
+-  const std::string weight_compute_type = TensorTypeText(weight_compute);
+-  std::string source;
+-  source.reserve(4096);
+-  source += "module {\n  nv_tensor_ir.graph @";
+-  source += kFusedPointwiseEntryName;
+-  source += "(\n    %arg0: ";
+-  source += TensorWithStrideText(graph.input);
+-  source += ",\n    %arg1: ";
+-  source += TensorWithStrideText(graph.gate);
+-  source += ",\n    %arg2: ";
+-  source += TensorWithStrideText(graph.weight);
+-  source += "\n  ) -> (";
+-  source += TensorWithStrideText(graph.result);
+-  source += ") {\n    %wide = convert %arg0 : ";
+-  source += input_type;
+-  source += " -> ";
+-  source += compute_type;
+-  source += "\n    %square = mul %wide, %wide : ";
+-  source += compute_type;
+-  source += "\n    %sum = reduce(%square) <dimensions = [1], reduction_mode = <add>> : ";
+-  source += compute_type;
+-  source += " -> ";
+-  source += row_type;
+-  source += "\n    %mean_constant = constant ";
+-  AppendFloat(source, graph.mean_scale);
+-  source += " : f32\n    %mean_splat = splat %mean_constant : ";
+-  source += row_type;
+-  source += "\n    %mean = mul %sum, %mean_splat : ";
+-  source += row_type;
+-  source += "\n    %epsilon_constant = constant ";
+-  AppendFloat(source, graph.epsilon);
+-  source += " : f32\n    %epsilon_splat = splat %epsilon_constant : ";
+-  source += row_type;
+-  source += "\n    %shifted = add %mean, %epsilon_splat : ";
+-  source += row_type;
+-  source += "\n    %inverse = rsqrt %shifted : ";
+-  source += row_type;
+-  source += "\n    %inverse_broadcast = broadcast %inverse : ";
+-  source += row_type;
+-  source += " -> ";
+-  source += compute_type;
+-  source += "\n    %normalized = mul %wide, %inverse_broadcast : ";
+-  source += compute_type;
+-  source += "\n    %weight_wide = convert %arg2 : ";
+-  source += weight_type;
+-  source += " -> ";
+-  source += weight_compute_type;
+-  std::string weight_value = "%weight_wide";
+-  if (graph.input.shape[0] != 1) {
+-    source += "\n    %weight_broadcast = broadcast %weight_wide : ";
+-    source += weight_compute_type;
+-    source += " -> ";
+-    source += compute_type;
+-    weight_value = "%weight_broadcast";
+-  }
+-  source += "\n    %weighted = mul %normalized, ";
+-  source += weight_value;
+-  source += " : ";
+-  source += compute_type;
+-  source += "\n    %gate_wide = convert %arg1 : ";
+-  source += input_type;
+-  source += " -> ";
+-  source += compute_type;
+-  source += "\n    %gate_neg = neg %gate_wide : ";
+-  source += compute_type;
+-  source += "\n    %gate_exp = exp %gate_neg : ";
+-  source += compute_type;
+-  source += "\n    %one = constant 1.0 : f32\n    %one_splat = splat %one : ";
+-  source += compute_type;
+-  source += "\n    %gate_denominator = add %gate_exp, %one_splat : ";
+-  source += compute_type;
+-  source += "\n    %gate_sigmoid = reciprocal %gate_denominator : ";
+-  source += compute_type;
+-  source += "\n    %gate_silu = mul %gate_wide, %gate_sigmoid : ";
+-  source += compute_type;
+-  source += "\n    %gated = mul %weighted, %gate_silu : ";
+-  source += compute_type;
+-  source += "\n    %result0 = convert %gated : ";
+-  source += compute_type;
+-  source += " -> ";
+-  source += input_type;
+-  source += "\n    results %result0 : ";
+-  source += input_type;
+-  source += "\n  }\n}\n";
+-  if (source.size() > kMaximumCanonicalSourceBytes) {
+-    Reject("canonical TensorIR source exceeds 16 MiB");
+-  }
+-  return source;
+-}
+-
+-std::string EmitNativeTileStatefulCausalConvSource(
+-    const NativeTileStatefulCausalConvGraph& graph) {
+-  const int64_t state_width = graph.channels * 3;
+-  StaticTensor indices_i32 = graph.state_indices;
+-  indices_i32.dtype = DataType::INT32;
+-  StaticTensor indices_column{DataType::INT32, {1, 1}, {}};
+-  indices_column.dense_strides =
+-      MakeDenseStridesForMetadata(indices_column.shape);
+-  StaticTensor indices_full{DataType::INT32, {1, state_width}, {}};
+-  indices_full.dense_strides =
+-      MakeDenseStridesForMetadata(indices_full.shape);
+-  StaticTensor state_rows{DataType::BF16, {1, state_width}, {}};
+-  state_rows.dense_strides = MakeDenseStridesForMetadata(state_rows.shape);
+-  StaticTensor state_history_row{DataType::BF16, {1, 128}, {}};
+-  state_history_row.dense_strides =
+-      MakeDenseStridesForMetadata(state_history_row.shape);
+-  StaticTensor state_plane{DataType::BF16, {1, graph.channels}, {}};
+-  state_plane.dense_strides = MakeDenseStridesForMetadata(state_plane.shape);
+-  StaticTensor column{DataType::FP32, {128, 1}, {}};
+-  column.dense_strides = MakeDenseStridesForMetadata(column.shape);
+-  StaticTensor bf16_column = column;
+-  bf16_column.dtype = DataType::BF16;
+-  StaticTensor weight_block{DataType::BF16, {128, 4}, {}};
+-  weight_block.dense_strides =
+-      MakeDenseStridesForMetadata(weight_block.shape);
+-  StaticTensor wide_weight_block = weight_block;
+-  wide_weight_block.dtype = DataType::FP32;
+-  StaticTensor input_box{DataType::BF16, {1, 1, 128}, {}};
+-  input_box.dense_strides = MakeDenseStridesForMetadata(input_box.shape);
+-  StaticTensor output_box = input_box;
+-  StaticTensor block_sequence{DataType::BF16,
+-                              {1, graph.tokens_per_request, 128}, {}};
+-  block_sequence.dense_strides =
+-      MakeDenseStridesForMetadata(block_sequence.shape);
+-  StaticTensor batch_result{DataType::BF16,
+-                            {1, graph.tokens_per_request, graph.channels}, {}};
+-  batch_result.dense_strides =
+-      MakeDenseStridesForMetadata(batch_result.shape);
+-  StaticTensor state_anchor_box{DataType::BF16, {1, 1, graph.channels}, {}};
+-  state_anchor_box.dense_strides =
+-      MakeDenseStridesForMetadata(state_anchor_box.shape);
+-  StaticTensor index_anchor_seed{DataType::INT32, {1, 1, 1}, {}};
+-  index_anchor_seed.dense_strides =
+-      MakeDenseStridesForMetadata(index_anchor_seed.shape);
+-  StaticTensor index_anchor{DataType::INT32,
+-                            {1, graph.tokens_per_request, graph.channels}, {}};
+-  index_anchor.dense_strides = MakeDenseStridesForMetadata(index_anchor.shape);
+-  StaticTensor batch_state{DataType::BF16, {1, state_width}, {}};
+-  batch_state.dense_strides = MakeDenseStridesForMetadata(batch_state.shape);
+-
+-  const std::string input_type = TensorTypeText(graph.input);
+-  const std::string weight_type = TensorTypeText(graph.weight);
+-  const std::string state_type = TensorTypeText(graph.state);
+-  const std::string indices_type = TensorTypeText(graph.state_indices);
+-  const std::string indices_i32_type = TensorTypeText(indices_i32);
+-  const std::string indices_column_type = TensorTypeText(indices_column);
+-  const std::string indices_full_type = TensorTypeText(indices_full);
+-  const std::string state_rows_type = TensorTypeText(state_rows);
+-  const std::string state_history_row_type = TensorTypeText(state_history_row);
+-  const std::string state_plane_type = TensorTypeText(state_plane);
+-  const std::string column_type = TensorTypeText(column);
+-  const std::string bf16_column_type = TensorTypeText(bf16_column);
+-  const std::string weight_block_type = TensorTypeText(weight_block);
+-  const std::string wide_weight_block_type =
+-      TensorTypeText(wide_weight_block);
+-  const std::string input_box_type = TensorTypeText(input_box);
+-  const std::string output_box_type = TensorTypeText(output_box);
+-  const std::string block_sequence_type = TensorTypeText(block_sequence);
+-  const std::string batch_result_type = TensorTypeText(batch_result);
+-  const std::string state_anchor_box_type = TensorTypeText(state_anchor_box);
+-  const std::string index_anchor_seed_type = TensorTypeText(index_anchor_seed);
+-  const std::string index_anchor_type = TensorTypeText(index_anchor);
+-  const std::string batch_state_type = TensorTypeText(batch_state);
+-  const std::string result_type = TensorTypeText(graph.result);
+-
+-  std::string source;
+-  source.reserve(8192);
+-  source += "module {\n  nv_tensor_ir.graph @";
+-  source += kFusedPointwiseEntryName;
+-  source += "(\n    %arg0: ";
+-  source += TensorWithStrideText(graph.input);
+-  source += ",\n    %arg1: ";
+-  source += TensorWithStrideText(graph.weight);
+-  source += ",\n    %arg2: ";
+-  source += TensorWithStrideText(graph.state);
+-  source += ",\n    %arg3: ";
+-  source += TensorWithStrideText(graph.state_indices);
+-  source += "\n  ) -> (";
+-  source += TensorWithStrideText(graph.result);
+-  source += ") {\n";
+-  std::string indices_value = "%arg3";
+-  if (graph.state_indices.dtype == DataType::INT64) {
+-    source += "    %state_indices32 = convert %arg3 : ";
+-    source += indices_type;
+-    source += " -> ";
+-    source += indices_i32_type;
+-    source += "\n";
+-    indices_value = "%state_indices32";
+-  }
+-  source += "    %one = constant 1.0 : f32";
+-  source += "\n    %one_column = splat %one : ";
+-  source += column_type;
+-  source += "\n    %one_index = constant 1 : si32";
+-  source += "\n    %one_index_splat = splat %one_index : ";
+-  source += index_anchor_type;
+-  source += "\n    %zero_index = constant 0 : si32";
+-  source += "\n    %zero_index_splat = splat %zero_index : ";
+-  source += index_anchor_type;
+-
+-  std::vector<std::string> batch_outputs;
+-  batch_outputs.reserve(static_cast<size_t>(graph.batch_size));
+-  const int64_t channel_blocks = graph.channels / 128;
+-  for (int64_t batch = 0; batch < graph.batch_size; ++batch) {
+-    const std::string batch_suffix = "b" + std::to_string(batch);
+-    const std::string index_name = "%state_index_" + batch_suffix;
+-    const std::string indices_full_name =
+-        "%state_indices_full_" + batch_suffix;
+-    const std::string state_rows_name = "%state_rows_" + batch_suffix;
+-    source += "\n    " + index_name + " = slice " + indices_value +
+-              " starts = [" + std::to_string(batch) + ", 0] limits = [" +
+-              std::to_string(batch + 1) + ", 1] strides = [1, 1] : ";
+-    source += indices_i32_type;
+-    source += " -> ";
+-    source += indices_column_type;
+-    source += "\n    " + indices_full_name + " = broadcast " + index_name +
+-              " : ";
+-    source += indices_column_type;
+-    source += " -> ";
+-    source += indices_full_type;
+-    source += "\n    %index_anchor_seed_" + batch_suffix + " = reshape " +
+-              index_name + " : ";
+-    source += indices_column_type;
+-    source += " -> ";
+-    source += index_anchor_seed_type;
+-    source += "\n    %index_anchor_" + batch_suffix + " = broadcast " +
+-              "%index_anchor_seed_" + batch_suffix + " : ";
+-    source += index_anchor_seed_type;
+-    source += " -> ";
+-    source += index_anchor_type;
+-    source += "\n    %index_plus_one_" + batch_suffix + " = add " +
+-              "%index_anchor_" + batch_suffix + ", %one_index_splat : ";
+-    source += index_anchor_type;
+-    source += "\n    %valid_state_index_" + batch_suffix +
+-              " = cmp %zero_index_splat lt %index_plus_one_" + batch_suffix +
+-              " : ";
+-    source += index_anchor_type;
+-    source += "\n    " + state_rows_name + " = gather_rows %arg2, " +
+-              indices_full_name + " : (";
+-    source += state_type;
+-    source += ", ";
+-    source += indices_full_type;
+-    source += ") -> ";
+-    source += state_rows_type;
+-    std::vector<std::string> block_outputs;
+-    std::array<std::vector<std::string>, 3> block_state_planes;
+-    block_outputs.reserve(static_cast<size_t>(channel_blocks));
+-    for (auto& plane : block_state_planes) {
+-      plane.reserve(static_cast<size_t>(channel_blocks));
+-    }
+-    for (int64_t block = 0; block < channel_blocks; ++block) {
+-      const int64_t channel_offset = block * 128;
+-      const std::string block_suffix =
+-          "b" + std::to_string(batch) + "_c" + std::to_string(block);
+-      std::array<std::string, 3> history;
+-      for (size_t index = 0; index < history.size(); ++index) {
+-        history[index] = "%history" + std::to_string(index) + "_" + block_suffix;
+-        const std::string row =
+-            "%history_row" + std::to_string(index) + "_" + block_suffix;
+-        const std::string bf16 =
+-            "%history_bf16_" + std::to_string(index) + "_" + block_suffix;
+-        source += "\n    " + row + " = slice " + state_rows_name +
+-                  " starts = [0, " +
+-                  std::to_string(static_cast<int64_t>(index) * graph.channels +
+-                                 channel_offset) +
+-                  "] limits = [1, " +
+-                  std::to_string(static_cast<int64_t>(index) * graph.channels +
+-                                 channel_offset + 128) +
+-                  "] strides = [1, 1] : ";
+-        source += state_rows_type;
+-        source += " -> ";
+-        source += state_history_row_type;
+-        source += "\n    " + bf16 + " = transpose " + row +
+-                  " permutation = [1, 0] : ";
+-        source += state_history_row_type;
+-        source += " -> ";
+-        source += bf16_column_type;
+-        source += "\n    " + history[index] + " = convert " + bf16 + " : ";
+-        source += bf16_column_type;
+-        source += " -> ";
+-        source += column_type;
+-      }
+-      source += "\n    %weight_block_" + block_suffix +
+-                " = slice %arg1 starts = [" + std::to_string(channel_offset) +
+-                ", 0] limits = [" + std::to_string(channel_offset + 128) +
+-                ", 4] strides = [1, 1] : ";
+-      source += weight_type;
+-      source += " -> ";
+-      source += weight_block_type;
+-      source += "\n    %weight_wide_" + block_suffix +
+-                " = convert %weight_block_" + block_suffix + " : ";
+-      source += weight_block_type;
+-      source += " -> ";
+-      source += wide_weight_block_type;
+-      std::array<std::string, 4> weights;
+-      for (size_t index = 0; index < weights.size(); ++index) {
+-        weights[index] = "%weight" + std::to_string(index) + "_" + block_suffix;
+-        source += "\n    " + weights[index] + " = slice %weight_wide_" +
+-                  block_suffix + " starts = [0, " + std::to_string(index) +
+-                  "] limits = [128, " + std::to_string(index + 1) +
+-                  "] strides = [1, 1] : ";
+-        source += wide_weight_block_type;
+-        source += " -> ";
+-        source += column_type;
+-      }
+-
+-      std::vector<std::string> token_outputs;
+-      token_outputs.reserve(static_cast<size_t>(graph.tokens_per_request));
+-      for (int64_t token = 0; token < graph.tokens_per_request; ++token) {
+-        const std::string suffix =
+-            block_suffix + "_t" + std::to_string(token);
+-        source += "\n    %current_box_" + suffix +
+-                  " = slice %arg0 starts = [" + std::to_string(batch) +
+-                  ", " + std::to_string(token) + ", " +
+-                  std::to_string(channel_offset) + "] limits = [" +
+-                  std::to_string(batch + 1) + ", " +
+-                  std::to_string(token + 1) + ", " +
+-                  std::to_string(channel_offset + 128) +
+-                  "] strides = [1, 1, 1] : ";
+-        source += input_type;
+-        source += " -> ";
+-        source += input_box_type;
+-        source += "\n    %current_bf16_" + suffix +
+-                  " = reshape %current_box_" + suffix + " : ";
+-        source += input_box_type;
+-        source += " -> ";
+-        source += bf16_column_type;
+-        source += "\n    %current_" + suffix + " = convert %current_bf16_" +
+-                  suffix + " : ";
+-        source += bf16_column_type;
+-        source += " -> ";
+-        source += column_type;
+-        std::array<std::string, 4> terms;
+-        for (size_t index = 0; index < terms.size(); ++index) {
+-          terms[index] = "%term" + std::to_string(index) + "_" + suffix;
+-          const std::string &value = index == 3 ? "%current_" + suffix
+-                                                : history[index];
+-          source += "\n    " + terms[index] + " = mul " + value + ", " +
+-                    weights[index] + " : ";
+-          source += column_type;
+-        }
+-        source += "\n    %sum01_" + suffix + " = add " + terms[0] + ", " +
+-                  terms[1] + " : ";
+-        source += column_type;
+-        source += "\n    %sum23_" + suffix + " = add " + terms[2] + ", " +
+-                  terms[3] + " : ";
+-        source += column_type;
+-        source += "\n    %convolution_" + suffix + " = add %sum01_" + suffix +
+-                  ", %sum23_" + suffix + " : ";
+-        source += column_type;
+-        source += "\n    %negative_" + suffix + " = neg %convolution_" +
+-                  suffix + " : ";
+-        source += column_type;
+-        source += "\n    %exponent_" + suffix + " = exp %negative_" + suffix +
+-                  " : ";
+-        source += column_type;
+-        source += "\n    %denominator_" + suffix + " = add %exponent_" +
+-                  suffix + ", %one_column : ";
+-        source += column_type;
+-        source += "\n    %sigmoid_" + suffix + " = reciprocal %denominator_" +
+-                  suffix + " : ";
+-        source += column_type;
+-        source += "\n    %activated_" + suffix + " = mul %convolution_" +
+-                  suffix + ", %sigmoid_" + suffix + " : ";
+-        source += column_type;
+-        source += "\n    %result_column_" + suffix +
+-                  " = convert %activated_" + suffix + " : ";
+-        source += column_type;
+-        source += " -> ";
+-        source += bf16_column_type;
+-        source += "\n    %output_box_" + suffix +
+-                  " = reshape %result_column_" + suffix + " : ";
+-        source += bf16_column_type;
+-        source += " -> ";
+-        source += output_box_type;
+-        token_outputs.push_back("%output_box_" + suffix);
+-        history[0] = history[1];
+-        history[1] = history[2];
+-        history[2] = "%current_" + suffix;
+-      }
+-      std::string block_output;
+-      if (graph.tokens_per_request == 1) {
+-        block_output = token_outputs[0];
+-      } else {
+-        block_output = "%block_output_" + block_suffix;
+-        source += "\n    " + block_output + " = concatenate ";
+-        for (size_t index = 0; index < token_outputs.size(); ++index) {
+-          if (index != 0) source += ", ";
+-          source += token_outputs[index];
+-        }
+-        source += " dimension = 1 : (";
+-        for (size_t index = 0; index < token_outputs.size(); ++index) {
+-          if (index != 0) source += ", ";
+-          source += output_box_type;
+-        }
+-        source += ") -> ";
+-        source += block_sequence_type;
+-      }
+-      block_outputs.push_back(block_output);
+-      for (size_t index = 0; index < history.size(); ++index) {
+-        const std::string final_column =
+-            "%final_history_bf16_" + std::to_string(index) + "_" +
+-            block_suffix;
+-        const std::string final_row =
+-            "%final_history_row_" + std::to_string(index) + "_" +
+-            block_suffix;
+-        source += "\n    " + final_column + " = convert " + history[index] +
+-                  " : ";
+-        source += column_type;
+-        source += " -> ";
+-        source += bf16_column_type;
+-        source += "\n    " + final_row + " = transpose " + final_column +
+-                  " permutation = [1, 0] : ";
+-        source += bf16_column_type;
+-        source += " -> ";
+-        source += state_history_row_type;
+-        block_state_planes[index].push_back(final_row);
+-      }
+-    }
+-
+-    std::string batch_output;
+-    if (channel_blocks == 1) {
+-      batch_output = block_outputs[0];
+-    } else {
+-      batch_output = "%batch_output_" + std::to_string(batch);
+-      source += "\n    " + batch_output + " = concatenate ";
+-      for (size_t index = 0; index < block_outputs.size(); ++index) {
+-        if (index != 0) source += ", ";
+-        source += block_outputs[index];
+-      }
+-      source += " dimension = 2 : (";
+-      for (size_t index = 0; index < block_outputs.size(); ++index) {
+-        if (index != 0) source += ", ";
+-        source += block_sequence_type;
+-      }
+-      source += ") -> ";
+-      source += batch_result_type;
+-    }
+-    batch_outputs.push_back(batch_output);
+-    std::array<std::string, 3> state_planes;
+-    for (size_t plane = 0; plane < state_planes.size(); ++plane) {
+-      if (channel_blocks == 1) {
+-        state_planes[plane] = block_state_planes[plane][0];
+-        continue;
+-      }
+-      state_planes[plane] = "%state_plane_" + std::to_string(plane) + "_" +
+-                            batch_suffix;
+-      source += "\n    " + state_planes[plane] + " = concatenate ";
+-      for (size_t block = 0; block < block_state_planes[plane].size(); ++block) {
+-        if (block != 0) source += ", ";
+-        source += block_state_planes[plane][block];
+-      }
+-      source += " dimension = 1 : (";
+-      for (size_t block = 0; block < block_state_planes[plane].size(); ++block) {
+-        if (block != 0) source += ", ";
+-        source += state_history_row_type;
+-      }
+-      source += ") -> ";
+-      source += state_plane_type;
+-    }
+-    const std::string batch_state_name = "%batch_state_" + batch_suffix;
+-    source += "\n    " + batch_state_name + " = concatenate " +
+-              state_planes[0] + ", " + state_planes[1] + ", " +
+-              state_planes[2] + " dimension = 1 : (";
+-    source += state_plane_type;
+-    source += ", ";
+-    source += state_plane_type;
+-    source += ", ";
+-    source += state_plane_type;
+-    source += ") -> ";
+-    source += batch_state_type;
+-    const std::string stored_state = "%stored_state_" + batch_suffix;
+-    source += "\n    " + stored_state + " = scatter_rows %arg2, " +
+-              indices_full_name + ", " + batch_state_name + " : (";
+-    source += state_type;
+-    source += ", ";
+-    source += indices_full_type;
+-    source += ", ";
+-    source += state_rows_type;
+-    source += ") -> ";
+-    source += state_rows_type;
+-    std::array<std::string, 3> anchor_planes;
+-    for (size_t plane = 0; plane < anchor_planes.size(); ++plane) {
+-      anchor_planes[plane] = "%state_anchor_plane_" + std::to_string(plane) +
+-                             "_" + batch_suffix;
+-      source += "\n    " + anchor_planes[plane] + " = slice " + stored_state +
+-                " starts = [0, " +
+-                std::to_string(static_cast<int64_t>(plane) * graph.channels) +
+-                "] limits = [1, " +
+-                std::to_string((static_cast<int64_t>(plane) + 1) *
+-                               graph.channels) +
+-                "] strides = [1, 1] : ";
+-      source += state_rows_type;
+-      source += " -> ";
+-      source += state_plane_type;
+-    }
+-    const std::string anchor_sum01 = "%state_anchor_sum01_" + batch_suffix;
+-    const std::string anchor_row = "%state_anchor_row_" + batch_suffix;
+-    const std::string anchor_box = "%state_anchor_box_" + batch_suffix;
+-    std::string anchor_full;
+-    const std::string anchored_output = "%anchored_output_" + batch_suffix;
+-    source += "\n    " + anchor_sum01 + " = add " + anchor_planes[0] + ", " +
+-              anchor_planes[1] + " : ";
+-    source += state_plane_type;
+-    source += "\n    " + anchor_row + " = add " + anchor_sum01 + ", " +
+-              anchor_planes[2] + " : ";
+-    source += state_plane_type;
+-    source += "\n    " + anchor_box + " = reshape " + anchor_row + " : ";
+-    source += state_plane_type;
+-    source += " -> ";
+-    source += state_anchor_box_type;
+-    if (graph.tokens_per_request == 1) {
+-      anchor_full = anchor_box;
+-    } else {
+-      anchor_full = "%state_anchor_full_" + batch_suffix;
+-      source += "\n    " + anchor_full + " = broadcast " + anchor_box + " : ";
+-      source += state_anchor_box_type;
+-      source += " -> ";
+-      source += batch_result_type;
+-    }
+-    source += "\n    " + anchored_output +
+-              " = binary_select %valid_state_index_" + batch_suffix + ", " +
+-              batch_output + ", " + anchor_full + " : ";
+-    source += batch_result_type;
+-    batch_outputs.back() = anchored_output;
+-  }
+-
+-  std::string result_value;
+-  if (graph.batch_size == 1) {
+-    result_value = batch_outputs[0];
+-  } else {
+-    result_value = "%result0";
+-    source += "\n    %result0 = concatenate ";
+-    for (size_t index = 0; index < batch_outputs.size(); ++index) {
+-      if (index != 0) source += ", ";
+-      source += batch_outputs[index];
+-    }
+-    source += " dimension = 0 : (";
+-    for (size_t index = 0; index < batch_outputs.size(); ++index) {
+-      if (index != 0) source += ", ";
+-      source += batch_result_type;
+-    }
+-    source += ") -> ";
+-    source += result_type;
+-  }
+-  source += "\n    results ";
+-  source += result_value;
+-  source += " : ";
+-  source += result_type;
+-  source += "\n  }\n}\n";
+-  if (source.size() > kMaximumCanonicalSourceBytes) {
+-    Reject("canonical TensorIR source exceeds 16 MiB");
+-  }
+-  return source;
+-}
+-
+-std::string EmitNativeTileCausalConvSource(
+-    const NativeTileCausalConvGraph& graph) {
+-  StaticTensor compute = graph.input;
+-  compute.dtype = DataType::FP32;
+-  StaticTensor weightCompute = graph.weight;
+-  weightCompute.dtype = DataType::FP32;
+-  StaticTensor weightColumn{DataType::FP32, {graph.input.shape[0], 1}, {1, 1}};
+-  const std::string inputType = TensorTypeText(graph.input);
+-  const std::string computeType = TensorTypeText(compute);
+-  const std::string weightType = TensorTypeText(graph.weight);
+-  const std::string weightComputeType = TensorTypeText(weightCompute);
+-  const std::string weightColumnType = TensorTypeText(weightColumn);
+-
+-  std::string source;
+-  source.reserve(8192);
+-  source += "module {\n  nv_tensor_ir.graph @";
+-  source += kFusedPointwiseEntryName;
+-  source += "(\n    %arg0: ";
+-  source += TensorWithStrideText(graph.input);
+-  source += ",\n    %arg1: ";
+-  source += TensorWithStrideText(graph.weight);
+-  source += "\n  ) -> (";
+-  source += TensorWithStrideText(graph.result);
+-  source += ") {\n    %x_wide = convert %arg0 : ";
+-  source += inputType;
+-  source += " -> ";
+-  source += computeType;
+-  source += "\n    %weight_wide = convert %arg1 : ";
+-  source += weightType;
+-  source += " -> ";
+-  source += weightComputeType;
+-  source += "\n    %zero = constant 0.0 : f32\n";
+-
+-  for (size_t tap = 0; tap < 3; ++tap) {
+-    const int64_t prefix = 3 - static_cast<int64_t>(tap);
+-    StaticTensor prefixTensor{DataType::FP32,
+-                              {graph.input.shape[0], prefix}, {prefix, 1}};
+-    StaticTensor bodyTensor{
+-        DataType::FP32,
+-        {graph.input.shape[0], graph.input.shape[1] - prefix},
+-        {graph.input.shape[1] - prefix, 1}};
+-    const std::string prefixType = TensorTypeText(prefixTensor);
+-    const std::string bodyType = TensorTypeText(bodyTensor);
+-    source += "    %zero";
+-    AppendIndex(source, tap);
+-    source += " = splat %zero : ";
+-    source += prefixType;
+-    source += "\n    %body";
+-    AppendIndex(source, tap);
+-    source += " = slice %x_wide starts = [0, 0] limits = [";
+-    AppendInteger(source, graph.input.shape[0]);
+-    source += ", ";
+-    AppendInteger(source, graph.input.shape[1] - prefix);
+-    source += "] strides = [1, 1] : ";
+-    source += computeType;
+-    source += " -> ";
+-    source += bodyType;
+-    source += "\n    %shifted";
+-    AppendIndex(source, tap);
+-    source += " = concatenate %zero";
+-    AppendIndex(source, tap);
+-    source += ", %body";
+-    AppendIndex(source, tap);
+-    source += " dimension = 1 : (";
+-    source += prefixType;
+-    source += ", ";
+-    source += bodyType;
+-    source += ") -> ";
+-    source += computeType;
+-    source += "\n    %weight";
+-    AppendIndex(source, tap);
+-    source += " = slice %weight_wide starts = [0, ";
+-    AppendIndex(source, tap);
+-    source += "] limits = [";
+-    AppendInteger(source, graph.input.shape[0]);
+-    source += ", ";
+-    AppendIndex(source, tap + 1);
+-    source += "] strides = [1, 1] : ";
+-    source += weightComputeType;
+-    source += " -> ";
+-    source += weightColumnType;
+-    source += "\n    %weight_broadcast";
+-    AppendIndex(source, tap);
+-    source += " = broadcast %weight";
+-    AppendIndex(source, tap);
+-    source += " : ";
+-    source += weightColumnType;
+-    source += " -> ";
+-    source += computeType;
+-    source += "\n    %term";
+-    AppendIndex(source, tap);
+-    source += " = mul %shifted";
+-    AppendIndex(source, tap);
+-    source += ", %weight_broadcast";
+-    AppendIndex(source, tap);
+-    source += " : ";
+-    source += computeType;
+-    source += "\n";
+-  }
+-  source += "    %weight3 = slice %weight_wide starts = [0, 3] limits = [";
+-  AppendInteger(source, graph.input.shape[0]);
+-  source += ", 4] strides = [1, 1] : ";
+-  source += weightComputeType;
+-  source += " -> ";
+-  source += weightColumnType;
+-  source += "\n    %weight_broadcast3 = broadcast %weight3 : ";
+-  source += weightColumnType;
+-  source += " -> ";
+-  source += computeType;
+-  source += "\n    %term3 = mul %x_wide, %weight_broadcast3 : ";
+-  source += computeType;
+-  source += "\n    %sum01 = add %term0, %term1 : ";
+-  source += computeType;
+-  source += "\n    %sum23 = add %term2, %term3 : ";
+-  source += computeType;
+-  source += "\n    %convolution = add %sum01, %sum23 : ";
+-  source += computeType;
+-  source += "\n    %negative = neg %convolution : ";
+-  source += computeType;
+-  source += "\n    %exponent = exp %negative : ";
+-  source += computeType;
+-  source += "\n    %one = constant 1.0 : f32\n    %one_splat = splat %one : ";
+-  source += computeType;
+-  source += "\n    %denominator = add %exponent, %one_splat : ";
+-  source += computeType;
+-  source += "\n    %sigmoid = reciprocal %denominator : ";
+-  source += computeType;
+-  source += "\n    %activated = mul %convolution, %sigmoid : ";
+-  source += computeType;
+-  source += "\n    %result0 = convert %activated : ";
+-  source += computeType;
+-  source += " -> ";
+-  source += inputType;
+-  source += "\n    results %result0 : ";
+-  source += inputType;
+-  source += "\n  }\n}\n";
+-  if (source.size() > kMaximumCanonicalSourceBytes) {
+-    Reject("canonical TensorIR source exceeds 16 MiB");
+-  }
+-  return source;
+-}
+-
+-std::string EmitNativeTileCausalConvSegmentedSource(
+-    const NativeTileCausalConvGraph& graph) {
+-  StaticTensor compute = graph.input;
+-  compute.dtype = DataType::FP32;
+-  StaticTensor weightCompute = graph.weight;
+-  weightCompute.dtype = DataType::FP32;
+-  StaticTensor weightColumn{DataType::FP32, {graph.input.shape[0], 1}, {1, 1}};
+-  const std::string inputType = TensorTypeText(graph.input);
+-  const std::string computeType = TensorTypeText(compute);
+-  const std::string weightType = TensorTypeText(graph.weight);
+-  const std::string weightComputeType = TensorTypeText(weightCompute);
+-  const std::string weightColumnType = TensorTypeText(weightColumn);
+-
+-  std::string source;
+-  source.reserve(8192);
+-  source += "module {\n  nv_tensor_ir.graph @";
+-  source += kFusedPointwiseEntryName;
+-  source += "(\n    %arg0: ";
+-  source += TensorWithStrideText(graph.input);
+-  source += ",\n    %arg1: ";
+-  source += TensorWithStrideText(graph.weight);
+-  source += "\n  ) -> (";
+-  source += TensorWithStrideText(graph.result);
+-  source += ") {\n    %x_wide = convert %arg0 : ";
+-  source += inputType;
+-  source += " -> ";
+-  source += computeType;
+-  source += "\n    %weight_wide = convert %arg1 : ";
+-  source += weightType;
+-  source += " -> ";
+-  source += weightComputeType;
+-  source += "\n    %one = constant 1.0 : f32\n";
+-
+-  const auto emitSegment = [&](size_t segmentIndex, int64_t segmentLength,
+-                               const std::vector<std::pair<int64_t, int64_t>>& taps) {
+-    StaticTensor segment{DataType::FP32,
+-                         {graph.input.shape[0], segmentLength},
+-                         {segmentLength, 1}};
+-    const std::string segmentType = TensorTypeText(segment);
+-    std::string accumulated;
+-    for (size_t termIndex = 0; termIndex < taps.size(); ++termIndex) {
+-      const auto [inputStart, weightTap] = taps[termIndex];
+-      source += "    %x_s";
+-      AppendIndex(source, segmentIndex);
+-      source += "_t";
+-      AppendIndex(source, termIndex);
+-      source += " = slice %x_wide starts = [0, ";
+-      AppendInteger(source, inputStart);
+-      source += "] limits = [";
+-      AppendInteger(source, graph.input.shape[0]);
+-      source += ", ";
+-      AppendInteger(source, inputStart + segmentLength);
+-      source += "] strides = [1, 1] : ";
+-      source += computeType;
+-      source += " -> ";
+-      source += segmentType;
+-      source += "\n    %w_s";
+-      AppendIndex(source, segmentIndex);
+-      source += "_t";
+-      AppendIndex(source, termIndex);
+-      source += " = slice %weight_wide starts = [0, ";
+-      AppendInteger(source, weightTap);
+-      source += "] limits = [";
+-      AppendInteger(source, graph.input.shape[0]);
+-      source += ", ";
+-      AppendInteger(source, weightTap + 1);
+-      source += "] strides = [1, 1] : ";
+-      source += weightComputeType;
+-      source += " -> ";
+-      source += weightColumnType;
+-      std::string weightValue = "%w_s" + std::to_string(segmentIndex) +
+-                                "_t" + std::to_string(termIndex);
+-      if (segmentLength != 1) {
+-        source += "\n    %wb_s";
+-        AppendIndex(source, segmentIndex);
+-        source += "_t";
+-        AppendIndex(source, termIndex);
+-        source += " = broadcast ";
+-        source += weightValue;
+-        source += " : ";
+-        source += weightColumnType;
+-        source += " -> ";
+-        source += segmentType;
+-        weightValue = "%wb_s" + std::to_string(segmentIndex) + "_t" +
+-                      std::to_string(termIndex);
+-      }
+-      source += "\n    %term_s";
+-      AppendIndex(source, segmentIndex);
+-      source += "_t";
+-      AppendIndex(source, termIndex);
+-      source += " = mul %x_s";
+-      AppendIndex(source, segmentIndex);
+-      source += "_t";
+-      AppendIndex(source, termIndex);
+-      source += ", ";
+-      source += weightValue;
+-      source += " : ";
+-      source += segmentType;
+-      source += "\n";
+-      const std::string term = "%term_s" + std::to_string(segmentIndex) +
+-                               "_t" + std::to_string(termIndex);
+-      if (accumulated.empty()) {
+-        accumulated = term;
+-      } else {
+-        source += "    %sum_s";
+-        AppendIndex(source, segmentIndex);
+-        source += "_t";
+-        AppendIndex(source, termIndex);
+-        source += " = add ";
+-        source += accumulated;
+-        source += ", ";
+-        source += term;
+-        source += " : ";
+-        source += segmentType;
+-        source += "\n";
+-        accumulated = "%sum_s" + std::to_string(segmentIndex) + "_t" +
+-                      std::to_string(termIndex);
+-      }
+-    }
+-    source += "    %neg_s";
+-    AppendIndex(source, segmentIndex);
+-    source += " = neg ";
+-    source += accumulated;
+-    source += " : ";
+-    source += segmentType;
+-    source += "\n    %exp_s";
+-    AppendIndex(source, segmentIndex);
+-    source += " = exp %neg_s";
+-    AppendIndex(source, segmentIndex);
+-    source += " : ";
+-    source += segmentType;
+-    source += "\n    %one_s";
+-    AppendIndex(source, segmentIndex);
+-    source += " = splat %one : ";
+-    source += segmentType;
+-    source += "\n    %denom_s";
+-    AppendIndex(source, segmentIndex);
+-    source += " = add %exp_s";
+-    AppendIndex(source, segmentIndex);
+-    source += ", %one_s";
+-    AppendIndex(source, segmentIndex);
+-    source += " : ";
+-    source += segmentType;
+-    source += "\n    %sigmoid_s";
+-    AppendIndex(source, segmentIndex);
+-    source += " = reciprocal %denom_s";
+-    AppendIndex(source, segmentIndex);
+-    source += " : ";
+-    source += segmentType;
+-    source += "\n    %activated_s";
+-    AppendIndex(source, segmentIndex);
+-    source += " = mul ";
+-    source += accumulated;
+-    source += ", %sigmoid_s";
+-    AppendIndex(source, segmentIndex);
+-    source += " : ";
+-    source += segmentType;
+-    StaticTensor segmentBf16 = segment;
+-    segmentBf16.dtype = DataType::BF16;
+-    source += "\n    %segment";
+-    AppendIndex(source, segmentIndex);
+-    source += " = convert %activated_s";
+-    AppendIndex(source, segmentIndex);
+-    source += " : ";
+-    source += segmentType;
+-    source += " -> ";
+-    source += TensorTypeText(segmentBf16);
+-    source += "\n";
+-  };
+-
+-  emitSegment(0, 1, {{0, 3}});
+-  emitSegment(1, 1, {{0, 2}, {1, 3}});
+-  emitSegment(2, 1, {{0, 1}, {1, 2}, {2, 3}});
+-  const int64_t bodyLength = graph.input.shape[1] - 3;
+-  emitSegment(3, bodyLength, {{0, 0}, {1, 1}, {2, 2}, {3, 3}});
+-
+-  StaticTensor boundary{DataType::BF16, {graph.input.shape[0], 1}, {1, 1}};
+-  StaticTensor body{DataType::BF16, {graph.input.shape[0], bodyLength},
+-                    {bodyLength, 1}};
+-  source += "    %result0 = concatenate %segment0, %segment1, %segment2, %segment3 dimension = 1 : (";
+-  source += TensorTypeText(boundary);
+-  source += ", ";
+-  source += TensorTypeText(boundary);
+-  source += ", ";
+-  source += TensorTypeText(boundary);
+-  source += ", ";
+-  source += TensorTypeText(body);
+-  source += ") -> ";
+-  source += inputType;
+-  source += "\n    results %result0 : ";
+-  source += inputType;
+-  source += "\n  }\n}\n";
+-  if (source.size() > kMaximumCanonicalSourceBytes) {
+-    Reject("canonical TensorIR source exceeds 16 MiB");
+-  }
+-  return source;
+-}
+-
+-std::string EmitNativeTileGatherRowsSource(
+-    const NativeTileGatherRowsGraph& graph) {
+-  StaticTensor indices32 = graph.indices;
+-  indices32.dtype = DataType::INT32;
+-  const std::string dataType = TensorTypeText(graph.data);
+-  const std::string dataWithStride = TensorWithStrideText(graph.data);
+-  const std::string indicesType = TensorTypeText(graph.indices);
+-  const std::string indicesWithStride = TensorWithStrideText(graph.indices);
+-  const std::string indices32Type = TensorTypeText(indices32);
+-  const std::string resultType = TensorTypeText(graph.result);
+-  const std::string resultWithStride = TensorWithStrideText(graph.result);
+-  std::string source;
+-  source.reserve(768 + dataWithStride.size() + indicesWithStride.size() +
+-                 resultWithStride.size());
+-  source += "module {\n  nv_tensor_ir.graph @";
+-  source += kFusedPointwiseEntryName;
+-  source += "(\n    %arg0: ";
+-  source += dataWithStride;
+-  source += ",\n    %arg1: ";
+-  source += indicesWithStride;
+-  source += "\n  ) -> (";
+-  source += resultWithStride;
+-  source += ") {\n    %indices32 = convert %arg1 : ";
+-  source += indicesType;
+-  source += " -> ";
+-  source += indices32Type;
+-  source += "\n    %result0 = gather_rows %arg0, %indices32 : (";
+-  source += dataType;
+-  source += ", ";
+-  source += indices32Type;
+-  source += ") -> ";
+-  source += resultType;
+-  source += "\n    results %result0 : ";
+-  source += resultType;
+-  source += "\n  }\n}\n";
+-  if (source.size() > kMaximumCanonicalSourceBytes) {
+-    Reject("canonical TensorIR source exceeds 16 MiB");
+-  }
+-  return source;
+-}
+-
+-std::string EmitNativeTileQkRmsNormRopeSource(
+-    const NativeTileQkRmsNormRopeGraph& graph) {
+-  const int64_t tokens = graph.q_gate.shape[0];
+-  const int64_t qHeads = graph.q_heads;
+-  const int64_t kvHeads = graph.kv_heads;
+-  const int64_t headDim = graph.head_dim;
+-  const int64_t rotaryDim = graph.rotary_dim;
+-  const int64_t half = rotaryDim / 2;
+-
+-  const auto tensor = [](DataType dtype, std::vector<int64_t> shape) {
+-    return StaticTensor{dtype, shape, MakeDenseStridesForMetadata(shape)};
+-  };
+-  const StaticTensor q3 = tensor(DataType::BF16, {tokens, qHeads, headDim});
+-  const StaticTensor k3 = tensor(DataType::BF16, {tokens, kvHeads, headDim});
+-  const StaticTensor qf = tensor(DataType::FP32, q3.shape);
+-  const StaticTensor kf = tensor(DataType::FP32, k3.shape);
+-  const StaticTensor qRow = tensor(DataType::FP32, {tokens, qHeads, 1});
+-  const StaticTensor kRow = tensor(DataType::FP32, {tokens, kvHeads, 1});
+-  const StaticTensor weight3 = tensor(DataType::FP32, {1, 1, headDim});
+-  const StaticTensor qWeightFull = tensor(DataType::FP32, q3.shape);
+-  const StaticTensor kWeightFull = tensor(DataType::FP32, k3.shape);
+-  const StaticTensor cacheRows = tensor(graph.cache.dtype, {tokens, rotaryDim});
+-  const StaticTensor cacheRowsF = tensor(DataType::FP32, cacheRows.shape);
+-  const StaticTensor cacheHalf = tensor(DataType::FP32, {tokens, half});
+-  const StaticTensor cacheHalf3 = tensor(DataType::FP32, {tokens, 1, half});
+-  const StaticTensor qHalf = tensor(DataType::FP32, {tokens, qHeads, half});
+-  const StaticTensor kHalf = tensor(DataType::FP32, {tokens, kvHeads, half});
+-  const StaticTensor qTail =
+-      tensor(DataType::FP32, {tokens, qHeads, headDim - rotaryDim});
+-  const StaticTensor kTail =
+-      tensor(DataType::FP32, {tokens, kvHeads, headDim - rotaryDim});
+-  const StaticTensor qRotary =
+-      tensor(DataType::FP32, {tokens, qHeads, rotaryDim});
+-  const StaticTensor kRotary =
+-      tensor(DataType::FP32, {tokens, kvHeads, rotaryDim});
+-  StaticTensor positions32 = graph.positions;
+-  positions32.dtype = DataType::INT32;
+-  StaticTensor weightF = graph.weight;
+-  weightF.dtype = DataType::FP32;
+-
+-  const std::string q3Type = TensorTypeText(q3);
+-  const std::string k3Type = TensorTypeText(k3);
+-  const std::string qfType = TensorTypeText(qf);
+-  const std::string kfType = TensorTypeText(kf);
+-  const std::string qRowType = TensorTypeText(qRow);
+-  const std::string kRowType = TensorTypeText(kRow);
+-  const std::string weightType = TensorTypeText(graph.weight);
+-  const std::string weightFType = TensorTypeText(weightF);
+-  const std::string weight3Type = TensorTypeText(weight3);
+-  const std::string qWeightFullType = TensorTypeText(qWeightFull);
+-  const std::string kWeightFullType = TensorTypeText(kWeightFull);
+-  const std::string cacheRowsType = TensorTypeText(cacheRows);
+-  const std::string cacheRowsFType = TensorTypeText(cacheRowsF);
+-  const std::string cacheHalfType = TensorTypeText(cacheHalf);
+-  const std::string cacheHalf3Type = TensorTypeText(cacheHalf3);
+-  const std::string qHalfType = TensorTypeText(qHalf);
+-  const std::string kHalfType = TensorTypeText(kHalf);
+-  const std::string qTailType = TensorTypeText(qTail);
+-  const std::string kTailType = TensorTypeText(kTail);
+-  const std::string qRotaryType = TensorTypeText(qRotary);
+-  const std::string kRotaryType = TensorTypeText(kRotary);
+-
+-  std::string source;
+-  source.reserve(12288);
+-  source += "module {\n  nv_tensor_ir.graph @";
+-  source += kFusedPointwiseEntryName;
+-  source += "(\n    %arg0: ";
+-  source += TensorWithStrideText(graph.q_gate);
+-  source += ",\n    %arg1: ";
+-  source += TensorWithStrideText(graph.key);
+-  source += ",\n    %arg2: ";
+-  source += TensorWithStrideText(graph.weight);
+-  source += ",\n    %arg3: ";
+-  source += TensorWithStrideText(graph.weight);
+-  source += ",\n    %arg4: ";
+-  source += TensorWithStrideText(graph.cache);
+-  source += ",\n    %arg5: ";
+-  source += TensorWithStrideText(graph.positions);
+-  source += "\n  ) -> (";
+-  source += TensorWithStrideText(graph.result);
+-  source += ") {\n";
+-
+-  StaticTensor qGate3 =
+-      tensor(DataType::BF16, {tokens, 2 * qHeads, headDim});
+-  source += "    %q_gate3 = reshape %arg0 : ";
+-  source += TensorTypeText(graph.q_gate);
+-  source += " -> ";
+-  source += TensorTypeText(qGate3);
+-  source += "\n    %q3 = slice %q_gate3 starts = [0, 0, 0] limits = [";
+-  AppendInteger(source, tokens);
+-  source += ", ";
+-  AppendInteger(source, 2 * qHeads);
+-  source += ", ";
+-  AppendInteger(source, headDim);
+-  source += "] strides = [1, 2, 1] : ";
+-  source += TensorTypeText(qGate3);
+-  source += " -> ";
+-  source += q3Type;
+-  source += "\n    %gate3 = slice %q_gate3 starts = [0, 1, 0] limits = [";
+-  AppendInteger(source, tokens);
+-  source += ", ";
+-  AppendInteger(source, 2 * qHeads);
+-  source += ", ";
+-  AppendInteger(source, headDim);
+-  source += "] strides = [1, 2, 1] : ";
+-  source += TensorTypeText(qGate3);
+-  source += " -> ";
+-  source += q3Type;
+-  source += "\n    %k3 = reshape %arg1 : ";
+-  source += TensorTypeText(graph.key);
+-  source += " -> ";
+-  source += k3Type;
+-  source += "\n";
+-
+-  const auto appendNorm = [&](std::string_view prefix,
+-                              std::string_view input,
+-                              const std::string& inputType,
+-                              const std::string& wideType,
+-                              const std::string& rowType,
+-                              const std::string& weightFullType,
+-                              int weightArg) {
+-    source += "    %" + std::string(prefix) + "_wide = convert %" +
+-              std::string(input) + " : " + inputType + " -> " + wideType;
+-    source += "\n    %" + std::string(prefix) + "_square = mul %" +
+-              std::string(prefix) + "_wide, %" + std::string(prefix) +
+-              "_wide : " + wideType;
+-    source += "\n    %" + std::string(prefix) +
+-              "_sum = reduce(%" + std::string(prefix) +
+-              "_square) <dimensions = [2], reduction_mode = <add>> : " +
+-              wideType + " -> " + rowType;
+-    source += "\n    %" + std::string(prefix) + "_mean_c = constant ";
+-    AppendFloat(source, 1.0 / static_cast<double>(headDim));
+-    source += " : f32\n    %" + std::string(prefix) +
+-              "_mean_s = splat %" + std::string(prefix) + "_mean_c : " +
+-              rowType;
+-    source += "\n    %" + std::string(prefix) + "_mean = mul %" +
+-              std::string(prefix) + "_sum, %" + std::string(prefix) +
+-              "_mean_s : " + rowType;
+-    source += "\n    %" + std::string(prefix) + "_eps_c = constant ";
+-    AppendFloat(source, graph.epsilon);
+-    source += " : f32\n    %" + std::string(prefix) +
+-              "_eps_s = splat %" + std::string(prefix) + "_eps_c : " +
+-              rowType;
+-    source += "\n    %" + std::string(prefix) + "_shift = add %" +
+-              std::string(prefix) + "_mean, %" + std::string(prefix) +
+-              "_eps_s : " + rowType;
+-    source += "\n    %" + std::string(prefix) + "_inv = rsqrt %" +
+-              std::string(prefix) + "_shift : " + rowType;
+-    source += "\n    %" + std::string(prefix) +
+-              "_inv_full = broadcast %" + std::string(prefix) +
+-              "_inv : " + rowType + " -> " + wideType;
+-    source += "\n    %" + std::string(prefix) + "_norm = mul %" +
+-              std::string(prefix) + "_wide, %" + std::string(prefix) +
+-              "_inv_full : " + wideType;
+-    source += "\n    %" + std::string(prefix) +
+-              "_weight2 = convert %arg" + std::to_string(weightArg) +
+-              " : " + weightType + " -> " + weightFType;
+-    source += "\n    %" + std::string(prefix) +
+-              "_weight3 = reshape %" + std::string(prefix) +
+-              "_weight2 : " + weightFType + " -> " + weight3Type;
+-    source += "\n    %" + std::string(prefix) +
+-              "_weight_full = broadcast %" + std::string(prefix) +
+-              "_weight3 : " + weight3Type + " -> " + weightFullType;
+-    source += "\n    %" + std::string(prefix) + "_one = constant 1.0 : f32";
+-    source += "\n    %" + std::string(prefix) + "_ones = splat %" +
+-              std::string(prefix) + "_one : " + weightFullType;
+-    source += "\n    %" + std::string(prefix) + "_scale = add %" +
+-              std::string(prefix) + "_weight_full, %" +
+-              std::string(prefix) + "_ones : " + weightFullType;
+-    source += "\n    %" + std::string(prefix) + "_weighted = mul %" +
+-              std::string(prefix) + "_norm, %" + std::string(prefix) +
+-              "_scale : " + wideType;
+-    source += "\n    %" + std::string(prefix) +
+-              "_rounded = convert %" + std::string(prefix) +
+-              "_weighted : " + wideType + " -> " + inputType;
+-    source += "\n    %" + std::string(prefix) +
+-              "_ready = convert %" + std::string(prefix) +
+-              "_rounded : " + inputType + " -> " + wideType + "\n";
+-  };
+-  appendNorm("q", "q3", q3Type, qfType, qRowType, qWeightFullType, 2);
+-  appendNorm("k", "k3", k3Type, kfType, kRowType, kWeightFullType, 3);
+-
+-  source += "    %positions32 = convert %arg5 : ";
+-  source += TensorTypeText(graph.positions);
+-  source += " -> ";
+-  source += TensorTypeText(positions32);
+-  source += "\n    %cache_rows = gather_rows %arg4, %positions32 : (";
+-  source += TensorTypeText(graph.cache);
+-  source += ", ";
+-  source += TensorTypeText(positions32);
+-  source += ") -> ";
+-  source += cacheRowsType;
+-  std::string cacheWideValue = "%cache_rows";
+-  if (graph.cache.dtype != DataType::FP32) {
+-    source += "\n    %cache_wide = convert %cache_rows : ";
+-    source += cacheRowsType;
+-    source += " -> ";
+-    source += cacheRowsFType;
+-    cacheWideValue = "%cache_wide";
+-  }
+-  source += "\n    %cos2 = slice " + cacheWideValue +
+-            " starts = [0, 0] limits = [";
+-  AppendInteger(source, tokens);
+-  source += ", ";
+-  AppendInteger(source, half);
+-  source += "] strides = [1, 1] : ";
+-  source += cacheRowsFType;
+-  source += " -> ";
+-  source += cacheHalfType;
+-  source += "\n    %sin2 = slice " + cacheWideValue + " starts = [0, ";
+-  AppendInteger(source, half);
+-  source += "] limits = [";
+-  AppendInteger(source, tokens);
+-  source += ", ";
+-  AppendInteger(source, rotaryDim);
+-  source += "] strides = [1, 1] : ";
+-  source += cacheRowsFType;
+-  source += " -> ";
+-  source += cacheHalfType;
+-  source += "\n    %cos3 = reshape %cos2 : ";
+-  source += cacheHalfType;
+-  source += " -> ";
+-  source += cacheHalf3Type;
+-  source += "\n    %sin3 = reshape %sin2 : ";
+-  source += cacheHalfType;
+-  source += " -> ";
+-  source += cacheHalf3Type;
+-  source += "\n    %q_cos = broadcast %cos3 : ";
+-  source += cacheHalf3Type;
+-  source += " -> ";
+-  source += qHalfType;
+-  source += "\n    %q_sin = broadcast %sin3 : ";
+-  source += cacheHalf3Type;
+-  source += " -> ";
+-  source += qHalfType;
+-  source += "\n    %k_cos = broadcast %cos3 : ";
+-  source += cacheHalf3Type;
+-  source += " -> ";
+-  source += kHalfType;
+-  source += "\n    %k_sin = broadcast %sin3 : ";
+-  source += cacheHalf3Type;
+-  source += " -> ";
+-  source += kHalfType;
+-  source += "\n";
+-
+-  const auto appendRope = [&](std::string_view prefix,
+-                              const std::string& readyType,
+-                              const std::string& halfType,
+-                              const std::string& tailType,
+-                              const std::string& rotaryType,
+-                              const std::string& bf16Type) {
+-    source += "    %" + std::string(prefix) +
+-              "_low = slice %" + std::string(prefix) +
+-              "_ready starts = [0, 0, 0] limits = [";
+-    AppendInteger(source, tokens);
+-    source += ", ";
+-    AppendInteger(source, prefix == "q" ? qHeads : kvHeads);
+-    source += ", ";
+-    AppendInteger(source, half);
+-    source += "] strides = [1, 1, 1] : " + readyType + " -> " + halfType;
+-    source += "\n    %" + std::string(prefix) +
+-              "_high = slice %" + std::string(prefix) +
+-              "_ready starts = [0, 0, ";
+-    AppendInteger(source, half);
+-    source += "] limits = [";
+-    AppendInteger(source, tokens);
+-    source += ", ";
+-    AppendInteger(source, prefix == "q" ? qHeads : kvHeads);
+-    source += ", ";
+-    AppendInteger(source, rotaryDim);
+-    source += "] strides = [1, 1, 1] : " + readyType + " -> " + halfType;
+-    source += "\n    %" + std::string(prefix) +
+-              "_tail = slice %" + std::string(prefix) +
+-              "_ready starts = [0, 0, ";
+-    AppendInteger(source, rotaryDim);
+-    source += "] limits = [";
+-    AppendInteger(source, tokens);
+-    source += ", ";
+-    AppendInteger(source, prefix == "q" ? qHeads : kvHeads);
+-    source += ", ";
+-    AppendInteger(source, headDim);
+-    source += "] strides = [1, 1, 1] : " + readyType + " -> " + tailType;
+-    source += "\n    %" + std::string(prefix) + "_low_cos = mul %" +
+-              std::string(prefix) + "_low, %" + std::string(prefix) +
+-              "_cos : " + halfType;
+-    source += "\n    %" + std::string(prefix) + "_high_sin = mul %" +
+-              std::string(prefix) + "_high, %" + std::string(prefix) +
+-              "_sin : " + halfType;
+-    source += "\n    %" + std::string(prefix) + "_rot_low = sub %" +
+-              std::string(prefix) + "_low_cos, %" + std::string(prefix) +
+-              "_high_sin : " + halfType;
+-    source += "\n    %" + std::string(prefix) + "_high_cos = mul %" +
+-              std::string(prefix) + "_high, %" + std::string(prefix) +
+-              "_cos : " + halfType;
+-    source += "\n    %" + std::string(prefix) + "_low_sin = mul %" +
+-              std::string(prefix) + "_low, %" + std::string(prefix) +
+-              "_sin : " + halfType;
+-    source += "\n    %" + std::string(prefix) + "_rot_high = add %" +
+-              std::string(prefix) + "_high_cos, %" + std::string(prefix) +
+-              "_low_sin : " + halfType;
+-    source += "\n    %" + std::string(prefix) +
+-              "_rotary = concatenate %" + std::string(prefix) +
+-              "_rot_low, %" + std::string(prefix) +
+-              "_rot_high dimension = 2 : (" + halfType + ", " + halfType +
+-              ") -> " + rotaryType;
+-    source += "\n    %" + std::string(prefix) +
+-              "_complete = concatenate %" + std::string(prefix) +
+-              "_rotary, %" + std::string(prefix) +
+-              "_tail dimension = 2 : (" + rotaryType + ", " + tailType +
+-              ") -> " + readyType;
+-    source += "\n    %" + std::string(prefix) +
+-              "_result = convert %" + std::string(prefix) +
+-              "_complete : " + readyType + " -> " + bf16Type + "\n";
+-  };
+-  appendRope("q", qfType, qHalfType, qTailType, qRotaryType, q3Type);
+-  appendRope("k", kfType, kHalfType, kTailType, kRotaryType, k3Type);
+-  source += "    %result0 = concatenate %q_result, %k_result, %gate3 dimension = 1 : (";
+-  source += q3Type;
+-  source += ", ";
+-  source += k3Type;
+-  source += ", ";
+-  source += q3Type;
+-  source += ") -> ";
+-  source += TensorTypeText(graph.result);
+-  source += "\n    results %result0 : ";
+-  source += TensorTypeText(graph.result);
+-  source += "\n  }\n}\n";
+-  if (source.size() > kMaximumCanonicalSourceBytes) {
+-    Reject("canonical TensorIR source exceeds 16 MiB");
+-  }
+-  return source;
+-}
+-
+-std::string EmitRowReductionSource(const RowReductionGraph& graph) {
+-  const std::string input_type = TensorTypeText(graph.input);
+-  const std::string input_with_stride = TensorWithStrideText(graph.input);
+-  const std::string result_type = TensorTypeText(graph.result);
+-  const std::string result_with_stride = TensorWithStrideText(graph.result);
+-  const bool flatten = graph.input.shape.size() > 2;
+-  StaticTensor reduction_input = graph.input;
+-  StaticTensor reduction_result = graph.result;
+-  if (flatten) {
+-    reduction_input.shape = {graph.rows, graph.input.shape.back()};
+-    reduction_input.dense_strides = {graph.input.shape.back(), 1};
+-    reduction_result.shape = {graph.rows, 1};
+-    reduction_result.dense_strides = {1, 1};
+-  }
+-  const size_t reduction_axis = flatten ? 1 : graph.input.shape.size() - 1;
+-  std::string source;
+-  source.reserve(1024 + input_with_stride.size() + result_with_stride.size() +
+-                 input_type.size() * 3 + result_type.size() * 3);
+-  source += "module {\n  nv_tensor_ir.graph @";
+-  source += kRowReductionEntryName;
+-  source += "(\n    %arg0: ";
+-  source += input_with_stride;
+-  source += "\n  ) -> ";
+-  if (graph.result.shape.size() == 1) {
+-    source += result_type;
+-  } else {
+-    source += "(";
+-    source += result_with_stride;
+-    source += ")";
+-  }
+-  source += " {\n";
+-
+-  const bool widen = graph.input.dtype == DataType::BF16;
+-  StaticTensor compute_input = graph.input;
+-  StaticTensor compute_result = graph.result;
+-  StaticTensor compute_reduction_input = reduction_input;
+-  StaticTensor compute_reduction_result = reduction_result;
+-  if (widen) {
+-    compute_input.dtype = DataType::FP32;
+-    compute_result.dtype = DataType::FP32;
+-    compute_reduction_input.dtype = DataType::FP32;
+-    compute_reduction_result.dtype = DataType::FP32;
+-    source += "    %wide0 = convert %arg0 : ";
+-    source += input_type;
+-    source += " -> ";
+-    source += TensorTypeText(compute_input);
+-    source += "\n";
+-  }
+-
+-  if (flatten) {
+-    source += "    %flat0 = reshape ";
+-    source += widen ? "%wide0 : " : "%arg0 : ";
+-    source += widen ? TensorTypeText(compute_input) : input_type;
+-    source += " -> ";
+-    source += widen ? TensorTypeText(compute_reduction_input)
+-                    : TensorTypeText(reduction_input);
+-    source += "\n";
+-  }
+-
+-  const bool normalize_sum = graph.mode == RowReductionMode::Sum;
+-  const bool reduction_is_result = !flatten && !widen && !normalize_sum;
+-  source += reduction_is_result ? "    %result0 = reduce(" : "    %reduce0 = reduce(";
+-  source += flatten ? "%flat0" : (widen ? "%wide0" : "%arg0");
+-  source += ") <dimensions = [";
+-  AppendIndex(source, reduction_axis);
+-  source += "], reduction_mode = <";
+-  source += TensorIrReductionMode(graph.mode);
+-  source += ">> : ";
+-  source += widen ? TensorTypeText(compute_reduction_input)
+-                  : TensorTypeText(reduction_input);
+-  source += " -> ";
+-  source += widen ? TensorTypeText(compute_reduction_result)
+-                  : TensorTypeText(reduction_result);
+-  source += "\n";
+-
+-  if (normalize_sum) {
+-    // The frozen row_sum contract is an FP32 accumulator with the +0
+-    // identity, so a row of negative zeros must produce +0. Adding the
+-    // explicit +0 splat after the reduction keeps every other value
+-    // bit-identical while pinning the accumulator semantics the tile
+-    // backend's single-element fast path does not guarantee.
+-    const std::string compute_type =
+-        widen ? TensorTypeText(compute_reduction_result)
+-              : TensorTypeText(reduction_result);
+-    const char* const sum_result_name =
+-        (!flatten && !widen) ? "%result0" : "%sum0";
+-    source += "    %sumzero = constant ";
+-    AppendFloat(source, 0.0);
+-    source += " : ";
+-    source += TensorIrDtype(DataType::FP32);
+-    source += "\n    %sumsplat = splat %sumzero : ";
+-    source += compute_type;
+-    source += "\n";
+-    source += "    ";
+-    source += sum_result_name;
+-    source += " = add %reduce0, %sumsplat : ";
+-    source += compute_type;
+-    source += "\n";
+-  }
+-
+-  const char* const reduce_result = normalize_sum ? "%sum0" : "%reduce0";
+-  if (flatten) {
+-    source += widen ? "    %shape0 = reshape " : "    %result0 = reshape ";
+-    source += reduce_result;
+-    source += " : ";
+-    source += widen ? TensorTypeText(compute_reduction_result)
+-                    : TensorTypeText(reduction_result);
+-    source += " -> ";
+-    source += widen ? TensorTypeText(compute_result) : result_type;
+-    source += "\n";
+-  }
+-  if (widen) {
+-    if (flatten) {
+-      source += "    %result0 = convert %shape0 : ";
+-    } else {
+-      source += "    %result0 = convert ";
+-      source += reduce_result;
+-      source += " : ";
+-    }
+-    source += TensorTypeText(compute_result);
+-    source += " -> ";
+-    source += result_type;
+-    source += "\n";
+-  }
+-  source += "    results %result0 : ";
+-  source += result_type;
+-  source += "\n  }\n}\n";
+-  if (source.size() > kMaximumCanonicalSourceBytes) {
+-    Reject("canonical TensorIR source exceeds 16 MiB");
+-  }
+-  return source;
+-}
+-
+ StaticTensor TransposeMatrixDims(const StaticTensor& tensor) {
+   StaticTensor transposed = tensor;
+   std::swap(transposed.shape[transposed.shape.size() - 2], transposed.shape.back());
+@@ -2808,74 +1015,6 @@ StructuredMatmulGraph AnalyzeStructuredMatmul(const ir::ProgramPtr& program) {
+                                /*round_bf16_before_result=*/false};
+ }
+ 
+-std::string EmitStructuredMatmulSource(const StructuredMatmulGraph& graph) {
+-  const std::string lhs_physical = TensorTypeText(graph.lhs);
+-  const std::string rhs_physical = TensorTypeText(graph.rhs);
+-  const std::string result_type = TensorTypeText(graph.result);
+-  const StaticTensor lhs_logical =
+-      graph.a_trans ? TransposeMatrixDims(graph.lhs) : graph.lhs;
+-  const StaticTensor rhs_logical =
+-      graph.b_trans ? TransposeMatrixDims(graph.rhs) : graph.rhs;
+-  StaticTensor accumulation = graph.result;
+-  accumulation.dtype = DataType::FP32;
+-  const std::string lhs_logical_type = TensorTypeText(lhs_logical);
+-  const std::string rhs_logical_type = TensorTypeText(rhs_logical);
+-  const std::string accumulation_type = TensorTypeText(accumulation);
+-  const std::string permutation =
+-      graph.lhs.shape.size() == 2 ? "[1, 0]" : "[0, 2, 1]";
+-
+-  std::string source;
+-  source.reserve(1024 + lhs_physical.size() * 3 + rhs_physical.size() * 3 +
+-                 result_type.size() * 3);
+-  source += "module {\n  nv_tensor_ir.graph @";
+-  source += kStructuredMatmulEntryName;
+-  source += "(\n    %arg0: ";
+-  source += TensorWithStrideText(graph.lhs);
+-  source += ",\n    %arg1: ";
+-  source += TensorWithStrideText(graph.rhs);
+-  source += "\n  ) -> (";
+-  source += TensorWithStrideText(graph.result);
+-  source += ") {\n";
+-  if (graph.a_trans) {
+-    source += "    %lhs0 = transpose %arg0 permutation = ";
+-    source += permutation;
+-    source += " : ";
+-    source += lhs_physical;
+-    source += " -> ";
+-    source += lhs_logical_type;
+-    source += "\n";
+-  }
+-  if (graph.b_trans) {
+-    source += "    %rhs0 = transpose %arg1 permutation = ";
+-    source += permutation;
+-    source += " : ";
+-    source += rhs_physical;
+-    source += " -> ";
+-    source += rhs_logical_type;
+-    source += "\n";
+-  }
+-  source += "    %accum0 = matmul(";
+-  source += graph.a_trans ? "%lhs0, " : "%arg0, ";
+-  source += graph.b_trans ? "%rhs0)\n" : "%arg1)\n";
+-  source += "      : (";
+-  source += lhs_logical_type;
+-  source += ", ";
+-  source += rhs_logical_type;
+-  source += ") -> ";
+-  source += accumulation_type;
+-  source += "\n    %result0 = convert %accum0 : ";
+-  source += accumulation_type;
+-  source += " -> ";
+-  source += result_type;
+-  source += "\n    results %result0 : ";
+-  source += result_type;
+-  source += "\n  }\n}\n";
+-  if (source.size() > kMaximumCanonicalSourceBytes) {
+-    Reject("canonical TensorIR source exceeds 16 MiB");
+-  }
+-  return source;
+-}
+-
+ struct FusedOperationSpec {
+   std::string_view tensor_ir_op;
+   size_t tensor_operand_count;
+@@ -9345,546 +7484,6 @@ FusedPointwiseGraph AnalyzeFusedPointwise(const ir::ProgramPtr& program) {
+                              std::move(inputs), std::move(broadcast_inputs)};
+ }
+ 
+-void AppendFusedOperand(std::string& source, const FusedTensorOperand& operand,
+-                        size_t instruction_index) {
+-  if (operand.kind == FusedTensorOperandKind::Input) {
+-    source += "%arg";
+-    AppendIndex(source, operand.input_index);
+-    return;
+-  }
+-  if (operand.kind == FusedTensorOperandKind::BroadcastInput) {
+-    source += "%broadcast";
+-    AppendIndex(source, operand.input_index);
+-    return;
+-  }
+-  if (operand.kind == FusedTensorOperandKind::PreviousResult) {
+-    source += "%value";
+-    AppendIndex(source, operand.input_index);
+-    return;
+-  }
+-  InternalReject("fused pointwise source operand is invalid");
+-}
+-
+-std::string EmitFusedPointwiseSource(const FusedPointwiseGraph& graph) {
+-  const std::string type = TensorTypeText(graph.tensor);
+-  const std::string type_with_stride = TensorWithStrideText(graph.tensor);
+-  std::string source;
+-  source.reserve(512 + graph.input_count * type_with_stride.size() +
+-                 graph.instructions.size() * (type.size() + 96));
+-  source += "module {\n  nv_tensor_ir.graph @";
+-  source += kFusedPointwiseEntryName;
+-  source += "(\n";
+-  for (size_t input_index = 0; input_index < graph.input_count; ++input_index) {
+-    source += "    %arg";
+-    AppendIndex(source, input_index);
+-    source += ": ";
+-    source += TensorWithStrideText(graph.input_tensors[input_index]);
+-    source += input_index + 1 == graph.input_count ? "\n" : ",\n";
+-  }
+-  source += "  ) -> ";
+-  if (graph.tensor.shape.size() == 1) {
+-    source += type;
+-  } else {
+-    source += "(";
+-    source += type_with_stride;
+-    source += ")";
+-  }
+-  source += " {\n";
+-
+-  // Preserve the physical [M,1,...] ABI in the graph signature, then make the
+-  // logical expansion explicit inside TensorIR. This keeps prepared metadata,
+-  // producer descriptors, and launch-time tensor shapes identical while the
+-  // layout-propagation path lowers the broadcast into the consumer tile.
+-  for (size_t input_index = 0; input_index < graph.input_count; ++input_index) {
+-    if (!graph.broadcast_inputs[input_index]) continue;
+-    source += "    %broadcast";
+-    AppendIndex(source, input_index);
+-    source += " = broadcast %arg";
+-    AppendIndex(source, input_index);
+-    source += " : ";
+-    source += TensorTypeText(graph.input_tensors[input_index]);
+-    source += " -> ";
+-    source += type;
+-    source += "\n";
+-  }
+-
+-  size_t scalar_index = 0;
+-  for (size_t instruction_index = 0; instruction_index < graph.instructions.size();
+-       ++instruction_index) {
+-    const FusedPointwiseInstruction& instruction = graph.instructions[instruction_index];
+-    if (instruction.scalar.has_value()) {
+-      source += "    %constant";
+-      AppendIndex(source, scalar_index);
+-      source += " = constant ";
+-      AppendFloat(source, *instruction.scalar);
+-      source += " : ";
+-      source += TensorIrDtype(graph.tensor.dtype);
+-      source += "\n    %splat";
+-      AppendIndex(source, scalar_index);
+-      source += " = splat %constant";
+-      AppendIndex(source, scalar_index);
+-      source += " : ";
+-      source += type;
+-      source += "\n";
+-    }
+-    if (instruction.tensor_ir_op == "__broadcast__") {
+-      // Materialize the explicit broadcast input as an SSA value via a
+-      // bitwise-exact multiply by 1.0: x*1 preserves -0 and NaN.
+-      const std::string constant_index = std::to_string(scalar_index);
+-      ++scalar_index;
+-      source += "    %constant" + constant_index + " = constant 1.0 : ";
+-      source += TensorIrDtype(graph.tensor.dtype);
+-      source += "\n    %splat" + constant_index + " = splat %constant" +
+-                constant_index + " : " + type + "\n";
+-      source += "    %value";
+-      AppendIndex(source, instruction_index);
+-      source += " = mul ";
+-      AppendFusedOperand(source, instruction.tensor_operands[1], instruction_index);
+-      source += ", %splat" + constant_index + " : " + type + "\n";
+-      continue;
+-    }
+-    source += "    %value";
+-    AppendIndex(source, instruction_index);
+-    source += " = ";
+-    source += instruction.tensor_ir_op;
+-    source += " ";
+-    for (size_t operand_index = 0; operand_index < instruction.tensor_operands.size();
+-         ++operand_index) {
+-      if (operand_index != 0) source += ", ";
+-      AppendFusedOperand(source, instruction.tensor_operands[operand_index], instruction_index);
+-    }
+-    if (instruction.scalar.has_value()) {
+-      if (!instruction.tensor_operands.empty()) source += ", ";
+-      source += "%splat";
+-      AppendIndex(source, scalar_index);
+-      ++scalar_index;
+-    }
+-    source += " : ";
+-    source += type;
+-    source += "\n";
+-  }
+-  source += "    results %value";
+-  AppendIndex(source, graph.instructions.size() - 1);
+-  source += " : ";
+-  source += type;
+-  source += "\n  }\n}\n";
+-  if (source.size() > kMaximumCanonicalSourceBytes) {
+-    Reject("canonical TensorIR source exceeds 16 MiB");
+-  }
+-  return source;
+-}
+-
+-std::string EmitNativeTileRopeSource(const NativeTileRopeGraph& graph) {
+-  const StaticTensor& input = graph.input;
+-  StaticTensor half = input;
+-  half.shape[1] /= 2;
+-  half.dense_strides = MakeDenseStridesForMetadata(half.shape);
+-  const std::string input_type = TensorTypeText(input);
+-  const std::string half_type = TensorTypeText(half);
+-  std::string source;
+-  source.reserve(2048);
+-  source += "module {\n  nv_tensor_ir.graph @";
+-  source += kFusedPointwiseEntryName;
+-  source += "(\n    %arg0: ";
+-  source += TensorWithStrideText(input);
+-  source += ",\n    %arg1: ";
+-  source += TensorWithStrideText(graph.frequency);
+-  source += ",\n    %arg2: ";
+-  source += TensorWithStrideText(graph.frequency);
+-  source += "\n  ) -> (";
+-  source += TensorWithStrideText(input);
+-  source += ") {\n    %xlow = slice %arg0 starts = [0, 0] limits = [";
+-  AppendInteger(source, input.shape[0]);
+-  source += ", ";
+-  AppendInteger(source, half.shape[1]);
+-  source += "] strides = [1, 1] : ";
+-  source += input_type;
+-  source += " -> ";
+-  source += half_type;
+-  source += "\n    %xhigh = slice %arg0 starts = [0, ";
+-  AppendInteger(source, half.shape[1]);
+-  source += "] limits = [";
+-  AppendInteger(source, input.shape[0]);
+-  source += ", ";
+-  AppendInteger(source, input.shape[1]);
+-  source += "] strides = [1, 1] : ";
+-  source += input_type;
+-  source += " -> ";
+-  source += half_type;
+-  source += "\n    %cos = slice %arg1 starts = [0, 0] limits = [";
+-  AppendInteger(source, input.shape[0]);
+-  source += ", ";
+-  AppendInteger(source, half.shape[1]);
+-  source += "] strides = [1, 1] : ";
+-  source += input_type;
+-  source += " -> ";
+-  source += half_type;
+-  source += "\n    %sin = slice %arg2 starts = [0, 0] limits = [";
+-  AppendInteger(source, input.shape[0]);
+-  source += ", ";
+-  AppendInteger(source, half.shape[1]);
+-  source += "] strides = [1, 1] : ";
+-  source += input_type;
+-  source += " -> ";
+-  source += half_type;
+-  source += "\n    %lowcos = mul %xlow, %cos : ";
+-  source += half_type;
+-  source += "\n    %highsin = mul %xhigh, %sin : ";
+-  source += half_type;
+-  source += "\n    %low = sub %lowcos, %highsin : ";
+-  source += half_type;
+-  source += "\n    %highcos = mul %xhigh, %cos : ";
+-  source += half_type;
+-  source += "\n    %lowsin = mul %xlow, %sin : ";
+-  source += half_type;
+-  source += "\n    %high = add %highcos, %lowsin : ";
+-  source += half_type;
+-  source += "\n    %result0 = concatenate %low, %high dimension = 1 : (";
+-  source += half_type;
+-  source += ", ";
+-  source += half_type;
+-  source += ") -> ";
+-  source += input_type;
+-  source += "\n    results %result0 : ";
+-  source += input_type;
+-  source += "\n  }\n}\n";
+-  if (source.size() > kMaximumCanonicalSourceBytes) {
+-    Reject("canonical TensorIR source exceeds 16 MiB");
+-  }
+-  return source;
+-}
+-
+-std::string EmitNativeTilePagedCacheWriteSource(
+-    const NativeTilePagedCacheWriteGraph& graph) {
+-  StaticTensor virtual_column{DataType::INT64,
+-                              {graph.key.shape[0], 1}, {}};
+-  virtual_column.dense_strides =
+-      MakeDenseStridesForMetadata(virtual_column.shape);
+-  StaticTensor virtual_column_i32 = virtual_column;
+-  virtual_column_i32.dtype = DataType::INT32;
+-  StaticTensor physical_column = virtual_column;
+-  StaticTensor physical_column_i32 = virtual_column_i32;
+-  StaticTensor physical_i32 = graph.physical_row;
+-  physical_i32.dtype = DataType::INT32;
+-  const std::string cache_type = TensorTypeText(graph.key_cache);
+-  const std::string physical_type = TensorTypeText(graph.physical_row);
+-  const std::string mapping_type =
+-      TensorTypeText(graph.virtual_to_physical);
+-  const std::string virtual_column_type = TensorTypeText(virtual_column);
+-  const std::string virtual_column_i32_type =
+-      TensorTypeText(virtual_column_i32);
+-  const std::string physical_column_type = TensorTypeText(physical_column);
+-  const std::string physical_column_i32_type =
+-      TensorTypeText(physical_column_i32);
+-  const std::string physical_i32_type = TensorTypeText(physical_i32);
+-  const std::string update_type = TensorTypeText(graph.key);
+-  const std::string result_type = TensorTypeText(graph.result);
+-
+-  std::string source;
+-  source.reserve(2048);
+-  source += "module {\n  nv_tensor_ir.graph @";
+-  source += kFusedPointwiseEntryName;
+-  source += "(\n    %arg0: ";
+-  source += TensorWithStrideText(graph.key_cache);
+-  source += ",\n    %arg1: ";
+-  source += TensorWithStrideText(graph.value_cache);
+-  source += ",\n    %arg2: ";
+-  source += TensorWithStrideText(graph.physical_row);
+-  source += ",\n    %arg3: ";
+-  source += TensorWithStrideText(graph.virtual_to_physical);
+-  source += ",\n    %arg4: ";
+-  source += TensorWithStrideText(graph.key);
+-  source += ",\n    %arg5: ";
+-  source += TensorWithStrideText(graph.value);
+-  source += "\n  ) -> (";
+-  source += TensorWithStrideText(graph.result);
+-  source += ") {\n    %virtual_column = slice %arg2 starts = [0, 0] limits = [";
+-  source += std::to_string(graph.key.shape[0]);
+-  source += ", 1] strides = [1, 1] : ";
+-  source += physical_type;
+-  source += " -> ";
+-  source += virtual_column_type;
+-  source += "\n    %virtual_column32 = convert %virtual_column : ";
+-  source += virtual_column_type;
+-  source += " -> ";
+-  source += virtual_column_i32_type;
+-  source += "\n    %physical_column = gather_rows %arg3, %virtual_column32 : (";
+-  source += mapping_type;
+-  source += ", ";
+-  source += virtual_column_i32_type;
+-  source += ") -> ";
+-  source += physical_column_type;
+-  source += "\n    %physical_column32 = convert %physical_column : ";
+-  source += physical_column_type;
+-  source += " -> ";
+-  source += physical_column_i32_type;
+-  source += "\n    %physical32 = broadcast %physical_column32 : ";
+-  source += physical_column_i32_type;
+-  source += " -> ";
+-  source += physical_i32_type;
+-  source += "\n    %stored_key = scatter_rows %arg0, %physical32, %arg4 : (";
+-  source += cache_type;
+-  source += ", ";
+-  source += physical_i32_type;
+-  source += ", ";
+-  source += update_type;
+-  source += ") -> ";
+-  source += update_type;
+-  source += "\n    %stored_value = scatter_rows %arg1, %physical32, %arg5 : (";
+-  source += cache_type;
+-  source += ", ";
+-  source += physical_i32_type;
+-  source += ", ";
+-  source += update_type;
+-  source += ") -> ";
+-  source += update_type;
+-  source += "\n    %result0 = add %stored_key, %stored_value : ";
+-  source += result_type;
+-  source += "\n    results %result0 : ";
+-  source += result_type;
+-  source += "\n  }\n}\n";
+-  if (source.size() > kMaximumCanonicalSourceBytes) {
+-    Reject("canonical TensorIR source exceeds 16 MiB");
+-  }
+-  return source;
+-}
+-
+-
+-std::string EmitNativeTileGdnProjectionSource(
+-    const NativeTileGdnProjectionGraph& graph) {
+-  StaticTensor mixed_row{DataType::BF16, {1, graph.mixed_width}, {}};
+-  mixed_row.dense_strides = MakeDenseStridesForMetadata(mixed_row.shape);
+-  StaticTensor z_row{DataType::BF16, {1, graph.z_width}, {}};
+-  z_row.dense_strides = MakeDenseStridesForMetadata(z_row.shape);
+-  StaticTensor gate_row{DataType::BF16, {1, graph.gate_width}, {}};
+-  gate_row.dense_strides = MakeDenseStridesForMetadata(gate_row.shape);
+-  const std::string qkvz_type = TensorTypeText(graph.projected_qkvz);
+-  const std::string ba_type = TensorTypeText(graph.projected_ba);
+-  const std::string mixed_row_type = TensorTypeText(mixed_row);
+-  const std::string z_row_type = TensorTypeText(z_row);
+-  const std::string gate_row_type = TensorTypeText(gate_row);
+-  const std::string packed_type = TensorTypeText(graph.packed);
+-  const int64_t rows = graph.projected_qkvz.shape[0];
+-
+-  std::string source;
+-  source.reserve(4096);
+-  source += "module {\n  nv_tensor_ir.graph @";
+-  source += kFusedPointwiseEntryName;
+-  source += "(\n    %arg0: ";
+-  source += TensorWithStrideText(graph.projected_qkvz);
+-  source += ",\n    %arg1: ";
+-  source += TensorWithStrideText(graph.projected_ba);
+-  source += "\n  ) -> (";
+-  source += TensorWithStrideText(graph.packed);
+-  source += ") {";
+-  std::vector<std::pair<std::string, std::string>> pieces;
+-  pieces.reserve(static_cast<size_t>(rows) * 4);
+-  const auto append_rows = [&](std::string_view name, int argument,
+-                               int64_t start, int64_t width,
+-                               const std::string& input_type,
+-                               const std::string& row_type) {
+-    for (int64_t row = 0; row < rows; ++row) {
+-      const std::string value =
+-          "%" + std::string(name) + "_" + std::to_string(row);
+-      source += "\n    " + value + " = slice %arg" +
+-                std::to_string(argument) + " starts = [" +
+-                std::to_string(row) + ", " + std::to_string(start) +
+-                "] limits = [" + std::to_string(row + 1) + ", " +
+-                std::to_string(start + width) + "] strides = [1, 1] : ";
+-      source += input_type;
+-      source += " -> ";
+-      source += row_type;
+-      pieces.emplace_back(value, row_type);
+-    }
+-  };
+-  append_rows("mixed", 0, 0, graph.mixed_width, qkvz_type, mixed_row_type);
+-  append_rows("z", 0, graph.mixed_width, graph.z_width, qkvz_type,
+-              z_row_type);
+-  append_rows("b", 1, 0, graph.gate_width, ba_type, gate_row_type);
+-  append_rows("a", 1, graph.gate_width, graph.gate_width, ba_type,
+-              gate_row_type);
+-  source += "\n    %packed = concatenate ";
+-  for (size_t index = 0; index < pieces.size(); ++index) {
+-    if (index != 0) source += ", ";
+-    source += pieces[index].first;
+-  }
+-  source += " dimension = 1 : (";
+-  for (size_t index = 0; index < pieces.size(); ++index) {
+-    if (index != 0) source += ", ";
+-    source += pieces[index].second;
+-  }
+-  source += ") -> ";
+-  source += packed_type;
+-  source += "\n    results %packed : ";
+-  source += packed_type;
+-  source += "\n  }\n}\n";
+-  if (source.size() > kMaximumCanonicalSourceBytes) {
+-    Reject("canonical TensorIR source exceeds 16 MiB");
+-  }
+-  return source;
+-}
+-
+-std::string EmitNativeTileGdnReadSource(
+-    const NativeTileGdnReadGraph& graph) {
+-  StaticTensor query_batched = graph.query;
+-  query_batched.shape = {graph.query.shape[0], 1, graph.query.shape[1]};
+-  query_batched.dense_strides =
+-      MakeDenseStridesForMetadata(query_batched.shape);
+-  StaticTensor read_batched = graph.result;
+-  read_batched.shape = {graph.result.shape[0], 1, graph.result.shape[1]};
+-  read_batched.dtype = DataType::FP32;
+-  read_batched.dense_strides = MakeDenseStridesForMetadata(read_batched.shape);
+-  StaticTensor wide_query = graph.query;
+-  wide_query.dtype = DataType::FP32;
+-  StaticTensor wide_value = graph.value;
+-  wide_value.dtype = DataType::FP32;
+-  StaticTensor dot = wide_query;
+-  dot.shape[1] = 1;
+-  dot.dense_strides = {1, 1};
+-
+-  const std::string query_type = TensorTypeText(graph.query);
+-  const std::string query_batched_type = TensorTypeText(query_batched);
+-  const std::string value_type = TensorTypeText(graph.value);
+-  const std::string state_type = TensorTypeText(graph.state);
+-  const std::string read_batched_type = TensorTypeText(read_batched);
+-  const std::string result_type = TensorTypeText(graph.result);
+-  const std::string wide_query_type = TensorTypeText(wide_query);
+-  const std::string wide_value_type = TensorTypeText(wide_value);
+-  const std::string dot_type = TensorTypeText(dot);
+-
+-  std::string source;
+-  source.reserve(4096);
+-  source += "module {\n  nv_tensor_ir.graph @";
+-  source += kFusedPointwiseEntryName;
+-  source += "(\n    %arg0: ";
+-  source += TensorWithStrideText(graph.query);
+-  source += ",\n    %arg1: ";
+-  source += TensorWithStrideText(graph.query);
+-  source += ",\n    %arg2: ";
+-  source += TensorWithStrideText(graph.query);
+-  source += ",\n    %arg3: ";
+-  source += TensorWithStrideText(graph.query);
+-  source += ",\n    %arg4: ";
+-  source += TensorWithStrideText(graph.value);
+-  source += ",\n    %arg5: ";
+-  source += TensorWithStrideText(graph.state);
+-  source += "\n  ) -> (";
+-  source += TensorWithStrideText(graph.result);
+-  source += ") {\n    %qdecay = mul %arg0, %arg1 : ";
+-  source += query_type;
+-  source += "\n    %qbatch = reshape %qdecay : ";
+-  source += query_type;
+-  source += " -> ";
+-  source += query_batched_type;
+-  source += "\n    %read_batch = matmul(%qbatch, %arg5)\n      : (";
+-  source += query_batched_type;
+-  source += ", ";
+-  source += state_type;
+-  source += ") -> ";
+-  source += read_batched_type;
+-  source += "\n    %read = reshape %read_batch : ";
+-  source += read_batched_type;
+-  source += " -> ";
+-  source += wide_value_type;
+-  source += "\n    %qwide = convert %arg0 : ";
+-  source += query_type;
+-  source += " -> ";
+-  source += wide_query_type;
+-  source += "\n    %gwide = convert %arg2 : ";
+-  source += query_type;
+-  source += " -> ";
+-  source += wide_query_type;
+-  source += "\n    %kwide = convert %arg3 : ";
+-  source += query_type;
+-  source += " -> ";
+-  source += wide_query_type;
+-  source += "\n    %vwide = convert %arg4 : ";
+-  source += value_type;
+-  source += " -> ";
+-  source += wide_value_type;
+-  source += "\n    %gexp = exp %gwide : ";
+-  source += wide_query_type;
+-  source += "\n    %one = constant 1.0 : f32\n    %ones = splat %one : ";
+-  source += wide_query_type;
+-  source += "\n    %gshift = add %gexp, %ones : ";
+-  source += wide_query_type;
+-  source += "\n    %softplus = log %gshift : ";
+-  source += wide_query_type;
+-  source += "\n    %gated_key = mul %softplus, %kwide : ";
+-  source += wide_query_type;
+-  source += "\n    %composed = mul %qwide, %gated_key : ";
+-  source += wide_query_type;
+-  source += "\n    %dot = reduce(%composed) <dimensions = [1], reduction_mode = <add>> : ";
+-  source += wide_query_type;
+-  source += " -> ";
+-  source += dot_type;
+-  source += "\n    %dot_broadcast = broadcast %dot : ";
+-  source += dot_type;
+-  source += " -> ";
+-  source += wide_value_type;
+-  source += "\n    %delta = mul %vwide, %dot_broadcast : ";
+-  source += wide_value_type;
+-  source += "\n    %combined = add %read, %delta : ";
+-  source += wide_value_type;
+-  source += "\n    %result0 = convert %combined : ";
+-  source += wide_value_type;
+-  source += " -> ";
+-  source += result_type;
+-  source += "\n    results %result0 : ";
+-  source += result_type;
+-  source += "\n  }\n}\n";
+-  if (source.size() > kMaximumCanonicalSourceBytes) {
+-    Reject("canonical TensorIR source exceeds 16 MiB");
+-  }
+-  return source;
+-}
+-
+-std::string EmitNativeTileGdnUpdateSource(
+-    const NativeTileGdnUpdateGraph& graph) {
+-  const std::string state_type = TensorTypeText(graph.state);
+-  const std::string decay_type = TensorTypeText(graph.decay);
+-  const std::string value_type = TensorTypeText(graph.value);
+-  std::string source;
+-  source.reserve(2048);
+-  source += "module {\n  nv_tensor_ir.graph @";
+-  source += kFusedPointwiseEntryName;
+-  source += "(\n    %arg0: ";
+-  source += TensorWithStrideText(graph.state);
+-  source += ",\n    %arg1: ";
+-  source += TensorWithStrideText(graph.decay);
+-  source += ",\n    %arg2: ";
+-  source += TensorWithStrideText(graph.decay);
+-  source += ",\n    %arg3: ";
+-  source += TensorWithStrideText(graph.value);
+-  source += "\n  ) -> (";
+-  source += TensorWithStrideText(graph.result);
+-  source += ") {\n    %decay = broadcast %arg1 : ";
+-  source += decay_type;
+-  source += " -> ";
+-  source += state_type;
+-  source += "\n    %beta = broadcast %arg2 : ";
+-  source += decay_type;
+-  source += " -> ";
+-  source += state_type;
+-  source += "\n    %value = broadcast %arg3 : ";
+-  source += value_type;
+-  source += " -> ";
+-  source += state_type;
+-  source += "\n    %decayed = mul %arg0, %decay : ";
+-  source += state_type;
+-  source += "\n    %outer = mul %beta, %value : ";
+-  source += state_type;
+-  source += "\n    %result0 = add %decayed, %outer : ";
+-  source += state_type;
+-  source += "\n    results %result0 : ";
+-  source += state_type;
+-  source += "\n  }\n}\n";
+-  if (source.size() > kMaximumCanonicalSourceBytes) {
+-    Reject("canonical TensorIR source exceeds 16 MiB");
+-  }
+-  return source;
+-}
+-
+ bool IsLegacyStaticAddV1Candidate(const ir::ProgramPtr& program) {
+   if (!program || program->functions_.size() != 1) return false;
+   const ir::FunctionPtr& function = program->functions_.begin()->second;

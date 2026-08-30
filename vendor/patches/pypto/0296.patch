@@ -1,0 +1,40 @@
+From 5dc80a998a80735cdf6c6b6f88c499a6f095ddaa Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 15:47:10 +0800
+Subject: [PATCH 296/298] test: report structured build spec assertion failures
+
+---
+ .../ut/cpp/structured_tensor_ir_build_spec_test.cpp | 13 ++++++++-----
+ 1 file changed, 8 insertions(+), 5 deletions(-)
+
+diff --git a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+index 75003799b8ddd77063060551170d7397763990c2..d752336109fe41c9941da740e41b1060042ec5af 100644
+--- a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
++++ b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+@@ -13,6 +13,7 @@
+ #include <any>
+ #include <array>
+ #include <cstdint>
++#include <cstdio>
+ #include <functional>
+ #include <limits>
+ #include <memory>
+@@ -78,11 +79,13 @@ using pypto::compiler::detail::BuildTypedTensorIrModule;
+ 
+ namespace ir = pypto::ir;
+ 
+-#define REQUIRE(condition) \
+-  do {                     \
+-    if (!(condition)) {    \
+-      return __LINE__;     \
+-    }                      \
++#define REQUIRE(condition)                                          \
++  do {                                                              \
++    if (!(condition)) {                                             \
++      std::fprintf(stderr, "REQUIRE failed: %s at line %d in %s\n", \
++                   #condition, __LINE__, __func__);                 \
++      return __LINE__;                                              \
++    }                                                               \
+   } while (false)
+ 
+ namespace {

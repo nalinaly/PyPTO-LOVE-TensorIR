@@ -1,0 +1,83 @@
+From be924c6cab9c849601c6f3ef20b0485a4f047583 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 15:41:18 +0800
+Subject: [PATCH 294/298] codegen: preserve typed row reduction accumulation
+ semantics
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 53 +++++++++++++++++++++++-
+ 1 file changed, 51 insertions(+), 2 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 10bcd586cda6dd3ccbe9767cf51a938cb5d6334d..edf5369d7a5b34046a42cd0074991d66fb0fb2f8 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -3167,17 +3167,66 @@ TypedTensorIrModuleSpec MakeGenericLegacyAddTensorIrSpec(
+ 
+ TypedTensorIrModuleSpec MakeGenericRowReductionTensorIrSpec(
+     const RowReductionGraph& graph) {
++  const bool flatten = graph.input.shape.size() > 2;
++  const bool widen = graph.input.dtype == DataType::BF16;
++  StaticTensor reduction_input = graph.input;
++  StaticTensor reduction_result = graph.result;
++  if (flatten) {
++    reduction_input.shape = {graph.rows, graph.input.shape.back()};
++    reduction_input.dense_strides = {
++        graph.input.shape.back(), 1};
++    reduction_result.shape = {graph.rows, 1};
++    reduction_result.dense_strides = {1, 1};
++  }
++  StaticTensor compute_input = graph.input;
++  StaticTensor compute_result = graph.result;
++  StaticTensor compute_reduction_input = reduction_input;
++  StaticTensor compute_reduction_result = reduction_result;
++  if (widen) {
++    compute_input.dtype = DataType::FP32;
++    compute_result.dtype = DataType::FP32;
++    compute_reduction_input.dtype = DataType::FP32;
++    compute_reduction_result.dtype = DataType::FP32;
++  }
++
+   GenericTensorIrSpecBuilder builder({graph.input});
+   builder.SetEntryName(kRowReductionEntryName);
+   builder.AddResult(graph.result);
++  uint32_t reduction_value = builder.Input(0);
++  if (widen) {
++    reduction_value = builder.TensorOp(TypedTensorIrOpKind::Convert,
++                                       {reduction_value}, compute_input);
++  }
++  if (flatten) {
++    reduction_value = builder.TensorOp(TypedTensorIrOpKind::Reshape,
++                                       {reduction_value},
++                                       compute_reduction_input);
++  }
+   TypedTensorIrOperationSpec operation = MakeGenericOperation(
+-      TypedTensorIrOpKind::Reduce, {builder.Input(0)}, graph.result);
++      TypedTensorIrOpKind::Reduce, {reduction_value},
++      compute_reduction_result);
+   operation.dimensions = {
+       static_cast<int32_t>(graph.input.shape.size() - 1)};
++  if (flatten) operation.dimensions = {1};
+   operation.reduction_mode =
+       graph.mode == RowReductionMode::Sum ? TypedTensorIrReductionMode::Add
+                                           : TypedTensorIrReductionMode::Max;
+-  const uint32_t output = builder.Append(std::move(operation));
++  uint32_t output = builder.Append(std::move(operation));
++  if (graph.mode == RowReductionMode::Sum) {
++    const uint32_t zero = builder.Constant(DataType::FP32, 0.0);
++    const uint32_t zero_splat =
++        builder.Splat(zero, compute_reduction_result);
++    output = builder.TensorOp(TypedTensorIrOpKind::Add,
++                              {output, zero_splat}, compute_reduction_result);
++  }
++  if (flatten) {
++    output = builder.TensorOp(TypedTensorIrOpKind::Reshape,
++                              {output}, compute_result);
++  }
++  if (widen) {
++    output = builder.TensorOp(TypedTensorIrOpKind::Convert,
++                              {output}, graph.result);
++  }
+   return std::move(builder).Finish({output});
+ }
+ 

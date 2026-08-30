@@ -1,0 +1,281 @@
+From 99c7aa550589544f5ef9f1b27a541a9a583d40e6 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 13:59:52 +0800
+Subject: [PATCH 278/298] codegen: lower stateful causal convolution with typed
+ ops
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp      | 237 +++++++++++++++++-
+ .../nvidia_typed_tensor_ir_builder.cpp        |   4 +-
+ 2 files changed, 238 insertions(+), 3 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 24719dc882d4d1ffa1fe96c1ba7d8951550ce465..eb235bd497b867f6aa2a9e78b82d093853264d4e 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -5596,6 +5596,241 @@ TypedTensorIrModuleSpec MakeGenericCausalConvTensorIrSpec(
+   return std::move(builder).Finish({output});
+ }
+ 
++TypedTensorIrTensorSpec MakeGenericBoolTensorSpec(
++    const std::vector<int64_t>& shape) {
++  return TypedTensorIrTensorSpec{
++      TypedTensorIrElementType::BOOL, shape, MakeDenseStridesForMetadata(shape),
++      shape.size() >= 2};
++}
++
++TypedTensorIrModuleSpec MakeGenericStatefulCausalConvTensorIrSpec(
++    const NativeTileStatefulCausalConvGraph& graph) {
++  const int64_t state_width = graph.channels * 3;
++  const int64_t channel_blocks = graph.channels / 128;
++  StaticTensor indices_i32 = graph.state_indices;
++  indices_i32.dtype = DataType::INT32;
++  StaticTensor indices_column{DataType::INT32, {1, 1}, {1, 1}};
++  StaticTensor indices_full{DataType::INT32, {1, state_width},
++                            {state_width, 1}};
++  StaticTensor state_rows{DataType::BF16, {1, state_width},
++                          {state_width, 1}};
++  StaticTensor state_history_row{DataType::BF16, {1, 128}, {128, 1}};
++  StaticTensor state_plane{DataType::BF16, {1, graph.channels},
++                           {graph.channels, 1}};
++  StaticTensor column{DataType::FP32, {128, 1}, {1, 1}};
++  StaticTensor bf16_column = column;
++  bf16_column.dtype = DataType::BF16;
++  StaticTensor weight_block{DataType::BF16, {128, 4}, {4, 1}};
++  StaticTensor wide_weight_block = weight_block;
++  wide_weight_block.dtype = DataType::FP32;
++  StaticTensor input_box{DataType::BF16, {1, 1, 128}, {128, 128, 1}};
++  StaticTensor output_box_type = input_box;
++  StaticTensor block_sequence{
++      DataType::BF16,
++      {1, graph.tokens_per_request, 128},
++      {graph.tokens_per_request * 128, 128, 1}};
++  StaticTensor batch_result{
++      DataType::BF16,
++      {1, graph.tokens_per_request, graph.channels},
++      {graph.tokens_per_request * graph.channels, graph.channels, 1}};
++  StaticTensor state_anchor_box{DataType::BF16, {1, 1, graph.channels},
++                                {graph.channels, graph.channels, 1}};
++  StaticTensor index_anchor_seed{DataType::INT32, {1, 1, 1}, {1, 1, 1}};
++  StaticTensor index_anchor{
++      DataType::INT32,
++      {1, graph.tokens_per_request, graph.channels},
++      {graph.tokens_per_request * graph.channels, graph.channels, 1}};
++  StaticTensor batch_state{DataType::BF16, {1, state_width},
++                           {state_width, 1}};
++
++  GenericTensorIrSpecBuilder builder(
++      {graph.input, graph.weight, graph.state, graph.state_indices});
++  builder.AddResult(graph.result);
++  const uint32_t indices_value =
++      graph.state_indices.dtype == DataType::INT64
++          ? builder.TensorOp(TypedTensorIrOpKind::Convert,
++                             {builder.Input(3)}, indices_i32)
++          : builder.Input(3);
++  const uint32_t one = builder.Constant(DataType::FP32, 1.0);
++  const uint32_t one_column = builder.Splat(one, column);
++  const uint32_t one_index = builder.Constant(DataType::INT32, 1.0);
++  const uint32_t one_index_splat = builder.Splat(one_index, index_anchor);
++  const uint32_t zero_index = builder.Constant(DataType::INT32, 0.0);
++  const uint32_t zero_index_splat = builder.Splat(zero_index, index_anchor);
++  const auto slice = [&](uint32_t input, const StaticTensor& result,
++                         std::vector<int64_t> starts,
++                         std::vector<int64_t> limits,
++                         std::vector<int64_t> strides) {
++    TypedTensorIrOperationSpec operation = MakeGenericOperation(
++        TypedTensorIrOpKind::Slice, {input}, result);
++    operation.starts = std::move(starts);
++    operation.limits = std::move(limits);
++    operation.strides = std::move(strides);
++    return builder.Append(std::move(operation));
++  };
++  std::vector<uint32_t> batch_outputs;
++  batch_outputs.reserve(static_cast<size_t>(graph.batch_size));
++  for (int64_t batch = 0; batch < graph.batch_size; ++batch) {
++    const uint32_t state_index = slice(
++        indices_value, indices_column, {batch, 0}, {batch + 1, 1}, {1, 1});
++    const uint32_t indices_full_value = builder.TensorOp(
++        TypedTensorIrOpKind::Broadcast, {state_index}, indices_full);
++    const uint32_t index_seed = builder.TensorOp(
++        TypedTensorIrOpKind::Reshape, {state_index}, index_anchor_seed);
++    const uint32_t index_full = builder.TensorOp(
++        TypedTensorIrOpKind::Broadcast, {index_seed}, index_anchor);
++    const uint32_t index_plus_one = builder.TensorOp(
++        TypedTensorIrOpKind::Add, {index_full, one_index_splat}, index_anchor);
++    const uint32_t valid_index = builder.TypedTensorOp(
++        TypedTensorIrOpKind::Cmp,
++        {zero_index_splat, index_plus_one},
++        MakeGenericBoolTensorSpec(index_anchor.shape));
++    const uint32_t state_rows_value = builder.TensorOp(
++        TypedTensorIrOpKind::GatherRows,
++        {builder.Input(2), indices_full_value}, state_rows);
++
++    std::vector<uint32_t> block_outputs;
++    std::array<std::vector<uint32_t>, 3> block_state_planes;
++    block_outputs.reserve(static_cast<size_t>(channel_blocks));
++    for (auto& planes : block_state_planes) {
++      planes.reserve(static_cast<size_t>(channel_blocks));
++    }
++    for (int64_t block = 0; block < channel_blocks; ++block) {
++      const int64_t channel_offset = block * 128;
++      std::array<uint32_t, 3> history;
++      for (size_t index = 0; index < history.size(); ++index) {
++        const int64_t start =
++            static_cast<int64_t>(index) * graph.channels + channel_offset;
++        const uint32_t row = slice(
++            state_rows_value, state_history_row, {0, start},
++            {1, start + 128}, {1, 1});
++        TypedTensorIrOperationSpec transpose = MakeGenericOperation(
++            TypedTensorIrOpKind::Transpose, {row}, bf16_column);
++        transpose.permutation = {1, 0};
++        const uint32_t transposed = builder.Append(std::move(transpose));
++        history[index] = builder.TensorOp(
++            TypedTensorIrOpKind::Convert, {transposed}, column);
++      }
++      const uint32_t weight_block_value = slice(
++          builder.Input(1), weight_block, {channel_offset, 0},
++          {channel_offset + 128, 4}, {1, 1});
++      const uint32_t weight_wide = builder.TensorOp(
++          TypedTensorIrOpKind::Convert, {weight_block_value},
++          wide_weight_block);
++      std::array<uint32_t, 4> weights;
++      for (size_t index = 0; index < weights.size(); ++index) {
++        weights[index] = slice(
++            weight_wide, column, {0, static_cast<int64_t>(index)},
++            {128, static_cast<int64_t>(index + 1)}, {1, 1});
++      }
++      std::vector<uint32_t> token_outputs;
++      token_outputs.reserve(static_cast<size_t>(graph.tokens_per_request));
++      for (int64_t token = 0; token < graph.tokens_per_request; ++token) {
++        const uint32_t current_box = slice(
++            builder.Input(0), input_box, {batch, token, channel_offset},
++            {batch + 1, token + 1, channel_offset + 128}, {1, 1, 1});
++        const uint32_t current_bf16 = builder.TensorOp(
++            TypedTensorIrOpKind::Reshape, {current_box}, bf16_column);
++        const uint32_t current = builder.TensorOp(
++            TypedTensorIrOpKind::Convert, {current_bf16}, column);
++        std::array<uint32_t, 4> terms;
++        for (size_t index = 0; index < terms.size(); ++index) {
++          const uint32_t source = index == 3 ? current : history[index];
++          terms[index] = builder.TensorOp(
++              TypedTensorIrOpKind::Mul, {source, weights[index]}, column);
++        }
++        const uint32_t sum01 = builder.TensorOp(
++            TypedTensorIrOpKind::Add, {terms[0], terms[1]}, column);
++        const uint32_t sum23 = builder.TensorOp(
++            TypedTensorIrOpKind::Add, {terms[2], terms[3]}, column);
++        const uint32_t convolution = builder.TensorOp(
++            TypedTensorIrOpKind::Add, {sum01, sum23}, column);
++        const uint32_t negative = builder.TensorOp(
++            TypedTensorIrOpKind::Neg, {convolution}, column);
++        const uint32_t exponent = builder.TensorOp(
++            TypedTensorIrOpKind::Exp, {negative}, column);
++        const uint32_t denominator = builder.TensorOp(
++            TypedTensorIrOpKind::Add, {exponent, one_column}, column);
++        const uint32_t sigmoid = builder.TensorOp(
++            TypedTensorIrOpKind::Reciprocal, {denominator}, column);
++        const uint32_t activated = builder.TensorOp(
++            TypedTensorIrOpKind::Mul, {convolution, sigmoid}, column);
++        const uint32_t result_column = builder.TensorOp(
++            TypedTensorIrOpKind::Convert, {activated}, bf16_column);
++        const uint32_t token_output_box = builder.TensorOp(
++            TypedTensorIrOpKind::Reshape, {result_column}, output_box_type);
++        token_outputs.push_back(token_output_box);
++        history[0] = history[1];
++        history[1] = history[2];
++        history[2] = current;
++      }
++      uint32_t block_output = token_outputs.front();
++      if (graph.tokens_per_request != 1) {
++        block_output = builder.Concatenate(token_outputs, block_sequence, 1);
++      }
++      block_outputs.push_back(block_output);
++      for (size_t index = 0; index < history.size(); ++index) {
++        const uint32_t final_column = builder.TensorOp(
++            TypedTensorIrOpKind::Convert, {history[index]}, bf16_column);
++        TypedTensorIrOperationSpec transpose = MakeGenericOperation(
++            TypedTensorIrOpKind::Transpose, {final_column}, state_history_row);
++        transpose.permutation = {1, 0};
++        block_state_planes[index].push_back(
++            builder.Append(std::move(transpose)));
++      }
++    }
++
++    uint32_t batch_output = block_outputs.front();
++    if (channel_blocks != 1) {
++      batch_output = builder.Concatenate(block_outputs, batch_result, 2);
++    }
++    std::array<uint32_t, 3> state_planes;
++    for (size_t plane = 0; plane < state_planes.size(); ++plane) {
++      state_planes[plane] = block_state_planes[plane].front();
++      if (channel_blocks != 1) {
++        state_planes[plane] = builder.Concatenate(
++            block_state_planes[plane], state_plane, 1);
++      }
++    }
++    const uint32_t batch_state_value = builder.Concatenate(
++        {state_planes[0], state_planes[1], state_planes[2]}, batch_state, 1);
++    const uint32_t stored_state = builder.TensorOp(
++        TypedTensorIrOpKind::ScatterRows,
++        {builder.Input(2), indices_full_value, batch_state_value}, state_rows);
++    std::array<uint32_t, 3> anchor_planes;
++    for (size_t plane = 0; plane < anchor_planes.size(); ++plane) {
++      anchor_planes[plane] = slice(
++          stored_state, state_plane,
++          {0, static_cast<int64_t>(plane) * graph.channels},
++          {1, static_cast<int64_t>(plane + 1) * graph.channels}, {1, 1});
++    }
++    const uint32_t anchor_sum01 = builder.TensorOp(
++        TypedTensorIrOpKind::Add, {anchor_planes[0], anchor_planes[1]},
++        state_plane);
++    const uint32_t anchor_row = builder.TensorOp(
++        TypedTensorIrOpKind::Add, {anchor_sum01, anchor_planes[2]},
++        state_plane);
++    const uint32_t anchor_box = builder.TensorOp(
++        TypedTensorIrOpKind::Reshape, {anchor_row}, state_anchor_box);
++    uint32_t anchor_full = anchor_box;
++    if (graph.tokens_per_request != 1) {
++      anchor_full = builder.TensorOp(
++          TypedTensorIrOpKind::Broadcast, {anchor_box}, batch_result);
++    }
++    const uint32_t output = builder.TypedTensorOp(
++        TypedTensorIrOpKind::BinarySelect,
++        {valid_index, batch_output, anchor_full},
++        MakeTypedTensorIrTensorSpec(graph.result,
++                                    /*has_explicit_strides=*/true));
++    batch_outputs.push_back(output);
++  }
++  uint32_t output = batch_outputs.front();
++  if (graph.batch_size != 1) {
++    output = builder.Concatenate(batch_outputs, graph.result, 0);
++  }
++  return std::move(builder).Finish({output});
++}
++
+ TypedTensorIrModuleSpec MakeNativeGdnRecurrentTensorIrSpec(
+     const NativeTileGdnRecurrentGraph& graph) {
+   TypedTensorIrModuleSpec module_spec;
+@@ -10200,7 +10435,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+         graph.result.shape, graph.result.dense_strides,
+         /*has_explicit_strides=*/true));
+     return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+-                          EmitNativeTileStatefulCausalConvSource(graph),
++                          MakeGenericStatefulCausalConvTensorIrSpec(graph),
+                           std::move(metadata), /*input_count=*/4);
+   }
+   if (IsNativeTileCausalConvCandidate(program)) {
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index 0827c57866d8befeb8c983278f4792b61ad50d37..1cbcf96e344cee15e671ca554ea9f3e211b0d68a 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -68,8 +68,8 @@ constexpr std::string_view kAlignedAddAttribute =
+ constexpr size_t kMaximumCanonicalSourceBytes = 16ULL * 1024ULL * 1024ULL;
+ constexpr size_t kMaximumCapturedDiagnosticBytes = 64ULL * 1024ULL;
+ constexpr int64_t kMaximumBatchTokenProduct = 4096;
+-constexpr size_t kMaximumGenericOperations = 65536;
+-constexpr size_t kMaximumGenericValues = 65536;
++constexpr size_t kMaximumGenericOperations = 262144;
++constexpr size_t kMaximumGenericValues = 262144;
+ 
+ bool CheckedMultiply(int64_t left, int64_t right, int64_t& result) {
+   if (left <= 0 || right <= 0 ||

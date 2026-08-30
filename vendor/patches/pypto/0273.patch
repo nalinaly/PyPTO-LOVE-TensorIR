@@ -1,0 +1,108 @@
+From 340419fae70244a6ec0178a57388997d1e09d9df Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 13:20:41 +0800
+Subject: [PATCH 273/298] codegen: build RoPE with typed TensorIR operations
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp      | 52 ++++++++++++++++++-
+ .../nvidia_typed_tensor_ir_builder.cpp        |  6 ++-
+ 2 files changed, 56 insertions(+), 2 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 5ba2032ec51997b7a7483eaee58416510cc93fa5..2f9c7bb23a36be5079a2ed86251ebe1c34ab69bf 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -4830,6 +4830,14 @@ class GenericTensorIrSpecBuilder {
+     return TensorOp(TypedTensorIrOpKind::Splat, {scalar}, result);
+   }
+ 
++  uint32_t Concatenate(std::vector<uint32_t> operands,
++                       const StaticTensor& result, int64_t dimension) {
++    TypedTensorIrOperationSpec operation = MakeGenericOperation(
++        TypedTensorIrOpKind::Concatenate, std::move(operands), result);
++    operation.dimension = dimension;
++    return Append(std::move(operation));
++  }
++
+   void AddResult(const StaticTensor& result) {
+     module_spec_.generic.results.push_back(MakeTypedTensorIrTensorSpec(
+         result, /*has_explicit_strides=*/result.shape.size() >= 2));
+@@ -5148,6 +5156,48 @@ TypedTensorIrModuleSpec MakeGenericGatedRmsNormTensorIrSpec(
+   return std::move(builder).Finish({output});
+ }
+ 
++TypedTensorIrModuleSpec MakeGenericRopeTensorIrSpec(
++    const NativeTileRopeGraph& graph) {
++  if (graph.input.shape.size() != 2 || graph.input.shape[1] % 2 != 0 ||
++      graph.frequency.shape != graph.input.shape) {
++    InternalReject("generic TensorIR RoPE builder received invalid rank or shape");
++  }
++  StaticTensor half = graph.input;
++  half.shape[1] /= 2;
++  half.dense_strides = MakeDenseStridesForMetadata(half.shape);
++  GenericTensorIrSpecBuilder builder(
++      {graph.input, graph.frequency, graph.frequency});
++  builder.AddResult(graph.result);
++  const int64_t rows = graph.input.shape[0];
++  const int64_t half_width = half.shape[1];
++  const auto slice = [&](uint32_t input, int64_t column_start) {
++    TypedTensorIrOperationSpec operation = MakeGenericOperation(
++        TypedTensorIrOpKind::Slice, {input}, half);
++    operation.starts = {0, column_start};
++    operation.limits = {rows, column_start + half_width};
++    operation.strides = {1, 1};
++    return builder.Append(std::move(operation));
++  };
++  const uint32_t xlow = slice(builder.Input(0), 0);
++  const uint32_t xhigh = slice(builder.Input(0), half_width);
++  const uint32_t cosine = slice(builder.Input(1), 0);
++  const uint32_t sine = slice(builder.Input(2), 0);
++  const uint32_t low_cos = builder.TensorOp(
++      TypedTensorIrOpKind::Mul, {xlow, cosine}, half);
++  const uint32_t high_sin = builder.TensorOp(
++      TypedTensorIrOpKind::Mul, {xhigh, sine}, half);
++  const uint32_t low = builder.TensorOp(
++      TypedTensorIrOpKind::Sub, {low_cos, high_sin}, half);
++  const uint32_t high_cos = builder.TensorOp(
++      TypedTensorIrOpKind::Mul, {xhigh, cosine}, half);
++  const uint32_t low_sin = builder.TensorOp(
++      TypedTensorIrOpKind::Mul, {xlow, sine}, half);
++  const uint32_t high = builder.TensorOp(
++      TypedTensorIrOpKind::Add, {high_cos, low_sin}, half);
++  const uint32_t output = builder.Concatenate({low, high}, graph.result, 1);
++  return std::move(builder).Finish({output});
++}
++
+ TypedTensorIrModuleSpec MakeNativeGdnRecurrentTensorIrSpec(
+     const NativeTileGdnRecurrentGraph& graph) {
+   TypedTensorIrModuleSpec module_spec;
+@@ -10010,7 +10060,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+         TensorIrValueRole::Result, 0, graph.input.dtype, graph.input.shape,
+         graph.input.dense_strides, /*has_explicit_strides=*/true));
+     return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+-                          EmitNativeTileRopeSource(graph), std::move(metadata),
++                          MakeGenericRopeTensorIrSpec(graph), std::move(metadata),
+                           /*input_count=*/3);
+   }
+   if (IsNativeTileGatedRmsNormCandidate(program)) {
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index 91f55aceb746d3e52b7c69b797487ae0831c2467..0827c57866d8befeb8c983278f4792b61ad50d37 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -697,11 +697,15 @@ bool ValidateGenericTensorIrSpec(const GenericTensorIrModuleSpec& spec,
+       case TypedTensorIrOpKind::Splat:
+       case TypedTensorIrOpKind::Reshape:
+       case TypedTensorIrOpKind::Transpose:
+-      case TypedTensorIrOpKind::Iota:
+         if (operation.operands.size() != 1) {
+           return reject("unary/shape operation requires exactly one operand");
+         }
+         break;
++      case TypedTensorIrOpKind::Iota:
++        if (!operation.operands.empty()) {
++          return reject("iota does not take tensor operands");
++        }
++        break;
+       case TypedTensorIrOpKind::Reduce:
+         if (operation.operands.size() != 1 || operation.dimensions.empty() ||
+             operation.dimensions.size() > rank) {

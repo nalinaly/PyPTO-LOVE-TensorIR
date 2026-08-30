@@ -1,0 +1,113 @@
+From 230faaf2a90ece33fc406883d63b638cd964b00e Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 15:17:36 +0800
+Subject: [PATCH 287/298] codegen: preserve explicit typed comparison
+ predicates
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp      | 12 +++++---
+ .../nvidia/typed_tensor_ir_module_spec.h      |  5 +++-
+ .../nvidia_typed_tensor_ir_builder.cpp        |  3 ++
+ tests/ut/cpp/structured_compile_test.cpp      | 29 +++++++++++++++++++
+ 4 files changed, 44 insertions(+), 5 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 52d8fe38649530728d266f122babc0875ce896b0..10bcd586cda6dd3ccbe9767cf51a938cb5d6334d 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -3820,10 +3820,14 @@ TypedTensorIrModuleSpec MakeGenericStatefulCausalConvTensorIrSpec(
+         TypedTensorIrOpKind::Broadcast, {index_seed}, index_anchor);
+     const uint32_t index_plus_one = builder.TensorOp(
+         TypedTensorIrOpKind::Add, {index_full, one_index_splat}, index_anchor);
+-    const uint32_t valid_index = builder.TypedTensorOp(
+-        TypedTensorIrOpKind::Cmp,
+-        {zero_index_splat, index_plus_one},
+-        MakeGenericBoolTensorSpec(index_anchor.shape));
++    TypedTensorIrOperationSpec valid_index_operation = MakeGenericOperation(
++        TypedTensorIrOpKind::Cmp, {zero_index_splat, index_plus_one},
++        StaticTensor{DataType::INT32, index_anchor.shape,
++                     index_anchor.dense_strides});
++    valid_index_operation.result = MakeGenericBoolTensorSpec(index_anchor.shape);
++    valid_index_operation.comparator = TypedTensorIrComparator::Lt;
++    const uint32_t valid_index =
++        builder.Append(std::move(valid_index_operation));
+     const uint32_t state_rows_value = builder.TensorOp(
+         TypedTensorIrOpKind::GatherRows,
+         {builder.Input(2), indices_full_value}, state_rows);
+diff --git a/src/codegen/nvidia/typed_tensor_ir_module_spec.h b/src/codegen/nvidia/typed_tensor_ir_module_spec.h
+index ae40341c7a5f228a774cbf67e868e92b7d2a8420..440e6854d05638ce67b90704f3ea3a74e3e95b7a 100644
+--- a/src/codegen/nvidia/typed_tensor_ir_module_spec.h
++++ b/src/codegen/nvidia/typed_tensor_ir_module_spec.h
+@@ -183,6 +183,7 @@ enum class TypedTensorIrComparator : uint8_t {
+   Ge = 3,
+   Lt = 4,
+   Le = 5,
++  Invalid = 255,
+ };
+ 
+ /** Reduction modes accepted by a generic typed TensorIR reduction operation. */
+@@ -202,7 +203,9 @@ struct TypedTensorIrOperationSpec {
+   std::vector<int64_t> permutation;
+   std::vector<int32_t> dimensions;
+   int64_t dimension = -1;
+-  TypedTensorIrComparator comparator = TypedTensorIrComparator::Eq;
++  // Comparisons must name their predicate explicitly; an implicit equality
++  // default can silently change a masked graph's control flow.
++  TypedTensorIrComparator comparator = TypedTensorIrComparator::Invalid;
+   TypedTensorIrReductionMode reduction_mode = TypedTensorIrReductionMode::Add;
+   double scalar = 0.0;
+   TypedTensorIrElementType scalar_type = TypedTensorIrElementType::FP32;
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index 87fbdd5f6db456a2829db46bd2ffc1d53e77bd81..6aa53f0962c6485575b8412ce829cd07ac6e2c78 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -682,6 +682,9 @@ bool ValidateGenericTensorIrSpec(const GenericTensorIrModuleSpec& spec,
+         if (operation.operands.size() != 2) {
+           return reject("binary operation requires exactly two operands");
+         }
++        if (operation.comparator == TypedTensorIrComparator::Invalid) {
++          return reject("cmp must specify an explicit comparator");
++        }
+         break;
+       case TypedTensorIrOpKind::Neg:
+       case TypedTensorIrOpKind::Exp:
+diff --git a/tests/ut/cpp/structured_compile_test.cpp b/tests/ut/cpp/structured_compile_test.cpp
+index 6a041ff1eb3a6508b2c04ea52c24502ed28b2c1a..ac83c5c467faf5b3bedf439be957bbffcb855750 100644
+--- a/tests/ut/cpp/structured_compile_test.cpp
++++ b/tests/ut/cpp/structured_compile_test.cpp
+@@ -1479,6 +1479,35 @@ int TestTypedGenericTensorIrModuleBuilder() {
+   std::string invalid_diagnostic;
+   REQUIRE(!BuildTypedTensorIrModule(module_spec, invalid_diagnostic).has_value());
+   REQUIRE(invalid_diagnostic.find("earlier SSA value") != std::string::npos);
++
++  TypedTensorIrModuleSpec cmp_module;
++  cmp_module.kind = TypedTensorIrModuleKind::Generic;
++  cmp_module.generic.inputs = {
++      tensor(TypedTensorIrElementType::INT32, {2, 256}, {256, 1}),
++      tensor(TypedTensorIrElementType::INT32, {2, 256}, {256, 1})};
++  cmp_module.generic.results = {
++      tensor(TypedTensorIrElementType::BOOL, {2, 256}, {256, 1})};
++  TypedTensorIrOperationSpec cmp;
++  cmp.kind = TypedTensorIrOpKind::Cmp;
++  cmp.operands = {0, 1};
++  cmp.result = tensor(TypedTensorIrElementType::BOOL, {2, 256}, {256, 1});
++  cmp.comparator = pypto::codegen::nvidia::TypedTensorIrComparator::Lt;
++  cmp_module.generic.operations = {cmp};
++  cmp_module.generic.result_values = {2};
++  std::string cmp_diagnostic;
++  auto cmp_built = BuildTypedTensorIrModule(cmp_module, cmp_diagnostic);
++  REQUIRE(cmp_built.has_value());
++  REQUIRE(cmp_diagnostic.empty());
++  const std::string cmp_source(cmp_built->canonical_source.begin(),
++                               cmp_built->canonical_source.end());
++  REQUIRE(cmp_source.find("cmp") != std::string::npos);
++  REQUIRE(cmp_source.find(" lt ") != std::string::npos);
++  cmp_module.generic.operations[0].comparator =
++      pypto::codegen::nvidia::TypedTensorIrComparator::Invalid;
++  std::string missing_cmp_diagnostic;
++  REQUIRE(!BuildTypedTensorIrModule(cmp_module, missing_cmp_diagnostic)
++               .has_value());
++  REQUIRE(missing_cmp_diagnostic.find("explicit comparator") != std::string::npos);
+ #endif
+   return 0;
+ }

@@ -1,0 +1,108 @@
+From 2e980e4047cce63cee8a96c0be8b8f6c204b2f24 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 12:29:20 +0800
+Subject: [PATCH 266/298] test: cover generic typed TensorIR graphs
+
+---
+ tests/ut/cpp/structured_compile_test.cpp | 82 ++++++++++++++++++++++++
+ 1 file changed, 82 insertions(+)
+
+diff --git a/tests/ut/cpp/structured_compile_test.cpp b/tests/ut/cpp/structured_compile_test.cpp
+index 71c91a0860b18ed9e89a30a378f4fb9b1a200b8b..c46badc275eadb4368f89963c735308e18b2c45a 100644
+--- a/tests/ut/cpp/structured_compile_test.cpp
++++ b/tests/ut/cpp/structured_compile_test.cpp
+@@ -1401,6 +1401,86 @@ int TestTypedSigmoidAndMulModuleBuilder() {
+   return 0;
+ }
+ 
++int TestTypedGenericTensorIrModuleBuilder() {
++#if defined(PYPTO_ENABLE_NVIDIA_COMPILER_BACKEND)
++  using pypto::codegen::nvidia::GenericTensorIrModuleSpec;
++  using pypto::codegen::nvidia::TypedTensorIrElementType;
++  using pypto::codegen::nvidia::TypedTensorIrModuleKind;
++  using pypto::codegen::nvidia::TypedTensorIrModuleSpec;
++  using pypto::codegen::nvidia::TypedTensorIrOpKind;
++  using pypto::codegen::nvidia::TypedTensorIrOperationSpec;
++  using pypto::codegen::nvidia::TypedTensorIrTensorSpec;
++  using pypto::compiler::detail::BuildTypedTensorIrModule;
++
++  const auto tensor = [](TypedTensorIrElementType element_type,
++                         std::vector<int64_t> shape,
++                         std::vector<int64_t> strides) {
++    return TypedTensorIrTensorSpec{element_type, std::move(shape),
++                                   std::move(strides), true};
++  };
++  const auto scalar = [](TypedTensorIrElementType element_type, double value) {
++    TypedTensorIrOperationSpec operation;
++    operation.kind = TypedTensorIrOpKind::Constant;
++    operation.result.element_type = element_type;
++    operation.scalar_type = element_type;
++    operation.scalar = value;
++    return operation;
++  };
++
++  TypedTensorIrModuleSpec module_spec;
++  module_spec.kind = TypedTensorIrModuleKind::Generic;
++  GenericTensorIrModuleSpec& spec = module_spec.generic;
++  spec.inputs = {tensor(TypedTensorIrElementType::BF16, {2, 256}, {256, 1})};
++  spec.results = {tensor(TypedTensorIrElementType::BF16, {2, 256}, {256, 1})};
++
++  TypedTensorIrOperationSpec convert;
++  convert.kind = TypedTensorIrOpKind::Convert;
++  convert.operands = {0};
++  convert.result = tensor(TypedTensorIrElementType::FP32, {2, 256}, {256, 1});
++  spec.operations.push_back(convert);
++  spec.operations.push_back(scalar(TypedTensorIrElementType::FP32, 1.0));
++
++  TypedTensorIrOperationSpec splat;
++  splat.kind = TypedTensorIrOpKind::Splat;
++  splat.operands = {2};
++  splat.result = tensor(TypedTensorIrElementType::FP32, {2, 256}, {256, 1});
++  spec.operations.push_back(splat);
++
++  TypedTensorIrOperationSpec add;
++  add.kind = TypedTensorIrOpKind::Add;
++  add.operands = {1, 3};
++  add.result = tensor(TypedTensorIrElementType::FP32, {2, 256}, {256, 1});
++  spec.operations.push_back(add);
++
++  TypedTensorIrOperationSpec output;
++  output.kind = TypedTensorIrOpKind::Convert;
++  output.operands = {4};
++  output.result = tensor(TypedTensorIrElementType::BF16, {2, 256}, {256, 1});
++  spec.operations.push_back(output);
++  spec.result_values = {5};
++
++  std::string diagnostic;
++  auto built = BuildTypedTensorIrModule(module_spec, diagnostic);
++  REQUIRE(built.has_value());
++  REQUIRE(diagnostic.empty());
++  REQUIRE(built->module);
++  const std::string source(built->canonical_source.begin(),
++                           built->canonical_source.end());
++  REQUIRE(source.find("nv_tensor_ir.graph @pypto_fused_pointwise") !=
++          std::string::npos);
++  REQUIRE(source.find("constant") != std::string::npos);
++  REQUIRE(source.find("splat") != std::string::npos);
++
++  TypedTensorIrOperationSpec invalid = add;
++  invalid.operands = {99, 3};
++  module_spec.generic.operations[3] = invalid;
++  std::string invalid_diagnostic;
++  REQUIRE(!BuildTypedTensorIrModule(module_spec, invalid_diagnostic).has_value());
++  REQUIRE(invalid_diagnostic.find("earlier SSA value") != std::string::npos);
++#endif
++  return 0;
++}
++
+ }  // namespace
+ 
+ int main() {
+@@ -1433,5 +1513,7 @@ int main() {
+   if (const int result = TestTypedGdnModuleBuilder()) return result;
+   if (const int result = TestTypedGdnProjectionModuleBuilder()) return result;
+   if (const int result = TestTypedSigmoidAndMulModuleBuilder()) return result;
++  if (const int result = TestTypedGenericTensorIrModuleBuilder())
++    return result;
+   return 0;
+ }

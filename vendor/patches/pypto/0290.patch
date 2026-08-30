@@ -1,0 +1,26 @@
+From c3403228bb9fc2e9a313b830cf8312ec95dcbee1 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 15:31:55 +0800
+Subject: [PATCH 290/298] test: print typed source mismatch during migration
+
+---
+ tests/ut/cpp/tensor_ir_codegen_test.cpp | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/tests/ut/cpp/tensor_ir_codegen_test.cpp b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+index c89bcad24d2fbf9fd31be3fdf7b189d261295489..bab4e88a7791195fdb2d0c411d32a08b8c26a665 100644
+--- a/tests/ut/cpp/tensor_ir_codegen_test.cpp
++++ b/tests/ut/cpp/tensor_ir_codegen_test.cpp
+@@ -306,7 +306,11 @@ int TestFp32CanonicalSourceAndMetadata() {
+       "    results %result0 : tensor<2x3xf32>\n"
+       "  }\n"
+       "}\n";
+-  REQUIRE(MaterializedCanonicalSource(module) == expected);
++  const std::string actual = MaterializedCanonicalSource(module);
++  if (actual != expected) {
++    std::fprintf(stderr, "ACTUAL SOURCE:\n%s\n", actual.c_str());
++  }
++  REQUIRE(actual == expected);
+   REQUIRE(module.GetKind() == TensorIrModuleKind::LegacyStaticAddV1);
+   REQUIRE(module.GetMetadataSchemaVersion() == 1);
+   REQUIRE(module.GetEntryName() == "pypto_vector_add");

@@ -1,0 +1,106 @@
+From 5741def9e3b1a8492b313aacf26f5a55eca47762 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 13:51:51 +0800
+Subject: [PATCH 277/298] codegen: lower segmented causal convolution with
+ typed ops
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 78 +++++++++++++++++++++++-
+ 1 file changed, 77 insertions(+), 1 deletion(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 51c10c415563f8c0a58ddba155d487032fe7b519..24719dc882d4d1ffa1fe96c1ba7d8951550ce465 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -5520,6 +5520,82 @@ TypedTensorIrModuleSpec MakeGenericQkRmsNormRopeTensorIrSpec(
+   return std::move(builder).Finish({output});
+ }
+ 
++TypedTensorIrModuleSpec MakeGenericCausalConvTensorIrSpec(
++    const NativeTileCausalConvGraph& graph) {
++  const int64_t channels = graph.input.shape[0];
++  const int64_t length = graph.input.shape[1];
++  StaticTensor compute = graph.input;
++  compute.dtype = DataType::FP32;
++  StaticTensor weight_compute = graph.weight;
++  weight_compute.dtype = DataType::FP32;
++  StaticTensor weight_column{DataType::FP32, {channels, 1}, {1, 1}};
++  GenericTensorIrSpecBuilder builder({graph.input, graph.weight});
++  builder.AddResult(graph.result);
++  const uint32_t input_wide = builder.TensorOp(
++      TypedTensorIrOpKind::Convert, {builder.Input(0)}, compute);
++  const uint32_t weight_wide = builder.TensorOp(
++      TypedTensorIrOpKind::Convert, {builder.Input(1)}, weight_compute);
++  const uint32_t one = builder.Constant(DataType::FP32, 1.0);
++
++  const auto append_segment =
++      [&](int64_t segment_length,
++          const std::vector<std::pair<int64_t, int64_t>>& taps) {
++        StaticTensor segment{DataType::FP32, {channels, segment_length},
++                             {segment_length, 1}};
++        StaticTensor segment_bf16 = segment;
++        segment_bf16.dtype = DataType::BF16;
++        uint32_t accumulated = std::numeric_limits<uint32_t>::max();
++        for (const auto [input_start, weight_tap] : taps) {
++          TypedTensorIrOperationSpec input_slice = MakeGenericOperation(
++              TypedTensorIrOpKind::Slice, {input_wide}, segment);
++          input_slice.starts = {0, input_start};
++          input_slice.limits = {channels, input_start + segment_length};
++          input_slice.strides = {1, 1};
++          const uint32_t x_value = builder.Append(std::move(input_slice));
++          TypedTensorIrOperationSpec weight_slice = MakeGenericOperation(
++              TypedTensorIrOpKind::Slice, {weight_wide}, weight_column);
++          weight_slice.starts = {0, weight_tap};
++          weight_slice.limits = {channels, weight_tap + 1};
++          weight_slice.strides = {1, 1};
++          const uint32_t weight_value = builder.Append(std::move(weight_slice));
++          uint32_t weight_full = weight_value;
++          if (segment_length != 1) {
++            weight_full = builder.TensorOp(
++                TypedTensorIrOpKind::Broadcast, {weight_value}, segment);
++          }
++          const uint32_t term = builder.TensorOp(
++              TypedTensorIrOpKind::Mul, {x_value, weight_full}, segment);
++          if (accumulated == std::numeric_limits<uint32_t>::max()) {
++            accumulated = term;
++          } else {
++            accumulated = builder.TensorOp(
++                TypedTensorIrOpKind::Add, {accumulated, term}, segment);
++          }
++        }
++        const uint32_t negative = builder.TensorOp(
++            TypedTensorIrOpKind::Neg, {accumulated}, segment);
++        const uint32_t exponent = builder.TensorOp(
++            TypedTensorIrOpKind::Exp, {negative}, segment);
++        const uint32_t denominator = builder.TensorOp(
++            TypedTensorIrOpKind::Add, {exponent, builder.Splat(one, segment)},
++            segment);
++        const uint32_t sigmoid = builder.TensorOp(
++            TypedTensorIrOpKind::Reciprocal, {denominator}, segment);
++        const uint32_t activated = builder.TensorOp(
++            TypedTensorIrOpKind::Mul, {accumulated, sigmoid}, segment);
++        return builder.TensorOp(TypedTensorIrOpKind::Convert, {activated},
++                                segment_bf16);
++      };
++  const uint32_t segment0 = append_segment(1, {{0, 3}});
++  const uint32_t segment1 = append_segment(1, {{0, 2}, {1, 3}});
++  const uint32_t segment2 = append_segment(1, {{0, 1}, {1, 2}, {2, 3}});
++  const uint32_t segment3 =
++      append_segment(length - 3, {{0, 0}, {1, 1}, {2, 2}, {3, 3}});
++  const uint32_t output = builder.Concatenate(
++      {segment0, segment1, segment2, segment3}, graph.result, 1);
++  return std::move(builder).Finish({output});
++}
++
+ TypedTensorIrModuleSpec MakeNativeGdnRecurrentTensorIrSpec(
+     const NativeTileGdnRecurrentGraph& graph) {
+   TypedTensorIrModuleSpec module_spec;
+@@ -10141,7 +10217,7 @@ TensorIrModule EmitTensorIr(const ir::ProgramPtr& program) {
+         TensorIrValueRole::Result, 0, graph.result.dtype, graph.result.shape,
+         graph.result.dense_strides, /*has_explicit_strides=*/true));
+     return TensorIrModule(TensorIrModuleKind::FusedPointwise,
+-                          EmitNativeTileCausalConvSegmentedSource(graph),
++                          MakeGenericCausalConvTensorIrSpec(graph),
+                           std::move(metadata), /*input_count=*/2);
+   }
+   if (IsNativeTileMatmulCandidate(program)) {

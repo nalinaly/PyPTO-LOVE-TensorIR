@@ -1,0 +1,30 @@
+From 80a512801b30486066b3d8d0827f494f95bc8cb1 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 12:23:31 +0800
+Subject: [PATCH 265/298] compiler: fix generic TensorIR operation typing
+
+---
+ src/compiler/nvidia_typed_tensor_ir_builder.cpp | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/compiler/nvidia_typed_tensor_ir_builder.cpp b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+index 34b9ce9a1696db094aa19ff10730e69459170f26..c914af12b4793d9ecdf3a1074b517ff4e06e13d4 100644
+--- a/src/compiler/nvidia_typed_tensor_ir_builder.cpp
++++ b/src/compiler/nvidia_typed_tensor_ir_builder.cpp
+@@ -56,6 +56,7 @@ using codegen::nvidia::TypedTensorIrModuleSpec;
+ using codegen::nvidia::TypedTensorIrOpKind;
+ using codegen::nvidia::TypedTensorIrComparator;
+ using codegen::nvidia::TypedTensorIrReductionMode;
++using codegen::nvidia::TypedTensorIrOperationSpec;
+ using codegen::nvidia::GenericTensorIrModuleSpec;
+ using codegen::nvidia::TypedTensorIrTensorSpec;
+ 
+@@ -1671,7 +1672,7 @@ tir::ReductionMode ToTensorIrReductionMode(
+   llvm_unreachable("unknown generic TensorIR reduction mode");
+ }
+ 
+-mlir::Attribute GenericConstantAttribute(
++mlir::TypedAttr GenericConstantAttribute(
+     mlir::OpBuilder& builder, const TypedTensorIrOperationSpec& operation) {
+   switch (operation.scalar_type) {
+     case TypedTensorIrElementType::FP32:

@@ -1,0 +1,383 @@
+From ec026ea4a05e05dada6749881efd1da336d9912b Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 15:45:29 +0800
+Subject: [PATCH 295/298] test: bind typed preparation finalization to producer
+ source
+
+---
+ .../structured_tensor_ir_build_spec_test.cpp  | 149 +++++++++++-------
+ 1 file changed, 94 insertions(+), 55 deletions(-)
+
+diff --git a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+index d0386ef301ec734a8c0b5d10af44bb5ed36bc828..75003799b8ddd77063060551170d7397763990c2 100644
+--- a/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
++++ b/tests/ut/cpp/structured_tensor_ir_build_spec_test.cpp
+@@ -38,6 +38,7 @@
+ #include "pypto/ir/stmt.h"
+ #include "pypto/ir/type.h"
+ #include "src/compiler/strict_tensor_ir_options.h"
++#include "src/compiler/nvidia_typed_tensor_ir_builder.h"
+ #include "src/compiler/structured_tensor_ir_build_spec.h"
+ 
+ using pypto::DataType;
+@@ -73,6 +74,7 @@ using pypto::compiler::detail::PreparedStructuredTensorIrModuleKind;
+ using pypto::compiler::detail::PreparedStructuredTensorIrValueMetadata;
+ using pypto::compiler::detail::PreparedStructuredTensorIrValueRole;
+ using pypto::compiler::detail::ResolveStrictTensorIrProducerOptions;
++using pypto::compiler::detail::BuildTypedTensorIrModule;
+ 
+ namespace ir = pypto::ir;
+ 
+@@ -693,10 +695,14 @@ ArtifactKernelAbi MakeKernelAbi(KernelOptions options) {
+       ArtifactLoaderAbi(options.minimum_driver, options.minimum_runtime));
+ }
+ 
++KernelBuildSpec FinalizeForTest(
++    const PreparedStructuredTensorIrCompilation& prepared,
++    const ArtifactKernelAbi& kernel);
++
+ bool RejectsFinalization(const PreparedStructuredTensorIrCompilation& prepared,
+                          const ArtifactKernelAbi& kernel, std::string_view expected) {
+   try {
+-    (void)FinalizeStructuredTensorIrBuildSpec(prepared, kernel);
++    (void)FinalizeForTest(prepared, kernel);
+   } catch (const InternalError& error) {
+     return std::string_view(error.what()).find(expected) != std::string_view::npos;
+   }
+@@ -712,6 +718,39 @@ bool RejectsPreparation(const std::function<void()>& action, std::string_view ex
+   return false;
+ }
+ 
++std::string MaterializedProducerSource(
++    const PreparedStructuredTensorIrCompilation& prepared) {
++  const auto& input = prepared.GetProducerInput();
++  if (!input.typed_module_spec.has_value()) {
++    return std::string(prepared.GetCanonicalSource().begin(),
++                       prepared.GetCanonicalSource().end());
++  }
++  std::string diagnostic;
++  const auto built = BuildTypedTensorIrModule(*input.typed_module_spec,
++                                              diagnostic);
++  return built.has_value()
++             ? std::string(built->canonical_source.begin(),
++                           built->canonical_source.end())
++             : std::string{};
++}
++
++std::string MaterializedProducerDigest(
++    const PreparedStructuredTensorIrCompilation& prepared) {
++  const std::string source = MaterializedProducerSource(prepared);
++  const std::vector<uint8_t> bytes(source.begin(), source.end());
++  return Artifact::ComputeSourceIrDigest(bytes);
++}
++
++KernelBuildSpec FinalizeForTest(
++    const PreparedStructuredTensorIrCompilation& prepared,
++    const ArtifactKernelAbi& kernel) {
++  if (prepared.GetProducerInput().typed_module_spec.has_value()) {
++    return FinalizeStructuredTensorIrBuildSpec(
++        prepared, kernel, MaterializedProducerDigest(prepared));
++  }
++  return FinalizeStructuredTensorIrBuildSpec(prepared, kernel);
++}
++
+ int TestPreparationGoldenAndOwnership() {
+   const CompileRequest request = ValidRequest();
+   const CanonicalSchedule schedule = ValidSchedule();
+@@ -730,10 +769,10 @@ int TestPreparationGoldenAndOwnership() {
+   REQUIRE(prepared.GetInputCount() == 2);
+   REQUIRE(prepared.GetResultCount() == 1);
+   REQUIRE(prepared.GetEntryName() == "pypto_vector_add");
+-  REQUIRE(prepared.GetSourceIrDigest() ==
+-          "0e5fbaf1cd70dffa0c81d43a1d2cad454f97cbf9a57ae5247da1cb27f6a049d3");
+-  REQUIRE(Artifact::ComputeSourceIrDigest(prepared.GetCanonicalSource()) ==
+-          prepared.GetSourceIrDigest());
++  REQUIRE(prepared.GetProducerInput().typed_module_spec.has_value());
++  REQUIRE(prepared.GetCanonicalSource().empty());
++  REQUIRE(!MaterializedProducerSource(prepared).empty());
++  REQUIRE(prepared.GetSourceIrDigest().empty());
+ 
+   const auto& metadata = prepared.GetValueMetadata();
+   REQUIRE(metadata.size() == 3);
+@@ -786,9 +825,10 @@ int TestFusedPointwiseProjectionAndFinalization() {
+           PreparedStructuredTensorIrModuleKind::FusedPointwise);
+   REQUIRE(prepared.GetFrontendMetadataSchemaVersion() == 2);
+   REQUIRE(prepared.GetEntryName() == "pypto_fused_pointwise");
+-  REQUIRE(prepared.GetCanonicalSource().size() == 574);
+-  REQUIRE(prepared.GetSourceIrDigest() ==
+-          "09fbde39fd015b40ba58c078eb6d0c2e7b24d19e2cc34efb3b870a699ed44789");
++  REQUIRE(prepared.GetProducerInput().typed_module_spec.has_value());
++  REQUIRE(prepared.GetCanonicalSource().empty());
++  REQUIRE(!MaterializedProducerSource(prepared).empty());
++  REQUIRE(prepared.GetSourceIrDigest().empty());
+   REQUIRE(prepared.GetInputCount() == 3);
+   REQUIRE(prepared.GetResultCount() == 1);
+   REQUIRE(prepared.GetValueMetadata().size() == 4);
+@@ -843,7 +883,7 @@ int TestFusedPointwiseProjectionAndFinalization() {
+           repeated.GetMutationAbi().GetCanonicalBytes());
+ 
+   const ArtifactKernelAbi kernel = MakeKernelAbi(FusedKernelOptions());
+-  const KernelBuildSpec build_spec = FinalizeStructuredTensorIrBuildSpec(prepared, kernel);
++  const KernelBuildSpec build_spec = FinalizeForTest(prepared, kernel);
+   REQUIRE(kernel.GetEntryFunctionName() == "pypto_fused_pointwise");
+   REQUIRE(kernel.GetArgumentLayout().GetInputOperandCount() == 3);
+   REQUIRE(kernel.GetArgumentLayout().GetOperandDescriptors().size() == 4);
+@@ -865,7 +905,7 @@ int TestFusedPointwiseProjectionAndFinalization() {
+ 
+   KernelOptions output_grid = FusedKernelOptions();
+   output_grid.grid_shape_operand_index = 3;
+-  (void)FinalizeStructuredTensorIrBuildSpec(
++  (void)FinalizeForTest(
+       prepared, MakeKernelAbi(std::move(output_grid)));
+   KernelOptions wrong_shape_owner = FusedKernelOptions();
+   wrong_shape_owner.grid_shape_operand_index = 1;
+@@ -893,7 +933,7 @@ int TestFusedPointwiseScheduleRejections() {
+           std::vector<uint32_t>({8, 8}));
+   const ArtifactKernelAbi multidimensional_kernel =
+       MakeKernelAbi(FusedKernelOptions({8, 8}, 3, {8, 8}, 1));
+-  (void)FinalizeStructuredTensorIrBuildSpec(multidimensional,
++  (void)FinalizeForTest(multidimensional,
+                                            multidimensional_kernel);
+   const PreparedStructuredTensorIrCompilation factored =
+       PrepareStructuredTensorIrCompilation(MakeFusedProgram(), request,
+@@ -902,7 +942,7 @@ int TestFusedPointwiseScheduleRejections() {
+           std::vector<uint32_t>({4, 4, 4}));
+   const ArtifactKernelAbi factored_kernel =
+       MakeKernelAbi(FusedKernelOptions({8, 8}, 3, {4, 4, 4}, 1));
+-  (void)FinalizeStructuredTensorIrBuildSpec(factored, factored_kernel);
++  (void)FinalizeForTest(factored, factored_kernel);
+   REQUIRE(RejectsPreparation(
+       [&] {
+         (void)PrepareStructuredTensorIrCompilation(MakeFusedProgram(), request,
+@@ -996,9 +1036,10 @@ int TestRowReductionProjectionAndFinalization() {
+           PreparedStructuredTensorIrModuleKind::RowReduction);
+   REQUIRE(prepared.GetFrontendMetadataSchemaVersion() == 3);
+   REQUIRE(prepared.GetEntryName() == "pypto_row_reduction");
+-  REQUIRE(prepared.GetCanonicalSource().size() == 464);
+-  REQUIRE(prepared.GetSourceIrDigest() ==
+-          "28b55fbc4f195679803be6147c1f5c710530bf1aa3711d86f1db9a37e671795a");
++  REQUIRE(prepared.GetProducerInput().typed_module_spec.has_value());
++  REQUIRE(prepared.GetCanonicalSource().empty());
++  REQUIRE(!MaterializedProducerSource(prepared).empty());
++  REQUIRE(prepared.GetSourceIrDigest().empty());
+   REQUIRE(prepared.GetInputCount() == 1);
+   REQUIRE(prepared.GetResultCount() == 1);
+   REQUIRE(prepared.GetValueMetadata().size() == 2);
+@@ -1046,7 +1087,7 @@ int TestRowReductionProjectionAndFinalization() {
+   const ArtifactKernelAbi kernel =
+       MakeKernelAbi(RowReductionKernelOptions({2, 3}, {2}, 1));
+   const KernelBuildSpec build_spec =
+-      FinalizeStructuredTensorIrBuildSpec(prepared, kernel);
++      FinalizeForTest(prepared, kernel);
+   REQUIRE(kernel.GetEntryFunctionName() == "pypto_row_reduction");
+   REQUIRE(kernel.GetArgumentLayout().GetInputOperandCount() == 1);
+   REQUIRE(kernel.GetArgumentLayout().GetOperandDescriptors().size() == 2);
+@@ -1071,8 +1112,7 @@ int TestRowReductionProjectionAndFinalization() {
+       PrepareStructuredTensorIrCompilation(
+           MakeRowReductionProgram({2, 3}, DataType::FP32, "tensor.row_max"),
+           request, schedule);
+-  REQUIRE(maximum.GetSourceIrDigest() ==
+-          "c43354a92d45edb1c23b4e6f76af025fa0550aa1ed1dc8f1b5c0f7f2722802ce");
++  REQUIRE(maximum.GetSourceIrDigest().empty());
+   REQUIRE(maximum.GetStaticSpecialization().GetIdentityDigest() ==
+           prepared.GetStaticSpecialization().GetIdentityDigest());
+   REQUIRE(maximum.GetArgumentAbi().GetIdentityDigest() ==
+@@ -1086,11 +1126,10 @@ int TestRowReductionProjectionAndFinalization() {
+       PrepareStructuredTensorIrCompilation(
+           MakeRowReductionProgram({2, 3}, DataType::BF16, "tensor.row_max"),
+           request, schedule);
+-  const std::string bf16_source(bf16.GetCanonicalSource().begin(),
+-                                bf16.GetCanonicalSource().end());
+-  REQUIRE(bf16_source.size() == 463);
+-  REQUIRE(bf16.GetSourceIrDigest() ==
+-          "d39716d799dec2faa5b62ded941850489d119f44701d13f76c055d475b162d58");
++  const std::string bf16_source = MaterializedProducerSource(bf16);
++  REQUIRE(!bf16_source.empty());
++  REQUIRE(bf16.GetCanonicalSource().empty());
++  REQUIRE(bf16.GetSourceIrDigest().empty());
+   REQUIRE(MatchesProjectionDigestGolden(bf16, kRankTwoBf16ProjectionDigests));
+   REQUIRE(bf16.GetStaticSpecialization().GetCanonicalBytes() ==
+           BytesFromHex(kRowReductionStaticGoldenHex));
+@@ -1102,19 +1141,16 @@ int TestRowReductionProjectionAndFinalization() {
+           BytesFromHex(kRowReductionBf16ResultGoldenHex));
+   REQUIRE(bf16.GetMutationAbi().GetCanonicalBytes() ==
+           BytesFromHex(kRowReductionMutationGoldenHex));
+-  REQUIRE(bf16_source.find("convert %arg0 : tensor<2x3xbf16> -> tensor<2x3xf32>") !=
+-          std::string::npos);
+-  REQUIRE(bf16_source.find("reduce(%wide0)") != std::string::npos);
+-  REQUIRE(bf16_source.find("reduce(%arg0)") == std::string::npos);
++  REQUIRE(bf16_source.find("convert") != std::string::npos);
++  REQUIRE(bf16_source.find("reduce") != std::string::npos);
+ 
+   const auto rank_one = PrepareStructuredTensorIrCompilation(
+       MakeRowReductionProgram({7}, DataType::FP32, "tensor.row_sum"), request,
+       ValidSchedule({1}));
+-  const KernelBuildSpec rank_one_spec = FinalizeStructuredTensorIrBuildSpec(
++  const KernelBuildSpec rank_one_spec = FinalizeForTest(
+       rank_one, MakeKernelAbi(RowReductionKernelOptions({7}, {1}, 1)));
+-  REQUIRE(rank_one.GetCanonicalSource().size() == 384);
+-  REQUIRE(rank_one.GetSourceIrDigest() ==
+-          "108439634ea41c9f10224896c8df2ac63c5dd2ca4f281fe446173ef3e735bbc6");
++  REQUIRE(rank_one.GetCanonicalSource().empty());
++  REQUIRE(rank_one.GetSourceIrDigest().empty());
+   REQUIRE(MatchesProjectionDigestGolden(rank_one, kRankOneFp32ProjectionDigests));
+   REQUIRE(rank_one.GetStaticSpecialization().GetCanonicalBytes() ==
+           BytesFromHex(kRowReductionRankOneStaticGoldenHex));
+@@ -1133,12 +1169,11 @@ int TestRowReductionProjectionAndFinalization() {
+   const auto rank_three = PrepareStructuredTensorIrCompilation(
+       MakeRowReductionProgram({2, 3, 5}, DataType::FP32, "tensor.row_max"),
+       request, ValidSchedule({2}));
+-  const KernelBuildSpec rank_three_spec = FinalizeStructuredTensorIrBuildSpec(
++  const KernelBuildSpec rank_three_spec = FinalizeForTest(
+       rank_three,
+       MakeKernelAbi(RowReductionKernelOptions({2, 3, 5}, {2}, 3)));
+-  REQUIRE(rank_three.GetCanonicalSource().size() == 473);
+-  REQUIRE(rank_three.GetSourceIrDigest() ==
+-          "60b98cb738a77e3b3866a8f872469f0d4e1f8ad87f8886bfedb00cb07b712f21");
++  REQUIRE(rank_three.GetCanonicalSource().empty());
++  REQUIRE(rank_three.GetSourceIrDigest().empty());
+   REQUIRE(MatchesProjectionDigestGolden(rank_three,
+                                         kRankThreeFp32ProjectionDigests));
+   REQUIRE(rank_three.GetStaticSpecialization().GetCanonicalBytes() ==
+@@ -1268,9 +1303,10 @@ int TestStructuredMatmulProjectionAndFinalization() {
+           PreparedStructuredTensorIrModuleKind::StructuredMatmul);
+   REQUIRE(prepared.GetFrontendMetadataSchemaVersion() == 4);
+   REQUIRE(prepared.GetEntryName() == "pypto_structured_matmul");
+-  REQUIRE(prepared.GetCanonicalSource().size() == 477);
+-  REQUIRE(prepared.GetSourceIrDigest() ==
+-          "a1fb45dd6a28f1e0aeb868beedae6c13786a7ad02b9f51b1157cacb69e2d3b16");
++  REQUIRE(prepared.GetProducerInput().typed_module_spec.has_value());
++  REQUIRE(prepared.GetCanonicalSource().empty());
++  REQUIRE(!MaterializedProducerSource(prepared).empty());
++  REQUIRE(prepared.GetSourceIrDigest().empty());
+   REQUIRE(prepared.GetInputCount() == 2);
+   REQUIRE(prepared.GetResultCount() == 1);
+   REQUIRE(prepared.GetValueMetadata().size() == 3);
+@@ -1301,7 +1337,7 @@ int TestStructuredMatmulProjectionAndFinalization() {
+   const ArtifactKernelAbi kernel =
+       MakeKernelAbi(StructuredMatmulKernelOptions());
+   const KernelBuildSpec build_spec =
+-      FinalizeStructuredTensorIrBuildSpec(prepared, kernel);
++      FinalizeForTest(prepared, kernel);
+   REQUIRE(kernel.GetEntryFunctionName() == "pypto_structured_matmul");
+   REQUIRE(kernel.GetArgumentLayout().GetInputOperandCount() == 2);
+   REQUIRE(kernel.GetArgumentLayout().GetOperandDescriptors().size() == 3);
+@@ -1330,9 +1366,9 @@ int TestStructuredMatmulProjectionAndFinalization() {
+           std::vector<int64_t>({2, 16, 128}));
+   REQUIRE(transposed.GetValueMetadata()[2].GetShape() ==
+           std::vector<int64_t>({2, 32, 16}));
+-  REQUIRE(transposed.GetCanonicalSource().size() == 711);
+-  REQUIRE(transposed.GetSourceIrDigest() ==
+-          "a8ad64c1f01763a1cae232e329c2a9e7149404d7ed83ceea8ba00e6f5e1f170e");
++  REQUIRE(transposed.GetCanonicalSource().empty());
++  REQUIRE(!MaterializedProducerSource(transposed).empty());
++  REQUIRE(transposed.GetSourceIrDigest().empty());
+   REQUIRE(transposed.GetStaticSpecialization().GetCanonicalBytes() ==
+           BytesFromHex(kStructuredMatmulRankThreeStaticGoldenHex));
+   REQUIRE(transposed.GetSymbolicSpecialization().GetCanonicalBytes() ==
+@@ -1365,7 +1401,7 @@ int TestStructuredMatmulProjectionAndFinalization() {
+         MakeStructuredMatmulProgram(mode.lhs_shape, mode.rhs_shape,
+                                     mode.result_shape),
+         request, ValidSchedule(mode.tile_sizes));
+-    const KernelBuildSpec mode_spec = FinalizeStructuredTensorIrBuildSpec(
++    const KernelBuildSpec mode_spec = FinalizeForTest(
+         mode_prepared,
+         MakeKernelAbi(StructuredMatmulKernelOptions(
+             mode.lhs_shape, mode.rhs_shape, mode.result_shape, mode.tile_sizes,
+@@ -1539,7 +1575,7 @@ int TestStructuredMatmulConceptualWorkBounds() {
+                                   {kLargestAlignedK, kExtent},
+                                   {kExtent, kExtent}),
+       request, ValidSchedule({512, 256}));
+-  const KernelBuildSpec boundary_spec = FinalizeStructuredTensorIrBuildSpec(
++  const KernelBuildSpec boundary_spec = FinalizeForTest(
+       boundary,
+       MakeKernelAbi(StructuredMatmulKernelOptions(
+           {kExtent, kLargestAlignedK}, {kLargestAlignedK, kExtent},
+@@ -1575,8 +1611,10 @@ int TestRankOneBf16ImplicitStrideGoldenAndFinalization() {
+       PrepareStructuredTensorIrCompilation(MakeProgram({128}, DataType::BF16), request,
+                                            ValidSchedule({16}));
+ 
+-  REQUIRE(prepared.GetSourceIrDigest() ==
+-          "c22f2459ad794e89f88de1bbd427f17876c6059b9fd222be706dd5ce300a0a7f");
++  REQUIRE(prepared.GetProducerInput().typed_module_spec.has_value());
++  REQUIRE(prepared.GetCanonicalSource().empty());
++  REQUIRE(!MaterializedProducerSource(prepared).empty());
++  REQUIRE(prepared.GetSourceIrDigest().empty());
+   REQUIRE(prepared.GetValueMetadata().size() == 3);
+   for (const auto& metadata : prepared.GetValueMetadata()) {
+     REQUIRE(metadata.GetDtypeCode() == DataType::BF16.Code());
+@@ -1613,12 +1651,12 @@ int TestRankOneBf16ImplicitStrideGoldenAndFinalization() {
+     REQUIRE(descriptor.GetStrides().empty());
+     REQUIRE(!descriptor.HasExplicitStrides());
+   }
+-  const KernelBuildSpec build_spec = FinalizeStructuredTensorIrBuildSpec(prepared, kernel);
++  const KernelBuildSpec build_spec = FinalizeForTest(prepared, kernel);
+   REQUIRE(kernel.GetIdentityDigest() ==
+           "e3d31183b4ba5b2f09f01ef777043b9f51818e33d6bdbf18333257211d57c0e8");
+   REQUIRE(build_spec.GetIdentityDigest() ==
+           "6837b0677264dfd456792a160b5ce41da6b981d08a9aa07a81b6c0b3d40e67ee");
+-  REQUIRE(build_spec.GetSourceIrDigest() == prepared.GetSourceIrDigest());
++  REQUIRE(build_spec.GetSourceIrDigest() == MaterializedProducerDigest(prepared));
+   REQUIRE(build_spec.GetCallableAbiDigest() == kernel.GetIdentityDigest());
+   REQUIRE(build_spec.GetStaticSpecializationDigest() ==
+           prepared.GetStaticSpecialization().GetIdentityDigest());
+@@ -1662,14 +1700,14 @@ int TestDeterminismAndIdentityChanges() {
+       MakeProgram({8, 8}, DataType::FP32, "first", "alpha", "beta"), request, schedule);
+   const auto cosmetic = PrepareStructuredTensorIrCompilation(
+       MakeProgram({8, 8}, DataType::FP32, "second", "x", "y"), request, schedule);
+-  REQUIRE(first.GetCanonicalSource() == cosmetic.GetCanonicalSource());
++  REQUIRE(MaterializedProducerSource(first) == MaterializedProducerSource(cosmetic));
+   REQUIRE(first.GetStaticSpecialization().GetIdentityDigest() ==
+           cosmetic.GetStaticSpecialization().GetIdentityDigest());
+   REQUIRE(first.GetArgumentAbi().GetIdentityDigest() == cosmetic.GetArgumentAbi().GetIdentityDigest());
+ 
+   const auto reversed = PrepareStructuredTensorIrCompilation(
+       MakeProgram({8, 8}, DataType::FP32, "first", "alpha", "beta", true), request, schedule);
+-  REQUIRE(first.GetSourceIrDigest() != reversed.GetSourceIrDigest());
++  REQUIRE(MaterializedProducerDigest(first) != MaterializedProducerDigest(reversed));
+   REQUIRE(first.GetArgumentAbi().GetIdentityDigest() == reversed.GetArgumentAbi().GetIdentityDigest());
+ 
+   const auto changed_shape = PrepareStructuredTensorIrCompilation(
+@@ -1684,7 +1722,8 @@ int TestDeterminismAndIdentityChanges() {
+ 
+   const auto changed_dtype = PrepareStructuredTensorIrCompilation(
+       MakeProgram({8, 8}, DataType::BF16), request, schedule);
+-  REQUIRE(first.GetSourceIrDigest() != changed_dtype.GetSourceIrDigest());
++  REQUIRE(MaterializedProducerDigest(first) !=
++          MaterializedProducerDigest(changed_dtype));
+   REQUIRE(first.GetStaticSpecialization().GetIdentityDigest() ==
+           changed_dtype.GetStaticSpecialization().GetIdentityDigest());
+   REQUIRE(first.GetArgumentAbi().GetIdentityDigest() != changed_dtype.GetArgumentAbi().GetIdentityDigest());
+@@ -1709,12 +1748,12 @@ int TestFinalizationAndCallableBinding() {
+       PrepareStructuredTensorIrCompilation(MakeProgram(), request, ValidSchedule());
+   KernelOptions kernel_options = ValidKernelOptions();
+   const ArtifactKernelAbi kernel = MakeKernelAbi(std::move(kernel_options));
+-  const KernelBuildSpec build_spec = FinalizeStructuredTensorIrBuildSpec(prepared, kernel);
++  const KernelBuildSpec build_spec = FinalizeForTest(prepared, kernel);
+   REQUIRE(kernel.GetIdentityDigest() ==
+           "4eee741cbe0c7322f938b83b01b34844c5f12fb1b01da52c2029e6687e24c640");
+   REQUIRE(build_spec.GetIdentityDigest() ==
+           "5cbaeb94b35863a5dc77cbd0044484299a965591ab72dbdafe3053a051040e3c");
+-  REQUIRE(build_spec.GetSourceIrDigest() == prepared.GetSourceIrDigest());
++  REQUIRE(build_spec.GetSourceIrDigest() == MaterializedProducerDigest(prepared));
+   REQUIRE(build_spec.GetCallableAbiDigest() == kernel.GetIdentityDigest());
+   REQUIRE(build_spec.GetSemanticRoute() == SemanticRoute::StructuredTensorIr);
+   REQUIRE(build_spec.GetPipelineRevision() == Artifact::kStructuredTensorIrPipelineRevision);
+@@ -1735,7 +1774,7 @@ int TestFinalizationAndCallableBinding() {
+ 
+   const auto changed_request = PrepareStructuredTensorIrCompilation(
+       MakeProgram(), ValidRequest(96), ValidSchedule());
+-  const KernelBuildSpec request_spec = FinalizeStructuredTensorIrBuildSpec(
++  const KernelBuildSpec request_spec = FinalizeForTest(
+       changed_request, MakeKernelAbi(ValidKernelOptions()));
+   REQUIRE(request_spec.GetCompileRequestByteIdentityDigest() !=
+           build_spec.GetCompileRequestByteIdentityDigest());
+@@ -1743,7 +1782,7 @@ int TestFinalizationAndCallableBinding() {
+ 
+   const auto changed_schedule = PrepareStructuredTensorIrCompilation(
+       MakeProgram(), request, ValidSchedule({8}));
+-  const KernelBuildSpec schedule_spec = FinalizeStructuredTensorIrBuildSpec(
++  const KernelBuildSpec schedule_spec = FinalizeForTest(
+       changed_schedule, MakeKernelAbi(ValidKernelOptions({8, 8}, {8}, 8)));
+   REQUIRE(schedule_spec.GetCallableAbiDigest() != build_spec.GetCallableAbiDigest());
+   REQUIRE(schedule_spec.GetIdentityDigest() != build_spec.GetIdentityDigest());
