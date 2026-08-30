@@ -1,0 +1,74 @@
+{
+  "schema": 1,
+  "kind": "qwen35-9b-optimized-lane-diagnostic",
+  "status": "open",
+  "accepted_for_performance": false,
+  "source_lock_sha256": "c3f5b6f0693eb593943d894c79a652b1ee5a90990c8eea003a49115bb5bbc1bc",
+  "workload_evidence": "state/evidence/qwen35-9b-performance-pair-current.json",
+  "formal_configuration": {
+    "lane": "sglang-optimized",
+    "optimized_memory_mode": "matched",
+    "cpu_offload_gb": 2,
+    "mem_fraction_static": 0.69,
+    "cuda_graph_bs_decode": [1],
+    "cuda_graph_bs_prefill": [32],
+    "cuda_graph_backend_prefill": "disabled",
+    "model": "models/Qwen3.5-9B",
+    "prompt_tokens": 31,
+    "output_tokens": 64
+  },
+  "attempts": [
+    {
+      "run_id": "pypto-gpu-bounded-20260830T155838Z-2426520-260df5",
+      "configuration": {
+        "cpu_offload_gb": 4,
+        "mem_fraction_static": 0.78,
+        "inductor_compile_threads": 1
+      },
+      "status": "aborted",
+      "abort_reason": "nvidia-telemetry-unavailable",
+      "performance_report": null
+    },
+    {
+      "run_id": "pypto-gpu-bounded-20260830T160256Z-2428456-b945e5",
+      "configuration": {
+        "cpu_offload_gb": 4,
+        "mem_fraction_static": 0.78,
+        "inductor_compile_threads": 1
+      },
+      "status": "aborted",
+      "abort_reason": "nvidia-coexistence-audit",
+      "nvidia_query_failure": "nvidia-smi query timed out",
+      "performance_report": null
+    },
+    {
+      "run_id": "pypto-gpu-bounded-20260830T161746Z-2433114-b55eb2",
+      "configuration": {
+        "cpu_offload_gb": 2,
+        "mem_fraction_static": 0.69,
+        "formal_lane": true
+      },
+      "status": "aborted",
+      "abort_reason": "nvidia-telemetry-unavailable",
+      "controller_observation": {
+        "initial_mem_available_kib": 58002552,
+        "minimum_mem_available_kib": 47631652,
+        "maximum_owned_sid_rss_kib": 20627412,
+        "latest_gpu_used_mib": 19266,
+        "latest_gpu_free_mib": 5197,
+        "owned_compute_pids": [2433292],
+        "external_compute_pids": [],
+        "nvidia_query_timeout_seconds": 10,
+        "nvidia_query_timeout_count": 3
+      },
+      "performance_report": null,
+      "raw_process_evidence": "runs/pypto-gpu-bounded-20260830T161746Z-2433114-b55eb2/process.json"
+    }
+  ],
+  "resume_contract": [
+    "Require zero external NVIDIA compute PIDs and host/GPU floors before launch.",
+    "Retain the formal matched configuration and exact chat-template workload.",
+    "Do not publish a throughput, graph-replay, overlap, or compile-time number until a complete report exists.",
+    "If telemetry timeout recurs, preserve the raw run and keep this lane open rather than weakening the safety controller silently."
+  ]
+}

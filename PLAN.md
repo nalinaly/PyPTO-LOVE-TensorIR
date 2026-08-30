@@ -1,8 +1,8 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `57`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `60`
 
-## Current phase: typed NVIDIA path refactor, Qwen semantic oracle, ordered model gates, and publication closure
+## Current phase: resource-gated Qwen inference qualification and publication closure
 
 ## User-brief audit and release-plan closure (2026-08-30, revision 57)
 
@@ -1617,3 +1617,28 @@ fresh, hash-bound artifact or is explicitly accepted by the user as an open
 limitation. Until then, `PLAN.md`, the final requirement matrix, raw failed
 runs and pending sidecars are the durable handoff; no wording change may turn
 an open gate into a performance or correctness claim.
+
+---
+# Resource-gated inference checkpoint: 2026-08-30 (revision 60)
+
+The formal single-start optimized lane was retried after a clean admission
+window became available. `sglang-optimized` with the frozen `matched` memory
+configuration (`cpu_offload_gb=2`, `mem_fraction_static=0.69`) passed baseline
+identity checks, loaded all four Qwen3.5-9B shards, and entered the configured
+CUDA-Graph capture. During capture the controller observed only its own CUDA
+PID and a 5,197 MiB GPU-free margin, but three `nvidia-smi --query-gpu` calls
+timed out at the 10-second boundary. The bounded policy therefore terminated
+run `pypto-gpu-bounded-20260830T161746Z-2433114-b55eb2` with
+`nvidia-telemetry-unavailable`; no timing report was written and no optimized
+number is accepted. Cleanup was complete and the post-audit found no compute
+PID. The compact, sanitized record is
+`state/evidence/optimized-lane-diagnostic-current.json`.
+
+This is a tooling/resource qualification result, not evidence that CUDA Graph
+or overlap is slow or fast. The safety controller remains fail-closed; do not
+increase its timeout or bypass its audit merely to obtain a percentage. On the
+next genuinely stable window, rerun one formal start first, then the required
+four-start matrix only if the report contains complete warm/cold metrics,
+runtime-observed graph state, source identity and resource telemetry. A valid
+matrix must be compared against the already accepted four-start matched pair
+and trigger regeneration of all dependent summaries and figures.
