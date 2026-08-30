@@ -32,7 +32,6 @@ from .workload import (
     COMPILE_WARMUPS,
     MEASURED_REQUESTS,
     OUTPUT_TOKENS,
-    PROMPT_TOKENS,
     PROMPT_TOKEN_IDS,
     SAMPLE_INTERVAL_MS,
     SCHEMA_VERSION,
@@ -45,6 +44,7 @@ from .workload import (
     fresh_start_summary,
     model_revision,
     sha256_file,
+    verify_chat_workload,
     workload_record,
 )
 
@@ -338,10 +338,14 @@ def _completion_count(chunk: dict[str, object], previous: int) -> int:
     return previous
 
 
-def _stream_request(engine: object, request_index: int) -> dict[str, object]:
+def _stream_request(
+    engine: object,
+    request_index: int,
+    prompt_token_ids: list[int] | tuple[int, ...] = PROMPT_TOKEN_IDS,
+) -> dict[str, object]:
     start = time.perf_counter_ns()
     iterator = engine.generate(
-        input_ids=list(PROMPT_TOKEN_IDS),
+        input_ids=list(prompt_token_ids),
         sampling_params={
             "temperature": 0.0,
             "top_p": 1.0,
@@ -395,10 +399,10 @@ def _stream_request(engine: object, request_index: int) -> dict[str, object]:
         "decode_tokens_per_second": (
             (OUTPUT_TOKENS - 1) * 1e9 / max(1, token_arrivals[-1] - token_arrivals[0])
         ),
-        "input_tokens_per_second": PROMPT_TOKENS
+        "input_tokens_per_second": len(prompt_token_ids)
         * 1e9
         / max(1, token_arrivals[0] - start),
-        "total_tokens_per_second": (PROMPT_TOKENS + OUTPUT_TOKENS)
+        "total_tokens_per_second": (len(prompt_token_ids) + OUTPUT_TOKENS)
         * 1e9
         / (end - start),
         "requests_per_second": 1e9 / (end - start),
@@ -663,6 +667,8 @@ def run(
 ) -> int:
     prepare_worker_environment(lane)
     model_path = model_path.resolve(strict=True)
+    workload, workload_resolution = verify_chat_workload(model_path)
+    prompt_token_ids = workload["prompt_token_ids"]
     report_path = run_dir / f"qwen35-9b-performance-{lane}.json"
     resources_path = run_dir / f"qwen35-9b-resources-{lane}.json"
     memory = memory_qualification(lane, optimized_memory_mode)
@@ -672,7 +678,8 @@ def run(
         "kind": "qwen35-9b-performance-only",
         "lane": lane,
         "run_id": run_id,
-        "workload": workload_record(),
+        "workload": workload,
+        "workload_resolution": workload_resolution,
         "measurement": {
             "entrypoint": "sglang.Engine offline streaming API",
             "first_compile_trigger_requests": COMPILE_WARMUPS,
@@ -717,7 +724,7 @@ def run(
         report["cold_engine_start_ms"] = (engine_ready - startup_start) / 1e6
 
         compile_start = time.perf_counter_ns()
-        _stream_request(engine, -3)
+        _stream_request(engine, -3, prompt_token_ids)
         report["first_compile_trigger_request_ms"] = (
             time.perf_counter_ns() - compile_start
         ) / 1e6
@@ -725,12 +732,13 @@ def run(
         warmup_ms = []
         for index in range(UNTIMED_WARMUPS):
             started = time.perf_counter_ns()
-            _stream_request(engine, -2 + index)
+            _stream_request(engine, -2 + index, prompt_token_ids)
             warmup_ms.append((time.perf_counter_ns() - started) / 1e6)
         report["untimed_warmup_ms"] = warmup_ms
 
         requests = [
-            _stream_request(engine, index) for index in range(MEASURED_REQUESTS)
+            _stream_request(engine, index, prompt_token_ids)
+            for index in range(MEASURED_REQUESTS)
         ]
         report["raw_requests"] = requests
         report["metrics"] = {
@@ -776,7 +784,7 @@ def run(
         report["compilation"] = compilation
         report["compilation"]["timing_boundary"] = (
             "first_compile_trigger_request_ms includes compilation plus one full "
-            "19+64 request and is not compiler-only time"
+            "chat-template-input+64 request and is not compiler-only time"
         )
         report["torch_allocator"] = internal_zero.get("release_torch_allocator")
         graph = _graph_observation(server_info)

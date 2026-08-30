@@ -501,10 +501,10 @@ def test_operator_shapes_are_bound_to_the_real_9b_config(
     assert model["intermediate_size"] == 12288
     assert model["vocab_size"] == 248320
     assert model["tensor_parallel_size"] == 1
-    assert model["frozen_prompt_tokens"] == 19
+    assert model["frozen_prompt_tokens"] == 29
     cases = operator_performance_runtime.case_specs(model)
     assert len(cases) == 7
-    assert {case["rows"] for case in cases} == {1, 19}
+    assert {case["rows"] for case in cases} == {1, 29}
     assert [
         case["weight_shape"] for case in cases if case["operator"] == "gate_up_linear"
     ] == [[24576, 4096], [24576, 4096]]

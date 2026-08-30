@@ -3,6 +3,9 @@
   "$id": "pypto-release-qwen35-9b-workload-v1",
   "additionalProperties": false,
   "properties": {
+    "chat_template_kwargs": {
+      "const": {"add_generation_prompt": true, "enable_thinking": true}
+    },
     "concurrency": {"const": 1},
     "greedy": {"const": true},
     "ignore_eos": {"const": true},
@@ -11,9 +14,23 @@
     "output_tokens": {"const": 64},
     "prompt": {"const": "为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？"},
     "prompt_token_ids": {
+      "const": [248045, 846, 198, 144277, 103426, 108169, 95967, 236, 124094, 26076, 96212, 103182, 108076, 96799, 24273, 95761, 104224, 109276, 95726, 111104, 115110, 10992, 248046, 198, 248045, 74455, 198, 248068, 198]
+    },
+    "prompt_tokens": {"const": 29},
+    "raw_prompt_token_ids": {
       "const": [144277, 103426, 108169, 95967, 236, 124094, 26076, 96212, 103182, 108076, 96799, 24273, 95761, 104224, 109276, 95726, 111104, 115110, 10992]
     },
-    "prompt_tokens": {"const": 19}
+    "raw_prompt_tokens": {"const": 19},
+    "rendered_input": {"const": "<|im_start|>user\n为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？<|im_end|>\n<|im_start|>assistant\n<think>\n"},
+    "tokenizer_files": {
+      "const": {
+        "chat_template.jinja": "a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715",
+        "tokenizer_config.json": "316230d6a809701f4db5ea8f8fc862bc3a6f3229c937c174e674ff3ca0a64ac8",
+        "tokenizer.json": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+        "config.json": "d0883072e01861ed0b2d47be3c16c36a8e81c224c7ffaa310c6558fb3f932b05"
+      }
+    },
+    "workload_kind": {"const": "qwen35-chat-template-thinking"}
   },
   "required": [
     "concurrency",
@@ -24,7 +41,13 @@
     "output_tokens",
     "prompt",
     "prompt_token_ids",
-    "prompt_tokens"
+    "prompt_tokens",
+    "raw_prompt_token_ids",
+    "raw_prompt_tokens",
+    "rendered_input",
+    "chat_template_kwargs",
+    "tokenizer_files",
+    "workload_kind"
   ],
   "type": "object"
 }

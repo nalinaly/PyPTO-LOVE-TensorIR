@@ -1224,8 +1224,15 @@ def _summary_markdown(
 def _conclusion_markdown(performance: dict[str, object]) -> str:
     matched = performance["pypto_percent_of_stock"]["sglang-matched"]
     optimized = performance["pypto_percent_of_stock"]["sglang-optimized"]
+    workload = performance.get("workload", {})
+    input_tokens = (
+        workload.get("prompt_tokens", "chat-template")
+        if isinstance(workload, dict)
+        else "chat-template"
+    )
     return (
-        "在固定的 19+64、greedy、并发 1 workload 下，Qwen3.5-9B 已通过三次 fresh "
+        f"在固定的 chat-template({input_tokens})+64、greedy、并发 1 workload 下，"
+        "Qwen3.5-9B 已通过三次 fresh "
         "start 的多 token 正确性与 100% model-forward PyPTO compute coverage 门。"
         f"PyPTO 的 median output throughput 分别达到 matched 和 optimized stock "
         f"SGLang 的 {matched:.2f}% 与 {optimized:.2f}%；阶段差距和未解释残差见上表。\n"

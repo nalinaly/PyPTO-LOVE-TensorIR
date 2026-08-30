@@ -19,7 +19,7 @@ SCHEMA_VERSION = 1
 MODEL_SIZE = "9B"
 MODEL_ID = "Qwen/Qwen3.5-9B"
 PROMPT = "为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？"
-PROMPT_TOKEN_IDS = (
+RAW_PROMPT_TOKEN_IDS = (
     144277,
     103426,
     108169,
@@ -40,7 +40,17 @@ PROMPT_TOKEN_IDS = (
     115110,
     10992,
 )
-PROMPT_TOKENS = 19
+RAW_PROMPT_TOKENS = len(RAW_PROMPT_TOKEN_IDS)
+CHAT_WORKLOAD_PATH = Path(__file__).with_name("chat_workload.json")
+CHAT_WORKLOAD = json.loads(CHAT_WORKLOAD_PATH.read_text(encoding="utf-8"))
+if CHAT_WORKLOAD.get("schema") != 1:
+    raise RuntimeError("unknown chat workload schema")
+if CHAT_WORKLOAD.get("human_prompt") != PROMPT:
+    raise RuntimeError("chat workload prompt differs from the release prompt")
+CHAT_TEMPLATE_KWARGS = dict(CHAT_WORKLOAD["template_kwargs"])
+_DEFAULT_CHAT_RECORD = CHAT_WORKLOAD["models"]["Qwen3.5-9B"]
+PROMPT_TOKEN_IDS = tuple(_DEFAULT_CHAT_RECORD["input_token_ids"])
+PROMPT_TOKENS = len(PROMPT_TOKEN_IDS)
 OUTPUT_TOKENS = 64
 CONCURRENCY = 1
 CPU_JOBS = 24
@@ -178,17 +188,99 @@ def resolve_qwen35_model_spec(root: Path, model_path: Path) -> Qwen35ModelSpec:
 def workload_record(
     model_spec: Qwen35ModelSpec = DEFAULT_MODEL_SPEC,
 ) -> dict[str, object]:
+    try:
+        chat = CHAT_WORKLOAD["models"][model_spec.manifest_name]
+    except KeyError as error:
+        raise ReleaseContractError(
+            f"chat workload has no record for {model_spec.manifest_name}"
+        ) from error
+    if chat.get("model_id") != model_spec.model_id:
+        raise ReleaseContractError(
+            f"chat workload model ID differs for {model_spec.manifest_name}"
+        )
     return {
+        "workload_kind": "qwen35-chat-template-thinking",
         "model_id": model_spec.model_id,
         "model_size": model_spec.model_size,
         "prompt": PROMPT,
-        "prompt_token_ids": list(PROMPT_TOKEN_IDS),
-        "prompt_tokens": PROMPT_TOKENS,
+        "prompt_token_ids": list(chat["input_token_ids"]),
+        "prompt_tokens": len(chat["input_token_ids"]),
+        "raw_prompt_token_ids": list(RAW_PROMPT_TOKEN_IDS),
+        "raw_prompt_tokens": RAW_PROMPT_TOKENS,
+        "chat_template_kwargs": dict(CHAT_TEMPLATE_KWARGS),
+        "rendered_input": chat["rendered_input"],
+        "tokenizer_files": dict(chat["tokenizer_files"]),
         "output_tokens": OUTPUT_TOKENS,
         "concurrency": CONCURRENCY,
         "greedy": True,
         "ignore_eos": True,
     }
+
+
+def verify_chat_workload(
+    model_path: Path,
+    model_spec: Qwen35ModelSpec | None = None,
+) -> tuple[dict[str, object], dict[str, object]]:
+    """Re-render and hash-check the pinned chat-template workload at runtime."""
+
+    model_path = model_path.resolve(strict=True)
+    if model_spec is None:
+        model_spec = resolve_qwen35_model_spec(
+            Path(__file__).resolve().parents[2], model_path
+        )
+    expected = workload_record(model_spec)
+    try:
+        from transformers import AutoTokenizer
+    except ImportError as error:
+        raise ReleaseContractError(
+            "chat workload verification requires the pinned Transformers tokenizer"
+        ) from error
+    tokenizer = AutoTokenizer.from_pretrained(
+        str(model_path), local_files_only=True
+    )
+    encoded = tokenizer.apply_chat_template(
+        [{"role": "user", "content": PROMPT}],
+        tokenize=True,
+        return_tensors=None,
+        **dict(expected["chat_template_kwargs"]),
+    )
+    ids = encoded["input_ids"] if hasattr(encoded, "__getitem__") else encoded
+    if hasattr(ids, "tolist"):
+        ids = ids.tolist()
+    if isinstance(ids, list) and ids and isinstance(ids[0], list):
+        ids = ids[0]
+    if not isinstance(ids, list) or any(type(value) is not int for value in ids):
+        raise ReleaseContractError("chat template returned an invalid input ID sequence")
+    rendered = tokenizer.decode(ids, skip_special_tokens=False)
+    if ids != expected["prompt_token_ids"]:
+        raise ReleaseContractError(
+            f"chat template token IDs differ for {model_spec.manifest_name}"
+        )
+    if rendered != expected["rendered_input"]:
+        raise ReleaseContractError(
+            f"chat template rendering differs for {model_spec.manifest_name}"
+        )
+    observed_files = {}
+    for name, expected_hash in dict(expected["tokenizer_files"]).items():
+        path = (model_path / name).resolve(strict=True)
+        if path.parent != model_path:
+            raise ReleaseContractError(f"chat tokenizer file escaped model directory: {name}")
+        observed_hash = sha256_file(path)
+        observed_files[name] = observed_hash
+        if observed_hash != expected_hash:
+            raise ReleaseContractError(
+                f"chat tokenizer file hash differs for {model_spec.manifest_name}: {name}"
+            )
+    resolution = {
+        "verified": True,
+        "model": model_spec.manifest_name,
+        "model_path": str(model_path),
+        "input_token_count": len(ids),
+        "input_ids_sha256": canonical_json_sha256(ids),
+        "rendered_input_sha256": hashlib.sha256(rendered.encode("utf-8")).hexdigest(),
+        "tokenizer_files": observed_files,
+    }
+    return expected, resolution
 
 
 def validate_workload(

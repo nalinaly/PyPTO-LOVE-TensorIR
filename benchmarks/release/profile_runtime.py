@@ -278,14 +278,28 @@ def run(
         if torch.cuda.is_initialized():
             raise ReleaseContractError("CUPTI must start before CUDA initialization")
         monitor = monitor_api.start_collection(run_dir / "cupti-monitor")
-        torch, one_batch, runner, requested, resolved, compatibility = _load_runner(
+        (
+            torch,
+            one_batch,
+            runner,
+            requested,
+            resolved,
+            compatibility,
+            workload,
+            workload_resolution,
+        ) = _load_runner(
             lane, model_path, optimized_memory_mode
         )
         report["requested_server_config"] = requested
         report["resolved_backends"] = resolved
         report["shared_runtime_compatibility"] = compatibility
+        report["workload"] = workload
+        report["workload_resolution"] = workload_resolution
+        prompt_token_ids = workload["prompt_token_ids"]
         report["execution_features"] = execution_feature_record(requested, resolved)
-        warm_ids, _warm_logits, _warm_windows = _generate(torch, one_batch, runner)
+        warm_ids, _warm_logits, _warm_windows = _generate(
+            torch, one_batch, runner, prompt_token_ids=prompt_token_ids
+        )
         if len(warm_ids) != OUTPUT_TOKENS:
             raise ReleaseContractError("profile warmup did not complete")
         rules = _load_rules(root)
@@ -296,7 +310,11 @@ def run(
             accepted = None
             for attempt in range(1, MAX_TRACE_ATTEMPTS + 1):
                 output_ids, _profile_logits, windows = _generate(
-                    torch, one_batch, runner, monitor
+                    torch,
+                    one_batch,
+                    runner,
+                    monitor,
+                    prompt_token_ids=prompt_token_ids,
                 )
                 torch.cuda.synchronize()
                 if (

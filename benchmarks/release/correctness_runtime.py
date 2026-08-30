@@ -9,6 +9,7 @@ import multiprocessing
 from pathlib import Path
 import time
 import traceback
+from typing import Sequence
 
 from .cupti_overlay import activate_overlay
 from .evidence_identity import collect_run_identity
@@ -33,6 +34,7 @@ from .workload import (
     read_json,
     resolve_qwen35_model_spec,
     sha256_file,
+    verify_chat_workload,
     validate_workload,
     workload_record,
 )
@@ -95,6 +97,7 @@ def _load_runner(
     optimized_memory_mode: str = "zero-offload",
 ):
     prepare_worker_environment(lane)
+    workload, workload_resolution = verify_chat_workload(model_path)
     import torch
     from sglang.benchmark import one_batch
     from sglang.srt.entrypoints.engine import _set_envs_and_config
@@ -117,10 +120,25 @@ def _load_runner(
     ports = PortArgs.init_new(args)
     one_batch.get_tokenizer = lambda *_args, **_kwargs: None
     runner, _tokenizer = one_batch.load_model(args, ports, gpu_id=0, tp_rank=0)
-    return torch, one_batch, runner, requested, resolved, compatibility
+    return (
+        torch,
+        one_batch,
+        runner,
+        requested,
+        resolved,
+        compatibility,
+        workload,
+        workload_resolution,
+    )
 
 
-def _generate(torch, one_batch, runner, monitor=None):
+def _generate(
+    torch,
+    one_batch,
+    runner,
+    monitor=None,
+    prompt_token_ids: Sequence[int] = PROMPT_TOKEN_IDS,
+):
     windows: list[dict[str, object]] = []
     torch_runner = runner.torch_runner
     original_forward = torch_runner.forward
@@ -152,7 +170,7 @@ def _generate(torch, one_batch, runner, monitor=None):
     output_ids: list[int] = []
     try:
         reqs = one_batch.prepare_synthetic_inputs_for_latency_test(
-            1, len(PROMPT_TOKEN_IDS), [list(PROMPT_TOKEN_IDS)]
+            1, len(prompt_token_ids), [list(prompt_token_ids)]
         )
         next_ids, logits, batch = runner.extend(reqs)
         runner.synchronize()
@@ -289,9 +307,13 @@ def _compile_cache_evidence(
 def _run_engine_sequences(
     model_path: Path,
     expected_output_ids: list[int],
+    prompt_token_ids: Sequence[int],
     run_dir: Path,
 ) -> tuple[list[dict[str, object]], dict[str, object], dict[str, object]]:
     prepare_worker_environment("pypto")
+    resolved_workload, _workload_resolution = verify_chat_workload(model_path)
+    if list(resolved_workload["prompt_token_ids"]) != list(prompt_token_ids):
+        raise ReleaseContractError("Engine child chat workload differs from parent")
     import sglang as sgl
 
     requested = server_kwargs("pypto", model_path)
@@ -318,7 +340,7 @@ def _run_engine_sequences(
 
         def generate(request_index: int) -> list[int]:
             response = engine.generate(
-                input_ids=list(PROMPT_TOKEN_IDS),
+                input_ids=list(prompt_token_ids),
                 sampling_params={
                     "temperature": 0.0,
                     "top_p": 1.0,
@@ -368,6 +390,7 @@ def _run_engine_sequences(
 def _engine_sequence_process(
     model_path: str,
     expected_output_ids: list[int],
+    prompt_token_ids: list[int],
     run_dir: str,
     sender,
 ) -> None:
@@ -376,7 +399,7 @@ def _engine_sequence_process(
             {
                 "ok": True,
                 "value": _run_engine_sequences(
-                    Path(model_path), expected_output_ids, Path(run_dir)
+                    Path(model_path), expected_output_ids, prompt_token_ids, Path(run_dir)
                 ),
             }
         )
@@ -396,13 +419,20 @@ def _engine_sequence_process(
 def _run_engine_sequences_isolated(
     model_path: Path,
     expected_output_ids: list[int],
+    prompt_token_ids: Sequence[int],
     run_dir: Path,
 ) -> tuple[list[dict[str, object]], dict[str, object], dict[str, object]]:
     context = multiprocessing.get_context("spawn")
     receiver, sender = context.Pipe(duplex=False)
     process = context.Process(
         target=_engine_sequence_process,
-        args=(str(model_path), expected_output_ids, str(run_dir), sender),
+        args=(
+            str(model_path),
+            expected_output_ids,
+            list(prompt_token_ids),
+            str(run_dir),
+            sender,
+        ),
         daemon=False,
     )
     process.start()
@@ -457,16 +487,32 @@ def run_reference(model_path: Path, run_id: str, run_dir: Path) -> int:
     }
     runner = None
     try:
-        torch, one_batch, runner, requested, resolved, compatibility = _load_runner(
+        (
+            torch,
+            one_batch,
+            runner,
+            requested,
+            resolved,
+            compatibility,
+            resolved_workload,
+            workload_resolution,
+        ) = _load_runner(
             lane, model_path
         )
         report["requested_server_config"] = requested
         report["resolved_backends"] = resolved
         report["shared_runtime_compatibility"] = compatibility
-        warm_ids, _warm_logits, _windows = _generate(torch, one_batch, runner)
+        report["workload"] = resolved_workload
+        report["workload_resolution"] = workload_resolution
+        prompt_token_ids = resolved_workload["prompt_token_ids"]
+        warm_ids, _warm_logits, _windows = _generate(
+            torch, one_batch, runner, prompt_token_ids=prompt_token_ids
+        )
         if len(warm_ids) != OUTPUT_TOKENS:
             raise ReleaseContractError("reference warmup did not complete")
-        output_ids, logits, _windows = _generate(torch, one_batch, runner)
+        output_ids, logits, _windows = _generate(
+            torch, one_batch, runner, prompt_token_ids=prompt_token_ids
+        )
         if list(logits.shape[:1]) != [OUTPUT_TOKENS]:
             raise ReleaseContractError("reference tensor does not contain 64 steps")
         torch.save(logits, tensor_path)
@@ -476,9 +522,9 @@ def run_reference(model_path: Path, run_id: str, run_dir: Path) -> int:
             str(model_path), local_files_only=True
         )
         encoded_prompt = tokenizer.encode(PROMPT, add_special_tokens=False)
-        if encoded_prompt != list(PROMPT_TOKEN_IDS):
+        if encoded_prompt != list(resolved_workload["raw_prompt_token_ids"]):
             raise ReleaseContractError(
-                "tokenizer revision does not encode the frozen 19-token prompt"
+                "tokenizer revision raw diagnostic encoding changed"
             )
         evidence_identity = collect_run_identity(ROOT, "baseline", model_path)
         report.update(
@@ -802,7 +848,12 @@ def run_candidate(
                 "reference output token sequence does not contain 64 steps"
             )
         engine_requests, engine_requested, engine_resolved = (
-            _run_engine_sequences_isolated(model_path, expected_output_ids, run_dir)
+            _run_engine_sequences_isolated(
+                model_path,
+                expected_output_ids,
+                workload["prompt_token_ids"],
+                run_dir,
+            )
         )
         engine_progress_path = run_dir / "qwen35-engine-progress.json"
         report["engine"] = {
@@ -833,12 +884,25 @@ def run_candidate(
         if torch.cuda.is_initialized():
             raise ReleaseContractError("CUPTI must start before CUDA initialization")
         monitor = monitor_api.start_collection(run_dir / "cupti-monitor")
-        torch, one_batch, runner, requested, resolved, compatibility = _load_runner(
+        (
+            torch,
+            one_batch,
+            runner,
+            requested,
+            resolved,
+            compatibility,
+            resolved_workload,
+            workload_resolution,
+        ) = _load_runner(
             lane, model_path
         )
         report["requested_server_config"] = requested
         report["resolved_backends"] = resolved
         report["shared_runtime_compatibility"] = compatibility
+        if resolved_workload != workload:
+            raise ReleaseContractError("candidate workload resolution differs from report")
+        report["workload_resolution"] = workload_resolution
+        prompt_token_ids = workload["prompt_token_ids"]
         reference = (
             torch.load(reference_tensor_path, map_location="cpu", weights_only=True)
             .float()
@@ -849,7 +913,9 @@ def run_candidate(
         if _tensor_raw_sha256(reference) != logits_record.get("raw_sha256"):
             raise ReleaseContractError("reference tensor payload identity changed")
 
-        warm_ids, _warm_logits, _windows = _generate(torch, one_batch, runner)
+        warm_ids, _warm_logits, _windows = _generate(
+            torch, one_batch, runner, prompt_token_ids=prompt_token_ids
+        )
         if len(warm_ids) != OUTPUT_TOKENS:
             raise ReleaseContractError("candidate warmup did not complete")
         torch.cuda.synchronize()
@@ -858,7 +924,11 @@ def run_candidate(
             accepted = None
             for attempt in range(1, MAX_TRACE_ATTEMPTS + 1):
                 output_ids, candidate, windows = _generate(
-                    torch, one_batch, runner, monitor
+                    torch,
+                    one_batch,
+                    runner,
+                    monitor,
+                    prompt_token_ids=prompt_token_ids,
                 )
                 torch.cuda.synchronize()
                 if len(windows) == OUTPUT_TOKENS and all(
@@ -920,9 +990,11 @@ def run_candidate(
         tokenizer = AutoTokenizer.from_pretrained(
             str(model_path), local_files_only=True
         )
-        if tokenizer.encode(PROMPT, add_special_tokens=False) != list(PROMPT_TOKEN_IDS):
+        if tokenizer.encode(PROMPT, add_special_tokens=False) != list(
+            workload["raw_prompt_token_ids"]
+        ):
             raise ReleaseContractError(
-                "candidate tokenizer does not encode the frozen 19-token prompt"
+                "candidate tokenizer raw diagnostic encoding changed"
             )
         evidence_identity = collect_run_identity(ROOT, "pypto", model_path)
         compile_cache = _compile_cache_evidence()
