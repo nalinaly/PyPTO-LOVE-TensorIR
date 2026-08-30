@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `60`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `61`
 
 ## Current phase: resource-gated Qwen inference qualification and publication closure
 
@@ -1642,3 +1642,24 @@ four-start matrix only if the report contains complete warm/cold metrics,
 runtime-observed graph state, source identity and resource telemetry. A valid
 matrix must be compared against the already accepted four-start matched pair
 and trigger regeneration of all dependent summaries and figures.
+
+---
+# Measurement-controller checkpoint: 2026-08-31 (revision 61)
+
+The repeated optimized-lane aborts exposed a measurement-infrastructure issue:
+the WSL driver can block an `nvidia-smi --query-gpu` call while a CUDA Graph is
+being captured even though the bounded child is the only NVIDIA compute PID.
+The frozen `tools/preflight.py` contract was deliberately left byte-identical
+(`0b9884f8...053e3d1`). Instead, controller commit `296a89e` adds a narrow
+read-only ctypes NVML fallback in `tools/nvidia_nvml.py`, used only after the
+frozen CLI query raises an OS/command/runtime error. If both APIs fail, the
+original error is propagated and the controller remains fail-closed. Every
+controller audit now records whether each query came from `nvidia-smi` or
+`nvml-ctypes`.
+
+The fallback has unit coverage and a live `-E -B -S` identity/PID probe on the
+RTX 5090. It is a tooling fix, not performance evidence. Re-run the formal
+optimized lane only after protected workloads leave; accept the lane only if
+the resulting report contains complete warm/cold metrics, resource telemetry,
+source identity and runtime graph fields. Do not change the accepted matched
+pair or headline numbers based on the previous aborted runs.

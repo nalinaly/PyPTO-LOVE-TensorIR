@@ -3,6 +3,9 @@
   "kind": "qwen35-9b-optimized-lane-diagnostic",
   "status": "open",
   "accepted_for_performance": false,
+  "controller_revision": "296a89e",
+  "controller_change": "bounded controller adds read-only nvml-ctypes fallback after a nvidia-smi error; frozen preflight source is unchanged",
+  "frozen_preflight_sha256": "0b9884f8dbd34337a85f62c351b1e19dda3a8b84ec9a88c835d8701af053e3d1",
   "source_lock_sha256": "c3f5b6f0693eb593943d894c79a652b1ee5a90990c8eea003a49115bb5bbc1bc",
   "workload_evidence": "state/evidence/qwen35-9b-performance-pair-current.json",
   "formal_configuration": {
