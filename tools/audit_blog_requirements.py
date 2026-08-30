@@ -159,7 +159,7 @@ def check_performance(errors: list[str]) -> None:
     if pair is not None:
         acceptance = pair.get("acceptance")
         if (
-            pair.get("status") != "invalidated-resource-floor"
+            pair.get("status") != "invalidated-resource-and-control"
             or pair.get("performance_only") is not True
             or pair.get("comparison", {}).get("pypto_percent_of_matched") is None
             or not isinstance(acceptance, dict)
@@ -167,6 +167,12 @@ def check_performance(errors: list[str]) -> None:
             or acceptance.get("required_gpu_free_bytes") != 4 * 1024**3
             or acceptance.get("minimum_observed_gpu_free_bytes") != 4185067520
             or acceptance.get("starts_below_floor") != 3
+            or acceptance.get("control_comparability", {}).get("accepted")
+            is not False
+            or acceptance.get("control_comparability", {}).get("mismatches")
+            != [{"field": "cpu_offload_gb", "pypto": 0, "sglang_matched": 2}]
+            or acceptance.get("current_validator_script_sha256")
+            != sha256(ROOT / "tools/summarize_qwen_performance_pair.py")
         ):
             errors.append("current performance pair invalidation boundary drifted")
         pypto_lane = pair.get("lanes", {}).get("pypto", {})
@@ -206,7 +212,7 @@ def check_performance(errors: list[str]) -> None:
             eager_resource.get("accepted") is not True
             or eager_resource.get("gpu_free_floor_bytes") != 4 * 1024**3
             or matched_boundary.get("source_pair_status")
-            != "invalidated-resource-floor"
+            != "invalidated-resource-and-control"
             or matched_boundary.get("source_pair_accepted") is not False
             or matched_boundary.get("matched_subset_resource_accepted") is not True
             or eager.get("matched_compile_requested", {}).get("summary_sha256")
@@ -217,11 +223,14 @@ def check_performance(errors: list[str]) -> None:
         "benchmarks/release/performance_runtime.py",
         "benchmarks/release/operator_performance_runtime.py",
         "benchmarks/release/inductor_ablation.py",
+        "tools/run_performance_regression.py",
     ):
         text = read(ROOT / relative, errors)
         for forbidden in ("correctness_runtime", "torch.allclose", "torch.equal", "reference_logits"):
             if forbidden in text:
                 errors.append(f"performance source contains forbidden correctness hook: {relative}:{forbidden}")
+        if "19+64" in text:
+            errors.append(f"performance source uses the historical raw-token workload: {relative}")
 
 
 def check_sources(errors: list[str]) -> None:
@@ -294,8 +303,14 @@ def main() -> int:
         if name != "LEGAL_NOTICE.md":
             if ARTICLE_URL not in text or PROMPT not in text:
                 errors.append(f"{name} misses article URL or exact prompt")
-            if "invalidated-resource-floor" not in text:
+            if "invalidated-resource-and-control" not in text:
                 errors.append(f"{name} misses matched-pair invalidation boundary")
+            if "--optimized-memory-mode matched" not in text:
+                errors.append(f"{name} misses the corrected performance memory mode")
+            if "--pair-matrix" not in text:
+                errors.append(f"{name} misses the independent matched pair matrix")
+            if "--optimized-memory-mode zero-offload" in text:
+                errors.append(f"{name} retains the rejected performance memory mode")
         if BILIBILI_URL not in text:
             errors.append(f"{name} misses interview attribution URL")
         checked.append(name)
@@ -307,6 +322,12 @@ def main() -> int:
     html = read(blog_path.with_suffix(".html"), errors)
     if html and html.count("data:image/") < 3:
         errors.append("offline HTML does not embed current local images")
+    if html and (
+        "invalidated-resource-and-control" not in html
+        or "--optimized-memory-mode matched" not in html
+        or "--optimized-memory-mode zero-offload" in html
+    ):
+        errors.append("offline HTML retains the stale performance boundary")
     check_demo(errors)
     check_screenshots(errors)
     check_operator(errors)

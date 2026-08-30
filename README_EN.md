@@ -44,8 +44,8 @@ output tokens, BF16, TP1, concurrency 1.
 | Model-forward coverage | Accepted traces: 33,448 compute calls = 31,400 handwritten PyPTO + 2,048 Inductor PyPTO, with zero unknown/fallback calls (100%) |
 | 0.8B current wheel | Stock reference plus three candidate fresh starts completed; each trace covers 22,108/22,108 calls = 20,572 handwritten + 1,536 Inductor |
 | PyPTO output throughput | Diagnostic median of four fresh starts: 2.6671 tok/s; the resource recheck found 3/4 starts below the 4 GiB GPU-free floor, so this is not a release headline |
-| Matched SGLang | 15.4100 tok/s in the same diagnostic pair; its starts completed, but the pair is not accepted because the candidate violated the resource policy |
-| PyPTO / matched | Diagnostic ratio 17.31%, CI [17.22%, 17.45%]; a formal ratio requires a resource-compliant rerun |
+| Matched SGLang | 15.4100 tok/s in the same diagnostic pair; its starts completed, but candidate resource violations and different offload controls invalidate the pair |
+| PyPTO / matched | Diagnostic ratio 17.31%, CI [17.22%, 17.45%]; a formal ratio requires resource- and control-compliant reruns |
 | Optimized SGLang | Not reported; its CUDA-graph configuration fell below the 4 GiB free-memory floor on this GPU |
 
 Artifact-union versus model-forward compute intersection for accepted traces:
@@ -67,7 +67,10 @@ request; it is not compiler-only time. High-frequency NVML sampling observed a
 PyPTO minimum of 4,185,067,520 free bytes, 109,899,776 bytes below the
 4,294,967,296-byte floor; the first three starts crossed that floor. The values
 remain reproducible diagnostics, but the pair status is
-`invalidated-resource-floor` and the formal matched ratio must be rerun. The
+`invalidated-resource-and-control` and the formal matched ratio must be rerun. The
+old pair also used `cpu_offload_gb=0` for PyPTO and `2` for matched. The new
+performance-only configuration gives both lanes `cpu_offload_gb=2` and
+`mem_fraction_static=0.78`; correctness configurations remain unchanged. The
 matched lane keeps
 enable_torch_compile=true but disables CUDA graphs, so this pinned SGLang
 version does not invoke the global CompilerInterface; the report records
@@ -258,9 +261,18 @@ allclose, cosine, top-k, or tolerance checks:
 
 ~~~bash
 envs/pypto-release/bin/python tools/run_performance_regression.py \
-  --lane pypto --model-path models/Qwen3.5-9B
+  --pair-matrix --model-path models/Qwen3.5-9B \
+  --optimized-memory-mode matched
+# After the pair passes, run the full three-lane matrix with optimized stock.
+envs/pypto-release/bin/python tools/run_performance_regression.py \
+  --matrix --model-path models/Qwen3.5-9B \
+  --optimized-memory-mode matched
 envs/pypto-release/bin/python tools/run_qwen35_eager_control.py \
   --model-path models/Qwen3.5-9B
+envs/pypto-release/bin/python tools/profile_qwen35.py matrix \
+  --model-path models/Qwen3.5-9B \
+  --optimized-memory-mode matched \
+  --performance-matrix runs/release-performance-matrix-<id>/summary.json
 envs/pypto-release/bin/python tools/run_operator_performance.py \
   --matrix --model-path models/Qwen3.5-9B
 envs/pypto-release/bin/python tools/run_inductor_ablation.py \

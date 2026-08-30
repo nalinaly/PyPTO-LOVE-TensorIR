@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `62`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `63`
 
 ## Current phase: resource-gated Qwen inference qualification and publication closure
 
@@ -1675,8 +1675,15 @@ PyPTO/matched pair exposed a validation omission in
 sampler recorded PyPTO minimum free memory of 4,185,329,664; 4,185,264,128;
 4,185,067,520; and 4,295,708,672 bytes. The first three are below the fixed
 4,294,967,296-byte floor. Therefore the pair is now
-`invalidated-resource-floor`; its 2.6671/15.4100 tok/s and 17.31% ratio remain
+`invalidated-resource-and-control`; its 2.6671/15.4100 tok/s and 17.31% ratio remain
 reproducible diagnostic values only, not a release headline.
+
+The old pair also failed the control comparison: PyPTO used
+`cpu_offload_gb=0`, while matched used `2`. A new performance-only memory
+envelope sets both timing lanes to `cpu_offload_gb=2` and
+`mem_fraction_static=0.78`; correctness/model-gate memory settings remain
+unchanged. The pair summarizer now invokes `matched_lane_comparability` and
+rejects any remaining control mismatch before computing a ratio.
 
 The summarizer now fails closed on every start for NVML availability, integer
 resource fields, nonempty sampling, 4 GiB GPU free, 12 GiB host free, thermal
@@ -1698,3 +1705,44 @@ summaries. Then qualify optimized stock and collect the three-lane CUPTI/NVTX
 matrix. Regenerate README/blog/HTML and GPT-Image-2 inputs only from that new
 accepted evidence. Until then, every 17.31% occurrence must say `diagnostic`,
 and the requirement matrix keeps both full-model comparisons `OPEN`.
+
+---
+# Matched-performance contract correction: 2026-08-31 (revision 63)
+
+Revision 62 found a second independent reason the old pair was not matched:
+PyPTO used `cpu_offload_gb=0`, while stock matched used `2`. The sidecar status
+is therefore `invalidated-resource-and-control`. Correctness and model coverage
+retain their accepted lane-specific memory settings; only the performance and
+profile products receive a new common 9B envelope:
+`cpu_offload_gb=2, mem_fraction_static=0.78` for both PyPTO and matched.
+Optimized stock retains its separately disclosed `2 / 0.69` capture envelope.
+
+The timing worker now validates its own 100 ms NVML summary before leaving
+`status=complete`: nonempty integer resource fields, 4 GiB GPU free, 12 GiB
+host free, no NVML error and no thermal throttling are mandatory. The pair
+summarizer repeats this validation, checks within-lane configuration stability,
+and invokes `matched_lane_comparability` before computing a ratio. The eager
+control consumes only the independently resource-valid matched subset and
+records that its source pair is not accepted.
+
+The CUPTI/NVTX worker now uses the same performance-only server configuration,
+collects the same high-frequency resource stream, and carries resource minima
+into reconciliation. All nine reports must share one GPU identity and pass the
+resource validator before any phase gap is reported. The formal commands in
+both READMEs and the blog use `--optimized-memory-mode matched`; historical
+`19+64` performance wording is rejected by the document audit.
+
+The next exclusive resource window runs, in order:
+
+1. one PyPTO and one matched qualification start using the new common envelope;
+2. only if both reports are complete, the independent interleaved 8-start
+   `--pair-matrix` (four PyPTO and four matched starts);
+3. only if the pair and `matched_lane_comparability` pass, the 12-start full
+   matrix including optimized stock, followed by the nine-start CUPTI/NVTX
+   matrix; and
+4. regenerate the pair/profile summaries, README/blog/HTML, image prompts and
+   final audit from those exact reports.
+
+Protected zcode/gem5/SGLang workloads currently keep heavy preflight red. Do
+not signal them and do not launch any formal GPU lane until that preflight
+returns zero naturally.

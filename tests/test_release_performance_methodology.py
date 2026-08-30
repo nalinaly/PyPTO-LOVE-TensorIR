@@ -136,15 +136,39 @@ def test_pair_summary_accepts_exact_resource_floors(tmp_path: Path) -> None:
     assert identity["uuid"] == "GPU-test"
 
 
-def test_eager_control_can_consume_only_valid_matched_subset_of_invalid_pair() -> None:
-    matched_start = {
-        "resources": {
-            "minimum_gpu_memory_free_bytes": 5 * 1024**3,
-            "thermal_throttle_observed": False,
+def test_pair_summary_requires_cross_lane_memory_comparability() -> None:
+    model = Path("Qwen3.5-9B")
+    pypto = [
+        {
+            "requested_server_config": lanes.performance_server_kwargs(
+                "pypto", model
+            ),
+            "resolved_backends": _resolved_record("pypto"),
         }
+    ]
+    matched = [
+        {
+            "requested_server_config": lanes.performance_server_kwargs(
+                "sglang-matched", model
+            ),
+            "resolved_backends": _resolved_record("sglang-matched"),
+        }
+    ]
+    result = performance_pair_tool.validate_pair_comparability(pypto, matched)
+    assert result["matched_claim_allowed"] is True
+    pypto[0]["requested_server_config"] = lanes.server_kwargs("pypto", model)
+    with pytest.raises(workload.ReleaseContractError, match="cpu_offload_gb"):
+        performance_pair_tool.validate_pair_comparability(pypto, matched)
+
+
+def test_eager_control_can_consume_only_valid_matched_subset_of_invalid_pair() -> None:
+    sampled = _performance_report("sglang-matched", 0, 1.0)["resources"]
+    matched_start = {
+        "resources": sampled["summary"],
+        "gpu_identity": sampled["gpu_identity"],
     }
     summary = {
-        "status": "invalidated-resource-floor",
+        "status": "invalidated-resource-and-control",
         "acceptance": {"accepted": False, "affected_lane": "pypto"},
         "lanes": {"sglang-matched": {"starts": [matched_start] * 4}},
     }
@@ -154,14 +178,14 @@ def test_eager_control_can_consume_only_valid_matched_subset_of_invalid_pair() -
 
 
 def test_eager_control_rejects_subfloor_matched_subset() -> None:
+    sampled = _performance_report("sglang-matched", 0, 1.0)["resources"]
+    sampled["summary"]["minimum_gpu_memory_free_bytes"] = 4 * 1024**3 - 1
     matched_start = {
-        "resources": {
-            "minimum_gpu_memory_free_bytes": 4 * 1024**3 - 1,
-            "thermal_throttle_observed": False,
-        }
+        "resources": sampled["summary"],
+        "gpu_identity": sampled["gpu_identity"],
     }
     summary = {
-        "status": "invalidated-resource-floor",
+        "status": "invalidated-resource-and-control",
         "acceptance": {"accepted": False, "affected_lane": "pypto"},
         "lanes": {"sglang-matched": {"starts": [matched_start] * 4}},
     }
@@ -335,9 +359,12 @@ def _profile_report(lane: str, start: int, request_ns: float) -> dict[str, objec
         "lane": lane,
         "run_id": f"profile-{lane}-{start}",
         "workload": workload.workload_record(),
-        "requested_server_config": lanes.server_kwargs(lane, Path("model")),
+        "requested_server_config": lanes.performance_server_kwargs(
+            lane, Path("model")
+        ),
         "resolved_backends": _resolved_record(lane),
         "compilation": {"requested": True, "effective": True},
+        "resources": _performance_report(lane, start, 1.0)["resources"],
         "profile_requests": 5,
         "requests": [
             {
@@ -383,6 +410,12 @@ def test_profile_reconciliation_uses_the_same_fresh_start_unit() -> None:
     compute = result["lane_summaries"]["pypto"]["compute_gpu_time_ns_per_request"]
     assert compute["sample_count"] == 3
     assert "p90_nearest_rank" in compute and "p99_nearest_rank" in compute
+    assert (
+        result["lane_summaries"]["pypto"]["resources"][
+            "minimum_gpu_memory_free_bytes"
+        ]
+        == 4 * 1024**3
+    )
     matched = result["comparisons"]["sglang-matched"]
     assert matched["model_compute_gap_ms"] == pytest.approx(0.5)
     assert "model_compute_gap_bootstrap_95ci_ms" in matched
@@ -404,6 +437,28 @@ def test_profile_reconciliation_records_unmatched_controls_before_failing() -> N
     assert result["matched_comparability"]["control_mismatches"][0]["field"] == (
         "sampling_backend"
     )
+
+
+def test_profile_reconciliation_rejects_resource_floor_and_gpu_drift() -> None:
+    profiles = {
+        lane: [_profile_report(lane, start, 1_000_000.0) for start in range(3)]
+        for lane in workload.LANES
+    }
+    profiles["pypto"][0]["resources"]["summary"][
+        "minimum_gpu_memory_free_bytes"
+    ] = 4 * 1024**3 - 1
+    with pytest.raises(workload.ReleaseContractError, match="GPU free-memory floor"):
+        profile_runtime.reconcile(profiles)
+
+    profiles = {
+        lane: [_profile_report(lane, start, 1_000_000.0) for start in range(3)]
+        for lane in workload.LANES
+    }
+    profiles["sglang-matched"][0]["resources"]["gpu_identity"]["uuid"] = (
+        "GPU-different"
+    )
+    with pytest.raises(workload.ReleaseContractError, match="different GPU"):
+        profile_runtime.reconcile(profiles)
 
 
 def _operator_identity(lane: str) -> dict[str, object]:

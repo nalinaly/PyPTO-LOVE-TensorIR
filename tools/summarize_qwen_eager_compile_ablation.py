@@ -14,30 +14,23 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from benchmarks.release.performance_runtime import (  # noqa: E402
+    GPU_FREE_FLOOR_BYTES,
+    HOST_FREE_FLOOR_KIB,
+    validate_resource_identity,
+)
 from benchmarks.release.workload import sha256_file, workload_record  # noqa: E402
 
 
 METRICS = ("e2e_ms", "ttft_ms", "tpot_ms", "output_tokens_per_second")
-GPU_FREE_FLOOR_BYTES = 4 * 1024**3
-HOST_FREE_FLOOR_KIB = 12 * 1024**2
-
-
 def validate_eager_resources(resources: object) -> dict[str, object]:
-    if not isinstance(resources, dict) or resources.get("nvml_error") is not None:
-        raise SystemExit("eager control lacks valid NVML telemetry")
-    summary = resources.get("summary")
-    if not isinstance(summary, dict):
-        raise SystemExit("eager control lacks a resource summary")
-    if (
-        type(summary.get("minimum_gpu_memory_free_bytes")) is not int
-        or int(summary["minimum_gpu_memory_free_bytes"]) < GPU_FREE_FLOOR_BYTES
-        or type(summary.get("minimum_mem_available_kib")) is not int
-        or int(summary["minimum_mem_available_kib"]) < HOST_FREE_FLOOR_KIB
-        or type(summary.get("sample_count")) is not int
-        or int(summary["sample_count"]) <= 0
-        or summary.get("thermal_throttle_observed") is not False
-    ):
-        raise SystemExit("eager control is not resource-qualified")
+    try:
+        validate_resource_identity(resources, "eager control")
+    except Exception as error:
+        raise SystemExit(f"eager control is not resource-qualified: {error}") from error
+    assert isinstance(resources, dict)
+    summary = resources["summary"]
+    assert isinstance(summary, dict)
     return {
         "accepted": True,
         "gpu_free_floor_bytes": GPU_FREE_FLOOR_BYTES,
@@ -57,7 +50,7 @@ def validate_matched_subset(summary: object) -> dict[str, object]:
     if status == "complete":
         source_boundary = "source pair is complete"
     elif (
-        status == "invalidated-resource-floor"
+        status == "invalidated-resource-and-control"
         and isinstance(invalidation, dict)
         and invalidation.get("accepted") is False
         and invalidation.get("affected_lane") == "pypto"
@@ -74,14 +67,20 @@ def validate_matched_subset(summary: object) -> dict[str, object]:
         raise SystemExit("matched subset does not contain four starts")
     for start in starts:
         resources = start.get("resources") if isinstance(start, dict) else None
-        if (
-            not isinstance(resources, dict)
-            or type(resources.get("minimum_gpu_memory_free_bytes")) is not int
-            or int(resources["minimum_gpu_memory_free_bytes"])
-            < GPU_FREE_FLOOR_BYTES
-            or resources.get("thermal_throttle_observed") is not False
-        ):
-            raise SystemExit("matched subset is not resource-qualified")
+        identity = start.get("gpu_identity") if isinstance(start, dict) else None
+        try:
+            validate_resource_identity(
+                {
+                    "nvml_error": None,
+                    "summary": resources,
+                    "gpu_identity": identity,
+                },
+                "matched subset",
+            )
+        except Exception as error:
+            raise SystemExit(
+                f"matched subset is not resource-qualified: {error}"
+            ) from error
     return {
         "source_pair_status": status,
         "source_pair_accepted": status == "complete",

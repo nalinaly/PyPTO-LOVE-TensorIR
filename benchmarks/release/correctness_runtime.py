@@ -103,6 +103,8 @@ def _load_runner(
     lane: str,
     model_path: Path,
     optimized_memory_mode: str = "zero-offload",
+    *,
+    requested_config: dict[str, object] | None = None,
 ):
     prepare_worker_environment(lane)
     workload, workload_resolution = verify_chat_workload(model_path)
@@ -117,7 +119,11 @@ def _load_runner(
 
     load_plugins()
     compatibility = install_sglang_release_compatibility()
-    requested = server_kwargs(lane, model_path, optimized_memory_mode)
+    requested = (
+        server_kwargs(lane, model_path, optimized_memory_mode)
+        if requested_config is None
+        else dict(requested_config)
+    )
     args = ServerArgs(**requested)
     _set_envs_and_config(args)
     initialize_moe_config(args)

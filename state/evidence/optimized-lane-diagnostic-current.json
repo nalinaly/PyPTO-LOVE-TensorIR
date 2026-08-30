@@ -7,7 +7,11 @@
   "controller_change": "bounded controller adds read-only nvml-ctypes fallback after a nvidia-smi error; frozen preflight source is unchanged",
   "frozen_preflight_sha256": "0b9884f8dbd34337a85f62c351b1e19dda3a8b84ec9a88c835d8701af053e3d1",
   "source_lock_sha256": "c3f5b6f0693eb593943d894c79a652b1ee5a90990c8eea003a49115bb5bbc1bc",
-  "workload_evidence": "state/evidence/qwen35-9b-performance-pair-current.json",
+  "workload_evidence": "benchmarks/release/workload.json",
+  "prior_pair_evidence": {
+    "path": "state/evidence/qwen35-9b-performance-pair-current.json",
+    "status": "invalidated-resource-and-control"
+  },
   "formal_configuration": {
     "lane": "sglang-optimized",
     "optimized_memory_mode": "matched",

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run one fixed 19+64, concurrency-one release timing lane."""
+"""Run the fixed 31+64 non-thinking chat-template release timing lane."""
 
 from __future__ import annotations
 
@@ -26,12 +26,17 @@ from benchmarks.release.performance_runtime import (  # noqa: E402
 )
 from benchmarks.release.workload import (  # noqa: E402
     LANES,
+    PAIR_PERFORMANCE_SCHEDULE,
     PERFORMANCE_SCHEDULE,
     SCHEMA_VERSION,
     ReleaseContractError,
     atomic_json,
     read_json,
     require_run_directory,
+)
+from tools.summarize_qwen_performance_pair import (  # noqa: E402
+    load as load_pair_report,
+    summarize_records as summarize_pair_records,
 )
 
 
@@ -42,6 +47,7 @@ def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser()
     selection = value.add_mutually_exclusive_group(required=True)
     selection.add_argument("--lane", choices=LANES)
+    selection.add_argument("--pair-matrix", action="store_true")
     selection.add_argument("--matrix", action="store_true")
     value.add_argument("--model-path", type=Path, required=True)
     value.add_argument(
@@ -105,9 +111,10 @@ def main() -> int:
 
         return invoke_controlled(factory, root=ROOT, dry_run=args.dry_run)
 
-    if args.matrix:
+    if args.matrix or args.pair_matrix:
+        schedule = PAIR_PERFORMANCE_SCHEDULE if args.pair_matrix else MATRIX_SCHEDULE
         records = []
-        for index, lane in enumerate(MATRIX_SCHEDULE):
+        for index, lane in enumerate(schedule):
             controlled = launch(lane)
             records.append(
                 {
@@ -130,13 +137,17 @@ def main() -> int:
             )
             if controlled.return_code != 0:
                 break
-        complete = len(records) == len(MATRIX_SCHEDULE) and all(
+        complete = len(records) == len(schedule) and all(
             item["return_code"] == 0 for item in records
         )
         payload = {
             "schema": SCHEMA_VERSION,
-            "kind": "qwen35-9b-performance-matrix-control",
-            "schedule": list(MATRIX_SCHEDULE),
+            "kind": (
+                "qwen35-9b-performance-pair-matrix-control"
+                if args.pair_matrix
+                else "qwen35-9b-performance-matrix-control"
+            ),
+            "schedule": list(schedule),
             "starts_per_lane": 4,
             "requests_per_start": 10,
             "optimized_memory_mode": args.optimized_memory_mode,
@@ -151,11 +162,13 @@ def main() -> int:
                 ROOT
                 / "runs"
                 / (
-                    f"release-performance-matrix-{timestamp}-{os.getpid()}-"
+                    f"release-performance-"
+                    f"{'pair-' if args.pair_matrix else ''}matrix-"
+                    f"{timestamp}-{os.getpid()}-"
                     f"{secrets.token_hex(3)}"
                 )
             )
-            if complete:
+            if complete and not args.pair_matrix:
                 grouped = {
                     lane: [
                         read_json(Path(item["report"]).resolve(strict=True))
@@ -170,6 +183,22 @@ def main() -> int:
                 payload["aggregation"] = str(aggregation_path)
                 if aggregation["status"] != "complete":
                     payload["status"] = "failed"
+            elif complete:
+                aggregation = summarize_pair_records(
+                    [
+                        load_pair_report(Path(item["report"]), "pypto")
+                        for item in records
+                        if item["lane"] == "pypto"
+                    ],
+                    [
+                        load_pair_report(Path(item["report"]), "sglang-matched")
+                        for item in records
+                        if item["lane"] == "sglang-matched"
+                    ],
+                )
+                aggregation_path = directory / "aggregation.json"
+                atomic_json(aggregation_path, aggregation)
+                payload["aggregation"] = str(aggregation_path)
             path = directory / "summary.json"
             atomic_json(path, payload)
             payload["summary_path"] = str(path)

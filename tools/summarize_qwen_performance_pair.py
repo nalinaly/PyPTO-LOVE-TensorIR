@@ -13,6 +13,11 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from benchmarks.release.lanes import matched_lane_comparability
+from benchmarks.release.performance_runtime import (
+    GPU_FREE_FLOOR_BYTES,
+    validate_resource_identity,
+)
 from benchmarks.release.workload import (
     ReleaseContractError,
     atomic_json,
@@ -32,44 +37,15 @@ METRICS = (
     "decode_tokens_per_second",
     "total_tokens_per_second",
 )
-GPU_FREE_FLOOR_BYTES = 4 * 1024**3
-HOST_FREE_FLOOR_KIB = 12 * 1024**2
 
 
 def validate_resources(
     resources: object, resolved: Path
 ) -> tuple[dict[str, object], dict[str, object]]:
-    if not isinstance(resources, dict):
-        raise ReleaseContractError(f"missing resource record in {resolved}")
-    if resources.get("nvml_error") is not None:
-        raise ReleaseContractError(f"NVML sampling failed in {resolved}")
-    summary = resources.get("summary")
-    identity = resources.get("gpu_identity")
-    if not isinstance(summary, dict) or not isinstance(identity, dict):
-        raise ReleaseContractError(f"missing resource summary in {resolved}")
-    required_integer_fields = (
-        "minimum_gpu_memory_free_bytes",
-        "peak_gpu_memory_used_bytes",
-        "minimum_mem_available_kib",
-        "peak_owned_pgid_rss_kib",
-        "sample_count",
-    )
-    if any(type(summary.get(field)) is not int for field in required_integer_fields):
-        raise ReleaseContractError(f"incomplete resource telemetry in {resolved}")
-    if int(summary["sample_count"]) <= 0:
-        raise ReleaseContractError(f"empty resource telemetry in {resolved}")
-    if int(summary["minimum_gpu_memory_free_bytes"]) < GPU_FREE_FLOOR_BYTES:
-        raise ReleaseContractError(
-            f"GPU free-memory floor crossed in {resolved}: "
-            f"{summary['minimum_gpu_memory_free_bytes']} < {GPU_FREE_FLOOR_BYTES}"
-        )
-    if int(summary["minimum_mem_available_kib"]) < HOST_FREE_FLOOR_KIB:
-        raise ReleaseContractError(
-            f"host free-memory floor crossed in {resolved}: "
-            f"{summary['minimum_mem_available_kib']} < {HOST_FREE_FLOOR_KIB}"
-        )
-    if summary.get("thermal_throttle_observed") is not False:
-        raise ReleaseContractError(f"thermal throttle observed in {resolved}")
+    identity = validate_resource_identity(resources, str(resolved))
+    assert isinstance(resources, dict)
+    summary = resources["summary"]
+    assert isinstance(summary, dict)
     return summary, identity
 
 
@@ -173,18 +149,29 @@ def summarize_lane(records: list[dict[str, object]], lane: str) -> dict[str, obj
     }
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--pypto-report", action="append", type=Path, required=True)
-    parser.add_argument(
-        "--matched-report", action="append", type=Path, required=True
+def validate_pair_comparability(
+    pypto: list[dict[str, object]], matched: list[dict[str, object]]
+) -> dict[str, object]:
+    comparability = matched_lane_comparability(
+        pypto[0]["requested_server_config"],
+        matched[0]["requested_server_config"],
+        pypto[0]["resolved_backends"],
+        matched[0]["resolved_backends"],
     )
-    parser.add_argument("--output", type=Path, required=True)
-    args = parser.parse_args()
-    if len(args.pypto_report) != 4 or len(args.matched_report) != 4:
-        raise ReleaseContractError("pass four reports for each lane")
-    pypto = [load(path, "pypto") for path in args.pypto_report]
-    matched = [load(path, "sglang-matched") for path in args.matched_report]
+    if comparability["matched_claim_allowed"] is not True:
+        fields = [
+            mismatch.get("field")
+            for mismatch in comparability.get("control_mismatches", [])
+        ]
+        raise ReleaseContractError(
+            f"PyPTO/matched timing controls differ: {fields}"
+        )
+    return comparability
+
+
+def summarize_records(
+    pypto: list[dict[str, object]], matched: list[dict[str, object]]
+) -> dict[str, object]:
     gpu_ids = []
     for record in pypto + matched:
         identity = record.get("gpu_identity")
@@ -196,6 +183,7 @@ def main() -> int:
         lane: summarize_lane(records, lane)
         for lane, records in (("pypto", pypto), ("sglang-matched", matched))
     }
+    comparability = validate_pair_comparability(pypto, matched)
     candidate_values = [record["metrics"]["output_tokens_per_second"] for record in pypto]
     matched_values = [
         record["metrics"]["output_tokens_per_second"] for record in matched
@@ -209,7 +197,7 @@ def main() -> int:
         operation="ratio",
         salt="qwen35-pair:pypto-vs-matched:output-rate",
     )
-    result = {
+    return {
         "schema": 1,
         "kind": "qwen35-9b-performance-pair-summary",
         "status": "complete",
@@ -256,7 +244,24 @@ def main() -> int:
             "uncertainty": "95% percentile bootstrap over fresh starts",
             "pooling_requests_across_starts": False,
         },
+        "matched_comparability": comparability,
     }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--pypto-report", action="append", type=Path, required=True)
+    parser.add_argument(
+        "--matched-report", action="append", type=Path, required=True
+    )
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
+    if len(args.pypto_report) != 4 or len(args.matched_report) != 4:
+        raise ReleaseContractError("pass four reports for each lane")
+    result = summarize_records(
+        [load(path, "pypto") for path in args.pypto_report],
+        [load(path, "sglang-matched") for path in args.matched_report],
+    )
     output = args.output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(

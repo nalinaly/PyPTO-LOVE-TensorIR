@@ -45,10 +45,10 @@
       "matched_starts": 4,
       "matched_subset_resource_accepted": true,
       "source_pair_accepted": false,
-      "source_pair_status": "invalidated-resource-floor"
+      "source_pair_status": "invalidated-resource-and-control"
     },
     "summary": "state/evidence/qwen35-9b-performance-pair-current.json",
-    "summary_sha256": "351b95af985422a86fbc9196572710d3850b3d4e5c653a50edb3c803e85be195"
+    "summary_sha256": "6435aa275cc7f8ee387e8e2c01895b19c00d092f14753b1e9f3e0e06750bc500"
   },
   "observed_difference": {
     "e2e_ms": {
@@ -65,7 +65,7 @@
     }
   },
   "performance_only": true,
-  "recorded_at": "2026-08-30T17:08:43.595081+00:00",
+  "recorded_at": "2026-08-30T17:46:27.760449+00:00",
   "schema": 1,
   "status": "complete",
   "workload": {

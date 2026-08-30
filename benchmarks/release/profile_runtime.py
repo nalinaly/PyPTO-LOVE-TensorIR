@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import asdict
 import json
+import os
 from pathlib import Path
 import re
 import traceback
@@ -15,11 +16,18 @@ from .evidence_identity import collect_run_identity
 from .lanes import (
     execution_feature_record,
     matched_lane_comparability,
-    memory_qualification,
+    performance_memory_qualification,
+    performance_server_kwargs,
     prepare_worker_environment,
+)
+from .performance_runtime import (
+    ResourceSampler,
+    _resource_summary,
+    validate_resource_identity,
 )
 from .workload import (
     OUTPUT_TOKENS,
+    SAMPLE_INTERVAL_MS,
     SCHEMA_VERSION,
     ReleaseContractError,
     atomic_json,
@@ -256,6 +264,7 @@ def run(
     model_path = model_path.resolve(strict=True)
     report_path = run_dir / f"qwen35-9b-profile-{lane}.json"
     raw_path = run_dir / f"qwen35-9b-cupti-{lane}.json"
+    resources_path = run_dir / f"qwen35-9b-profile-resources-{lane}.json"
     report: dict[str, object] = {
         "schema": SCHEMA_VERSION,
         "kind": "qwen35-9b-logical-phase-profile",
@@ -263,7 +272,7 @@ def run(
         "run_id": run_id,
         "workload": workload_record(),
         "entrypoint": "sglang.benchmark.one_batch ModelRunner with CUPTI/NVTX",
-        "memory_qualification": memory_qualification(
+        "memory_qualification": performance_memory_qualification(
             lane, optimized_memory_mode, model_path
         ),
         "status": "starting",
@@ -272,6 +281,8 @@ def run(
     monitor = None
     monitor_api = None
     handles = []
+    sampler = ResourceSampler(os.getpgid(0))
+    sampler.start()
     try:
         report["cupti_overlay"] = activate_overlay()
         import torch
@@ -290,7 +301,12 @@ def run(
             workload,
             workload_resolution,
         ) = _load_runner(
-            lane, model_path, optimized_memory_mode
+            lane,
+            model_path,
+            optimized_memory_mode,
+            requested_config=performance_server_kwargs(
+                lane, model_path, optimized_memory_mode
+            ),
         )
         report["requested_server_config"] = requested
         report["resolved_backends"] = resolved
@@ -455,6 +471,42 @@ def run(
                 report["collector_stop_error"] = f"{type(error).__name__}: {error}"
         if runner is not None:
             _shutdown_runner()
+        sampler.stop()
+        resource_payload = {
+            "schema": SCHEMA_VERSION,
+            "kind": "qwen35-9b-profile-resource-samples",
+            "lane": lane,
+            "run_id": run_id,
+            "sample_interval_ms": SAMPLE_INTERVAL_MS,
+            "nvml_error": sampler.nvml_error,
+            "gpu_identity": sampler.identity,
+            "samples": sampler.samples,
+        }
+        atomic_json(resources_path, resource_payload)
+        report["resources"] = {
+            "path": str(resources_path),
+            "sha256": sha256_file(resources_path),
+            "summary": _resource_summary(sampler.samples),
+            "nvml_error": sampler.nvml_error,
+            "gpu_identity": sampler.identity,
+        }
+        try:
+            validate_resource_identity(report["resources"], f"profile {lane}")
+        except BaseException as error:
+            if report.get("status") == "complete":
+                report.update(
+                    {
+                        "status": "failed",
+                        "error_type": type(error).__name__,
+                        "error": str(error),
+                        "traceback": traceback.format_exc(),
+                    }
+                )
+            else:
+                report["resource_validation_error"] = (
+                    f"{type(error).__name__}: {error}"
+                )
+            return_code = 1
         atomic_json(report_path, report)
         print(
             json.dumps(
@@ -557,6 +609,7 @@ def reconcile(
     input_counts = {}
     requested_configs: dict[str, dict[str, object]] = {}
     resolved_configs: dict[str, dict[str, object]] = {}
+    gpu_identities: list[dict[str, object]] = []
     for lane, raw_reports in profiles.items():
         reports = raw_reports if isinstance(raw_reports, list) else [raw_reports]
         if len(reports) != 3:
@@ -581,6 +634,9 @@ def reconcile(
                 raise ReleaseContractError(
                     f"profile did not prove compiled execution for {lane}"
                 )
+            gpu_identities.append(
+                validate_resource_identity(report.get("resources"), f"profile {lane}")
+            )
         configs = [report.get("requested_server_config") for report in reports]
         if any(type(config) is not dict for config in configs):
             raise ReleaseContractError(f"profile configuration is absent for {lane}")
@@ -636,11 +692,29 @@ def reconcile(
                 }
                 for phase in phase_names
             },
+            "resources": {
+                "minimum_gpu_memory_free_bytes": min(
+                    int(report["resources"]["summary"]["minimum_gpu_memory_free_bytes"])
+                    for report in reports
+                ),
+                "peak_gpu_memory_used_bytes": max(
+                    int(report["resources"]["summary"]["peak_gpu_memory_used_bytes"])
+                    for report in reports
+                ),
+                "minimum_mem_available_kib": min(
+                    int(report["resources"]["summary"]["minimum_mem_available_kib"])
+                    for report in reports
+                ),
+                "thermal_throttle_observed": False,
+            },
         }
         input_counts[lane] = {
             "fresh_starts": len(reports),
             "profile_requests": len(reports) * PROFILE_REQUESTS,
         }
+
+    if any(identity != gpu_identities[0] for identity in gpu_identities[1:]):
+        raise ReleaseContractError("profile reports span different GPU identities")
 
     comparability = matched_lane_comparability(
         requested_configs["pypto"],

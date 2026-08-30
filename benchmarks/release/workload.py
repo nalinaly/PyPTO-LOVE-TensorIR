@@ -73,6 +73,16 @@ PERFORMANCE_SCHEDULE = (
     "sglang-optimized",
     "sglang-matched",
 )
+PAIR_PERFORMANCE_SCHEDULE = (
+    "pypto",
+    "sglang-matched",
+    "sglang-matched",
+    "pypto",
+    "sglang-matched",
+    "pypto",
+    "pypto",
+    "sglang-matched",
+)
 PROFILE_SCHEDULE = (
     "pypto",
     "sglang-matched",

@@ -21,10 +21,10 @@ from .evidence_identity import collect_run_identity
 from .lanes import (
     execution_feature_record,
     matched_lane_comparability,
-    memory_qualification,
+    performance_memory_qualification,
+    performance_server_kwargs,
     prepare_worker_environment,
     resolved_backend_record,
-    server_kwargs,
     validate_resolved_backends,
 )
 from .sglang_compat import install_sglang_release_compatibility
@@ -61,6 +61,8 @@ PERFORMANCE_METRICS = (
     "total_tokens_per_second",
     "requests_per_second",
 )
+GPU_FREE_FLOOR_BYTES = 4 * 1024**3
+HOST_FREE_FLOOR_KIB = 12 * 1024**2
 
 
 def run_scheduler_with_release_metrics(*args, **kwargs):
@@ -480,6 +482,35 @@ def _resource_summary(samples: list[dict[str, object]]) -> dict[str, object]:
     }
 
 
+def validate_resource_identity(resources: object, label: str) -> dict[str, object]:
+    """Reject a timing report whose high-frequency resource samples are unsafe."""
+
+    if not isinstance(resources, dict) or resources.get("nvml_error") is not None:
+        raise ReleaseContractError(f"{label} NVML sampling is incomplete")
+    identity = resources.get("gpu_identity")
+    summary = resources.get("summary")
+    if not isinstance(identity, dict) or not isinstance(summary, dict):
+        raise ReleaseContractError(f"{label} resource identity is incomplete")
+    required = (
+        "minimum_gpu_memory_free_bytes",
+        "peak_gpu_memory_used_bytes",
+        "minimum_mem_available_kib",
+        "peak_owned_pgid_rss_kib",
+        "sample_count",
+    )
+    if any(type(summary.get(field)) is not int for field in required):
+        raise ReleaseContractError(f"{label} resource telemetry is incomplete")
+    if int(summary["sample_count"]) <= 0:
+        raise ReleaseContractError(f"{label} resource telemetry is empty")
+    if int(summary["minimum_gpu_memory_free_bytes"]) < GPU_FREE_FLOOR_BYTES:
+        raise ReleaseContractError(f"{label} crossed the 4 GiB GPU free-memory floor")
+    if int(summary["minimum_mem_available_kib"]) < HOST_FREE_FLOOR_KIB:
+        raise ReleaseContractError(f"{label} crossed the 12 GiB host free floor")
+    if summary.get("thermal_throttle_observed") is not False:
+        raise ReleaseContractError(f"{label} observed thermal throttling")
+    return identity
+
+
 def _start_metric_estimate(report: dict[str, object], metric: str) -> float:
     requests = report.get("raw_requests")
     if type(requests) is not list or len(requests) != MEASURED_REQUESTS:
@@ -561,37 +592,9 @@ def summarize_fresh_starts(
         resource_summaries = []
         for report in reports:
             resources = report.get("resources")
-            if (
-                not isinstance(resources, dict)
-                or resources.get("nvml_error") is not None
-            ):
-                raise ReleaseContractError(f"{lane} NVML sampling is incomplete")
-            identity = resources.get("gpu_identity")
+            identity = validate_resource_identity(resources, lane)
             resource_summary = resources.get("summary")
-            if not isinstance(identity, dict) or not isinstance(resource_summary, dict):
-                raise ReleaseContractError(f"{lane} resource identity is incomplete")
-            required_resource_fields = (
-                "peak_gpu_memory_used_bytes",
-                "minimum_gpu_memory_free_bytes",
-                "minimum_mem_available_kib",
-                "peak_owned_pgid_rss_kib",
-            )
-            if any(
-                type(resource_summary.get(field)) is not int
-                for field in required_resource_fields
-            ):
-                raise ReleaseContractError(f"{lane} resource telemetry is incomplete")
-            if resource_summary.get("thermal_throttle_observed") is not False:
-                raise ReleaseContractError(f"{lane} observed thermal throttling")
-            if (
-                int(resource_summary.get("minimum_gpu_memory_free_bytes", 0))
-                < 4 * 1024**3
-            ):
-                raise ReleaseContractError(f"{lane} crossed the 4 GiB GPU free floor")
-            if int(resource_summary.get("minimum_mem_available_kib", 0)) < 12 * 1024**2:
-                raise ReleaseContractError(
-                    f"{lane} crossed the 12 GiB host MemAvailable floor"
-                )
+            assert isinstance(resource_summary, dict)
             gpu_identities.append(identity)
             resource_summaries.append(resource_summary)
         estimates = {
@@ -710,8 +713,12 @@ def run(
     prompt_token_ids = workload["prompt_token_ids"]
     report_path = run_dir / f"qwen35-9b-performance-{lane}.json"
     resources_path = run_dir / f"qwen35-9b-resources-{lane}.json"
-    memory = memory_qualification(lane, optimized_memory_mode, model_path)
-    requested = server_kwargs(lane, model_path, optimized_memory_mode)
+    memory = performance_memory_qualification(
+        lane, optimized_memory_mode, model_path
+    )
+    requested = performance_server_kwargs(
+        lane, model_path, optimized_memory_mode
+    )
     if compile_enabled is not None:
         requested["enable_torch_compile"] = bool(compile_enabled)
     report: dict[str, object] = {
@@ -899,13 +906,31 @@ def run(
             "samples": sampler.samples,
         }
         atomic_json(resources_path, resource_payload)
+        resource_summary = _resource_summary(sampler.samples)
         report["resources"] = {
             "path": str(resources_path),
             "sha256": sha256_file(resources_path),
-            "summary": _resource_summary(sampler.samples),
+            "summary": resource_summary,
             "nvml_error": sampler.nvml_error,
             "gpu_identity": sampler.identity,
         }
+        try:
+            validate_resource_identity(report["resources"], lane)
+        except BaseException as error:
+            if report.get("status") == "complete":
+                report.update(
+                    {
+                        "status": "failed",
+                        "error_type": type(error).__name__,
+                        "error": str(error),
+                        "traceback": traceback.format_exc(),
+                    }
+                )
+            else:
+                report["resource_validation_error"] = (
+                    f"{type(error).__name__}: {error}"
+                )
+            return_code = 1
         atomic_json(report_path, report)
         print(
             json.dumps(

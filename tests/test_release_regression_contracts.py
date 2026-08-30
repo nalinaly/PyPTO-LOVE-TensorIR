@@ -333,6 +333,35 @@ def test_performance_matrix_is_the_frozen_balanced_twelve_start_order() -> None:
     assert {lane: expected.count(lane) for lane in workload.LANES} == {
         lane: 4 for lane in workload.LANES
     }
+    pair = (
+        "pypto",
+        "sglang-matched",
+        "sglang-matched",
+        "pypto",
+        "sglang-matched",
+        "pypto",
+        "pypto",
+        "sglang-matched",
+    )
+    assert workload.PAIR_PERFORMANCE_SCHEDULE == pair
+    assert pair.count("pypto") == pair.count("sglang-matched") == 4
+    assert "sglang-optimized" not in pair
+
+
+def test_performance_pair_matrix_is_an_independent_public_mode() -> None:
+    args = performance_tool.parser().parse_args(
+        [
+            "--pair-matrix",
+            "--model-path",
+            "models/Qwen3.5-9B",
+            "--optimized-memory-mode",
+            "matched",
+            "--dry-run",
+        ]
+    )
+    assert args.pair_matrix is True
+    assert args.matrix is False
+    assert args.lane is None
 
 
 def test_profile_matrix_is_three_starts_and_five_requests_per_lane() -> None:
@@ -362,6 +391,12 @@ def test_lane_memory_and_provider_qualifications_are_explicit() -> None:
     )
     large_pypto = lanes.server_kwargs("pypto", Path("Qwen3.5-9B"))
     large_matched = lanes.server_kwargs("sglang-matched", Path("Qwen3.5-9B"))
+    performance_pypto = lanes.performance_server_kwargs(
+        "pypto", Path("Qwen3.5-9B")
+    )
+    performance_matched = lanes.performance_server_kwargs(
+        "sglang-matched", Path("Qwen3.5-9B")
+    )
     small_pypto = lanes.server_kwargs("pypto", Path("Qwen3.5-0.8B"))
     small_matched = lanes.server_kwargs("sglang-matched", Path("Qwen3.5-0.8B"))
     for config in (pypto, matched, optimized, qualified_optimized):
@@ -373,6 +408,27 @@ def test_lane_memory_and_provider_qualifications_are_explicit() -> None:
     assert large_matched["cpu_offload_gb"] == 2
     assert large_pypto["mem_fraction_static"] == 0.78
     assert large_matched["mem_fraction_static"] == 0.78
+    assert performance_pypto["cpu_offload_gb"] == 2
+    assert performance_matched["cpu_offload_gb"] == 2
+    assert performance_pypto["mem_fraction_static"] == 0.78
+    assert performance_matched["mem_fraction_static"] == 0.78
+    assert lanes.matched_lane_comparability(
+        performance_pypto, performance_matched
+    )["matched_claim_allowed"] is False  # resolved controls are required
+    performance_resolved_pypto = {
+        "sampling_backend": "pytorch",
+        "torch_compile_requested": True,
+        "cuda_graph_enabled_by_server_args": False,
+        "overlap_schedule_enabled_by_server_args": False,
+        "radix_cache_enabled_by_server_args": False,
+    }
+    performance_resolved_matched = dict(performance_resolved_pypto)
+    assert lanes.matched_lane_comparability(
+        performance_pypto,
+        performance_matched,
+        performance_resolved_pypto,
+        performance_resolved_matched,
+    )["matched_claim_allowed"] is True
     assert small_pypto["cpu_offload_gb"] == small_matched["cpu_offload_gb"] == 0
     assert (
         small_pypto["mem_fraction_static"]
@@ -1038,7 +1094,7 @@ def test_logical_phase_aggregation_uses_annotations_and_artifacts() -> None:
 
 
 def _profile(lane: str, compute_ns: int, phase_ns: int) -> dict[str, object]:
-    requested = lanes.server_kwargs(lane, Path("model"))
+    requested = lanes.performance_server_kwargs(lane, Path("model"))
     resolved = {
         "sampling_backend": requested["sampling_backend"],
         "torch_compile_requested": requested["enable_torch_compile"],
@@ -1065,6 +1121,23 @@ def _profile(lane: str, compute_ns: int, phase_ns: int) -> dict[str, object]:
         "requested_server_config": requested,
         "resolved_backends": resolved,
         "compilation": {"requested": True, "effective": True},
+        "resources": {
+            "nvml_error": None,
+            "gpu_identity": {
+                "name": "NVIDIA GeForce RTX 5090",
+                "uuid": "GPU-test",
+                "driver": "test",
+                "total_memory_bytes": 24 * 1024**3,
+            },
+            "summary": {
+                "minimum_gpu_memory_free_bytes": 4 * 1024**3,
+                "peak_gpu_memory_used_bytes": 20 * 1024**3,
+                "minimum_mem_available_kib": 16 * 1024**2,
+                "peak_owned_pgid_rss_kib": 8 * 1024**2,
+                "sample_count": 100,
+                "thermal_throttle_observed": False,
+            },
+        },
         "requests": [
             {
                 "request_index": index,

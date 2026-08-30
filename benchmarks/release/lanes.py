@@ -266,6 +266,50 @@ def server_kwargs(
     return common
 
 
+def performance_memory_qualification(
+    lane: str,
+    optimized_memory_mode: str = "zero-offload",
+    model_path: Path | None = None,
+) -> dict[str, object]:
+    """Return a cross-lane-comparable memory envelope for timing runs.
+
+    Correctness keeps its established lane-specific memory qualification.  The
+    9B timing pair instead uses a common envelope intended to restore margin on
+    this 24 GiB GPU. The measured resource gate still decides acceptance.
+    """
+
+    if (
+        model_path is not None
+        and model_path.name == "Qwen3.5-9B"
+        and lane in {"pypto", "sglang-matched"}
+    ):
+        return {
+            "name": "performance-pair-9b-offload-2g",
+            "cpu_offload_gb": 2,
+            "mem_fraction_static": 0.78,
+        }
+    return memory_qualification(lane, optimized_memory_mode, model_path)
+
+
+def performance_server_kwargs(
+    lane: str,
+    model_path: Path,
+    optimized_memory_mode: str = "zero-offload",
+) -> dict[str, Any]:
+    """Apply the timing-only memory envelope to the normal lane contract."""
+
+    values = server_kwargs(lane, model_path, optimized_memory_mode)
+    memory = performance_memory_qualification(
+        lane, optimized_memory_mode, model_path
+    )
+    values["cpu_offload_gb"] = memory["cpu_offload_gb"]
+    if memory["mem_fraction_static"] is None:
+        values.pop("mem_fraction_static", None)
+    else:
+        values["mem_fraction_static"] = memory["mem_fraction_static"]
+    return values
+
+
 def _jsonable(value: object) -> object:
     if dataclasses.is_dataclass(value):
         return {key: _jsonable(item) for key, item in dataclasses.asdict(value).items()}

@@ -40,8 +40,8 @@ non-thinking 输入 31 token，greedy 输出 64 token，BF16、TP1、并发 1。
 | model-forward coverage | 已通过 trace：33,448 compute calls = 31,400 手写 PyPTO + 2,048 Inductor PyPTO，unknown/fallback 0，100% |
 | 0.8B current wheel | stock reference + 3 个 candidate fresh start 全部完成；每个 trace 22,108/22,108 covered calls = 20,572 手写 + 1,536 Inductor |
 | PyPTO output throughput | 四次 fresh start 的诊断中位数 2.6671 tok/s；资源复核后 3/4 start 低于 4 GiB GPU free floor，不能作为正式 headline |
-| matched SGLang | 同一诊断 pair 的中位数 15.4100 tok/s；baseline start 本身完整，但 pair 因 candidate 资源违规而整体不接受 |
-| PyPTO / matched | 诊断比值 17.31%，95% CI [17.22%, 17.45%]；正式比值待资源合规重测 |
+| matched SGLang | 同一诊断 pair 的中位数 15.4100 tok/s；baseline start 本身完整，但 pair 因 candidate 资源违规和 offload 控制变量不一致而整体不接受 |
+| PyPTO / matched | 诊断比值 17.31%，95% CI [17.22%, 17.45%]；正式比值待资源及控制变量均合规后重测 |
 | optimized SGLang | 未报告；CUDA-graph 配置在本机低于 4 GiB free-memory 门禁 |
 
 accepted trace 的 artifact union 与 model-forward compute intersection：
@@ -61,8 +61,11 @@ accepted trace 的 artifact union 与 model-forward compute intersection：
 首次编译触发请求包含编译和一个完整 31+64 请求，不是 compiler-only 时间。
 高频 NVML 复核记录的 PyPTO 最低 free 为 4,185,067,520 B，低于
 4,294,967,296 B 门禁 109,899,776 B；前三个 start 均低于门禁。因此上述
-时序值保留为可复现诊断数据，但 pair 状态是 `invalidated-resource-floor`，正式
-matched 比值必须重测。完整 JSON 为
+时序值保留为可复现诊断数据，但 pair 状态是 `invalidated-resource-and-control`，正式
+matched 比值必须重测。旧 pair 还使用了 PyPTO `cpu_offload_gb=0`、matched
+`cpu_offload_gb=2`；新的 performance-only 配置把两条 lane 统一为
+`cpu_offload_gb=2, mem_fraction_static=0.78`，而 correctness 配置保持不变。
+完整 JSON 为
 state/evidence/qwen35-9b-performance-pair-current.json；模型 gate
 sidecar 为 state/evidence/qwen35-0.8b-model-gate-current.json 和
 state/evidence/qwen35-9b-model-gate-current.json；生成
@@ -227,9 +230,18 @@ envs/pypto-release/bin/python tools/run_model_correctness.py all \
 
 ~~~bash
 envs/pypto-release/bin/python tools/run_performance_regression.py \
-  --lane pypto --model-path models/Qwen3.5-9B
+  --pair-matrix --model-path models/Qwen3.5-9B \
+  --optimized-memory-mode matched
+# pair 通过后，再运行包含 optimized stock 的完整三 lane 矩阵
+envs/pypto-release/bin/python tools/run_performance_regression.py \
+  --matrix --model-path models/Qwen3.5-9B \
+  --optimized-memory-mode matched
 envs/pypto-release/bin/python tools/run_qwen35_eager_control.py \
   --model-path models/Qwen3.5-9B
+envs/pypto-release/bin/python tools/profile_qwen35.py matrix \
+  --model-path models/Qwen3.5-9B \
+  --optimized-memory-mode matched \
+  --performance-matrix runs/release-performance-matrix-<id>/summary.json
 envs/pypto-release/bin/python tools/run_operator_performance.py \
   --matrix --model-path models/Qwen3.5-9B
 envs/pypto-release/bin/python tools/run_inductor_ablation.py \
