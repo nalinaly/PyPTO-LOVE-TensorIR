@@ -444,6 +444,55 @@ class BoundedGpuPolicyTest(unittest.TestCase):
             },
         )
 
+    def test_controller_identity_falls_back_to_nvml_without_changing_preflight(self) -> None:
+        expected = {
+            "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+            "compute_capability": "12.0",
+            "memory_mib": "24463",
+            "used_mib": "2048",
+            "driver": "610.74",
+        }
+        timeout = gpu.subprocess.TimeoutExpired(["nvidia-smi"], 10)
+        with (
+            mock.patch.object(gpu.preflight, "nvidia_identity", side_effect=timeout),
+            mock.patch.object(
+                gpu.nvidia_nvml, "query_identity", return_value=expected
+            ) as fallback,
+        ):
+            self.assertEqual(gpu.nvidia_identity(), expected)
+        fallback.assert_called_once_with()
+        self.assertEqual(gpu.nvidia_telemetry_sources()["identity"], "nvml-ctypes")
+
+    def test_controller_pid_audit_falls_back_to_nvml_without_changing_preflight(self) -> None:
+        timeout = gpu.subprocess.TimeoutExpired(["nvidia-smi"], 5)
+        with (
+            mock.patch.object(
+                gpu.preflight, "nvidia_compute_pids", side_effect=timeout
+            ),
+            mock.patch.object(
+                gpu.nvidia_nvml, "query_compute_pids", return_value={1234}
+            ) as fallback,
+        ):
+            self.assertEqual(gpu.nvidia_compute_pids(), {1234})
+        fallback.assert_called_once_with()
+        self.assertEqual(
+            gpu.nvidia_telemetry_sources()["compute_pids"], "nvml-ctypes"
+        )
+
+    def test_controller_fallback_preserves_fail_closed_error(self) -> None:
+        timeout = gpu.subprocess.TimeoutExpired(["nvidia-smi"], 10)
+        with (
+            mock.patch.object(gpu.preflight, "nvidia_identity", side_effect=timeout),
+            mock.patch.object(
+                gpu.nvidia_nvml,
+                "query_identity",
+                side_effect=RuntimeError("NVML unavailable"),
+            ),
+        ):
+            with self.assertRaises(gpu.subprocess.TimeoutExpired) as raised:
+                gpu.nvidia_identity()
+        self.assertIs(raised.exception, timeout)
+
     def test_child_must_be_selected_python_and_workspace_script(self) -> None:
         command = ["--", self.python, "-B", self.script, "--example"]
         self.assertEqual(gpu.validate_child(command), command[1:])

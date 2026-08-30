@@ -15,6 +15,7 @@ import tempfile
 import time
 
 import preflight
+import nvidia_nvml
 import run_isolated as isolation
 import stop_run
 
@@ -33,6 +34,9 @@ HOST_FLOOR_CONSECUTIVE_SAMPLES = 3
 GPU_FREE_FLOOR_MIB = 4 * 1024
 NVIDIA_AUDIT_FAILURE_CONSECUTIVE_SAMPLES = 2
 POLL_SECONDS = 1
+
+_nvidia_identity_source = "unknown"
+_nvidia_compute_source = "unknown"
 
 
 class BoundedGpuError(RuntimeError):
@@ -87,6 +91,61 @@ def nvidia_audit_failure_record(
         )
         record["timeout_seconds"] = error.timeout
     return record
+
+
+def nvidia_identity() -> dict[str, str]:
+    """Use the frozen preflight, with a read-only NVML emergency fallback."""
+
+    global _nvidia_identity_source
+    try:
+        value = preflight.nvidia_identity()
+        _nvidia_identity_source = "nvidia-smi"
+        return value
+    except (
+        OSError,
+        RuntimeError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+    ) as error:
+        try:
+            value = nvidia_nvml.query_identity()
+            _nvidia_identity_source = "nvml-ctypes"
+            return value
+        except Exception:
+            _nvidia_identity_source = "unavailable"
+            raise error
+
+
+def nvidia_compute_pids() -> set[int]:
+    """Use the frozen PID audit, falling back to the same-driver NVML query."""
+
+    global _nvidia_compute_source
+    try:
+        value = preflight.nvidia_compute_pids()
+        _nvidia_compute_source = "nvidia-smi"
+        return value
+    except (
+        OSError,
+        RuntimeError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+    ) as error:
+        try:
+            value = nvidia_nvml.query_compute_pids()
+            _nvidia_compute_source = "nvml-ctypes"
+            return value
+        except Exception:
+            _nvidia_compute_source = "unavailable"
+            raise error
+
+
+def nvidia_telemetry_sources() -> dict[str, str]:
+    """Return the provider used by the most recent identity/PID queries."""
+
+    return {
+        "identity": _nvidia_identity_source,
+        "compute_pids": _nvidia_compute_source,
+    }
 
 
 def process_stat_full(
@@ -186,11 +245,11 @@ def audit(
     owned_pgid: int | None = None,
     owned_sid: int | None = None,
 ) -> dict[str, object]:
-    gpu = preflight.nvidia_identity()
+    gpu = nvidia_identity()
     free_mib = int(gpu["memory_mib"]) - int(gpu["used_mib"])
     all_processes, protected, _workspace = preflight.process_table()
     protected_pids = {process.pid for process in protected}
-    compute_pids = preflight.nvidia_compute_pids()
+    compute_pids = nvidia_compute_pids()
     protected_compute = sorted(compute_pids & protected_pids)
     protected_mappings, unreadable = preflight.protected_nvidia_runtime_mappings(
         protected
@@ -220,6 +279,7 @@ def audit(
             external_compute.append(pid)
     return {
         "gpu": gpu,
+        "nvidia_telemetry_sources": nvidia_telemetry_sources(),
         "gpu_free_mib": free_mib,
         "compute_pids": sorted(compute_pids),
         "owned_compute_pids": owned_compute,
