@@ -1,8 +1,223 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `56`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `57`
 
 ## Current phase: Qwen semantic oracle, ordered model gates, and publication closure
+
+## User-brief audit and release-plan closure (2026-08-30, revision 57)
+
+Revision 57 is a direct requirement-to-evidence audit of the original writing
+brief and both follow-up requests. It adds explicit gates where the previous
+plan was directionally correct but still allowed an ambiguous implementation,
+an incomplete article-demo denominator, a placeholder visual, or a document
+claim to get ahead of the corresponding experiment. No pending result is
+promoted by this revision.
+
+### A. Non-negotiable implementation correction: typed NVIDIA path
+
+The PyPTO-to-TensorIR bridge is first a code task, then a prose task. Before
+any final blog/README claim, audit every bridge and backend emission path that
+can construct TensorIR, CUDA Tile or MLIR programs. Replace canonical program
+construction based on `source +=`, format strings, ad-hoc textual snippets or
+stringly-typed operation names with the pinned NVIDIA TensorIR typed
+`OpBuilder`/ODS/module APIs. Explicitly construct and verify operand/result
+types, ranks, element strides, layouts, tile/iteration spaces, mutation/result
+anchors and ABI metadata. A textual printer may remain for diagnostics,
+serialization and FileCheck fixtures, but it is not the normative construction
+path and must never be described as the backend implementation.
+
+This correction has its own acceptance gate:
+
+1. record the exact source symbols changed in PyPTO and TensorIR, the official
+   NVIDIA API symbols they use, and the resulting source/tree/package hashes;
+2. add a source-level lint/test that rejects string-built canonical bridge
+   programs while allowing explicitly marked debug printers and fixtures;
+3. compile positive typed examples and a negative verifier example for invalid
+   shape/layout/stride/mutation combinations; and
+4. replay the native, package, FileCheck and Qwen-shaped lowering tests after
+   the refactor. A green old test with an unreviewed textual emitter is not
+   acceptance evidence.
+
+The article must state the boundary precisely: PyPTO owns the DSL/HIR and
+specialization; TensorIR is a typed tensor-level, tile-aware compiler layer;
+CUDA Tile is a downstream NVIDIA GPU IR/code-generation target. TensorIR is not
+CUDA Tile, and the bridge is not justified merely because both systems use
+tiles. A PyPTO tile shape lowers only when its static iteration, dtype, layout,
+stride and mutation contracts are representable and verifier-valid; otherwise
+the route fails closed. The final bridge proof must include one Inductor
+SwiGLU trace, one stateful/layout-heavy handwritten trace, and one rejected
+geometry, each bound to source/IR/artifact hashes.
+
+### B. Article-demo completeness and educational motivation
+
+The linked WeChat article is an input corpus, not a citation-only example. The
+exact URL must appear in the body and source register. Freeze an article-time
+snapshot, license/provenance record and byte hash of every copied source file
+under `demo/`. Build a manifest from the article's complete code/demo inventory:
+
+1. identify every executable entrypoint and every transitive/tutorial file;
+2. copy executable source byte-for-byte, with no line edits, normalization or
+   hidden generated replacement;
+3. run every executable entrypoint through the NVIDIA compatibility launcher,
+   recording command, platform, seed, shape/dtype, compile/runtime stage,
+   return code, stdout/stderr hashes, golden implementation, tolerance and raw
+   numerical result; and
+4. classify prose snippets and genuinely non-entrypoint support files without
+   silently removing runnable demos from the denominator. Any runnable demo
+   that still fails because of an Ascend-only dependency is a release blocker,
+   not a pass labelled “unsupported”.
+
+The compatibility launcher/adapters may live outside `demo/`, but may not
+rewrite the copied source. Hash the corpus before and after each matrix run.
+The final README and blog each show the same representative unchanged demo,
+its exact command, successful numerical/precision result and evidence hash.
+The demo chapter must explicitly explain the motivation: PyPTO-LOVE-TensorIR
+lets readers without an Ascend device learn the PyPTO DSL programming model on
+an NVIDIA platform. This motivation does not relax source fidelity or the
+all-entrypoint execution requirement.
+
+### C. Model, kernel and coverage claims
+
+The exact user prompt, pinned non-thinking chat-template input, independent
+Transformers oracle, stock SGLang reference, three fresh candidate starts and
+ten warm requests per start remain mandatory. The terminal transcript must
+show the generated tokens and enough decoded text to prove a real inference
+run, plus the PyPTO/Inductor kernel-launch trace where available. It must not
+present the model's answer to the subjective prompt as factual endorsement.
+
+The 100% claim is a trace-derived set proof for model-forward compute, not a
+handwritten operator list: every observed compute activity maps exactly once to
+either a handwritten `pypto-kernels` artifact or an Inductor-generated PyPTO
+DSL artifact, with nonzero CUPTI denominators and no unknown/eager/Triton/
+FlashInfer/cuBLAS/other fallback compute. Framework staging, sampling,
+memcpy/memset and CPU offload are visible in separate scopes. The docs must
+say explicitly whether the two sources cover all model operators and show the
+union/intersection counts for both 0.8B and 9B.
+
+The operator chapter contains a generated inventory of the independent
+handwritten library, identifies the Qwen call sites, and walks through one
+complex source-selected kernel. The framework chapter separately lists every
+PyPTO-to-TensorIR and Inductor feature/change. The generated-kernel excerpt is
+extracted from the exact release artifact and includes FX body, generated
+PyPTO DSL and current-stream launch wrapper. It must answer with measured
+evidence whether the complete MLP is fused: do not imply that matmul boundaries
+disappear if only the SwiGLU pointwise region is fused.
+
+### D. Causal ablation, cold start and attribution matrix
+
+Freeze the following disjoint comparisons so “PyPTO is faster” has a defined
+denominator:
+
+1. a causal Qwen3.5-9B chat-template/64-output ablation holding handwritten
+   operators, weights, prompt, sampling, SGLang settings and shapes fixed while
+   switching target pointwise regions between eager ATen and PyPTO Inductor;
+2. an official control of stock PyTorch eager versus official NVIDIA Inductor
+   on the same region and full-model workload; and
+3. the product comparison of accepted 100% PyPTO against matched and optimized
+   stock SGLang, including the requested PyPTO-as-percent-of-default number.
+
+For each lane, retain raw per-start samples and report warm TTFT, TPOT/ITL,
+end-to-end latency, output/decode/total-token throughput, memory and launch
+counts. Report the within-start median, median across fresh starts, p90/p99
+and deterministic start-level 95% bootstrap interval; never pool requests as
+independent samples. Count launches separately for the generated subgraph,
+`ModelRunner.forward` and whole request, and distinguish event count, unique
+artifact count and source-graph count.
+
+Cold measurements use empty Dynamo/Inductor/PyPTO caches and split engine/weight
+startup, first compile-trigger request and warm execution. Record PyPTO's
+Dynamo capture, Inductor lowering, PyPTO specialization, TensorIR/CUDA Tile
+compile, artifact load and first-launch phases where observable. Compare the
+same-shape PyPTO graph-compile wall time with official NVIDIA Inductor; phases
+that the official backend cannot expose are labelled PyPTO-only diagnostics,
+not an apples-to-apples advantage. The opening and conclusion may announce
+fusion speedup and launch reduction only from this fixed full-model ablation.
+The real fusion boundary, number of fused operators and residual gap must be
+shown in both an exact table and source-derived kernel excerpt.
+
+### E. Visual and terminal evidence (five roles, not fabricated)
+
+The original four screenshot requirements and the follow-up representative
+demo requirement resolve to five terminal roles: (1) build success, (2)
+operator correctness, (3) performance/breakdown, (4) exact-prompt 9B
+inference/token stream plus launch log, and (5) one unchanged article demo with
+its precision result. When GUI capture is available, each is a genuine Ubuntu
+shell hosted by the requested PowerShell/Windows Terminal purple profile. The
+capture script must expose the command, run ID and result without secrets or
+irrelevant workstation paths. If this environment cannot capture that profile,
+keep an explicit user-capture handoff with the exact command and sidecar; never
+generate or edit a fake terminal image.
+
+Every ablation and breakdown visual (Inductor causal result, end-to-end
+comparison, launch counts, compile phases, semantic operator times and residual
+attribution) is generated with GPT-Image-2 from immutable machine-readable JSON.
+Before the first real generation, read and follow the `imagegen` skill. Each
+figure records model, prompt, source JSON/hash, run IDs, image hash and alt
+text; the adjacent table remains the numerical authority. Missing API
+authorization leaves a clearly marked gate and blocks final publication rather
+than permitting a substitute model or hand-drawn “result”. Visually inspect
+labels, units, denominator, ordering and narrow rendering before embedding the
+PNG in the local Markdown blog and single-file HTML.
+
+### F. Reproduction, document parity and legal boundary
+
+The Chinese README is the default entry and links to an English README, which
+links back. They are semantically equivalent and generated from one immutable
+release summary: source layout, prerequisites/hardware/model license,
+reconstruction, exact `--jobs 24` build/install, operator correctness,
+unchanged article-demo matrix, performance-only scripts, exact-prompt model
+run, expected evidence fields, troubleshooting and recoverable cleanup. The
+performance script must not accept or import correctness references, golden
+outputs, tolerances or token/text comparison logic. Both READMEs introduce the
+regression scripts and the same typical demo screenshot/result.
+
+The local blog uses the requested hierarchy (`一、...`, then `1. ...`), remains
+accurate and readable, and contains the two-feature opening, glossary/pipeline,
+source-linked backgrounds, independent demo chapter, implementation and
+operator detail, correctness/coverage, causal ablation, baseline/cold-start
+table, breakdown figures, limitations and a conclusion repeating the measured
+headline with the same denominator. The HTML is generated from that Markdown
+as one offline file with inlined assets and passes desktop/narrow viewport
+checks. Blog Markdown/HTML and diagnostic probes stay local; only the audited
+README/reproduction assets enter the commit.
+
+The opening NOTE must quote/paraphrase the CANN legal boundary accurately,
+identify the project as non-commercial personal research, link the cited
+interview and its approximately 2:34:00 timestamp, link the exact WeChat
+article, and invite takedown contact. Non-commercial intent or an interview
+remark is not asserted as a license exception. Public README push remains
+conditional on the written-authorization/legal gate; once cleared, commit and
+push the README-only publication change with a final staged-diff audit.
+
+### G. Final requirement audit and execution order
+
+Create a final requirement matrix mapping every sentence of the original brief
+and follow-ups to a file/section, command, evidence JSON, screenshot/figure
+sidecar or an explicit unresolved blocker. The audit fails on missing links,
+stale source IDs/hashes, old 19-token model claims, `xx`/`TBD`/`PENDING_*`,
+operator numbers promoted to model headlines, unmatched denominators, missing
+image provenance, screenshot/result mismatch, bilingual drift, dirty upstream
+trees, or blog/HTML staged for commit. Preserve rejected/failed runs instead of
+deleting them, and include an evidence-boundary summary in the final handoff.
+
+The ordered work after this revision is:
+
+1. finish and test the typed NVIDIA OpBuilder/ODS refactor and update source,
+   package and identity locks;
+2. complete the immutable article-demo corpus/matrix and representative capture;
+3. resolve the 0.8B semantic/candidate gate, then the 9B correctness/coverage
+   gate, with the independent oracle and exact chat workload;
+4. run the causal/official/product performance matrices, cold-start timing,
+   CUPTI reconciliation and operator breakdown;
+5. read the imagegen skill, generate and audit all GPT-Image-2 figures, capture
+   the five terminal roles, and freeze one release evidence bundle;
+6. render the local Chinese blog/HTML and parity-checked bilingual README; and
+7. run the requirement matrix and source/legal/staging audits, then commit/push
+   only the authorized README deliverable.
+
+Current candidate-vs-reference near-tie behavior, foreign GPU occupancy,
+article-demo failures and missing GPT-Image-2 authorization remain blockers;
+this revision records them rather than hiding them behind historical evidence.
 
 ## Critical semantic and evidence amendment (2026-08-30, revision 56)
 
