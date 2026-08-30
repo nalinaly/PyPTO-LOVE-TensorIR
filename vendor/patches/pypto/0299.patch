@@ -1,0 +1,64 @@
+From a50a03d2c77e90ceaf145ce98c12e93e73966cd3 Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 16:05:50 +0800
+Subject: [PATCH] codegen: preserve typed gated and batched output shapes
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 16 +++++++++-------
+ 1 file changed, 9 insertions(+), 7 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index edf5369d7a5b34046a42cd0074991d66fb0fb2f8..5f5b003d0587b57ea48381f3c6a220c2e9d730bf 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -3234,7 +3234,8 @@ uint32_t AppendWeightedRmsNorm(GenericTensorIrSpecBuilder& builder,
+                                uint32_t input_value, uint32_t weight_value,
+                                const StaticTensor& input,
+                                const StaticTensor& weight, double mean_scale,
+-                               double epsilon) {
++                               double epsilon,
++                               bool convert_result = true) {
+   const bool widen = input.dtype == DataType::BF16;
+   StaticTensor compute = input;
+   if (widen) compute.dtype = DataType::FP32;
+@@ -3276,8 +3277,9 @@ uint32_t AppendWeightedRmsNorm(GenericTensorIrSpecBuilder& builder,
+   }
+   const uint32_t weighted = builder.TensorOp(
+       TypedTensorIrOpKind::Mul, {normalized, weight_full}, compute);
+-  return widen ? builder.TensorOp(TypedTensorIrOpKind::Convert, {weighted}, input)
+-               : weighted;
++  return widen && convert_result
++             ? builder.TensorOp(TypedTensorIrOpKind::Convert, {weighted}, input)
++             : weighted;
+ }
+ 
+ TypedTensorIrModuleSpec MakeGenericWeightedRmsNormTensorIrSpec(
+@@ -3321,7 +3323,7 @@ TypedTensorIrModuleSpec MakeGenericGatedRmsNormTensorIrSpec(
+   builder.AddResult(graph.result);
+   const uint32_t weighted = AppendWeightedRmsNorm(
+       builder, builder.Input(0), builder.Input(2), graph.input, graph.weight,
+-      graph.mean_scale, graph.epsilon);
++      graph.mean_scale, graph.epsilon, /*convert_result=*/false);
+   StaticTensor compute = graph.input;
+   compute.dtype = DataType::FP32;
+   const uint32_t gate_wide = builder.TensorOp(
+@@ -3339,8 +3341,8 @@ TypedTensorIrModuleSpec MakeGenericGatedRmsNormTensorIrSpec(
+       TypedTensorIrOpKind::Mul, {gate_wide, sigmoid}, compute);
+   const uint32_t gated = builder.TensorOp(
+       TypedTensorIrOpKind::Mul, {weighted, gate_silu}, compute);
+-  const uint32_t output = builder.TensorOp(
+-      TypedTensorIrOpKind::Convert, {gated}, graph.result);
++    const uint32_t output = builder.TensorOp(
++        TypedTensorIrOpKind::Convert, {gated}, graph.result);
+   return std::move(builder).Finish({output});
+ }
+ 
+@@ -4012,7 +4014,7 @@ TypedTensorIrModuleSpec MakeGenericStatefulCausalConvTensorIrSpec(
+     const uint32_t output = builder.TypedTensorOp(
+         TypedTensorIrOpKind::BinarySelect,
+         {valid_index, batch_output, anchor_full},
+-        MakeTypedTensorIrTensorSpec(graph.result,
++        MakeTypedTensorIrTensorSpec(batch_result,
+                                     /*has_explicit_strides=*/true));
+     batch_outputs.push_back(output);
+   }

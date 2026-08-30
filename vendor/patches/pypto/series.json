@@ -1,15 +1,15 @@
 {
   "base_commit": "e2d0f78ae6d709c0d6ee345a48db2c3d621a4b09",
   "base_tree": "a46f244a62dfab663fbeb899eb62ee8a042a0b41",
-  "commit_count": 298,
+  "commit_count": 299,
   "format_patch_options": [
     "--binary",
     "--full-index",
     "--no-signature",
     "--numbered-files"
   ],
-  "head_commit": "397f99f885f7a4ac70a8e7cda7a6f31f042c7121",
-  "head_tree": "62f7b2b22bf002c320a1767584e8107091639677",
+  "head_commit": "a50a03d2c77e90ceaf145ce98c12e93e73966cd3",
+  "head_tree": "ddfb446beedc482f6f2800b9085749002a5be4cd",
   "patches": [
     {
       "bytes": 1579,
@@ -2394,6 +2394,14 @@
       "sha256": "4a49a8232b7e74d9b86a0349d091839c51f3fd771b16d1e2ea0c49d5dea483b8",
       "source_commit": "397f99f885f7a4ac70a8e7cda7a6f31f042c7121",
       "subject": "Subject: [PATCH 298/298] test: lint NVIDIA TensorIR construction through typed ops"
+    },
+    {
+      "bytes": 3228,
+      "file": "0299.patch",
+      "order": 299,
+      "sha256": "03d115781832a643cc531b8c0013b25ae1033685a6cfeb32d99acec4412d3096",
+      "source_commit": "a50a03d2c77e90ceaf145ce98c12e93e73966cd3",
+      "subject": "Subject: [PATCH] codegen: preserve typed gated and batched output shapes"
     }
   ],
   "repository": "pypto",
