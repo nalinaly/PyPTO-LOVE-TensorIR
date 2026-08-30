@@ -15,7 +15,7 @@
     "article demo device runtime is Ascend-only in this environment",
     "GPT-Image-2 generation awaits local API authorization"
   ],
-  "recorded_at": "2026-08-30T18:53:03.062294+00:00",
+  "recorded_at": "2026-08-30T18:55:41.218257+00:00",
   "schema": 2,
   "status": "pass"
 }
