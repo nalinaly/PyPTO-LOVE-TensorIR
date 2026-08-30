@@ -928,12 +928,12 @@ def _lm_head_around(
 
     weight = getattr(lm_head, "weight", None)
     quant_method = getattr(lm_head, "quant_method", None)
+    use_fp32_lm_head = bool(getattr(processor, "use_fp32_lm_head", False))
     if (
         embedding_bias is not None
         or type(hidden_states) is not torch.Tensor
         or type(weight) is not torch.nn.Parameter
         or type(quant_method).__name__ != "UnquantizedEmbeddingMethod"
-        or getattr(processor, "use_fp32_lm_head", False)
         or getattr(processor, "rl_on_policy_target", None) is not None
         or hasattr(lm_head, "set_lora")
         or hidden_states.dtype is not torch.bfloat16
@@ -945,13 +945,21 @@ def _lm_head_around(
     ):
         raise BackendNotReadyError(
             "PyPTO LM head requires the plain contiguous CUDA BF16 Qwen "
-            "embedding weight with no bias, LoRA, quantization, or FP32 mode."
+            "embedding weight with no bias, LoRA, or quantization."
         )
     from pypto_kernels import linear
     from .sglang.stream import pypto_stream
 
     with pypto_stream(hidden_states.device) as stream:
-        result = linear.linear_to_float(hidden_states, weight.data, stream=stream)
+        # Match SGLang's default ``use_fp32_lm_head=false`` contract: the
+        # regular path returns BF16 logits, while an explicit FP32 request
+        # uses the widened graph.  Keeping this branch here also makes the
+        # correctness-only FP32 mode auditable instead of silently rejecting it.
+        result = (
+            linear.linear_to_float(hidden_states, weight.data, stream=stream)
+            if use_fp32_lm_head
+            else linear.linear(hidden_states, weight.data, stream=stream)
+        )
     if os.environ.get("PYPTO_DIFFERENTIAL_REPORT"):
         previous = torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction
         torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = False
