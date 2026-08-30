@@ -530,6 +530,7 @@ class BoundedGpuPolicyTest(unittest.TestCase):
             "gpu_free_mib": 20 * 1024,
             "external_compute_pids": [],
             "protected_compute_pids": [],
+            "protected_heavy_process_pids": [],
             "protected_runtime_mapping_pids": [],
             "unreadable_protected_maps": [],
             "owned_compute_pids": [],
@@ -542,6 +543,7 @@ class BoundedGpuPolicyTest(unittest.TestCase):
             ("gpu_free_mib", gpu.GPU_FREE_FLOOR_MIB - 1),
             ("external_compute_pids", [71]),
             ("protected_compute_pids", [72]),
+            ("protected_heavy_process_pids", [76]),
             ("protected_runtime_mapping_pids", [73]),
             ("unreadable_protected_maps", [74]),
         ):
@@ -551,6 +553,14 @@ class BoundedGpuPolicyTest(unittest.TestCase):
         owned = {**report, "owned_compute_pids": [75]}
         self.assertTrue(gpu.audit_ok(owned, child_running=True))
         self.assertFalse(gpu.audit_ok(owned, child_running=False))
+
+    def test_audit_reports_protected_heavy_without_signalling_it(self) -> None:
+        report = {**self.base_audit(), "protected_heavy_process_pids": [818]}
+        self.assertEqual(
+            gpu.audit_failure_reason(report, child_running=True),
+            "protected-heavy-coexistence",
+        )
+        self.assertFalse(gpu.audit_ok(report, child_running=True))
 
     def test_audit_distinguishes_owned_external_and_protected_compute(self) -> None:
         protected = SimpleNamespace(pid=22)

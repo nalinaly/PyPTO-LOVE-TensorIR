@@ -249,6 +249,11 @@ def audit(
     free_mib = int(gpu["memory_mib"]) - int(gpu["used_mib"])
     all_processes, protected, _workspace = preflight.process_table()
     protected_pids = {process.pid for process in protected}
+    protected_heavy = sorted(
+        process.pid
+        for process in protected
+        if preflight.is_heavy_command(getattr(process, "command", ""))
+    )
     compute_pids = nvidia_compute_pids()
     protected_compute = sorted(compute_pids & protected_pids)
     protected_mappings, unreadable = preflight.protected_nvidia_runtime_mappings(
@@ -285,6 +290,7 @@ def audit(
         "owned_compute_pids": owned_compute,
         "external_compute_pids": external_compute,
         "protected_compute_pids": protected_compute,
+        "protected_heavy_process_pids": protected_heavy,
         "protected_runtime_mapping_pids": protected_mappings,
         "unreadable_protected_maps": unreadable,
         "protected_process_count": len(protected),
@@ -293,14 +299,25 @@ def audit(
 
 
 def audit_ok(report: dict[str, object], *, child_running: bool) -> bool:
-    return bool(
-        int(report["gpu_free_mib"]) >= GPU_FREE_FLOOR_MIB
-        and not report["external_compute_pids"]
-        and not report["protected_compute_pids"]
-        and not report["protected_runtime_mapping_pids"]
-        and not report["unreadable_protected_maps"]
-        and (child_running or not report["owned_compute_pids"])
-    )
+    return audit_failure_reason(report, child_running=child_running) is None
+
+
+def audit_failure_reason(
+    report: dict[str, object], *, child_running: bool
+) -> str | None:
+    if int(report["gpu_free_mib"]) < GPU_FREE_FLOOR_MIB:
+        return "gpu-free-memory-floor"
+    if report["external_compute_pids"]:
+        return "external-nvidia-compute"
+    if report["protected_compute_pids"] or report["protected_runtime_mapping_pids"]:
+        return "protected-nvidia-coexistence"
+    if report["protected_heavy_process_pids"]:
+        return "protected-heavy-coexistence"
+    if report["unreadable_protected_maps"]:
+        return "protected-mapping-audit-unavailable"
+    if not child_running and report["owned_compute_pids"]:
+        return "owned-compute-survived"
+    return None
 
 
 def terminate_owned(
@@ -557,6 +574,7 @@ def main() -> int:
                 NVIDIA_AUDIT_FAILURE_CONSECUTIVE_SAMPLES
             ),
             "protected_zero_nvidia_required": True,
+            "protected_heavy_required_absent": True,
             "external_process_signals": False,
             "termination_signal_scope": (
                 "verified-pgid-then-verified-session-residuals"
@@ -644,7 +662,9 @@ def main() -> int:
                 continue
             consecutive_nvidia_audit_failures = 0
             if not audit_ok(latest_audit, child_running=True):
-                abort_reason = "nvidia-coexistence-audit"
+                abort_reason = audit_failure_reason(
+                    latest_audit, child_running=True
+                )
                 break
             time.sleep(POLL_SECONDS)
         if abort_reason is not None:

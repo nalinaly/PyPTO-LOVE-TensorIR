@@ -23,7 +23,7 @@ HTML are local deliverables; the matrix itself is a publication audit.
 | Eager versus PyPTO Inductor ablation | qwen35-9b-inductor-ablation-current.json | PASS at SwiGLU operator scope; PyPTO is slower |
 | Cold-start and compile-time comparison | Inductor ablation JSON plus invalidated full-model pair | PASS at operator scope; full-model cold timings are diagnostic until the resource-compliant rerun |
 | Full-model eager control | qwen35-9b-eager-compile-ablation-current.json | PASS as non-causal control; CompilerInterface was not invoked |
-| End-to-end PyPTO versus matched stock | qwen35-9b-performance-pair-current.json, 4 starts/lane | OPEN: diagnostic ratio 17.31%, but 3/4 PyPTO starts crossed the 4 GiB high-frequency NVML floor and cpu_offload_gb differed 0 versus 2; pair status invalidated-resource-and-control |
+| End-to-end PyPTO versus matched stock | qwen35-9b-performance-pair-current.json; matched-performance-qualification-current.json | OPEN: old diagnostic pair violated resource/control gates; first corrected qualification was interrupted by a newly started protected host-heavy workload |
 | End-to-end PyPTO versus optimized stock | optimized lane run attempts; optimized-lane-diagnostic-current.json; formal run pypto-gpu-bounded-20260830T161746Z-2433114-b55eb2 | OPEN: 4 GiB GPU-free controller floor was hit by historical attempts; latest attempt hit an nvidia-smi telemetry timeout before a complete report; no percentage promoted |
 | Operator performance breakdown | release-operator-ab aggregation.json, 7 aligned cases | PASS |
 | Full-model CUPTI/NVTX phase breakdown | profile attempt 20260830T152705Z | OPEN: KV-cache memory qualification |

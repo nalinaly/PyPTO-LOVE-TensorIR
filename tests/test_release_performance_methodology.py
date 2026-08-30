@@ -161,6 +161,42 @@ def test_pair_summary_requires_cross_lane_memory_comparability() -> None:
         performance_pair_tool.validate_pair_comparability(pypto, matched)
 
 
+def _pair_record(lane: str, start: int, value: float) -> dict[str, object]:
+    sampled = _performance_report(lane, start, value)["resources"]
+    return {
+        "lane": lane,
+        "run_id": f"pair-{lane}-{start}",
+        "report": f"runs/pair-{lane}-{start}.json",
+        "report_sha256": "a" * 64,
+        "metrics": {
+            metric: value
+            for metric in performance_pair_tool.METRICS
+        },
+        "cold_engine_start_ms": 100.0 + start,
+        "first_compile_trigger_request_ms": 200.0 + start,
+        "memory_qualification": lanes.performance_memory_qualification(
+            lane, "matched", Path("Qwen3.5-9B")
+        ),
+        "compilation": {"requested": True},
+        "resources": sampled["summary"],
+        "gpu_identity": sampled["gpu_identity"],
+        "requested_server_config": lanes.performance_server_kwargs(
+            lane, Path("Qwen3.5-9B"), "matched"
+        ),
+        "resolved_backends": _resolved_record(lane),
+    }
+
+
+def test_pair_controller_and_cli_share_one_complete_summarizer() -> None:
+    result = performance_pair_tool.summarize_records(
+        [_pair_record("pypto", start, 2.0) for start in range(4)],
+        [_pair_record("sglang-matched", start, 4.0) for start in range(4)],
+    )
+    assert result["status"] == "complete"
+    assert result["matched_comparability"]["matched_claim_allowed"] is True
+    assert result["comparison"]["pypto_percent_of_matched"] == pytest.approx(50.0)
+
+
 def test_eager_control_can_consume_only_valid_matched_subset_of_invalid_pair() -> None:
     sampled = _performance_report("sglang-matched", 0, 1.0)["resources"]
     matched_start = {

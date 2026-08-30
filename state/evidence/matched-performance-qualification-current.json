@@ -1,0 +1,34 @@
+{
+  "schema": 1,
+  "kind": "qwen35-9b-matched-performance-qualification",
+  "status": "open",
+  "accepted": false,
+  "attempts": [
+    {
+      "run_id": "pypto-gpu-bounded-20260830T174802Z-2458897-84463a",
+      "lane": "pypto",
+      "configuration": {
+        "cpu_offload_gb": 2,
+        "mem_fraction_static": 0.78,
+        "optimized_memory_mode": "matched"
+      },
+      "status": "aborted",
+      "abort_reason": "host-memory-emergency-floor",
+      "initial_mem_available_kib": 59807616,
+      "minimum_mem_available_kib": 8734536,
+      "latest_gpu_free_mib": 6045,
+      "external_nvidia_compute_pids": [],
+      "performance_report": null,
+      "environment_observation": "A protected zcode Qwen3.5-9B TP4/gem5 workload started after this run was admitted and drove host memory below the emergency floor.",
+      "raw_process_evidence": "runs/pypto-gpu-bounded-20260830T174802Z-2458897-84463a/process.json"
+    }
+  ],
+  "current_controller_policy": {
+    "controller_sha256": "9ad4c2b319102d48b34dfa0aba8ecf4de1653e9891831c109350d634c3887be5",
+    "protected_heavy_required_absent": true,
+    "runtime_abort_reason": "protected-heavy-coexistence",
+    "external_process_signals": false,
+    "evidence_boundary": "The controller rejects a protected heavy workload at admission or runtime and only cleans its own verified session."
+  },
+  "next_step": "After heavy preflight stays green, run one PyPTO and one sglang-matched qualification start, then the independent eight-start pair matrix."
+}

@@ -71,6 +71,11 @@ remain reproducible diagnostics, but the pair status is
 old pair also used `cpu_offload_gb=0` for PyPTO and `2` for matched. The new
 performance-only configuration gives both lanes `cpu_offload_gb=2` and
 `mem_fraction_static=0.78`; correctness configurations remain unchanged. The
+first corrected PyPTO qualification start was interrupted by a protected
+host-heavy workload that appeared after admission and produced no performance
+report; see `state/evidence/matched-performance-qualification-current.json`.
+The controller now stops its own run immediately when such a workload appears
+and never sends it a signal. The
 matched lane keeps
 enable_torch_compile=true but disables CUDA graphs, so this pinned SGLang
 version does not invoke the global CompilerInterface; the report records

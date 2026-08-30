@@ -65,6 +65,10 @@ accepted trace 的 artifact union 与 model-forward compute intersection：
 matched 比值必须重测。旧 pair 还使用了 PyPTO `cpu_offload_gb=0`、matched
 `cpu_offload_gb=2`；新的 performance-only 配置把两条 lane 统一为
 `cpu_offload_gb=2, mem_fraction_static=0.78`，而 correctness 配置保持不变。
+首次修正后的 PyPTO 资格 start 被随后自动启动的受保护 host-heavy 任务触发
+emergency floor 中止，没有生成性能 report；见
+state/evidence/matched-performance-qualification-current.json。controller 现在会在
+这类任务出现时立即停止自己的 run，而不会等待主机内存跌穿或发送外部信号。
 完整 JSON 为
 state/evidence/qwen35-9b-performance-pair-current.json；模型 gate
 sidecar 为 state/evidence/qwen35-0.8b-model-gate-current.json 和

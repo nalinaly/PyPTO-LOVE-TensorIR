@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `63`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `64`
 
 ## Current phase: resource-gated Qwen inference qualification and publication closure
 
@@ -1746,3 +1746,28 @@ The next exclusive resource window runs, in order:
 Protected zcode/gem5/SGLang workloads currently keep heavy preflight red. Do
 not signal them and do not launch any formal GPU lane until that preflight
 returns zero naturally.
+
+---
+# Qualification-coexistence checkpoint: 2026-08-31 (revision 64)
+
+After heavy preflight briefly returned green, a corrected PyPTO qualification
+start (`pypto-gpu-bounded-20260830T174802Z-2458897-84463a`) was admitted with
+the common `2 / 0.78` timing envelope. A protected zcode Qwen3.5-9B TP4/gem5
+job started roughly two minutes later. Host `MemAvailable` fell from 59,807,616
+KiB to 8,734,536 KiB, so the controller stopped only its own session at the
+emergency floor. The latest GPU audit still had 6,045 MiB free and no external
+NVIDIA compute PID; no timing/resource report was produced. This is an
+environment-coexistence abort, not evidence for or against the new memory
+configuration.
+
+The bounded GPU audit now treats any protected heavy process as an immediate
+exclusive-performance violation, even if it has no NVIDIA runtime mapping.
+Admission and runtime both fail closed; runtime records
+`protected-heavy-coexistence` and never signals the protected PID. The compact
+attempt record is `state/evidence/matched-performance-qualification-current.json`.
+
+An independent `--pair-matrix` mode now runs only the interleaved four PyPTO
+and four matched starts. It shares the sole pair summarizer, so optimized-stock
+failure cannot erase a completed matched headline. The full 12-start matrix is
+still required afterwards for the optimized comparison. Resume only when the
+protected-heavy set remains empty across the one-plus-one qualification starts.

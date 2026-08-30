@@ -191,6 +191,29 @@ def check_performance(errors: list[str]) -> None:
         lock = ROOT / "vendor/source-lock.json"
         if pair.get("source", {}).get("source_lock_sha256") != sha256(lock):
             errors.append("performance pair source-lock hash is stale")
+    qualification = load(
+        ROOT / "state/evidence/matched-performance-qualification-current.json",
+        errors,
+    )
+    if qualification is not None:
+        attempts = qualification.get("attempts")
+        if (
+            qualification.get("status") != "open"
+            or qualification.get("accepted") is not False
+            or not isinstance(attempts, list)
+            or len(attempts) != 1
+            or attempts[0].get("abort_reason") != "host-memory-emergency-floor"
+            or attempts[0].get("performance_report") is not None
+            or qualification.get("current_controller_policy", {}).get(
+                "runtime_abort_reason"
+            )
+            != "protected-heavy-coexistence"
+            or qualification.get("current_controller_policy", {}).get(
+                "controller_sha256"
+            )
+            != sha256(ROOT / "tools/run_pypto_gpu_bounded.py")
+        ):
+            errors.append("matched performance qualification boundary drifted")
     source = load(ROOT / "state/evidence/qwen35-9b-inductor-source-current.json", errors)
     if source is not None:
         if source.get("status") != "complete" or set(source.get("cases", {})) != {"prefill", "decode"}:
@@ -309,6 +332,8 @@ def main() -> int:
                 errors.append(f"{name} misses the corrected performance memory mode")
             if "--pair-matrix" not in text:
                 errors.append(f"{name} misses the independent matched pair matrix")
+            if "matched-performance-qualification-current.json" not in text:
+                errors.append(f"{name} misses the current qualification blocker")
             if "--optimized-memory-mode zero-offload" in text:
                 errors.append(f"{name} retains the rejected performance memory mode")
         if BILIBILI_URL not in text:
