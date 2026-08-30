@@ -1,4 +1,23 @@
 {
+  "acceptance": {
+    "accepted": false,
+    "affected_lane": "pypto",
+    "affected_run_ids": [
+      "pypto-gpu-bounded-20260830T125719Z-2380600-b410bb",
+      "pypto-gpu-bounded-20260830T130313Z-2382469-63d4f6",
+      "pypto-gpu-bounded-20260830T130906Z-2384455-6a96fa"
+    ],
+    "diagnostic_values_retained": true,
+    "evidence_boundary": "The measured timing values remain reproducible diagnostics, but they are not an accepted release headline because three of four PyPTO starts crossed the high-frequency NVML GPU free-memory floor.",
+    "minimum_observed_gpu_free_bytes": 4185067520,
+    "recheck_script_sha256": "97bebbfe3aaf864049e09af1895cbf1dd0f085d7e11c2ee1d6eddb723f0c37ec",
+    "rechecked_at": "2026-08-30T16:57:45+00:00",
+    "required_gpu_free_bytes": 4294967296,
+    "shortfall_bytes": 109899776,
+    "starts_below_floor": 3,
+    "starts_total": 4,
+    "status": "invalidated-resource-floor"
+  },
   "comparison": {
     "latency_metrics": {
       "e2e_ms": {
@@ -1684,7 +1703,7 @@
     "summary_script": "tools/summarize_qwen_performance_pair.py",
     "summary_script_sha256": "b6865139895efe2b940baec17089e0319ea094f1638beebd082cc1aa57db7d4d"
   },
-  "status": "complete",
+  "status": "invalidated-resource-floor",
   "workload": {
     "chat_template_kwargs": {
       "add_generation_prompt": true,

@@ -156,13 +156,32 @@ def check_performance(errors: list[str]) -> None:
             if abs(float(derived.get("compiled_launch_reduction_vs_eager_percent", -1)) - 83.33333333333334) > 1e-9:
                 errors.append(f"{phase} launch-reduction denominator drifted")
     pair = load(ROOT / "state/evidence/qwen35-9b-performance-pair-current.json", errors)
-    if pair is not None and (
-        pair.get("status") != "complete"
-        or pair.get("performance_only") is not True
-        or pair.get("comparison", {}).get("pypto_percent_of_matched") is None
-    ):
-        errors.append("current performance pair summary is incomplete")
     if pair is not None:
+        acceptance = pair.get("acceptance")
+        if (
+            pair.get("status") != "invalidated-resource-floor"
+            or pair.get("performance_only") is not True
+            or pair.get("comparison", {}).get("pypto_percent_of_matched") is None
+            or not isinstance(acceptance, dict)
+            or acceptance.get("accepted") is not False
+            or acceptance.get("required_gpu_free_bytes") != 4 * 1024**3
+            or acceptance.get("minimum_observed_gpu_free_bytes") != 4185067520
+            or acceptance.get("starts_below_floor") != 3
+        ):
+            errors.append("current performance pair invalidation boundary drifted")
+        pypto_lane = pair.get("lanes", {}).get("pypto", {})
+        starts = pypto_lane.get("starts", []) if isinstance(pypto_lane, dict) else []
+        observed = [
+            start.get("resources", {}).get("minimum_gpu_memory_free_bytes")
+            for start in starts
+            if isinstance(start, dict) and isinstance(start.get("resources"), dict)
+        ]
+        if (
+            len(observed) != 4
+            or sum(type(value) is int and value < 4 * 1024**3 for value in observed)
+            != 3
+        ):
+            errors.append("performance pair raw start floors do not match invalidation")
         lock = ROOT / "vendor/source-lock.json"
         if pair.get("source", {}).get("source_lock_sha256") != sha256(lock):
             errors.append("performance pair source-lock hash is stale")
@@ -258,6 +277,8 @@ def main() -> int:
         if name != "LEGAL_NOTICE.md":
             if ARTICLE_URL not in text or PROMPT not in text:
                 errors.append(f"{name} misses article URL or exact prompt")
+            if "invalidated-resource-floor" not in text:
+                errors.append(f"{name} misses matched-pair invalidation boundary")
         if BILIBILI_URL not in text:
             errors.append(f"{name} misses interview attribution URL")
         checked.append(name)
@@ -279,6 +300,7 @@ def main() -> int:
     if "OPEN: 4 GiB GPU-free controller floor" not in matrix_text:
         errors.append("final requirement matrix is missing optimized-lane boundary")
     blockers = [
+        "matched full-model performance pair needs a resource-compliant rerun",
         "optimized stock lane has no accepted sample",
         "full-model CUPTI/NVTX profile was stopped by the GPU memory floor",
         "PowerShell GUI captures are pending",

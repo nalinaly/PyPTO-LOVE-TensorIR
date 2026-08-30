@@ -30,6 +30,7 @@ def _load_tool(name: str):
 
 
 operator_performance_tool = _load_tool("run_operator_performance.py")
+performance_pair_tool = _load_tool("summarize_qwen_performance_pair.py")
 
 
 def _resolved_record(lane: str) -> dict[str, object]:
@@ -90,6 +91,7 @@ def _performance_report(lane: str, start: int, value: float) -> dict[str, object
                 "minimum_gpu_memory_free_bytes": 4 * 1024**3,
                 "minimum_mem_available_kib": 16 * 1024**2,
                 "peak_owned_pgid_rss_kib": 8 * 1024**2,
+                "sample_count": 100,
                 "thermal_throttle_observed": False,
             },
         },
@@ -110,6 +112,27 @@ def test_fresh_start_bootstrap_is_deterministic_and_retains_tails() -> None:
     assert first["p99_nearest_rank"] == 10.0
     assert first["sample_unit"] == "fresh_process_start"
     assert first["median_bootstrap_95ci"]["resamples"] == 10_000
+
+
+def test_pair_summary_rejects_subfloor_high_frequency_nvml_sample(
+    tmp_path: Path,
+) -> None:
+    resources = _performance_report("pypto", 0, 1.0)["resources"]
+    resources["summary"]["minimum_gpu_memory_free_bytes"] = (
+        performance_pair_tool.GPU_FREE_FLOOR_BYTES - 1
+    )
+    with pytest.raises(workload.ReleaseContractError, match="GPU free-memory floor"):
+        performance_pair_tool.validate_resources(resources, tmp_path / "report.json")
+
+
+def test_pair_summary_accepts_exact_resource_floors(tmp_path: Path) -> None:
+    resources = _performance_report("pypto", 0, 1.0)["resources"]
+    summary, identity = performance_pair_tool.validate_resources(
+        resources, tmp_path / "report.json"
+    )
+    assert summary["minimum_gpu_memory_free_bytes"] == 4 * 1024**3
+    assert summary["minimum_mem_available_kib"] == 16 * 1024**2
+    assert identity["uuid"] == "GPU-test"
 
 
 def test_performance_summary_uses_start_medians_and_matched_pytorch_sampler() -> None:

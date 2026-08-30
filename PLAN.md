@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `61`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `62`
 
 ## Current phase: resource-gated Qwen inference qualification and publication closure
 
@@ -1458,10 +1458,10 @@ stages below. These are the current facts to use when resuming; older
   one teacher-forced strict trace, and zero unknown/fallback compute. The
   compact bindings are qwen35-0.8b-model-gate-current.json and
   qwen35-9b-model-gate-current.json.
-- Performance: complete for the accepted pair. Four PyPTO and four matched
-  stock starts are summarized in qwen35-9b-performance-pair-current.json;
-  PyPTO is 17.31% of matched output throughput (CI 17.22%--17.45%). The
-  optimized stock lane remains a resource-qualification blocker.
+- Performance: the four-start pair is retained as diagnostic evidence but was
+  invalidated by revision 62: 3/4 PyPTO starts crossed the high-frequency NVML
+  4 GiB GPU free floor. Its 17.31% ratio is not a formal headline. Matched and
+  optimized stock comparisons both require resource-compliant reruns.
 - Full-model CUPTI/NVTX phase profile: attempted candidate collection was
   stopped at model-load KV-cache qualification (4 GiB controller floor); no
   phase percentage or residual attribution is promoted.
@@ -1640,8 +1640,8 @@ increase its timeout or bypass its audit merely to obtain a percentage. On the
 next genuinely stable window, rerun one formal start first, then the required
 four-start matrix only if the report contains complete warm/cold metrics,
 runtime-observed graph state, source identity and resource telemetry. A valid
-matrix must be compared against the already accepted four-start matched pair
-and trigger regeneration of all dependent summaries and figures.
+matrix must replace the invalidated four-start matched diagnostic pair and
+trigger regeneration of all dependent summaries and figures.
 
 ---
 # Measurement-controller checkpoint: 2026-08-31 (revision 61)
@@ -1661,5 +1661,34 @@ The fallback has unit coverage and a live `-E -B -S` identity/PID probe on the
 RTX 5090. It is a tooling fix, not performance evidence. Re-run the formal
 optimized lane only after protected workloads leave; accept the lane only if
 the resulting report contains complete warm/cold metrics, resource telemetry,
-source identity and runtime graph fields. Do not change the accepted matched
-pair or headline numbers based on the previous aborted runs.
+source identity and runtime graph fields. The optimized aborts alone do not
+change matched numbers; revision 62 separately invalidates that pair from its
+own high-frequency resource evidence.
+
+---
+# Performance-evidence correction: 2026-08-31 (revision 62)
+
+The high-frequency NVML summaries in the previously labelled accepted
+PyPTO/matched pair exposed a validation omission in
+`tools/summarize_qwen_performance_pair.py`. The controller's one-second
+`nvidia-smi` audit accepted all four children, but the independent 100 ms NVML
+sampler recorded PyPTO minimum free memory of 4,185,329,664; 4,185,264,128;
+4,185,067,520; and 4,295,708,672 bytes. The first three are below the fixed
+4,294,967,296-byte floor. Therefore the pair is now
+`invalidated-resource-floor`; its 2.6671/15.4100 tok/s and 17.31% ratio remain
+reproducible diagnostic values only, not a release headline.
+
+The summarizer now fails closed on every start for NVML availability, integer
+resource fields, nonempty sampling, 4 GiB GPU free, 12 GiB host free, thermal
+throttling and across-start configuration drift. The corresponding regression
+tests include an exact-floor pass and a one-byte-below rejection. Correctness,
+stability and 100% model-forward coverage gates are independent and remain
+accepted.
+
+Resume performance work only after protected workloads leave. First rerun four
+PyPTO and four matched starts under the same frozen workload with the repaired
+controller and summarizer; all eight reports must pass their 100 ms resource
+summaries. Then qualify optimized stock and collect the three-lane CUPTI/NVTX
+matrix. Regenerate README/blog/HTML and GPT-Image-2 inputs only from that new
+accepted evidence. Until then, every 17.31% occurrence must say `diagnostic`,
+and the requirement matrix keeps both full-model comparisons `OPEN`.

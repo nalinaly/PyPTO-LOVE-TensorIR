@@ -39,9 +39,9 @@ non-thinking 输入 31 token，greedy 输出 64 token，BF16、TP1、并发 1。
 | 9B correctness/coverage | 当前 wheel 的 3 个 fresh start 全部完成；每个 10/10 请求和 strict teacher-forced trace 通过 |
 | model-forward coverage | 已通过 trace：33,448 compute calls = 31,400 手写 PyPTO + 2,048 Inductor PyPTO，unknown/fallback 0，100% |
 | 0.8B current wheel | stock reference + 3 个 candidate fresh start 全部完成；每个 trace 22,108/22,108 covered calls = 20,572 手写 + 1,536 Inductor |
-| PyPTO output throughput | 四次 fresh start 中位数 2.6671 tok/s，95% CI [2.6646, 2.6877] |
-| matched SGLang | 四次 fresh start 中位数 15.4100 tok/s，95% CI [15.3408, 15.4923] |
-| PyPTO / matched | 17.31%，95% CI [17.22%, 17.45%]；即低 82.69% |
+| PyPTO output throughput | 四次 fresh start 的诊断中位数 2.6671 tok/s；资源复核后 3/4 start 低于 4 GiB GPU free floor，不能作为正式 headline |
+| matched SGLang | 同一诊断 pair 的中位数 15.4100 tok/s；baseline start 本身完整，但 pair 因 candidate 资源违规而整体不接受 |
+| PyPTO / matched | 诊断比值 17.31%，95% CI [17.22%, 17.45%]；正式比值待资源合规重测 |
 | optimized SGLang | 未报告；CUDA-graph 配置在本机低于 4 GiB free-memory 门禁 |
 
 accepted trace 的 artifact union 与 model-forward compute intersection：
@@ -51,7 +51,7 @@ accepted trace 的 artifact union 与 model-forward compute intersection：
 | Qwen3.5-0.8B | 22,108 | 20,572 | 1,536 | 0 | 100% |
 | Qwen3.5-9B | 33,448 | 31,400 | 2,048 | 0 | 100% |
 
-整模四-start 中位数：
+整模四-start 诊断中位数（不作为正式发布 headline）：
 
 | lane | E2E | TTFT | TPOT | output tok/s | cold engine | 首次编译触发请求 |
 |---|---:|---:|---:|---:|---:|---:|
@@ -59,7 +59,11 @@ accepted trace 的 artifact union 与 model-forward compute intersection：
 | matched | 4153.16 ms | 69.81 ms | 64.61 ms | 15.4100 | 15208.36 ms | 24013.73 ms |
 
 首次编译触发请求包含编译和一个完整 31+64 请求，不是 compiler-only 时间。
-完整 JSON 为 state/evidence/qwen35-9b-performance-pair-current.json；模型 gate
+高频 NVML 复核记录的 PyPTO 最低 free 为 4,185,067,520 B，低于
+4,294,967,296 B 门禁 109,899,776 B；前三个 start 均低于门禁。因此上述
+时序值保留为可复现诊断数据，但 pair 状态是 `invalidated-resource-floor`，正式
+matched 比值必须重测。完整 JSON 为
+state/evidence/qwen35-9b-performance-pair-current.json；模型 gate
 sidecar 为 state/evidence/qwen35-0.8b-model-gate-current.json 和
 state/evidence/qwen35-9b-model-gate-current.json；生成
 kernel 的 DSL、wrapper 和 artifact hash 见
@@ -68,8 +72,8 @@ state/evidence/qwen35-9b-inductor-source-current.json。
 state/evidence/qwen35-9b-eager-compile-ablation-current.json。
 
 整模 eager control 也已单独运行一次：关闭 torch.compile、保持 matched provider，
-output 15.3418 tok/s、E2E 4171.67 ms；matched compile-request 的四-start
-中位数为 15.4100 tok/s、4153.16 ms。但 matched 配置禁用 CUDA Graph 后
+output 15.3418 tok/s、E2E 4171.67 ms；失效 pair 中 matched compile-request
+的诊断中位数为 15.4100 tok/s、4153.16 ms。但 matched 配置禁用 CUDA Graph 后
 CompilerInterface/Inductor 实际未调用，因此这不是有效的整模 compile 因果加速率；
 machine-readable 记录为 state/evidence/qwen35-9b-eager-compile-ablation-current.json。
 
@@ -277,7 +281,8 @@ tools/windows/capture_terminal.ps1。
 只验证 SM120/RTX 5090 Laptop；静态 shape/stride specialization；完整 MLP
 不跨 matmul 融合；GDN 长 prefill 为有序 tokenwise launch；PyPTO matmul/
 LM-head/launch overhead 尚未优化；optimized lane、全模型 CUPTI/NVTX profile、
-全文章 demo runtime、GPT-Image-2 图像和新 PowerShell 截图仍是门禁。
+资源合规的 matched 四-start 重测、全文章 demo runtime、GPT-Image-2 图像和新
+PowerShell 截图仍是门禁。
 TensorIR 上游为 early release。
 
 PyPTO 使用 CANN Open Software License Agreement 2.0；TensorIR 使用 Apache

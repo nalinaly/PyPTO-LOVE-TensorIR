@@ -43,9 +43,9 @@ output tokens, BF16, TP1, concurrency 1.
 | 9B correctness/coverage | Three fresh starts on the current wheel completed 10/10 Engine requests and one strict teacher-forced trace each |
 | Model-forward coverage | Accepted traces: 33,448 compute calls = 31,400 handwritten PyPTO + 2,048 Inductor PyPTO, with zero unknown/fallback calls (100%) |
 | 0.8B current wheel | Stock reference plus three candidate fresh starts completed; each trace covers 22,108/22,108 calls = 20,572 handwritten + 1,536 Inductor |
-| PyPTO output throughput | Median of four fresh starts: 2.6671 tok/s; 95% bootstrap CI [2.6646, 2.6877] |
-| Matched SGLang | Median of four fresh starts: 15.4100 tok/s; 95% bootstrap CI [15.3408, 15.4923] |
-| PyPTO / matched | 17.31%, CI [17.22%, 17.45%]; current PyPTO is 82.69% lower |
+| PyPTO output throughput | Diagnostic median of four fresh starts: 2.6671 tok/s; the resource recheck found 3/4 starts below the 4 GiB GPU-free floor, so this is not a release headline |
+| Matched SGLang | 15.4100 tok/s in the same diagnostic pair; its starts completed, but the pair is not accepted because the candidate violated the resource policy |
+| PyPTO / matched | Diagnostic ratio 17.31%, CI [17.22%, 17.45%]; a formal ratio requires a resource-compliant rerun |
 | Optimized SGLang | Not reported; its CUDA-graph configuration fell below the 4 GiB free-memory floor on this GPU |
 
 Artifact-union versus model-forward compute intersection for accepted traces:
@@ -55,7 +55,7 @@ Artifact-union versus model-forward compute intersection for accepted traces:
 | Qwen3.5-0.8B | 22,108 | 20,572 | 1,536 | 0 | 100% |
 | Qwen3.5-9B | 33,448 | 31,400 | 2,048 | 0 | 100% |
 
-Four-start end-to-end medians (each start first reduces ten requests to a p50):
+Diagnostic four-start end-to-end medians (not a release headline):
 
 | lane | E2E | TTFT | TPOT | output tok/s | cold engine | first compile-trigger request |
 |---|---:|---:|---:|---:|---:|---:|
@@ -63,7 +63,12 @@ Four-start end-to-end medians (each start first reduces ten requests to a p50):
 | matched | 4153.16 ms | 69.81 ms | 64.61 ms | 15.4100 | 15208.36 ms | 24013.73 ms |
 
 The first compile-trigger request includes compilation and one complete 31+64
-request; it is not compiler-only time. The matched lane keeps
+request; it is not compiler-only time. High-frequency NVML sampling observed a
+PyPTO minimum of 4,185,067,520 free bytes, 109,899,776 bytes below the
+4,294,967,296-byte floor; the first three starts crossed that floor. The values
+remain reproducible diagnostics, but the pair status is
+`invalidated-resource-floor` and the formal matched ratio must be rerun. The
+matched lane keeps
 enable_torch_compile=true but disables CUDA graphs, so this pinned SGLang
 version does not invoke the global CompilerInterface; the report records
 backend_invocation_observed=false. The PyPTO SwiGLU hook observes two generated
@@ -80,7 +85,8 @@ Machine-readable sources (including the two model-gate sidecars):
 
 One full-model eager control was also run with torch.compile disabled while
 keeping the matched providers: output 15.3418 tok/s and E2E 4171.67 ms. The
-matched compile-request median is 15.4100 tok/s and 4153.16 ms, but disabling
+diagnostic matched compile-request median in the invalidated pair is 15.4100
+tok/s and 4153.16 ms, but disabling
 CUDA graphs prevents the pinned SGLang CompilerInterface/Inductor invocation.
 This is therefore not a causal whole-model compile speedup; the timing-only
 record is state/evidence/qwen35-9b-eager-compile-ablation-current.json.
@@ -308,8 +314,9 @@ Fixed model prompt:
 Only SM120/RTX 5090 Laptop is validated. Shapes and strides are statically
 specialized; the complete MLP is not fused across matmul; long GDN prefill is
 token-ordered; PyPTO matmul/LM-head/launch overhead remains to be optimized.
-The optimized lane, full-model CUPTI/NVTX profile, full article-demo runtime,
-GPT-Image-2 assets, and new PowerShell captures remain publication gates.
+The optimized lane, a resource-compliant four-start matched rerun, full-model
+CUPTI/NVTX profile, full article-demo runtime, GPT-Image-2 assets, and new
+PowerShell captures remain publication gates.
 TensorIR is marked early release upstream.
 
 PyPTO uses CANN Open Software License Agreement 2.0. TensorIR uses Apache 2.0
