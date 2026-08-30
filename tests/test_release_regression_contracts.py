@@ -485,6 +485,41 @@ def test_shared_gemma_offload_compatibility_is_strict_and_backend_neutral() -> N
     with pytest.raises(workload.ReleaseContractError, match="tie_weights=False"):
         offloader.functional_call(module, {}, tie_weights=True)
 
+    class FakeViewTensor(FakeTensor):
+        def __init__(self, device: str, shape):
+            super().__init__(device)
+            self.shape = shape
+
+        def view(self, *shape):
+            return FakeViewTensor(self.device.type, shape)
+
+    original_view = FakeViewTensor("cuda", (4, 3))
+    replacement_weight = FakeViewTensor("cuda", (4, 1, 3))
+    gdn_module = SimpleNamespace(
+        linear_attn=SimpleNamespace(
+            conv1d=SimpleNamespace(weight=FakeViewTensor("cpu", (4, 1, 3))),
+            attn=SimpleNamespace(conv_weights=original_view),
+        ),
+        named_parameters=lambda *, remove_duplicate: [],
+    )
+
+    observed_view = []
+
+    def functional_call_with_view(module, state, *, args=None, kwargs=None, tie_weights=True):
+        observed_view.append(module.linear_attn.attn.conv_weights)
+        assert observed_view[-1].shape == (4, 3)
+        return "view-called"
+
+    view_offloader = SimpleNamespace(functional_call=functional_call_with_view)
+    sglang_compat._install_offloader_functional_call(view_offloader)
+    assert (
+        view_offloader.functional_call(
+            gdn_module, {"linear_attn.conv1d.weight": replacement_weight}
+        )
+        == "view-called"
+    )
+    assert gdn_module.linear_attn.attn.conv_weights is original_view
+
     record = {
         "applies_equally_to_lanes": [
             "pypto",
