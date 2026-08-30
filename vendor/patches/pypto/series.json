@@ -1,15 +1,15 @@
 {
   "base_commit": "e2d0f78ae6d709c0d6ee345a48db2c3d621a4b09",
   "base_tree": "a46f244a62dfab663fbeb899eb62ee8a042a0b41",
-  "commit_count": 299,
+  "commit_count": 300,
   "format_patch_options": [
     "--binary",
     "--full-index",
     "--no-signature",
     "--numbered-files"
   ],
-  "head_commit": "a50a03d2c77e90ceaf145ce98c12e93e73966cd3",
-  "head_tree": "ddfb446beedc482f6f2800b9085749002a5be4cd",
+  "head_commit": "c27629e993a52b47d41fb898c749279dce44221b",
+  "head_tree": "9c83297fd1f58007ce50bb4ecc43a4b7246ff73e",
   "patches": [
     {
       "bytes": 1579,
@@ -2402,6 +2402,14 @@
       "sha256": "03d115781832a643cc531b8c0013b25ae1033685a6cfeb32d99acec4412d3096",
       "source_commit": "a50a03d2c77e90ceaf145ce98c12e93e73966cd3",
       "subject": "Subject: [PATCH] codegen: preserve typed gated and batched output shapes"
+    },
+    {
+      "bytes": 2637,
+      "file": "0300.patch",
+      "order": 300,
+      "sha256": "907f741a8d60be26f060f59b1d80405940e53347399f79a1051c72e802507f9f",
+      "source_commit": "c27629e993a52b47d41fb898c749279dce44221b",
+      "subject": "Subject: [PATCH] codegen: keep gated RMSNorm weight semantics explicit"
     }
   ],
   "repository": "pypto",

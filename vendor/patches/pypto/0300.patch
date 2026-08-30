@@ -1,0 +1,51 @@
+From c27629e993a52b47d41fb898c749279dce44221b Mon Sep 17 00:00:00 2001
+From: zhaosiying12138 <neucszhaopeng2016@163.com>
+Date: Sun, 30 Aug 2026 16:14:59 +0800
+Subject: [PATCH] codegen: keep gated RMSNorm weight semantics explicit
+
+---
+ src/codegen/nvidia/tensor_ir_codegen.cpp | 17 +++++++++++------
+ 1 file changed, 11 insertions(+), 6 deletions(-)
+
+diff --git a/src/codegen/nvidia/tensor_ir_codegen.cpp b/src/codegen/nvidia/tensor_ir_codegen.cpp
+index 5f5b003d0587b57ea48381f3c6a220c2e9d730bf..3649673775560dfe022dba9ba528284e7822a58d 100644
+--- a/src/codegen/nvidia/tensor_ir_codegen.cpp
++++ b/src/codegen/nvidia/tensor_ir_codegen.cpp
+@@ -3235,7 +3235,8 @@ uint32_t AppendWeightedRmsNorm(GenericTensorIrSpecBuilder& builder,
+                                const StaticTensor& input,
+                                const StaticTensor& weight, double mean_scale,
+                                double epsilon,
+-                               bool convert_result = true) {
++                               bool convert_result = true,
++                               bool add_one_to_weight = true) {
+   const bool widen = input.dtype == DataType::BF16;
+   StaticTensor compute = input;
+   if (widen) compute.dtype = DataType::FP32;
+@@ -3266,10 +3267,13 @@ uint32_t AppendWeightedRmsNorm(GenericTensorIrSpecBuilder& builder,
+ 
+   const uint32_t weight_wide = builder.TensorOp(
+       TypedTensorIrOpKind::Convert, {weight_value}, weight_compute);
+-  const uint32_t one = builder.Constant(DataType::FP32, 1.0);
+-  const uint32_t weight_scale = builder.TensorOp(
+-      TypedTensorIrOpKind::Add, {weight_wide, builder.Splat(one, weight_compute)},
+-      weight_compute);
++  uint32_t weight_scale = weight_wide;
++  if (add_one_to_weight) {
++    const uint32_t one = builder.Constant(DataType::FP32, 1.0);
++    weight_scale = builder.TensorOp(
++        TypedTensorIrOpKind::Add,
++        {weight_wide, builder.Splat(one, weight_compute)}, weight_compute);
++  }
+   uint32_t weight_full = weight_scale;
+   if (input.shape[0] != 1) {
+     weight_full = builder.TensorOp(TypedTensorIrOpKind::Broadcast,
+@@ -3323,7 +3327,8 @@ TypedTensorIrModuleSpec MakeGenericGatedRmsNormTensorIrSpec(
+   builder.AddResult(graph.result);
+   const uint32_t weighted = AppendWeightedRmsNorm(
+       builder, builder.Input(0), builder.Input(2), graph.input, graph.weight,
+-      graph.mean_scale, graph.epsilon, /*convert_result=*/false);
++      graph.mean_scale, graph.epsilon, /*convert_result=*/false,
++      /*add_one_to_weight=*/false);
+   StaticTensor compute = graph.input;
+   compute.dtype = DataType::FP32;
+   const uint32_t gate_wide = builder.TensorOp(

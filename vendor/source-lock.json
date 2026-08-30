@@ -108,12 +108,12 @@
       "base_tree": "a46f244a62dfab663fbeb899eb62ee8a042a0b41",
       "bundle": {
         "base_ref": "refs/tags/upstream-base",
-        "bytes": 9156689,
+        "bytes": 9160061,
         "head_ref": "refs/heads/nvidia-sm120",
         "path": "vendor/git/pypto.bundle",
-        "sha256": "bc4c26dce9ea5aa332ac37cc299f4ce0da9cd0f9f52b37376e13a53fb3e84687"
+        "sha256": "46c78ec8fdc8c75e6579f980cfa2fb6119d3f57cc519be274ea4e033ef315a09"
       },
-      "commit_count": 299,
+      "commit_count": 300,
       "gitlinks": {
         "3rdparty/libbacktrace": "6f8310e238fc3ce68f42f391cbe93fd156bb2c23",
         "3rdparty/msgpack-c": "919908742b4fdbc575e77fe1a8657e70c9573c44",
@@ -122,14 +122,14 @@
         "3rdparty/nvidia/tensor-ir": "db41d0733eb73971ee03a74faca81d1af6e6aef7",
         "runtime": "93adc3865e65fd72655f571f2e4165cf5ac02616"
       },
-      "head_commit": "a50a03d2c77e90ceaf145ce98c12e93e73966cd3",
-      "head_tree": "ddfb446beedc482f6f2800b9085749002a5be4cd",
+      "head_commit": "c27629e993a52b47d41fb898c749279dce44221b",
+      "head_tree": "9c83297fd1f58007ce50bb4ecc43a4b7246ff73e",
       "origin_url": "https://github.com/hw-native-sys/pypto.git",
       "patch_series": {
         "directory": "vendor/patches/pypto",
         "manifest": "vendor/patches/pypto/series.json",
-        "manifest_bytes": 96166,
-        "manifest_sha256": "1e61b042cec6e2f519a8e4fbf830576a20e7dcae3e43cabb5b1eb2d387642c05"
+        "manifest_bytes": 96489,
+        "manifest_sha256": "ad99ae056a96b48ae89663c8ad43ac6072f681fe7b81be45471fe88c99064ca4"
       },
       "shallow_boundary": "e2d0f78ae6d709c0d6ee345a48db2c3d621a4b09"
     },
