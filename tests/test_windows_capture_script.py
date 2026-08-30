@@ -16,7 +16,11 @@ def test_capture_script_has_owned_window_and_output_guards() -> None:
     assert "Find-WindowByExactTitle" in source
     assert "GetWindowRect" in source
     assert "SetForegroundWindow" in source
+    assert "PrintWindow" in source
+    assert "PW_RENDERFULLCONTENT" not in source  # Numeric flag avoids SDK coupling.
     assert "CopyFromScreen" in source
+    assert "visibleSamples" in source
+    assert "blank or unreadable" in source
     assert "OutputPath must be an absolute Windows path" in source
     assert "screenshot retained" in source
     assert "PostMessage($window" in source

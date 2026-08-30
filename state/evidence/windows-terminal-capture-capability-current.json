@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "kind": "windows-terminal-capture-capability",
+  "status": "pass",
+  "recorded_at": "2026-08-30T18:39:15+00:00",
+  "capture_script": "tools/windows/capture_terminal.ps1",
+  "capture_script_sha256": "3d5a86f6995d5dbfe46dfe9f64c1c9c34adfe029c035bc43789fe096befa1c42",
+  "terminal": {
+    "host": "Windows Terminal",
+    "distro": "Ubuntu",
+    "theme": "PowerShell purple"
+  },
+  "capture": {
+    "method": "PrintWindow",
+    "command_scope": "non-release smoke; this image is not one of the five publication roles",
+    "path": "runs/windows-terminal-capture-smoke.png",
+    "sha256": "0479bf6e7e9f07d432d215747e981568842469d933bed86c28dd91a6fb5367c9",
+    "metadata_path": "runs/windows-terminal-capture-smoke-metadata.json",
+    "metadata_sha256": "389ed9612f29e2f35f85542aa67c9a2fcf3f7632947d2aa91da7913d7b6ef571",
+    "bytes": 53186,
+    "width": 1549,
+    "height": 925,
+    "visible_samples": 5184,
+    "sample_count": 5335,
+    "exit_code": 0
+  },
+  "evidence_boundary": "This proves the current script can create a nonblank, readable GUI capture and matching metadata. It is not a release-role screenshot."
+}

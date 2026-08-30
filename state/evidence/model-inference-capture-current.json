@@ -1,0 +1,23 @@
+{
+  "capture_method": "PrintWindow",
+  "command": "python3 -B tools/print_qwen35_model_gate.py --compact",
+  "distro": "Ubuntu",
+  "exit_code": 0,
+  "finished_utc": "2026-08-30T18:37:22.7614970Z",
+  "host": "Windows Terminal",
+  "kind": "windows-terminal-capture",
+  "output_bytes": 108929,
+  "output_path": "\\\\wsl.localhost\\Ubuntu\\home\\zhaosiying\\pypto-love-tensor-ir\\docs\\assets\\screenshots\\model-inference.png",
+  "output_sha256": "c5918a15e02075e219412900f0f9dc0f0ec8ae08cd59e2895029f9b81b6db66a",
+  "role": "model-inference",
+  "sample_count": 5335,
+  "schema": 1,
+  "started_utc": "2026-08-30T18:37:20.3031172Z",
+  "status": "pass",
+  "theme": "PowerShell purple",
+  "unique_window_title": "PyPTO release - model-inference - 6c8f6cf9",
+  "visible_samples": 5184,
+  "window_height": 925,
+  "window_width": 1549,
+  "workspace": "/home/zhaosiying/pypto-love-tensor-ir"
+}

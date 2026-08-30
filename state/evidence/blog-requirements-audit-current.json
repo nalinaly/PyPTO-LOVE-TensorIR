@@ -11,11 +11,11 @@
     "matched full-model performance pair needs a resource-compliant rerun",
     "optimized stock lane has no accepted sample",
     "full-model CUPTI/NVTX profile was stopped by the GPU memory floor",
-    "PowerShell GUI captures are pending",
+    "article-demo PowerShell role capture is pending",
     "article demo device runtime is Ascend-only in this environment",
     "GPT-Image-2 generation awaits local API authorization"
   ],
-  "recorded_at": "2026-08-30T18:00:29.506376+00:00",
+  "recorded_at": "2026-08-30T18:53:03.062294+00:00",
   "schema": 2,
   "status": "pass"
 }

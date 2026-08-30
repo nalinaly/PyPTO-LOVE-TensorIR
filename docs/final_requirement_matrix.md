@@ -29,8 +29,8 @@ HTML are local deliverables; the matrix itself is a publication audit.
 | Full-model CUPTI/NVTX phase breakdown | profile attempt 20260830T152705Z | OPEN: KV-cache memory qualification |
 | Linked article URL and unchanged source import | demo/pypto-lib/SOURCE_MANIFEST.json | PASS: 151 files, 66 entrypoints, byte hashes |
 | Run every linked article demo unchanged with precision | article demo matrix reports | OPEN: Ascend simpler_setup/KernelType.MIX runtime blockers; 57/57 help passes |
-| Typical demo README and result screenshot | demo/README.md, demo/README_EN.md, screenshot manifest | OPEN: GUI capture pending; black frame discarded |
-| Four requested terminal roles plus typical demo | current five-role screenshot manifest | OPEN for model/demo Windows GUI captures; no fabricated image |
+| Typical demo README and result screenshot | demo/README.md, demo/README_EN.md, screenshot manifest | OPEN: GUI capture capability passes, but Ascend runtime result is pending; black frame is excluded |
+| Four requested terminal roles plus typical demo | current five-role screenshot manifest | PARTIAL: build/operator/model are hash-validated accepted-run evidence replays; performance is current operator evidence; only article demo remains open |
 | GPT-Image-2 visuals for ablations/breakdowns | gpt-image2-ablation-prompts-20260829.json | OPEN: OPENAI_API_KEY absent; no model substitution |
 | Bilingual README parity and language switch | README.md, README_EN.md | PASS by audit; both use current numbers |
 | Single-file offline HTML | reports/local-blog/*.html, 5 embedded data images | PASS; browser viewport automation unavailable in this environment |

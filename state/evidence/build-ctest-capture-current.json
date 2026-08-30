@@ -1,0 +1,23 @@
+{
+  "capture_method": "PrintWindow",
+  "command": "python3 -B tools/print_release_gate.py build --compact",
+  "distro": "Ubuntu",
+  "exit_code": 0,
+  "finished_utc": "2026-08-30T18:45:46.5559886Z",
+  "host": "Windows Terminal",
+  "kind": "windows-terminal-capture",
+  "output_bytes": 89349,
+  "output_path": "\\\\wsl.localhost\\Ubuntu\\home\\zhaosiying\\pypto-love-tensor-ir\\docs\\assets\\screenshots\\build-ctest.png",
+  "output_sha256": "5879a5246f44ad0fbfd2c12bd6abed17af117c21bd40175ae923ca6db52d64d5",
+  "role": "build-ctest",
+  "sample_count": 5335,
+  "schema": 1,
+  "started_utc": "2026-08-30T18:45:44.4553285Z",
+  "status": "pass",
+  "theme": "PowerShell purple",
+  "unique_window_title": "PyPTO release - build-ctest - 4ddd9d2d",
+  "visible_samples": 5184,
+  "window_height": 925,
+  "window_width": 1549,
+  "workspace": "/home/zhaosiying/pypto-love-tensor-ir"
+}

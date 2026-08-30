@@ -1,0 +1,23 @@
+{
+  "capture_method": "PrintWindow",
+  "command": "python3 -B tools/print_inductor_ablation.py --compact",
+  "distro": "Ubuntu",
+  "exit_code": 0,
+  "finished_utc": "2026-08-30T18:16:42.6820485Z",
+  "host": "Windows Terminal",
+  "kind": "windows-terminal-capture",
+  "output_bytes": 97671,
+  "output_path": "\\\\wsl.localhost\\Ubuntu\\home\\zhaosiying\\pypto-love-tensor-ir\\docs\\assets\\screenshots\\performance-ablation.png",
+  "output_sha256": "5e4182b063c7d2adbf65e328d52276d92d8dcc71fb93f53e0644276856af473c",
+  "role": "performance-ablation",
+  "sample_count": 5335,
+  "schema": 1,
+  "started_utc": "2026-08-30T18:16:40.5715153Z",
+  "status": "pass",
+  "theme": "PowerShell purple",
+  "unique_window_title": "PyPTO release - performance-ablation - f4a3a9bb",
+  "visible_samples": 5184,
+  "window_height": 925,
+  "window_width": 1549,
+  "workspace": "/home/zhaosiying/pypto-love-tensor-ir"
+}

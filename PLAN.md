@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `64`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `65`
 
 ## Current phase: resource-gated Qwen inference qualification and publication closure
 
@@ -1771,3 +1771,34 @@ and four matched starts. It shares the sole pair summarizer, so optimized-stock
 failure cannot erase a completed matched headline. The full 12-start matrix is
 still required afterwards for the optimized comparison. Resume only when the
 protected-heavy set remains empty across the one-plus-one qualification starts.
+
+---
+# Windows Terminal capture checkpoint: 2026-08-31 (revision 65)
+
+The previous article-demo capture was a pure-black frame because
+`CopyFromScreen` did not render the Windows Terminal surface from this WSL
+session. `tools/windows/capture_terminal.ps1` now uses
+`PrintWindow(flags=2)` first, retains `CopyFromScreen` only as a fallback, and
+rejects an image with fewer than 16 visible sampled pixels. Its compact wrapper
+shows the exact Linux command and a one-line exit code/timestamp.
+
+A non-release capture smoke passed at 1549x925 with 5,184/5,335 visible sampled
+pixels. The current performance screenshot was then recaptured from
+`python3 -B tools/print_inductor_ablation.py --compact`; both prefill and decode
+fit in one viewport with no clipping. Its capture sidecar records method,
+window dimensions, command, timestamps, visible-sample count, exit code, PNG
+bytes and SHA-256. The screenshot manifest binds that sidecar and marks only
+the performance role `current-operator-scope`.
+
+GUI capability is therefore no longer a blocker. Build/operator/model roles
+now use strict read-only printers that validate their accepted raw evidence.
+The model printer validates
+the accepted three-start sidecar and raw report hashes, then displays the full
+prompt, representative run, 33,448/33,448 provider partition and decoded output
+prefix. Build validates the controller, CTest log and wheel hashes; operator
+validates all eight suite-result hashes and DSO identity. Each screen states
+that it is evidence replay, not a live rerun. Performance directly prints the
+current immutable ablation JSON. All four roles bind command source, underlying
+evidence, capture metadata and PNG SHA. The
+typical unchanged demo still requires the Ascend runtime; no smoke frame may
+fill that role.

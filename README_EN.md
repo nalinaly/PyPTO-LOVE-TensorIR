@@ -313,14 +313,26 @@ envs/pypto-release/bin/python tools/run_article_demo.py \
 The CLI/help audit passes for 57 runnable entries. Device execution remains
 blocked by the Ascend simpler_setup runtime and the pl.KernelType.MIX API
 difference; reports classify these as blockers rather than NVIDIA success.
-The unchanged typical-demo and successful-9B PowerShell captures remain:
+The unchanged typical-demo success capture remains:
 
 - PENDING_SCREENSHOT: docs/assets/screenshots/article-demo-typical.png
-- PENDING_SCREENSHOT: docs/assets/screenshots/model-inference.png
 
-Existing build/operator/performance purple-terminal captures are bound to their
-2026-08-29 runs and do not replace current JSON evidence. This environment
-cannot control Windows GUI, so it does not fabricate terminal images.
+Windows Terminal GUI capture now passes a nonblank-pixel smoke. The performance
+role was recaptured from the current immutable ablation JSON and is bound to
+window dimensions, command, timestamps, and PNG SHA. The model role strictly
+validates and replays the three accepted 9B runs, and explicitly says it is not
+a live rerun. Build covers wheel build, install/pip-check, and CTest 13/13;
+operator similarly validates and replays its accepted raw evidence. All four
+completed roles bind command source, numerical/run evidence,
+capture metadata, and PNG SHA. Demo awaits the Ascend runtime.
+
+![Wheel build, install, and CTest evidence replay](docs/assets/screenshots/build-ctest.png)
+
+![Accepted 8/8 operator regression evidence replay](docs/assets/screenshots/operator-correctness.png)
+
+![Accepted Qwen3.5-9B inference evidence replay](docs/assets/screenshots/model-inference.png)
+
+![Qwen3.5-9B operator-level SwiGLU ablation](docs/assets/screenshots/performance-ablation.png)
 
 Fixed model prompt:
 
@@ -332,8 +344,8 @@ Only SM120/RTX 5090 Laptop is validated. Shapes and strides are statically
 specialized; the complete MLP is not fused across matmul; long GDN prefill is
 token-ordered; PyPTO matmul/LM-head/launch overhead remains to be optimized.
 The optimized lane, a resource-compliant four-start matched rerun, full-model
-CUPTI/NVTX profile, full article-demo runtime, GPT-Image-2 assets, and new
-PowerShell captures remain publication gates.
+CUPTI/NVTX profile, full article-demo runtime, GPT-Image-2 assets, and the
+article-demo PowerShell role capture remain publication gates.
 TensorIR is marked early release upstream.
 
 PyPTO uses CANN Open Software License Agreement 2.0. TensorIR uses Apache 2.0

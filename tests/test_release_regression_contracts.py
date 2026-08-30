@@ -4,8 +4,10 @@ from dataclasses import dataclass
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import sys
 from types import SimpleNamespace
+import unicodedata
 
 import pytest
 
@@ -90,6 +92,13 @@ profile_tool = load_tool("profile_qwen35.py")
 render_tool = load_tool("render_release_results.py")
 
 
+def display_width_for_test(value: str) -> int:
+    return sum(
+        2 if unicodedata.east_asian_width(character) in {"W", "F"} else 1
+        for character in value
+    )
+
+
 def test_exact_workload_has_one_machine_readable_source_of_truth() -> None:
     manifest = json.loads(
         (ROOT / "benchmarks/release/workload.json").read_text(encoding="utf-8")
@@ -107,6 +116,85 @@ def test_exact_workload_has_one_machine_readable_source_of_truth() -> None:
     assert manifest["concurrency"] == 1
     assert manifest["greedy"] is True
     assert manifest["ignore_eos"] is True
+
+
+def test_compact_ablation_output_fits_one_terminal_view() -> None:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "tools/print_inductor_ablation.py"),
+            "--compact",
+        ],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    lines = completed.stdout.splitlines()
+    assert max(map(len, lines)) <= 64
+    assert any("[prefill 19x24576]" in line for line in lines)
+    assert any("[decode 1x24576]" in line for line in lines)
+    text = completed.stdout
+    for marker in ("E=eager", "N=NV", "P=PyPTO", "cold/launch", "LR="):
+        assert marker in text
+
+
+def test_compact_model_gate_replay_fits_one_terminal_view() -> None:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "tools/print_qwen35_model_gate.py"),
+            "--compact",
+        ],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    lines = completed.stdout.splitlines()
+    assert len(lines) == 7
+    assert max(map(display_width_for_test, lines)) <= 66
+    text = completed.stdout
+    for marker in (
+        "not a live rerun",
+        "3 starts x 10 Engine requests",
+        "coverage=33448/33448",
+        "handwritten=31400",
+        "Inductor=2048",
+        workload.PROMPT,
+        "output:",
+    ):
+        assert marker in text
+
+
+@pytest.mark.parametrize(
+    ("gate", "markers"),
+    (
+        ("build", ("wheel build=pass", "CTest=13/13", "same artifact set")),
+        ("operator", ("8/8 suites", "all_correct=true", "Inductor-SwiGLU=4")),
+    ),
+)
+def test_compact_release_gate_replay_fits_one_terminal_view(
+    gate: str, markers: tuple[str, ...]
+) -> None:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "tools/print_release_gate.py"),
+            gate,
+            "--compact",
+        ],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    lines = completed.stdout.splitlines()
+    assert len(lines) <= 7
+    assert max(map(display_width_for_test, lines)) <= 66
+    assert "not a live rerun" in completed.stdout
+    for marker in markers:
+        assert marker in completed.stdout
 
 
 def test_chat_workload_is_reproducible_from_both_pinned_tokenizers() -> None:

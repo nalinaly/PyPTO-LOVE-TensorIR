@@ -8,6 +8,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$OutputPath,
 
+    [string]$MetadataPath = "",
+
     [string]$Distro = "Ubuntu",
     [Parameter(Mandatory = $true)]
     [string]$Workspace,
@@ -50,6 +52,9 @@ public static class PyptoWindowCapture {
     public static extern bool SetForegroundWindow(IntPtr hWnd);
 
     [DllImport("user32.dll")]
+    public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint flags);
+
+    [DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr hWnd, int command);
 
     [DllImport("user32.dll")]
@@ -82,7 +87,11 @@ if ($TimeoutSeconds -le 0 -or $HoldSeconds -lt 10) {
 if (-not [System.IO.Path]::IsPathRooted($OutputPath)) {
     throw "OutputPath must be an absolute Windows path"
 }
+if ($MetadataPath -and -not [System.IO.Path]::IsPathRooted($MetadataPath)) {
+    throw "MetadataPath must be an absolute Windows path"
+}
 
+$captureStartedUtc = [DateTime]::UtcNow.ToString("o")
 $uniqueTitle = "PyPTO release - $Title - $([Guid]::NewGuid().ToString('N').Substring(0, 8))"
 $nonce = [Guid]::NewGuid().ToString('N')
 $marker = "/tmp/pypto-terminal-capture-$nonce.done"
@@ -97,12 +106,13 @@ $wrapper = @"
 set -o pipefail
 printf '\033]0;$titleQuoted\007'
 cd "`$(printf '%s' '$workspaceEncoded' | base64 -d)"
-printf '\nPyPTO release evidence: $titleQuoted\n'
-printf 'workspace=%s\n' "`$PWD"
-printf 'started_utc=%s\n\n' "`$(date -u +%FT%TZ)"
+printf '\nPyPTO evidence: $titleQuoted\n'
+printf '`$ '
+printf '%s' '$encoded' | base64 -d
+printf '\n'
 printf '%s' '$encoded' | base64 -d | bash --noprofile --norc
 status=`$?
-printf '\nfinished_utc=%s\nexit_code=%s\n' "`$(date -u +%FT%TZ)" "`$status"
+printf '\nexit_code=%s finished_utc=%s\n' "`$status" "`$(date -u +%FT%TZ)"
 printf '%s\n' "`$status" > '$marker'
 sleep $HoldSeconds
 exit `$status
@@ -129,7 +139,7 @@ do {
 
 [void][PyptoWindowCapture]::ShowWindow($window, 3)
 [void][PyptoWindowCapture]::SetForegroundWindow($window)
-Start-Sleep -Milliseconds 750
+Start-Sleep -Milliseconds 1500
 
 $rect = New-Object PyptoWindowCapture+RECT
 if (-not [PyptoWindowCapture]::GetWindowRect($window, [ref]$rect)) {
@@ -145,9 +155,37 @@ $directory = [System.IO.Path]::GetDirectoryName($OutputPath)
 [System.IO.Directory]::CreateDirectory($directory) | Out-Null
 $bitmap = New-Object System.Drawing.Bitmap $width, $height
 $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+$captureMethod = "PrintWindow"
+$visibleSamples = 0
+$sampleCount = 0
 try {
-    $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bitmap.Size)
+    $hdc = $graphics.GetHdc()
+    try {
+        $printed = [PyptoWindowCapture]::PrintWindow($window, $hdc, 2)
+    }
+    finally {
+        $graphics.ReleaseHdc($hdc)
+    }
+    if (-not $printed) {
+        $captureMethod = "CopyFromScreen"
+        $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bitmap.Size)
+    }
     $bitmap.Save($OutputPath, [System.Drawing.Imaging.ImageFormat]::Png)
+
+    $stepX = [Math]::Max(1, [int]($width / 96))
+    $stepY = [Math]::Max(1, [int]($height / 54))
+    for ($y = 0; $y -lt $height; $y += $stepY) {
+        for ($x = 0; $x -lt $width; $x += $stepX) {
+            $pixel = $bitmap.GetPixel($x, $y)
+            $sampleCount += 1
+            if (($pixel.R + $pixel.G + $pixel.B) -gt 24) {
+                $visibleSamples += 1
+            }
+        }
+    }
+    if ($sampleCount -eq 0 -or $visibleSamples -lt 16) {
+        throw "Captured terminal image is blank or unreadable: visible_samples=$visibleSamples/$sampleCount"
+    }
 }
 finally {
     $graphics.Dispose()
@@ -165,5 +203,34 @@ if ($statusText -ne "0") {
 $file = Get-Item -LiteralPath $OutputPath
 if ($file.Length -lt 4096) {
     throw "Captured PNG is unexpectedly small: $($file.Length) bytes"
+}
+if ($MetadataPath) {
+    $metadataDirectory = [System.IO.Path]::GetDirectoryName($MetadataPath)
+    [System.IO.Directory]::CreateDirectory($metadataDirectory) | Out-Null
+    $metadata = [ordered]@{
+        schema = 1
+        kind = "windows-terminal-capture"
+        status = "pass"
+        role = $Title
+        command = $LinuxCommand
+        workspace = $Workspace
+        distro = $Distro
+        host = "Windows Terminal"
+        theme = "PowerShell purple"
+        unique_window_title = $uniqueTitle
+        started_utc = $captureStartedUtc
+        finished_utc = [DateTime]::UtcNow.ToString("o")
+        window_width = $width
+        window_height = $height
+        capture_method = $captureMethod
+        visible_samples = $visibleSamples
+        sample_count = $sampleCount
+        output_path = $OutputPath
+        output_bytes = $file.Length
+        output_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $OutputPath).Hash.ToLowerInvariant()
+        exit_code = [int]$statusText
+    }
+    $metadataJson = $metadata | ConvertTo-Json -Depth 4
+    [System.IO.File]::WriteAllText($MetadataPath, $metadataJson + "`n", $utf8)
 }
 Write-Output $file.FullName

@@ -1,0 +1,23 @@
+{
+  "capture_method": "PrintWindow",
+  "command": "python3 -B tools/print_release_gate.py operator --compact",
+  "distro": "Ubuntu",
+  "exit_code": 0,
+  "finished_utc": "2026-08-30T18:34:16.6762491Z",
+  "host": "Windows Terminal",
+  "kind": "windows-terminal-capture",
+  "output_bytes": 88274,
+  "output_path": "\\\\wsl.localhost\\Ubuntu\\home\\zhaosiying\\pypto-love-tensor-ir\\docs\\assets\\screenshots\\operator-correctness.png",
+  "output_sha256": "7fde80693181605e7dcb797c235d8269a136f6428ba9e8d380efffd844f5ca22",
+  "role": "operator-correctness",
+  "sample_count": 5335,
+  "schema": 1,
+  "started_utc": "2026-08-30T18:34:14.2703517Z",
+  "status": "pass",
+  "theme": "PowerShell purple",
+  "unique_window_title": "PyPTO release - operator-correctness - 2cf4a188",
+  "visible_samples": 5184,
+  "window_height": 925,
+  "window_width": 1549,
+  "workspace": "/home/zhaosiying/pypto-love-tensor-ir"
+}

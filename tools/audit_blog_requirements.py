@@ -87,6 +87,29 @@ def check_screenshots(errors: list[str]) -> None:
     if not isinstance(screenshots, dict) or set(screenshots) != expected:
         errors.append("current screenshot manifest roles are incomplete")
         return
+    capability = value.get("capture_capability")
+    if not isinstance(capability, dict) or capability.get("status") != "pass":
+        errors.append("Windows Terminal capture capability is not bound")
+    else:
+        capability_path = ROOT / str(capability.get("evidence", ""))
+        if (
+            not capability_path.is_file()
+            or capability.get("evidence_sha256") != sha256(capability_path)
+        ):
+            errors.append("Windows Terminal capture capability hash mismatch")
+        capability_value = load(capability_path, errors)
+        if capability_value is not None:
+            script_path = ROOT / str(capability_value.get("capture_script", ""))
+            capture = capability_value.get("capture")
+            if (
+                not script_path.is_file()
+                or capability_value.get("capture_script_sha256") != sha256(script_path)
+                or not isinstance(capture, dict)
+                or capture.get("method") != "PrintWindow"
+                or int(capture.get("visible_samples", 0)) < 16
+                or capture.get("exit_code") != 0
+            ):
+                errors.append("Windows Terminal capture capability metadata drifted")
     for role, record in screenshots.items():
         if not isinstance(record, dict):
             errors.append(f"invalid screenshot record: {role}")
@@ -105,6 +128,49 @@ def check_screenshots(errors: list[str]) -> None:
             errors.append(f"screenshot hash mismatch: {role}")
         if record.get("evidence_sha256") != sha256(evidence):
             errors.append(f"screenshot evidence hash mismatch: {role}")
+        if role in {"build", "operator-correctness", "performance", "model-inference"}:
+            command_source = ROOT / str(record.get("command_source", ""))
+            if (
+                not command_source.is_file()
+                or record.get("command_source_sha256") != sha256(command_source)
+            ):
+                errors.append(f"current {role} command source hash mismatch")
+            capture_path = ROOT / str(record.get("capture_evidence", ""))
+            capture = load(capture_path, errors)
+            if capture is None:
+                continue
+            if (
+                record.get("status")
+                != ("current-operator-scope" if role == "performance" else "current-evidence-replay")
+                or record.get("capture_evidence_sha256") != sha256(capture_path)
+                or capture.get("command") != record.get("command")
+                or capture.get("output_sha256") != record.get("sha256")
+                or capture.get("exit_code") != 0
+                or int(capture.get("visible_samples", 0)) < 16
+                or int(capture.get("window_width", 0)) < 320
+                or int(capture.get("window_height", 0)) < 200
+            ):
+                errors.append(f"current {role} screenshot capture metadata drifted")
+            for supporting in record.get("supporting_evidence", []):
+                if not isinstance(supporting, dict):
+                    errors.append(f"invalid supporting screenshot evidence: {role}")
+                    continue
+                supporting_path = ROOT / str(supporting.get("path", ""))
+                if (
+                    not supporting_path.is_file()
+                    or supporting.get("sha256") != sha256(supporting_path)
+                ):
+                    errors.append(f"supporting screenshot evidence drifted: {role}")
+            if role == "model-inference":
+                if (
+                    "not a live rerun"
+                    not in (ROOT / "tools/print_qwen35_model_gate.py").read_text(
+                        encoding="utf-8"
+                    )
+                    or record.get("evidence")
+                    != "state/evidence/qwen35-9b-model-gate-current.json"
+                ):
+                    errors.append("model screenshot does not preserve replay boundary")
 
 
 def check_operator(errors: list[str]) -> None:
@@ -366,7 +432,7 @@ def main() -> int:
         "matched full-model performance pair needs a resource-compliant rerun",
         "optimized stock lane has no accepted sample",
         "full-model CUPTI/NVTX profile was stopped by the GPU memory floor",
-        "PowerShell GUI captures are pending",
+        "article-demo PowerShell role capture is pending",
         "article demo device runtime is Ascend-only in this environment",
         "GPT-Image-2 generation awaits local API authorization",
     ]

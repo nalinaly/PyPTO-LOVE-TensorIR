@@ -279,14 +279,26 @@ envs/pypto-release/bin/python tools/run_article_demo.py \
 
 57 个 runnable 入口的 help audit 通过；设备 runtime 仍受 Ascend
 simpler_setup 和 pl.KernelType.MIX API 阻断，报告标为 blocker，不能冒充
-“所有 demo 在 NVIDIA 成功”。典型 demo 和 9B 成功 PowerShell 捕获暂缺：
+“所有 demo 在 NVIDIA 成功”。典型 demo 的成功 PowerShell 捕获仍缺：
 
 - PENDING_SCREENSHOT: docs/assets/screenshots/article-demo-typical.png
-- PENDING_SCREENSHOT: docs/assets/screenshots/model-inference.png
 
-已有 build/operator/performance 紫色终端截图只绑定 2026-08-29 的旧 run；
-本环境无法控制 Windows GUI，不生成伪截图。PowerShell 模板：
+Windows Terminal GUI capture 已通过非黑像素 smoke；performance 角色已用当前
+immutable ablation JSON 重新捕获并绑定窗口尺寸、命令、时间和 PNG SHA。
+model 角色严格校验并回放三次已接受的 9B run，截图明确标注不是 live rerun；
+build 覆盖 wheel build、install/pip-check 和 CTest 13/13 三阶段；operator
+也以同样方式校验并回放已接受的原始证据；demo 等待 Ascend
+runtime。四个已完成角色均绑定 command source、数值/运行 evidence、capture
+metadata 和 PNG SHA。PowerShell 模板：
 tools/windows/capture_terminal.ps1。
+
+![wheel build、install 与 CTest 证据回放](docs/assets/screenshots/build-ctest.png)
+
+![8/8 算子回归证据回放](docs/assets/screenshots/operator-correctness.png)
+
+![Qwen3.5-9B 已接受推理证据回放](docs/assets/screenshots/model-inference.png)
+
+![9B SwiGLU 算子级消融](docs/assets/screenshots/performance-ablation.png)
 
 模型固定 prompt：
 
@@ -297,8 +309,8 @@ tools/windows/capture_terminal.ps1。
 只验证 SM120/RTX 5090 Laptop；静态 shape/stride specialization；完整 MLP
 不跨 matmul 融合；GDN 长 prefill 为有序 tokenwise launch；PyPTO matmul/
 LM-head/launch overhead 尚未优化；optimized lane、全模型 CUPTI/NVTX profile、
-资源合规的 matched 四-start 重测、全文章 demo runtime、GPT-Image-2 图像和新
-PowerShell 截图仍是门禁。
+资源合规的 matched 四-start 重测、全文章 demo runtime、GPT-Image-2 图像和
+article-demo PowerShell 角色截图仍是门禁。
 TensorIR 上游为 early release。
 
 PyPTO 使用 CANN Open Software License Agreement 2.0；TensorIR 使用 Apache

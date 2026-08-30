@@ -1,11 +1,16 @@
 {
+  "capture_capability": {
+    "evidence": "state/evidence/windows-terminal-capture-capability-current.json",
+    "evidence_sha256": "8e3cffde34f575c4b0e6cb9df307f549b1f12910def069e9a2f485db7d9f36c6",
+    "status": "pass"
+  },
   "kind": "article-demo-screenshot-manifest",
-  "recorded_at": "2026-08-30T15:48:21.948714+00:00",
+  "recorded_at": "2026-08-30T18:52:12.175998+00:00",
   "schema": 1,
   "screenshots": {
     "article-demo-typical": {
-      "caption_en": "Ubuntu/PowerShell purple terminal: unchanged hello_world.py compile/golden/runtime result; Ascend runtime blocker remains, capture pending.",
-      "caption_zh": "Ubuntu/PowerShell 紫色终端：原样 hello_world.py 的 compile/golden/runtime 结果；当前 Ascend runtime blocker，截图待捕获。",
+      "caption_en": "Ubuntu/PowerShell purple terminal: unchanged hello_world.py compile/golden/runtime result; GUI capture is verified while the Ascend runtime blocker remains.",
+      "caption_zh": "Ubuntu/PowerShell 紫色终端：原样 hello_world.py 的 compile/golden/runtime 结果；GUI capture 已验证，Ascend runtime blocker 仍未解除。",
       "capture_status": "pending",
       "command": "envs/pypto-release/bin/python -B tools/run_article_demo.py --demo examples/beginner/hello_world.py --platform a2a3sim --output runs/article-demo-typical.json",
       "evidence": "state/evidence/article-demo-typical-screenshot-pending-20260829.json",
@@ -14,44 +19,86 @@
       "status": "pending"
     },
     "build": {
-      "caption_en": "Ubuntu/PowerShell purple terminal: CTest 13/13 passed (this capture binds the ctest stage; the complete four-stage build remains a release-manifest gate).",
-      "caption_zh": "Ubuntu/PowerShell 紫色终端：CTest 13/13 通过（当前截图绑定 ctest 阶段；完整四阶段 build 仍按发布 manifest 复核）。",
-      "command": "envs/pypto-release/bin/python tools/build_release.py --stage ctest --jobs 24",
+      "caption_en": "Ubuntu/PowerShell purple terminal: validates and replays accepted wheel build, install/pip-check, CTest 13/13, natural three-stage exit, and one artifact-set SHA identity; explicitly not a live rerun.",
+      "caption_zh": "Ubuntu/PowerShell 紫色终端：校验并回放已接受的 wheel build、install/pip-check、CTest 13/13、三阶段自然退出与同一 artifact set SHA；明确不是 live rerun。",
+      "capture_evidence": "state/evidence/build-ctest-capture-current.json",
+      "capture_evidence_sha256": "3aaf997e67b4c15fc339395aa4fc8b5a92f20b8a36986a731137afeeaab35e4a",
+      "command": "python3 -B tools/print_release_gate.py build --compact",
+      "command_source": "tools/print_release_gate.py",
+      "command_source_sha256": "edfc979a8188b62f84a060a35bfd4cd3e14b8316d33d138aca726f88035fb1d4",
       "evidence": "runs/pypto-cpu-bounded-20260830T144910Z-2409462-115ae6/release-build-ctest.json",
       "evidence_sha256": "471eb2c9952aa0fe636abb075b40870e384326a19ad85a88ea1a0a8a30926025",
       "path": "docs/assets/screenshots/build-ctest.png",
-      "sha256": "4aa4b98cb752092fff5e9380a3af6e8a121591bbedbbf168b912a0c83488e488",
-      "status": "historical-pass"
+      "sha256": "5879a5246f44ad0fbfd2c12bd6abed17af117c21bd40175ae923ca6db52d64d5",
+      "status": "current-evidence-replay",
+      "supporting_evidence": [
+        {
+          "path": "runs/pypto-cpu-bounded-20260830T091243Z-2320308-b57c23/release-build-wheels.json",
+          "sha256": "92df0fea0b7187c2042ee990d61c7259df1ca2bf301f2a4a5b22e423590d45ef"
+        },
+        {
+          "path": "runs/pypto-cpu-bounded-20260830T091243Z-2320308-b57c23/process.json",
+          "sha256": "721b5f70e9136586eb7c09a6e6ffa47d79ed1661d4a3e9753f8dd84c016cc1f5"
+        },
+        {
+          "path": "runs/pypto-cpu-bounded-20260830T091329Z-2320615-6a9134/release-build-install.json",
+          "sha256": "3ff55695405763ee8eaccea9924129a438519401b00e9acf0d7dd4e7eef25349"
+        },
+        {
+          "path": "runs/pypto-cpu-bounded-20260830T091329Z-2320615-6a9134/process.json",
+          "sha256": "de58c756a895f165abd709c407c8a23c998da39b675175fc746c809f3e249277"
+        },
+        {
+          "path": "runs/pypto-cpu-bounded-20260830T144910Z-2409462-115ae6/process.json",
+          "sha256": "abf24e517b7fb4558fdb6a59964e31b25f91d30a1cdd0b4d8b042b74cdb8157c"
+        },
+        {
+          "path": "builds/qwen35-sm120-v1/native/Testing/Temporary/LastTest.log",
+          "sha256": "ec537d9a80bad206891a2d233d884e4bb58c20716fc0fdf86e7917c9d51bb57c"
+        }
+      ]
     },
     "model-inference": {
-      "caption_en": "Ubuntu/PowerShell purple terminal: Qwen3.5-9B chat-template inference with PyPTO/Inductor launch logs; Windows GUI capture is pending.",
-      "caption_zh": "Ubuntu/PowerShell 紫色终端：Qwen3.5-9B chat-template 推理与 PyPTO/Inductor launch log；当前环境无法控制 Windows GUI，截图待捕获。",
-      "capture_status": "pending",
-      "command": "envs/pypto-release/bin/python -B tools/run_model_correctness.py all --model-path models/Qwen3.5-9B --semantic-oracle runs/semantic-oracle-qwen35-9b-chat-nonthinking.json",
+      "caption_en": "Ubuntu/PowerShell purple terminal: validates and replays the accepted three-start Qwen3.5-9B inference, decoded output, and 100% PyPTO coverage; explicitly not a live rerun.",
+      "caption_zh": "Ubuntu/PowerShell 紫色终端：校验并回放已接受的 Qwen3.5-9B 三次 fresh-start 推理、输出文本与 100% PyPTO coverage；明确不是本轮 live rerun。",
+      "capture_evidence": "state/evidence/model-inference-capture-current.json",
+      "capture_evidence_sha256": "6cfc8fca6bff5680f66d26770ad5da59360ba5d802b24be866805174d96f9665",
+      "command": "python3 -B tools/print_qwen35_model_gate.py --compact",
+      "command_source": "tools/print_qwen35_model_gate.py",
+      "command_source_sha256": "c2129ee0363891fd7a08ee9a772c581f38548243fb1413e1d2f8649b451116fd",
       "evidence": "state/evidence/qwen35-9b-model-gate-current.json",
       "evidence_sha256": "c65b4ca71e1113eed05a75f1fdbecda9cb42f8e6e6e1566d4656af4e5abb887c",
       "path": "docs/assets/screenshots/model-inference.png",
-      "status": "pending"
+      "sha256": "c5918a15e02075e219412900f0f9dc0f0ec8ae08cd59e2895029f9b81b6db66a",
+      "status": "current-evidence-replay"
     },
     "operator-correctness": {
-      "caption_en": "Ubuntu/PowerShell purple terminal: pypto-kernels regression tests, 38 passed.",
-      "caption_zh": "Ubuntu/PowerShell 紫色终端：pypto-kernels 结构/回归测试 38 passed。",
-      "command": "envs/pypto-release/bin/python -B -m pytest packages/pypto-kernels/tests/test_operators.py -q",
+      "caption_en": "Ubuntu/PowerShell purple terminal: validates and replays the accepted 8/8 operator regression suites, case inventory, and DSO identity; explicitly not a live rerun.",
+      "caption_zh": "Ubuntu/PowerShell 紫色终端：校验并回放已接受的 8/8 operator regression suite、case inventory 与 DSO identity；明确不是 live rerun。",
+      "capture_evidence": "state/evidence/operator-correctness-capture-current.json",
+      "capture_evidence_sha256": "fd57efa2bf9fa614e0dd6abb7cd077afa3f545f8d7031028d8568466ab2bded2",
+      "command": "python3 -B tools/print_release_gate.py operator --compact",
+      "command_source": "tools/print_release_gate.py",
+      "command_source_sha256": "edfc979a8188b62f84a060a35bfd4cd3e14b8316d33d138aca726f88035fb1d4",
       "evidence": "state/evidence/operator-regression-current.json",
       "evidence_sha256": "f972d72328d816cc11644a18d5f24f9df704f7e38131859063f0d543b6b5cd4b",
       "path": "docs/assets/screenshots/operator-correctness.png",
-      "sha256": "aed230c13de553b1cccf7939e524d444d95d54349ee5890c55524f574942de42",
-      "status": "historical-pass"
+      "sha256": "7fde80693181605e7dcb797c235d8269a136f6428ba9e8d380efffd844f5ca22",
+      "status": "current-evidence-replay"
     },
     "performance": {
       "caption_en": "Ubuntu/PowerShell purple terminal: Qwen3.5-9B SwiGLU operator ablation; values come from immutable evidence JSON and are not a whole-model claim.",
       "caption_zh": "Ubuntu/PowerShell 紫色终端：Qwen3.5-9B SwiGLU 算子级消融；数值来自 immutable evidence JSON，非整模结论。",
-      "command": "python3 -B tools/print_inductor_ablation.py",
+      "capture_evidence": "state/evidence/performance-ablation-capture-current.json",
+      "capture_evidence_sha256": "f6ed2aeb4c5df2c137dea71df0f7c0903915a2e760558d0c1308b2da77f17374",
+      "command": "python3 -B tools/print_inductor_ablation.py --compact",
+      "command_source": "tools/print_inductor_ablation.py",
+      "command_source_sha256": "987400dfa9c9f29df3c1c4381a8fbc659b6e88460637451de6f60e21edd580ec",
       "evidence": "state/evidence/qwen35-9b-inductor-ablation-current.json",
       "evidence_sha256": "37f8d44414f8470868dae5730313c4245ca9a2907aeff6dc1de7918404cb84d3",
       "path": "docs/assets/screenshots/performance-ablation.png",
-      "sha256": "948025e2c2c1c2db2c4a90830fc059a445a5d2138aaedd6e1174a5d43c89cfa1",
-      "status": "historical-operator-scope"
+      "sha256": "5e4182b063c7d2adbf65e328d52276d92d8dcc71fb93f53e0644276856af473c",
+      "status": "current-operator-scope"
     }
   },
   "status": "provisional",
