@@ -950,15 +950,18 @@ def _lm_head_around(
     from pypto_kernels import linear
     from .sglang.stream import pypto_stream
 
+    if use_fp32_lm_head:
+        raise BackendNotReadyError(
+            "PyPTO does not yet implement SGLang's true FP32-accumulation LM head."
+        )
     with pypto_stream(hidden_states.device) as stream:
-        # Match SGLang's default ``use_fp32_lm_head=false`` contract: the
-        # regular path returns BF16 logits, while an explicit FP32 request
-        # uses the widened graph.  Keeping this branch here also makes the
-        # correctness-only FP32 mode auditable instead of silently rejecting it.
-        result = (
-            linear.linear_to_float(hidden_states, weight.data, stream=stream)
-            if use_fp32_lm_head
-            else linear.linear(hidden_states, weight.data, stream=stream)
+        # SGLang's default LM head computes BF16-rounded logits and then widens
+        # them to its public FP32 logits buffer. Materialize that final ABI in
+        # one PyPTO launch so LogitsProcessor._copy_logits_to_buffer is a no-op.
+        result = linear.linear_to_float(
+            hidden_states,
+            weight.data,
+            stream=stream,
         )
     if os.environ.get("PYPTO_DIFFERENTIAL_REPORT"):
         previous = torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction

@@ -383,6 +383,10 @@ def test_linear_swiglu_and_lm_head_hooks_are_pinned_and_fail_closed(
     assert PRUNED_STATES_TARGET.endswith("LogitsProcessor._get_pruned_states")
     text = SGLANG_PLUGIN.read_text(encoding="utf-8")
     assert "linear.linear(" in text
+    lm_head = text[text.index("def _lm_head_around(") : text.index("def _embedding_around(")]
+    assert "linear.linear_to_float(" in lm_head
+    assert "linear.linear(hidden_states" not in lm_head
+    assert "true FP32-accumulation LM head" in lm_head
     assert "silu_and_mul.silu_and_mul(" in text
     assert "run_fp32_swiglu(" in text
 
