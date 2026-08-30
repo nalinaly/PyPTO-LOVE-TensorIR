@@ -1502,3 +1502,118 @@ Resume order:
 4. Completed: staged only the authorized README/reproduction deliverables,
    excluded the local blog/HTML/probes, committed b4eae99, and pushed
    origin/release/qwen35-sm120-v1.
+
+---
+# Requirement-audit checkpoint: 2026-08-30 (revision 59)
+
+This checkpoint is a second-pass audit of the original blog/README brief and
+both follow-up requests. It records clarifications that were implicit in
+revision 58 so a later execution cannot accidentally satisfy the prose while
+missing the requested evidence. It does not promote any pending experiment.
+
+## A. No omitted writing requirements
+
+The final document workflow must preserve the following order and scope:
+
+1. **Opening announcement and legal NOTE.** Start with the measured headline,
+   its denominator, launch/fusion scope and the current limitation; then give
+   the CANN boundary, non-commercial research context, the linked interview
+   timestamp and takedown route. A stated research motive or interview remark
+   is never presented as a licence exception.
+2. **Background before implementation.** Introduce PyPTO and TensorIR
+   separately, including their public URLs, roles and core features. Immediately
+   after those introductions, add an independent section explaining why this
+   bridge is useful. The explanation must answer all three questions explicitly:
+   whether a PyPTO-selected tile shape can lower, whether TensorIR is
+   tile-aware, and whether CUDA Tile is a target/backend rather than a synonym
+   for TensorIR. The answer is conditional on typed shape/stride/layout/dtype,
+   iteration and mutation contracts, with a fail-closed example.
+3. **Independent article-demo chapter.** This chapter appears after the
+   background and before the framework/operator implementation chapters. It
+   states the NVIDIA-learning motivation, links the exact WeChat article, names
+   the byte-for-byte corpus under `demo/`, explains the all-entrypoint matrix,
+   and shows one unchanged command plus a numerical/golden precision result.
+   Until the Ascend-only runtime blocker is removed, it must show the blocker
+   and `PENDING`, never a fabricated success screenshot.
+4. **Framework chapters.** Keep PyPTO-to-TensorIR and TorchInductor-to-PyPTO as
+   two separately titled feature inventories. The first must name the PyPTO and
+   TensorIR changes and the typed NVIDIA ODS/`OpBuilder` boundary; the second
+   must name capture, graph matching, generated DSL, artifact/cache, stream and
+   SGLang integration behavior. Canonical construction may not use string
+   concatenation, format-built operation names or ad-hoc textual IR. Printers
+   are diagnostic/fixture-only.
+5. **Operator chapters.** Inventory the independent handwritten library, map
+   it to Qwen call sites, and walk through one source-selected complex kernel.
+   Separately show an exact Inductor-generated fused kernel and state which
+   operators/layers fuse and which matmul boundaries remain. The union claim is
+   trace-based and must state its `ModelRunner.forward` denominator.
+6. **System test and performance chapters.** Show the exact Chinese prompt,
+   generated token stream, launch/provider trace and semantic/correctness
+   evidence. Report eager, official NVIDIA Inductor, PyPTO Inductor, matched
+   stock and (only if qualified) optimized stock with units, start-level
+   aggregation, cold/first-compile boundaries and launch counts. Put the same
+   measured fusion/launch result in the opening and conclusion. Operator-only
+   speedups are never labelled whole-model acceleration.
+7. **Reproduction and publication.** Chinese README is the default and links
+   to English (and back); both expose build, correctness, performance-only
+   regression, demo matrix and exact-prompt model commands. The blog remains
+   local, the offline single-file HTML is regenerated from it, and only the
+   audited README/reproduction deliverables are staged. A final requirement
+   matrix, link/hash check, bilingual parity check and staged-diff check are
+   mandatory before any publication update.
+
+## B. Evidence and visual invariants
+
+- The five terminal roles are independent gates: build, operator correctness,
+  performance/breakdown, exact-prompt Qwen3.5-9B inference, and one typical
+  unchanged article demo. The preferred capture is Ubuntu hosted by the
+  requested purple PowerShell/Windows Terminal profile. A user-capture handoff
+  with an exact command and sidecar is the only valid fallback when that GUI
+  is unavailable; a black, edited or mismatched frame is discarded.
+- Every ablation/breakdown figure must be generated with GPT-Image-2 from the
+  immutable evidence JSON for that result. The figure sidecar records model,
+  prompt, source hash, run IDs and image hash; the table remains authoritative.
+  Missing local authorization leaves `PENDING_GPT_IMAGE2` and forbids a
+  substitute model or hand-drawn result.
+- “100% PyPTO” means every CUPTI compute activity in the declared
+  `ModelRunner.forward` window maps exactly once to a handwritten or
+  Inductor-generated PyPTO artifact, with zero unknown/fallback activities. It
+  does not silently include tokenizer, sampling, memcpy/memset, CPU staging or
+  work outside that window.
+
+## C. Latest resource-gated probe (not an accepted result)
+
+The temporary optimized-config probe used `cpu_offload_gb=4` and
+`mem_fraction_static=0.78`, with Inductor compile threads limited to one. Run
+`pypto-gpu-bounded-20260830T160256Z-2428456-b945e5` reached model loading and
+CUDA-graph capture, then the bounded controller stopped it with
+`abort_reason=nvidia-coexistence-audit` after an `nvidia-smi` query timed out;
+no performance report was produced. Post-cleanup found no owned or foreign
+compute process. This run is retained as a resource/telemetry diagnostic only:
+it supplies no optimized throughput, graph-replay, overlap or compile-time
+number and must not change the formal lane or document headline.
+
+When a clean exclusive window is available, qualify optimized stock in this
+order: (1) zero foreign compute and host/GPU floor preflight, (2) one dry run
+with the formal lane configuration, (3) four fresh starts with the same
+chat-template/64-token workload and resource fields, (4) source/hash and
+runtime-observed graph/overlap checks, and (5) regenerate the pair summary,
+figures, README/blog/HTML and audits. If any step fails, preserve the raw run
+and keep the lane `OPEN`.
+
+## D. Resume and completion contract
+
+The next safe actions are: capture the two pending terminal roles when the
+Windows GUI is controllable; obtain explicit local GPT-Image-2 authorization
+and generate the three requested figures; resolve the Ascend runtime or obtain
+an authorized compatible device for the unchanged demo matrix; optionally
+qualify optimized stock and the full-model CUPTI/NVTX profile under exclusive
+resources; then rerun the final audit/render. Do not rerun already accepted
+operator/model gates merely to replace a screenshot, and do not edit the
+copied article sources.
+
+The goal is complete only when every requirement row is either PASS with a
+fresh, hash-bound artifact or is explicitly accepted by the user as an open
+limitation. Until then, `PLAN.md`, the final requirement matrix, raw failed
+runs and pending sidecars are the durable handoff; no wording change may turn
+an open gate into a performance or correctness claim.
