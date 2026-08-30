@@ -10,12 +10,12 @@
   "open_gates": [
     "matched full-model performance pair needs a resource-compliant rerun",
     "optimized stock lane has no accepted sample",
-    "full-model CUPTI/NVTX profile was stopped by the GPU memory floor",
+    "full-model CUPTI/NVTX profile awaits an accepted pair and exclusive resources",
     "article-demo PowerShell role capture is pending",
     "article demo device runtime is Ascend-only in this environment",
     "GPT-Image-2 generation awaits local API authorization"
   ],
-  "recorded_at": "2026-08-30T18:55:41.218257+00:00",
+  "recorded_at": "2026-08-30T19:01:39.140611+00:00",
   "schema": 2,
   "status": "pass"
 }

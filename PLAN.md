@@ -1,6 +1,6 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `65`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `66`
 
 ## Current phase: resource-gated Qwen inference qualification and publication closure
 
@@ -1802,3 +1802,40 @@ current immutable ablation JSON. All four roles bind command source, underlying
 evidence, capture metadata and PNG SHA. The
 typical unchanged demo still requires the Ascend runtime; no smoke frame may
 fill that role.
+
+---
+# External-prerequisite blocker checkpoint: 2026-08-31 (revision 66)
+
+The repository-side work that can proceed safely in the current environment is
+closed. Four of five terminal roles are current and hash-bound: build/operator/
+model are explicit accepted-evidence replays, and performance reads the current
+operator-level immutable JSON. Only the unchanged article-demo role is pending.
+The local Markdown blog and single-file HTML are rendered from that state; the
+checked-in bilingual READMEs and requirement audit agree.
+
+Three external prerequisites now block the remaining release gates:
+
+1. **Exclusive host/GPU window.** Heavy preflight currently reports an active
+   protected zcode Qwen3.5-9B TP4/gem5 workload and only 18.1 GiB
+   `MemAvailable`, below its 32 GiB floor. Do not signal it. After preflight
+   remains green, run one PyPTO plus one matched qualification, the independent
+   eight-start `--pair-matrix`, the full optimized matrix, then the nine-start
+   CUPTI/NVTX matrix. The corrected controller, common `2 / 0.78` pair envelope,
+   per-run 100 ms resource validation, and `matched_lane_comparability` are
+   already committed.
+2. **Ascend article-demo runtime/device.** `simpler_setup`, `torch_npu`, `acl`,
+   `tbe`, and `te` are absent. The 151-file article corpus is byte-locked and
+   57/57 help discovery passes, but unchanged device execution and precision
+   comparison cannot run. Once an authorized runtime/device is available, run
+   all 57 entries without editing `demo/`, bind every result, then capture the
+   fifth terminal role.
+3. **GPT-Image-2 authorization.** `OPENAI_API_KEY` is absent and the required
+   imagegen CLI is unavailable. Do not substitute a model. Once process-local
+   authorization exists, generate the three frozen prompts, inspect every PNG,
+   and bind model/prompt/input/output hashes before embedding them.
+
+After all three prerequisites are satisfied, regenerate the performance pair,
+profile reconciliation, screenshot manifest, GPT-Image-2 manifest, both
+READMEs, local blog/HTML, and final requirement audit. Do not restore the old
+17.31% diagnostic pair as a headline, accept a demo compile-only result, or use
+an evidence-replay screenshot as a live-run claim.

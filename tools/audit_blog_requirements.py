@@ -426,12 +426,20 @@ def main() -> int:
     check_performance(errors)
     check_sources(errors)
     matrix_text = read(ROOT / "docs/final_requirement_matrix.md", errors)
-    if "OPEN: 4 GiB GPU-free controller floor" not in matrix_text:
+    if not all(
+        marker in matrix_text
+        for marker in (
+            "End-to-end PyPTO versus optimized stock",
+            "OPEN: historical attempts failed resource/telemetry qualification",
+            "protected-heavy-free window is unavailable",
+            "no percentage promoted",
+        )
+    ):
         errors.append("final requirement matrix is missing optimized-lane boundary")
     blockers = [
         "matched full-model performance pair needs a resource-compliant rerun",
         "optimized stock lane has no accepted sample",
-        "full-model CUPTI/NVTX profile was stopped by the GPU memory floor",
+        "full-model CUPTI/NVTX profile awaits an accepted pair and exclusive resources",
         "article-demo PowerShell role capture is pending",
         "article demo device runtime is Ascend-only in this environment",
         "GPT-Image-2 generation awaits local API authorization",
