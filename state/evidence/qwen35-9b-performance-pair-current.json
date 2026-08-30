@@ -1,0 +1,1765 @@
+{
+  "comparison": {
+    "latency_metrics": {
+      "e2e_ms": {
+        "pypto_percent_of_matched": 577.7854050218875
+      },
+      "tpot_ms": {
+        "pypto_percent_of_matched": 512.10609338391
+      },
+      "ttft_ms": {
+        "pypto_percent_of_matched": 4518.836998183212
+      }
+    },
+    "median_ratio_bootstrap_95ci_percent": {
+      "confidence": 0.95,
+      "lower": 17.215450458092466,
+      "method": "independent nonparametric percentile bootstrap over fresh process starts",
+      "operation": "ratio",
+      "resamples": 10000,
+      "seed": 3626426960371696944,
+      "upper": 17.45342741229
+    },
+    "pypto_percent_of_matched": 17.30744575750151,
+    "pypto_throughput_change_vs_matched_percent": -82.69255424249849,
+    "throughput_metric": "output_tokens_per_second"
+  },
+  "kind": "qwen35-9b-performance-pair-summary",
+  "lanes": {
+    "pypto": {
+      "cold_engine_start_ms": {
+        "headline_estimator": "median_of_fresh_start_estimates",
+        "max": 14157.200844,
+        "mean": 13684.53554,
+        "median_bootstrap_95ci": {
+          "confidence": 0.95,
+          "lower": 13422.98604,
+          "method": "nonparametric percentile bootstrap over fresh process starts",
+          "resamples": 10000,
+          "seed": 17154327250201160253,
+          "upper": 14157.200844
+        },
+        "min": 13422.98604,
+        "p50": 13578.977638,
+        "p90": 14157.200844,
+        "p90_nearest_rank": 14157.200844,
+        "p99": 14157.200844,
+        "p99_nearest_rank": 14157.200844,
+        "sample_count": 4,
+        "sample_unit": "fresh_process_start"
+      },
+      "first_compile_trigger_request_ms": {
+        "headline_estimator": "median_of_fresh_start_estimates",
+        "max": 26643.470884,
+        "mean": 26027.8811535,
+        "median_bootstrap_95ci": {
+          "confidence": 0.95,
+          "lower": 25503.592929,
+          "method": "nonparametric percentile bootstrap over fresh process starts",
+          "resamples": 10000,
+          "seed": 5047526070226164376,
+          "upper": 26643.470884
+        },
+        "min": 25503.592929,
+        "p50": 25982.2304005,
+        "p90": 26643.470884,
+        "p90_nearest_rank": 26643.470884,
+        "p99": 26643.470884,
+        "p99_nearest_rank": 26643.470884,
+        "sample_count": 4,
+        "sample_unit": "fresh_process_start"
+      },
+      "fresh_starts": 4,
+      "memory_qualifications": [
+        {
+          "cpu_offload_gb": 0,
+          "mem_fraction_static": 0.78,
+          "name": "candidate-9b-zero-offload"
+        },
+        {
+          "cpu_offload_gb": 0,
+          "mem_fraction_static": 0.78,
+          "name": "candidate-9b-zero-offload"
+        },
+        {
+          "cpu_offload_gb": 0,
+          "mem_fraction_static": 0.78,
+          "name": "candidate-9b-zero-offload"
+        },
+        {
+          "cpu_offload_gb": 0,
+          "mem_fraction_static": 0.78,
+          "name": "candidate-9b-zero-offload"
+        }
+      ],
+      "metrics": {
+        "decode_tokens_per_second": {
+          "headline_estimator": "median_of_fresh_start_estimates",
+          "max": 3.0462455224456964,
+          "mean": 3.0278338858580303,
+          "median_bootstrap_95ci": {
+            "confidence": 0.95,
+            "lower": 3.0202010125159573,
+            "method": "nonparametric percentile bootstrap over fresh process starts",
+            "resamples": 10000,
+            "seed": 7471895439920920744,
+            "upper": 3.0462455224456964
+          },
+          "min": 3.0202010125159573,
+          "p50": 3.0224445042352333,
+          "p90": 3.0462455224456964,
+          "p90_nearest_rank": 3.0462455224456964,
+          "p99": 3.0462455224456964,
+          "p99_nearest_rank": 3.0462455224456964,
+          "sample_count": 4,
+          "sample_unit": "fresh_process_start"
+        },
+        "e2e_ms": {
+          "headline_estimator": "median_of_fresh_start_estimates",
+          "max": 24018.7456475,
+          "mean": 23955.979409,
+          "median_bootstrap_95ci": {
+            "confidence": 0.95,
+            "lower": 23812.452407,
+            "method": "nonparametric percentile bootstrap over fresh process starts",
+            "resamples": 10000,
+            "seed": 16597515507555480591,
+            "upper": 24018.7456475
+          },
+          "min": 23812.452407,
+          "p50": 23996.35979075,
+          "p90": 24018.7456475,
+          "p90_nearest_rank": 24018.7456475,
+          "p99": 24018.7456475,
+          "p99_nearest_rank": 24018.7456475,
+          "sample_count": 4,
+          "sample_unit": "fresh_process_start"
+        },
+        "itl_ms": {
+          "headline_estimator": "median_of_fresh_start_estimates",
+          "max": 323.9744385,
+          "mean": 323.29545325000004,
+          "median_bootstrap_95ci": {
+            "confidence": 0.95,
+            "lower": 321.3645255,
+            "method": "nonparametric percentile bootstrap over fresh process starts",
+            "resamples": 10000,
+            "seed": 18182673385752012164,
+            "upper": 323.9744385
+          },
+          "min": 321.3645255,
+          "p50": 323.9214245,
+          "p90": 323.9744385,
+          "p90_nearest_rank": 323.9744385,
+          "p99": 323.9744385,
+          "p99_nearest_rank": 323.9744385,
+          "sample_count": 4,
+          "sample_unit": "fresh_process_start"
+        },
+        "output_tokens_per_second": {
+          "headline_estimator": "median_of_fresh_start_estimates",
+          "max": 2.6876695401954125,
+          "mean": 2.6715995098197007,
+          "median_bootstrap_95ci": {
+            "confidence": 0.95,
+            "lower": 2.6645854562517353,
+            "method": "nonparametric percentile bootstrap over fresh process starts",
+            "resamples": 10000,
+            "seed": 3199876839539150814,
+            "upper": 2.6876695401954125
+          },
+          "min": 2.6645854562517353,
+          "p50": 2.667071521415828,
+          "p90": 2.6876695401954125,
+          "p90_nearest_rank": 2.6876695401954125,
+          "p99": 2.6876695401954125,
+          "p99_nearest_rank": 2.6876695401954125,
+          "sample_count": 4,
+          "sample_unit": "fresh_process_start"
+        },
+        "total_tokens_per_second": {
+          "headline_estimator": "median_of_fresh_start_estimates",
+          "max": 3.9895094737275656,
+          "mean": 3.9656555223886185,
+          "median_bootstrap_95ci": {
+            "confidence": 0.95,
+            "lower": 3.9552440366236694,
+            "method": "nonparametric percentile bootstrap over fresh process starts",
+            "resamples": 10000,
+            "seed": 18293911769814070715,
+            "upper": 3.9895094737275656
+          },
+          "min": 3.9552440366236694,
+          "p50": 3.9589342896016197,
+          "p90": 3.9895094737275656,
+          "p90_nearest_rank": 3.9895094737275656,
+          "p99": 3.9895094737275656,
+          "p99_nearest_rank": 3.9895094737275656,
+          "sample_count": 4,
+          "sample_unit": "fresh_process_start"
+        },
+        "tpot_ms": {
+          "headline_estimator": "median_of_fresh_start_estimates",
+          "max": 331.10378946031744,
+          "mean": 330.2732232380952,
+          "median_bootstrap_95ci": {
+            "confidence": 0.95,
+            "lower": 328.2729540952381,
+            "method": "nonparametric percentile bootstrap over fresh process starts",
+            "resamples": 10000,
+            "seed": 17088492398405234184,
+            "upper": 331.10378946031744
+          },
+          "min": 328.2729540952381,
+          "p50": 330.8580746984127,
+          "p90": 331.10378946031744,
+          "p90_nearest_rank": 331.10378946031744,
+          "p99": 331.10378946031744,
+          "p99_nearest_rank": 331.10378946031744,
+          "sample_count": 4,
+          "sample_unit": "fresh_process_start"
+        },
+        "ttft_ms": {
+          "headline_estimator": "median_of_fresh_start_estimates",
+          "max": 3156.75948,
+          "mean": 3144.84720775,
+          "median_bootstrap_95ci": {
+            "confidence": 0.95,
+            "lower": 3113.839196,
+            "method": "nonparametric percentile bootstrap over fresh process starts",
+            "resamples": 10000,
+            "seed": 8573524054691246580,
+            "upper": 3156.75948
+          },
+          "min": 3113.839196,
+          "p50": 3154.3950775000003,
+          "p90": 3156.75948,
+          "p90_nearest_rank": 3156.75948,
+          "p99": 3156.75948,
+          "p99_nearest_rank": 3156.75948,
+          "sample_count": 4,
+          "sample_unit": "fresh_process_start"
+        }
+      },
+      "resources": {
+        "minimum_gpu_memory_free_bytes": 4185067520,
+        "peak_gpu_memory_used_bytes": 21466247168,
+        "thermal_throttle_observed": false
+      },
+      "starts": [
+        {
+          "cold_engine_start_ms": 14157.200844,
+          "compilation": {
+            "backend_invocation_evidence": {
+              "pypto_torchinductor_cache_wrapper": true,
+              "scheduler_counter": false
+            },
+            "backend_invocation_observed": true,
+            "compiled_code_file_count": 2,
+            "compiled_code_files": [
+              "TORCHINDUCTOR_CACHE_DIR/5r/c5r5gufsl5rnshdddvfs4qllirdyzfyowvd4adpiutfgsrgbd4uv.py",
+              "TORCHINDUCTOR_CACHE_DIR/t4/ct4wd6kmdcmsnrdnmw2sujyz4izq5rcfz62gjzogdr7zlchiovcv.py"
+            ],
+            "effective": true,
+            "evidence_boundary": "Effective means the scheduler observed Dynamo graphs and Inductor compile calls, generated code appeared in the isolated cache, and subsequent measured requests completed.",
+            "graph_records": [],
+            "new_cache_file_count": 3,
+            "requested": true,
+            "scheduler_counter": {
+              "dynamo_as_is_count": 0,
+              "num_backend_compilations": 0,
+              "num_cache_entries_updated": 0,
+              "num_compiled_artifacts_saved": 0,
+              "num_cudagraph_captured": 0,
+              "num_eager_compiles": 0,
+              "num_gpu_runner_capture_triggers": 0,
+              "num_graphs_seen": 0,
+              "num_inductor_compiles": 0,
+              "num_models_seen": 0,
+              "num_piecewise_capturable_graphs_seen": 0,
+              "num_piecewise_graphs_seen": 0
+            },
+            "timing_boundary": "first_compile_trigger_request_ms includes compilation plus one full chat-template-input+64 request and is not compiler-only time"
+          },
+          "first_compile_trigger_request_ms": 25738.044928,
+          "gpu_identity": {
+            "driver": "610.74",
+            "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+            "total_memory_bytes": 25651314688,
+            "uuid": "GPU-64aae36b-ef77-b0d4-b1c7-f7ab17a729f1"
+          },
+          "lane": "pypto",
+          "memory_qualification": {
+            "cpu_offload_gb": 0,
+            "mem_fraction_static": 0.78,
+            "name": "candidate-9b-zero-offload"
+          },
+          "metrics": {
+            "decode_tokens_per_second": 3.0236286536640757,
+            "e2e_ms": 23993.6516485,
+            "itl_ms": 323.9199235,
+            "output_tokens_per_second": 2.667372225693618,
+            "total_tokens_per_second": 3.9593806475139646,
+            "tpot_ms": 330.72844422222227,
+            "ttft_ms": 3154.91629
+          },
+          "report": "runs/pypto-gpu-bounded-20260830T125719Z-2380600-b410bb/qwen35-9b-performance-pypto.json",
+          "report_sha256": "48dea6f208546be5e2ff0efa279b1e4d71d6c0afc80b6c83082481c1c61df209",
+          "requested_server_config": {
+            "attention_backend": "pypto",
+            "chunked_prefill_size": -1,
+            "context_length": 256,
+            "cpu_offload_gb": 0,
+            "decode_attention_backend": "pypto",
+            "disable_cuda_graph": true,
+            "disable_custom_all_reduce": true,
+            "disable_overlap_schedule": true,
+            "disable_radix_cache": true,
+            "dtype": "bfloat16",
+            "enable_multimodal": false,
+            "enable_torch_compile": true,
+            "grammar_backend": "none",
+            "json_model_override_args": "{\"language_model_only\":true}",
+            "kv_cache_dtype": "bfloat16",
+            "linear_attn_backend": "pypto",
+            "linear_attn_decode_backend": "pypto",
+            "linear_attn_prefill_backend": "pypto",
+            "load_format": "safetensors",
+            "log_level": "error",
+            "max_prefill_tokens": 256,
+            "max_running_requests": 1,
+            "max_total_tokens": 256,
+            "mem_fraction_static": 0.78,
+            "mm_io_worker_num": 1,
+            "mm_processor_worker_num": 1,
+            "model_loader_extra_config": "{\"enable_multithread_load\": false}",
+            "model_path": "models/Qwen3.5-9B",
+            "page_size": 1,
+            "prefill_attention_backend": "pypto",
+            "prefill_max_requests": 1,
+            "random_seed": 19,
+            "sampling_backend": "pytorch",
+            "skip_tokenizer_init": true,
+            "soft_watchdog_timeout": 600,
+            "stream_interval": 1,
+            "tokenizer_path": "models/Qwen3.5-9B",
+            "torch_compile_max_bs": 1,
+            "tp_size": 1,
+            "watchdog_timeout": 1200,
+            "weight_loader_drop_cache_after_load": true
+          },
+          "resolved_backends": {
+            "attention_decode": "pypto",
+            "attention_prefill": "pypto",
+            "cuda_graph_config": {
+              "decode": {
+                "backend": "disabled",
+                "bs": [
+                  1,
+                  2,
+                  4,
+                  8,
+                  12,
+                  16,
+                  24
+                ],
+                "full_prefill_max_req": null,
+                "full_prefill_prefix_chunk_tokens": null,
+                "max_bs": 24,
+                "tc_compiler": "eager"
+              },
+              "prefill": {
+                "backend": "disabled",
+                "bs": [],
+                "full_prefill_max_req": null,
+                "full_prefill_prefix_chunk_tokens": null,
+                "max_bs": -1,
+                "tc_compiler": "eager"
+              }
+            },
+            "cuda_graph_enabled_by_server_args": false,
+            "linear_attention_decode": "pypto",
+            "linear_attention_default": "pypto",
+            "linear_attention_prefill": "pypto",
+            "mamba": "triton",
+            "mamba_ssm_dtype": null,
+            "overlap_schedule_enabled_by_server_args": false,
+            "radix_cache_enabled_by_server_args": false,
+            "sampling_backend": "pytorch",
+            "torch_compile_requested": true
+          },
+          "resources": {
+            "minimum_gpu_memory_free_bytes": 4185329664,
+            "minimum_mem_available_kib": 55649052,
+            "peak_gpu_memory_used_bytes": 21465985024,
+            "peak_owned_pgid_rss_kib": 15107984,
+            "sample_count": 2767,
+            "thermal_throttle_observed": false
+          },
+          "run_id": "pypto-gpu-bounded-20260830T125719Z-2380600-b410bb"
+        },
+        {
+          "cold_engine_start_ms": 13422.98604,
+          "compilation": {
+            "backend_invocation_evidence": {
+              "pypto_torchinductor_cache_wrapper": true,
+              "scheduler_counter": false
+            },
+            "backend_invocation_observed": true,
+            "compiled_code_file_count": 2,
+            "compiled_code_files": [
+              "TORCHINDUCTOR_CACHE_DIR/5r/c5r5gufsl5rnshdddvfs4qllirdyzfyowvd4adpiutfgsrgbd4uv.py",
+              "TORCHINDUCTOR_CACHE_DIR/t4/ct4wd6kmdcmsnrdnmw2sujyz4izq5rcfz62gjzogdr7zlchiovcv.py"
+            ],
+            "effective": true,
+            "evidence_boundary": "Effective means the scheduler observed Dynamo graphs and Inductor compile calls, generated code appeared in the isolated cache, and subsequent measured requests completed.",
+            "graph_records": [],
+            "new_cache_file_count": 3,
+            "requested": true,
+            "scheduler_counter": {
+              "dynamo_as_is_count": 0,
+              "num_backend_compilations": 0,
+              "num_cache_entries_updated": 0,
+              "num_compiled_artifacts_saved": 0,
+              "num_cudagraph_captured": 0,
+              "num_eager_compiles": 0,
+              "num_gpu_runner_capture_triggers": 0,
+              "num_graphs_seen": 0,
+              "num_inductor_compiles": 0,
+              "num_models_seen": 0,
+              "num_piecewise_capturable_graphs_seen": 0,
+              "num_piecewise_graphs_seen": 0
+            },
+            "timing_boundary": "first_compile_trigger_request_ms includes compilation plus one full chat-template-input+64 request and is not compiler-only time"
+          },
+          "first_compile_trigger_request_ms": 26226.415873,
+          "gpu_identity": {
+            "driver": "610.74",
+            "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+            "total_memory_bytes": 25651314688,
+            "uuid": "GPU-64aae36b-ef77-b0d4-b1c7-f7ab17a729f1"
+          },
+          "lane": "pypto",
+          "memory_qualification": {
+            "cpu_offload_gb": 0,
+            "mem_fraction_static": 0.78,
+            "name": "candidate-9b-zero-offload"
+          },
+          "metrics": {
+            "decode_tokens_per_second": 3.021260354806391,
+            "e2e_ms": 23999.067933,
+            "itl_ms": 323.9229255,
+            "output_tokens_per_second": 2.6667708171380378,
+            "total_tokens_per_second": 3.958487931689275,
+            "tpot_ms": 330.98770517460315,
+            "ttft_ms": 3156.75948
+          },
+          "report": "runs/pypto-gpu-bounded-20260830T130313Z-2382469-63d4f6/qwen35-9b-performance-pypto.json",
+          "report_sha256": "14327794ef5a06ad3381a223278e90e3242830ae9b41531f1627f23046fdba01",
+          "requested_server_config": {
+            "attention_backend": "pypto",
+            "chunked_prefill_size": -1,
+            "context_length": 256,
+            "cpu_offload_gb": 0,
+            "decode_attention_backend": "pypto",
+            "disable_cuda_graph": true,
+            "disable_custom_all_reduce": true,
+            "disable_overlap_schedule": true,
+            "disable_radix_cache": true,
+            "dtype": "bfloat16",
+            "enable_multimodal": false,
+            "enable_torch_compile": true,
+            "grammar_backend": "none",
+            "json_model_override_args": "{\"language_model_only\":true}",
+            "kv_cache_dtype": "bfloat16",
+            "linear_attn_backend": "pypto",
+            "linear_attn_decode_backend": "pypto",
+            "linear_attn_prefill_backend": "pypto",
+            "load_format": "safetensors",
+            "log_level": "error",
+            "max_prefill_tokens": 256,
+            "max_running_requests": 1,
+            "max_total_tokens": 256,
+            "mem_fraction_static": 0.78,
+            "mm_io_worker_num": 1,
+            "mm_processor_worker_num": 1,
+            "model_loader_extra_config": "{\"enable_multithread_load\": false}",
+            "model_path": "models/Qwen3.5-9B",
+            "page_size": 1,
+            "prefill_attention_backend": "pypto",
+            "prefill_max_requests": 1,
+            "random_seed": 19,
+            "sampling_backend": "pytorch",
+            "skip_tokenizer_init": true,
+            "soft_watchdog_timeout": 600,
+            "stream_interval": 1,
+            "tokenizer_path": "models/Qwen3.5-9B",
+            "torch_compile_max_bs": 1,
+            "tp_size": 1,
+            "watchdog_timeout": 1200,
+            "weight_loader_drop_cache_after_load": true
+          },
+          "resolved_backends": {
+            "attention_decode": "pypto",
+            "attention_prefill": "pypto",
+            "cuda_graph_config": {
+              "decode": {
+                "backend": "disabled",
+                "bs": [
+                  1,
+                  2,
+                  4,
+                  8,
+                  12,
+                  16,
+                  24
+                ],
+                "full_prefill_max_req": null,
+                "full_prefill_prefix_chunk_tokens": null,
+                "max_bs": 24,
+                "tc_compiler": "eager"
+              },
+              "prefill": {
+                "backend": "disabled",
+                "bs": [],
+                "full_prefill_max_req": null,
+                "full_prefill_prefix_chunk_tokens": null,
+                "max_bs": -1,
+                "tc_compiler": "eager"
+              }
+            },
+            "cuda_graph_enabled_by_server_args": false,
+            "linear_attention_decode": "pypto",
+            "linear_attention_default": "pypto",
+            "linear_attention_prefill": "pypto",
+            "mamba": "triton",
+            "mamba_ssm_dtype": null,
+            "overlap_schedule_enabled_by_server_args": false,
+            "radix_cache_enabled_by_server_args": false,
+            "sampling_backend": "pytorch",
+            "torch_compile_requested": true
+          },
+          "resources": {
+            "minimum_gpu_memory_free_bytes": 4185264128,
+            "minimum_mem_available_kib": 55723828,
+            "peak_gpu_memory_used_bytes": 21466050560,
+            "peak_owned_pgid_rss_kib": 15104900,
+            "sample_count": 2807,
+            "thermal_throttle_observed": false
+          },
+          "run_id": "pypto-gpu-bounded-20260830T130313Z-2382469-63d4f6"
+        },
+        {
+          "cold_engine_start_ms": 13591.290282,
+          "compilation": {
+            "backend_invocation_evidence": {
+              "pypto_torchinductor_cache_wrapper": true,
+              "scheduler_counter": false
+            },
+            "backend_invocation_observed": true,
+            "compiled_code_file_count": 2,
+            "compiled_code_files": [
+              "TORCHINDUCTOR_CACHE_DIR/5r/c5r5gufsl5rnshdddvfs4qllirdyzfyowvd4adpiutfgsrgbd4uv.py",
+              "TORCHINDUCTOR_CACHE_DIR/t4/ct4wd6kmdcmsnrdnmw2sujyz4izq5rcfz62gjzogdr7zlchiovcv.py"
+            ],
+            "effective": true,
+            "evidence_boundary": "Effective means the scheduler observed Dynamo graphs and Inductor compile calls, generated code appeared in the isolated cache, and subsequent measured requests completed.",
+            "graph_records": [],
+            "new_cache_file_count": 3,
+            "requested": true,
+            "scheduler_counter": {
+              "dynamo_as_is_count": 0,
+              "num_backend_compilations": 0,
+              "num_cache_entries_updated": 0,
+              "num_compiled_artifacts_saved": 0,
+              "num_cudagraph_captured": 0,
+              "num_eager_compiles": 0,
+              "num_gpu_runner_capture_triggers": 0,
+              "num_graphs_seen": 0,
+              "num_inductor_compiles": 0,
+              "num_models_seen": 0,
+              "num_piecewise_capturable_graphs_seen": 0,
+              "num_piecewise_graphs_seen": 0
+            },
+            "timing_boundary": "first_compile_trigger_request_ms includes compilation plus one full chat-template-input+64 request and is not compiler-only time"
+          },
+          "first_compile_trigger_request_ms": 26643.470884,
+          "gpu_identity": {
+            "driver": "610.74",
+            "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+            "total_memory_bytes": 25651314688,
+            "uuid": "GPU-64aae36b-ef77-b0d4-b1c7-f7ab17a729f1"
+          },
+          "lane": "pypto",
+          "memory_qualification": {
+            "cpu_offload_gb": 0,
+            "mem_fraction_static": 0.78,
+            "name": "candidate-9b-zero-offload"
+          },
+          "metrics": {
+            "decode_tokens_per_second": 3.0202010125159573,
+            "e2e_ms": 24018.7456475,
+            "itl_ms": 323.9744385,
+            "output_tokens_per_second": 2.6645854562517353,
+            "total_tokens_per_second": 3.9552440366236694,
+            "tpot_ms": 331.10378946031744,
+            "ttft_ms": 3153.873865
+          },
+          "report": "runs/pypto-gpu-bounded-20260830T130906Z-2384455-6a96fa/qwen35-9b-performance-pypto.json",
+          "report_sha256": "08c752cf0ddd0780f502ef2f98da7f96427581bc3717e6a695eb51e40f25c986",
+          "requested_server_config": {
+            "attention_backend": "pypto",
+            "chunked_prefill_size": -1,
+            "context_length": 256,
+            "cpu_offload_gb": 0,
+            "decode_attention_backend": "pypto",
+            "disable_cuda_graph": true,
+            "disable_custom_all_reduce": true,
+            "disable_overlap_schedule": true,
+            "disable_radix_cache": true,
+            "dtype": "bfloat16",
+            "enable_multimodal": false,
+            "enable_torch_compile": true,
+            "grammar_backend": "none",
+            "json_model_override_args": "{\"language_model_only\":true}",
+            "kv_cache_dtype": "bfloat16",
+            "linear_attn_backend": "pypto",
+            "linear_attn_decode_backend": "pypto",
+            "linear_attn_prefill_backend": "pypto",
+            "load_format": "safetensors",
+            "log_level": "error",
+            "max_prefill_tokens": 256,
+            "max_running_requests": 1,
+            "max_total_tokens": 256,
+            "mem_fraction_static": 0.78,
+            "mm_io_worker_num": 1,
+            "mm_processor_worker_num": 1,
+            "model_loader_extra_config": "{\"enable_multithread_load\": false}",
+            "model_path": "models/Qwen3.5-9B",
+            "page_size": 1,
+            "prefill_attention_backend": "pypto",
+            "prefill_max_requests": 1,
+            "random_seed": 19,
+            "sampling_backend": "pytorch",
+            "skip_tokenizer_init": true,
+            "soft_watchdog_timeout": 600,
+            "stream_interval": 1,
+            "tokenizer_path": "models/Qwen3.5-9B",
+            "torch_compile_max_bs": 1,
+            "tp_size": 1,
+            "watchdog_timeout": 1200,
+            "weight_loader_drop_cache_after_load": true
+          },
+          "resolved_backends": {
+            "attention_decode": "pypto",
+            "attention_prefill": "pypto",
+            "cuda_graph_config": {
+              "decode": {
+                "backend": "disabled",
+                "bs": [
+                  1,
+                  2,
+                  4,
+                  8,
+                  12,
+                  16,
+                  24
+                ],
+                "full_prefill_max_req": null,
+                "full_prefill_prefix_chunk_tokens": null,
+                "max_bs": 24,
+                "tc_compiler": "eager"
+              },
+              "prefill": {
+                "backend": "disabled",
+                "bs": [],
+                "full_prefill_max_req": null,
+                "full_prefill_prefix_chunk_tokens": null,
+                "max_bs": -1,
+                "tc_compiler": "eager"
+              }
+            },
+            "cuda_graph_enabled_by_server_args": false,
+            "linear_attention_decode": "pypto",
+            "linear_attention_default": "pypto",
+            "linear_attention_prefill": "pypto",
+            "mamba": "triton",
+            "mamba_ssm_dtype": null,
+            "overlap_schedule_enabled_by_server_args": false,
+            "radix_cache_enabled_by_server_args": false,
+            "sampling_backend": "pytorch",
+            "torch_compile_requested": true
+          },
+          "resources": {
+            "minimum_gpu_memory_free_bytes": 4185067520,
+            "minimum_mem_available_kib": 55615556,
+            "peak_gpu_memory_used_bytes": 21466247168,
+            "peak_owned_pgid_rss_kib": 15110508,
+            "sample_count": 2809,
+            "thermal_throttle_observed": false
+          },
+          "run_id": "pypto-gpu-bounded-20260830T130906Z-2384455-6a96fa"
+        },
+        {
+          "cold_engine_start_ms": 13566.664994,
+          "compilation": {
+            "backend_invocation_evidence": {
+              "pypto_torchinductor_cache_wrapper": true,
+              "scheduler_counter": false
+            },
+            "backend_invocation_observed": true,
+            "compiled_code_file_count": 2,
+            "compiled_code_files": [
+              "TORCHINDUCTOR_CACHE_DIR/5r/c5r5gufsl5rnshdddvfs4qllirdyzfyowvd4adpiutfgsrgbd4uv.py",
+              "TORCHINDUCTOR_CACHE_DIR/t4/ct4wd6kmdcmsnrdnmw2sujyz4izq5rcfz62gjzogdr7zlchiovcv.py"
+            ],
+            "effective": true,
+            "evidence_boundary": "Effective means the scheduler observed Dynamo graphs and Inductor compile calls, generated code appeared in the isolated cache, and subsequent measured requests completed.",
+            "graph_records": [],
+            "new_cache_file_count": 3,
+            "requested": true,
+            "scheduler_counter": {
+              "dynamo_as_is_count": 0,
+              "num_backend_compilations": 0,
+              "num_cache_entries_updated": 0,
+              "num_compiled_artifacts_saved": 0,
+              "num_cudagraph_captured": 0,
+              "num_eager_compiles": 0,
+              "num_gpu_runner_capture_triggers": 0,
+              "num_graphs_seen": 0,
+              "num_inductor_compiles": 0,
+              "num_models_seen": 0,
+              "num_piecewise_capturable_graphs_seen": 0,
+              "num_piecewise_graphs_seen": 0
+            },
+            "timing_boundary": "first_compile_trigger_request_ms includes compilation plus one full chat-template-input+64 request and is not compiler-only time"
+          },
+          "first_compile_trigger_request_ms": 25503.592929,
+          "gpu_identity": {
+            "driver": "610.74",
+            "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+            "total_memory_bytes": 25651314688,
+            "uuid": "GPU-64aae36b-ef77-b0d4-b1c7-f7ab17a729f1"
+          },
+          "lane": "pypto",
+          "memory_qualification": {
+            "cpu_offload_gb": 0,
+            "mem_fraction_static": 0.78,
+            "name": "candidate-9b-zero-offload"
+          },
+          "metrics": {
+            "decode_tokens_per_second": 3.0462455224456964,
+            "e2e_ms": 23812.452407,
+            "itl_ms": 321.3645255,
+            "output_tokens_per_second": 2.6876695401954125,
+            "total_tokens_per_second": 3.9895094737275656,
+            "tpot_ms": 328.2729540952381,
+            "ttft_ms": 3113.839196
+          },
+          "report": "runs/pypto-gpu-bounded-20260830T133107Z-2390566-0029ff/qwen35-9b-performance-pypto.json",
+          "report_sha256": "df8aa8ee20841e1424d877b8ca5013e25d4a342f14c6d2d2f773ee553f487c49",
+          "requested_server_config": {
+            "attention_backend": "pypto",
+            "chunked_prefill_size": -1,
+            "context_length": 256,
+            "cpu_offload_gb": 0,
+            "decode_attention_backend": "pypto",
+            "disable_cuda_graph": true,
+            "disable_custom_all_reduce": true,
+            "disable_overlap_schedule": true,
+            "disable_radix_cache": true,
+            "dtype": "bfloat16",
+            "enable_multimodal": false,
+            "enable_torch_compile": true,
+            "grammar_backend": "none",
+            "json_model_override_args": "{\"language_model_only\":true}",
+            "kv_cache_dtype": "bfloat16",
+            "linear_attn_backend": "pypto",
+            "linear_attn_decode_backend": "pypto",
+            "linear_attn_prefill_backend": "pypto",
+            "load_format": "safetensors",
+            "log_level": "error",
+            "max_prefill_tokens": 256,
+            "max_running_requests": 1,
+            "max_total_tokens": 256,
+            "mem_fraction_static": 0.78,
+            "mm_io_worker_num": 1,
+            "mm_processor_worker_num": 1,
+            "model_loader_extra_config": "{\"enable_multithread_load\": false}",
+            "model_path": "models/Qwen3.5-9B",
+            "page_size": 1,
+            "prefill_attention_backend": "pypto",
+            "prefill_max_requests": 1,
+            "random_seed": 19,
+            "sampling_backend": "pytorch",
+            "skip_tokenizer_init": true,
+            "soft_watchdog_timeout": 600,
+            "stream_interval": 1,
+            "tokenizer_path": "models/Qwen3.5-9B",
+            "torch_compile_max_bs": 1,
+            "tp_size": 1,
+            "watchdog_timeout": 1200,
+            "weight_loader_drop_cache_after_load": true
+          },
+          "resolved_backends": {
+            "attention_decode": "pypto",
+            "attention_prefill": "pypto",
+            "cuda_graph_config": {
+              "decode": {
+                "backend": "disabled",
+                "bs": [
+                  1,
+                  2,
+                  4,
+                  8,
+                  12,
+                  16,
+                  24
+                ],
+                "full_prefill_max_req": null,
+                "full_prefill_prefix_chunk_tokens": null,
+                "max_bs": 24,
+                "tc_compiler": "eager"
+              },
+              "prefill": {
+                "backend": "disabled",
+                "bs": [],
+                "full_prefill_max_req": null,
+                "full_prefill_prefix_chunk_tokens": null,
+                "max_bs": -1,
+                "tc_compiler": "eager"
+              }
+            },
+            "cuda_graph_enabled_by_server_args": false,
+            "linear_attention_decode": "pypto",
+            "linear_attention_default": "pypto",
+            "linear_attention_prefill": "pypto",
+            "mamba": "triton",
+            "mamba_ssm_dtype": null,
+            "overlap_schedule_enabled_by_server_args": false,
+            "radix_cache_enabled_by_server_args": false,
+            "sampling_backend": "pytorch",
+            "torch_compile_requested": true
+          },
+          "resources": {
+            "minimum_gpu_memory_free_bytes": 4295708672,
+            "minimum_mem_available_kib": 55614888,
+            "peak_gpu_memory_used_bytes": 21355606016,
+            "peak_owned_pgid_rss_kib": 15105548,
+            "sample_count": 2752,
+            "thermal_throttle_observed": false
+          },
+          "run_id": "pypto-gpu-bounded-20260830T133107Z-2390566-0029ff"
+        }
+      ]
+    },
+    "sglang-matched": {
+      "cold_engine_start_ms": {
+        "headline_estimator": "median_of_fresh_start_estimates",
+        "max": 16216.781438,
+        "mean": 15439.2448915,
+        "median_bootstrap_95ci": {
+          "confidence": 0.95,
+          "lower": 15123.476512,
+          "method": "nonparametric percentile bootstrap over fresh process starts",
+          "resamples": 10000,
+          "seed": 15483270625251683648,
+          "upper": 16216.781438
+        },
+        "min": 15123.476512,
+        "p50": 15208.360808000001,
+        "p90": 16216.781438,
+        "p90_nearest_rank": 16216.781438,
+        "p99": 16216.781438,
+        "p99_nearest_rank": 16216.781438,
+        "sample_count": 4,
+        "sample_unit": "fresh_process_start"
+      },
+      "first_compile_trigger_request_ms": {
+        "headline_estimator": "median_of_fresh_start_estimates",
+        "max": 24163.691948,
+        "mean": 24003.6714385,
+        "median_bootstrap_95ci": {
+          "confidence": 0.95,
+          "lower": 23823.525113,
+          "method": "nonparametric percentile bootstrap over fresh process starts",
+          "resamples": 10000,
+          "seed": 16109221548761046376,
+          "upper": 24163.691948
+        },
+        "min": 23823.525113,
+        "p50": 24013.7343465,
+        "p90": 24163.691948,
+        "p90_nearest_rank": 24163.691948,
+        "p99": 24163.691948,
+        "p99_nearest_rank": 24163.691948,
+        "sample_count": 4,
+        "sample_unit": "fresh_process_start"
+      },
+      "fresh_starts": 4,
+      "memory_qualifications": [
+        {
+          "cpu_offload_gb": 2,
+          "mem_fraction_static": 0.78,
+          "name": "matched-9b-offload-2g"
+        },
+        {
+          "cpu_offload_gb": 2,
+          "mem_fraction_static": 0.78,
+          "name": "matched-9b-offload-2g"
+        },
+        {
+          "cpu_offload_gb": 2,
+          "mem_fraction_static": 0.78,
+          "name": "matched-9b-offload-2g"
+        },
+        {
+          "cpu_offload_gb": 2,
+          "mem_fraction_static": 0.78,
+          "name": "matched-9b-offload-2g"
+        }
+      ],
+      "metrics": {
+        "decode_tokens_per_second": {
+          "headline_estimator": "median_of_fresh_start_estimates",
+          "max": 15.550951841833518,
+          "mean": 15.478272879376876,
+          "median_bootstrap_95ci": {
+            "confidence": 0.95,
+            "lower": 15.405679027641728,
+            "method": "nonparametric percentile bootstrap over fresh process starts",
+            "resamples": 10000,
+            "seed": 12787220084869067964,
+            "upper": 15.550951841833518
+          },
+          "min": 15.405679027641728,
+          "p50": 15.478230324016128,
+          "p90": 15.550951841833518,
+          "p90_nearest_rank": 15.550951841833518,
+          "p99": 15.550951841833518,
+          "p99_nearest_rank": 15.550951841833518,
+          "sample_count": 4,
+          "sample_unit": "fresh_process_start"
+        },
+        "e2e_ms": {
+          "headline_estimator": "median_of_fresh_start_estimates",
+          "max": 4171.8811685,
+          "mean": 4152.323220375,
+          "median_bootstrap_95ci": {
+            "confidence": 0.95,
+            "lower": 4131.0891295,
+            "method": "nonparametric percentile bootstrap over fresh process starts",
+            "resamples": 10000,
+            "seed": 16486064062281898006,
+            "upper": 4171.8811685
+          },
+          "min": 4131.0891295,
+          "p50": 4153.161291750001,
+          "p90": 4171.8811685,
+          "p90_nearest_rank": 4171.8811685,
+          "p99": 4171.8811685,
+          "p99_nearest_rank": 4171.8811685,
+          "sample_count": 4,
+          "sample_unit": "fresh_process_start"
+        },
+        "itl_ms": {
+          "headline_estimator": "median_of_fresh_start_estimates",
+          "max": 63.570575000000005,
+          "mean": 63.405128500000004,
+          "median_bootstrap_95ci": {
+            "confidence": 0.95,
+            "lower": 63.228955,
+            "method": "nonparametric percentile bootstrap over fresh process starts",
+            "resamples": 10000,
+            "seed": 18315810402200090410,
+            "upper": 63.570575000000005
+          },
+          "min": 63.228955,
+          "p50": 63.410492000000005,
+          "p90": 63.570575000000005,
+          "p90_nearest_rank": 63.570575000000005,
+          "p99": 63.570575000000005,
+          "p99_nearest_rank": 63.570575000000005,
+          "sample_count": 4,
+          "sample_unit": "fresh_process_start"
+        },
+        "output_tokens_per_second": {
+          "headline_estimator": "median_of_fresh_start_estimates",
+          "max": 15.492313302566634,
+          "mean": 15.413272816119136,
+          "median_bootstrap_95ci": {
+            "confidence": 0.95,
+            "lower": 15.340845791851276,
+            "method": "nonparametric percentile bootstrap over fresh process starts",
+            "resamples": 10000,
+            "seed": 12274104529797114624,
+            "upper": 15.492313302566634
+          },
+          "min": 15.340845791851276,
+          "p50": 15.409966085029314,
+          "p90": 15.492313302566634,
+          "p90_nearest_rank": 15.492313302566634,
+          "p99": 15.492313302566634,
+          "p99_nearest_rank": 15.492313302566634,
+          "sample_count": 4,
+          "sample_unit": "fresh_process_start"
+        },
+        "total_tokens_per_second": {
+          "headline_estimator": "median_of_fresh_start_estimates",
+          "max": 22.996402558497348,
+          "mean": 22.87907683642684,
+          "median_bootstrap_95ci": {
+            "confidence": 0.95,
+            "lower": 22.771567972279236,
+            "method": "nonparametric percentile bootstrap over fresh process starts",
+            "resamples": 10000,
+            "seed": 14495860562798436961,
+            "upper": 22.996402558497348
+          },
+          "min": 22.771567972279236,
+          "p50": 22.87416840746539,
+          "p90": 22.996402558497348,
+          "p90_nearest_rank": 22.996402558497348,
+          "p99": 22.996402558497348,
+          "p99_nearest_rank": 22.996402558497348,
+          "sample_count": 4,
+          "sample_unit": "fresh_process_start"
+        },
+        "tpot_ms": {
+          "headline_estimator": "median_of_fresh_start_estimates",
+          "max": 64.91124773809524,
+          "mean": 64.6076832797619,
+          "median_bootstrap_95ci": {
+            "confidence": 0.95,
+            "lower": 64.30482499206349,
+            "method": "nonparametric percentile bootstrap over fresh process starts",
+            "resamples": 10000,
+            "seed": 12979480209880352636,
+            "upper": 64.91124773809524
+          },
+          "min": 64.30482499206349,
+          "p50": 64.60733019444444,
+          "p90": 64.91124773809524,
+          "p90_nearest_rank": 64.91124773809524,
+          "p99": 64.91124773809524,
+          "p99_nearest_rank": 64.91124773809524,
+          "sample_count": 4,
+          "sample_unit": "fresh_process_start"
+        },
+        "ttft_ms": {
+          "headline_estimator": "median_of_fresh_start_estimates",
+          "max": 70.1903265,
+          "mean": 69.8344575,
+          "median_bootstrap_95ci": {
+            "confidence": 0.95,
+            "lower": 69.53657799999999,
+            "method": "nonparametric percentile bootstrap over fresh process starts",
+            "resamples": 10000,
+            "seed": 9862690398479903449,
+            "upper": 70.1903265
+          },
+          "min": 69.53657799999999,
+          "p50": 69.80546275,
+          "p90": 70.1903265,
+          "p90_nearest_rank": 70.1903265,
+          "p99": 70.1903265,
+          "p99_nearest_rank": 70.1903265,
+          "sample_count": 4,
+          "sample_unit": "fresh_process_start"
+        }
+      },
+      "resources": {
+        "minimum_gpu_memory_free_bytes": 5240590336,
+        "peak_gpu_memory_used_bytes": 20410724352,
+        "thermal_throttle_observed": false
+      },
+      "starts": [
+        {
+          "cold_engine_start_ms": 16216.781438,
+          "compilation": {
+            "backend_invocation_evidence": {
+              "pypto_torchinductor_cache_wrapper": false,
+              "scheduler_counter": false
+            },
+            "backend_invocation_observed": false,
+            "compiled_code_file_count": 0,
+            "compiled_code_files": [],
+            "effective": false,
+            "evidence_boundary": "Effective means the scheduler observed Dynamo graphs and Inductor compile calls, generated code appeared in the isolated cache, and subsequent measured requests completed. Matched control deliberately disables CUDA graphs; in this pinned SGLang build that also prevents the global CompilerInterface from running, so the requested flag is recorded but not effective.",
+            "graph_records": [],
+            "new_cache_file_count": 26,
+            "requested": true,
+            "scheduler_counter": {
+              "dynamo_as_is_count": 0,
+              "num_backend_compilations": 0,
+              "num_cache_entries_updated": 0,
+              "num_compiled_artifacts_saved": 0,
+              "num_cudagraph_captured": 0,
+              "num_eager_compiles": 0,
+              "num_gpu_runner_capture_triggers": 0,
+              "num_graphs_seen": 0,
+              "num_inductor_compiles": 0,
+              "num_models_seen": 0,
+              "num_piecewise_capturable_graphs_seen": 0,
+              "num_piecewise_graphs_seen": 0
+            },
+            "timing_boundary": "first_compile_trigger_request_ms includes compilation plus one full chat-template-input+64 request and is not compiler-only time"
+          },
+          "first_compile_trigger_request_ms": 24163.691948,
+          "gpu_identity": {
+            "driver": "610.74",
+            "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+            "total_memory_bytes": 25651314688,
+            "uuid": "GPU-64aae36b-ef77-b0d4-b1c7-f7ab17a729f1"
+          },
+          "lane": "sglang-matched",
+          "memory_qualification": {
+            "cpu_offload_gb": 2,
+            "mem_fraction_static": 0.78,
+            "name": "matched-9b-offload-2g"
+          },
+          "metrics": {
+            "decode_tokens_per_second": 15.550951841833518,
+            "e2e_ms": 4131.0891295,
+            "itl_ms": 63.228955,
+            "output_tokens_per_second": 15.492313302566634,
+            "total_tokens_per_second": 22.996402558497348,
+            "tpot_ms": 64.30482499206349,
+            "ttft_ms": 69.952409
+          },
+          "report": "runs/pypto-gpu-bounded-20260830T125127Z-2379429-1dd0f9/qwen35-9b-performance-sglang-matched.json",
+          "report_sha256": "2ba4e9eec900e8327eba91aaaaa9e04d47912e40d4423502ee914c89ccc85513",
+          "requested_server_config": {
+            "attention_backend": "flashinfer",
+            "chunked_prefill_size": -1,
+            "context_length": 256,
+            "cpu_offload_gb": 2,
+            "disable_cuda_graph": true,
+            "disable_custom_all_reduce": true,
+            "disable_overlap_schedule": true,
+            "disable_radix_cache": true,
+            "dtype": "bfloat16",
+            "enable_multimodal": false,
+            "enable_torch_compile": true,
+            "grammar_backend": "none",
+            "json_model_override_args": "{\"language_model_only\":true}",
+            "kv_cache_dtype": "bfloat16",
+            "linear_attn_backend": "triton",
+            "linear_attn_decode_backend": "triton",
+            "linear_attn_prefill_backend": "triton",
+            "load_format": "safetensors",
+            "log_level": "error",
+            "mamba_ssm_dtype": "float32",
+            "max_prefill_tokens": 256,
+            "max_running_requests": 1,
+            "max_total_tokens": 256,
+            "mem_fraction_static": 0.78,
+            "mm_io_worker_num": 1,
+            "mm_processor_worker_num": 1,
+            "model_loader_extra_config": "{\"enable_multithread_load\": false}",
+            "model_path": "models/Qwen3.5-9B",
+            "page_size": 1,
+            "prefill_max_requests": 1,
+            "random_seed": 19,
+            "sampling_backend": "pytorch",
+            "skip_tokenizer_init": true,
+            "soft_watchdog_timeout": 600,
+            "stream_interval": 1,
+            "tokenizer_path": "models/Qwen3.5-9B",
+            "torch_compile_max_bs": 1,
+            "tp_size": 1,
+            "watchdog_timeout": 1200,
+            "weight_loader_drop_cache_after_load": true
+          },
+          "resolved_backends": {
+            "attention_decode": "flashinfer",
+            "attention_prefill": "flashinfer",
+            "cuda_graph_config": {
+              "decode": {
+                "backend": "disabled",
+                "bs": [
+                  1,
+                  2,
+                  4,
+                  8,
+                  12,
+                  16,
+                  24
+                ],
+                "full_prefill_max_req": null,
+                "full_prefill_prefix_chunk_tokens": null,
+                "max_bs": 24,
+                "tc_compiler": "eager"
+              },
+              "prefill": {
+                "backend": "disabled",
+                "bs": [],
+                "full_prefill_max_req": null,
+                "full_prefill_prefix_chunk_tokens": null,
+                "max_bs": -1,
+                "tc_compiler": "eager"
+              }
+            },
+            "cuda_graph_enabled_by_server_args": false,
+            "linear_attention_decode": "triton",
+            "linear_attention_default": "triton",
+            "linear_attention_prefill": "triton",
+            "mamba": "triton",
+            "mamba_ssm_dtype": "float32",
+            "overlap_schedule_enabled_by_server_args": false,
+            "radix_cache_enabled_by_server_args": false,
+            "sampling_backend": "pytorch",
+            "torch_compile_requested": true
+          },
+          "resources": {
+            "minimum_gpu_memory_free_bytes": 5244592128,
+            "minimum_mem_available_kib": 47235724,
+            "peak_gpu_memory_used_bytes": 20406722560,
+            "peak_owned_pgid_rss_kib": 11356688,
+            "sample_count": 311,
+            "thermal_throttle_observed": false
+          },
+          "run_id": "pypto-gpu-bounded-20260830T125127Z-2379429-1dd0f9"
+        },
+        {
+          "cold_engine_start_ms": 15123.476512,
+          "compilation": {
+            "backend_invocation_evidence": {
+              "pypto_torchinductor_cache_wrapper": false,
+              "scheduler_counter": false
+            },
+            "backend_invocation_observed": false,
+            "compiled_code_file_count": 0,
+            "compiled_code_files": [],
+            "effective": false,
+            "evidence_boundary": "Effective means the scheduler observed Dynamo graphs and Inductor compile calls, generated code appeared in the isolated cache, and subsequent measured requests completed. Matched control deliberately disables CUDA graphs; in this pinned SGLang build that also prevents the global CompilerInterface from running, so the requested flag is recorded but not effective.",
+            "graph_records": [],
+            "new_cache_file_count": 26,
+            "requested": true,
+            "scheduler_counter": {
+              "dynamo_as_is_count": 0,
+              "num_backend_compilations": 0,
+              "num_cache_entries_updated": 0,
+              "num_compiled_artifacts_saved": 0,
+              "num_cudagraph_captured": 0,
+              "num_eager_compiles": 0,
+              "num_gpu_runner_capture_triggers": 0,
+              "num_graphs_seen": 0,
+              "num_inductor_compiles": 0,
+              "num_models_seen": 0,
+              "num_piecewise_capturable_graphs_seen": 0,
+              "num_piecewise_graphs_seen": 0
+            },
+            "timing_boundary": "first_compile_trigger_request_ms includes compilation plus one full chat-template-input+64 request and is not compiler-only time"
+          },
+          "first_compile_trigger_request_ms": 23823.525113,
+          "gpu_identity": {
+            "driver": "610.74",
+            "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+            "total_memory_bytes": 25651314688,
+            "uuid": "GPU-64aae36b-ef77-b0d4-b1c7-f7ab17a729f1"
+          },
+          "lane": "sglang-matched",
+          "memory_qualification": {
+            "cpu_offload_gb": 2,
+            "mem_fraction_static": 0.78,
+            "name": "matched-9b-offload-2g"
+          },
+          "metrics": {
+            "decode_tokens_per_second": 15.517238999211779,
+            "e2e_ms": 4156.088958,
+            "itl_ms": 63.353023,
+            "output_tokens_per_second": 15.399093121978229,
+            "total_tokens_per_second": 22.858028852936435,
+            "tpot_ms": 64.44447041269841,
+            "ttft_ms": 69.65851649999999
+          },
+          "report": "runs/pypto-gpu-bounded-20260830T131742Z-2387886-e9a914/qwen35-9b-performance-sglang-matched.json",
+          "report_sha256": "32cfc13b02a54b4d76b70bf9e245fcc8fcc2a4df42ee04f9381ab1472947b009",
+          "requested_server_config": {
+            "attention_backend": "flashinfer",
+            "chunked_prefill_size": -1,
+            "context_length": 256,
+            "cpu_offload_gb": 2,
+            "disable_cuda_graph": true,
+            "disable_custom_all_reduce": true,
+            "disable_overlap_schedule": true,
+            "disable_radix_cache": true,
+            "dtype": "bfloat16",
+            "enable_multimodal": false,
+            "enable_torch_compile": true,
+            "grammar_backend": "none",
+            "json_model_override_args": "{\"language_model_only\":true}",
+            "kv_cache_dtype": "bfloat16",
+            "linear_attn_backend": "triton",
+            "linear_attn_decode_backend": "triton",
+            "linear_attn_prefill_backend": "triton",
+            "load_format": "safetensors",
+            "log_level": "error",
+            "mamba_ssm_dtype": "float32",
+            "max_prefill_tokens": 256,
+            "max_running_requests": 1,
+            "max_total_tokens": 256,
+            "mem_fraction_static": 0.78,
+            "mm_io_worker_num": 1,
+            "mm_processor_worker_num": 1,
+            "model_loader_extra_config": "{\"enable_multithread_load\": false}",
+            "model_path": "models/Qwen3.5-9B",
+            "page_size": 1,
+            "prefill_max_requests": 1,
+            "random_seed": 19,
+            "sampling_backend": "pytorch",
+            "skip_tokenizer_init": true,
+            "soft_watchdog_timeout": 600,
+            "stream_interval": 1,
+            "tokenizer_path": "models/Qwen3.5-9B",
+            "torch_compile_max_bs": 1,
+            "tp_size": 1,
+            "watchdog_timeout": 1200,
+            "weight_loader_drop_cache_after_load": true
+          },
+          "resolved_backends": {
+            "attention_decode": "flashinfer",
+            "attention_prefill": "flashinfer",
+            "cuda_graph_config": {
+              "decode": {
+                "backend": "disabled",
+                "bs": [
+                  1,
+                  2,
+                  4,
+                  8,
+                  12,
+                  16,
+                  24
+                ],
+                "full_prefill_max_req": null,
+                "full_prefill_prefix_chunk_tokens": null,
+                "max_bs": 24,
+                "tc_compiler": "eager"
+              },
+              "prefill": {
+                "backend": "disabled",
+                "bs": [],
+                "full_prefill_max_req": null,
+                "full_prefill_prefix_chunk_tokens": null,
+                "max_bs": -1,
+                "tc_compiler": "eager"
+              }
+            },
+            "cuda_graph_enabled_by_server_args": false,
+            "linear_attention_decode": "triton",
+            "linear_attention_default": "triton",
+            "linear_attention_prefill": "triton",
+            "mamba": "triton",
+            "mamba_ssm_dtype": "float32",
+            "overlap_schedule_enabled_by_server_args": false,
+            "radix_cache_enabled_by_server_args": false,
+            "sampling_backend": "pytorch",
+            "torch_compile_requested": true
+          },
+          "resources": {
+            "minimum_gpu_memory_free_bytes": 5240852480,
+            "minimum_mem_available_kib": 47790700,
+            "peak_gpu_memory_used_bytes": 20410462208,
+            "peak_owned_pgid_rss_kib": 11421764,
+            "sample_count": 291,
+            "thermal_throttle_observed": false
+          },
+          "run_id": "pypto-gpu-bounded-20260830T131742Z-2387886-e9a914"
+        },
+        {
+          "cold_engine_start_ms": 15250.551426,
+          "compilation": {
+            "backend_invocation_evidence": {
+              "pypto_torchinductor_cache_wrapper": false,
+              "scheduler_counter": false
+            },
+            "backend_invocation_observed": false,
+            "compiled_code_file_count": 0,
+            "compiled_code_files": [],
+            "effective": false,
+            "evidence_boundary": "Effective means the scheduler observed Dynamo graphs and Inductor compile calls, generated code appeared in the isolated cache, and subsequent measured requests completed. Matched control deliberately disables CUDA graphs; in this pinned SGLang build that also prevents the global CompilerInterface from running, so the requested flag is recorded but not effective.",
+            "graph_records": [],
+            "new_cache_file_count": 26,
+            "requested": true,
+            "scheduler_counter": {
+              "dynamo_as_is_count": 0,
+              "num_backend_compilations": 0,
+              "num_cache_entries_updated": 0,
+              "num_compiled_artifacts_saved": 0,
+              "num_cudagraph_captured": 0,
+              "num_eager_compiles": 0,
+              "num_gpu_runner_capture_triggers": 0,
+              "num_graphs_seen": 0,
+              "num_inductor_compiles": 0,
+              "num_models_seen": 0,
+              "num_piecewise_capturable_graphs_seen": 0,
+              "num_piecewise_graphs_seen": 0
+            },
+            "timing_boundary": "first_compile_trigger_request_ms includes compilation plus one full chat-template-input+64 request and is not compiler-only time"
+          },
+          "first_compile_trigger_request_ms": 24002.68603,
+          "gpu_identity": {
+            "driver": "610.74",
+            "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+            "total_memory_bytes": 25651314688,
+            "uuid": "GPU-64aae36b-ef77-b0d4-b1c7-f7ab17a729f1"
+          },
+          "lane": "sglang-matched",
+          "memory_qualification": {
+            "cpu_offload_gb": 2,
+            "mem_fraction_static": 0.78,
+            "name": "matched-9b-offload-2g"
+          },
+          "metrics": {
+            "decode_tokens_per_second": 15.439221648820478,
+            "e2e_ms": 4150.2336255,
+            "itl_ms": 63.467961,
+            "output_tokens_per_second": 15.420839048080401,
+            "total_tokens_per_second": 22.890307961994345,
+            "tpot_ms": 64.77018997619048,
+            "ttft_ms": 69.53657799999999
+          },
+          "report": "runs/pypto-gpu-bounded-20260830T132116Z-2388734-0ec296/qwen35-9b-performance-sglang-matched.json",
+          "report_sha256": "fc9b22ccc4240dea4bb709662cd7bd6247f4295927c68976e6dc2943d18a6504",
+          "requested_server_config": {
+            "attention_backend": "flashinfer",
+            "chunked_prefill_size": -1,
+            "context_length": 256,
+            "cpu_offload_gb": 2,
+            "disable_cuda_graph": true,
+            "disable_custom_all_reduce": true,
+            "disable_overlap_schedule": true,
+            "disable_radix_cache": true,
+            "dtype": "bfloat16",
+            "enable_multimodal": false,
+            "enable_torch_compile": true,
+            "grammar_backend": "none",
+            "json_model_override_args": "{\"language_model_only\":true}",
+            "kv_cache_dtype": "bfloat16",
+            "linear_attn_backend": "triton",
+            "linear_attn_decode_backend": "triton",
+            "linear_attn_prefill_backend": "triton",
+            "load_format": "safetensors",
+            "log_level": "error",
+            "mamba_ssm_dtype": "float32",
+            "max_prefill_tokens": 256,
+            "max_running_requests": 1,
+            "max_total_tokens": 256,
+            "mem_fraction_static": 0.78,
+            "mm_io_worker_num": 1,
+            "mm_processor_worker_num": 1,
+            "model_loader_extra_config": "{\"enable_multithread_load\": false}",
+            "model_path": "models/Qwen3.5-9B",
+            "page_size": 1,
+            "prefill_max_requests": 1,
+            "random_seed": 19,
+            "sampling_backend": "pytorch",
+            "skip_tokenizer_init": true,
+            "soft_watchdog_timeout": 600,
+            "stream_interval": 1,
+            "tokenizer_path": "models/Qwen3.5-9B",
+            "torch_compile_max_bs": 1,
+            "tp_size": 1,
+            "watchdog_timeout": 1200,
+            "weight_loader_drop_cache_after_load": true
+          },
+          "resolved_backends": {
+            "attention_decode": "flashinfer",
+            "attention_prefill": "flashinfer",
+            "cuda_graph_config": {
+              "decode": {
+                "backend": "disabled",
+                "bs": [
+                  1,
+                  2,
+                  4,
+                  8,
+                  12,
+                  16,
+                  24
+                ],
+                "full_prefill_max_req": null,
+                "full_prefill_prefix_chunk_tokens": null,
+                "max_bs": 24,
+                "tc_compiler": "eager"
+              },
+              "prefill": {
+                "backend": "disabled",
+                "bs": [],
+                "full_prefill_max_req": null,
+                "full_prefill_prefix_chunk_tokens": null,
+                "max_bs": -1,
+                "tc_compiler": "eager"
+              }
+            },
+            "cuda_graph_enabled_by_server_args": false,
+            "linear_attention_decode": "triton",
+            "linear_attention_default": "triton",
+            "linear_attention_prefill": "triton",
+            "mamba": "triton",
+            "mamba_ssm_dtype": "float32",
+            "overlap_schedule_enabled_by_server_args": false,
+            "radix_cache_enabled_by_server_args": false,
+            "sampling_backend": "pytorch",
+            "torch_compile_requested": true
+          },
+          "resources": {
+            "minimum_gpu_memory_free_bytes": 5240786944,
+            "minimum_mem_available_kib": 47454160,
+            "peak_gpu_memory_used_bytes": 20410527744,
+            "peak_owned_pgid_rss_kib": 11238972,
+            "sample_count": 290,
+            "thermal_throttle_observed": false
+          },
+          "run_id": "pypto-gpu-bounded-20260830T132116Z-2388734-0ec296"
+        },
+        {
+          "cold_engine_start_ms": 15166.17019,
+          "compilation": {
+            "backend_invocation_evidence": {
+              "pypto_torchinductor_cache_wrapper": false,
+              "scheduler_counter": false
+            },
+            "backend_invocation_observed": false,
+            "compiled_code_file_count": 0,
+            "compiled_code_files": [],
+            "effective": false,
+            "evidence_boundary": "Effective means the scheduler observed Dynamo graphs and Inductor compile calls, generated code appeared in the isolated cache, and subsequent measured requests completed. Matched control deliberately disables CUDA graphs; in this pinned SGLang build that also prevents the global CompilerInterface from running, so the requested flag is recorded but not effective.",
+            "graph_records": [],
+            "new_cache_file_count": 26,
+            "requested": true,
+            "scheduler_counter": {
+              "dynamo_as_is_count": 0,
+              "num_backend_compilations": 0,
+              "num_cache_entries_updated": 0,
+              "num_compiled_artifacts_saved": 0,
+              "num_cudagraph_captured": 0,
+              "num_eager_compiles": 0,
+              "num_gpu_runner_capture_triggers": 0,
+              "num_graphs_seen": 0,
+              "num_inductor_compiles": 0,
+              "num_models_seen": 0,
+              "num_piecewise_capturable_graphs_seen": 0,
+              "num_piecewise_graphs_seen": 0
+            },
+            "timing_boundary": "first_compile_trigger_request_ms includes compilation plus one full chat-template-input+64 request and is not compiler-only time"
+          },
+          "first_compile_trigger_request_ms": 24024.782663,
+          "gpu_identity": {
+            "driver": "610.74",
+            "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+            "total_memory_bytes": 25651314688,
+            "uuid": "GPU-64aae36b-ef77-b0d4-b1c7-f7ab17a729f1"
+          },
+          "lane": "sglang-matched",
+          "memory_qualification": {
+            "cpu_offload_gb": 2,
+            "mem_fraction_static": 0.78,
+            "name": "matched-9b-offload-2g"
+          },
+          "metrics": {
+            "decode_tokens_per_second": 15.405679027641728,
+            "e2e_ms": 4171.8811685,
+            "itl_ms": 63.570575000000005,
+            "output_tokens_per_second": 15.340845791851276,
+            "total_tokens_per_second": 22.771567972279236,
+            "tpot_ms": 64.91124773809524,
+            "ttft_ms": 70.1903265
+          },
+          "report": "runs/pypto-gpu-bounded-20260830T132501Z-2389569-cb56ff/qwen35-9b-performance-sglang-matched.json",
+          "report_sha256": "aa37309f960cf7053c8796e25d569ba7cae92acfc270659990e1b9b38f65b246",
+          "requested_server_config": {
+            "attention_backend": "flashinfer",
+            "chunked_prefill_size": -1,
+            "context_length": 256,
+            "cpu_offload_gb": 2,
+            "disable_cuda_graph": true,
+            "disable_custom_all_reduce": true,
+            "disable_overlap_schedule": true,
+            "disable_radix_cache": true,
+            "dtype": "bfloat16",
+            "enable_multimodal": false,
+            "enable_torch_compile": true,
+            "grammar_backend": "none",
+            "json_model_override_args": "{\"language_model_only\":true}",
+            "kv_cache_dtype": "bfloat16",
+            "linear_attn_backend": "triton",
+            "linear_attn_decode_backend": "triton",
+            "linear_attn_prefill_backend": "triton",
+            "load_format": "safetensors",
+            "log_level": "error",
+            "mamba_ssm_dtype": "float32",
+            "max_prefill_tokens": 256,
+            "max_running_requests": 1,
+            "max_total_tokens": 256,
+            "mem_fraction_static": 0.78,
+            "mm_io_worker_num": 1,
+            "mm_processor_worker_num": 1,
+            "model_loader_extra_config": "{\"enable_multithread_load\": false}",
+            "model_path": "models/Qwen3.5-9B",
+            "page_size": 1,
+            "prefill_max_requests": 1,
+            "random_seed": 19,
+            "sampling_backend": "pytorch",
+            "skip_tokenizer_init": true,
+            "soft_watchdog_timeout": 600,
+            "stream_interval": 1,
+            "tokenizer_path": "models/Qwen3.5-9B",
+            "torch_compile_max_bs": 1,
+            "tp_size": 1,
+            "watchdog_timeout": 1200,
+            "weight_loader_drop_cache_after_load": true
+          },
+          "resolved_backends": {
+            "attention_decode": "flashinfer",
+            "attention_prefill": "flashinfer",
+            "cuda_graph_config": {
+              "decode": {
+                "backend": "disabled",
+                "bs": [
+                  1,
+                  2,
+                  4,
+                  8,
+                  12,
+                  16,
+                  24
+                ],
+                "full_prefill_max_req": null,
+                "full_prefill_prefix_chunk_tokens": null,
+                "max_bs": 24,
+                "tc_compiler": "eager"
+              },
+              "prefill": {
+                "backend": "disabled",
+                "bs": [],
+                "full_prefill_max_req": null,
+                "full_prefill_prefix_chunk_tokens": null,
+                "max_bs": -1,
+                "tc_compiler": "eager"
+              }
+            },
+            "cuda_graph_enabled_by_server_args": false,
+            "linear_attention_decode": "triton",
+            "linear_attention_default": "triton",
+            "linear_attention_prefill": "triton",
+            "mamba": "triton",
+            "mamba_ssm_dtype": "float32",
+            "overlap_schedule_enabled_by_server_args": false,
+            "radix_cache_enabled_by_server_args": false,
+            "sampling_backend": "pytorch",
+            "torch_compile_requested": true
+          },
+          "resources": {
+            "minimum_gpu_memory_free_bytes": 5240590336,
+            "minimum_mem_available_kib": 47497916,
+            "peak_gpu_memory_used_bytes": 20410724352,
+            "peak_owned_pgid_rss_kib": 11423388,
+            "sample_count": 293,
+            "thermal_throttle_observed": false
+          },
+          "run_id": "pypto-gpu-bounded-20260830T132501Z-2389569-cb56ff"
+        }
+      ]
+    }
+  },
+  "methodology": {
+    "headline_estimator": "median across four fresh process starts",
+    "pooling_requests_across_starts": false,
+    "uncertainty": "95% percentile bootstrap over fresh starts",
+    "within_start_estimator": "p50 across ten measured requests"
+  },
+  "optimized_lane": {
+    "claim": null,
+    "reason": "The exact fixed workload could not keep the optimized stock capture configuration above the controller GPU free-memory floor.",
+    "status": "blocked-by-resource-qualification"
+  },
+  "performance_only": true,
+  "recorded_at": "2026-08-30T15:39:37.013557+00:00",
+  "schema": 1,
+  "source": {
+    "source_lock_sha256": "c3f5b6f0693eb593943d894c79a652b1ee5a90990c8eea003a49115bb5bbc1bc",
+    "summary_script": "tools/summarize_qwen_performance_pair.py",
+    "summary_script_sha256": "b6865139895efe2b940baec17089e0319ea094f1638beebd082cc1aa57db7d4d"
+  },
+  "status": "complete",
+  "workload": {
+    "chat_template_kwargs": {
+      "add_generation_prompt": true,
+      "enable_thinking": false
+    },
+    "concurrency": 1,
+    "greedy": true,
+    "ignore_eos": true,
+    "model_id": "Qwen/Qwen3.5-9B",
+    "model_size": "9B",
+    "output_tokens": 64,
+    "prompt": "为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？",
+    "prompt_token_ids": [
+      248045,
+      846,
+      198,
+      144277,
+      103426,
+      108169,
+      95967,
+      236,
+      124094,
+      26076,
+      96212,
+      103182,
+      108076,
+      96799,
+      24273,
+      95761,
+      104224,
+      109276,
+      95726,
+      111104,
+      115110,
+      10992,
+      248046,
+      198,
+      248045,
+      74455,
+      198,
+      248068,
+      271,
+      248069,
+      271
+    ],
+    "prompt_tokens": 31,
+    "raw_prompt_token_ids": [
+      144277,
+      103426,
+      108169,
+      95967,
+      236,
+      124094,
+      26076,
+      96212,
+      103182,
+      108076,
+      96799,
+      24273,
+      95761,
+      104224,
+      109276,
+      95726,
+      111104,
+      115110,
+      10992
+    ],
+    "raw_prompt_tokens": 19,
+    "rendered_input": "<|im_start|>user\n为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+    "tokenizer_files": {
+      "chat_template.jinja": "a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715",
+      "config.json": "d0883072e01861ed0b2d47be3c16c36a8e81c224c7ffaa310c6558fb3f932b05",
+      "tokenizer.json": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+      "tokenizer_config.json": "316230d6a809701f4db5ea8f8fc862bc3a6f3229c937c174e674ff3ca0a64ac8"
+    },
+    "workload_kind": "qwen35-chat-template-nonthinking"
+  }
+}

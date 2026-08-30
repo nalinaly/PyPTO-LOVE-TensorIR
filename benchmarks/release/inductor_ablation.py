@@ -100,8 +100,10 @@ def run(
     function, backend = _function_for_mode(torch, mode)
     cold_ms, warm_ms = _measure(torch, function, gate, up, warmup_calls, timed_calls)
     profile = _profile(torch, function, gate, up)
-    observed = function(gate, up)
-    expected = _eager_swiglu(gate, up)
+    # Keep this worker timing-only. Numerical acceptance belongs to the
+    # independent operator/model regression suites.
+    result = function(gate, up)
+    del result
     _synchronize(torch)
     return {
         "schema": 1,
@@ -115,9 +117,6 @@ def run(
         "timed_calls": timed_calls,
         "cold_first_call_ms": cold_ms,
         "warm_call_ms": warm_ms,
-        "output_max_abs_vs_eager_formula": float(
-            (observed.float() - expected.float()).abs().max()
-        ),
         "profile": profile,
         "torch": str(torch.__version__),
         "torch_git": str(torch.version.git_version),

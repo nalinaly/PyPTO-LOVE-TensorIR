@@ -1,0 +1,66 @@
+{
+  "cases": {
+    "decode": {
+      "artifact_sha256": "192b4c55f0f7648c9f1c51a94beda8095284c2db2e8dbb1a42cd5f16fd04d307",
+      "columns": 12288,
+      "cubin_sha256": "c97822e27eef21eadbc75e420dd6937279cef20871007c4d35805c27a0a8829b",
+      "dso_sha256": "e587d612c9b1e7e341d73cbf03fa868b2c66895b6ced3b46f222b24255e8e3c3",
+      "entry_name": "pypto_fused_pointwise",
+      "kernel_name": "pypto_inductor_020e73f43f1eaa56",
+      "pypto_source": "@pl.jit\ndef generated_pointwise_kernel(input_0: pl.Tensor, input_1: pl.Tensor, out: pl.Out[pl.Tensor]):\n    with pl.at(level=pl.Level.CORE_GROUP):\n        for index_0 in pl.range(1):\n            for block in pl.range(96):\n                value_0 = pl.load(input_0, [0, block * 128], [1, 128])\n                value_8 = pl.load(input_1, [0, block * 128], [1, 128])\n                value_1 = pl.cast(value_0, target_type=pl.FP32)\n                value_2 = pl.cast(value_0, target_type=pl.FP32)\n                value_3 = pl.neg(value_2)\n                value_4 = pl.exp(value_3)\n                value_5 = pl.add(value_4, 1.0)\n                value_6 = pl.recip(value_5)\n                value_7 = pl.mul(value_1, value_6)\n                value_9 = pl.cast(value_8, target_type=pl.FP32)\n                value_10 = pl.mul(value_7, value_9)\n                value_11 = pl.cast(value_10, target_type=pl.BF16)\n                pl.store(value_11, [index_0, block * 128], out)\n    return out\n",
+      "pypto_source_sha256": "01706d96ca64fc017ab2a1b0728c390dbc579146da107567beb20efc9938413c",
+      "rows": 1,
+      "source_node": "torch-inductor:020e73f43f1eaa56",
+      "wrapper_launch_sources": [
+        {
+          "artifact_id": "pypto-artifact-v1:192b4c55f0f7648c9f1c51a94beda8095284c2db2e8dbb1a42cd5f16fd04d307",
+          "artifact_sha256": "192b4c55f0f7648c9f1c51a94beda8095284c2db2e8dbb1a42cd5f16fd04d307",
+          "header_source": "from pypto_plugins.torch.runtime_bridge import pypto_launch\nimport torch as _pypto_torch\n",
+          "header_source_sha256": "d87d7a80617e61178d41ded480c0176fe83ddf32bf2f38dd31311b9ee5df166f",
+          "kernel_name": "pypto_inductor_020e73f43f1eaa56",
+          "launch_source": "pypto_launch('pypto_inductor_020e73f43f1eaa56', (arg0_1, arg1_1, buf0, ), _pypto_torch.cuda.current_stream().cuda_stream)\n",
+          "launch_source_sha256": "390fdf9627bdb2ef857c9b4784ff016cba2481646f1ccb649da4d678efd87759",
+          "registry_name": "pypto_inductor_020e73f43f1eaa56",
+          "source_node": "torch-inductor:020e73f43f1eaa56"
+        }
+      ]
+    },
+    "prefill": {
+      "artifact_sha256": "fa0eda39fc7341a9afc2c2f8c7c88c58ed1ac4b27b1e59c0ae610d4a687aaea6",
+      "columns": 12288,
+      "cubin_sha256": "7db3e5a63cbabcde283f4f9cee14440c71ad931a8d9b2334a9fd6148951addb1",
+      "dso_sha256": "e587d612c9b1e7e341d73cbf03fa868b2c66895b6ced3b46f222b24255e8e3c3",
+      "entry_name": "pypto_fused_pointwise",
+      "kernel_name": "pypto_inductor_47ce566203209337",
+      "pypto_source": "@pl.jit\ndef generated_pointwise_kernel(input_0: pl.Tensor, input_1: pl.Tensor, out: pl.Out[pl.Tensor]):\n    with pl.at(level=pl.Level.CORE_GROUP):\n        for index_0 in pl.range(19):\n            for block in pl.range(96):\n                value_0 = pl.load(input_0, [index_0, block * 128], [1, 128])\n                value_8 = pl.load(input_1, [index_0, block * 128], [1, 128])\n                value_1 = pl.cast(value_0, target_type=pl.FP32)\n                value_2 = pl.cast(value_0, target_type=pl.FP32)\n                value_3 = pl.neg(value_2)\n                value_4 = pl.exp(value_3)\n                value_5 = pl.add(value_4, 1.0)\n                value_6 = pl.recip(value_5)\n                value_7 = pl.mul(value_1, value_6)\n                value_9 = pl.cast(value_8, target_type=pl.FP32)\n                value_10 = pl.mul(value_7, value_9)\n                value_11 = pl.cast(value_10, target_type=pl.BF16)\n                pl.store(value_11, [index_0, block * 128], out)\n    return out\n",
+      "pypto_source_sha256": "4ca12b8614fd39b5db47f90c26d90bfb21f7d78718a9a89e2035c25531713dba",
+      "rows": 19,
+      "source_node": "torch-inductor:47ce566203209337",
+      "wrapper_launch_sources": [
+        {
+          "artifact_id": "pypto-artifact-v1:fa0eda39fc7341a9afc2c2f8c7c88c58ed1ac4b27b1e59c0ae610d4a687aaea6",
+          "artifact_sha256": "fa0eda39fc7341a9afc2c2f8c7c88c58ed1ac4b27b1e59c0ae610d4a687aaea6",
+          "header_source": "from pypto_plugins.torch.runtime_bridge import pypto_launch\nimport torch as _pypto_torch\n",
+          "header_source_sha256": "d87d7a80617e61178d41ded480c0176fe83ddf32bf2f38dd31311b9ee5df166f",
+          "kernel_name": "pypto_inductor_47ce566203209337",
+          "launch_source": "pypto_launch('pypto_inductor_47ce566203209337', (arg0_1, arg1_1, buf0, ), _pypto_torch.cuda.current_stream().cuda_stream)\n",
+          "launch_source_sha256": "e03f2abe42a398cd219174a2488ba4b92d17c37a12423e8ab5cd1d1d2133993f",
+          "registry_name": "pypto_inductor_47ce566203209337",
+          "source_node": "torch-inductor:47ce566203209337"
+        }
+      ]
+    }
+  },
+  "kind": "qwen35-9b-inductor-source-evidence",
+  "recorded_at": "2026-08-30T15:02:58.320529+00:00",
+  "schema": 1,
+  "scope": "Qwen3.5-9B packed SwiGLU pointwise",
+  "source_report": "runs/pypto-gpu-bounded-20260830T150140Z-2411664-e68395/inductor-swiglu-result.json",
+  "source_report_sha256": "d95d9f8da65b6c3186b858a959ff22cecec27fea9e3d84f6fda0ec392b21a084",
+  "status": "complete",
+  "torch_compile": {
+    "backend": "pypto",
+    "dynamic": false,
+    "fullgraph": true
+  }
+}

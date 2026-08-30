@@ -136,6 +136,7 @@ def test_release_parallelism_and_sample_counts_are_frozen() -> None:
     assert workload.MEASURED_REQUESTS == 10
     assert model_tool.FRESH_STARTS == 3
     assert profile_runtime.PROFILE_REQUESTS == 5
+    assert correctness_runtime.TEACHER_FORCED_REQUESTS == 1
 
 
 def test_model_correctness_all_mode_is_one_public_closed_loop() -> None:
@@ -286,6 +287,31 @@ def test_effective_compilation_requires_scheduler_counters_and_code() -> None:
     )
     assert observed["effective"] is True
     assert flag_only["effective"] is False
+    pypto_cache = performance_runtime._compilation_observation(
+        {},
+        {
+            "TORCHINDUCTOR_CACHE_DIR/aa/generated.py": {
+                "bytes": 4,
+                "suffix": ".py",
+                "contains_pypto_launch": True,
+            }
+        },
+        requested=True,
+        scheduler_counter={},
+        lane="pypto",
+    )
+    assert pypto_cache["effective"] is True
+    assert pypto_cache["backend_invocation_evidence"][
+        "pypto_torchinductor_cache_wrapper"
+    ] is True
+
+
+def test_matched_performance_control_may_record_disabled_compile_effective() -> None:
+    source = (ROOT / "benchmarks/release/performance_runtime.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'if lane != "sglang-matched"' in source
+    assert "Matched control deliberately disables CUDA graphs" in source
 
 
 def test_performance_matrix_is_the_frozen_balanced_twelve_start_order() -> None:
@@ -334,6 +360,8 @@ def test_lane_memory_and_provider_qualifications_are_explicit() -> None:
     qualified_optimized = lanes.server_kwargs(
         "sglang-optimized", model, optimized_memory_mode="matched"
     )
+    large_pypto = lanes.server_kwargs("pypto", Path("Qwen3.5-9B"))
+    large_matched = lanes.server_kwargs("sglang-matched", Path("Qwen3.5-9B"))
     small_pypto = lanes.server_kwargs("pypto", Path("Qwen3.5-0.8B"))
     small_matched = lanes.server_kwargs("sglang-matched", Path("Qwen3.5-0.8B"))
     for config in (pypto, matched, optimized, qualified_optimized):
@@ -341,6 +369,10 @@ def test_lane_memory_and_provider_qualifications_are_explicit() -> None:
         assert config["json_model_override_args"] == ('{"language_model_only":true}')
     assert pypto["cpu_offload_gb"] == matched["cpu_offload_gb"] == 2
     assert pypto["mem_fraction_static"] == matched["mem_fraction_static"] == 0.78
+    assert large_pypto["cpu_offload_gb"] == 0
+    assert large_matched["cpu_offload_gb"] == 2
+    assert large_pypto["mem_fraction_static"] == 0.78
+    assert large_matched["mem_fraction_static"] == 0.78
     assert small_pypto["cpu_offload_gb"] == small_matched["cpu_offload_gb"] == 0
     assert (
         small_pypto["mem_fraction_static"]
@@ -350,7 +382,7 @@ def test_lane_memory_and_provider_qualifications_are_explicit() -> None:
     assert optimized["cpu_offload_gb"] == 0
     assert "mem_fraction_static" not in optimized
     assert qualified_optimized["cpu_offload_gb"] == 2
-    assert qualified_optimized["mem_fraction_static"] == 0.78
+    assert qualified_optimized["mem_fraction_static"] == 0.69
     for config in (matched, optimized):
         assert config["linear_attn_backend"] == "triton"
         assert config["linear_attn_decode_backend"] == "triton"
@@ -793,6 +825,50 @@ def test_engine_token_mismatch_evidence_is_exact_and_length_aware() -> None:
         "expected_token_id": None,
         "observed_token_id": None,
     }
+
+
+def test_step_parity_accepts_only_an_exact_candidate_maximum_tie() -> None:
+    torch = pytest.importorskip("torch")
+    reference = torch.tensor([0.0, 2.0, 1.999, 0.0, -1.0])
+    candidate = torch.tensor([0.0, 2.0, 2.0, 0.0, -1.0])
+    tied = correctness_runtime._step_parity(
+        torch, [1], 2, reference, candidate
+    )
+    assert tied["passed"] is True
+    assert tied["exact_greedy_token_id"] is False
+    assert tied["metrics"]["candidate_max_tie_count"] == 2
+    assert tied["checks"]["reference_token_at_candidate_maximum"] is True
+    assert tied["checks"]["sampled_token_at_candidate_maximum"] is True
+
+    below_maximum = candidate.clone()
+    below_maximum[1] = 1.999
+    rejected = correctness_runtime._step_parity(
+        torch, [1], 2, reference, below_maximum
+    )
+    assert rejected["passed"] is False
+    assert rejected["checks"]["reference_token_at_candidate_maximum"] is False
+
+
+def test_candidate_numerical_gate_uses_reference_prefix_teacher_forcing() -> None:
+    source = (ROOT / "benchmarks/release/correctness_runtime.py").read_text(
+        encoding="utf-8"
+    )
+    candidate = source[source.index("def run_candidate(") :]
+    assert "_generate_teacher_forced(" in candidate
+    assert '"evaluation_mode": "teacher-forced-reference-prefixes"' in candidate
+    assert "end-to-end SGLang Engine output is incomplete or unstable" in candidate
+    assert '"explained_by_teacher_forced_maximum_tie"' in candidate
+    teacher_forced = source[
+        source.index("def _generate_teacher_forced(") : source.index(
+            "def _shutdown_runner("
+        )
+    ]
+    assert teacher_forced.index("forced_tokens = [") < teacher_forced.index(
+        "def traced_forward("
+    )
+    assert teacher_forced.index("torch.cuda.synchronize()") < teacher_forced.index(
+        "def traced_forward("
+    )
 
 
 def test_engine_acceptance_isolated_before_parent_cupti_start() -> None:

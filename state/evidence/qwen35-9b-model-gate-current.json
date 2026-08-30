@@ -1,0 +1,103 @@
+{
+  "accepted_candidate_start_count": 3,
+  "candidate_start_count": 3,
+  "candidates": [
+    {
+      "all_passed": true,
+      "compilation_execution": {
+        "handwritten_compute_calls": 31400,
+        "inductor_compute_calls": 2048,
+        "unknown_artifacts": []
+      },
+      "coverage": {
+        "covered_calls": 33448,
+        "covered_gpu_time_ns": 22328721673,
+        "strict_policy_passed": true,
+        "total_calls": 33448,
+        "total_gpu_time_ns": 22328721673,
+        "violation_count": 0
+      },
+      "output_sequence_sha256": "a9d16e5f9c498e9205a304bd246773cf68a5e45f4096e426c032e0e089495519",
+      "output_text_prefix": "关于“鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作”这一说法，**目前并不存在客观依据，这很可能是一个网络误传、营销号夸大其词，或者是将其他作品的评价张冠李戴了**。\n\n事实上，《月鳞绮纪》（原名",
+      "package_tree_sha256": "e46f8a648861d2059a479dcb8182f6b8beb5319f07ea7e0106b01914f0ef98f8",
+      "pypto_revision": "c27629e993a52b47d41fb898c749279dce44221b",
+      "report": "runs/pypto-gpu-bounded-20260830T134011Z-2392859-3b2169/qwen35-9b-correctness.json",
+      "report_sha256": "c3c20a6211f776219f9d10cdd3bd5dcb4c29fce4e599d96805d501a2027b5fa3",
+      "request_count": 10,
+      "run_id": "pypto-gpu-bounded-20260830T134011Z-2392859-3b2169",
+      "stable_output": true,
+      "status": "complete"
+    },
+    {
+      "all_passed": true,
+      "compilation_execution": {
+        "handwritten_compute_calls": 31400,
+        "inductor_compute_calls": 2048,
+        "unknown_artifacts": []
+      },
+      "coverage": {
+        "covered_calls": 33448,
+        "covered_gpu_time_ns": 22325396844,
+        "strict_policy_passed": true,
+        "total_calls": 33448,
+        "total_gpu_time_ns": 22325396844,
+        "violation_count": 0
+      },
+      "output_sequence_sha256": "a9d16e5f9c498e9205a304bd246773cf68a5e45f4096e426c032e0e089495519",
+      "output_text_prefix": "关于“鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作”这一说法，**目前并不存在客观依据，这很可能是一个网络误传、营销号夸大其词，或者是将其他作品的评价张冠李戴了**。\n\n事实上，《月鳞绮纪》（原名",
+      "package_tree_sha256": "e46f8a648861d2059a479dcb8182f6b8beb5319f07ea7e0106b01914f0ef98f8",
+      "pypto_revision": "c27629e993a52b47d41fb898c749279dce44221b",
+      "report": "runs/pypto-gpu-bounded-20260830T134614Z-2394864-88ed82/qwen35-9b-correctness.json",
+      "report_sha256": "1d5dffeab70b019f5b7b3bd1f618b7ff641419cb95b41e7cc654f640ef30c99a",
+      "request_count": 10,
+      "run_id": "pypto-gpu-bounded-20260830T134614Z-2394864-88ed82",
+      "stable_output": true,
+      "status": "complete"
+    },
+    {
+      "all_passed": true,
+      "compilation_execution": {
+        "handwritten_compute_calls": 31400,
+        "inductor_compute_calls": 2048,
+        "unknown_artifacts": []
+      },
+      "coverage": {
+        "covered_calls": 33448,
+        "covered_gpu_time_ns": 22321179769,
+        "strict_policy_passed": true,
+        "total_calls": 33448,
+        "total_gpu_time_ns": 22321179769,
+        "violation_count": 0
+      },
+      "output_sequence_sha256": "a9d16e5f9c498e9205a304bd246773cf68a5e45f4096e426c032e0e089495519",
+      "output_text_prefix": "关于“鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作”这一说法，**目前并不存在客观依据，这很可能是一个网络误传、营销号夸大其词，或者是将其他作品的评价张冠李戴了**。\n\n事实上，《月鳞绮纪》（原名",
+      "package_tree_sha256": "e46f8a648861d2059a479dcb8182f6b8beb5319f07ea7e0106b01914f0ef98f8",
+      "pypto_revision": "c27629e993a52b47d41fb898c749279dce44221b",
+      "report": "runs/pypto-gpu-bounded-20260830T143646Z-2406882-4ee3c7/qwen35-9b-correctness.json",
+      "report_sha256": "7c6cf94e7cdde2c004a06ac77c026affb3db0b7cd42023b50b47bbe88a8a97ca",
+      "request_count": 10,
+      "run_id": "pypto-gpu-bounded-20260830T143646Z-2406882-4ee3c7",
+      "stable_output": true,
+      "status": "complete"
+    }
+  ],
+  "coverage_contract": {
+    "all_accepted_traces_closed_world": true,
+    "evaluation": "teacher-forced-reference-prefixes",
+    "unknown_or_fallback_allowed": false
+  },
+  "kind": "qwen35-model-gate-evidence",
+  "model": "Qwen3.5-9B",
+  "recorded_at": "2026-08-30T15:30:20.547040+00:00",
+  "reference": {
+    "output_text_prefix": "关于“鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作”这一说法，**目前并不存在客观依据，这很可能是一个网络误传、营销号夸大其词，或者是将其他作品的评价张冠李戴了**。\n\n事实上，《月鳞绮纪》（原名",
+    "output_token_count": null,
+    "report": "runs/pypto-gpu-bounded-20260830T102647Z-2337028-bb5529/qwen35-9b-reference.json",
+    "report_sha256": "91fa884447ae29d62e7337a87706555e23c682bebbefceb1f00c2d74bdf2e431",
+    "status": "complete"
+  },
+  "schema": 1,
+  "source_lock_sha256": "c3f5b6f0693eb593943d894c79a652b1ee5a90990c8eea003a49115bb5bbc1bc",
+  "status": "complete",
+  "unresolved": []
+}

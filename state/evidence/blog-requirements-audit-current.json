@@ -1,0 +1,20 @@
+{
+  "checked": [
+    "README.md",
+    "README_EN.md",
+    "blog",
+    "LEGAL_NOTICE.md"
+  ],
+  "errors": [],
+  "kind": "blog-requirements-audit",
+  "open_gates": [
+    "optimized stock lane has no accepted sample",
+    "full-model CUPTI/NVTX profile was stopped by the GPU memory floor",
+    "PowerShell GUI captures are pending",
+    "article demo device runtime is Ascend-only in this environment",
+    "GPT-Image-2 generation awaits local API authorization"
+  ],
+  "recorded_at": "2026-08-30T15:48:23.191463+00:00",
+  "schema": 2,
+  "status": "pass"
+}

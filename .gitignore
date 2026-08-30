@@ -8,6 +8,8 @@
 !/models/MANIFEST.json
 /envs/
 /builds/
+/build_output/
+/demo/pypto-lib/build_output/
 /caches/
 /.cache/
 /logs/

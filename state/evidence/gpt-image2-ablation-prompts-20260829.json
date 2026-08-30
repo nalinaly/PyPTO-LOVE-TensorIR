@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "kind": "gpt-image-2-evidence-prompts",
+  "status": "pending-api-key",
+  "model": "gpt-image-2",
+  "source_evidence": "state/evidence/qwen35-9b-inductor-ablation-current.json",
+  "assets": [
+    {
+      "id": "inductor-ablation-overview",
+      "output": "docs/assets/generated/inductor-ablation-overview.png",
+      "use_case": "infographic-diagram",
+      "prompt": "Create a polished technical infographic for a compiler performance report. Show three horizontal lanes for Eager, Official NVIDIA TorchInductor, and PyPTO TorchInductor on a Qwen3.5-9B SwiGLU operator. Visually communicate six eager CUDA launches collapsing to one launch in both compiled lanes, with a clear fusion arrow and separate warm-latency and cold-compile callouts. Use restrained white background, charcoal text, cyan and orange accents, clean vector-like engineering diagram, no logos, no watermark. Exact numeric values will be typeset outside the image; do not invent numbers or tiny unreadable text.",
+      "evidence_scope": "operator-level; prefill 19x24576 and decode 1x24576; not whole-model"
+    },
+    {
+      "id": "inductor-ablation-latency",
+      "output": "docs/assets/generated/inductor-ablation-latency.png",
+      "use_case": "productivity-visual",
+      "prompt": "Create a clean technical dashboard-style visual comparing warm execution latency and first-call graph compile cost for three compiler modes on a GPU tensor operator. Use two coordinated panels, one for steady-state latency and one for cold-start cost, with distinct colors for eager, official NVIDIA Inductor, and PyPTO Inductor. Include simple GPU kernel and stopwatch motifs, generous whitespace, publication-quality engineering aesthetic, no logos, no watermark, no fabricated or microscopic numbers. Exact data labels will be overlaid externally.",
+      "evidence_scope": "operator-level; values must come from the adjacent immutable JSON table"
+    },
+    {
+      "id": "qwen35-kernel-breakdown",
+      "output": "docs/assets/generated/qwen35-kernel-breakdown.png",
+      "use_case": "scientific-educational",
+      "prompt": "Create a publication-quality explanatory diagram of a Qwen3.5 decoder forward pass broken into logical GPU stages: embedding, QK normalization and RoPE, full attention, GDN and causal convolution, MLP gate-up fusion, down projection, normalization, and LM head. Show arrows from stages to a stacked kernel-time breakdown bar, emphasizing that provider names can differ while logical stages align. Clean flat technical illustration, white background, legible large labels, no logos, no watermark. Do not assert performance values; those are supplied in an external table.",
+      "evidence_scope": "whole-model breakdown only after CUPTI/NVTX evidence is complete"
+    }
+  ],
+  "run_instructions": {
+    "cli": "python ${CODEX_HOME:-$HOME/.codex}/skills/.system/imagegen/scripts/image_gen.py generate --model gpt-image-2 --quality high --size 1536x1024 --prompt-file <prompt> --out <output>",
+    "required": "OPENAI_API_KEY and network access",
+    "no_downgrade": "Do not silently substitute another image model. If GPT-Image-2 is unavailable, leave status pending.",
+    "numeric_truth": "Keep exact metrics in JSON/Markdown tables adjacent to every generated image."
+  }
+}

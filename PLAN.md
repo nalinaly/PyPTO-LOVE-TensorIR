@@ -1436,3 +1436,68 @@ TorchInductor, SGLang or Qwen execution.
 Every milestone is correctness-first, then performance, then evidence and a
 checkpoint commit. A green smoke test is never promoted to a later acceptance
 claim.
+# Execution checkpoint: 2026-08-30 (revision 58)
+
+The revision-57 writing plan is now executed through the evidence and document
+stages below. These are the current facts to use when resuming; older
+19-token, 250-patch, or single-start numbers are historical only.
+
+- Typed NVIDIA construction: complete. Canonical bridge paths use the pinned
+  TensorIR ODS/OpBuilder builder; source lint, positive/negative verifier,
+  native CTest, and source replay/clone probe pass. PyPTO is c27629e (300
+  commits), TensorIR is db41d073 (89 commits).
+- Package/source identity: complete. The framework-plugin subtree split is
+  9ee85c3 with tree f1971eb; vendor/source-lock and the fresh-clone verifier
+  agree. The typed DSO and current wheels are bound in the current evidence
+  sidecars.
+- Operator correctness: complete. The current GPU run
+  pypto-gpu-bounded-20260830T150140Z-2411664-e68395 passes all eight suites;
+  the compact binding is state/evidence/operator-regression-current.json.
+- Model correctness/coverage: complete for both Qwen3.5-0.8B and 9B. Each has
+  three current-wheel candidate starts, ten stable Engine requests per start,
+  one teacher-forced strict trace, and zero unknown/fallback compute. The
+  compact bindings are qwen35-0.8b-model-gate-current.json and
+  qwen35-9b-model-gate-current.json.
+- Performance: complete for the accepted pair. Four PyPTO and four matched
+  stock starts are summarized in qwen35-9b-performance-pair-current.json;
+  PyPTO is 17.31% of matched output throughput (CI 17.22%--17.45%). The
+  optimized stock lane remains a resource-qualification blocker.
+- Full-model CUPTI/NVTX phase profile: attempted candidate collection was
+  stopped at model-load KV-cache qualification (4 GiB controller floor); no
+  phase percentage or residual attribution is promoted.
+- Full-model eager control: one timing-only matched-provider run is complete.
+  It shows 15.3418 versus 15.4100 output tok/s, but the compile-request lane
+  did not invoke CompilerInterface, so no causal whole-model compile speedup is
+  claimed; the supported causal result remains the SwiGLU operator ablation.
+- Inductor ablation/breakdown: complete at operator scope. The current
+  performance-only six-report summary is qwen35-9b-inductor-ablation-current.json;
+  it records 6-to-1 launches (83.33%), official NV speedups of +30.54%/+19.92%,
+  PyPTO changes of -79.60%/-80.91%, and compile overhead of +54.44%/+65.72%.
+  The aligned eight-start operator matrix remains the attribution evidence.
+- Documentation: Chinese README, English README, local blog Markdown and
+  single-file HTML have been refreshed. The blog has the independent TensorIR
+  suitability chapter, the unchanged article-demo chapter, the exact
+  Inductor kernel excerpt, current tables, and the requested numbered headings.
+  The five-role screenshot manifest is provisional.
+- Final requirement audit matrix: docs/final_requirement_matrix.md maps each
+  original and follow-up requirement to evidence or an explicit open gate.
+- GPT-Image-2: pending. OPENAI_API_KEY is absent; do not substitute another
+  model. Keep the prompts and PENDING_GPT_IMAGE2 markers until authorized
+  generation and image/hash inspection are available.
+- Article demos/GUI: the byte-for-byte 151-file/66-entrypoint corpus and
+  57/57 help audit are complete, but Ascend simpler_setup/KernelType.MIX
+  runtime blockers remain. Windows Terminal purple captures for the current
+  model and typical demo are pending; no fake screenshots are allowed.
+
+Resume order:
+
+1. If a clean GPU/Windows capture window becomes available, capture the two
+   pending roles and optionally qualify optimized stock; bind each result to
+   the same run JSON and update the manifest.
+2. If OPENAI_API_KEY is authorized locally, generate the three GPT-Image-2
+   figures from immutable current evidence and record model/prompt/input/image
+   hashes.
+3. Re-run the final audit and render_blog.py. Do not stage the local blog/HTML
+   or diagnostic probes.
+4. Stage only the authorized README/reproduction deliverables, perform a
+   staged-diff audit, and push the requested branch.

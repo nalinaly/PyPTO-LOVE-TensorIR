@@ -128,6 +128,18 @@ def memory_qualification(
                 "cpu_offload_gb": 0,
                 "mem_fraction_static": 0.78,
             }
+        if model_path is not None and model_path.name == "Qwen3.5-9B":
+            if lane == "pypto":
+                return {
+                    "name": "candidate-9b-zero-offload",
+                    "cpu_offload_gb": 0,
+                    "mem_fraction_static": 0.78,
+                }
+            return {
+                "name": "matched-9b-offload-2g",
+                "cpu_offload_gb": 2,
+                "mem_fraction_static": 0.78,
+            }
         return {
             "name": "candidate-matched-offload-2g",
             "cpu_offload_gb": 2,
@@ -143,7 +155,7 @@ def memory_qualification(
         return {
             "name": "optimized-matched-memory",
             "cpu_offload_gb": 2,
-            "mem_fraction_static": 0.78,
+            "mem_fraction_static": 0.69,
         }
     raise ValueError(f"unknown optimized memory mode: {optimized_memory_mode}")
 
@@ -237,6 +249,18 @@ def server_kwargs(
                     "disable_custom_all_reduce": True,
                     "page_size": 1,
                     "chunked_prefill_size": -1,
+                }
+            )
+        else:
+            # The release workload has one request and a fixed 256-token
+            # prefill. Restrict the official CUDA-graph lane to those exact
+            # buckets so unrelated capture sizes cannot consume its safety
+            # margin or contaminate the timing sample.
+            common.update(
+                {
+                    "cuda_graph_bs_decode": [1],
+                    "cuda_graph_bs_prefill": [32],
+                    "cuda_graph_backend_prefill": "disabled",
                 }
             )
     return common

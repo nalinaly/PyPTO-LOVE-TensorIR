@@ -1,0 +1,170 @@
+{
+  "interpretation": {
+    "cold_time_scope": "first operator call wall time, including compilation",
+    "formula_compile_overhead_percent": "(PyPTO cold / NV cold - 1) * 100",
+    "formula_speedup_percent": "(eager warm / mode warm - 1) * 100",
+    "launch_reduction_scope": "SwiGLU operator only",
+    "whole_model_speedup": null
+  },
+  "kind": "qwen35-9b-inductor-ablation",
+  "performance_only": true,
+  "phases": {
+    "decode": {
+      "derived": {
+        "compiled_launch_reduction_vs_eager_percent": 83.33333333333334,
+        "inductor_nv_speedup_vs_eager_percent": 19.922387023563925,
+        "pypto_compile_longer_than_inductor_nv_percent": 65.71939658434181,
+        "pypto_speedup_vs_eager_percent": -80.9118742427101
+      },
+      "eager": {
+        "cold_first_call_ms": 32.805488,
+        "kernel_event_count": 6,
+        "kernel_names": [
+          "void at::native::unrolled_elementwise_kernel<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul>, 4, TrivialOffsetCalculator<1, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<1>, at::native::memory::StoreWithCast<1> >(int, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul>, TrivialOffsetCalculator<1, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<1>, at::native::memory::StoreWithCast<1>)",
+          "void at::native::vectorized_elementwise_kernel<4, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> >, std::array<char*, 3ul> >(int, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> >, std::array<char*, 3ul>)",
+          "void at::native::vectorized_elementwise_kernel<4, at::native::bfloat16_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda(float)#1}, std::array<char*, 2ul> >(int, at::native::bfloat16_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda(float)#1}, std::array<char*, 2ul>)",
+          "void at::native::vectorized_elementwise_kernel<4, at::native::sigmoid_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#2}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul> >(int, at::native::sigmoid_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#2}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul>)"
+        ],
+        "mode": "eager",
+        "phase": "decode",
+        "raw_report": "runs/ablation-current-decode-eager.json",
+        "raw_report_sha256": "3debb24955b24c3703c153fc8a797b1c3684a0f60e7405fe9dfc4f26b3e9ebe3",
+        "shape": [
+          1,
+          12288
+        ],
+        "timed_calls": 100,
+        "warm_call_ms": 0.04054336071014404,
+        "warmup_calls": 20
+      },
+      "geometry": {
+        "columns": 12288,
+        "rows": 1
+      },
+      "inductor_nv": {
+        "cold_first_call_ms": 1045.895166,
+        "kernel_event_count": 1,
+        "kernel_names": [
+          "triton_poi_fused__to_copy_mul_sigmoid_0"
+        ],
+        "mode": "inductor-nv",
+        "phase": "decode",
+        "raw_report": "runs/ablation-current-decode-inductor-nv.json",
+        "raw_report_sha256": "cbbf59ac07246cc2ccf8050220dec040c58029e1da89aa051c4f2484fc5560c8",
+        "shape": [
+          1,
+          12288
+        ],
+        "timed_calls": 100,
+        "warm_call_ms": 0.03380800008773804,
+        "warmup_calls": 20
+      },
+      "pypto": {
+        "cold_first_call_ms": 1733.251158,
+        "kernel_event_count": 1,
+        "kernel_names": [
+          "pypto_fused_pointwise"
+        ],
+        "mode": "pypto",
+        "phase": "decode",
+        "raw_report": "runs/ablation-current-decode-pypto.json",
+        "raw_report_sha256": "ba5505d699ef26097d0eb7487b220772dd109bdd5aa58e19af41e803edd70e43",
+        "shape": [
+          1,
+          12288
+        ],
+        "timed_calls": 100,
+        "warm_call_ms": 0.21240095138549805,
+        "warmup_calls": 20
+      }
+    },
+    "prefill": {
+      "derived": {
+        "compiled_launch_reduction_vs_eager_percent": 83.33333333333334,
+        "inductor_nv_speedup_vs_eager_percent": 30.537246854792045,
+        "pypto_compile_longer_than_inductor_nv_percent": 54.43765128459286,
+        "pypto_speedup_vs_eager_percent": -79.60010923322298
+      },
+      "eager": {
+        "cold_first_call_ms": 35.251261,
+        "kernel_event_count": 6,
+        "kernel_names": [
+          "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1} const&)::{lambda(int)#1})",
+          "void at::native::vectorized_elementwise_kernel<4, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> >, std::array<char*, 3ul> >(int, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> >, std::array<char*, 3ul>)",
+          "void at::native::vectorized_elementwise_kernel<4, at::native::bfloat16_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda(float)#1}, std::array<char*, 2ul> >(int, at::native::bfloat16_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda(float)#1}, std::array<char*, 2ul>)",
+          "void at::native::vectorized_elementwise_kernel<4, at::native::sigmoid_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#2}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul> >(int, at::native::sigmoid_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#2}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul>)"
+        ],
+        "mode": "eager",
+        "phase": "prefill",
+        "raw_report": "runs/ablation-current-prefill-eager.json",
+        "raw_report_sha256": "2e4a94aae493e3921ca6e8e89ddb73215b798e9d059711a3cd4486da77eba643",
+        "shape": [
+          19,
+          12288
+        ],
+        "timed_calls": 100,
+        "warm_call_ms": 0.042965760231018064,
+        "warmup_calls": 20
+      },
+      "geometry": {
+        "columns": 12288,
+        "rows": 19
+      },
+      "inductor_nv": {
+        "cold_first_call_ms": 1098.332268,
+        "kernel_event_count": 1,
+        "kernel_names": [
+          "triton_poi_fused__to_copy_mul_sigmoid_0"
+        ],
+        "mode": "inductor-nv",
+        "phase": "prefill",
+        "raw_report": "runs/ablation-current-prefill-inductor-nv.json",
+        "raw_report_sha256": "1ae7785d1482a3210efa6224db28da91fee384f489e94632de07dcf83c5053e9",
+        "shape": [
+          19,
+          12288
+        ],
+        "timed_calls": 100,
+        "warm_call_ms": 0.03291455984115601,
+        "warmup_calls": 20
+      },
+      "pypto": {
+        "cold_first_call_ms": 1696.238558,
+        "kernel_event_count": 1,
+        "kernel_names": [
+          "pypto_fused_pointwise"
+        ],
+        "mode": "pypto",
+        "phase": "prefill",
+        "raw_report": "runs/ablation-current-prefill-pypto.json",
+        "raw_report_sha256": "8f1ad539caaceae0bfc5f5ef5d65733c167f9db15262d49a9291fd59cbd75816",
+        "shape": [
+          19,
+          12288
+        ],
+        "timed_calls": 100,
+        "warm_call_ms": 0.21061759948730469,
+        "warmup_calls": 20
+      }
+    }
+  },
+  "recorded_at": "2026-08-30T15:14:19.643463+00:00",
+  "schema": 2,
+  "scope": {
+    "columns": 12288,
+    "decode_rows": 1,
+    "denominator": "one profiled operator invocation",
+    "input_dtype": "bfloat16",
+    "model": "Qwen3.5-9B",
+    "operator": "SwiGLU pointwise",
+    "output_dtype": "bfloat16",
+    "prefill_rows": 19
+  },
+  "source": {
+    "repository_head": "3d0e5526d88a28cea174c2424b72669410c3b278",
+    "runner": "benchmarks/release/inductor_ablation.py",
+    "runner_sha256": "d55a503ed5218854778801ceb46601260d7eeb953858e0524b68cebf3a18f830",
+    "source_lock_sha256": "c3f5b6f0693eb593943d894c79a652b1ee5a90990c8eea003a49115bb5bbc1bc"
+  },
+  "status": "complete"
+}

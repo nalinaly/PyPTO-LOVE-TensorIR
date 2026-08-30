@@ -179,6 +179,18 @@ def test_graph_and_overlap_records_do_not_claim_runtime_execution() -> None:
     assert "capture_observed" not in graph
 
 
+def test_resource_sampler_joins_before_nvml_shutdown() -> None:
+    source = (ROOT / "benchmarks/release/performance_runtime.py").read_text(
+        encoding="utf-8"
+    )
+    stop = source[source.index("    def stop(self) -> None:") : source.index(
+        "\n\ndef _model_record", source.index("    def stop(self) -> None")
+    )]
+    assert "self._thread.join()" in stop
+    assert "join(timeout=" not in stop
+    assert stop.index("self._thread.join()") < stop.index("self._nvml.nvmlShutdown")
+
+
 def test_inductor_hash_and_shared_linear_attribution_are_explicit() -> None:
     rules = json.loads(
         (ROOT / "benchmarks/release/logical_phases.json").read_text(encoding="utf-8")
@@ -487,6 +499,12 @@ def test_operator_ab_is_aligned_and_performance_only(
     )
     assert "del output, invoke, allocations" in source
     assert "torch.cuda.empty_cache()" in source
+    ablation_source = (ROOT / "benchmarks/release/inductor_ablation.py").read_text(
+        encoding="utf-8"
+    )
+    assert "torch.allclose" not in ablation_source
+    assert "output_max_abs_vs_eager_formula" not in ablation_source
+    assert "correctness_runtime" not in ablation_source
     renderer = (ROOT / "tools/render_release_results.py").read_text(encoding="utf-8")
     assert "qwen35-9b-aligned-operator-performance-matrix-control" in renderer
     assert "qwen35-9b-aligned-operator-performance-only" in renderer

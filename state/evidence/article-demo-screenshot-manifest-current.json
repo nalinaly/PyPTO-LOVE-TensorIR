@@ -1,0 +1,63 @@
+{
+  "kind": "article-demo-screenshot-manifest",
+  "recorded_at": "2026-08-30T15:48:21.948714+00:00",
+  "schema": 1,
+  "screenshots": {
+    "article-demo-typical": {
+      "caption_en": "Ubuntu/PowerShell purple terminal: unchanged hello_world.py compile/golden/runtime result; Ascend runtime blocker remains, capture pending.",
+      "caption_zh": "Ubuntu/PowerShell 紫色终端：原样 hello_world.py 的 compile/golden/runtime 结果；当前 Ascend runtime blocker，截图待捕获。",
+      "capture_status": "pending",
+      "command": "envs/pypto-release/bin/python -B tools/run_article_demo.py --demo examples/beginner/hello_world.py --platform a2a3sim --output runs/article-demo-typical.json",
+      "evidence": "state/evidence/article-demo-typical-screenshot-pending-20260829.json",
+      "evidence_sha256": "2fd5bfcda8eaaefbdf1952d2635511fadf7f40568e704c927f5d0feb2149117e",
+      "path": "docs/assets/screenshots/article-demo-typical.png",
+      "status": "pending"
+    },
+    "build": {
+      "caption_en": "Ubuntu/PowerShell purple terminal: CTest 13/13 passed (this capture binds the ctest stage; the complete four-stage build remains a release-manifest gate).",
+      "caption_zh": "Ubuntu/PowerShell 紫色终端：CTest 13/13 通过（当前截图绑定 ctest 阶段；完整四阶段 build 仍按发布 manifest 复核）。",
+      "command": "envs/pypto-release/bin/python tools/build_release.py --stage ctest --jobs 24",
+      "evidence": "runs/pypto-cpu-bounded-20260830T144910Z-2409462-115ae6/release-build-ctest.json",
+      "evidence_sha256": "471eb2c9952aa0fe636abb075b40870e384326a19ad85a88ea1a0a8a30926025",
+      "path": "docs/assets/screenshots/build-ctest.png",
+      "sha256": "4aa4b98cb752092fff5e9380a3af6e8a121591bbedbbf168b912a0c83488e488",
+      "status": "historical-pass"
+    },
+    "model-inference": {
+      "caption_en": "Ubuntu/PowerShell purple terminal: Qwen3.5-9B chat-template inference with PyPTO/Inductor launch logs; Windows GUI capture is pending.",
+      "caption_zh": "Ubuntu/PowerShell 紫色终端：Qwen3.5-9B chat-template 推理与 PyPTO/Inductor launch log；当前环境无法控制 Windows GUI，截图待捕获。",
+      "capture_status": "pending",
+      "command": "envs/pypto-release/bin/python -B tools/run_model_correctness.py all --model-path models/Qwen3.5-9B --semantic-oracle runs/semantic-oracle-qwen35-9b-chat-nonthinking.json",
+      "evidence": "state/evidence/qwen35-9b-model-gate-current.json",
+      "evidence_sha256": "c65b4ca71e1113eed05a75f1fdbecda9cb42f8e6e6e1566d4656af4e5abb887c",
+      "path": "docs/assets/screenshots/model-inference.png",
+      "status": "pending"
+    },
+    "operator-correctness": {
+      "caption_en": "Ubuntu/PowerShell purple terminal: pypto-kernels regression tests, 38 passed.",
+      "caption_zh": "Ubuntu/PowerShell 紫色终端：pypto-kernels 结构/回归测试 38 passed。",
+      "command": "envs/pypto-release/bin/python -B -m pytest packages/pypto-kernels/tests/test_operators.py -q",
+      "evidence": "state/evidence/operator-regression-current.json",
+      "evidence_sha256": "f972d72328d816cc11644a18d5f24f9df704f7e38131859063f0d543b6b5cd4b",
+      "path": "docs/assets/screenshots/operator-correctness.png",
+      "sha256": "aed230c13de553b1cccf7939e524d444d95d54349ee5890c55524f574942de42",
+      "status": "historical-pass"
+    },
+    "performance": {
+      "caption_en": "Ubuntu/PowerShell purple terminal: Qwen3.5-9B SwiGLU operator ablation; values come from immutable evidence JSON and are not a whole-model claim.",
+      "caption_zh": "Ubuntu/PowerShell 紫色终端：Qwen3.5-9B SwiGLU 算子级消融；数值来自 immutable evidence JSON，非整模结论。",
+      "command": "python3 -B tools/print_inductor_ablation.py",
+      "evidence": "state/evidence/qwen35-9b-inductor-ablation-current.json",
+      "evidence_sha256": "37f8d44414f8470868dae5730313c4245ca9a2907aeff6dc1de7918404cb84d3",
+      "path": "docs/assets/screenshots/performance-ablation.png",
+      "sha256": "948025e2c2c1c2db2c4a90830fc059a445a5d2138aaedd6e1174a5d43c89cfa1",
+      "status": "historical-operator-scope"
+    }
+  },
+  "status": "provisional",
+  "terminal": {
+    "distro": "Ubuntu",
+    "host": "Windows Terminal",
+    "theme": "PowerShell purple"
+  }
+}

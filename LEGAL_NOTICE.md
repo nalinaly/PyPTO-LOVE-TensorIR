@@ -49,7 +49,7 @@ processors. The documentation may cite or paraphrase that engineering vision,
 but must not describe it as a change to the written license or as individual
 authorization for this project.
 
-- https://www.bilibili.com/video/BV1nB3u6tERu/?t=9240
+- https://www.bilibili.com/video/BV1nB3u6tERu/?vd_source=f2f41aa7b5e3cc8e0a23942779ccea11
 
 Rights holders may request removal through the repository's GitHub Issues
 page. No public push is permitted before the authorization gate in

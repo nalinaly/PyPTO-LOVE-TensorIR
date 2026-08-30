@@ -263,7 +263,9 @@ def run(
         "run_id": run_id,
         "workload": workload_record(),
         "entrypoint": "sglang.benchmark.one_batch ModelRunner with CUPTI/NVTX",
-        "memory_qualification": memory_qualification(lane, optimized_memory_mode),
+        "memory_qualification": memory_qualification(
+            lane, optimized_memory_mode, model_path
+        ),
         "status": "starting",
     }
     runner = None

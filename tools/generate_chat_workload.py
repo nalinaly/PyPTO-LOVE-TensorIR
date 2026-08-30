@@ -19,7 +19,7 @@ from benchmarks.release.workload import (  # noqa: E402
 )
 
 
-TEMPLATE_KWARGS = {"add_generation_prompt": True, "enable_thinking": True}
+TEMPLATE_KWARGS = {"add_generation_prompt": True, "enable_thinking": False}
 MODEL_IDS = {
     "Qwen3.5-0.8B": "Qwen/Qwen3.5-0.8B",
     "Qwen3.5-9B": "Qwen/Qwen3.5-9B",

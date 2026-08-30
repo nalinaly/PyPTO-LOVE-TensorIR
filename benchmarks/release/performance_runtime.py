@@ -218,7 +218,10 @@ class ResourceSampler:
             return
         self._stopped = True
         self._stop.set()
-        self._thread.join(timeout=2)
+        # NVML handles are process-global.  Do not call nvmlShutdown while a
+        # sampling callback can still be inside the library; a timed join here
+        # races with the sampler thread and can crash in ctypes teardown.
+        self._thread.join()
         if self._nvml is not None:
             try:
                 self._nvml.nvmlShutdown()
@@ -257,10 +260,18 @@ def _cache_snapshot() -> dict[str, dict[str, object]]:
             if not path.is_file():
                 continue
             relative = f"{label}/{path.relative_to(root)}"
-            files[relative] = {
+            record: dict[str, object] = {
                 "bytes": path.stat().st_size,
                 "suffix": path.suffix,
             }
+            if path.suffix == ".py" and path.stat().st_size <= 8 * 1024 * 1024:
+                try:
+                    record["contains_pypto_launch"] = (
+                        "pypto_launch" in path.read_text(encoding="utf-8")
+                    )
+                except (OSError, UnicodeDecodeError):
+                    record["contains_pypto_launch"] = False
+            files[relative] = record
     return files
 
 
@@ -270,6 +281,7 @@ def _compilation_observation(
     *,
     requested: bool,
     scheduler_counter: dict[str, object] | None,
+    lane: str | None = None,
 ) -> dict[str, object]:
     new_files = sorted(set(after) - set(before))
     graph_files = [
@@ -279,16 +291,37 @@ def _compilation_observation(
         path
         for path in new_files
         if after[path]["suffix"] in {".so", ".cubin", ".ptx", ".cpp", ".py"}
-        and "torch_compile" in path.lower()
+        and (
+            path.startswith("TORCHINDUCTOR_CACHE_DIR/")
+            or path.startswith("SGLANG_CACHE_DIR/torch_compile_cache/")
+        )
     ]
-    backend_invoked = bool(
+    scheduler_backend_invoked = bool(
         scheduler_counter
         and int(scheduler_counter.get("num_graphs_seen", 0)) > 0
         and int(scheduler_counter.get("num_inductor_compiles", 0)) > 0
     )
+    # The Qwen PyPTO hook invokes torch.compile from the model's functional
+    # SwiGLU hook, outside SGLang's CompilerInterface counter. In that lane,
+    # an isolated generated wrapper is the independent invocation evidence;
+    # stock lanes remain counter-gated.
+    pypto_cache_invoked = bool(
+        lane == "pypto"
+        and any(
+            path.startswith("TORCHINDUCTOR_CACHE_DIR/")
+            and after[path]["suffix"] == ".py"
+            and after[path].get("contains_pypto_launch") is True
+            for path in compiled_files
+        )
+    )
+    backend_invoked = scheduler_backend_invoked or pypto_cache_invoked
     return {
         "requested": requested,
         "backend_invocation_observed": backend_invoked,
+        "backend_invocation_evidence": {
+            "scheduler_counter": scheduler_backend_invoked,
+            "pypto_torchinductor_cache_wrapper": pypto_cache_invoked,
+        },
         "compiled_code_file_count": len(compiled_files),
         "new_cache_file_count": len(new_files),
         "graph_records": graph_files,
@@ -501,8 +534,13 @@ def summarize_fresh_starts(
             if (
                 not isinstance(compilation, dict)
                 or compilation.get("requested") is not True
-                or compilation.get("backend_invocation_observed") is not True
             ):
+                raise ReleaseContractError(
+                    f"{lane} did not record the requested torch.compile configuration"
+                )
+            if lane != "sglang-matched" and compilation.get(
+                "backend_invocation_observed"
+            ) is not True:
                 raise ReleaseContractError(
                     f"{lane} did not prove a requested torch.compile backend invocation"
                 )
@@ -664,6 +702,7 @@ def run(
     run_id: str,
     run_dir: Path,
     optimized_memory_mode: str = "zero-offload",
+    compile_enabled: bool | None = None,
 ) -> int:
     prepare_worker_environment(lane)
     model_path = model_path.resolve(strict=True)
@@ -671,8 +710,10 @@ def run(
     prompt_token_ids = workload["prompt_token_ids"]
     report_path = run_dir / f"qwen35-9b-performance-{lane}.json"
     resources_path = run_dir / f"qwen35-9b-resources-{lane}.json"
-    memory = memory_qualification(lane, optimized_memory_mode)
+    memory = memory_qualification(lane, optimized_memory_mode, model_path)
     requested = server_kwargs(lane, model_path, optimized_memory_mode)
+    if compile_enabled is not None:
+        requested["enable_torch_compile"] = bool(compile_enabled)
     report: dict[str, object] = {
         "schema": SCHEMA_VERSION,
         "kind": "qwen35-9b-performance-only",
@@ -688,6 +729,9 @@ def run(
             "profiler_enabled": False,
             "resource_sample_interval_ms": SAMPLE_INTERVAL_MS,
         },
+        "comparison_mode": (
+            "eager-control" if compile_enabled is False else "default"
+        ),
         "requested_server_config": requested,
         "memory_qualification": memory,
         "model": _model_record(model_path),
@@ -780,6 +824,7 @@ def run(
             cache_after_compile,
             requested=bool(requested.get("enable_torch_compile")),
             scheduler_counter=internal_zero.get("release_compilation_counter"),
+            lane=lane,
         )
         report["compilation"] = compilation
         report["compilation"]["timing_boundary"] = (
@@ -790,8 +835,15 @@ def run(
         graph = _graph_observation(server_info)
         report["execution_features"]["cuda_graph"].update(graph)
         if compilation["requested"] and not compilation["backend_invocation_observed"]:
-            raise ReleaseContractError(
-                f"{lane} requested torch.compile but no backend invocation was observed"
+            if lane != "sglang-matched":
+                raise ReleaseContractError(
+                    f"{lane} requested torch.compile but no backend invocation was observed"
+                )
+            compilation["effective"] = False
+            compilation["evidence_boundary"] += (
+                " Matched control deliberately disables CUDA graphs; in this pinned "
+                "SGLang build that also prevents the global CompilerInterface from "
+                "running, so the requested flag is recorded but not effective."
             )
         if lane == "sglang-optimized" and not all(
             report["execution_features"][feature]["requested"]

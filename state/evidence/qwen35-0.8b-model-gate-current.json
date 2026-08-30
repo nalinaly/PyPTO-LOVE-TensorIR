@@ -1,0 +1,103 @@
+{
+  "accepted_candidate_start_count": 3,
+  "candidate_start_count": 3,
+  "candidates": [
+    {
+      "all_passed": true,
+      "compilation_execution": {
+        "handwritten_compute_calls": 20572,
+        "inductor_compute_calls": 1536,
+        "unknown_artifacts": []
+      },
+      "coverage": {
+        "covered_calls": 22108,
+        "covered_gpu_time_ns": 4855780495,
+        "strict_policy_passed": true,
+        "total_calls": 22108,
+        "total_gpu_time_ns": 4855780495,
+        "violation_count": 0
+      },
+      "output_sequence_sha256": "f28ae7c516d30b45ab79d11680eaa443a2907bef05e1532e903eb3840ecf1ac7",
+      "output_text_prefix": "关于“《月鳞绮纪》是国产电视剧的巅峰之作”这一说法，需要首先澄清一个关键事实：**鞠婧祎主演的《月鳞绮纪》并非国产电视剧的“巅峰之作”，而是近年来国产剧市场的一个现象级现象，其成功更多源于题材创新、演员实力以及",
+      "package_tree_sha256": "e46f8a648861d2059a479dcb8182f6b8beb5319f07ea7e0106b01914f0ef98f8",
+      "pypto_revision": "c27629e993a52b47d41fb898c749279dce44221b",
+      "report": "runs/pypto-gpu-bounded-20260830T142029Z-2402950-f19d51/qwen35-0.8b-correctness.json",
+      "report_sha256": "2b38e9782f00960aab7d734457910aa85da030c9edb5ffe5812d778644a5f990",
+      "request_count": 10,
+      "run_id": "pypto-gpu-bounded-20260830T142029Z-2402950-f19d51",
+      "stable_output": true,
+      "status": "complete"
+    },
+    {
+      "all_passed": true,
+      "compilation_execution": {
+        "handwritten_compute_calls": 20572,
+        "inductor_compute_calls": 1536,
+        "unknown_artifacts": []
+      },
+      "coverage": {
+        "covered_calls": 22108,
+        "covered_gpu_time_ns": 4851735982,
+        "strict_policy_passed": true,
+        "total_calls": 22108,
+        "total_gpu_time_ns": 4851735982,
+        "violation_count": 0
+      },
+      "output_sequence_sha256": "f28ae7c516d30b45ab79d11680eaa443a2907bef05e1532e903eb3840ecf1ac7",
+      "output_text_prefix": "关于“《月鳞绮纪》是国产电视剧的巅峰之作”这一说法，需要首先澄清一个关键事实：**鞠婧祎主演的《月鳞绮纪》并非国产电视剧的“巅峰之作”，而是近年来国产剧市场的一个现象级现象，其成功更多源于题材创新、演员实力以及",
+      "package_tree_sha256": "e46f8a648861d2059a479dcb8182f6b8beb5319f07ea7e0106b01914f0ef98f8",
+      "pypto_revision": "c27629e993a52b47d41fb898c749279dce44221b",
+      "report": "runs/pypto-gpu-bounded-20260830T142227Z-2403956-37e3f5/qwen35-0.8b-correctness.json",
+      "report_sha256": "691c0be1ae422fed183bb43f4aaebaefa1f35cdb1878a6c3aba95f219f483090",
+      "request_count": 10,
+      "run_id": "pypto-gpu-bounded-20260830T142227Z-2403956-37e3f5",
+      "stable_output": true,
+      "status": "complete"
+    },
+    {
+      "all_passed": true,
+      "compilation_execution": {
+        "handwritten_compute_calls": 20572,
+        "inductor_compute_calls": 1536,
+        "unknown_artifacts": []
+      },
+      "coverage": {
+        "covered_calls": 22108,
+        "covered_gpu_time_ns": 4847263231,
+        "strict_policy_passed": true,
+        "total_calls": 22108,
+        "total_gpu_time_ns": 4847263231,
+        "violation_count": 0
+      },
+      "output_sequence_sha256": "f28ae7c516d30b45ab79d11680eaa443a2907bef05e1532e903eb3840ecf1ac7",
+      "output_text_prefix": "关于“《月鳞绮纪》是国产电视剧的巅峰之作”这一说法，需要首先澄清一个关键事实：**鞠婧祎主演的《月鳞绮纪》并非国产电视剧的“巅峰之作”，而是近年来国产剧市场的一个现象级现象，其成功更多源于题材创新、演员实力以及",
+      "package_tree_sha256": "e46f8a648861d2059a479dcb8182f6b8beb5319f07ea7e0106b01914f0ef98f8",
+      "pypto_revision": "c27629e993a52b47d41fb898c749279dce44221b",
+      "report": "runs/pypto-gpu-bounded-20260830T142423Z-2404966-732d58/qwen35-0.8b-correctness.json",
+      "report_sha256": "0962635d54b19f70d8f3b15dd9b93a01716710c2c48515c10864e3f696b8b41c",
+      "request_count": 10,
+      "run_id": "pypto-gpu-bounded-20260830T142423Z-2404966-732d58",
+      "stable_output": true,
+      "status": "complete"
+    }
+  ],
+  "coverage_contract": {
+    "all_accepted_traces_closed_world": true,
+    "evaluation": "teacher-forced-reference-prefixes",
+    "unknown_or_fallback_allowed": false
+  },
+  "kind": "qwen35-model-gate-evidence",
+  "model": "Qwen3.5-0.8B",
+  "recorded_at": "2026-08-30T15:30:20.585816+00:00",
+  "reference": {
+    "output_text_prefix": "关于“《月鳞绮纪》是国产电视剧的巅峰之作”这一说法，需要首先澄清一个关键事实：**鞠婧祎主演的《月鳞绮纪》并非国产电视剧的“巅峰之作”，而是近年来国产剧市场的一个现象级现象，其热度远超传统意义上的“巅峰”，更偏向",
+    "output_token_count": null,
+    "report": "runs/pypto-gpu-bounded-20260830T141945Z-2402271-e2e20c/qwen35-0.8b-reference.json",
+    "report_sha256": "fd1e5b5fcf02b561faee0a41f3719814f8cde3d571f8a9d550a9f2037ec74ac9",
+    "status": "complete"
+  },
+  "schema": 1,
+  "source_lock_sha256": "c3f5b6f0693eb593943d894c79a652b1ee5a90990c8eea003a49115bb5bbc1bc",
+  "status": "complete",
+  "unresolved": []
+}

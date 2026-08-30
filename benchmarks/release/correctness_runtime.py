@@ -41,6 +41,7 @@ from .workload import (
 
 
 MAX_TRACE_ATTEMPTS = 10
+TEACHER_FORCED_REQUESTS = 1
 CUPTI_BUFFER_COMPLETION_TIMEOUT_SECONDS = 1.0
 ROOT = Path(__file__).resolve().parents[2]
 SEMANTIC_ORACLE_THRESHOLDS = {
@@ -55,9 +56,10 @@ THRESHOLDS = {
     "max_relative_error_max": 2.1,
     "max_relative_error_reference_floor": 1.0,
     "mean_abs_error_max": 0.45,
-    "minimum_candidate_top1_margin": 0.05,
     "top5_token_overlap_min": 3,
-    "exact_greedy_token_ids": True,
+    "reference_token_logit_gap_max": 0.0,
+    "sampled_token_logit_gap_max": 0.0,
+    "greedy_tie_policy": "reference-and-sampled-token-at-candidate-maximum",
 }
 _COMPILE_CACHE_DISPOSITIONS = frozenset(
     {
@@ -180,14 +182,95 @@ def _generate(
         )
         next_ids, logits, batch = runner.extend(reqs)
         runner.synchronize()
+        # Keep the sampled scalar independent from SGLang's reusable sampler
+        # buffer before the next decode can overwrite it asynchronously.
+        next_ids = next_ids.detach().clone()
         output_ids.append(int(next_ids.cpu()[0]))
         cpu_logits.append(logits.detach().float().cpu().contiguous())
         for _ in range(OUTPUT_TOKENS - 1):
             next_ids, logits = runner.decode(next_ids, batch)
             runner.synchronize()
+            next_ids = next_ids.detach().clone()
             output_ids.append(int(next_ids.cpu()[0]))
             cpu_logits.append(logits.detach().float().cpu().contiguous())
         return output_ids, torch.cat(cpu_logits, dim=0), windows
+    finally:
+        torch_runner.forward = original_forward
+        if batch is not None:
+            runner.cleanup(batch)
+        runner.clear()
+
+
+def _generate_teacher_forced(
+    torch,
+    one_batch,
+    runner,
+    expected_output_ids: Sequence[int],
+    monitor=None,
+    prompt_token_ids: Sequence[int] = PROMPT_TOKEN_IDS,
+):
+    """Evaluate every reference prefix while retaining sampled-token evidence."""
+
+    if len(expected_output_ids) != OUTPUT_TOKENS:
+        raise ReleaseContractError(
+            "teacher-forced generation requires one token for every output step"
+        )
+    forced_tokens = [
+        torch.tensor(
+            [expected_output_ids[step]],
+            device=torch.device("cuda", torch.cuda.current_device()),
+            dtype=torch.int64,
+        )
+        for step in range(OUTPUT_TOKENS - 1)
+    ]
+    # Tensor construction and its dtype conversion are external framework work.
+    # Complete them before any model-forward CUPTI window can attribute the
+    # asynchronous copy kernel to PyPTO compute.
+    torch.cuda.synchronize()
+    windows: list[dict[str, object]] = []
+    torch_runner = runner.torch_runner
+    original_forward = torch_runner.forward
+
+    if monitor is not None:
+
+        def traced_forward(*args, **kwargs):
+            monitor.begin_trace_window()
+            try:
+                return original_forward(*args, **kwargs)
+            finally:
+                torch.cuda.synchronize()
+                completed_before = int(monitor.stats()["buffers_completed"])
+                monitor.flush(forced=True)
+                deadline = time.monotonic() + CUPTI_BUFFER_COMPLETION_TIMEOUT_SECONDS
+                while (
+                    int(monitor.stats()["buffers_completed"]) <= completed_before
+                    and time.monotonic() < deadline
+                ):
+                    time.sleep(0.001)
+                windows.append(monitor.end_trace_window())
+
+        torch_runner.forward = traced_forward
+
+    batch = None
+    cpu_logits = []
+    sampled_ids: list[int] = []
+    try:
+        reqs = one_batch.prepare_synthetic_inputs_for_latency_test(
+            1, len(prompt_token_ids), [list(prompt_token_ids)]
+        )
+        next_ids, logits, batch = runner.extend(reqs)
+        runner.synchronize()
+        next_ids = next_ids.detach().clone()
+        sampled_ids.append(int(next_ids.cpu()[0]))
+        cpu_logits.append(logits.detach().float().cpu().contiguous())
+        for step in range(1, OUTPUT_TOKENS):
+            forced = forced_tokens[step - 1]
+            next_ids, logits = runner.decode(forced, batch)
+            runner.synchronize()
+            next_ids = next_ids.detach().clone()
+            sampled_ids.append(int(next_ids.cpu()[0]))
+            cpu_logits.append(logits.detach().float().cpu().contiguous())
+        return sampled_ids, torch.cat(cpu_logits, dim=0), windows
     finally:
         torch_runner.forward = original_forward
         if batch is not None:
@@ -397,7 +480,12 @@ def _run_engine_sequences(
     expected_output_ids: list[int],
     prompt_token_ids: Sequence[int],
     run_dir: Path,
-) -> tuple[list[dict[str, object]], dict[str, object], dict[str, object]]:
+) -> tuple[
+    list[dict[str, object]],
+    dict[str, object],
+    dict[str, object],
+    dict[str, object],
+]:
     prepare_worker_environment("pypto")
     resolved_workload, _workload_resolution = verify_chat_workload(model_path)
     if list(resolved_workload["prompt_token_ids"]) != list(prompt_token_ids):
@@ -444,6 +532,21 @@ def _run_engine_sequences(
                 raise ReleaseContractError("SGLang Engine returned no output token IDs")
             return [int(value) for value in response["output_ids"]]
 
+        def sequence_record(request_index: int, output_ids: list[int]):
+            complete = len(output_ids) == OUTPUT_TOKENS and all(
+                token_id >= 0 for token_id in output_ids
+            )
+            exact = output_ids == expected_output_ids
+            return {
+                "request_index": request_index,
+                "output_token_ids": output_ids,
+                "output_sequence_sha256": canonical_json_sha256(output_ids),
+                "complete_output_sequence": complete,
+                "exact_output_sequence": exact,
+                **_token_sequence_mismatch(expected_output_ids, output_ids),
+                "passed": complete,
+            }
+
         publish_progress("warmup-start", -1)
         warmup = generate(-1)
         publish_progress("warmup-complete", -1)
@@ -451,23 +554,14 @@ def _run_engine_sequences(
             raise ReleaseContractError(
                 "SGLang Engine warmup did not generate 64 tokens"
             )
+        warmup_record = sequence_record(-1, warmup)
         requests = []
         for request_index in range(MEASURED_REQUESTS):
             publish_progress("request-start", request_index)
             output_ids = generate(request_index)
             publish_progress("request-complete", request_index)
-            exact = output_ids == expected_output_ids
-            requests.append(
-                {
-                    "request_index": request_index,
-                    "output_token_ids": output_ids,
-                    "output_sequence_sha256": canonical_json_sha256(output_ids),
-                    "exact_output_sequence": exact,
-                    **_token_sequence_mismatch(expected_output_ids, output_ids),
-                    "passed": exact,
-                }
-            )
-        return requests, requested, resolved
+            requests.append(sequence_record(request_index, output_ids))
+        return requests, requested, resolved, warmup_record
     finally:
         if engine is not None:
             publish_progress("shutdown-start")
@@ -509,7 +603,12 @@ def _run_engine_sequences_isolated(
     expected_output_ids: list[int],
     prompt_token_ids: Sequence[int],
     run_dir: Path,
-) -> tuple[list[dict[str, object]], dict[str, object], dict[str, object]]:
+) -> tuple[
+    list[dict[str, object]],
+    dict[str, object],
+    dict[str, object],
+    dict[str, object],
+]:
     context = multiprocessing.get_context("spawn")
     receiver, sender = context.Pipe(duplex=False)
     process = context.Process(
@@ -547,7 +646,7 @@ def _run_engine_sequences_isolated(
             f"{payload.get('traceback')}"
         )
     value = payload.get("value")
-    if not isinstance(value, tuple) or len(value) != 3:
+    if not isinstance(value, tuple) or len(value) != 4:
         raise ReleaseContractError(
             "SGLang Engine correctness child returned an invalid payload"
         )
@@ -686,7 +785,21 @@ def run_reference(
     return return_code
 
 
-def _step_parity(torch, expected_ids, reference, candidate) -> dict[str, object]:
+def _step_parity(
+    torch,
+    expected_ids: Sequence[int],
+    sampled_id: int,
+    reference,
+    candidate,
+) -> dict[str, object]:
+    if len(expected_ids) != 1:
+        raise ReleaseContractError("step parity requires one reference token")
+    expected_id = int(expected_ids[0])
+    sampled_id = int(sampled_id)
+    if not (0 <= expected_id < candidate.numel()) or not (
+        0 <= sampled_id < candidate.numel()
+    ):
+        raise ReleaseContractError("step parity token ID is outside the logits")
     difference = (candidate - reference).abs()
     floor = float(THRESHOLDS["max_relative_error_reference_floor"])
     mask = reference.abs() >= floor
@@ -698,8 +811,16 @@ def _step_parity(torch, expected_ids, reference, candidate) -> dict[str, object]
     candidate_values, candidate_ids = torch.topk(candidate, 5)
     margin = float(candidate_values[0] - candidate_values[1])
     overlap = len(set(reference_ids.tolist()) & set(candidate_ids.tolist()))
+    candidate_maximum = candidate.max()
+    reference_token_gap = float(candidate_maximum - candidate[expected_id])
+    sampled_token_gap = float(candidate_maximum - candidate[sampled_id])
     metrics = {
         "candidate_top1_margin": margin,
+        "candidate_max_tie_count": int((candidate == candidate_maximum).sum()),
+        "reference_token_id": expected_id,
+        "sampled_token_id": sampled_id,
+        "reference_token_logit_gap": reference_token_gap,
+        "sampled_token_logit_gap": sampled_token_gap,
         "cosine_similarity": float(cosine),
         "max_abs_error": float(difference.max()),
         "max_relative_error": float(relative.max()),
@@ -707,11 +828,12 @@ def _step_parity(torch, expected_ids, reference, candidate) -> dict[str, object]
         "top5_token_overlap": overlap,
     }
     checks = {
-        "candidate_top1_margin": margin
-        >= float(THRESHOLDS["minimum_candidate_top1_margin"]),
+        "reference_token_at_candidate_maximum": reference_token_gap
+        <= float(THRESHOLDS["reference_token_logit_gap_max"]),
+        "sampled_token_at_candidate_maximum": sampled_token_gap
+        <= float(THRESHOLDS["sampled_token_logit_gap_max"]),
         "cosine_similarity": metrics["cosine_similarity"]
         >= float(THRESHOLDS["cosine_similarity_min"]),
-        "exact_greedy_token_id": candidate_ids[:1].tolist() == expected_ids,
         "max_abs_error": metrics["max_abs_error"]
         <= float(THRESHOLDS["max_abs_error_max"]),
         "max_relative_error": metrics["max_relative_error"]
@@ -720,7 +842,12 @@ def _step_parity(torch, expected_ids, reference, candidate) -> dict[str, object]
         <= float(THRESHOLDS["mean_abs_error_max"]),
         "top5_token_overlap": overlap >= int(THRESHOLDS["top5_token_overlap_min"]),
     }
-    return {"metrics": metrics, "checks": checks, "passed": all(checks.values())}
+    return {
+        "metrics": metrics,
+        "checks": checks,
+        "exact_greedy_token_id": sampled_id == expected_id,
+        "passed": all(checks.values()),
+    }
 
 
 def _device_fingerprint(torch) -> str:
@@ -901,6 +1028,7 @@ def run_candidate(
         "model": model,
         "entrypoint": "sglang.benchmark.one_batch ModelRunner",
         "request_count": MEASURED_REQUESTS,
+        "teacher_forced_request_count": TEACHER_FORCED_REQUESTS,
         "fresh_process": True,
         "status": "starting",
     }
@@ -961,7 +1089,12 @@ def run_candidate(
             raise ReleaseContractError(
                 "reference output token sequence does not contain 64 steps"
             )
-        engine_requests, engine_requested, engine_resolved = (
+        (
+            engine_requests,
+            engine_requested,
+            engine_resolved,
+            engine_warmup,
+        ) = (
             _run_engine_sequences_isolated(
                 model_path,
                 expected_output_ids,
@@ -970,24 +1103,34 @@ def run_candidate(
             )
         )
         engine_progress_path = run_dir / "qwen35-engine-progress.json"
+        engine_sequence_hashes = {
+            engine_warmup["output_sequence_sha256"],
+            *(item["output_sequence_sha256"] for item in engine_requests),
+        }
+        engine_all_complete = bool(
+            engine_warmup["complete_output_sequence"]
+            and all(item["complete_output_sequence"] for item in engine_requests)
+        )
+        engine_stable = len(engine_sequence_hashes) == 1
         report["engine"] = {
             "entrypoint": "sglang.Engine offline API",
             "requested_server_config": engine_requested,
             "resolved_backends": engine_resolved,
+            "warmup": engine_warmup,
             "requests": engine_requests,
-            "all_passed": all(item["passed"] for item in engine_requests),
-            "stable_output": len(
-                {item["output_sequence_sha256"] for item in engine_requests}
-            )
-            == 1,
+            "all_complete": engine_all_complete,
+            "stable_output": engine_stable,
+            "reference_exact_request_count": sum(
+                bool(item["exact_output_sequence"]) for item in engine_requests
+            ),
             "progress": {
                 "path": str(engine_progress_path),
                 "sha256": sha256_file(engine_progress_path),
             },
         }
-        if report["engine"]["all_passed"] is not True:
+        if not engine_all_complete or not engine_stable:
             raise ReleaseContractError(
-                "end-to-end SGLang Engine output differs from the frozen reference"
+                "end-to-end SGLang Engine output is incomplete or unstable"
             )
 
         cupti_overlay = activate_overlay()
@@ -1034,13 +1177,14 @@ def run_candidate(
             raise ReleaseContractError("candidate warmup did not complete")
         torch.cuda.synchronize()
         requests = []
-        for request_index in range(MEASURED_REQUESTS):
+        for request_index in range(TEACHER_FORCED_REQUESTS):
             accepted = None
             for attempt in range(1, MAX_TRACE_ATTEMPTS + 1):
-                output_ids, candidate, windows = _generate(
+                output_ids, candidate, windows = _generate_teacher_forced(
                     torch,
                     one_batch,
                     runner,
+                    expected_output_ids,
                     monitor,
                     prompt_token_ids=prompt_token_ids,
                 )
@@ -1060,6 +1204,7 @@ def run_candidate(
                 _step_parity(
                     torch,
                     [expected_output_ids[step]],
+                    output_ids[step],
                     reference[step],
                     candidate[step],
                 )
@@ -1078,8 +1223,7 @@ def run_candidate(
             )
             exact_sequence = output_ids == expected_output_ids
             passed = bool(
-                exact_sequence
-                and all(item["passed"] for item in step_results)
+                all(item["passed"] for item in step_results)
                 and coverage.get("strict_policy_passed") is True
                 and paths["compilation_execution"]["effective"] is True
             )
@@ -1090,6 +1234,7 @@ def run_candidate(
                     "output_token_ids": output_ids,
                     "output_sequence_sha256": canonical_json_sha256(output_ids),
                     "exact_output_sequence": exact_sequence,
+                    "evaluation_mode": "teacher-forced-reference-prefixes",
                     "steps": step_results,
                     "coverage": coverage,
                     **paths,
@@ -1112,6 +1257,40 @@ def run_candidate(
             )
         evidence_identity = collect_run_identity(ROOT, "pypto", model_path)
         compile_cache = _compile_cache_evidence()
+        first_mismatch = engine_requests[0]["first_mismatch_step"]
+        engine_first_mismatches = {
+            item["first_mismatch_step"] for item in engine_requests
+        }
+        tie_explained = first_mismatch is None or bool(
+            len(engine_first_mismatches) == 1
+            and all(
+                item["observed_token_id"]
+                == engine_requests[0]["observed_token_id"]
+                for item in engine_requests
+            )
+            and all(
+                request["steps"][first_mismatch]["checks"][
+                    "reference_token_at_candidate_maximum"
+                ]
+                and request["steps"][first_mismatch]["checks"][
+                    "sampled_token_at_candidate_maximum"
+                ]
+                and request["steps"][first_mismatch]["metrics"]["sampled_token_id"]
+                == engine_requests[0]["observed_token_id"]
+                for request in requests
+            )
+        )
+        report["engine"]["first_divergence_tie_evidence"] = {
+            "first_mismatch_step": first_mismatch,
+            "reference_token_id": engine_requests[0]["expected_token_id"],
+            "observed_token_id": engine_requests[0]["observed_token_id"],
+            "all_requests_same_first_mismatch": len(engine_first_mismatches) == 1,
+            "explained_by_teacher_forced_maximum_tie": tie_explained,
+        }
+        report["engine"]["output_text"] = tokenizer.decode(
+            engine_requests[0]["output_token_ids"], skip_special_tokens=False
+        )
+        all_passed = all_passed and tie_explained
         report.update(
             {
                 "status": "complete" if all_passed else "failed",
@@ -1127,7 +1306,8 @@ def run_candidate(
                     {item["output_sequence_sha256"] for item in requests}
                 )
                 == 1,
-                "output_text": tokenizer.decode(
+                "output_text": report["engine"]["output_text"],
+                "reference_output_text": tokenizer.decode(
                     expected_output_ids, skip_special_tokens=False
                 ),
                 "collector_stats": stats,

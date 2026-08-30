@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "kind": "article-demo-typical-screenshot-slot",
+  "recorded_at": "2026-08-29",
+  "status": "pending",
+  "role": "article-demo-typical",
+  "demo": "examples/beginner/hello_world.py",
+  "expected_path": "docs/assets/screenshots/article-demo-typical.png",
+  "command": "envs/pypto-release/bin/python -B tools/run_article_demo.py --demo examples/beginner/hello_world.py --platform a2a3sim --output runs/article-demo-typical.json",
+  "report": "runs/article-demo-typical-ps.json",
+  "report_status": "fail",
+  "blocker": "missing Ascend simpler runtime extension",
+  "discarded_capture": {
+    "path": "/tmp/article-demo-typical-pending-black-20260829.png",
+    "reason": "all-black frame; not execution evidence"
+  },
+  "acceptance": "Replace only with a visible Ubuntu shell in the requested PowerShell-purple terminal and bind PNG SHA, viewport, capture timestamps, command, run ID, and report SHA."
+}
