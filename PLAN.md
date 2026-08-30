@@ -2,7 +2,7 @@
 
 **Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `57`
 
-## Current phase: Qwen semantic oracle, ordered model gates, and publication closure
+## Current phase: typed NVIDIA path refactor, Qwen semantic oracle, ordered model gates, and publication closure
 
 ## User-brief audit and release-plan closure (2026-08-30, revision 57)
 
