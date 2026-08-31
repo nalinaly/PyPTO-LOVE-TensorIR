@@ -8,7 +8,7 @@
   "command": "envs/pypto-release/bin/python -B tools/run_article_demo_nvidia.py --demo examples/beginner/hello_world.py --device 0 --run-id article-demo-nvidia-hello-screenshot --output state/evidence/article-demos-nvidia/011-hello_world-screenshot.json",
   "run_id": "article-demo-nvidia-hello-screenshot",
   "report": "state/evidence/article-demos-nvidia/011-hello_world-screenshot.json",
-  "report_sha256": "49f855c327bde47ef8f2aa045350b5790b27835d191edf0b4d210c6dfe413cd9",
+  "report_sha256": "5d185bbea4cb12dc5d64a89e509059fda9b873bbce770c8e9ac38fc3d88262cb",
   "policy": "state/evidence/article-demo-compatibility-policy-current.json",
   "policy_sha256": "a18fc228c93e5083b28cdc8fb19e718eafd875ac356d89b5b694e3c6b62cd39c",
   "report_status": "pass",
