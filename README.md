@@ -267,19 +267,55 @@ envs/pypto-release/bin/python tools/summarize_inductor_ablation.py \
 
 文章时点的 pypto-lib commit
 6c292d30ccc787ee4e1fe61541fd3faec0dafa65 已 byte-for-byte 导入
-demo/pypto-lib/。SOURCE_MANIFEST.json 锁定 151 文件、66 entrypoint。
+`demo/pypto-lib/`。`SOURCE_MANIFEST.json` 锁定 151 文件、66 entrypoint；外部
+策略 [`article-demo-compatibility-policy-current.json`](state/evidence/article-demo-compatibility-policy-current.json)
+为每个入口记录硬件 API 证据和 NVIDIA 兼容模式。
+
+先生成策略，再运行 NVIDIA 计算类矩阵：
+
+~~~bash
+python3 tools/classify_article_demos.py
+envs/pypto-release/bin/python tools/run_article_demo_matrix.py \
+  --backend nvidia --mode run --device 0 \
+  --output state/evidence/article-demo-matrix-nvidia-current.json
+~~~
+
+当前 RTX 5090 真机结果：10/10 个教学计算入口通过（9 个独立 CUDA 数值参考，
+`hello_world.py` 另有严格 PyPTO -> TensorIR -> CUDA Tile artifact）；通信
+`allreduce.py` 因真实分布式 API 跳过。全量 66 入口还保留 17 个硬件 API 跳过、
+8 个 draft 和 31 个没有有界 NVIDIA adapter 的模型计算入口；后两类不会被
+计为严格 NVIDIA 编译通过。矩阵的 `compatibility_status`、
+`hardware_api_evidence`、manifest 前后 SHA 是发布门禁。
+
+典型严格计算入口：
+
+~~~bash
+envs/pypto-release/bin/python tools/run_article_demo_nvidia.py \
+  --demo examples/beginner/hello_world.py --device 0 \
+  --run-id article-demo-nvidia-hello-screenshot \
+  --output state/evidence/article-demos-nvidia/011-hello_world-screenshot.json
+~~~
+
+终端应显示 `strict-pypto-nvidia`、`golden_pass=True`、artifact 名称和
+`fallback_used=False`；当前真机 `y` 的 `max_abs_diff=0.0`。报告绑定导入源/策略 SHA、artifact/cubin SHA 和
+128-element tile，原始文件不被改写。其余 9 个教学入口的报告显式写入
+`strict_compiler_evidence=false`，它们是独立 CUDA Torch 数值参考，用于在
+NVIDIA 上学习计算语义，不能替代严格 PyPTO 编译证据。
+
+如需复现文章原始 CLI/help，或在具备授权 Ascend runtime 的机器上运行未改写
+源码，仍使用：
 
 ~~~bash
 envs/pypto-release/bin/python tools/run_article_demo_matrix.py \
-  --mode help --output runs/article-demo-matrix-help.json
+  --backend ascend --mode help --output runs/article-demo-matrix-help.json
 envs/pypto-release/bin/python tools/run_article_demo.py \
   --demo examples/beginner/hello_world.py --platform a2a3sim \
   --output runs/article-demo-hello-world.json
 ~~~
 
-57 个 runnable 入口的 help audit 通过；设备 runtime 仍受 Ascend
-simpler_setup 和 pl.KernelType.MIX API 阻断，报告标为 blocker，不能冒充
-“所有 demo 在 NVIDIA 成功”。典型 demo 的成功 PowerShell 捕获仍缺：
+`--backend ascend` 的设备阶段在本机受 `simpler_setup`/`KernelType.MIX` 阻断，
+报告中的 blocker 不是精度通过。硬件通信、CCE、NPU/ACL 和 simpler runtime
+入口在 NVIDIA 矩阵中明确跳过，不伪造结果。典型 demo 的成功 PowerShell 捕获仍缺：
 
 - PENDING_SCREENSHOT: docs/assets/screenshots/article-demo-typical.png
 
@@ -287,8 +323,8 @@ Windows Terminal GUI capture 已通过非黑像素 smoke；performance 角色已
 immutable ablation JSON 重新捕获并绑定窗口尺寸、命令、时间和 PNG SHA。
 model 角色严格校验并回放三次已接受的 9B run，截图明确标注不是 live rerun；
 build 覆盖 wheel build、install/pip-check 和 CTest 13/13 三阶段；operator
-也以同样方式校验并回放已接受的原始证据；demo 等待 Ascend
-runtime。四个已完成角色均绑定 command source、数值/运行 evidence、capture
+也以同样方式校验并回放已接受的原始证据；article demo 的计算矩阵已完成，
+GUI 角色等待真实窗口。四个已完成角色均绑定 command source、数值/运行 evidence、capture
 metadata 和 PNG SHA。PowerShell 模板：
 tools/windows/capture_terminal.ps1。
 
@@ -309,7 +345,7 @@ tools/windows/capture_terminal.ps1。
 只验证 SM120/RTX 5090 Laptop；静态 shape/stride specialization；完整 MLP
 不跨 matmul 融合；GDN 长 prefill 为有序 tokenwise launch；PyPTO matmul/
 LM-head/launch overhead 尚未优化；optimized lane、全模型 CUPTI/NVTX profile、
-资源合规的 matched 四-start 重测、全文章 demo runtime、GPT-Image-2 图像和
+资源合规的 matched 四-start 重测、未映射模型 demo、GPT-Image-2 图像和
 article-demo PowerShell 角色截图仍是门禁。
 TensorIR 上游为 early release。
 

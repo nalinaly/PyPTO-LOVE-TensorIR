@@ -86,11 +86,11 @@ def main() -> int:
         },
         "article-demo-typical": {
             "path": "docs/assets/screenshots/article-demo-typical.png",
-            "command": "envs/pypto-release/bin/python -B tools/run_article_demo.py --demo examples/beginner/hello_world.py --platform a2a3sim --output runs/article-demo-typical.json",
+            "command": "envs/pypto-release/bin/python -B tools/run_article_demo_nvidia.py --demo examples/beginner/hello_world.py --device 0 --run-id article-demo-nvidia-hello-screenshot --output state/evidence/article-demos-nvidia/011-hello_world-screenshot.json",
             "status": "pending",
-            "caption_zh": "Ubuntu/PowerShell 紫色终端：原样 hello_world.py 的 compile/golden/runtime 结果；GUI capture 已验证，Ascend runtime blocker 仍未解除。",
-            "caption_en": "Ubuntu/PowerShell purple terminal: unchanged hello_world.py compile/golden/runtime result; GUI capture is verified while the Ascend runtime blocker remains.",
-            "evidence": "state/evidence/article-demo-typical-screenshot-pending-20260829.json",
+            "caption_zh": "Ubuntu/PowerShell 紫色终端：未改写 hello_world.py 的严格 NVIDIA 兼容运行、PyPTO artifact 与 golden 结果；GUI capture 仍待补。",
+            "caption_en": "Ubuntu/PowerShell purple terminal: strict NVIDIA compatibility run of unchanged hello_world.py with PyPTO artifact and golden result; GUI capture remains pending.",
+            "evidence": "state/evidence/article-demo-hello-nvidia-screenshot-pending-current.json",
         },
     }
     payload: dict[str, object] = {

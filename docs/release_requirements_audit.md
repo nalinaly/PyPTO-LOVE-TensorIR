@@ -66,12 +66,15 @@ template and is not permission to promote an open item.
       graphs and the Inductor SwiGLU at real 0.8B/9B shapes.
 - [ ] Correctness reports include dtype, shape, stride, seed, tolerance,
       revision, DSO identity, state mutation, and raw error metrics.
-- [ ] Every executable demo presented by the linked article actually compiles
-      and runs unchanged on the NVIDIA compatibility path with a golden/error
-      result; `--help`, imports, hashes and CANN-only failures are not passes.
-- [ ] Draft/transitive non-entrypoint files are distinguished from runnable
-      demos, and no runnable demo is silently excluded from the completion
-      denominator.
+- [ ] The external article-demo policy classifies every entrypoint against the
+      byte-locked source: computational entries have a named NVIDIA adapter;
+      entries using distributed, CCE, NPU/ACL, or simpler hardware APIs carry
+      source-line evidence and are explicitly skipped.
+- [ ] Every supported teaching computation compiles/runs (where marked strict)
+      or performs an independent CUDA numerical reference check. Reference-only
+      results are never described as strict PyPTO compiler evidence.
+- [ ] Draft/transitive non-entrypoint files and unmapped model computations are
+      distinguished from supported demos and remain visible in the denominator.
 - [ ] Clean stock SGLang produces a frozen reference before candidate
       measurement.
 - [ ] Qwen3.5-0.8B and 9B complete multi-token prefill/decode correctness.

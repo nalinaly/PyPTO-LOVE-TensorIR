@@ -1,0 +1,84 @@
+{
+  "adapter": "computational-cuda-reference",
+  "adapter_source": {
+    "path": "tools/run_article_demo_nvidia.py",
+    "sha256": "5b2c7fcc02c31266ff9c56b7074f5a0e3ab4e3338be1e6688dedbf482122c580"
+  },
+  "article_url": "https://mp.weixin.qq.com/s/7tLlTbomH9OqyUbZDbBEhQ",
+  "compatibility": {
+    "adapter": "rms_norm_reference",
+    "mode": "computational-cuda-reference",
+    "policy_sha256": "a18fc228c93e5083b28cdc8fb19e718eafd875ac356d89b5b694e3c6b62cd39c",
+    "reason": "bounded computational teaching example; compatibility adapter is outside imported source"
+  },
+  "device_index": 0,
+  "elapsed_seconds": 0.4645139190251939,
+  "golden": {
+    "function": "golden_rms_norm",
+    "outputs": [
+      "y"
+    ]
+  },
+  "golden_pass": true,
+  "inputs": [
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "x",
+      "shape": [
+        512,
+        512
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "gamma",
+      "shape": [
+        1,
+        512
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": true,
+      "name": "y",
+      "shape": [
+        512,
+        512
+      ]
+    }
+  ],
+  "kind": "article-demo-nvidia-run",
+  "outputs": [
+    {
+      "dtype": "torch.float32",
+      "max_abs_diff": 1.9073486328125e-06,
+      "name": "y",
+      "ok": true,
+      "shape": [
+        512,
+        512
+      ]
+    }
+  ],
+  "run_id": "article-demo-nvidia-008",
+  "schema": 2,
+  "seed": 20260831,
+  "source": {
+    "bytes": 4326,
+    "path": "examples/intermediate/rms_norm.py",
+    "sha256": "f525ad85eb7bebe18176d6efb7bccc346d1784b871e84db3253613ccf7901a5c"
+  },
+  "stages": {
+    "compatibility_compile": "independent-cuda-reference",
+    "device_execution": "pass",
+    "golden_reference": "pass",
+    "input_generation": "pass",
+    "precision_compare": "pass",
+    "source_audit": "pass"
+  },
+  "status": "pass",
+  "strict_compiler_evidence": false,
+  "upstream_commit": "6c292d30ccc787ee4e1fe61541fd3faec0dafa65"
+}

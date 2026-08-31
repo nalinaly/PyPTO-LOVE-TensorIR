@@ -1,6 +1,6 @@
 # Final Requirement Matrix
 
-Recorded 2026-08-30 for release/qwen35-sm120-v1. The Markdown blog and its
+Recorded 2026-08-31 for release/qwen35-sm120-v1. The Markdown blog and its
 HTML are local deliverables; the matrix itself is a publication audit.
 
 | Requirement | Location/evidence | Status |
@@ -15,7 +15,7 @@ HTML are local deliverables; the matrix itself is a publication audit.
 | Handwritten operator library inventory and one complex walkthrough | blog 六; pypto-kernels source | PASS |
 | Exact generated fused kernel and current-stream wrapper | state/evidence/qwen35-9b-inductor-source-current.json | PASS |
 | Complete MLP fusion claim checked | blog states gate/up and down matmuls remain separate | PASS |
-| 100% model operator coverage proof | qwen35-{0.8b,9b}-model-gate-current.json; 22,108/33,448 calls | PASS, ModelRunner.forward compute scope only |
+| 100% model operator coverage proof | qwen35-{0.8b,9b}-model-gate-current.json; 33,448/33,448 calls | PASS, ModelRunner.forward compute scope only |
 | Qwen prompt and stable 64-token inference | current model gate reports; prompt is recorded verbatim | PASS |
 | Operator correctness regression | operator-regression-current.json; 8 suites, all_correct=true | PASS |
 | Performance-only regression entry points | run_performance_regression.py, run_operator_performance.py, run_inductor_ablation.py | PASS |
@@ -28,13 +28,15 @@ HTML are local deliverables; the matrix itself is a publication audit.
 | Operator performance breakdown | release-operator-ab aggregation.json, 7 aligned cases | PASS |
 | Full-model CUPTI/NVTX phase breakdown | profile attempt 20260830T152705Z; corrected performance-only profile envelope | OPEN: prior zero-offload attempt failed KV-cache qualification; corrected profile awaits an accepted pair and protected-heavy-free window |
 | Linked article URL and unchanged source import | demo/pypto-lib/SOURCE_MANIFEST.json | PASS: 151 files, 66 entrypoints, byte hashes |
-| Run every linked article demo unchanged with precision | article demo matrix reports | OPEN: Ascend simpler_setup/KernelType.MIX runtime blockers; 57/57 help passes |
-| Typical demo README and result screenshot | demo/README.md, demo/README_EN.md, screenshot manifest | OPEN: GUI capture capability passes, but Ascend runtime result is pending; black frame is excluded |
-| Four requested terminal roles plus typical demo | current five-role screenshot manifest | PARTIAL: build/operator/model are hash-validated accepted-run evidence replays; performance is current operator evidence; only article demo remains open |
+| Article-demo compatibility policy and source-line classification | state/evidence/article-demo-compatibility-policy-current.json; manifest SHA | PASS: 66/66 entries classified; 17 hardware API skips, 8 drafts, 31 unmapped model computations, 10 teaching computations covered |
+| Run computational linked demos with precision on NVIDIA | state/evidence/article-demo-matrix-nvidia-current.json; run_article_demo_nvidia.py | PASS for 10/10 teaching computations; strict PyPTO artifact 1/1, independent CUDA references 9/9; hardware APIs are explicitly skipped |
+| Run every linked article demo unchanged with precision | article demo matrix reports | PARTIAL by user-authorized hardware boundary: unchanged source/help audit is complete; hardware-facing entries are skipped and 31 model computations await bounded adapters |
+| Typical demo README and result screenshot | demo/README.md, demo/README_EN.md, screenshot manifest | PARTIAL: strict hello result and golden evidence pass; GUI capture still requires a real Ubuntu/PowerShell window |
+| Four requested terminal roles plus typical demo | current five-role screenshot manifest | PARTIAL: build/operator/model are hash-validated accepted-run evidence replays; performance is current operator evidence; article-demo GUI role remains open |
 | GPT-Image-2 visuals for ablations/breakdowns | gpt-image2-ablation-prompts-20260829.json | OPEN: OPENAI_API_KEY absent; no model substitution |
 | Bilingual README parity and language switch | README.md, README_EN.md | PASS by audit; both use current numbers |
 | Single-file offline HTML | reports/local-blog/*.html, 5 embedded data images | PASS; browser viewport automation unavailable in this environment |
-| Plan persistence | PLAN.md revision-58 checkpoint and memory ad-hoc note | PASS |
+| Plan persistence | PLAN.md revision-67 checkpoint and memory ad-hoc note | PASS |
 | README/reproduction commit boundary | commit b4eae99; origin/release/qwen35-sm120-v1 | PASS; blog/HTML/probes excluded |
 
 Open items are intentionally not converted into PASS by wording, placeholders,

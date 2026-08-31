@@ -300,20 +300,60 @@ on an NVIDIA platform. The source article is:
 
 The article-time pypto-lib commit
 6c292d30ccc787ee4e1fe61541fd3faec0dafa65 is imported byte-for-byte under
-demo/pypto-lib/. SOURCE_MANIFEST.json locks 151 files and 66 entry points.
+`demo/pypto-lib/`. `SOURCE_MANIFEST.json` locks 151 files and 66 entry points;
+the external
+[`article-demo-compatibility-policy-current.json`](state/evidence/article-demo-compatibility-policy-current.json)
+records hardware evidence and the NVIDIA compatibility mode for each entry.
+
+Generate the policy, then run the NVIDIA computational matrix:
+
+~~~bash
+python3 tools/classify_article_demos.py
+envs/pypto-release/bin/python tools/run_article_demo_matrix.py \
+  --backend nvidia --mode run --device 0 \
+  --output state/evidence/article-demo-matrix-nvidia-current.json
+~~~
+
+The current RTX 5090 result passes all 10 teaching computational entries (nine
+independent CUDA numerical references and an additional strict PyPTO -> TensorIR
+-> CUDA Tile artifact for `hello_world.py`). `allreduce.py` is skipped because it
+uses a real distributed API. The full 66-entry matrix also retains 17 hardware-API
+skips, eight drafts, and 31 model computational entries without a bounded NVIDIA
+adapter; the latter two groups are not counted as strict NVIDIA compiler passes.
+`compatibility_status`, `hardware_api_evidence`, and the before/after manifest
+hashes are the release gate.
+
+Typical strict computational entry:
+
+~~~bash
+envs/pypto-release/bin/python tools/run_article_demo_nvidia.py \
+  --demo examples/beginner/hello_world.py --device 0 \
+  --output runs/article-demo-hello-nvidia.json
+~~~
+
+The terminal prints `strict-pypto-nvidia`, `golden_pass=True`, the artifact name,
+and `fallback_used=False`. The report binds imported-source and policy hashes,
+artifact/cubin hashes, and the 128-element tile; the upstream file is never
+rewritten. The other nine teaching reports explicitly set
+`strict_compiler_evidence=false`: they are independent CUDA Torch numerical
+references for studying computational semantics, not strict PyPTO compiler
+evidence.
+
+To reproduce the article's original CLI/help, or run unchanged source on an
+authorized Ascend runtime, use:
 
 ~~~bash
 envs/pypto-release/bin/python tools/run_article_demo_matrix.py \
-  --mode help --output runs/article-demo-matrix-help.json
+  --backend ascend --mode help --output runs/article-demo-matrix-help.json
 envs/pypto-release/bin/python tools/run_article_demo.py \
   --demo examples/beginner/hello_world.py --platform a2a3sim \
   --output runs/article-demo-hello-world.json
 ~~~
 
-The CLI/help audit passes for 57 runnable entries. Device execution remains
-blocked by the Ascend simpler_setup runtime and the pl.KernelType.MIX API
-difference; reports classify these as blockers rather than NVIDIA success.
-The unchanged typical-demo success capture remains:
+The `--backend ascend` device stage is blocked here by
+`simpler_setup`/`KernelType.MIX`; that blocker is not a precision pass.
+Distributed hardware, CCE, NPU/ACL, and simpler-runtime entries are explicitly
+skipped in the NVIDIA matrix. The unchanged typical-demo capture remains:
 
 - PENDING_SCREENSHOT: docs/assets/screenshots/article-demo-typical.png
 
@@ -324,7 +364,8 @@ validates and replays the three accepted 9B runs, and explicitly says it is not
 a live rerun. Build covers wheel build, install/pip-check, and CTest 13/13;
 operator similarly validates and replays its accepted raw evidence. All four
 completed roles bind command source, numerical/run evidence,
-capture metadata, and PNG SHA. Demo awaits the Ascend runtime.
+capture metadata, and PNG SHA. The computational matrix is complete; the GUI demo
+role still awaits a real window.
 
 ![Wheel build, install, and CTest evidence replay](docs/assets/screenshots/build-ctest.png)
 
@@ -344,7 +385,7 @@ Only SM120/RTX 5090 Laptop is validated. Shapes and strides are statically
 specialized; the complete MLP is not fused across matmul; long GDN prefill is
 token-ordered; PyPTO matmul/LM-head/launch overhead remains to be optimized.
 The optimized lane, a resource-compliant four-start matched rerun, full-model
-CUPTI/NVTX profile, full article-demo runtime, GPT-Image-2 assets, and the
+CUPTI/NVTX profile, unmapped model demos, GPT-Image-2 assets, and the
 article-demo PowerShell role capture remain publication gates.
 TensorIR is marked early release upstream.
 

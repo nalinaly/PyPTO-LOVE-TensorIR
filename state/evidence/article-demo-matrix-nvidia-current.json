@@ -1,0 +1,1488 @@
+{
+  "article_url": "https://mp.weixin.qq.com/s/7tLlTbomH9OqyUbZDbBEhQ",
+  "backend": "nvidia",
+  "compatibility_policy": {
+    "path": "state/evidence/article-demo-compatibility-policy-current.json",
+    "revision": "nvidia-computational-v1-20260831",
+    "sha256": "a18fc228c93e5083b28cdc8fb19e718eafd875ac356d89b5b694e3c6b62cd39c"
+  },
+  "compatibility_status": "partial-computational-coverage",
+  "computational_reference_pass_count": 9,
+  "computational_unmapped_count": 31,
+  "corpus_sha256_after": "e96cf020d17c6adb2ce45d249c0284896df876280520bc7ed2723979a71bdfa6",
+  "corpus_sha256_before": "e96cf020d17c6adb2ce45d249c0284896df876280520bc7ed2723979a71bdfa6",
+  "elapsed_seconds": 17.329354513960425,
+  "entrypoint_count": 66,
+  "hardware_api_skipped_count": 17,
+  "help_pass_count": 0,
+  "kind": "article-demo-matrix",
+  "manifest_sha256_after": "c09c2da519135d49a072c0a164542c6a1d18e4cd8a099a3a9e6e8bcee07adb64",
+  "manifest_sha256_before": "c09c2da519135d49a072c0a164542c6a1d18e4cd8a099a3a9e6e8bcee07adb64",
+  "mode": "run",
+  "path_prefix": "",
+  "results": [
+    {
+      "command": null,
+      "compatibility_mode": "hardware-api-skipped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [
+        {
+          "line": 20,
+          "marker": "distributed-language-api",
+          "text": "import pypto.language.distributed as pld"
+        },
+        {
+          "line": 126,
+          "marker": "distributed-program-api",
+          "text": "from pypto.ir.distributed_compiled_program import DistributedConfig"
+        },
+        {
+          "line": 16,
+          "marker": "collective-or-device-control",
+          "text": "Run:  python examples/advanced/allreduce.py -p a2a3 -d 0,1"
+        }
+      ],
+      "path": "examples/advanced/allreduce.py",
+      "return_code": null,
+      "skip_reason": "entrypoint directly references an Ascend/NPU/CCE/distributed hardware API",
+      "source": {
+        "bytes": 5965,
+        "path": "examples/advanced/allreduce.py",
+        "sha256": "c1484f4b3e0273b5d800dcce914628f0ef8839eb83e0f2af0ad1b35a52ad4bce"
+      },
+      "status": "skipped"
+    },
+    {
+      "artifact": null,
+      "blocker": null,
+      "child_report": "state/evidence/article-demos-nvidia/001-gemm_eltwise.json",
+      "child_report_sha256": "f26bbd0bf4eca3807e978fa6c0ee295a6c9a3fced61d83d9911b41fcf7b098be",
+      "child_status": "pass",
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/tools/run_article_demo_nvidia.py",
+        "--demo",
+        "examples/advanced/gemm_eltwise.py",
+        "--device",
+        "0",
+        "--run-id",
+        "article-demo-nvidia-001",
+        "--output",
+        "/home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos-nvidia/001-gemm_eltwise.json"
+      ],
+      "compatibility_mode": "computational-cuda-reference",
+      "elapsed_seconds": 2.0043037009891123,
+      "execution_policy": "runnable",
+      "golden_pass": true,
+      "path": "examples/advanced/gemm_eltwise.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 3904,
+        "path": "examples/advanced/gemm_eltwise.py",
+        "sha256": "1bfced7482c005d58bce0a3555de347bd32cc5b38795cb14f4697289d65bcb1a"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "[ARTICLE-NVIDIA] source=examples/advanced/gemm_eltwise.py\n[ARTICLE-NVIDIA] mode=computational-cuda-reference\n[ARTICLE-NVIDIA] adapter=computational-cuda-reference\n[ARTICLE-NVIDIA] status=pass golden_pass=True\narticle demo NVIDIA report: /home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos-nvidia/001-gemm_eltwise.json\n",
+      "stdout_sha256": "5012433e91e42f1bda6fd8a29f80166f66fc4080e4ade69c95776388f46120a5",
+      "strict_compiler_evidence": false,
+      "timed_out": false
+    },
+    {
+      "artifact": null,
+      "blocker": null,
+      "child_report": "state/evidence/article-demos-nvidia/002-multi_proj.json",
+      "child_report_sha256": "d9883be2c47ffcc48fea6daf35b4788c15ab29811c2fa04446afdc8f52e82f37",
+      "child_status": "pass",
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/tools/run_article_demo_nvidia.py",
+        "--demo",
+        "examples/advanced/multi_proj.py",
+        "--device",
+        "0",
+        "--run-id",
+        "article-demo-nvidia-002",
+        "--output",
+        "/home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos-nvidia/002-multi_proj.json"
+      ],
+      "compatibility_mode": "computational-cuda-reference",
+      "elapsed_seconds": 2.6220761100412346,
+      "execution_policy": "runnable",
+      "golden_pass": true,
+      "path": "examples/advanced/multi_proj.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 4328,
+        "path": "examples/advanced/multi_proj.py",
+        "sha256": "8fff720c0d7240fe50b10486387c655fa025c754b8379e8389f82a96367551c3"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "[ARTICLE-NVIDIA] source=examples/advanced/multi_proj.py\n[ARTICLE-NVIDIA] mode=computational-cuda-reference\n[ARTICLE-NVIDIA] adapter=computational-cuda-reference\n[ARTICLE-NVIDIA] status=pass golden_pass=True\narticle demo NVIDIA report: /home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos-nvidia/002-multi_proj.json\n",
+      "stdout_sha256": "dba43d26eb36732239a8d5c86d493620d61724ddb9263cb5e51f05e735f0165d",
+      "strict_compiler_evidence": false,
+      "timed_out": false
+    },
+    {
+      "artifact": null,
+      "blocker": null,
+      "child_report": "state/evidence/article-demos-nvidia/003-topk.json",
+      "child_report_sha256": "4d3c5367da338c52a51203e5590600cc46a0ac6a28ed3ebcfad589534b4d709b",
+      "child_status": "pass",
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/tools/run_article_demo_nvidia.py",
+        "--demo",
+        "examples/advanced/topk.py",
+        "--device",
+        "0",
+        "--run-id",
+        "article-demo-nvidia-003",
+        "--output",
+        "/home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos-nvidia/003-topk.json"
+      ],
+      "compatibility_mode": "computational-cuda-reference",
+      "elapsed_seconds": 1.502490506041795,
+      "execution_policy": "runnable",
+      "golden_pass": true,
+      "path": "examples/advanced/topk.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 4097,
+        "path": "examples/advanced/topk.py",
+        "sha256": "94a0adae341a142454c1b57063086652e30619dd5d801decc578ec695ee949af"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "[ARTICLE-NVIDIA] source=examples/advanced/topk.py\n[ARTICLE-NVIDIA] mode=computational-cuda-reference\n[ARTICLE-NVIDIA] adapter=computational-cuda-reference\n[ARTICLE-NVIDIA] status=pass golden_pass=True\narticle demo NVIDIA report: /home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos-nvidia/003-topk.json\n",
+      "stdout_sha256": "fedcc5e6cbf4605246120d990626c0945768c5ab69ae46cc14c529bfe49ffd99",
+      "strict_compiler_evidence": false,
+      "timed_out": false
+    },
+    {
+      "artifact": {
+        "artifact_sha256": "4783771f6c199abbf340ee2e5692916472ae50931f1789be1d966c51638b1041",
+        "cache_key_sha256": "53942ebeed8e2e2b2bad8dad1a9b44730b4ff9f548dca4cf8d295d0b0d6487c7",
+        "cubin_sha256": "885c145cd27a641d14712fea26850ce659de18125e0216d679f824fd297dc30f",
+        "entry_name": "pypto_fused_pointwise",
+        "fallback_used": false,
+        "flattened_shape": [
+          524288
+        ],
+        "kernel_name": "pypto_inductor_00787098fed21fe3",
+        "source_node": "torch-inductor:00787098fed21fe3",
+        "source_sha256": "069b524f8baa36c3f27c367e15584e6faf18fc5ec882ca99243639cabe88c0d1",
+        "specialized_scalar_a": 1.0,
+        "tile": [
+          128
+        ]
+      },
+      "blocker": null,
+      "child_report": "state/evidence/article-demos-nvidia/004-hello_world.json",
+      "child_report_sha256": "0aac79502645d7137214bbbedc5d68d6a6532411fe86de522e49546313fc9e50",
+      "child_status": "pass",
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/tools/run_article_demo_nvidia.py",
+        "--demo",
+        "examples/beginner/hello_world.py",
+        "--device",
+        "0",
+        "--run-id",
+        "article-demo-nvidia-004",
+        "--output",
+        "/home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos-nvidia/004-hello_world.json"
+      ],
+      "compatibility_mode": "strict-pypto-nvidia",
+      "elapsed_seconds": 2.4402043989975937,
+      "execution_policy": "runnable",
+      "golden_pass": true,
+      "path": "examples/beginner/hello_world.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 2894,
+        "path": "examples/beginner/hello_world.py",
+        "sha256": "1c2c882e719e5db568c5dc5f100d87b3ef02cdc441f992ab223a8b5df790d703"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "[ARTICLE-NVIDIA] source=examples/beginner/hello_world.py\n[ARTICLE-NVIDIA] mode=strict-pypto-nvidia\n[ARTICLE-NVIDIA] adapter=strict-pypto-nvidia\n[ARTICLE-NVIDIA] status=pass golden_pass=True\n[ARTICLE-NVIDIA] artifact=pypto_inductor_00787098fed21fe3 fallback_used=False\narticle demo NVIDIA report: /home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos-nvidia/004-hello_world.json\n",
+      "stdout_sha256": "22009c8be5134d282e24ca179a526ad7cd82e9bbedc45aa1d46592d2c32f25a9",
+      "strict_compiler_evidence": true,
+      "timed_out": false
+    },
+    {
+      "artifact": null,
+      "blocker": null,
+      "child_report": "state/evidence/article-demos-nvidia/005-matmul.json",
+      "child_report_sha256": "4464972f7839f1287acb7357548ee1017718f5d4e0f7e2910299449cdd128b35",
+      "child_status": "pass",
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/tools/run_article_demo_nvidia.py",
+        "--demo",
+        "examples/beginner/matmul.py",
+        "--device",
+        "0",
+        "--run-id",
+        "article-demo-nvidia-005",
+        "--output",
+        "/home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos-nvidia/005-matmul.json"
+      ],
+      "compatibility_mode": "computational-cuda-reference",
+      "elapsed_seconds": 1.4984904149896465,
+      "execution_policy": "runnable",
+      "golden_pass": true,
+      "path": "examples/beginner/matmul.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 2985,
+        "path": "examples/beginner/matmul.py",
+        "sha256": "fe0802cc7670a52a11cd73a62d90da9f1c875c8fc3361a2061c1598e241855af"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "[ARTICLE-NVIDIA] source=examples/beginner/matmul.py\n[ARTICLE-NVIDIA] mode=computational-cuda-reference\n[ARTICLE-NVIDIA] adapter=computational-cuda-reference\n[ARTICLE-NVIDIA] status=pass golden_pass=True\narticle demo NVIDIA report: /home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos-nvidia/005-matmul.json\n",
+      "stdout_sha256": "f78b5e836868747e06228a4598e53834b934f7eaec52564ccf58ff9fd4783c57",
+      "strict_compiler_evidence": false,
+      "timed_out": false
+    },
+    {
+      "artifact": null,
+      "blocker": null,
+      "child_report": "state/evidence/article-demos-nvidia/006-gemm.json",
+      "child_report_sha256": "e0ce3d09944c3be337f39d0186a3119ea94475b273130dd6d658e9bfa9800e8d",
+      "child_status": "pass",
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/tools/run_article_demo_nvidia.py",
+        "--demo",
+        "examples/intermediate/gemm.py",
+        "--device",
+        "0",
+        "--run-id",
+        "article-demo-nvidia-006",
+        "--output",
+        "/home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos-nvidia/006-gemm.json"
+      ],
+      "compatibility_mode": "computational-cuda-reference",
+      "elapsed_seconds": 1.3970488379709423,
+      "execution_policy": "runnable",
+      "golden_pass": true,
+      "path": "examples/intermediate/gemm.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 3420,
+        "path": "examples/intermediate/gemm.py",
+        "sha256": "fb2f52b5d1037af9a8c7bc6b82e1b9de1caf86b9842da0f4575e87ba8f294803"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "[ARTICLE-NVIDIA] source=examples/intermediate/gemm.py\n[ARTICLE-NVIDIA] mode=computational-cuda-reference\n[ARTICLE-NVIDIA] adapter=computational-cuda-reference\n[ARTICLE-NVIDIA] status=pass golden_pass=True\narticle demo NVIDIA report: /home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos-nvidia/006-gemm.json\n",
+      "stdout_sha256": "1d53355f2516d42e0df558561b1ff7ba43dd266ec5d5d1f630bf55d13a122578",
+      "strict_compiler_evidence": false,
+      "timed_out": false
+    },
+    {
+      "artifact": null,
+      "blocker": null,
+      "child_report": "state/evidence/article-demos-nvidia/007-layer_norm.json",
+      "child_report_sha256": "f7dda08d59ffffae0d8483029584176325d7a33bdd8b0cd3174c0cf1ec70de26",
+      "child_status": "pass",
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/tools/run_article_demo_nvidia.py",
+        "--demo",
+        "examples/intermediate/layer_norm.py",
+        "--device",
+        "0",
+        "--run-id",
+        "article-demo-nvidia-007",
+        "--output",
+        "/home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos-nvidia/007-layer_norm.json"
+      ],
+      "compatibility_mode": "computational-cuda-reference",
+      "elapsed_seconds": 1.4245169449714012,
+      "execution_policy": "runnable",
+      "golden_pass": true,
+      "path": "examples/intermediate/layer_norm.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 4217,
+        "path": "examples/intermediate/layer_norm.py",
+        "sha256": "a97f640177e4f0d618c65e08b931a6d03e3dab77a0bfa9b8aa9740044857ca5f"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "[ARTICLE-NVIDIA] source=examples/intermediate/layer_norm.py\n[ARTICLE-NVIDIA] mode=computational-cuda-reference\n[ARTICLE-NVIDIA] adapter=computational-cuda-reference\n[ARTICLE-NVIDIA] status=pass golden_pass=True\narticle demo NVIDIA report: /home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos-nvidia/007-layer_norm.json\n",
+      "stdout_sha256": "c3111934e4258e87e769224aa888a1557f8e11ddd5322a11035c6e8dab7d4d56",
+      "strict_compiler_evidence": false,
+      "timed_out": false
+    },
+    {
+      "artifact": null,
+      "blocker": null,
+      "child_report": "state/evidence/article-demos-nvidia/008-rms_norm.json",
+      "child_report_sha256": "efca8eb6e219328c035d6b77815af0898c3d6fc5efa1c517da7bfc6a7d20cd4f",
+      "child_status": "pass",
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/tools/run_article_demo_nvidia.py",
+        "--demo",
+        "examples/intermediate/rms_norm.py",
+        "--device",
+        "0",
+        "--run-id",
+        "article-demo-nvidia-008",
+        "--output",
+        "/home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos-nvidia/008-rms_norm.json"
+      ],
+      "compatibility_mode": "computational-cuda-reference",
+      "elapsed_seconds": 1.5504063399857841,
+      "execution_policy": "runnable",
+      "golden_pass": true,
+      "path": "examples/intermediate/rms_norm.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 4326,
+        "path": "examples/intermediate/rms_norm.py",
+        "sha256": "f525ad85eb7bebe18176d6efb7bccc346d1784b871e84db3253613ccf7901a5c"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "[ARTICLE-NVIDIA] source=examples/intermediate/rms_norm.py\n[ARTICLE-NVIDIA] mode=computational-cuda-reference\n[ARTICLE-NVIDIA] adapter=computational-cuda-reference\n[ARTICLE-NVIDIA] status=pass golden_pass=True\narticle demo NVIDIA report: /home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos-nvidia/008-rms_norm.json\n",
+      "stdout_sha256": "e1aef5f0529d9b1a4eed4a8f45493480beeff5a7f07c42e53f2464a4260911cb",
+      "strict_compiler_evidence": false,
+      "timed_out": false
+    },
+    {
+      "artifact": null,
+      "blocker": null,
+      "child_report": "state/evidence/article-demos-nvidia/009-rope.json",
+      "child_report_sha256": "d06217f3c90cdf6aa3e6eb5f2788a4d9fac73b9f169cafecf46454d13f9d5a15",
+      "child_status": "pass",
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/tools/run_article_demo_nvidia.py",
+        "--demo",
+        "examples/intermediate/rope.py",
+        "--device",
+        "0",
+        "--run-id",
+        "article-demo-nvidia-009",
+        "--output",
+        "/home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos-nvidia/009-rope.json"
+      ],
+      "compatibility_mode": "computational-cuda-reference",
+      "elapsed_seconds": 1.461504794016946,
+      "execution_policy": "runnable",
+      "golden_pass": true,
+      "path": "examples/intermediate/rope.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 4233,
+        "path": "examples/intermediate/rope.py",
+        "sha256": "3149eaa03574e1bac8ce0dfc620f93c92daa6faff27cdda223fa33a79c929abf"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "[ARTICLE-NVIDIA] source=examples/intermediate/rope.py\n[ARTICLE-NVIDIA] mode=computational-cuda-reference\n[ARTICLE-NVIDIA] adapter=computational-cuda-reference\n[ARTICLE-NVIDIA] status=pass golden_pass=True\narticle demo NVIDIA report: /home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos-nvidia/009-rope.json\n",
+      "stdout_sha256": "fad7d74a701853884cf7b9c24cb22b1ec530ee42333f75537aa4810098b0e790",
+      "strict_compiler_evidence": false,
+      "timed_out": false
+    },
+    {
+      "artifact": null,
+      "blocker": null,
+      "child_report": "state/evidence/article-demos-nvidia/010-softmax.json",
+      "child_report_sha256": "a2f15d0e73b6e1f83be3360b0b707f1c0cc200f53472a17bfa3a10375f7d5b59",
+      "child_status": "pass",
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/tools/run_article_demo_nvidia.py",
+        "--demo",
+        "examples/intermediate/softmax.py",
+        "--device",
+        "0",
+        "--run-id",
+        "article-demo-nvidia-010",
+        "--output",
+        "/home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos-nvidia/010-softmax.json"
+      ],
+      "compatibility_mode": "computational-cuda-reference",
+      "elapsed_seconds": 1.4173878439469263,
+      "execution_policy": "runnable",
+      "golden_pass": true,
+      "path": "examples/intermediate/softmax.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 3068,
+        "path": "examples/intermediate/softmax.py",
+        "sha256": "b6b67d887dd814cb5af4114f3f7ea3c16616e1dd026ac1e7618a03daf5bdfd64"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "[ARTICLE-NVIDIA] source=examples/intermediate/softmax.py\n[ARTICLE-NVIDIA] mode=computational-cuda-reference\n[ARTICLE-NVIDIA] adapter=computational-cuda-reference\n[ARTICLE-NVIDIA] status=pass golden_pass=True\narticle demo NVIDIA report: /home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos-nvidia/010-softmax.json\n",
+      "stdout_sha256": "eb46afc0a309b34e5dd85e4a89d46a19090e2154aafbd593c88ca167251ff51e",
+      "strict_compiler_evidence": false,
+      "timed_out": false
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/decode_compressor_ratio128.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 29718,
+        "path": "models/deepseek_v4_flash_mtp/decode_compressor_ratio128.py",
+        "sha256": "8c4a8e71ca7bd91101d7a84dd5c819a0965f873ab8a26eb8588b672549cb9578"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/decode_compressor_ratio4.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 29158,
+        "path": "models/deepseek_v4_flash_mtp/decode_compressor_ratio4.py",
+        "sha256": "5ff48c39925d059baaac85b00a3d918993a1bfe40b815cf055b5894a58fe45e5"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/decode_csa.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 45107,
+        "path": "models/deepseek_v4_flash_mtp/decode_csa.py",
+        "sha256": "afde8d6e7dcc2b4c6385c52571efda2ba6319b0889c894f5d83cdee5061e6d09"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "hardware-api-skipped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [
+        {
+          "line": 16,
+          "marker": "distributed-language-api",
+          "text": "import pypto.language.distributed as pld"
+        },
+        {
+          "line": 28,
+          "marker": "distributed-program-api",
+          "text": "from pypto.ir.distributed_compiled_program import DistributedConfig"
+        }
+      ],
+      "path": "models/deepseek_v4_flash_mtp/decode_fwd.py",
+      "return_code": null,
+      "skip_reason": "entrypoint directly references an Ascend/NPU/CCE/distributed hardware API",
+      "source": {
+        "bytes": 113333,
+        "path": "models/deepseek_v4_flash_mtp/decode_fwd.py",
+        "sha256": "ab1e4f0515f027b0b505b4ff0405db21a98cdc1b30c903377b39b86ef92bf77e"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "hardware-api-skipped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [
+        {
+          "line": 17,
+          "marker": "distributed-language-api",
+          "text": "import pypto.language.distributed as pld"
+        },
+        {
+          "line": 18,
+          "marker": "distributed-program-api",
+          "text": "from pypto.ir.distributed_compiled_program import DistributedConfig"
+        }
+      ],
+      "path": "models/deepseek_v4_flash_mtp/decode_fwd_mtp.py",
+      "return_code": null,
+      "skip_reason": "entrypoint directly references an Ascend/NPU/CCE/distributed hardware API",
+      "source": {
+        "bytes": 69443,
+        "path": "models/deepseek_v4_flash_mtp/decode_fwd_mtp.py",
+        "sha256": "c0797141e83be9514ec5c903ea150591dc59f68840499c189329b8dedb498b48"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/decode_hca.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 33237,
+        "path": "models/deepseek_v4_flash_mtp/decode_hca.py",
+        "sha256": "e599b9d41fa1043169edbb6b377a0c10f10719e3c6283615dbc9a32cd504ccc6"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/decode_indexer.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 40926,
+        "path": "models/deepseek_v4_flash_mtp/decode_indexer.py",
+        "sha256": "5ccc671d989ce4df81a263d34e9df60cc2ad4a810c955f7ce5001af4c4ef18d4"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/decode_indexer_compressor.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 33433,
+        "path": "models/deepseek_v4_flash_mtp/decode_indexer_compressor.py",
+        "sha256": "5a3d6e65b31d0a48af6a6c338c5ceaa52e9907b69eee4102d1aa93be9fde8160"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "hardware-api-skipped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [
+        {
+          "line": 18,
+          "marker": "distributed-language-api",
+          "text": "import pypto.language.distributed as pld"
+        },
+        {
+          "line": 19,
+          "marker": "distributed-program-api",
+          "text": "from pypto.ir.distributed_compiled_program import DistributedConfig"
+        }
+      ],
+      "path": "models/deepseek_v4_flash_mtp/decode_layer.py",
+      "return_code": null,
+      "skip_reason": "entrypoint directly references an Ascend/NPU/CCE/distributed hardware API",
+      "source": {
+        "bytes": 42973,
+        "path": "models/deepseek_v4_flash_mtp/decode_layer.py",
+        "sha256": "f490f52ce9c298c922088cd7167601bd032e8803a67cf4bbe47019c7ce9bb368"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "hardware-api-skipped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [
+        {
+          "line": 15,
+          "marker": "distributed-language-api",
+          "text": "import pypto.language.distributed as pld"
+        },
+        {
+          "line": 16,
+          "marker": "distributed-program-api",
+          "text": "from pypto.ir.distributed_compiled_program import DistributedConfig"
+        }
+      ],
+      "path": "models/deepseek_v4_flash_mtp/decode_mtp.py",
+      "return_code": null,
+      "skip_reason": "entrypoint directly references an Ascend/NPU/CCE/distributed hardware API",
+      "source": {
+        "bytes": 43505,
+        "path": "models/deepseek_v4_flash_mtp/decode_mtp.py",
+        "sha256": "e246c199c32de24df391fc3692891a215bc2d92e3598e77a1af46697527821b1"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/decode_sparse_attn_csa.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 45980,
+        "path": "models/deepseek_v4_flash_mtp/decode_sparse_attn_csa.py",
+        "sha256": "f32d1092f5f3086e0faffea0992ff7fda13cb3835dd65692377f12b60b01414a"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/decode_sparse_attn_hca.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 42998,
+        "path": "models/deepseek_v4_flash_mtp/decode_sparse_attn_hca.py",
+        "sha256": "cb1c57b8b038d57d4c7650a1187bdecb61072e2e43abac289aa29a1ac7edb93f"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/decode_sparse_attn_swa.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 35187,
+        "path": "models/deepseek_v4_flash_mtp/decode_sparse_attn_swa.py",
+        "sha256": "72547a719c27ca8fc6700e407f657bba2384c6d08358eeb400859a08b2f582bf"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/decode_swa.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 22231,
+        "path": "models/deepseek_v4_flash_mtp/decode_swa.py",
+        "sha256": "618ba712b499ab43d4d397d854116698dde896c77c739d30d4f4e4cdbd923d70"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/expert_routed.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 24730,
+        "path": "models/deepseek_v4_flash_mtp/expert_routed.py",
+        "sha256": "cc7d1279f3c8acdb065ba63b4818c2e299bcb1cd8d386e58ed28aa4e700201b0"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/expert_shared.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 18827,
+        "path": "models/deepseek_v4_flash_mtp/expert_shared.py",
+        "sha256": "89363ce80dc7359b8513864fdcd3328e24c8987648ef3701a6cdc74b106f068d"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/gate.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 23110,
+        "path": "models/deepseek_v4_flash_mtp/gate.py",
+        "sha256": "03837f608463ac3b4ae2d91ef34c7485099e026b352b3693a01ba417fa66dabf"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/hc_head.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 10611,
+        "path": "models/deepseek_v4_flash_mtp/hc_head.py",
+        "sha256": "74e3e58228334dc62a161c5c250abcc0016924ef7b0478aca2e511c09306b951"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/hc_post.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 9750,
+        "path": "models/deepseek_v4_flash_mtp/hc_post.py",
+        "sha256": "3e3783d52391c0fb3a33356db6f9135a50ed07748d954b089379ef62763304b2"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/hc_pre.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 22150,
+        "path": "models/deepseek_v4_flash_mtp/hc_pre.py",
+        "sha256": "2fea7af39a191e44834789a9d588cdd5ffc85dba41de46a604ee6f6a46166698"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "hardware-api-skipped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [
+        {
+          "line": 20,
+          "marker": "distributed-language-api",
+          "text": "import pypto.language.distributed as pld"
+        },
+        {
+          "line": 21,
+          "marker": "distributed-program-api",
+          "text": "from pypto.ir.distributed_compiled_program import DistributedConfig"
+        }
+      ],
+      "path": "models/deepseek_v4_flash_mtp/lm_head.py",
+      "return_code": null,
+      "skip_reason": "entrypoint directly references an Ascend/NPU/CCE/distributed hardware API",
+      "source": {
+        "bytes": 28865,
+        "path": "models/deepseek_v4_flash_mtp/lm_head.py",
+        "sha256": "11ed5fff669bfc12d6c40b0c6321d538438d5c50aedeea565ee6d4da683d3b5b"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/lookup_embedding.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 4759,
+        "path": "models/deepseek_v4_flash_mtp/lookup_embedding.py",
+        "sha256": "84c88b865d3bbed70a6b9188cc4eaeba2d5a7fe7a31b93c76a4dced48121c0ee"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "hardware-api-skipped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [
+        {
+          "line": 40,
+          "marker": "distributed-language-api",
+          "text": "import pypto.language.distributed as pld"
+        },
+        {
+          "line": 41,
+          "marker": "distributed-program-api",
+          "text": "from pypto.ir.distributed_compiled_program import DistributedConfig"
+        }
+      ],
+      "path": "models/deepseek_v4_flash_mtp/moe.py",
+      "return_code": null,
+      "skip_reason": "entrypoint directly references an Ascend/NPU/CCE/distributed hardware API",
+      "source": {
+        "bytes": 49136,
+        "path": "models/deepseek_v4_flash_mtp/moe.py",
+        "sha256": "0e44a82d264a4cc2555a52173291ee2d86dee9a663efd9974014debe82061aa1"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/mtp_projection.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 18357,
+        "path": "models/deepseek_v4_flash_mtp/mtp_projection.py",
+        "sha256": "bbdd61b6b0806cd0d21f8e86491e6d5b11c58c2921c8832991c120a9c2088608"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/prefill_compressor_ratio128.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 25809,
+        "path": "models/deepseek_v4_flash_mtp/prefill_compressor_ratio128.py",
+        "sha256": "887959d2bd807f9404365b1afcb2316069861d31baab040092223a6134f048a6"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/prefill_compressor_ratio4.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 33053,
+        "path": "models/deepseek_v4_flash_mtp/prefill_compressor_ratio4.py",
+        "sha256": "f593ba0b379a23e9a47bdfa1c1b8519778b7edf65079a7eac01a0e963130ecf8"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "source-excluded",
+      "execution_policy": "excluded-draft",
+      "hardware_api_evidence": [
+        {
+          "line": 15,
+          "marker": "distributed-language-api",
+          "text": "import pypto.language.distributed as pld"
+        },
+        {
+          "line": 16,
+          "marker": "distributed-program-api",
+          "text": "from pypto.ir.distributed_compiled_program import DistributedConfig"
+        }
+      ],
+      "path": "models/deepseek_v4_flash_mtp/prefill_cp_csa_draft.py",
+      "return_code": null,
+      "skip_reason": "draft entrypoint retained for provenance but not an article execution target",
+      "source": {
+        "bytes": 138650,
+        "path": "models/deepseek_v4_flash_mtp/prefill_cp_csa_draft.py",
+        "sha256": "7ba13f388cf9b4ec5de73a2e86d736dec0307bd8810af18903ee1f09136f081d"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "source-excluded",
+      "execution_policy": "excluded-draft",
+      "hardware_api_evidence": [
+        {
+          "line": 55,
+          "marker": "distributed-language-api",
+          "text": "import pypto.language.distributed as pld"
+        },
+        {
+          "line": 56,
+          "marker": "distributed-program-api",
+          "text": "from pypto.ir.distributed_compiled_program import DistributedConfig"
+        }
+      ],
+      "path": "models/deepseek_v4_flash_mtp/prefill_cp_fwd_draft.py",
+      "return_code": null,
+      "skip_reason": "draft entrypoint retained for provenance but not an article execution target",
+      "source": {
+        "bytes": 159815,
+        "path": "models/deepseek_v4_flash_mtp/prefill_cp_fwd_draft.py",
+        "sha256": "1ee2bf098e87bf8071bace4c4f0a0d676ae1f3f6cd3e616a9f3412f92724aff8"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "source-excluded",
+      "execution_policy": "excluded-draft",
+      "hardware_api_evidence": [
+        {
+          "line": 15,
+          "marker": "distributed-language-api",
+          "text": "import pypto.language.distributed as pld"
+        },
+        {
+          "line": 16,
+          "marker": "distributed-program-api",
+          "text": "from pypto.ir.distributed_compiled_program import DistributedConfig"
+        }
+      ],
+      "path": "models/deepseek_v4_flash_mtp/prefill_cp_hca_draft.py",
+      "return_code": null,
+      "skip_reason": "draft entrypoint retained for provenance but not an article execution target",
+      "source": {
+        "bytes": 82038,
+        "path": "models/deepseek_v4_flash_mtp/prefill_cp_hca_draft.py",
+        "sha256": "64dbd16047c5a3303b0ecc8656009a7b6101d58285d399c74c58e6dd508cf070"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "source-excluded",
+      "execution_policy": "excluded-draft",
+      "hardware_api_evidence": [
+        {
+          "line": 19,
+          "marker": "distributed-language-api",
+          "text": "import pypto.language.distributed as pld"
+        },
+        {
+          "line": 20,
+          "marker": "distributed-program-api",
+          "text": "from pypto.ir.distributed_compiled_program import DistributedConfig"
+        }
+      ],
+      "path": "models/deepseek_v4_flash_mtp/prefill_cp_layer_draft.py",
+      "return_code": null,
+      "skip_reason": "draft entrypoint retained for provenance but not an article execution target",
+      "source": {
+        "bytes": 98547,
+        "path": "models/deepseek_v4_flash_mtp/prefill_cp_layer_draft.py",
+        "sha256": "4917445f7e2533db2e04442df4395b03d98b07eea8763c35956075c2435bf305"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "source-excluded",
+      "execution_policy": "excluded-draft",
+      "hardware_api_evidence": [
+        {
+          "line": 16,
+          "marker": "distributed-language-api",
+          "text": "import pypto.language.distributed as pld"
+        },
+        {
+          "line": 17,
+          "marker": "distributed-program-api",
+          "text": "from pypto.ir.distributed_compiled_program import DistributedConfig"
+        }
+      ],
+      "path": "models/deepseek_v4_flash_mtp/prefill_cp_swa_draft.py",
+      "return_code": null,
+      "skip_reason": "draft entrypoint retained for provenance but not an article execution target",
+      "source": {
+        "bytes": 46651,
+        "path": "models/deepseek_v4_flash_mtp/prefill_cp_swa_draft.py",
+        "sha256": "bf540084a86834a4c7c02de7cdfbf7fa34e9542df9bd58ee753eb1126b7f048f"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "hardware-api-skipped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [
+        {
+          "line": 15,
+          "marker": "distributed-language-api",
+          "text": "import pypto.language.distributed as pld"
+        },
+        {
+          "line": 16,
+          "marker": "distributed-program-api",
+          "text": "from pypto.ir.distributed_compiled_program import DistributedConfig"
+        }
+      ],
+      "path": "models/deepseek_v4_flash_mtp/prefill_cp_zigzag.py",
+      "return_code": null,
+      "skip_reason": "entrypoint directly references an Ascend/NPU/CCE/distributed hardware API",
+      "source": {
+        "bytes": 16751,
+        "path": "models/deepseek_v4_flash_mtp/prefill_cp_zigzag.py",
+        "sha256": "b0665597af0dd888eecdc87b25877ce029f6970ce9ddac030acf38276cde3248"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/prefill_csa.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 46190,
+        "path": "models/deepseek_v4_flash_mtp/prefill_csa.py",
+        "sha256": "71b72c58d4757314a591629f3a877684d32c62794ec9fd344e71880cd50a5e5c"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "hardware-api-skipped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [
+        {
+          "line": 15,
+          "marker": "distributed-language-api",
+          "text": "(``l3_prefill_fwd``) via ``for r in pl.range(pld.world_size())``, so the same"
+        },
+        {
+          "line": 31,
+          "marker": "distributed-program-api",
+          "text": "from pypto.ir.distributed_compiled_program import DistributedConfig"
+        }
+      ],
+      "path": "models/deepseek_v4_flash_mtp/prefill_fwd.py",
+      "return_code": null,
+      "skip_reason": "entrypoint directly references an Ascend/NPU/CCE/distributed hardware API",
+      "source": {
+        "bytes": 103308,
+        "path": "models/deepseek_v4_flash_mtp/prefill_fwd.py",
+        "sha256": "dc06d4a489cda2df7a69cf99906154390adcb25516efd1f7f4e73d9373b5ec83"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/prefill_hca.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 32207,
+        "path": "models/deepseek_v4_flash_mtp/prefill_hca.py",
+        "sha256": "50b5af4018f05ac6896b1f7c2a253f86d0af3354d7d960455efc75110f91f37e"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/prefill_indexer.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 58616,
+        "path": "models/deepseek_v4_flash_mtp/prefill_indexer.py",
+        "sha256": "5f02cfb43499218184d82dd6edfd8190371b22d3cdb290592e82e63b3ac332c9"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/prefill_indexer_compressor.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 43629,
+        "path": "models/deepseek_v4_flash_mtp/prefill_indexer_compressor.py",
+        "sha256": "d37202b87ee11eaa59a69e62f3313c16a58781b02d2cb0c9f893b8a7b2f60f9d"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "hardware-api-skipped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [
+        {
+          "line": 18,
+          "marker": "distributed-language-api",
+          "text": "import pypto.language.distributed as pld"
+        },
+        {
+          "line": 19,
+          "marker": "distributed-program-api",
+          "text": "from pypto.ir.distributed_compiled_program import DistributedConfig"
+        }
+      ],
+      "path": "models/deepseek_v4_flash_mtp/prefill_layer.py",
+      "return_code": null,
+      "skip_reason": "entrypoint directly references an Ascend/NPU/CCE/distributed hardware API",
+      "source": {
+        "bytes": 49079,
+        "path": "models/deepseek_v4_flash_mtp/prefill_layer.py",
+        "sha256": "6196489c52689b1988d54b0bb7c3a69fe3de639ab9a2a6a71313db00de3d5c4f"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "hardware-api-skipped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [
+        {
+          "line": 16,
+          "marker": "distributed-language-api",
+          "text": "import pypto.language.distributed as pld"
+        },
+        {
+          "line": 18,
+          "marker": "distributed-program-api",
+          "text": "from pypto.ir.distributed_compiled_program import DistributedConfig"
+        }
+      ],
+      "path": "models/deepseek_v4_flash_mtp/prefill_mtp.py",
+      "return_code": null,
+      "skip_reason": "entrypoint directly references an Ascend/NPU/CCE/distributed hardware API",
+      "source": {
+        "bytes": 34557,
+        "path": "models/deepseek_v4_flash_mtp/prefill_mtp.py",
+        "sha256": "77df0a793f59eec9d93d0f896b89af2f56c3df3242ebf559a9fe861167fd1c2e"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/prefill_sparse_attn.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 41828,
+        "path": "models/deepseek_v4_flash_mtp/prefill_sparse_attn.py",
+        "sha256": "79eb915920b4f26d1e7f37d25bda3d769b2255227dc5f88c098ffcf653000a2f"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/prefill_swa.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 22957,
+        "path": "models/deepseek_v4_flash_mtp/prefill_swa.py",
+        "sha256": "5db6cb4e8c2ef8e4bdfd51d36e3ded0af09cd55ebdd25b7c451f6231532cf29e"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/qkv_proj_rope.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 33312,
+        "path": "models/deepseek_v4_flash_mtp/qkv_proj_rope.py",
+        "sha256": "5de28a148a820c1385912f7bed016a7b9955938cfc432d674af3e01efa0614f2"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/rmsnorm.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 6158,
+        "path": "models/deepseek_v4_flash_mtp/rmsnorm.py",
+        "sha256": "0bbeafc9ff3eeed9f00939eaddcd5ae87b566c150a5a0064e4287e9718169c7e"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/deepseek_v4_flash_mtp/sample.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 32408,
+        "path": "models/deepseek_v4_flash_mtp/sample.py",
+        "sha256": "2f4295b40b215da16b7389931b5c7f2c79df33b70870316124338c32e7fccec2"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "hardware-api-skipped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [
+        {
+          "line": 35,
+          "marker": "ascend-runtime-api",
+          "text": "from pypto.backend import BackendType, set_backend_type"
+        }
+      ],
+      "path": "models/qwen3_14b/decode_fwd.py",
+      "return_code": null,
+      "skip_reason": "entrypoint directly references an Ascend/NPU/CCE/distributed hardware API",
+      "source": {
+        "bytes": 115345,
+        "path": "models/qwen3_14b/decode_fwd.py",
+        "sha256": "a3910a38a88f2774fca2e7b4a847d1ef86e4a1b9643cb3c39d4f993df2ba7ff4"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "hardware-api-skipped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [
+        {
+          "line": 1025,
+          "marker": "ascend-runtime-api",
+          "text": "from pypto.backend import BackendType, set_backend_type"
+        }
+      ],
+      "path": "models/qwen3_14b/decode_layer_a8w8.py",
+      "return_code": null,
+      "skip_reason": "entrypoint directly references an Ascend/NPU/CCE/distributed hardware API",
+      "source": {
+        "bytes": 50808,
+        "path": "models/qwen3_14b/decode_layer_a8w8.py",
+        "sha256": "908747af401c595bd5bd04309fcd863d3ab8da8b87589b42cc8d8a3f0cee31cf"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "source-excluded",
+      "execution_policy": "excluded-draft",
+      "hardware_api_evidence": [],
+      "path": "models/qwen3_14b/decode_ssn_draft.py",
+      "return_code": null,
+      "skip_reason": "draft entrypoint retained for provenance but not an article execution target",
+      "source": {
+        "bytes": 50503,
+        "path": "models/qwen3_14b/decode_ssn_draft.py",
+        "sha256": "55016c298d42f77500e87bccdf020dbc3e78210cbe1a4c526b97f59466d77705"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "source-excluded",
+      "execution_policy": "excluded-draft",
+      "hardware_api_evidence": [],
+      "path": "models/qwen3_14b/decode_tq_draft.py",
+      "return_code": null,
+      "skip_reason": "draft entrypoint retained for provenance but not an article execution target",
+      "source": {
+        "bytes": 63454,
+        "path": "models/qwen3_14b/decode_tq_draft.py",
+        "sha256": "3b8779b4824e8376e09f01f5b419710f10a55b41c830dbea7e00534ea10b3da9"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/qwen3_14b/greedy_sample.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 7649,
+        "path": "models/qwen3_14b/greedy_sample.py",
+        "sha256": "7debaf16546387220c766cfcd405fa8d32c546ddff7b8008639bab0c868039f0"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "hardware-api-skipped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [
+        {
+          "line": 2242,
+          "marker": "ascend-runtime-api",
+          "text": "\"(render with simpler_setup.tools.deps_viewer). Opt-in AICPU-side \""
+        }
+      ],
+      "path": "models/qwen3_14b/prefill_fwd.py",
+      "return_code": null,
+      "skip_reason": "entrypoint directly references an Ascend/NPU/CCE/distributed hardware API",
+      "source": {
+        "bytes": 119334,
+        "path": "models/qwen3_14b/prefill_fwd.py",
+        "sha256": "7b9b0be663a7952bd8d131a2e260b31403e8d8bf347705bb4b14892977a8e5a1"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "source-excluded",
+      "execution_policy": "excluded-draft",
+      "hardware_api_evidence": [],
+      "path": "models/qwen3_14b/prefill_tq_draft.py",
+      "return_code": null,
+      "skip_reason": "draft entrypoint retained for provenance but not an article execution target",
+      "source": {
+        "bytes": 69380,
+        "path": "models/qwen3_14b/prefill_tq_draft.py",
+        "sha256": "d304dde7f48290f02c54c6aa1cc00133e39028c84ffe158aab983424a212acda"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "hardware-api-skipped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [
+        {
+          "line": 56,
+          "marker": "ascend-runtime-api",
+          "text": "from pypto.backend import BackendType, set_backend_type"
+        },
+        {
+          "line": 10,
+          "marker": "cce-kernel-tree",
+          "text": "\"\"\"Regeneration source for ``kernels/paged_attention_cce/kernel/rope_qkv_generated.hpp``."
+        }
+      ],
+      "path": "models/qwen3_14b/rope_qkv_regen.py",
+      "return_code": null,
+      "skip_reason": "entrypoint directly references an Ascend/NPU/CCE/distributed hardware API",
+      "source": {
+        "bytes": 21186,
+        "path": "models/qwen3_14b/rope_qkv_regen.py",
+        "sha256": "decd9e0f22dedba72fabaa6cc54bab9713da5505062d7d998ab2683aff56f02b"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "hardware-api-skipped",
+      "execution_policy": "ascend-cce-only",
+      "hardware_api_evidence": [
+        {
+          "line": 18,
+          "marker": "cce-kernel-tree",
+          "text": "from paged_attention_cce import ("
+        }
+      ],
+      "path": "models/qwen3_14b/test_paged_attention_cce.py",
+      "return_code": null,
+      "skip_reason": "entrypoint is explicitly Ascend CCE-only in the imported manifest",
+      "source": {
+        "bytes": 6669,
+        "path": "models/qwen3_14b/test_paged_attention_cce.py",
+        "sha256": "c7ad46164e7e7dadecb0b1fe4573fc59ab0cadb100f449d567bb14fc2af432ee"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "hardware-api-skipped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [
+        {
+          "line": 763,
+          "marker": "cce-kernel-tree",
+          "text": "if \"paged_attention_cce\" in source_text or \"fa_fused\" in source_text:"
+        }
+      ],
+      "path": "models/qwen3_14b/test_paged_attention_pypto.py",
+      "return_code": null,
+      "skip_reason": "entrypoint directly references an Ascend/NPU/CCE/distributed hardware API",
+      "source": {
+        "bytes": 46590,
+        "path": "models/qwen3_14b/test_paged_attention_pypto.py",
+        "sha256": "c73ea16fff3b196b750bfdee840bd6ccf32de8ef9471ff74a153f304dde896b8"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "compatibility_mode": "computational-unmapped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [],
+      "path": "models/qwen3_14b/topk_select.py",
+      "return_code": null,
+      "skip_reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "source": {
+        "bytes": 18063,
+        "path": "models/qwen3_14b/topk_select.py",
+        "sha256": "799812eb9961c00fcfa8d8d8cff7aecff0079ac7b920beed18a4ade751534785"
+      },
+      "status": "skipped"
+    }
+  ],
+  "schema": 1,
+  "skipped_count": 56,
+  "status": "complete",
+  "strict_nvidia_pass_count": 1,
+  "upstream_commit": "6c292d30ccc787ee4e1fe61541fd3faec0dafa65"
+}

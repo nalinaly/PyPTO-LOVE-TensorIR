@@ -77,6 +77,75 @@ def check_demo(errors: list[str]) -> None:
             errors.append(f"invalid article demo record: {record!r}")
 
 
+def check_demo_compatibility(errors: list[str]) -> None:
+    """Validate the external NVIDIA policy and its current matrix evidence."""
+    policy_path = ROOT / "state/evidence/article-demo-compatibility-policy-current.json"
+    policy = load(policy_path, errors)
+    if policy is None:
+        return
+    manifest_path = ROOT / "demo/pypto-lib/SOURCE_MANIFEST.json"
+    manifest_sha = sha256(manifest_path)
+    corpus_digest = hashlib.sha256()
+    manifest_value = json.loads(manifest_path.read_text(encoding="utf-8"))
+    for record in sorted(
+        manifest_value.get("files", []), key=lambda item: str(item.get("path", ""))
+    ):
+        relative = str(record["path"])
+        file_path = ROOT / "demo/pypto-lib" / relative
+        corpus_digest.update(relative.encode("utf-8"))
+        corpus_digest.update(b"\0")
+        corpus_digest.update(file_path.read_bytes())
+        corpus_digest.update(b"\0")
+    corpus_sha = corpus_digest.hexdigest()
+    if (
+        policy.get("schema") != 2
+        or policy.get("manifest_sha256") != manifest_sha
+        or policy.get("corpus_sha256") != corpus_sha
+        or policy.get("entrypoint_count") != 66
+    ):
+        errors.append("article demo compatibility policy is not bound to the current manifest")
+        return
+    counts = policy.get("counts", {})
+    expected_counts = {
+        "computational-cuda-reference": 9,
+        "computational-unmapped": 31,
+        "hardware-api-skipped": 17,
+        "source-excluded": 8,
+        "strict-pypto-nvidia": 1,
+    }
+    if counts != expected_counts:
+        errors.append(f"article demo compatibility counts drifted: {counts!r}")
+    for entry in policy.get("entries", []):
+        if not isinstance(entry, dict):
+            errors.append("article demo compatibility entry is not an object")
+            continue
+        if entry.get("compatibility_mode") == "hardware-api-skipped":
+            if entry.get("original_execution_policy") == "ascend-cce-only":
+                continue
+            if not entry.get("hardware_api_evidence"):
+                errors.append(f"hardware demo skip lacks source evidence: {entry.get('path')}")
+    matrix_path = ROOT / "state/evidence/article-demo-matrix-nvidia-current.json"
+    matrix = load(matrix_path, errors)
+    if matrix is None:
+        return
+    if (
+        matrix.get("schema") != 1
+        or matrix.get("backend") != "nvidia"
+        or matrix.get("status") != "complete"
+        or matrix.get("entrypoint_count") != 66
+        or matrix.get("manifest_sha256_before") != manifest_sha
+        or matrix.get("manifest_sha256_after") != manifest_sha
+        or matrix.get("corpus_sha256_before") != corpus_sha
+        or matrix.get("corpus_sha256_after") != corpus_sha
+        or matrix.get("compatibility_policy", {}).get("sha256") != sha256(policy_path)
+        or matrix.get("strict_nvidia_pass_count") != 1
+        or matrix.get("computational_reference_pass_count") != 9
+        or matrix.get("hardware_api_skipped_count") != 17
+        or matrix.get("computational_unmapped_count") != 31
+    ):
+        errors.append("current NVIDIA article-demo matrix is incomplete or stale")
+
+
 def check_screenshots(errors: list[str]) -> None:
     path = ROOT / "state/evidence/article-demo-screenshot-manifest-current.json"
     value = load(path, errors)
@@ -119,6 +188,23 @@ def check_screenshots(errors: list[str]) -> None:
             errors.append(f"missing screenshot evidence: {role}")
         image = ROOT / str(record.get("path", ""))
         if record.get("status") == "pending":
+            if record.get("evidence_sha256") != sha256(evidence):
+                errors.append(f"pending screenshot evidence hash mismatch: {role}")
+            if role == "article-demo-typical":
+                pending = load(evidence, errors)
+                if pending is not None and (
+                    pending.get("report_status") != "pass"
+                    or pending.get("strict_compiler_evidence") is not True
+                    or pending.get("golden_pass") is not True
+                ):
+                    errors.append("typical article demo pending slot lacks strict NVIDIA result evidence")
+                if pending is not None:
+                    report_path = ROOT / str(pending.get("report", ""))
+                    if (
+                        not report_path.is_file()
+                        or pending.get("report_sha256") != sha256(report_path)
+                    ):
+                        errors.append("typical article demo pending slot report hash is stale")
             if record.get("capture_status") != "pending" and image.is_file() and role == "model-inference":
                 errors.append(f"pending model screenshot is not marked pending: {role}")
             continue
@@ -400,6 +486,10 @@ def main() -> int:
                 errors.append(f"{name} misses the independent matched pair matrix")
             if "matched-performance-qualification-current.json" not in text:
                 errors.append(f"{name} misses the current qualification blocker")
+            if "article-demo-compatibility-policy-current.json" not in text:
+                errors.append(f"{name} misses the article-demo compatibility policy")
+            if "strict-pypto-nvidia" not in text:
+                errors.append(f"{name} misses the strict computational demo mode")
             if "--optimized-memory-mode zero-offload" in text:
                 errors.append(f"{name} retains the rejected performance memory mode")
         if BILIBILI_URL not in text:
@@ -420,6 +510,7 @@ def main() -> int:
     ):
         errors.append("offline HTML retains the stale performance boundary")
     check_demo(errors)
+    check_demo_compatibility(errors)
     check_screenshots(errors)
     check_operator(errors)
     check_models(errors)
@@ -441,7 +532,8 @@ def main() -> int:
         "optimized stock lane has no accepted sample",
         "full-model CUPTI/NVTX profile awaits an accepted pair and exclusive resources",
         "article-demo PowerShell role capture is pending",
-        "article demo device runtime is Ascend-only in this environment",
+        "31 model article-demo compute entries have no bounded NVIDIA adapter",
+        "article demo device runtime is Ascend-only for hardware-facing entries in this environment",
         "GPT-Image-2 generation awaits local API authorization",
     ]
     result = {

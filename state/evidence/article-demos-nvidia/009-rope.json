@@ -1,0 +1,93 @@
+{
+  "adapter": "computational-cuda-reference",
+  "adapter_source": {
+    "path": "tools/run_article_demo_nvidia.py",
+    "sha256": "5b2c7fcc02c31266ff9c56b7074f5a0e3ab4e3338be1e6688dedbf482122c580"
+  },
+  "article_url": "https://mp.weixin.qq.com/s/7tLlTbomH9OqyUbZDbBEhQ",
+  "compatibility": {
+    "adapter": "rope_reference",
+    "mode": "computational-cuda-reference",
+    "policy_sha256": "a18fc228c93e5083b28cdc8fb19e718eafd875ac356d89b5b694e3c6b62cd39c",
+    "reason": "bounded computational teaching example; compatibility adapter is outside imported source"
+  },
+  "device_index": 0,
+  "elapsed_seconds": 0.37674211600096896,
+  "golden": {
+    "function": "golden_rope",
+    "outputs": [
+      "y"
+    ]
+  },
+  "golden_pass": true,
+  "inputs": [
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "x",
+      "shape": [
+        128,
+        128
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "cos",
+      "shape": [
+        1,
+        128
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "sin",
+      "shape": [
+        1,
+        128
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": true,
+      "name": "y",
+      "shape": [
+        128,
+        128
+      ]
+    }
+  ],
+  "kind": "article-demo-nvidia-run",
+  "outputs": [
+    {
+      "dtype": "torch.float32",
+      "max_abs_diff": 0.0,
+      "name": "y",
+      "ok": true,
+      "shape": [
+        128,
+        128
+      ]
+    }
+  ],
+  "run_id": "article-demo-nvidia-009",
+  "schema": 2,
+  "seed": 20260831,
+  "source": {
+    "bytes": 4233,
+    "path": "examples/intermediate/rope.py",
+    "sha256": "3149eaa03574e1bac8ce0dfc620f93c92daa6faff27cdda223fa33a79c929abf"
+  },
+  "stages": {
+    "compatibility_compile": "independent-cuda-reference",
+    "device_execution": "pass",
+    "golden_reference": "pass",
+    "input_generation": "pass",
+    "precision_compare": "pass",
+    "source_audit": "pass"
+  },
+  "status": "pass",
+  "strict_compiler_evidence": false,
+  "upstream_commit": "6c292d30ccc787ee4e1fe61541fd3faec0dafa65"
+}

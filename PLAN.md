@@ -1,8 +1,8 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `66`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `67`
 
-## Current phase: resource-gated Qwen inference qualification and publication closure
+## Current phase: resource-gated Qwen qualification, computational demo closure, and publication
 
 ## User-brief audit and release-plan closure (2026-08-30, revision 57)
 
@@ -58,14 +58,19 @@ under `demo/`. Build a manifest from the article's complete code/demo inventory:
 1. identify every executable entrypoint and every transitive/tutorial file;
 2. copy executable source byte-for-byte, with no line edits, normalization or
    hidden generated replacement;
-3. run every executable entrypoint through the NVIDIA compatibility launcher,
-   recording command, platform, seed, shape/dtype, compile/runtime stage,
-   return code, stdout/stderr hashes, golden implementation, tolerance and raw
-   numerical result; and
-4. classify prose snippets and genuinely non-entrypoint support files without
-   silently removing runnable demos from the denominator. Any runnable demo
-   that still fails because of an Ascend-only dependency is a release blocker,
-   not a pass labelled “unsupported”.
+3. classify every executable entrypoint in an external, manifest-SHA-bound
+   policy. Entries that directly use distributed windows, CCE, NPU/ACL,
+   simpler runtime, or another real Ascend device API may be explicitly
+   skipped, but the policy must retain the first source-line evidence and the
+   reason; and
+4. run every bounded computational teaching entrypoint through a named NVIDIA
+   adapter, recording command, platform, seed, shape/dtype, compile/runtime
+   stage, return code, stdout/stderr hashes, golden implementation, tolerance
+   and raw numerical result. A strict PyPTO artifact and an independent CUDA
+   reference are separate modes; the latter is never promoted to compiler
+   evidence. Computational model entries without an adapter remain visible as
+   `computational-unmapped`, rather than being silently relabelled hardware or
+   counted as passes.
 
 The compatibility launcher/adapters may live outside `demo/`, but may not
 rewrite the copied source. Hash the corpus before and after each matrix run.
@@ -73,8 +78,9 @@ The final README and blog each show the same representative unchanged demo,
 its exact command, successful numerical/precision result and evidence hash.
 The demo chapter must explicitly explain the motivation: PyPTO-LOVE-TensorIR
 lets readers without an Ascend device learn the PyPTO DSL programming model on
-an NVIDIA platform. This motivation does not relax source fidelity or the
-all-entrypoint execution requirement.
+an NVIDIA platform. This motivation does not relax source fidelity, provenance,
+or denominator visibility; it changes only the treatment of entries whose
+semantics require a hardware API that is unavailable on NVIDIA.
 
 ### C. Model, kernel and coverage claims
 
@@ -485,24 +491,28 @@ TensorIR changes, package/plugin changes, supported Qwen call sites and
 unsupported cases. This matrix is the completeness audit for the implementation
 chapters.
 
-### E. Tighten unchanged article-demo acceptance
+### E. Tighten unchanged article-demo acceptance (revision 67 policy)
 
-Every executable demo presented by the linked article must run on the NVIDIA
-compatibility path with its copied source byte-for-byte unchanged and pass its
-declared golden/precision check. `--help`, import success, source hashing or a
-CANN-only error is not execution evidence. A compatibility launcher, backend
-adapter or environment setup may live outside `demo/`, but may not rewrite the
-copied files. Hash the corpus before and after every matrix run.
+Every imported file remains byte-for-byte unchanged and every entrypoint remains
+in the denominator. An external, manifest-SHA-bound policy classifies each
+entrypoint as strict NVIDIA PyPTO, independent CUDA computational reference,
+hardware-API skip, computational-unmapped, or source-excluded. Entries that
+directly use distributed windows, CCE, NPU/ACL, simpler runtime, or another real
+Ascend device API may be skipped under the user's revised scope, but the policy
+must retain source-line evidence and a reason. `--help`, import success, source
+hashing, or a CANN-only error is never execution evidence.
 
-Drafts and transitive library modules that are not runnable demos remain in the
-provenance inventory and may be marked non-entrypoint. A runnable demo cannot be
-excluded merely because it currently depends on CANN: it is a blocker until an
-external compatibility path executes it unchanged, or the final article must
-state honestly that the user's all-demo requirement is unfinished. The matrix
-records every attempted command, compile/runtime stage, return code, stdout and
-stderr hash, seed, shape/dtype, golden implementation, tolerance and raw error.
-The representative README screenshot shows the command, successful execution
-and numerical result for the same manifest entry and evidence hash.
+A compatibility launcher, backend adapter, or environment setup may live
+outside `demo/`, but may not rewrite the copied files. Hash the corpus before
+and after every matrix run. Every bounded computational teaching entrypoint
+must run through a named NVIDIA adapter and record command, compile/runtime
+stage, return code, stdout/stderr hashes, seed, shape/dtype, golden function,
+tolerance, and raw error. Independent CUDA references are useful educational
+checks but are explicitly not strict PyPTO compiler evidence. Computational
+model entries without a bounded adapter remain `computational-unmapped` rather
+than being silently counted as passes. The representative README screenshot
+binds the strict `hello_world.py` command, result, and evidence hash; the GUI
+capture may remain pending until a real Windows Terminal window is available.
 
 ### F. Make README reproduction independently testable
 
@@ -588,7 +598,8 @@ push remains subject to the legal authorization gate.
 4. Run the causal Inductor matrices, matched/optimized end-to-end performance,
    cold-compile instrumentation and independent CUPTI/NVTX breakdowns serially
    on an idle GPU.
-5. Execute every article demo unchanged with golden checks and complete the five
+5. Execute every bounded computational article demo with golden checks,
+   classify hardware-API entries with source evidence, and complete the five
    terminal screenshot sidecars.
 6. Generate all GPT-Image-2 figures from the frozen release summary, render the
    blog/HTML and bilingual README, and run the requirement/consistency/fresh-
@@ -602,16 +613,18 @@ The second user follow-up does not replace the original brief; it adds release
 gates.  The following checks are now explicit because they were easy to imply
 in prose while still being absent from a reproducible release:
 
-1. **Article-demo execution is a separate gate.**  A byte-for-byte copy,
+1. **Article-demo execution is a separate gate (its denominator rule is
+   superseded by revision 67).**  A byte-for-byte copy,
    source-hash audit, or `--mode help` success is not an execution or numerical
    correctness result.  The matrix must attempt every non-draft entrypoint from
    a clean Ubuntu environment, record the exact command, return code, stdout and
    stderr hashes, compile/golden/runtime stages, and max-error comparison when a
    runtime exists.  Draft and Ascend-CANN-only files are not silently counted as
    passes: they remain hash-audited with an explicit exclusion reason.  The
-   present `57/57` help audit therefore remains only an inventory result; the
-   article demo execution gate is still pending on the missing Ascend runtime and
-   the Qwen3-14B API mismatch.
+   present `57/57` help audit therefore remains only an inventory result for the
+   original Ascend command. Revision 67 adds an external policy: hardware-API
+   entries may be skipped with source-line evidence, while bounded computational
+   teaching entries must run through a named NVIDIA adapter.
 2. **A typical-demo screenshot is required in both READMEs.**  In addition to
    the four release roles, add a manifest role for a representative unchanged
    article example (the planned example is `examples/beginner/hello_world.py`).
@@ -894,9 +907,11 @@ the complete 0.8B gate passes.
 identities and the previous documentation audit still describe the older
 `5e39819` state. They are deliberately stale inputs now, not current evidence,
 and must be regenerated after framework-package lock/install and the next formal
-model run. The article-demo full execution, typical real screenshot, four other
-final screenshots, GPT-Image-2 figures, full-model Inductor ablation and all 9B
-claims remain pending release gates.
+model run. At that checkpoint the article-demo full execution, typical real
+screenshot, four other final screenshots, GPT-Image-2 figures, full-model
+Inductor ablation and all 9B claims remained pending release gates. Revision 67
+supersedes only the article-demo denominator for the authorized computational
+subset; performance, model and GUI gates remain independent.
 
 ## Blog and Inductor requirements (2026-08-29)
 
@@ -1485,9 +1500,11 @@ stages below. These are the current facts to use when resuming; older
   model. Keep the prompts and PENDING_GPT_IMAGE2 markers until authorized
   generation and image/hash inspection are available.
 - Article demos/GUI: the byte-for-byte 151-file/66-entrypoint corpus and
-  57/57 help audit are complete, but Ascend simpler_setup/KernelType.MIX
-  runtime blockers remain. Windows Terminal purple captures for the current
-  model and typical demo are pending; no fake screenshots are allowed.
+  57/57 help audit are complete. Revision 67 additionally records the
+  manifest-bound NVIDIA policy and passes 10/10 computational teaching
+  entries; hardware/runtime entries and 31 unmapped model computations remain
+  explicit. Windows Terminal purple capture for the typical strict demo is
+  pending; no fake screenshots are allowed.
 
 Resume order:
 
@@ -1531,10 +1548,12 @@ The final document workflow must preserve the following order and scope:
 3. **Independent article-demo chapter.** This chapter appears after the
    background and before the framework/operator implementation chapters. It
    states the NVIDIA-learning motivation, links the exact WeChat article, names
-   the byte-for-byte corpus under `demo/`, explains the all-entrypoint matrix,
-   and shows one unchanged command plus a numerical/golden precision result.
-   Until the Ascend-only runtime blocker is removed, it must show the blocker
-   and `PENDING`, never a fabricated success screenshot.
+   the byte-for-byte corpus under `demo/`, explains the policy-partitioned
+   all-entrypoint matrix, and shows one unchanged command plus a
+   numerical/golden precision result. Hardware-API skips and unmapped model
+   computations must remain visible with reasons; the strict computational
+   result may be shown, while the GUI capture stays `PENDING` until a real
+   window exists. No fabricated success screenshot is allowed.
 4. **Framework chapters.** Keep PyPTO-to-TensorIR and TorchInductor-to-PyPTO as
    two separately titled feature inventories. The first must name the PyPTO and
    TensorIR changes and the typed NVIDIA ODS/`OpBuilder` boundary; the second
@@ -1804,12 +1823,14 @@ typical unchanged demo still requires the Ascend runtime; no smoke frame may
 fill that role.
 
 ---
-# External-prerequisite blocker checkpoint: 2026-08-31 (revision 66)
+# External-prerequisite blocker checkpoint: 2026-08-31 (revision 66, superseded for article-demo scope by revision 67)
 
 The repository-side work that can proceed safely in the current environment is
 closed. Four of five terminal roles are current and hash-bound: build/operator/
 model are explicit accepted-evidence replays, and performance reads the current
-operator-level immutable JSON. Only the unchanged article-demo role is pending.
+operator-level immutable JSON. At the time of this checkpoint the unchanged
+article-demo role was pending; revision 67 now closes the computational teaching
+subset while retaining the hardware/model boundaries explicitly.
 The local Markdown blog and single-file HTML are rendered from that state; the
 checked-in bilingual READMEs and requirement audit agree.
 
@@ -1823,12 +1844,12 @@ Three external prerequisites now block the remaining release gates:
    CUPTI/NVTX matrix. The corrected controller, common `2 / 0.78` pair envelope,
    per-run 100 ms resource validation, and `matched_lane_comparability` are
    already committed.
-2. **Ascend article-demo runtime/device.** `simpler_setup`, `torch_npu`, `acl`,
-   `tbe`, and `te` are absent. The 151-file article corpus is byte-locked and
-   57/57 help discovery passes, but unchanged device execution and precision
-   comparison cannot run. Once an authorized runtime/device is available, run
-   all 57 entries without editing `demo/`, bind every result, then capture the
-   fifth terminal role.
+2. **Ascend article-demo runtime/device (hardware-facing subset only).**
+   `simpler_setup`, `torch_npu`, `acl`, `tbe`, and `te` are absent. The 151-file
+   article corpus is byte-locked and 57/57 help discovery passes. Revision 67
+   records the NVIDIA computational teaching subset separately; an authorized
+   Ascend runtime is still needed only if the hardware-facing entries are to be
+   executed unchanged and captured.
 3. **GPT-Image-2 authorization.** `OPENAI_API_KEY` is absent and the required
    imagegen CLI is unavailable. Do not substitute a model. Once process-local
    authorization exists, generate the three frozen prompts, inspect every PNG,
@@ -1839,3 +1860,56 @@ profile reconciliation, screenshot manifest, GPT-Image-2 manifest, both
 READMEs, local blog/HTML, and final requirement audit. Do not restore the old
 17.31% diagnostic pair as a headline, accept a demo compile-only result, or use
 an evidence-replay screenshot as a live-run claim.
+
+---
+# NVIDIA computational article-demo checkpoint: 2026-08-31 (revision 67)
+
+The user's latest scope change permits skipping imported examples that require
+real Ascend hardware APIs. The immutable article corpus remains unchanged:
+`demo/pypto-lib/SOURCE_MANIFEST.json` still binds 151 files and 66 entrypoints
+to `6c292d30ccc787ee4e1fe61541fd3faec0dafa65`. A separate, generated policy
+(`state/evidence/article-demo-compatibility-policy-current.json`) is bound to
+the manifest SHA and records a source-line reason for every hardware skip.
+
+The policy has five mutually visible modes:
+
+* `strict-pypto-nvidia`: the external adapter builds a real PyPTO
+  `@pl.jit` artifact through the strict TensorIR/CUDA Tile producer, launches
+  it on the NVIDIA stream, and compares the result with the imported golden.
+* `computational-cuda-reference`: an independent CUDA Torch implementation
+  checks the teaching algorithm numerically. It is useful for learning the
+  computational semantics but is explicitly **not** strict PyPTO compiler
+  evidence (`strict_compiler_evidence=false`).
+* `hardware-api-skipped`: the entrypoint directly uses distributed windows,
+  CCE, NPU/ACL, simpler runtime, or another real Ascend device API. The policy
+  stores the first matching source line; no fake precision result is recorded.
+* `computational-unmapped`: a model computation has no bounded NVIDIA adapter
+  yet. It remains visible in the denominator and is not silently called a
+  pass.
+* `source-excluded`: the original draft/non-entrypoint policy is retained.
+
+The current policy counts are fixed at 1 strict PyPTO entry, 9 CUDA reference
+teaching entries, 17 hardware-API skips, 31 unmapped model computations, and 8
+source-excluded drafts. The real NVIDIA matrix
+`state/evidence/article-demo-matrix-nvidia-current.json` reports 66/66 source
+hash checks, 10/10 teaching computations passing golden comparison, and an
+identical manifest SHA before/after execution. `hello_world.py` is the
+representative strict artifact; its report records a 128-element flattened tile,
+`fallback_used=false`, artifact/cubin hashes, and `golden_pass=true`.
+
+Checked-in execution products are `tools/classify_article_demos.py`,
+`tools/run_article_demo_nvidia.py`, and the extended
+`tools/run_article_demo_matrix.py`; `tests/test_article_demo_compatibility.py`
+guards policy counts, source evidence, and manifest binding. The bilingual
+READMEs, local blog, offline HTML, screenshot manifest, final requirement
+matrix, and document audit now use the same counts and distinguish strict and
+reference modes. The typical screenshot remains pending only because a real
+Windows Terminal/PowerShell-purple GUI capture is unavailable; the underlying
+strict run is accepted and the prior black frame remains discarded.
+
+The remaining work order is therefore narrower and explicit: obtain a genuine
+GUI capture for the strict `hello_world` command; when the host is exclusively
+available, rerun the resource-compliant model performance/profile lanes; after
+the user supplies a new key, generate and inspect GPT-Image-2 figures last.
+Do not promote the 31 unmapped model entries, CUDA reference adapters, old
+invalidated performance pair, or any evidence replay to a stronger claim.

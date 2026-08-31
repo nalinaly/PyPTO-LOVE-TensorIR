@@ -1,0 +1,98 @@
+{
+  "adapter": "strict-pypto-nvidia",
+  "adapter_source": {
+    "path": "tools/run_article_demo_nvidia.py",
+    "sha256": "5b2c7fcc02c31266ff9c56b7074f5a0e3ab4e3338be1e6688dedbf482122c580"
+  },
+  "article_url": "https://mp.weixin.qq.com/s/7tLlTbomH9OqyUbZDbBEhQ",
+  "artifact": {
+    "artifact_sha256": "4783771f6c199abbf340ee2e5692916472ae50931f1789be1d966c51638b1041",
+    "cache_key_sha256": "53942ebeed8e2e2b2bad8dad1a9b44730b4ff9f548dca4cf8d295d0b0d6487c7",
+    "cubin_sha256": "885c145cd27a641d14712fea26850ce659de18125e0216d679f824fd297dc30f",
+    "entry_name": "pypto_fused_pointwise",
+    "fallback_used": false,
+    "flattened_shape": [
+      524288
+    ],
+    "kernel_name": "pypto_inductor_00787098fed21fe3",
+    "source_node": "torch-inductor:00787098fed21fe3",
+    "source_sha256": "069b524f8baa36c3f27c367e15584e6faf18fc5ec882ca99243639cabe88c0d1",
+    "specialized_scalar_a": 1.0,
+    "tile": [
+      128
+    ]
+  },
+  "compatibility": {
+    "adapter": "hello_world_strict",
+    "mode": "strict-pypto-nvidia",
+    "policy_sha256": "a18fc228c93e5083b28cdc8fb19e718eafd875ac356d89b5b694e3c6b62cd39c",
+    "reason": "bounded computational teaching example; compatibility adapter is outside imported source"
+  },
+  "device_index": 0,
+  "elapsed_seconds": 1.2904483589809388,
+  "golden": {
+    "function": "golden_hello_world",
+    "outputs": [
+      "y"
+    ]
+  },
+  "golden_pass": true,
+  "inputs": [
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "x",
+      "shape": [
+        1024,
+        512
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "a",
+      "shape": []
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": true,
+      "name": "y",
+      "shape": [
+        1024,
+        512
+      ]
+    }
+  ],
+  "kind": "article-demo-nvidia-run",
+  "outputs": [
+    {
+      "dtype": "torch.float32",
+      "max_abs_diff": 0.0,
+      "name": "y",
+      "ok": true,
+      "shape": [
+        1024,
+        512
+      ]
+    }
+  ],
+  "run_id": "article-demo-nvidia-004",
+  "schema": 2,
+  "seed": 20260831,
+  "source": {
+    "bytes": 2894,
+    "path": "examples/beginner/hello_world.py",
+    "sha256": "1c2c882e719e5db568c5dc5f100d87b3ef02cdc441f992ab223a8b5df790d703"
+  },
+  "stages": {
+    "compatibility_compile": "strict-pypto-nvidia",
+    "device_execution": "pass",
+    "golden_reference": "pass",
+    "input_generation": "pass",
+    "precision_compare": "pass",
+    "source_audit": "pass"
+  },
+  "status": "pass",
+  "strict_compiler_evidence": true,
+  "upstream_commit": "6c292d30ccc787ee4e1fe61541fd3faec0dafa65"
+}

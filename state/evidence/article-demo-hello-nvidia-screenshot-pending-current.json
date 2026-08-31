@@ -1,0 +1,23 @@
+{
+  "schema": 2,
+  "kind": "article-demo-screenshot-slot",
+  "recorded_at": "2026-08-31",
+  "status": "pending",
+  "role": "article-demo-typical",
+  "demo": "examples/beginner/hello_world.py",
+  "command": "envs/pypto-release/bin/python -B tools/run_article_demo_nvidia.py --demo examples/beginner/hello_world.py --device 0 --run-id article-demo-nvidia-hello-screenshot --output state/evidence/article-demos-nvidia/011-hello_world-screenshot.json",
+  "run_id": "article-demo-nvidia-hello-screenshot",
+  "report": "state/evidence/article-demos-nvidia/011-hello_world-screenshot.json",
+  "report_sha256": "49f855c327bde47ef8f2aa045350b5790b27835d191edf0b4d210c6dfe413cd9",
+  "policy": "state/evidence/article-demo-compatibility-policy-current.json",
+  "policy_sha256": "a18fc228c93e5083b28cdc8fb19e718eafd875ac356d89b5b694e3c6b62cd39c",
+  "report_status": "pass",
+  "strict_compiler_evidence": true,
+  "golden_pass": true,
+  "capture_status": "pending",
+  "capture_requirement": "Replace only with a visible Ubuntu shell hosted by the requested PowerShell-purple Windows Terminal profile; bind command, run ID, report SHA, viewport, timestamps, and PNG SHA.",
+  "discarded_capture": {
+    "path": "/tmp/article-demo-typical-pending-black-20260829.png",
+    "reason": "all-black frame; not execution evidence"
+  }
+}

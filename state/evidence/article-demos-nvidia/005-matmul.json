@@ -1,0 +1,84 @@
+{
+  "adapter": "computational-cuda-reference",
+  "adapter_source": {
+    "path": "tools/run_article_demo_nvidia.py",
+    "sha256": "5b2c7fcc02c31266ff9c56b7074f5a0e3ab4e3338be1e6688dedbf482122c580"
+  },
+  "article_url": "https://mp.weixin.qq.com/s/7tLlTbomH9OqyUbZDbBEhQ",
+  "compatibility": {
+    "adapter": "matmul_reference",
+    "mode": "computational-cuda-reference",
+    "policy_sha256": "a18fc228c93e5083b28cdc8fb19e718eafd875ac356d89b5b694e3c6b62cd39c",
+    "reason": "bounded computational teaching example; compatibility adapter is outside imported source"
+  },
+  "device_index": 0,
+  "elapsed_seconds": 0.37922584800980985,
+  "golden": {
+    "function": "golden_matmul",
+    "outputs": [
+      "c"
+    ]
+  },
+  "golden_pass": true,
+  "inputs": [
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "a",
+      "shape": [
+        256,
+        256
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "b",
+      "shape": [
+        256,
+        256
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": true,
+      "name": "c",
+      "shape": [
+        256,
+        256
+      ]
+    }
+  ],
+  "kind": "article-demo-nvidia-run",
+  "outputs": [
+    {
+      "dtype": "torch.float32",
+      "max_abs_diff": 4.57763671875e-05,
+      "name": "c",
+      "ok": true,
+      "shape": [
+        256,
+        256
+      ]
+    }
+  ],
+  "run_id": "article-demo-nvidia-005",
+  "schema": 2,
+  "seed": 20260831,
+  "source": {
+    "bytes": 2985,
+    "path": "examples/beginner/matmul.py",
+    "sha256": "fe0802cc7670a52a11cd73a62d90da9f1c875c8fc3361a2061c1598e241855af"
+  },
+  "stages": {
+    "compatibility_compile": "independent-cuda-reference",
+    "device_execution": "pass",
+    "golden_reference": "pass",
+    "input_generation": "pass",
+    "precision_compare": "pass",
+    "source_audit": "pass"
+  },
+  "status": "pass",
+  "strict_compiler_evidence": false,
+  "upstream_commit": "6c292d30ccc787ee4e1fe61541fd3faec0dafa65"
+}

@@ -24,6 +24,7 @@ from run_article_demo import DEMO_ROOT, MANIFEST, DEFAULT_PYTHON, file_sha256
 
 
 ROOT = Path(__file__).resolve().parents[1]
+POLICY = ROOT / "state" / "evidence" / "article-demo-compatibility-policy-current.json"
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -47,6 +48,42 @@ def _manifest() -> dict[str, object]:
         raise ValueError("article demo manifest is not article-time locked")
     if not isinstance(payload.get("entrypoints"), list):
         raise ValueError("article demo manifest has no entrypoint inventory")
+    return payload
+
+
+def _corpus_sha256(manifest: dict[str, object]) -> str:
+    digest = hashlib.sha256()
+    records = manifest.get("files", [])
+    if not isinstance(records, list):
+        raise ValueError("article demo manifest files are missing")
+    for record in sorted(records, key=lambda item: str(item.get("path", ""))):
+        relative = str(record["path"])
+        path = (DEMO_ROOT / relative).resolve()
+        if DEMO_ROOT not in path.parents or not path.is_file():
+            raise ValueError(f"imported corpus file is missing: {relative}")
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _policy(manifest: dict[str, object]) -> dict[str, object]:
+    """Load the external NVIDIA policy without changing the source manifest."""
+    if not POLICY.is_file():
+        raise ValueError(
+            f"NVIDIA compatibility policy is missing; run tools/classify_article_demos.py: {POLICY}"
+        )
+    payload = json.loads(POLICY.read_text(encoding="utf-8"))
+    if payload.get("kind") != "article-demo-compatibility-policy":
+        raise ValueError("unexpected article demo compatibility policy kind")
+    if payload.get("upstream_commit") != manifest.get("upstream", {}).get("commit"):
+        raise ValueError("article demo compatibility policy commit differs from manifest")
+    if (
+        payload.get("manifest_sha256") != file_sha256(MANIFEST)
+        or payload.get("corpus_sha256") != _corpus_sha256(manifest)
+    ):
+        raise ValueError("article demo compatibility policy manifest hash is stale")
     return payload
 
 
@@ -94,6 +131,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("audit", "help", "run"), default="audit")
     parser.add_argument("--platform", default="a2a3sim")
+    parser.add_argument(
+        "--backend",
+        choices=("ascend", "nvidia"),
+        default="ascend",
+        help="ascend runs the unchanged upstream CLI; nvidia uses the external computational policy",
+    )
     parser.add_argument("--device", default="0")
     parser.add_argument("--python", type=Path, default=DEFAULT_PYTHON)
     parser.add_argument("--timeout-seconds", type=float, default=7200.0)
@@ -115,6 +158,14 @@ def main() -> int:
     if not python.is_file():
         parser.error(f"Python executable does not exist: {python}")
     manifest = _manifest()
+    compatibility_policy = _policy(manifest) if args.backend == "nvidia" else None
+    policy_by_path = {
+        item["path"]: item
+        for item in (compatibility_policy or {}).get("entries", [])
+        if isinstance(item, dict)
+    }
+    manifest_sha_before = file_sha256(MANIFEST)
+    corpus_sha_before = _corpus_sha256(manifest)
     entries = [
         item
         for item in manifest["entrypoints"]
@@ -132,14 +183,37 @@ def main() -> int:
         help_args = item.get("help_args", ["--help"])
         if not isinstance(help_args, list) or any(not isinstance(x, str) for x in help_args):
             raise ValueError(f"entrypoint help args are invalid: {relative}")
-        policy = item.get("execution_policy", "runnable")
-        if policy != "runnable" and not args.include_excluded:
+        execution_policy = item.get("execution_policy", "runnable")
+        compatibility = policy_by_path.get(relative, {})
+        compatibility_mode = compatibility.get("compatibility_mode")
+        if args.backend == "nvidia" and args.mode == "run":
+            # Hardware-facing, draft, and unmapped entries are intentionally
+            # skipped.  They stay in the denominator and retain a reason.
+            if compatibility_mode not in {
+                "strict-pypto-nvidia",
+                "computational-cuda-reference",
+            }:
+                results.append(
+                    {
+                        "path": relative,
+                        "source": source_record,
+                        "status": "skipped",
+                        "execution_policy": execution_policy,
+                        "compatibility_mode": compatibility_mode,
+                        "skip_reason": compatibility.get("reason"),
+                        "hardware_api_evidence": compatibility.get("hardware_api_evidence", []),
+                        "command": None,
+                        "return_code": None,
+                    }
+                )
+                continue
+        if execution_policy != "runnable" and not args.include_excluded:
             results.append(
                 {
                     "path": relative,
                     "source": source_record,
                     "status": "skipped",
-                    "execution_policy": policy,
+                    "execution_policy": execution_policy,
                     "command": None,
                     "return_code": None,
                 }
@@ -151,14 +225,31 @@ def main() -> int:
                     "path": relative,
                     "source": source_record,
                     "status": "audited",
-                    "execution_policy": policy,
+                    "execution_policy": execution_policy,
                     "command": None,
                     "return_code": None,
                 }
             )
             continue
+        nvidia_output: Path | None = None
         if args.mode == "help":
             command = [str(python), "-B", str(source), *help_args]
+        elif args.backend == "nvidia":
+            nvidia_dir = ROOT / "state" / "evidence" / "article-demos-nvidia"
+            nvidia_output = nvidia_dir / f"{len(results):03d}-{source.stem}.json"
+            command = [
+                str(python),
+                "-B",
+                str(ROOT / "tools" / "run_article_demo_nvidia.py"),
+                "--demo",
+                relative,
+                "--device",
+                str(args.device).split(",", 1)[0],
+                "--run-id",
+                f"article-demo-nvidia-{len(results):03d}",
+                "--output",
+                str(nvidia_output),
+            ]
         else:
             device = str(item.get("default_device", args.device))
             command = [
@@ -198,11 +289,11 @@ def main() -> int:
             return_code = None
             timed_out = True
         combined = stdout + stderr
-        results.append(
-            {
+        result_record: dict[str, object] = {
                 "path": relative,
                 "source": source_record,
-                "execution_policy": policy,
+                "execution_policy": execution_policy,
+                "compatibility_mode": compatibility_mode,
                 "status": "pass" if return_code == 0 and not timed_out else "fail",
                 "command": command,
                 "return_code": return_code,
@@ -214,18 +305,91 @@ def main() -> int:
                 "stdout": stdout,
                 "stderr": stderr,
             }
-        )
+        if nvidia_output is not None:
+            child_path = nvidia_output
+            result_record["child_report"] = str(child_path.relative_to(ROOT))
+            if child_path.is_file():
+                try:
+                    child = json.loads(child_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    child = None
+                if isinstance(child, dict):
+                    result_record["child_status"] = child.get("status")
+                    result_record["child_report_sha256"] = file_sha256(child_path)
+                    result_record["golden_pass"] = child.get("golden_pass")
+                    result_record["strict_compiler_evidence"] = child.get(
+                        "strict_compiler_evidence"
+                    )
+                    result_record["artifact"] = child.get("artifact")
+                    result_record["status"] = (
+                        "pass"
+                        if child.get("status") == "pass"
+                        else "fail"
+                    )
+        results.append(result_record)
+    manifest_sha_after = file_sha256(MANIFEST)
+    corpus_sha_after = _corpus_sha256(manifest)
+    if manifest_sha_after != manifest_sha_before or corpus_sha_after != corpus_sha_before:
+        raise RuntimeError("article demo imported corpus changed during matrix execution")
     passed = all(item["status"] in {"audited", "pass", "skipped"} for item in results)
+    strict_passes = sum(
+        args.mode == "run"
+        and item.get("status") == "pass"
+        and item.get("compatibility_mode") == "strict-pypto-nvidia"
+        for item in results
+    )
+    reference_passes = sum(
+        args.mode == "run"
+        and item.get("status") == "pass"
+        and item.get("compatibility_mode") == "computational-cuda-reference"
+        for item in results
+    )
+    hardware_skips = sum(
+        args.mode == "run" and item.get("compatibility_mode") == "hardware-api-skipped"
+        for item in results
+    )
+    unmapped_skips = sum(
+        args.mode == "run" and item.get("compatibility_mode") == "computational-unmapped"
+        for item in results
+    )
     payload = {
         "schema": 1,
         "kind": "article-demo-matrix",
         "mode": args.mode,
+        "backend": args.backend,
         "path_prefix": args.path_prefix,
         "article_url": manifest["article"]["url"],
         "upstream_commit": manifest["upstream"]["commit"],
         "entrypoint_count": len(results),
         "skipped_count": sum(item["status"] == "skipped" for item in results),
+        "help_pass_count": sum(
+            args.mode == "help" and item["status"] == "pass" for item in results
+        ),
+        "strict_nvidia_pass_count": strict_passes,
+        "computational_reference_pass_count": reference_passes,
+        "hardware_api_skipped_count": hardware_skips,
+        "computational_unmapped_count": unmapped_skips,
+        "manifest_sha256_before": manifest_sha_before,
+        "manifest_sha256_after": manifest_sha_after,
+        "corpus_sha256_before": corpus_sha_before,
+        "corpus_sha256_after": corpus_sha_after,
+        "compatibility_policy": (
+            {
+                "path": str(POLICY.relative_to(ROOT)),
+                "sha256": file_sha256(POLICY),
+                "revision": compatibility_policy.get("policy_revision"),
+            }
+            if compatibility_policy is not None
+            else None
+        ),
         "status": "complete" if passed else "failed",
+        "compatibility_status": (
+            "not-applicable"
+            if args.backend != "nvidia" or args.mode != "run"
+            else "complete"
+            if unmapped_skips == 0
+            else "partial-computational-coverage"
+        ),
         "elapsed_seconds": time.monotonic() - matrix_started,
         "results": results,
     }
