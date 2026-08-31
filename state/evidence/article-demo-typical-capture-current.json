@@ -1,0 +1,23 @@
+{
+    "schema":  1,
+    "kind":  "windows-terminal-capture",
+    "status":  "pass",
+    "role":  "article-demo-typical",
+    "command":  "envs/pypto-release/bin/python -B tools/run_article_demo_nvidia.py --demo examples/beginner/hello_world.py --device 0 --run-id article-demo-nvidia-hello-screenshot --output state/evidence/article-demos-nvidia/011-hello_world-screenshot.json",
+    "workspace":  "/home/zhaosiying/pypto-love-tensor-ir",
+    "distro":  "Ubuntu",
+    "host":  "Windows Terminal",
+    "theme":  "PowerShell purple",
+    "unique_window_title":  "PyPTO release - article-demo-typical - 0fb2eb4e",
+    "started_utc":  "2026-08-31T05:44:55.1735130Z",
+    "finished_utc":  "2026-08-31T05:45:00.6207628Z",
+    "window_width":  1549,
+    "window_height":  925,
+    "capture_method":  "PrintWindow",
+    "visible_samples":  5184,
+    "sample_count":  5335,
+    "output_path":  "\\\\wsl.localhost\\Ubuntu\\home\\zhaosiying\\pypto-love-tensor-ir\\docs\\assets\\screenshots\\article-demo-typical.png",
+    "output_bytes":  101106,
+    "output_sha256":  "313e602d50c750b8ab396e8f00bb8ceb80a0d192280f82ce11c164739c3764c6",
+    "exit_code":  0
+}

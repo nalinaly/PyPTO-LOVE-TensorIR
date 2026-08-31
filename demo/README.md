@@ -63,7 +63,10 @@ envs/pypto-release/bin/python tools/run_article_demo.py \
 
 ## 典型截图
 
-严格 `hello_world` 的 Ubuntu/PowerShell 紫色终端截图应绑定同一次命令、run ID、
-报告 SHA 和可见的 golden 结果。当前 GUI 捕获仍等待用户提供真实窗口：
+严格 `hello_world` 已在真实 Windows Terminal 的 Ubuntu/PowerShell 紫色窗口中
+运行并截图；同一次命令、run ID、报告 SHA 和可见的 golden 结果由
+[`article-demo-screenshot-manifest-current.json`](../state/evidence/article-demo-screenshot-manifest-current.json)
+绑定。窗口为 1549×925，`PrintWindow` visible samples 为 5184/5335，命令
+`exit_code=0`，`y.max_abs_diff=0.0`。此前的黑屏尝试未被采用。
 
-`PENDING_SCREENSHOT: docs/assets/screenshots/article-demo-typical.png`
+![hello_world.py 严格 NVIDIA 运行结果](../docs/assets/screenshots/article-demo-typical.png)

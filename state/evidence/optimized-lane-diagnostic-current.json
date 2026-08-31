@@ -1,81 +1,187 @@
 {
-  "schema": 1,
-  "kind": "qwen35-9b-optimized-lane-diagnostic",
-  "status": "open",
   "accepted_for_performance": false,
-  "controller_revision": "296a89e",
-  "controller_change": "bounded controller adds read-only nvml-ctypes fallback after a nvidia-smi error; frozen preflight source is unchanged",
-  "frozen_preflight_sha256": "0b9884f8dbd34337a85f62c351b1e19dda3a8b84ec9a88c835d8701af053e3d1",
-  "source_lock_sha256": "c3f5b6f0693eb593943d894c79a652b1ee5a90990c8eea003a49115bb5bbc1bc",
-  "workload_evidence": "benchmarks/release/workload.json",
-  "prior_pair_evidence": {
-    "path": "state/evidence/qwen35-9b-performance-pair-current.json",
-    "status": "invalidated-resource-and-control"
-  },
-  "formal_configuration": {
-    "lane": "sglang-optimized",
-    "optimized_memory_mode": "matched",
-    "cpu_offload_gb": 2,
-    "mem_fraction_static": 0.69,
-    "cuda_graph_bs_decode": [1],
-    "cuda_graph_bs_prefill": [32],
-    "cuda_graph_backend_prefill": "disabled",
-    "model": "models/Qwen3.5-9B",
-    "prompt_tokens": 31,
-    "output_tokens": 64
-  },
   "attempts": [
     {
-      "run_id": "pypto-gpu-bounded-20260830T155838Z-2426520-260df5",
+      "abort_reason": "nvidia-telemetry-unavailable",
       "configuration": {
         "cpu_offload_gb": 4,
-        "mem_fraction_static": 0.78,
-        "inductor_compile_threads": 1
-      },
-      "status": "aborted",
-      "abort_reason": "nvidia-telemetry-unavailable",
-      "performance_report": null
-    },
-    {
-      "run_id": "pypto-gpu-bounded-20260830T160256Z-2428456-b945e5",
-      "configuration": {
-        "cpu_offload_gb": 4,
-        "mem_fraction_static": 0.78,
-        "inductor_compile_threads": 1
-      },
-      "status": "aborted",
-      "abort_reason": "nvidia-coexistence-audit",
-      "nvidia_query_failure": "nvidia-smi query timed out",
-      "performance_report": null
-    },
-    {
-      "run_id": "pypto-gpu-bounded-20260830T161746Z-2433114-b55eb2",
-      "configuration": {
-        "cpu_offload_gb": 2,
-        "mem_fraction_static": 0.69,
-        "formal_lane": true
-      },
-      "status": "aborted",
-      "abort_reason": "nvidia-telemetry-unavailable",
-      "controller_observation": {
-        "initial_mem_available_kib": 58002552,
-        "minimum_mem_available_kib": 47631652,
-        "maximum_owned_sid_rss_kib": 20627412,
-        "latest_gpu_used_mib": 19266,
-        "latest_gpu_free_mib": 5197,
-        "owned_compute_pids": [2433292],
-        "external_compute_pids": [],
-        "nvidia_query_timeout_seconds": 10,
-        "nvidia_query_timeout_count": 3
+        "inductor_compile_threads": 1,
+        "mem_fraction_static": 0.78
       },
       "performance_report": null,
-      "raw_process_evidence": "runs/pypto-gpu-bounded-20260830T161746Z-2433114-b55eb2/process.json"
+      "run_id": "pypto-gpu-bounded-20260830T155838Z-2426520-260df5",
+      "status": "aborted"
+    },
+    {
+      "abort_reason": "nvidia-coexistence-audit",
+      "configuration": {
+        "cpu_offload_gb": 4,
+        "inductor_compile_threads": 1,
+        "mem_fraction_static": 0.78
+      },
+      "nvidia_query_failure": "nvidia-smi query timed out",
+      "performance_report": null,
+      "run_id": "pypto-gpu-bounded-20260830T160256Z-2428456-b945e5",
+      "status": "aborted"
+    },
+    {
+      "abort_reason": "nvidia-telemetry-unavailable",
+      "configuration": {
+        "cpu_offload_gb": 2,
+        "formal_lane": true,
+        "mem_fraction_static": 0.69
+      },
+      "controller_observation": {
+        "external_compute_pids": [],
+        "initial_mem_available_kib": 58002552,
+        "latest_gpu_free_mib": 5197,
+        "latest_gpu_used_mib": 19266,
+        "maximum_owned_sid_rss_kib": 20627412,
+        "minimum_mem_available_kib": 47631652,
+        "nvidia_query_timeout_count": 3,
+        "nvidia_query_timeout_seconds": 10,
+        "owned_compute_pids": [
+          2433292
+        ]
+      },
+      "performance_report": null,
+      "raw_process_evidence": "runs/pypto-gpu-bounded-20260830T161746Z-2433114-b55eb2/process.json",
+      "run_id": "pypto-gpu-bounded-20260830T161746Z-2433114-b55eb2",
+      "status": "aborted"
+    },
+    {
+      "abort_reason": "gpu-free-memory-floor",
+      "configuration": {
+        "cpu_offload_gb": 2,
+        "formal_lane": true,
+        "mem_fraction_static": 0.69
+      },
+      "controller_observation": {
+        "external_compute_pids": [],
+        "external_nvidia_compute_pids": [],
+        "initial_mem_available_kib": 59607640,
+        "latest_gpu_free_mib": 4000,
+        "latest_gpu_used_mib": 20463,
+        "maximum_owned_sid_rss_kib": 20829332,
+        "minimum_mem_available_kib": 47604080,
+        "nvidia_query_timeout_count": 0,
+        "owned_compute_pids": [],
+        "protected_heavy_process_pids": []
+      },
+      "performance_report": null,
+      "raw_process_evidence": "runs/pypto-gpu-bounded-20260831T034327Z-2531381-964f87/process.json",
+      "raw_process_evidence_sha256": "97055c087dc56528a5d8f434728a0f3877b4de1a101b6925bc3d6702268ed235",
+      "run_id": "pypto-gpu-bounded-20260831T034327Z-2531381-964f87",
+      "status": "aborted"
     }
   ],
+  "controller_change": "bounded controller adds read-only nvml-ctypes fallback and rejects protected-heavy coexistence; frozen preflight source is unchanged",
+  "controller_revision": "242ba0a",
+  "controller_sha256": "9ad4c2b319102d48b34dfa0aba8ecf4de1653e9891831c109350d634c3887be5",
+  "diagnostic_conclusion": "No probed memory/offload envelope produced a resource-qualified optimized report. Keep the formal 2 GiB/0.69 lane unchanged and do not publish an optimized percentage.",
+  "diagnostic_probe_recorded_at": "2026-08-31T05:31:39.090793+00:00",
+  "diagnostic_probes": [
+    {
+      "configuration": {
+        "cpu_offload_gb": 2,
+        "mem_fraction_static": 0.68
+      },
+      "console_observation": "Child stderr reported max_mamba_cache_size=4 and max_num_reqs=0; no performance report was created.",
+      "console_observation_boundary": "Diagnostic console text is not a formal report field.",
+      "controller_abort_reason": null,
+      "controller_return_code": -9,
+      "controller_status": "exited",
+      "failure_reason": "hybrid-state-cache-zero",
+      "formal_evidence": false,
+      "latest_gpu_free_mib": 6212,
+      "performance_report": null,
+      "raw_process_evidence": "runs/pypto-gpu-bounded-20260831T051758Z-2545597-2b4acd/process.json",
+      "raw_process_evidence_sha256": "01d3215981f136233e08741d750274e75d45f2166fe4364864dbf031aff43a89",
+      "run_id": "pypto-gpu-bounded-20260831T051758Z-2545597-2b4acd",
+      "status": "failed"
+    },
+    {
+      "configuration": {
+        "cpu_offload_gb": 2,
+        "mem_fraction_static": 0.685
+      },
+      "controller_abort_reason": "gpu-free-memory-floor",
+      "controller_return_code": -9,
+      "controller_status": "aborted",
+      "failure_reason": "gpu-free-memory-floor",
+      "formal_evidence": false,
+      "latest_gpu_free_mib": 2454,
+      "performance_report": null,
+      "raw_process_evidence": "runs/pypto-gpu-bounded-20260831T051945Z-2545945-d23820/process.json",
+      "raw_process_evidence_sha256": "a99cd450f0ba3acb4cd0db18b109071d0419fa777861489b3b52ad917317768a",
+      "run_id": "pypto-gpu-bounded-20260831T051945Z-2545945-d23820",
+      "status": "failed"
+    },
+    {
+      "configuration": {
+        "cpu_offload_gb": 3,
+        "mem_fraction_static": 0.69
+      },
+      "controller_abort_reason": "gpu-free-memory-floor",
+      "controller_return_code": -15,
+      "controller_status": "aborted",
+      "failure_reason": "gpu-free-memory-floor",
+      "formal_evidence": false,
+      "latest_gpu_free_mib": 4088,
+      "performance_report": null,
+      "raw_process_evidence": "runs/pypto-gpu-bounded-20260831T052405Z-2547797-26016e/process.json",
+      "raw_process_evidence_sha256": "65623e68bd01bd9aaca0459e75f15efe07db703efa815a6857f431877f39622c",
+      "run_id": "pypto-gpu-bounded-20260831T052405Z-2547797-26016e",
+      "status": "failed"
+    },
+    {
+      "configuration": {
+        "cpu_offload_gb": 4,
+        "mem_fraction_static": 0.69
+      },
+      "controller_abort_reason": "gpu-free-memory-floor",
+      "controller_return_code": -15,
+      "controller_status": "aborted",
+      "failure_reason": "gpu-free-memory-floor",
+      "formal_evidence": false,
+      "latest_gpu_free_mib": 3784,
+      "performance_report": null,
+      "raw_process_evidence": "runs/pypto-gpu-bounded-20260831T052705Z-2549185-17a520/process.json",
+      "raw_process_evidence_sha256": "f9e756164ed60abc73f9aeb7a0bab177256ac14138bf1cf791dc8f2ce6283b29",
+      "run_id": "pypto-gpu-bounded-20260831T052705Z-2549185-17a520",
+      "status": "failed"
+    }
+  ],
+  "formal_configuration": {
+    "cpu_offload_gb": 2,
+    "cuda_graph_backend_prefill": "disabled",
+    "cuda_graph_bs_decode": [
+      1
+    ],
+    "cuda_graph_bs_prefill": [
+      32
+    ],
+    "lane": "sglang-optimized",
+    "mem_fraction_static": 0.69,
+    "model": "models/Qwen3.5-9B",
+    "optimized_memory_mode": "matched",
+    "output_tokens": 64,
+    "prompt_tokens": 31
+  },
+  "frozen_preflight_sha256": "0b9884f8dbd34337a85f62c351b1e19dda3a8b84ec9a88c835d8701af053e3d1",
+  "kind": "qwen35-9b-optimized-lane-diagnostic",
+  "prior_pair_evidence": {
+    "path": "state/evidence/qwen35-9b-performance-pair-invalidated-20260830.json",
+    "status": "invalidated-resource-and-control"
+  },
   "resume_contract": [
     "Require zero external NVIDIA compute PIDs and host/GPU floors before launch.",
     "Retain the formal matched configuration and exact chat-template workload.",
     "Do not publish a throughput, graph-replay, overlap, or compile-time number until a complete report exists.",
     "If telemetry timeout recurs, preserve the raw run and keep this lane open rather than weakening the safety controller silently."
-  ]
+  ],
+  "schema": 1,
+  "source_lock_sha256": "c3f5b6f0693eb593943d894c79a652b1ee5a90990c8eea003a49115bb5bbc1bc",
+  "status": "open",
+  "workload_evidence": "benchmarks/release/workload.json"
 }

@@ -1,8 +1,8 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `67`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `68`
 
-## Current phase: resource-gated Qwen qualification, computational demo closure, and publication
+## Current phase: accepted matched pair, optimized/profile qualification, computational demo closure, and publication
 
 ## User-brief audit and release-plan closure (2026-08-30, revision 57)
 
@@ -1451,7 +1451,7 @@ TorchInductor, SGLang or Qwen execution.
 Every milestone is correctness-first, then performance, then evidence and a
 checkpoint commit. A green smoke test is never promoted to a later acceptance
 claim.
-# Execution checkpoint: 2026-08-30 (revision 58)
+# Execution checkpoint: 2026-08-30 (revision 58; performance facts superseded by revision 68)
 
 The revision-57 writing plan is now executed through the evidence and document
 stages below. These are the current facts to use when resuming; older
@@ -1473,14 +1473,14 @@ stages below. These are the current facts to use when resuming; older
   one teacher-forced strict trace, and zero unknown/fallback compute. The
   compact bindings are qwen35-0.8b-model-gate-current.json and
   qwen35-9b-model-gate-current.json.
-- Performance: the four-start pair is retained as diagnostic evidence but was
+- Performance (historical at this checkpoint): the four-start pair is retained as diagnostic evidence but was
   invalidated by revision 62: 3/4 PyPTO starts crossed the high-frequency NVML
   4 GiB GPU free floor. Its 17.31% ratio is not a formal headline. Matched and
   optimized stock comparisons both require resource-compliant reruns.
 - Full-model CUPTI/NVTX phase profile: attempted candidate collection was
   stopped at model-load KV-cache qualification (4 GiB controller floor); no
   phase percentage or residual attribution is promoted.
-- Full-model eager control: one timing-only matched-provider run is complete.
+- Full-model eager control (historical comparison before the accepted pair): one timing-only matched-provider run is complete.
   It shows 15.3418 versus 15.4100 output tok/s, but the compile-request lane
   did not invoke CompilerInterface, so no causal whole-model compile speedup is
   claimed; the supported causal result remains the SwiGLU operator ablation.
@@ -1686,7 +1686,7 @@ change matched numbers; revision 62 separately invalidates that pair from its
 own high-frequency resource evidence.
 
 ---
-# Performance-evidence correction: 2026-08-31 (revision 62)
+# Performance-evidence correction: 2026-08-31 (revision 62; closed by revision 68)
 
 The high-frequency NVML summaries in the previously labelled accepted
 PyPTO/matched pair exposed a validation omission in
@@ -1727,7 +1727,7 @@ accepted evidence. Until then, every 17.31% occurrence must say `diagnostic`,
 and the requirement matrix keeps both full-model comparisons `OPEN`.
 
 ---
-# Matched-performance contract correction: 2026-08-31 (revision 63)
+# Matched-performance contract correction: 2026-08-31 (revision 63; closed by revision 68)
 
 Revision 62 found a second independent reason the old pair was not matched:
 PyPTO used `cpu_offload_gb=0`, while stock matched used `2`. The sidecar status
@@ -1768,7 +1768,7 @@ not signal them and do not launch any formal GPU lane until that preflight
 returns zero naturally.
 
 ---
-# Qualification-coexistence checkpoint: 2026-08-31 (revision 64)
+# Qualification-coexistence checkpoint: 2026-08-31 (revision 64; superseded by revision 68)
 
 After heavy preflight briefly returned green, a corrected PyPTO qualification
 start (`pypto-gpu-bounded-20260830T174802Z-2458897-84463a`) was admitted with
@@ -1914,3 +1914,143 @@ available, rerun the resource-compliant model performance/profile lanes; after
 the user supplies a new key, generate and inspect GPT-Image-2 figures last.
 Do not promote the 31 unmapped model entries, CUDA reference adapters, old
 invalidated performance pair, or any evidence replay to a stronger claim.
+
+---
+# Resource-qualified performance checkpoint: 2026-08-31 (revision 68)
+
+The corrected common performance envelope has now completed the formal matched
+pair. The interleaved schedule is the frozen source value
+`C M M C M C C M` (`PAIR_PERFORMANCE_SCHEDULE`), with four fresh process starts
+per lane and ten measured requests per start. The eight reports are retained in
+their owned `runs/` directories and summarized by
+`tools/summarize_qwen_performance_pair.py`.
+
+Current accepted summary:
+
+* PyPTO output throughput p50: `2.4124389723 tok/s`;
+* matched stock output throughput p50: `15.3707878779 tok/s`;
+* PyPTO/matched: `15.6949597607%`, 95% bootstrap CI
+  `[15.6337788563%, 15.7526036739%]`, signed change `-84.3050402393%`;
+* PyPTO E2E/TTFT/TPOT: `26529.1714/3159.2396/370.8615 ms`;
+* matched E2E/TTFT/TPOT: `4163.7532/70.0954/64.9685 ms`;
+* cold engine p50: PyPTO `16164.4455 ms`, matched `15316.6971 ms`;
+* first compile-trigger request p50: PyPTO `29252.2038 ms`, matched
+  `23815.4607 ms`. This field includes one full 31-input/64-output request and
+  is not compiler-only time.
+
+All eight starts are resource/control accepted: minimum GPU free
+`5123887104 B`, minimum host availability `47233052 KiB`, zero starts below
+floor, no thermal throttle, and zero matched control mismatches. Both lanes use
+`cpu_offload_gb=2` and `mem_fraction_static=0.78`. The machine-readable current
+summary is `state/evidence/qwen35-9b-performance-pair-current.json` with
+`acceptance.accepted=true`; the qualification record is
+`state/evidence/matched-performance-qualification-current.json`. The old
+resource/control-invalidated pair is preserved at
+`state/evidence/qwen35-9b-performance-pair-invalidated-20260830.json` and its
+17.31% ratio remains diagnostic only.
+
+The full-model eager control remains non-causal because matched SGLang disables
+CUDA graphs and the global CompilerInterface/Inductor was not invoked. Its
+current matched compile-request comparison is 15.3708 tok/s versus eager
+15.3418 tok/s (observed +0.19%, not a compile-speedup claim). The supported
+causal compile result remains the operator-level SwiGLU ablation.
+
+The optimized single qualification attempted with matched memory
+(`cpu_offload_gb=2`, `mem_fraction_static=0.69`) aborted at the controller's
+4 GiB GPU-free floor with `gpu_free_mib=4000`; no optimized percentage is
+published. The attempt is appended to
+`state/evidence/optimized-lane-diagnostic-current.json`. A corrected
+CUPTI/NVTX profile still requires a protected-heavy-free run; GPT-Image-2
+generation remains deliberately paused until the user replaces the key.
+
+---
+# Descriptive CUPTI breakdown checkpoint: 2026-08-31 (revision 69)
+
+The strict three-lane compiled profile gate remains unchanged, but all useful
+profiling work that does not require an accepted optimized lane is now closed.
+An explicit `--allow-noncompiled-matched` mode records the pinned SGLang
+behavior without inventing a compile event: matched retains
+`enable_torch_compile=true`, while `CompilerInterface` is not invoked after
+CUDA Graphs are disabled. Such reports carry
+`profile_scope=descriptive-stock-noncompiled`; the default collector and strict
+three-lane reconcile still reject them as compiled evidence.
+
+Three PyPTO and three matched fresh starts, five profile requests per start and
+64 model-forward windows per request, are reconciled at
+`state/evidence/qwen35-9b-descriptive-stock-profile-breakdown-current.json`.
+Every report and raw CUPTI trace is SHA-bound. The minimum resource observations
+were 4,608,925,696 GPU-free bytes and 48,888,068 KiB host available, with no
+thermal throttle and no matched control mismatch.
+
+Descriptive p50 GPU activity per request:
+
+* PyPTO compute: 22.318812001 ms;
+* stock matched compute: 1.285792173 ms;
+* total gap: 21.033019828 ms;
+* unattributed-compute gap: 19.749001885 ms;
+* attention-core/gate gap: 1.151132292 ms;
+* phase-sum reconciliation residual: 1.539578 ms.
+
+These are CUPTI activity-duration measurements, not critical-path latency.
+Zeros and `unattributed_compute` reflect correlation coverage, not absent
+operators. The matched lane did not execute Inductor, so this evidence cannot
+be labeled a torch.compile speedup or close the strict optimized comparison.
+The collector also gained a bounded 10-second plus 30-second retry for the
+read-only `nvidia-smi` identity query after CUPTI exposed a repeatable WSL
+driver-settle delay; all final starts completed fail-closed.
+
+The bilingual READMEs, local blog/HTML, final requirement matrix and document
+audit now carry the same boundary and numbers. The audit remains green with six
+open gates: optimized stock, strict three-lane compiled profile, the genuine
+article-demo GUI capture, 31 unmapped model computations, optional real Ascend
+hardware entries, and GPT-Image-2. Hardware-facing Ascend entries stay skipped
+per user scope. GPT-Image-2 remains the final step and must not start until the
+user confirms the new process-local key.
+
+---
+# Optimized probe closure checkpoint: 2026-08-31 (revision 70)
+
+The final in-scope optimized-memory probes are recorded under
+`state/evidence/optimized-lane-diagnostic-current.json` without changing the
+formal lane attempts or promoting a result. The four diagnostic envelopes were
+`(offload=2, fraction=0.68)`, `(2, 0.685)`, `(3, 0.69)`, and `(4, 0.69)`.
+The first failed before serving a request because the hybrid state cache
+resolved to `max_num_reqs=0`; the other three were stopped at 2454, 4088 and
+3784 MiB GPU free, respectively. No probe emitted a performance report. The
+formal `(2 GiB, 0.69)` attempt remains the current 4000 MiB floor failure and
+the optimized percentage remains unpublished.
+
+The bounded evidence-identity retry and descriptive profile mode pass targeted
+tests. The document audit and offline HTML render are green after adding the
+descriptive sidecar, exact commands, resource/hash bindings and the explicit
+non-causal wording. The black article-demo placeholder was not accepted as a
+capture; the genuine PowerShell/Ubuntu-purple window is still a user-side GUI
+handoff. Ascend hardware API entries remain skipped by the latest scope, while
+computational teaching entries remain 1 strict PyPTO plus 9 independent CUDA
+reference passes. GPT-Image-2 generation is still paused and must be the last
+action after the user rotates the key.
+
+---
+# Genuine article-demo capture checkpoint: 2026-08-31 (revision 71)
+
+The typical-demo GUI gate is now closed. Windows PowerShell launched a new
+Ubuntu tab in Windows Terminal and ran the exact strict NVIDIA command for the
+unchanged `examples/beginner/hello_world.py`. The first retry exposed an
+incorrect UNC workspace argument and produced an exit-127 screenshot; that PNG
+was moved to `/tmp` and never entered evidence. The corrected Linux workspace
+run exited 0 and was captured through `PrintWindow` at 1549x925 with
+5184/5335 visible samples.
+
+The accepted image is
+`docs/assets/screenshots/article-demo-typical.png`; it visibly shows
+`strict-pypto-nvidia`, `golden_pass=True`, the PyPTO artifact, report path and
+exit code. `state/evidence/article-demo-typical-capture-current.json` binds the
+window, command, timestamps and PNG SHA; the strict run report binds unchanged
+source/policy, artifact/Cubin, `fallback_used=false`, and
+`max_abs_diff=0.0`. The five-role screenshot manifest is now `complete` and the
+README/blog pending placeholders have been replaced with the genuine image.
+
+The document audit now reports five open gates rather than six: optimized
+stock, strict three-lane compiled profile, 31 unmapped model computations, the
+user-authorized skip for real Ascend hardware APIs, and GPT-Image-2. The image
+generation step remains paused and last, pending the user's new key.

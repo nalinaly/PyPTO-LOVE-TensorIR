@@ -64,3 +64,18 @@ def test_persisted_policy_matches_generator() -> None:
     )
     generated = classify_article_demos.build_policy(classify_article_demos.load_manifest())
     assert persisted == generated
+
+
+def test_current_performance_pair_is_resource_accepted() -> None:
+    pair = json.loads(
+        (ROOT / "state/evidence/qwen35-9b-performance-pair-current.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    acceptance = pair["acceptance"]
+    assert pair["status"] == "complete"
+    assert acceptance["accepted"] is True
+    assert acceptance["starts_total"] == 8
+    assert acceptance["starts_below_floor"] == 0
+    assert acceptance["control_comparability"]["mismatches"] == []
+    assert pair["comparison"]["pypto_percent_of_matched"] == 15.694959760741742

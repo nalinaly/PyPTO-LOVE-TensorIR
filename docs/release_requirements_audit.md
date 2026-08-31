@@ -7,8 +7,10 @@ release item.
 
 Current machine-readable audit: state/evidence/blog-requirements-audit-current.json
 (status=pass, with explicit open gates for optimized stock, full-model
-CUPTI/NVTX profile, Windows GUI captures, article-demo device runtime, and
-GPT-Image-2 authorization). The item-by-item mapping is
+CUPTI/NVTX profile, hardware-facing article-demo runtime, 31 unmapped model
+demos, and GPT-Image-2 authorization). The five screenshot roles are complete;
+the resource-qualified
+matched pair is now accepted; the item-by-item mapping is
 docs/final_requirement_matrix.md; this checklist remains the detailed review
 template and is not permission to promote an open item.
 
@@ -107,6 +109,8 @@ template and is not permission to promote an open item.
 - [ ] Each lane has four valid fresh starts and forty raw requests in the
       frozen interleaved order; invalid/co-tenant starts are retained as
       rejected evidence rather than selectively sampled.
+      The current PyPTO/matched pair is accepted with 4+4 starts, zero
+      resource-floor violations, and zero listed control mismatches.
 - [ ] TTFT, TPOT, ITL, E2E latency, output throughput, cold costs, memory,
       clocks, power, temperature, and throttle reasons are reported with raw
       samples and confidence intervals.
@@ -119,9 +123,14 @@ template and is not permission to promote an open item.
 - [ ] PyPTO relative performance is computed from median output tokens/second
       separately against matched and optimized stock; percent-of-baseline and
       signed speedup formulas/directions are printed beside the values.
+      The accepted matched result is 15.6949597607% of stock (95% CI
+      15.6337788563%-15.7526036739%); optimized remains open.
 - [ ] Independent CUPTI/NVTX profiles compare semantic operator phases and
       reconcile phase deltas plus host/scheduler/memcpy/graph residuals to the
-      total performance gap.
+      total performance gap. A separate descriptive stock-CUDA profile is
+      accepted at `state/evidence/qwen35-9b-descriptive-stock-profile-breakdown-current.json`,
+      but it deliberately records `matched_compilation_effective=false` and
+      does not close the strict three-lane compiled gate.
 - [ ] Linear and LM-head shapes receive explicit A/B measurement because the
       historical diagnostic profile identified matmul as the dominant cost.
 
@@ -145,10 +154,10 @@ template and is not permission to promote an open item.
 - [ ] The blog uses Chinese numbered first-level and Arabic numbered
       second-level section headings and includes all requested architecture,
       framework, operator, testing, breakdown, limitation, and summary topics.
-- [ ] Build, operator correctness, performance, 9B generation, and one typical
+- [x] Build, operator correctness, performance, 9B generation, and one typical
       unchanged article demo each have a genuine Ubuntu/Windows Terminal purple
-      profile screenshot or an explicitly documented user-capture handoff and
-      exact command; no screenshot is fabricated or image-generated.
+      profile screenshot with an exact command, capture metadata, evidence SHA,
+      and PNG SHA; no screenshot is fabricated or image-generated.
 - [ ] Every ablation/breakdown figure is generated with GPT-Image-2 from a
       hashed immutable JSON source, has model/prompt/run/image provenance and
       useful alt text, and is visually checked against an adjacent exact table.
@@ -158,7 +167,9 @@ template and is not permission to promote an open item.
       data, renders without external assets, and passes desktop plus narrow
       viewport checks without clipped tables, code or Chinese text.
 - [ ] The finished documents contain no `xx`, `TBD`, stale `PENDING_*`, missing
-      required result or operator-level number promoted to a model headline.
+      required result or operator-level number promoted to a model headline;
+      the sole intentional marker is `PENDING_GPT_IMAGE2` while the user key is
+      paused.
 - [ ] The Markdown blog and HTML remain local and absent from every commit.
 
 ## Final repository boundary

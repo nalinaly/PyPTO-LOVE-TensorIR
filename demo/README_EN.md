@@ -70,8 +70,11 @@ fabricated.
 
 ## Typical Screenshot
 
-The strict `hello_world` Ubuntu/PowerShell purple-terminal screenshot must bind
-the same command, run ID, report hash, and visible golden result. A real GUI
-capture is still supplied by the user:
+The strict `hello_world` run was captured in a real Windows Terminal
+Ubuntu/PowerShell-purple window. The same command, run ID, report hash, and
+visible golden result are bound by
+[`article-demo-screenshot-manifest-current.json`](../state/evidence/article-demo-screenshot-manifest-current.json).
+The window is 1549×925 with 5184/5335 `PrintWindow` visible samples; the command
+exited 0 and `y.max_abs_diff=0.0`. A prior black-frame attempt was not accepted.
 
-`PENDING_SCREENSHOT: docs/assets/screenshots/article-demo-typical.png`
+![hello_world.py strict NVIDIA result](../docs/assets/screenshots/article-demo-typical.png)

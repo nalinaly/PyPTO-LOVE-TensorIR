@@ -29,7 +29,7 @@
     "reason": "bounded computational teaching example; compatibility adapter is outside imported source"
   },
   "device_index": 0,
-  "elapsed_seconds": 1.3581023900187574,
+  "elapsed_seconds": 1.5632902409997769,
   "golden": {
     "function": "golden_hello_world",
     "outputs": [

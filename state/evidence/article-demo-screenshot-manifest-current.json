@@ -5,18 +5,22 @@
     "status": "pass"
   },
   "kind": "article-demo-screenshot-manifest",
-  "recorded_at": "2026-08-30T18:55:38.764445+00:00",
+  "recorded_at": "2026-08-31T06:43:12.206472+00:00",
   "schema": 1,
   "screenshots": {
     "article-demo-typical": {
-      "caption_en": "Ubuntu/PowerShell purple terminal: strict NVIDIA compatibility run of unchanged hello_world.py with PyPTO artifact and golden result; GUI capture remains pending.",
-      "caption_zh": "Ubuntu/PowerShell 紫色终端：未改写 hello_world.py 的严格 NVIDIA 兼容运行、PyPTO artifact 与 golden 结果；GUI capture 仍待补。",
-      "capture_status": "pending",
+      "caption_en": "Ubuntu/PowerShell purple terminal: strict NVIDIA compatibility run of unchanged hello_world.py with a PyPTO artifact and passing golden comparison.",
+      "caption_zh": "Ubuntu/PowerShell 紫色终端：未改写 hello_world.py 的严格 NVIDIA 兼容运行、PyPTO artifact 与 golden 精度通过。",
+      "capture_evidence": "state/evidence/article-demo-typical-capture-current.json",
+      "capture_evidence_sha256": "521bcbb221303cc72f97fb380067aacead66630924aa786379a09b09bdf00a19",
       "command": "envs/pypto-release/bin/python -B tools/run_article_demo_nvidia.py --demo examples/beginner/hello_world.py --device 0 --run-id article-demo-nvidia-hello-screenshot --output state/evidence/article-demos-nvidia/011-hello_world-screenshot.json",
-      "evidence": "state/evidence/article-demo-hello-nvidia-screenshot-pending-current.json",
-      "evidence_sha256": "b4395ddcc69bd73de96e7bcf3ac7ab61debfae34cbc0e9c618706b272ebaf0f9",
+      "command_source": "tools/run_article_demo_nvidia.py",
+      "command_source_sha256": "5b2c7fcc02c31266ff9c56b7074f5a0e3ab4e3338be1e6688dedbf482122c580",
+      "evidence": "state/evidence/article-demos-nvidia/011-hello_world-screenshot.json",
+      "evidence_sha256": "3d5a9f4742990cba6a32a0653bf2db058aea494ec1f159c5749f3d8706d3bbb8",
       "path": "docs/assets/screenshots/article-demo-typical.png",
-      "status": "pending"
+      "sha256": "313e602d50c750b8ab396e8f00bb8ceb80a0d192280f82ce11c164739c3764c6",
+      "status": "current-live-run"
     },
     "build": {
       "caption_en": "Ubuntu/PowerShell purple terminal: validates and replays accepted wheel build, install/pip-check, CTest 13/13, natural three-stage exit, and one artifact-set SHA identity; explicitly not a live rerun.",
@@ -101,7 +105,7 @@
       "status": "current-operator-scope"
     }
   },
-  "status": "provisional",
+  "status": "complete",
   "terminal": {
     "distro": "Ubuntu",
     "host": "Windows Terminal",

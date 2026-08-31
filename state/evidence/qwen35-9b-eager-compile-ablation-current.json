@@ -30,42 +30,42 @@
   "kind": "qwen35-9b-eager-compile-ablation",
   "matched_compile_requested": {
     "backend_invocation_observed": false,
-    "cold_engine_start_ms": 15208.360808000001,
+    "cold_engine_start_ms": 15316.6971185,
     "effective_compile": false,
-    "first_compile_trigger_request_ms": 24013.7343465,
+    "first_compile_trigger_request_ms": 23815.460658,
     "metrics_p50": {
-      "e2e_ms": 4153.161291750001,
-      "output_tokens_per_second": 15.409966085029314,
-      "tpot_ms": 64.60733019444444,
-      "ttft_ms": 69.80546275
+      "e2e_ms": 4163.7532305,
+      "output_tokens_per_second": 15.370787877861424,
+      "tpot_ms": 64.96853092063492,
+      "ttft_ms": 70.09536775
     },
     "source_pair_boundary": {
-      "evidence_boundary": "source pair is invalidated by the PyPTO resource floor; only the independently resource-valid matched subset is consumed",
+      "evidence_boundary": "source pair is complete",
       "gpu_free_floor_bytes": 4294967296,
       "matched_starts": 4,
       "matched_subset_resource_accepted": true,
-      "source_pair_accepted": false,
-      "source_pair_status": "invalidated-resource-and-control"
+      "source_pair_accepted": true,
+      "source_pair_status": "complete"
     },
     "summary": "state/evidence/qwen35-9b-performance-pair-current.json",
-    "summary_sha256": "6435aa275cc7f8ee387e8e2c01895b19c00d092f14753b1e9f3e0e06750bc500"
+    "summary_sha256": "9bba9f798b9cff9bb0b632b3f000ec2cb91b690319d54c8abd7fd723f45d383f"
   },
   "observed_difference": {
     "e2e_ms": {
-      "eager_to_matched_ratio_percent": 99.55636651040291
+      "eager_to_matched_ratio_percent": 99.81026826431395
     },
     "output_tokens_per_second": {
-      "eager_to_matched_ratio_percent": 100.44452107347179
+      "eager_to_matched_ratio_percent": 100.18915151368289
     },
     "tpot_ms": {
-      "eager_to_matched_ratio_percent": 99.63568617772744
+      "eager_to_matched_ratio_percent": 100.1927202185022
     },
     "ttft_ms": {
-      "eager_to_matched_ratio_percent": 95.87595582255332
+      "eager_to_matched_ratio_percent": 96.27413266828646
     }
   },
   "performance_only": true,
-  "recorded_at": "2026-08-30T17:46:27.760449+00:00",
+  "recorded_at": "2026-08-31T03:30:19.444544+00:00",
   "schema": 1,
   "status": "complete",
   "workload": {

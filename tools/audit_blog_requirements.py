@@ -9,10 +9,16 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from benchmarks.release.workload import workload_record  # noqa: E402
+
+
 ARTICLE_URL = "https://mp.weixin.qq.com/s/7tLlTbomH9OqyUbZDbBEhQ"
 BILIBILI_URL = (
     "https://www.bilibili.com/video/BV1nB3u6tERu/?vd_source="
@@ -75,6 +81,15 @@ def check_demo(errors: list[str]) -> None:
                 errors.append(f"article demo hash mismatch: {record.get('path')}")
         except (KeyError, TypeError, OSError):
             errors.append(f"invalid article demo record: {record!r}")
+
+
+def check_demo_docs(errors: list[str]) -> None:
+    for relative in ("demo/README.md", "demo/README_EN.md"):
+        text = read(ROOT / relative, errors)
+        if "article-demo-typical.png" not in text:
+            errors.append(f"{relative} misses the typical demo screenshot")
+        if "PENDING_SCREENSHOT" in text:
+            errors.append(f"{relative} retains a stale pending screenshot marker")
 
 
 def check_demo_compatibility(errors: list[str]) -> None:
@@ -151,6 +166,8 @@ def check_screenshots(errors: list[str]) -> None:
     value = load(path, errors)
     if value is None:
         return
+    if value.get("status") != "complete":
+        errors.append("current screenshot manifest is not complete")
     expected = {"build", "operator-correctness", "performance", "model-inference", "article-demo-typical"}
     screenshots = value.get("screenshots")
     if not isinstance(screenshots, dict) or set(screenshots) != expected:
@@ -214,7 +231,13 @@ def check_screenshots(errors: list[str]) -> None:
             errors.append(f"screenshot hash mismatch: {role}")
         if record.get("evidence_sha256") != sha256(evidence):
             errors.append(f"screenshot evidence hash mismatch: {role}")
-        if role in {"build", "operator-correctness", "performance", "model-inference"}:
+        if role in {
+            "build",
+            "operator-correctness",
+            "performance",
+            "model-inference",
+            "article-demo-typical",
+        }:
             command_source = ROOT / str(record.get("command_source", ""))
             if (
                 not command_source.is_file()
@@ -225,12 +248,17 @@ def check_screenshots(errors: list[str]) -> None:
             capture = load(capture_path, errors)
             if capture is None:
                 continue
+            expected_status = {
+                "performance": "current-operator-scope",
+                "article-demo-typical": "current-live-run",
+            }.get(role, "current-evidence-replay")
             if (
-                record.get("status")
-                != ("current-operator-scope" if role == "performance" else "current-evidence-replay")
+                record.get("status") != expected_status
                 or record.get("capture_evidence_sha256") != sha256(capture_path)
                 or capture.get("command") != record.get("command")
                 or capture.get("output_sha256") != record.get("sha256")
+                or capture.get("status") != "pass"
+                or capture.get("capture_method") != "PrintWindow"
                 or capture.get("exit_code") != 0
                 or int(capture.get("visible_samples", 0)) < 16
                 or int(capture.get("window_width", 0)) < 320
@@ -257,6 +285,19 @@ def check_screenshots(errors: list[str]) -> None:
                     != "state/evidence/qwen35-9b-model-gate-current.json"
                 ):
                     errors.append("model screenshot does not preserve replay boundary")
+            if role == "article-demo-typical":
+                demo = load(evidence, errors)
+                if demo is not None and (
+                    demo.get("status") != "pass"
+                    or demo.get("strict_compiler_evidence") is not True
+                    or demo.get("golden_pass") is not True
+                    or demo.get("compatibility", {}).get("mode")
+                    != "strict-pypto-nvidia"
+                    or demo.get("artifact", {}).get("fallback_used") is not False
+                    or demo.get("upstream_commit") != ARTICLE_COMMIT
+                    or capture.get("role") != "article-demo-typical"
+                ):
+                    errors.append("typical article-demo screenshot lacks strict live-run evidence")
 
 
 def check_operator(errors: list[str]) -> None:
@@ -311,38 +352,53 @@ def check_performance(errors: list[str]) -> None:
     if pair is not None:
         acceptance = pair.get("acceptance")
         if (
-            pair.get("status") != "invalidated-resource-and-control"
+            pair.get("status") != "complete"
             or pair.get("performance_only") is not True
             or pair.get("comparison", {}).get("pypto_percent_of_matched") is None
             or not isinstance(acceptance, dict)
-            or acceptance.get("accepted") is not False
+            or acceptance.get("accepted") is not True
+            or acceptance.get("status") != "resource-and-control-compliant"
             or acceptance.get("required_gpu_free_bytes") != 4 * 1024**3
-            or acceptance.get("minimum_observed_gpu_free_bytes") != 4185067520
-            or acceptance.get("starts_below_floor") != 3
-            or acceptance.get("control_comparability", {}).get("accepted")
-            is not False
-            or acceptance.get("control_comparability", {}).get("mismatches")
-            != [{"field": "cpu_offload_gb", "pypto": 0, "sglang_matched": 2}]
-            or acceptance.get("current_validator_script_sha256")
+            or acceptance.get("minimum_observed_gpu_free_bytes", 0) < 4 * 1024**3
+            or acceptance.get("starts_below_floor") != 0
+            or acceptance.get("starts_total") != 8
+            or acceptance.get("control_comparability", {}).get("accepted") is not True
+            or acceptance.get("control_comparability", {}).get("mismatches") != []
+            or pair.get("source", {}).get("summary_script_sha256")
             != sha256(ROOT / "tools/summarize_qwen_performance_pair.py")
         ):
-            errors.append("current performance pair invalidation boundary drifted")
-        pypto_lane = pair.get("lanes", {}).get("pypto", {})
-        starts = pypto_lane.get("starts", []) if isinstance(pypto_lane, dict) else []
-        observed = [
-            start.get("resources", {}).get("minimum_gpu_memory_free_bytes")
-            for start in starts
-            if isinstance(start, dict) and isinstance(start.get("resources"), dict)
-        ]
-        if (
-            len(observed) != 4
-            or sum(type(value) is int and value < 4 * 1024**3 for value in observed)
-            != 3
+            errors.append("current performance pair acceptance boundary drifted")
+        observed: list[object] = []
+        for lane in ("pypto", "sglang-matched"):
+            lane_record = pair.get("lanes", {}).get(lane, {})
+            starts = lane_record.get("starts", []) if isinstance(lane_record, dict) else []
+            observed.extend(
+                start.get("resources", {}).get("minimum_gpu_memory_free_bytes")
+                for start in starts
+                if isinstance(start, dict) and isinstance(start.get("resources"), dict)
+            )
+        if len(observed) != 8 or any(
+            type(value) is not int or value < 4 * 1024**3 for value in observed
         ):
-            errors.append("performance pair raw start floors do not match invalidation")
+            errors.append("performance pair raw start floors are not accepted")
         lock = ROOT / "vendor/source-lock.json"
         if pair.get("source", {}).get("source_lock_sha256") != sha256(lock):
             errors.append("performance pair source-lock hash is stale")
+    historical_pair_path = (
+        ROOT / "state/evidence/qwen35-9b-performance-pair-invalidated-20260830.json"
+    )
+    historical_pair = load(historical_pair_path, errors)
+    if historical_pair is not None:
+        historical_acceptance = historical_pair.get("acceptance", {})
+        if (
+            historical_pair.get("status") != "invalidated-resource-and-control"
+            or not isinstance(historical_acceptance, dict)
+            or historical_acceptance.get("accepted") is not False
+            or historical_acceptance.get("starts_below_floor") != 3
+            or historical_acceptance.get("minimum_observed_gpu_free_bytes")
+            != 4185067520
+        ):
+            errors.append("historical invalidated performance pair boundary drifted")
     qualification = load(
         ROOT / "state/evidence/matched-performance-qualification-current.json",
         errors,
@@ -350,22 +406,46 @@ def check_performance(errors: list[str]) -> None:
     if qualification is not None:
         attempts = qualification.get("attempts")
         if (
-            qualification.get("status") != "open"
-            or qualification.get("accepted") is not False
+            qualification.get("status") != "complete"
+            or qualification.get("accepted") is not True
             or not isinstance(attempts, list)
-            or len(attempts) != 1
-            or attempts[0].get("abort_reason") != "host-memory-emergency-floor"
-            or attempts[0].get("performance_report") is not None
-            or qualification.get("current_controller_policy", {}).get(
-                "runtime_abort_reason"
+            or len(attempts) != 2
+            or any(
+                not isinstance(attempt, dict)
+                or attempt.get("status") != "complete"
+                or attempt.get("abort_reason") is not None
+                or not attempt.get("performance_report")
+                for attempt in attempts
             )
-            != "protected-heavy-coexistence"
+            or qualification.get("acceptance", {}).get("pair_summary_sha256")
+            != sha256(ROOT / "state/evidence/qwen35-9b-performance-pair-current.json")
             or qualification.get("current_controller_policy", {}).get(
                 "controller_sha256"
             )
             != sha256(ROOT / "tools/run_pypto_gpu_bounded.py")
         ):
-            errors.append("matched performance qualification boundary drifted")
+            errors.append("matched performance qualification acceptance boundary drifted")
+    optimized = load(
+        ROOT / "state/evidence/optimized-lane-diagnostic-current.json", errors
+    )
+    if optimized is not None:
+        optimized_attempts = optimized.get("attempts")
+        latest = (
+            optimized_attempts[-1]
+            if isinstance(optimized_attempts, list) and optimized_attempts
+            else {}
+        )
+        if (
+            optimized.get("status") != "open"
+            or optimized.get("accepted_for_performance") is not False
+            or latest.get("run_id")
+            != "pypto-gpu-bounded-20260831T034327Z-2531381-964f87"
+            or latest.get("abort_reason") != "gpu-free-memory-floor"
+            or latest.get("controller_observation", {}).get("latest_gpu_free_mib")
+            != 4000
+            or latest.get("performance_report") is not None
+        ):
+            errors.append("optimized lane current resource boundary drifted")
     source = load(ROOT / "state/evidence/qwen35-9b-inductor-source-current.json", errors)
     if source is not None:
         if source.get("status") != "complete" or set(source.get("cases", {})) != {"prefill", "decode"}:
@@ -386,14 +466,90 @@ def check_performance(errors: list[str]) -> None:
         if (
             eager_resource.get("accepted") is not True
             or eager_resource.get("gpu_free_floor_bytes") != 4 * 1024**3
-            or matched_boundary.get("source_pair_status")
-            != "invalidated-resource-and-control"
-            or matched_boundary.get("source_pair_accepted") is not False
+            or matched_boundary.get("source_pair_status") != "complete"
+            or matched_boundary.get("source_pair_accepted") is not True
             or matched_boundary.get("matched_subset_resource_accepted") is not True
             or eager.get("matched_compile_requested", {}).get("summary_sha256")
             != sha256(pair_path)
         ):
             errors.append("full-model eager control resource/source boundary drifted")
+    descriptive = load(
+        ROOT / "state/evidence/qwen35-9b-descriptive-stock-profile-breakdown-current.json",
+        errors,
+    )
+    if descriptive is not None:
+        acceptance = descriptive.get("acceptance")
+        source = descriptive.get("source")
+        inputs = descriptive.get("inputs")
+        if (
+            descriptive.get("status") != "complete"
+            or descriptive.get("kind")
+            != "qwen35-9b-descriptive-stock-profile-breakdown"
+            or descriptive.get("profile_scope") != "descriptive-stock-noncompiled"
+            or not isinstance(acceptance, dict)
+            or acceptance.get("accepted") is not True
+            or acceptance.get("fresh_starts_per_lane") != 3
+            or acceptance.get("profile_requests_per_start") != 5
+            or acceptance.get("matched_compilation_effective") is not False
+            or acceptance.get("minimum_gpu_memory_free_bytes", 0) < 4 * 1024**3
+            or acceptance.get("minimum_host_memory_available_kib", 0) < 12 * 1024**2
+            or acceptance.get("thermal_throttle_observed") is not False
+            or acceptance.get("control_mismatches") != []
+            or not isinstance(source, dict)
+            or source.get("profile_runtime_sha256")
+            != sha256(ROOT / "benchmarks/release/profile_runtime.py")
+            or source.get("profile_tool_sha256")
+            != sha256(ROOT / "tools/profile_qwen35.py")
+            or source.get("source_lock_sha256")
+            != sha256(ROOT / "vendor/source-lock.json")
+            or not isinstance(inputs, dict)
+            or inputs.get("reconciliation_sha256") is None
+            or not isinstance(inputs.get("profiles"), list)
+            or len(inputs["profiles"]) != 6
+        ):
+            errors.append("descriptive stock profile breakdown acceptance drifted")
+        else:
+            reconciliation = ROOT / str(inputs.get("reconciliation", ""))
+            if reconciliation.is_file() and inputs.get("reconciliation_sha256") != sha256(reconciliation):
+                errors.append("descriptive profile reconciliation hash is stale")
+            for record in inputs["profiles"]:
+                if not isinstance(record, dict):
+                    errors.append("descriptive profile input record is malformed")
+                    continue
+                report = ROOT / str(record.get("report", ""))
+                raw_trace = ROOT / str(record.get("raw_trace", ""))
+                if not report.is_file() or record.get("report_sha256") != sha256(report):
+                    errors.append(f"descriptive profile report hash is stale: {record.get('report')}")
+                if not raw_trace.is_file() or record.get("raw_trace_sha256") != sha256(raw_trace):
+                    errors.append(f"descriptive profile raw trace hash is stale: {record.get('raw_trace')}")
+                report_value = load(report, errors)
+                if report_value is None:
+                    continue
+                compilation = report_value.get("compilation")
+                expected_scope = (
+                    "descriptive-stock-noncompiled"
+                    if record.get("lane") == "sglang-matched"
+                    else "strict-compiled"
+                )
+                scope_ok = (
+                    isinstance(compilation, dict)
+                    and report_value.get("profile_scope", "strict-compiled")
+                    == expected_scope
+                    and compilation.get("acceptance_scope", "strict-compiled")
+                    == expected_scope
+                )
+                if (
+                    report_value.get("status") != "complete"
+                    or report_value.get("lane") != record.get("lane")
+                    or report_value.get("workload") != workload_record()
+                    or report_value.get("profile_requests") != 5
+                    or not scope_ok
+                    or not isinstance(compilation, dict)
+                    or compilation.get("requested") is not True
+                    or compilation.get("effective")
+                    != (expected_scope == "strict-compiled")
+                ):
+                    errors.append(f"descriptive profile report boundary drifted: {report}")
     for relative in (
         "benchmarks/release/performance_runtime.py",
         "benchmarks/release/operator_performance_runtime.py",
@@ -484,12 +640,16 @@ def main() -> int:
                 errors.append(f"{name} misses the corrected performance memory mode")
             if "--pair-matrix" not in text:
                 errors.append(f"{name} misses the independent matched pair matrix")
+            if "qwen35-9b-descriptive-stock-profile-breakdown-current.json" not in text:
+                errors.append(f"{name} misses the descriptive profile breakdown evidence")
             if "matched-performance-qualification-current.json" not in text:
                 errors.append(f"{name} misses the current qualification blocker")
             if "article-demo-compatibility-policy-current.json" not in text:
                 errors.append(f"{name} misses the article-demo compatibility policy")
             if "strict-pypto-nvidia" not in text:
                 errors.append(f"{name} misses the strict computational demo mode")
+            if "15.695" not in text or "-84.305" not in text:
+                errors.append(f"{name} misses the accepted full-model pair metrics")
             if "--optimized-memory-mode zero-offload" in text:
                 errors.append(f"{name} retains the rejected performance memory mode")
         if BILIBILI_URL not in text:
@@ -510,6 +670,7 @@ def main() -> int:
     ):
         errors.append("offline HTML retains the stale performance boundary")
     check_demo(errors)
+    check_demo_docs(errors)
     check_demo_compatibility(errors)
     check_screenshots(errors)
     check_operator(errors)
@@ -521,21 +682,27 @@ def main() -> int:
         marker in matrix_text
         for marker in (
             "End-to-end PyPTO versus optimized stock",
-            "OPEN: historical attempts failed resource/telemetry qualification",
-            "protected-heavy-free window is unavailable",
+            "current matched-memory CUDA-graph capture reached 4000 MiB GPU free",
             "no percentage promoted",
         )
     ):
         errors.append("final requirement matrix is missing optimized-lane boundary")
     blockers = [
-        "matched full-model performance pair needs a resource-compliant rerun",
         "optimized stock lane has no accepted sample",
-        "full-model CUPTI/NVTX profile awaits an accepted pair and exclusive resources",
-        "article-demo PowerShell role capture is pending",
+        "full-model CUPTI/NVTX profile awaits a completed protected-heavy-free run",
         "31 model article-demo compute entries have no bounded NVIDIA adapter",
         "article demo device runtime is Ascend-only for hardware-facing entries in this environment",
         "GPT-Image-2 generation awaits local API authorization",
     ]
+    screenshot_manifest = ROOT / "state/evidence/article-demo-screenshot-manifest-current.json"
+    try:
+        screenshot_status = json.loads(
+            screenshot_manifest.read_text(encoding="utf-8")
+        ).get("status")
+    except (OSError, json.JSONDecodeError):
+        screenshot_status = None
+    if screenshot_status != "complete":
+        blockers.insert(2, "article-demo PowerShell role capture is pending")
     result = {
         "schema": 2,
         "kind": "blog-requirements-audit",

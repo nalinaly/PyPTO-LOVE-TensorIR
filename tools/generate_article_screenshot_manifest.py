@@ -87,10 +87,12 @@ def main() -> int:
         "article-demo-typical": {
             "path": "docs/assets/screenshots/article-demo-typical.png",
             "command": "envs/pypto-release/bin/python -B tools/run_article_demo_nvidia.py --demo examples/beginner/hello_world.py --device 0 --run-id article-demo-nvidia-hello-screenshot --output state/evidence/article-demos-nvidia/011-hello_world-screenshot.json",
-            "status": "pending",
-            "caption_zh": "Ubuntu/PowerShell 紫色终端：未改写 hello_world.py 的严格 NVIDIA 兼容运行、PyPTO artifact 与 golden 结果；GUI capture 仍待补。",
-            "caption_en": "Ubuntu/PowerShell purple terminal: strict NVIDIA compatibility run of unchanged hello_world.py with PyPTO artifact and golden result; GUI capture remains pending.",
-            "evidence": "state/evidence/article-demo-hello-nvidia-screenshot-pending-current.json",
+            "command_source": "tools/run_article_demo_nvidia.py",
+            "status": "current-live-run",
+            "caption_zh": "Ubuntu/PowerShell 紫色终端：未改写 hello_world.py 的严格 NVIDIA 兼容运行、PyPTO artifact 与 golden 精度通过。",
+            "caption_en": "Ubuntu/PowerShell purple terminal: strict NVIDIA compatibility run of unchanged hello_world.py with a PyPTO artifact and passing golden comparison.",
+            "evidence": "state/evidence/article-demos-nvidia/011-hello_world-screenshot.json",
+            "capture_evidence": "state/evidence/article-demo-typical-capture-current.json",
         },
     }
     payload: dict[str, object] = {
@@ -154,11 +156,19 @@ def main() -> int:
                 raise SystemExit(f"invalid capture evidence for {role}")
             item["capture_evidence"] = capture_path.relative_to(ROOT).as_posix()
             item["capture_evidence_sha256"] = sha256(capture_path)
-        if image.is_file() and role != "article-demo-typical":
+        if image.is_file():
             item["sha256"] = sha256(image)
         else:
             item["capture_status"] = "pending"
         payload["screenshots"][role] = item
+    payload["status"] = (
+        "complete"
+        if all(
+            record.get("capture_status") != "pending"
+            for record in payload["screenshots"].values()
+        )
+        else "provisional"
+    )
     write_json(output, payload)
     print(output)
     return 0

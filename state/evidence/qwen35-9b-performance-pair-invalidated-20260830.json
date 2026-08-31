@@ -1,55 +1,62 @@
 {
   "acceptance": {
-    "accepted": true,
-    "configuration": {
-      "pypto": {
+    "accepted": false,
+    "affected_lane": "pypto",
+    "affected_run_ids": [
+      "pypto-gpu-bounded-20260830T125719Z-2380600-b410bb",
+      "pypto-gpu-bounded-20260830T130313Z-2382469-63d4f6",
+      "pypto-gpu-bounded-20260830T130906Z-2384455-6a96fa"
+    ],
+    "control_comparability": {
+      "accepted": false,
+      "mismatches": [
+        {
+          "field": "cpu_offload_gb",
+          "pypto": 0,
+          "sglang_matched": 2
+        }
+      ],
+      "required_rerun_memory": {
         "cpu_offload_gb": 2,
         "mem_fraction_static": 0.78,
-        "name": "performance-pair-9b-offload-2g"
-      },
-      "sglang_matched": {
-        "cpu_offload_gb": 2,
-        "mem_fraction_static": 0.78,
-        "name": "performance-pair-9b-offload-2g"
+        "scope": "both pypto and sglang-matched timing lanes"
       }
     },
-    "control_comparability": {
-      "accepted": true,
-      "mismatches": []
-    },
-    "evidence_boundary": "Four fresh starts per lane are summarized at start level; all high-frequency resource summaries must stay above the 4 GiB GPU and 12 GiB host floors, and listed matched controls must agree.",
-    "minimum_observed_gpu_free_bytes": 5123887104,
-    "minimum_observed_host_free_kib": 47233052,
+    "current_validator_script_sha256": "6441f419a73113186691eddaac9187c0e57bd00fc10f51721d03222f7ee3f603",
+    "diagnostic_values_retained": true,
+    "evidence_boundary": "The measured timing values remain reproducible diagnostics, but they are not an accepted release headline because three of four PyPTO starts crossed the high-frequency NVML GPU free-memory floor and cpu_offload_gb differed across the two lanes.",
+    "minimum_observed_gpu_free_bytes": 4185067520,
+    "recheck_script_sha256": "97bebbfe3aaf864049e09af1895cbf1dd0f085d7e11c2ee1d6eddb723f0c37ec",
+    "rechecked_at": "2026-08-30T16:57:45+00:00",
     "required_gpu_free_bytes": 4294967296,
-    "required_host_free_kib": 12582912,
-    "starts_below_floor": 0,
-    "starts_total": 8,
-    "status": "resource-and-control-compliant",
-    "thermal_throttle_observed": false
+    "shortfall_bytes": 109899776,
+    "starts_below_floor": 3,
+    "starts_total": 4,
+    "status": "invalidated-resource-and-control"
   },
   "comparison": {
     "latency_metrics": {
       "e2e_ms": {
-        "pypto_percent_of_matched": 637.1456214112446
+        "pypto_percent_of_matched": 577.7854050218875
       },
       "tpot_ms": {
-        "pypto_percent_of_matched": 570.832560661735
+        "pypto_percent_of_matched": 512.10609338391
       },
       "ttft_ms": {
-        "pypto_percent_of_matched": 4507.059089507381
+        "pypto_percent_of_matched": 4518.836998183212
       }
     },
     "median_ratio_bootstrap_95ci_percent": {
       "confidence": 0.95,
-      "lower": 15.633778856274475,
+      "lower": 17.215450458092466,
       "method": "independent nonparametric percentile bootstrap over fresh process starts",
       "operation": "ratio",
       "resamples": 10000,
       "seed": 3626426960371696944,
-      "upper": 15.75260367388627
+      "upper": 17.45342741229
     },
-    "pypto_percent_of_matched": 15.694959760741742,
-    "pypto_throughput_change_vs_matched_percent": -84.30504023925826,
+    "pypto_percent_of_matched": 17.30744575750151,
+    "pypto_throughput_change_vs_matched_percent": -82.69255424249849,
     "throughput_metric": "output_tokens_per_second"
   },
   "kind": "qwen35-9b-performance-pair-summary",
@@ -57,226 +64,226 @@
     "pypto": {
       "cold_engine_start_ms": {
         "headline_estimator": "median_of_fresh_start_estimates",
-        "max": 16745.478618,
-        "mean": 16234.38021275,
+        "max": 14157.200844,
+        "mean": 13684.53554,
         "median_bootstrap_95ci": {
           "confidence": 0.95,
-          "lower": 15863.151243,
+          "lower": 13422.98604,
           "method": "nonparametric percentile bootstrap over fresh process starts",
           "resamples": 10000,
           "seed": 17154327250201160253,
-          "upper": 16745.478618
+          "upper": 14157.200844
         },
-        "min": 15863.151243,
-        "p50": 16164.445495,
-        "p90": 16745.478618,
-        "p90_nearest_rank": 16745.478618,
-        "p99": 16745.478618,
-        "p99_nearest_rank": 16745.478618,
+        "min": 13422.98604,
+        "p50": 13578.977638,
+        "p90": 14157.200844,
+        "p90_nearest_rank": 14157.200844,
+        "p99": 14157.200844,
+        "p99_nearest_rank": 14157.200844,
         "sample_count": 4,
         "sample_unit": "fresh_process_start"
       },
       "first_compile_trigger_request_ms": {
         "headline_estimator": "median_of_fresh_start_estimates",
-        "max": 30341.834667,
-        "mean": 29269.68395425,
+        "max": 26643.470884,
+        "mean": 26027.8811535,
         "median_bootstrap_95ci": {
           "confidence": 0.95,
-          "lower": 28232.49358,
+          "lower": 25503.592929,
           "method": "nonparametric percentile bootstrap over fresh process starts",
           "resamples": 10000,
           "seed": 5047526070226164376,
-          "upper": 30341.834667
+          "upper": 26643.470884
         },
-        "min": 28232.49358,
-        "p50": 29252.203784999998,
-        "p90": 30341.834667,
-        "p90_nearest_rank": 30341.834667,
-        "p99": 30341.834667,
-        "p99_nearest_rank": 30341.834667,
+        "min": 25503.592929,
+        "p50": 25982.2304005,
+        "p90": 26643.470884,
+        "p90_nearest_rank": 26643.470884,
+        "p99": 26643.470884,
+        "p99_nearest_rank": 26643.470884,
         "sample_count": 4,
         "sample_unit": "fresh_process_start"
       },
       "fresh_starts": 4,
       "memory_qualifications": [
         {
-          "cpu_offload_gb": 2,
+          "cpu_offload_gb": 0,
           "mem_fraction_static": 0.78,
-          "name": "performance-pair-9b-offload-2g"
+          "name": "candidate-9b-zero-offload"
         },
         {
-          "cpu_offload_gb": 2,
+          "cpu_offload_gb": 0,
           "mem_fraction_static": 0.78,
-          "name": "performance-pair-9b-offload-2g"
+          "name": "candidate-9b-zero-offload"
         },
         {
-          "cpu_offload_gb": 2,
+          "cpu_offload_gb": 0,
           "mem_fraction_static": 0.78,
-          "name": "performance-pair-9b-offload-2g"
+          "name": "candidate-9b-zero-offload"
         },
         {
-          "cpu_offload_gb": 2,
+          "cpu_offload_gb": 0,
           "mem_fraction_static": 0.78,
-          "name": "performance-pair-9b-offload-2g"
+          "name": "candidate-9b-zero-offload"
         }
       ],
       "metrics": {
         "decode_tokens_per_second": {
           "headline_estimator": "median_of_fresh_start_estimates",
-          "max": 2.7030943587037735,
-          "mean": 2.6973800624074524,
+          "max": 3.0462455224456964,
+          "mean": 3.0278338858580303,
           "median_bootstrap_95ci": {
             "confidence": 0.95,
-            "lower": 2.6935763927891956,
+            "lower": 3.0202010125159573,
             "method": "nonparametric percentile bootstrap over fresh process starts",
             "resamples": 10000,
             "seed": 7471895439920920744,
-            "upper": 2.7030943587037735
+            "upper": 3.0462455224456964
           },
-          "min": 2.6935763927891956,
-          "p50": 2.69642474906842,
-          "p90": 2.7030943587037735,
-          "p90_nearest_rank": 2.7030943587037735,
-          "p99": 2.7030943587037735,
-          "p99_nearest_rank": 2.7030943587037735,
+          "min": 3.0202010125159573,
+          "p50": 3.0224445042352333,
+          "p90": 3.0462455224456964,
+          "p90_nearest_rank": 3.0462455224456964,
+          "p99": 3.0462455224456964,
+          "p99_nearest_rank": 3.0462455224456964,
           "sample_count": 4,
           "sample_unit": "fresh_process_start"
         },
         "e2e_ms": {
           "headline_estimator": "median_of_fresh_start_estimates",
-          "max": 26538.9623105,
-          "mean": 26517.744391125,
+          "max": 24018.7456475,
+          "mean": 23955.979409,
           "median_bootstrap_95ci": {
             "confidence": 0.95,
-            "lower": 26473.672465000003,
+            "lower": 23812.452407,
             "method": "nonparametric percentile bootstrap over fresh process starts",
             "resamples": 10000,
             "seed": 16597515507555480591,
-            "upper": 26538.9623105
+            "upper": 24018.7456475
           },
-          "min": 26473.672465000003,
-          "p50": 26529.1713945,
-          "p90": 26538.9623105,
-          "p90_nearest_rank": 26538.9623105,
-          "p99": 26538.9623105,
-          "p99_nearest_rank": 26538.9623105,
+          "min": 23812.452407,
+          "p50": 23996.35979075,
+          "p90": 24018.7456475,
+          "p90_nearest_rank": 24018.7456475,
+          "p99": 24018.7456475,
+          "p99_nearest_rank": 24018.7456475,
           "sample_count": 4,
           "sample_unit": "fresh_process_start"
         },
         "itl_ms": {
           "headline_estimator": "median_of_fresh_start_estimates",
-          "max": 363.8188415,
-          "mean": 363.47264025,
+          "max": 323.9744385,
+          "mean": 323.29545325000004,
           "median_bootstrap_95ci": {
             "confidence": 0.95,
-            "lower": 362.7483815,
+            "lower": 321.3645255,
             "method": "nonparametric percentile bootstrap over fresh process starts",
             "resamples": 10000,
             "seed": 18182673385752012164,
-            "upper": 363.8188415
+            "upper": 323.9744385
           },
-          "min": 362.7483815,
-          "p50": 363.66166899999996,
-          "p90": 363.8188415,
-          "p90_nearest_rank": 363.8188415,
-          "p99": 363.8188415,
-          "p99_nearest_rank": 363.8188415,
+          "min": 321.3645255,
+          "p50": 323.9214245,
+          "p90": 323.9744385,
+          "p90_nearest_rank": 323.9744385,
+          "p99": 323.9744385,
+          "p99_nearest_rank": 323.9744385,
           "sample_count": 4,
           "sample_unit": "fresh_process_start"
         },
         "output_tokens_per_second": {
           "headline_estimator": "median_of_fresh_start_estimates",
-          "max": 2.417496112573188,
-          "mean": 2.4134806899327836,
+          "max": 2.6876695401954125,
+          "mean": 2.6715995098197007,
           "median_bootstrap_95ci": {
             "confidence": 0.95,
-            "lower": 2.4115487024793056,
+            "lower": 2.6645854562517353,
             "method": "nonparametric percentile bootstrap over fresh process starts",
             "resamples": 10000,
             "seed": 3199876839539150814,
-            "upper": 2.417496112573188
+            "upper": 2.6876695401954125
           },
-          "min": 2.4115487024793056,
-          "p50": 2.41243897233932,
-          "p90": 2.417496112573188,
-          "p90_nearest_rank": 2.417496112573188,
-          "p99": 2.417496112573188,
-          "p99_nearest_rank": 2.417496112573188,
+          "min": 2.6645854562517353,
+          "p50": 2.667071521415828,
+          "p90": 2.6876695401954125,
+          "p90_nearest_rank": 2.6876695401954125,
+          "p99": 2.6876695401954125,
+          "p99_nearest_rank": 2.6876695401954125,
           "sample_count": 4,
           "sample_unit": "fresh_process_start"
         },
         "total_tokens_per_second": {
           "headline_estimator": "median_of_fresh_start_estimates",
-          "max": 3.588470792100826,
-          "mean": 3.5825103991189753,
+          "max": 3.9895094737275656,
+          "mean": 3.9656555223886185,
           "median_bootstrap_95ci": {
             "confidence": 0.95,
-            "lower": 3.579642605242719,
+            "lower": 3.9552440366236694,
             "method": "nonparametric percentile bootstrap over fresh process starts",
             "resamples": 10000,
             "seed": 18293911769814070715,
-            "upper": 3.588470792100826
+            "upper": 3.9895094737275656
           },
-          "min": 3.579642605242719,
-          "p50": 3.5809640995661787,
-          "p90": 3.588470792100826,
-          "p90_nearest_rank": 3.588470792100826,
-          "p99": 3.588470792100826,
-          "p99_nearest_rank": 3.588470792100826,
+          "min": 3.9552440366236694,
+          "p50": 3.9589342896016197,
+          "p90": 3.9895094737275656,
+          "p90_nearest_rank": 3.9895094737275656,
+          "p99": 3.9895094737275656,
+          "p99_nearest_rank": 3.9895094737275656,
           "sample_count": 4,
           "sample_unit": "fresh_process_start"
         },
         "tpot_ms": {
           "headline_estimator": "median_of_fresh_start_estimates",
-          "max": 371.25362499206346,
-          "mean": 370.73077226388887,
+          "max": 331.10378946031744,
+          "mean": 330.2732232380952,
           "median_bootstrap_95ci": {
             "confidence": 0.95,
-            "lower": 369.9464067063492,
+            "lower": 328.2729540952381,
             "method": "nonparametric percentile bootstrap over fresh process starts",
             "resamples": 10000,
             "seed": 17088492398405234184,
-            "upper": 371.25362499206346
+            "upper": 331.10378946031744
           },
-          "min": 369.9464067063492,
-          "p50": 370.8615286785714,
-          "p90": 371.25362499206346,
-          "p90_nearest_rank": 371.25362499206346,
-          "p99": 371.25362499206346,
-          "p99_nearest_rank": 371.25362499206346,
+          "min": 328.2729540952381,
+          "p50": 330.8580746984127,
+          "p90": 331.10378946031744,
+          "p90_nearest_rank": 331.10378946031744,
+          "p99": 331.10378946031744,
+          "p99_nearest_rank": 331.10378946031744,
           "sample_count": 4,
           "sample_unit": "fresh_process_start"
         },
         "ttft_ms": {
           "headline_estimator": "median_of_fresh_start_estimates",
-          "max": 3170.386885,
-          "mean": 3156.2490873750003,
+          "max": 3156.75948,
+          "mean": 3144.84720775,
           "median_bootstrap_95ci": {
             "confidence": 0.95,
-            "lower": 3136.1301775,
+            "lower": 3113.839196,
             "method": "nonparametric percentile bootstrap over fresh process starts",
             "resamples": 10000,
             "seed": 8573524054691246580,
-            "upper": 3170.386885
+            "upper": 3156.75948
           },
-          "min": 3136.1301775,
-          "p50": 3159.2396435,
-          "p90": 3170.386885,
-          "p90_nearest_rank": 3170.386885,
-          "p99": 3170.386885,
-          "p99_nearest_rank": 3170.386885,
+          "min": 3113.839196,
+          "p50": 3154.3950775000003,
+          "p90": 3156.75948,
+          "p90_nearest_rank": 3156.75948,
+          "p99": 3156.75948,
+          "p99_nearest_rank": 3156.75948,
           "sample_count": 4,
           "sample_unit": "fresh_process_start"
         }
       },
       "resources": {
-        "minimum_gpu_memory_free_bytes": 5799170048,
-        "peak_gpu_memory_used_bytes": 19852144640,
+        "minimum_gpu_memory_free_bytes": 4185067520,
+        "peak_gpu_memory_used_bytes": 21466247168,
         "thermal_throttle_observed": false
       },
       "starts": [
         {
-          "cold_engine_start_ms": 16745.478618,
+          "cold_engine_start_ms": 14157.200844,
           "compilation": {
             "backend_invocation_evidence": {
               "pypto_torchinductor_cache_wrapper": true,
@@ -309,7 +316,7 @@
             },
             "timing_boundary": "first_compile_trigger_request_ms includes compilation plus one full chat-template-input+64 request and is not compiler-only time"
           },
-          "first_compile_trigger_request_ms": 30341.834667,
+          "first_compile_trigger_request_ms": 25738.044928,
           "gpu_identity": {
             "driver": "610.74",
             "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
@@ -318,26 +325,26 @@
           },
           "lane": "pypto",
           "memory_qualification": {
-            "cpu_offload_gb": 2,
+            "cpu_offload_gb": 0,
             "mem_fraction_static": 0.78,
-            "name": "performance-pair-9b-offload-2g"
+            "name": "candidate-9b-zero-offload"
           },
           "metrics": {
-            "decode_tokens_per_second": 2.6955873981022185,
-            "e2e_ms": 26538.9623105,
-            "itl_ms": 363.80519549999997,
-            "output_tokens_per_second": 2.4115487024793056,
-            "total_tokens_per_second": 3.579642605242719,
-            "tpot_ms": 370.9766566111111,
-            "ttft_ms": 3152.1843765000003
+            "decode_tokens_per_second": 3.0236286536640757,
+            "e2e_ms": 23993.6516485,
+            "itl_ms": 323.9199235,
+            "output_tokens_per_second": 2.667372225693618,
+            "total_tokens_per_second": 3.9593806475139646,
+            "tpot_ms": 330.72844422222227,
+            "ttft_ms": 3154.91629
           },
-          "report": "runs/pypto-gpu-bounded-20260831T024118Z-2518948-cbdea2/qwen35-9b-performance-pypto.json",
-          "report_sha256": "fc11208bf92c041124a540764f65142d26ed5bca0e004775735dae3a31de903e",
+          "report": "runs/pypto-gpu-bounded-20260830T125719Z-2380600-b410bb/qwen35-9b-performance-pypto.json",
+          "report_sha256": "48dea6f208546be5e2ff0efa279b1e4d71d6c0afc80b6c83082481c1c61df209",
           "requested_server_config": {
             "attention_backend": "pypto",
             "chunked_prefill_size": -1,
             "context_length": 256,
-            "cpu_offload_gb": 2,
+            "cpu_offload_gb": 0,
             "decode_attention_backend": "pypto",
             "disable_cuda_graph": true,
             "disable_custom_all_reduce": true,
@@ -417,17 +424,17 @@
             "torch_compile_requested": true
           },
           "resources": {
-            "minimum_gpu_memory_free_bytes": 5808152576,
-            "minimum_mem_available_kib": 53274964,
-            "peak_gpu_memory_used_bytes": 19843162112,
-            "peak_owned_pgid_rss_kib": 17900072,
-            "sample_count": 2686,
+            "minimum_gpu_memory_free_bytes": 4185329664,
+            "minimum_mem_available_kib": 55649052,
+            "peak_gpu_memory_used_bytes": 21465985024,
+            "peak_owned_pgid_rss_kib": 15107984,
+            "sample_count": 2767,
             "thermal_throttle_observed": false
           },
-          "run_id": "pypto-gpu-bounded-20260831T024118Z-2518948-cbdea2"
+          "run_id": "pypto-gpu-bounded-20260830T125719Z-2380600-b410bb"
         },
         {
-          "cold_engine_start_ms": 16213.132834,
+          "cold_engine_start_ms": 13422.98604,
           "compilation": {
             "backend_invocation_evidence": {
               "pypto_torchinductor_cache_wrapper": true,
@@ -460,7 +467,7 @@
             },
             "timing_boundary": "first_compile_trigger_request_ms includes compilation plus one full chat-template-input+64 request and is not compiler-only time"
           },
-          "first_compile_trigger_request_ms": 29620.238202,
+          "first_compile_trigger_request_ms": 26226.415873,
           "gpu_identity": {
             "driver": "610.74",
             "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
@@ -469,26 +476,26 @@
           },
           "lane": "pypto",
           "memory_qualification": {
-            "cpu_offload_gb": 2,
+            "cpu_offload_gb": 0,
             "mem_fraction_static": 0.78,
-            "name": "performance-pair-9b-offload-2g"
+            "name": "candidate-9b-zero-offload"
           },
           "metrics": {
-            "decode_tokens_per_second": 2.6935763927891956,
-            "e2e_ms": 26534.918846,
-            "itl_ms": 363.8188415,
-            "output_tokens_per_second": 2.411916188326957,
-            "total_tokens_per_second": 3.580188092047827,
-            "tpot_ms": 371.25362499206346,
-            "ttft_ms": 3136.1301775
+            "decode_tokens_per_second": 3.021260354806391,
+            "e2e_ms": 23999.067933,
+            "itl_ms": 323.9229255,
+            "output_tokens_per_second": 2.6667708171380378,
+            "total_tokens_per_second": 3.958487931689275,
+            "tpot_ms": 330.98770517460315,
+            "ttft_ms": 3156.75948
           },
-          "report": "runs/pypto-gpu-bounded-20260831T025535Z-2522426-d9c325/qwen35-9b-performance-pypto.json",
-          "report_sha256": "085dec08a4e040945de925c1a403ce4c5ecb8e736dbc76826e3aa64a00eefe1f",
+          "report": "runs/pypto-gpu-bounded-20260830T130313Z-2382469-63d4f6/qwen35-9b-performance-pypto.json",
+          "report_sha256": "14327794ef5a06ad3381a223278e90e3242830ae9b41531f1627f23046fdba01",
           "requested_server_config": {
             "attention_backend": "pypto",
             "chunked_prefill_size": -1,
             "context_length": 256,
-            "cpu_offload_gb": 2,
+            "cpu_offload_gb": 0,
             "decode_attention_backend": "pypto",
             "disable_cuda_graph": true,
             "disable_custom_all_reduce": true,
@@ -568,17 +575,17 @@
             "torch_compile_requested": true
           },
           "resources": {
-            "minimum_gpu_memory_free_bytes": 5799170048,
-            "minimum_mem_available_kib": 53166112,
-            "peak_gpu_memory_used_bytes": 19852144640,
-            "peak_owned_pgid_rss_kib": 17904812,
-            "sample_count": 2652,
+            "minimum_gpu_memory_free_bytes": 4185264128,
+            "minimum_mem_available_kib": 55723828,
+            "peak_gpu_memory_used_bytes": 21466050560,
+            "peak_owned_pgid_rss_kib": 15104900,
+            "sample_count": 2807,
             "thermal_throttle_observed": false
           },
-          "run_id": "pypto-gpu-bounded-20260831T025535Z-2522426-d9c325"
+          "run_id": "pypto-gpu-bounded-20260830T130313Z-2382469-63d4f6"
         },
         {
-          "cold_engine_start_ms": 16115.758156,
+          "cold_engine_start_ms": 13591.290282,
           "compilation": {
             "backend_invocation_evidence": {
               "pypto_torchinductor_cache_wrapper": true,
@@ -611,7 +618,7 @@
             },
             "timing_boundary": "first_compile_trigger_request_ms includes compilation plus one full chat-template-input+64 request and is not compiler-only time"
           },
-          "first_compile_trigger_request_ms": 28884.169368,
+          "first_compile_trigger_request_ms": 26643.470884,
           "gpu_identity": {
             "driver": "610.74",
             "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
@@ -620,26 +627,26 @@
           },
           "lane": "pypto",
           "memory_qualification": {
-            "cpu_offload_gb": 2,
+            "cpu_offload_gb": 0,
             "mem_fraction_static": 0.78,
-            "name": "performance-pair-9b-offload-2g"
+            "name": "candidate-9b-zero-offload"
           },
           "metrics": {
-            "decode_tokens_per_second": 2.6972621000346213,
-            "e2e_ms": 26523.423943,
-            "itl_ms": 363.51814249999995,
-            "output_tokens_per_second": 2.4129617563516836,
-            "total_tokens_per_second": 3.5817401070845305,
-            "tpot_ms": 370.7464007460317,
-            "ttft_ms": 3166.2949105
+            "decode_tokens_per_second": 3.0202010125159573,
+            "e2e_ms": 24018.7456475,
+            "itl_ms": 323.9744385,
+            "output_tokens_per_second": 2.6645854562517353,
+            "total_tokens_per_second": 3.9552440366236694,
+            "tpot_ms": 331.10378946031744,
+            "ttft_ms": 3153.873865
           },
-          "report": "runs/pypto-gpu-bounded-20260831T030550Z-2525100-58f301/qwen35-9b-performance-pypto.json",
-          "report_sha256": "03fd7a8464e21c7aaaa6a413b50f0d8e2d8aaacd1e4fa44d7dd01e54530489bb",
+          "report": "runs/pypto-gpu-bounded-20260830T130906Z-2384455-6a96fa/qwen35-9b-performance-pypto.json",
+          "report_sha256": "08c752cf0ddd0780f502ef2f98da7f96427581bc3717e6a695eb51e40f25c986",
           "requested_server_config": {
             "attention_backend": "pypto",
             "chunked_prefill_size": -1,
             "context_length": 256,
-            "cpu_offload_gb": 2,
+            "cpu_offload_gb": 0,
             "decode_attention_backend": "pypto",
             "disable_cuda_graph": true,
             "disable_custom_all_reduce": true,
@@ -719,17 +726,17 @@
             "torch_compile_requested": true
           },
           "resources": {
-            "minimum_gpu_memory_free_bytes": 5799170048,
-            "minimum_mem_available_kib": 53085804,
-            "peak_gpu_memory_used_bytes": 19852144640,
-            "peak_owned_pgid_rss_kib": 17908544,
-            "sample_count": 2628,
+            "minimum_gpu_memory_free_bytes": 4185067520,
+            "minimum_mem_available_kib": 55615556,
+            "peak_gpu_memory_used_bytes": 21466247168,
+            "peak_owned_pgid_rss_kib": 15110508,
+            "sample_count": 2809,
             "thermal_throttle_observed": false
           },
-          "run_id": "pypto-gpu-bounded-20260831T030550Z-2525100-58f301"
+          "run_id": "pypto-gpu-bounded-20260830T130906Z-2384455-6a96fa"
         },
         {
-          "cold_engine_start_ms": 15863.151243,
+          "cold_engine_start_ms": 13566.664994,
           "compilation": {
             "backend_invocation_evidence": {
               "pypto_torchinductor_cache_wrapper": true,
@@ -762,7 +769,7 @@
             },
             "timing_boundary": "first_compile_trigger_request_ms includes compilation plus one full chat-template-input+64 request and is not compiler-only time"
           },
-          "first_compile_trigger_request_ms": 28232.49358,
+          "first_compile_trigger_request_ms": 25503.592929,
           "gpu_identity": {
             "driver": "610.74",
             "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
@@ -771,26 +778,26 @@
           },
           "lane": "pypto",
           "memory_qualification": {
-            "cpu_offload_gb": 2,
+            "cpu_offload_gb": 0,
             "mem_fraction_static": 0.78,
-            "name": "performance-pair-9b-offload-2g"
+            "name": "candidate-9b-zero-offload"
           },
           "metrics": {
-            "decode_tokens_per_second": 2.7030943587037735,
-            "e2e_ms": 26473.672465000003,
-            "itl_ms": 362.7483815,
-            "output_tokens_per_second": 2.417496112573188,
-            "total_tokens_per_second": 3.588470792100826,
-            "tpot_ms": 369.9464067063492,
-            "ttft_ms": 3170.386885
+            "decode_tokens_per_second": 3.0462455224456964,
+            "e2e_ms": 23812.452407,
+            "itl_ms": 321.3645255,
+            "output_tokens_per_second": 2.6876695401954125,
+            "total_tokens_per_second": 3.9895094737275656,
+            "tpot_ms": 328.2729540952381,
+            "ttft_ms": 3113.839196
           },
-          "report": "runs/pypto-gpu-bounded-20260831T031211Z-2526917-4788ed/qwen35-9b-performance-pypto.json",
-          "report_sha256": "d996472c7d411484cfb4351f0c4d0dccb658994a08a5e29df077968cdc1c7d6e",
+          "report": "runs/pypto-gpu-bounded-20260830T133107Z-2390566-0029ff/qwen35-9b-performance-pypto.json",
+          "report_sha256": "df8aa8ee20841e1424d877b8ca5013e25d4a342f14c6d2d2f773ee553f487c49",
           "requested_server_config": {
             "attention_backend": "pypto",
             "chunked_prefill_size": -1,
             "context_length": 256,
-            "cpu_offload_gb": 2,
+            "cpu_offload_gb": 0,
             "decode_attention_backend": "pypto",
             "disable_cuda_graph": true,
             "disable_custom_all_reduce": true,
@@ -870,57 +877,57 @@
             "torch_compile_requested": true
           },
           "resources": {
-            "minimum_gpu_memory_free_bytes": 5799170048,
-            "minimum_mem_available_kib": 53102692,
-            "peak_gpu_memory_used_bytes": 19852144640,
-            "peak_owned_pgid_rss_kib": 17904388,
-            "sample_count": 2660,
+            "minimum_gpu_memory_free_bytes": 4295708672,
+            "minimum_mem_available_kib": 55614888,
+            "peak_gpu_memory_used_bytes": 21355606016,
+            "peak_owned_pgid_rss_kib": 15105548,
+            "sample_count": 2752,
             "thermal_throttle_observed": false
           },
-          "run_id": "pypto-gpu-bounded-20260831T031211Z-2526917-4788ed"
+          "run_id": "pypto-gpu-bounded-20260830T133107Z-2390566-0029ff"
         }
       ]
     },
     "sglang-matched": {
       "cold_engine_start_ms": {
         "headline_estimator": "median_of_fresh_start_estimates",
-        "max": 15443.442519,
-        "mean": 15272.486251,
+        "max": 16216.781438,
+        "mean": 15439.2448915,
         "median_bootstrap_95ci": {
           "confidence": 0.95,
-          "lower": 15013.108248,
+          "lower": 15123.476512,
           "method": "nonparametric percentile bootstrap over fresh process starts",
           "resamples": 10000,
           "seed": 15483270625251683648,
-          "upper": 15443.442519
+          "upper": 16216.781438
         },
-        "min": 15013.108248,
-        "p50": 15316.6971185,
-        "p90": 15443.442519,
-        "p90_nearest_rank": 15443.442519,
-        "p99": 15443.442519,
-        "p99_nearest_rank": 15443.442519,
+        "min": 15123.476512,
+        "p50": 15208.360808000001,
+        "p90": 16216.781438,
+        "p90_nearest_rank": 16216.781438,
+        "p99": 16216.781438,
+        "p99_nearest_rank": 16216.781438,
         "sample_count": 4,
         "sample_unit": "fresh_process_start"
       },
       "first_compile_trigger_request_ms": {
         "headline_estimator": "median_of_fresh_start_estimates",
-        "max": 24144.177237,
-        "mean": 23833.288511,
+        "max": 24163.691948,
+        "mean": 24003.6714385,
         "median_bootstrap_95ci": {
           "confidence": 0.95,
-          "lower": 23558.055491,
+          "lower": 23823.525113,
           "method": "nonparametric percentile bootstrap over fresh process starts",
           "resamples": 10000,
           "seed": 16109221548761046376,
-          "upper": 24144.177237
+          "upper": 24163.691948
         },
-        "min": 23558.055491,
-        "p50": 23815.460658,
-        "p90": 24144.177237,
-        "p90_nearest_rank": 24144.177237,
-        "p99": 24144.177237,
-        "p99_nearest_rank": 24144.177237,
+        "min": 23823.525113,
+        "p50": 24013.7343465,
+        "p90": 24163.691948,
+        "p90_nearest_rank": 24163.691948,
+        "p99": 24163.691948,
+        "p99_nearest_rank": 24163.691948,
         "sample_count": 4,
         "sample_unit": "fresh_process_start"
       },
@@ -929,181 +936,181 @@
         {
           "cpu_offload_gb": 2,
           "mem_fraction_static": 0.78,
-          "name": "performance-pair-9b-offload-2g"
+          "name": "matched-9b-offload-2g"
         },
         {
           "cpu_offload_gb": 2,
           "mem_fraction_static": 0.78,
-          "name": "performance-pair-9b-offload-2g"
+          "name": "matched-9b-offload-2g"
         },
         {
           "cpu_offload_gb": 2,
           "mem_fraction_static": 0.78,
-          "name": "performance-pair-9b-offload-2g"
+          "name": "matched-9b-offload-2g"
         },
         {
           "cpu_offload_gb": 2,
           "mem_fraction_static": 0.78,
-          "name": "performance-pair-9b-offload-2g"
+          "name": "matched-9b-offload-2g"
         }
       ],
       "metrics": {
         "decode_tokens_per_second": {
           "headline_estimator": "median_of_fresh_start_estimates",
-          "max": 15.456150106433348,
-          "mean": 15.39796717338966,
+          "max": 15.550951841833518,
+          "mean": 15.478272879376876,
           "median_bootstrap_95ci": {
             "confidence": 0.95,
-            "lower": 15.351491291017851,
+            "lower": 15.405679027641728,
             "method": "nonparametric percentile bootstrap over fresh process starts",
             "resamples": 10000,
             "seed": 12787220084869067964,
-            "upper": 15.456150106433348
+            "upper": 15.550951841833518
           },
-          "min": 15.351491291017851,
-          "p50": 15.39211364805372,
-          "p90": 15.456150106433348,
-          "p90_nearest_rank": 15.456150106433348,
-          "p99": 15.456150106433348,
-          "p99_nearest_rank": 15.456150106433348,
+          "min": 15.405679027641728,
+          "p50": 15.478230324016128,
+          "p90": 15.550951841833518,
+          "p90_nearest_rank": 15.550951841833518,
+          "p99": 15.550951841833518,
+          "p99_nearest_rank": 15.550951841833518,
           "sample_count": 4,
           "sample_unit": "fresh_process_start"
         },
         "e2e_ms": {
           "headline_estimator": "median_of_fresh_start_estimates",
-          "max": 4177.486528,
-          "mean": 4163.128650375,
+          "max": 4171.8811685,
+          "mean": 4152.323220375,
           "median_bootstrap_95ci": {
             "confidence": 0.95,
-            "lower": 4147.5216125,
+            "lower": 4131.0891295,
             "method": "nonparametric percentile bootstrap over fresh process starts",
             "resamples": 10000,
             "seed": 16486064062281898006,
-            "upper": 4177.486528
+            "upper": 4171.8811685
           },
-          "min": 4147.5216125,
-          "p50": 4163.7532305,
-          "p90": 4177.486528,
-          "p90_nearest_rank": 4177.486528,
-          "p99": 4177.486528,
-          "p99_nearest_rank": 4177.486528,
+          "min": 4131.0891295,
+          "p50": 4153.161291750001,
+          "p90": 4171.8811685,
+          "p90_nearest_rank": 4171.8811685,
+          "p99": 4171.8811685,
+          "p99_nearest_rank": 4171.8811685,
           "sample_count": 4,
           "sample_unit": "fresh_process_start"
         },
         "itl_ms": {
           "headline_estimator": "median_of_fresh_start_estimates",
-          "max": 63.8293775,
-          "mean": 63.691859375,
+          "max": 63.570575000000005,
+          "mean": 63.405128500000004,
           "median_bootstrap_95ci": {
             "confidence": 0.95,
-            "lower": 63.495263,
+            "lower": 63.228955,
             "method": "nonparametric percentile bootstrap over fresh process starts",
             "resamples": 10000,
             "seed": 18315810402200090410,
-            "upper": 63.8293775
+            "upper": 63.570575000000005
           },
-          "min": 63.495263,
-          "p50": 63.7213985,
-          "p90": 63.8293775,
-          "p90_nearest_rank": 63.8293775,
-          "p99": 63.8293775,
-          "p99_nearest_rank": 63.8293775,
+          "min": 63.228955,
+          "p50": 63.410492000000005,
+          "p90": 63.570575000000005,
+          "p90_nearest_rank": 63.570575000000005,
+          "p99": 63.570575000000005,
+          "p99_nearest_rank": 63.570575000000005,
           "sample_count": 4,
           "sample_unit": "fresh_process_start"
         },
         "output_tokens_per_second": {
           "headline_estimator": "median_of_fresh_start_estimates",
-          "max": 15.430939598912836,
-          "mean": 15.373183094905096,
+          "max": 15.492313302566634,
+          "mean": 15.413272816119136,
           "median_bootstrap_95ci": {
             "confidence": 0.95,
-            "lower": 15.320217024984702,
+            "lower": 15.340845791851276,
             "method": "nonparametric percentile bootstrap over fresh process starts",
             "resamples": 10000,
             "seed": 12274104529797114624,
-            "upper": 15.430939598912836
+            "upper": 15.492313302566634
           },
-          "min": 15.320217024984702,
-          "p50": 15.370787877861424,
-          "p90": 15.430939598912836,
-          "p90_nearest_rank": 15.430939598912836,
-          "p99": 15.430939598912836,
-          "p99_nearest_rank": 15.430939598912836,
+          "min": 15.340845791851276,
+          "p50": 15.409966085029314,
+          "p90": 15.492313302566634,
+          "p90_nearest_rank": 15.492313302566634,
+          "p99": 15.492313302566634,
+          "p99_nearest_rank": 15.492313302566634,
           "sample_count": 4,
           "sample_unit": "fresh_process_start"
         },
         "total_tokens_per_second": {
           "headline_estimator": "median_of_fresh_start_estimates",
-          "max": 22.90530096713624,
-          "mean": 22.81956865649975,
+          "max": 22.996402558497348,
+          "mean": 22.87907683642684,
           "median_bootstrap_95ci": {
             "confidence": 0.95,
-            "lower": 22.740947146461664,
+            "lower": 22.771567972279236,
             "method": "nonparametric percentile bootstrap over fresh process starts",
             "resamples": 10000,
             "seed": 14495860562798436961,
-            "upper": 22.90530096713624
+            "upper": 22.996402558497348
           },
-          "min": 22.740947146461664,
-          "p50": 22.81601325620055,
-          "p90": 22.90530096713624,
-          "p90_nearest_rank": 22.90530096713624,
-          "p99": 22.90530096713624,
-          "p99_nearest_rank": 22.90530096713624,
+          "min": 22.771567972279236,
+          "p50": 22.87416840746539,
+          "p90": 22.996402558497348,
+          "p90_nearest_rank": 22.996402558497348,
+          "p99": 22.996402558497348,
+          "p99_nearest_rank": 22.996402558497348,
           "sample_count": 4,
           "sample_unit": "fresh_process_start"
         },
         "tpot_ms": {
           "headline_estimator": "median_of_fresh_start_estimates",
-          "max": 65.14030785714286,
-          "mean": 64.944165875,
+          "max": 64.91124773809524,
+          "mean": 64.6076832797619,
           "median_bootstrap_95ci": {
             "confidence": 0.95,
-            "lower": 64.6992938015873,
+            "lower": 64.30482499206349,
             "method": "nonparametric percentile bootstrap over fresh process starts",
             "resamples": 10000,
             "seed": 12979480209880352636,
-            "upper": 65.14030785714286
+            "upper": 64.91124773809524
           },
-          "min": 64.6992938015873,
-          "p50": 64.96853092063492,
-          "p90": 65.14030785714286,
-          "p90_nearest_rank": 65.14030785714286,
-          "p99": 65.14030785714286,
-          "p99_nearest_rank": 65.14030785714286,
+          "min": 64.30482499206349,
+          "p50": 64.60733019444444,
+          "p90": 64.91124773809524,
+          "p90_nearest_rank": 64.91124773809524,
+          "p99": 64.91124773809524,
+          "p99_nearest_rank": 64.91124773809524,
           "sample_count": 4,
           "sample_unit": "fresh_process_start"
         },
         "ttft_ms": {
           "headline_estimator": "median_of_fresh_start_estimates",
-          "max": 70.6412345,
-          "mean": 70.155098625,
+          "max": 70.1903265,
+          "mean": 69.8344575,
           "median_bootstrap_95ci": {
             "confidence": 0.95,
-            "lower": 69.7884245,
+            "lower": 69.53657799999999,
             "method": "nonparametric percentile bootstrap over fresh process starts",
             "resamples": 10000,
             "seed": 9862690398479903449,
-            "upper": 70.6412345
+            "upper": 70.1903265
           },
-          "min": 69.7884245,
-          "p50": 70.09536775,
-          "p90": 70.6412345,
-          "p90_nearest_rank": 70.6412345,
-          "p99": 70.6412345,
-          "p99_nearest_rank": 70.6412345,
+          "min": 69.53657799999999,
+          "p50": 69.80546275,
+          "p90": 70.1903265,
+          "p90_nearest_rank": 70.1903265,
+          "p99": 70.1903265,
+          "p99_nearest_rank": 70.1903265,
           "sample_count": 4,
           "sample_unit": "fresh_process_start"
         }
       },
       "resources": {
-        "minimum_gpu_memory_free_bytes": 5123887104,
-        "peak_gpu_memory_used_bytes": 20527427584,
+        "minimum_gpu_memory_free_bytes": 5240590336,
+        "peak_gpu_memory_used_bytes": 20410724352,
         "thermal_throttle_observed": false
       },
       "starts": [
         {
-          "cold_engine_start_ms": 15443.442519,
+          "cold_engine_start_ms": 16216.781438,
           "compilation": {
             "backend_invocation_evidence": {
               "pypto_torchinductor_cache_wrapper": false,
@@ -1133,7 +1140,7 @@
             },
             "timing_boundary": "first_compile_trigger_request_ms includes compilation plus one full chat-template-input+64 request and is not compiler-only time"
           },
-          "first_compile_trigger_request_ms": 24144.177237,
+          "first_compile_trigger_request_ms": 24163.691948,
           "gpu_identity": {
             "driver": "610.74",
             "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
@@ -1144,19 +1151,19 @@
           "memory_qualification": {
             "cpu_offload_gb": 2,
             "mem_fraction_static": 0.78,
-            "name": "performance-pair-9b-offload-2g"
+            "name": "matched-9b-offload-2g"
           },
           "metrics": {
-            "decode_tokens_per_second": 15.418599841084642,
-            "e2e_ms": 4157.212656,
-            "itl_ms": 63.6560815,
-            "output_tokens_per_second": 15.394931082748759,
-            "total_tokens_per_second": 22.85185082595519,
-            "tpot_ms": 64.8567323095238,
-            "ttft_ms": 69.7884245
+            "decode_tokens_per_second": 15.550951841833518,
+            "e2e_ms": 4131.0891295,
+            "itl_ms": 63.228955,
+            "output_tokens_per_second": 15.492313302566634,
+            "total_tokens_per_second": 22.996402558497348,
+            "tpot_ms": 64.30482499206349,
+            "ttft_ms": 69.952409
           },
-          "report": "runs/pypto-gpu-bounded-20260831T024742Z-2520790-fdfb6c/qwen35-9b-performance-sglang-matched.json",
-          "report_sha256": "1462e5220a28115e1a99c5306f3b3f49cf5891e65b3f70eaaa38e299f2d14087",
+          "report": "runs/pypto-gpu-bounded-20260830T125127Z-2379429-1dd0f9/qwen35-9b-performance-sglang-matched.json",
+          "report_sha256": "2ba4e9eec900e8327eba91aaaaa9e04d47912e40d4423502ee914c89ccc85513",
           "requested_server_config": {
             "attention_backend": "flashinfer",
             "chunked_prefill_size": -1,
@@ -1240,17 +1247,17 @@
             "torch_compile_requested": true
           },
           "resources": {
-            "minimum_gpu_memory_free_bytes": 5132869632,
-            "minimum_mem_available_kib": 47568240,
-            "peak_gpu_memory_used_bytes": 20518445056,
-            "peak_owned_pgid_rss_kib": 11454388,
-            "sample_count": 288,
+            "minimum_gpu_memory_free_bytes": 5244592128,
+            "minimum_mem_available_kib": 47235724,
+            "peak_gpu_memory_used_bytes": 20406722560,
+            "peak_owned_pgid_rss_kib": 11356688,
+            "sample_count": 311,
             "thermal_throttle_observed": false
           },
-          "run_id": "pypto-gpu-bounded-20260831T024742Z-2520790-fdfb6c"
+          "run_id": "pypto-gpu-bounded-20260830T125127Z-2379429-1dd0f9"
         },
         {
-          "cold_engine_start_ms": 15429.285115,
+          "cold_engine_start_ms": 15123.476512,
           "compilation": {
             "backend_invocation_evidence": {
               "pypto_torchinductor_cache_wrapper": false,
@@ -1280,7 +1287,7 @@
             },
             "timing_boundary": "first_compile_trigger_request_ms includes compilation plus one full chat-template-input+64 request and is not compiler-only time"
           },
-          "first_compile_trigger_request_ms": 23845.986201,
+          "first_compile_trigger_request_ms": 23823.525113,
           "gpu_identity": {
             "driver": "610.74",
             "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
@@ -1291,19 +1298,19 @@
           "memory_qualification": {
             "cpu_offload_gb": 2,
             "mem_fraction_static": 0.78,
-            "name": "performance-pair-9b-offload-2g"
+            "name": "matched-9b-offload-2g"
           },
           "metrics": {
-            "decode_tokens_per_second": 15.365627455022798,
-            "e2e_ms": 4170.293805,
-            "itl_ms": 63.7867155,
-            "output_tokens_per_second": 15.346644672974088,
-            "total_tokens_per_second": 22.78017568644591,
-            "tpot_ms": 65.08032953174603,
-            "ttft_ms": 69.884613
+            "decode_tokens_per_second": 15.517238999211779,
+            "e2e_ms": 4156.088958,
+            "itl_ms": 63.353023,
+            "output_tokens_per_second": 15.399093121978229,
+            "total_tokens_per_second": 22.858028852936435,
+            "tpot_ms": 64.44447041269841,
+            "ttft_ms": 69.65851649999999
           },
-          "report": "runs/pypto-gpu-bounded-20260831T025142Z-2521618-3486b2/qwen35-9b-performance-sglang-matched.json",
-          "report_sha256": "cbdc48e7f2fba000302d80d82ab5bf0a68c30fe4b4ef2c5c823572b90792d229",
+          "report": "runs/pypto-gpu-bounded-20260830T131742Z-2387886-e9a914/qwen35-9b-performance-sglang-matched.json",
+          "report_sha256": "32cfc13b02a54b4d76b70bf9e245fcc8fcc2a4df42ee04f9381ab1472947b009",
           "requested_server_config": {
             "attention_backend": "flashinfer",
             "chunked_prefill_size": -1,
@@ -1387,17 +1394,17 @@
             "torch_compile_requested": true
           },
           "resources": {
-            "minimum_gpu_memory_free_bytes": 5123887104,
-            "minimum_mem_available_kib": 47685044,
-            "peak_gpu_memory_used_bytes": 20527427584,
-            "peak_owned_pgid_rss_kib": 11564152,
-            "sample_count": 288,
+            "minimum_gpu_memory_free_bytes": 5240852480,
+            "minimum_mem_available_kib": 47790700,
+            "peak_gpu_memory_used_bytes": 20410462208,
+            "peak_owned_pgid_rss_kib": 11421764,
+            "sample_count": 291,
             "thermal_throttle_observed": false
           },
-          "run_id": "pypto-gpu-bounded-20260831T025142Z-2521618-3486b2"
+          "run_id": "pypto-gpu-bounded-20260830T131742Z-2387886-e9a914"
         },
         {
-          "cold_engine_start_ms": 15204.109122,
+          "cold_engine_start_ms": 15250.551426,
           "compilation": {
             "backend_invocation_evidence": {
               "pypto_torchinductor_cache_wrapper": false,
@@ -1427,7 +1434,7 @@
             },
             "timing_boundary": "first_compile_trigger_request_ms includes compilation plus one full chat-template-input+64 request and is not compiler-only time"
           },
-          "first_compile_trigger_request_ms": 23784.935115,
+          "first_compile_trigger_request_ms": 24002.68603,
           "gpu_identity": {
             "driver": "610.74",
             "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
@@ -1438,19 +1445,19 @@
           "memory_qualification": {
             "cpu_offload_gb": 2,
             "mem_fraction_static": 0.78,
-            "name": "performance-pair-9b-offload-2g"
+            "name": "matched-9b-offload-2g"
           },
           "metrics": {
-            "decode_tokens_per_second": 15.351491291017851,
-            "e2e_ms": 4177.486528,
-            "itl_ms": 63.8293775,
-            "output_tokens_per_second": 15.320217024984702,
-            "total_tokens_per_second": 22.740947146461664,
-            "tpot_ms": 65.14030785714286,
-            "ttft_ms": 70.30612249999999
+            "decode_tokens_per_second": 15.439221648820478,
+            "e2e_ms": 4150.2336255,
+            "itl_ms": 63.467961,
+            "output_tokens_per_second": 15.420839048080401,
+            "total_tokens_per_second": 22.890307961994345,
+            "tpot_ms": 64.77018997619048,
+            "ttft_ms": 69.53657799999999
           },
-          "report": "runs/pypto-gpu-bounded-20260831T030157Z-2524268-dae1fa/qwen35-9b-performance-sglang-matched.json",
-          "report_sha256": "b50a3cbfb94177cd78114a45374e2c3466654462b9557d47926937ecfd524fc2",
+          "report": "runs/pypto-gpu-bounded-20260830T132116Z-2388734-0ec296/qwen35-9b-performance-sglang-matched.json",
+          "report_sha256": "fc9b22ccc4240dea4bb709662cd7bd6247f4295927c68976e6dc2943d18a6504",
           "requested_server_config": {
             "attention_backend": "flashinfer",
             "chunked_prefill_size": -1,
@@ -1534,17 +1541,17 @@
             "torch_compile_requested": true
           },
           "resources": {
-            "minimum_gpu_memory_free_bytes": 5123887104,
-            "minimum_mem_available_kib": 47722328,
-            "peak_gpu_memory_used_bytes": 20527427584,
-            "peak_owned_pgid_rss_kib": 11270036,
-            "sample_count": 284,
+            "minimum_gpu_memory_free_bytes": 5240786944,
+            "minimum_mem_available_kib": 47454160,
+            "peak_gpu_memory_used_bytes": 20410527744,
+            "peak_owned_pgid_rss_kib": 11238972,
+            "sample_count": 290,
             "thermal_throttle_observed": false
           },
-          "run_id": "pypto-gpu-bounded-20260831T030157Z-2524268-dae1fa"
+          "run_id": "pypto-gpu-bounded-20260830T132116Z-2388734-0ec296"
         },
         {
-          "cold_engine_start_ms": 15013.108248,
+          "cold_engine_start_ms": 15166.17019,
           "compilation": {
             "backend_invocation_evidence": {
               "pypto_torchinductor_cache_wrapper": false,
@@ -1574,7 +1581,7 @@
             },
             "timing_boundary": "first_compile_trigger_request_ms includes compilation plus one full chat-template-input+64 request and is not compiler-only time"
           },
-          "first_compile_trigger_request_ms": 23558.055491,
+          "first_compile_trigger_request_ms": 24024.782663,
           "gpu_identity": {
             "driver": "610.74",
             "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
@@ -1585,19 +1592,19 @@
           "memory_qualification": {
             "cpu_offload_gb": 2,
             "mem_fraction_static": 0.78,
-            "name": "performance-pair-9b-offload-2g"
+            "name": "matched-9b-offload-2g"
           },
           "metrics": {
-            "decode_tokens_per_second": 15.456150106433348,
-            "e2e_ms": 4147.5216125,
-            "itl_ms": 63.495263,
-            "output_tokens_per_second": 15.430939598912836,
-            "total_tokens_per_second": 22.90530096713624,
-            "tpot_ms": 64.6992938015873,
-            "ttft_ms": 70.6412345
+            "decode_tokens_per_second": 15.405679027641728,
+            "e2e_ms": 4171.8811685,
+            "itl_ms": 63.570575000000005,
+            "output_tokens_per_second": 15.340845791851276,
+            "total_tokens_per_second": 22.771567972279236,
+            "tpot_ms": 64.91124773809524,
+            "ttft_ms": 70.1903265
           },
-          "report": "runs/pypto-gpu-bounded-20260831T031831Z-2528751-317bae/qwen35-9b-performance-sglang-matched.json",
-          "report_sha256": "b1112e6ff52726b08b2eacb276555c9c40914f61420c59c89dd78ce944e6b5b3",
+          "report": "runs/pypto-gpu-bounded-20260830T132501Z-2389569-cb56ff/qwen35-9b-performance-sglang-matched.json",
+          "report_sha256": "aa37309f960cf7053c8796e25d569ba7cae92acfc270659990e1b9b38f65b246",
           "requested_server_config": {
             "attention_backend": "flashinfer",
             "chunked_prefill_size": -1,
@@ -1681,139 +1688,17 @@
             "torch_compile_requested": true
           },
           "resources": {
-            "minimum_gpu_memory_free_bytes": 5123887104,
-            "minimum_mem_available_kib": 47233052,
-            "peak_gpu_memory_used_bytes": 20527427584,
-            "peak_owned_pgid_rss_kib": 11492280,
-            "sample_count": 284,
+            "minimum_gpu_memory_free_bytes": 5240590336,
+            "minimum_mem_available_kib": 47497916,
+            "peak_gpu_memory_used_bytes": 20410724352,
+            "peak_owned_pgid_rss_kib": 11423388,
+            "sample_count": 293,
             "thermal_throttle_observed": false
           },
-          "run_id": "pypto-gpu-bounded-20260831T031831Z-2528751-317bae"
+          "run_id": "pypto-gpu-bounded-20260830T132501Z-2389569-cb56ff"
         }
       ]
     }
-  },
-  "matched_comparability": {
-    "control_mismatches": [],
-    "evidence_boundary": "The matched label covers listed controls only. Backend/provider fields are intentionally different because they are the implementation under test.",
-    "intentionally_unmatched_implementation_fields": [
-      {
-        "field": "attention_backend",
-        "pypto": "pypto",
-        "reason": "implementation under test",
-        "sglang_matched": "flashinfer"
-      },
-      {
-        "field": "decode_attention_backend",
-        "pypto": "pypto",
-        "reason": "implementation under test",
-        "sglang_matched": null
-      },
-      {
-        "field": "prefill_attention_backend",
-        "pypto": "pypto",
-        "reason": "implementation under test",
-        "sglang_matched": null
-      },
-      {
-        "field": "linear_attn_backend",
-        "pypto": "pypto",
-        "reason": "implementation under test",
-        "sglang_matched": "triton"
-      },
-      {
-        "field": "linear_attn_decode_backend",
-        "pypto": "pypto",
-        "reason": "implementation under test",
-        "sglang_matched": "triton"
-      },
-      {
-        "field": "linear_attn_prefill_backend",
-        "pypto": "pypto",
-        "reason": "implementation under test",
-        "sglang_matched": "triton"
-      },
-      {
-        "field": "mamba_ssm_dtype",
-        "pypto": null,
-        "reason": "implementation under test",
-        "sglang_matched": "float32"
-      },
-      {
-        "field": "resolved.attention_prefill",
-        "pypto": "pypto",
-        "reason": "implementation under test",
-        "sglang_matched": "flashinfer"
-      },
-      {
-        "field": "resolved.attention_decode",
-        "pypto": "pypto",
-        "reason": "implementation under test",
-        "sglang_matched": "flashinfer"
-      },
-      {
-        "field": "resolved.linear_attention_default",
-        "pypto": "pypto",
-        "reason": "implementation under test",
-        "sglang_matched": "triton"
-      },
-      {
-        "field": "resolved.linear_attention_prefill",
-        "pypto": "pypto",
-        "reason": "implementation under test",
-        "sglang_matched": "triton"
-      },
-      {
-        "field": "resolved.linear_attention_decode",
-        "pypto": "pypto",
-        "reason": "implementation under test",
-        "sglang_matched": "triton"
-      },
-      {
-        "field": "resolved.mamba_ssm_dtype",
-        "pypto": null,
-        "reason": "implementation under test",
-        "sglang_matched": "float32"
-      }
-    ],
-    "matched_claim_allowed": true,
-    "matched_control_fields": [
-      "model_path",
-      "tokenizer_path",
-      "skip_tokenizer_init",
-      "enable_multimodal",
-      "json_model_override_args",
-      "load_format",
-      "dtype",
-      "kv_cache_dtype",
-      "tp_size",
-      "context_length",
-      "max_total_tokens",
-      "max_prefill_tokens",
-      "max_running_requests",
-      "prefill_max_requests",
-      "enable_torch_compile",
-      "torch_compile_max_bs",
-      "sampling_backend",
-      "cpu_offload_gb",
-      "mem_fraction_static",
-      "disable_radix_cache",
-      "disable_cuda_graph",
-      "disable_overlap_schedule",
-      "disable_custom_all_reduce",
-      "page_size",
-      "chunked_prefill_size",
-      "random_seed",
-      "stream_interval"
-    ],
-    "matched_resolved_control_fields": [
-      "sampling_backend",
-      "torch_compile_requested",
-      "cuda_graph_enabled_by_server_args",
-      "overlap_schedule_enabled_by_server_args",
-      "radix_cache_enabled_by_server_args"
-    ],
-    "status": "matched_controls_with_implementation_differences"
   },
   "methodology": {
     "headline_estimator": "median across four fresh process starts",
@@ -1827,14 +1712,14 @@
     "status": "blocked-by-resource-qualification"
   },
   "performance_only": true,
-  "recorded_at": "2026-08-31T03:27:10.961467+00:00",
+  "recorded_at": "2026-08-30T15:39:37.013557+00:00",
   "schema": 1,
   "source": {
     "source_lock_sha256": "c3f5b6f0693eb593943d894c79a652b1ee5a90990c8eea003a49115bb5bbc1bc",
     "summary_script": "tools/summarize_qwen_performance_pair.py",
-    "summary_script_sha256": "64c5de8610c2cebec485fea9822a734c61b20772ee3bb194af6e814178cbfab0"
+    "summary_script_sha256": "b6865139895efe2b940baec17089e0319ea094f1638beebd082cc1aa57db7d4d"
   },
-  "status": "complete",
+  "status": "invalidated-resource-and-control",
   "workload": {
     "chat_template_kwargs": {
       "add_generation_prompt": true,

@@ -8,15 +8,13 @@
   "errors": [],
   "kind": "blog-requirements-audit",
   "open_gates": [
-    "matched full-model performance pair needs a resource-compliant rerun",
     "optimized stock lane has no accepted sample",
-    "full-model CUPTI/NVTX profile awaits an accepted pair and exclusive resources",
-    "article-demo PowerShell role capture is pending",
+    "full-model CUPTI/NVTX profile awaits a completed protected-heavy-free run",
     "31 model article-demo compute entries have no bounded NVIDIA adapter",
     "article demo device runtime is Ascend-only for hardware-facing entries in this environment",
     "GPT-Image-2 generation awaits local API authorization"
   ],
-  "recorded_at": "2026-08-31T02:26:58.154494+00:00",
+  "recorded_at": "2026-08-31T06:44:10.350909+00:00",
   "schema": 2,
   "status": "pass"
 }

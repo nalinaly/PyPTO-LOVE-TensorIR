@@ -259,6 +259,7 @@ def run(
     run_dir: Path,
     root: Path,
     optimized_memory_mode: str = "zero-offload",
+    allow_noncompiled_matched: bool = False,
 ) -> int:
     prepare_worker_environment(lane)
     model_path = model_path.resolve(strict=True)
@@ -416,9 +417,20 @@ def run(
             else inductor_calls == PROFILE_REQUESTS * OUTPUT_TOKENS * 32
         )
         if compilation["requested"] and not compilation["effective"]:
-            raise ReleaseContractError(
-                f"{lane} requested compilation but execution was not observed"
-            )
+            if lane == "sglang-matched" and allow_noncompiled_matched:
+                compilation["acceptance_scope"] = "descriptive-stock-noncompiled"
+                compilation["evidence_boundary"] = (
+                    "The matched control requested torch.compile but the pinned "
+                    "runtime did not invoke CompilerInterface. This profile is "
+                    "accepted only for descriptive stock CUDA phase/kernel "
+                    "breakdown; it is not compiled-execution evidence."
+                )
+            else:
+                raise ReleaseContractError(
+                    f"{lane} requested compilation but execution was not observed"
+                )
+        else:
+            compilation["acceptance_scope"] = "strict-compiled"
         if lane == "sglang-optimized" and not all(
             report["execution_features"][feature]["requested"]
             and report["execution_features"][feature]["enabled"]
@@ -432,6 +444,13 @@ def run(
         report.update(
             {
                 "status": "complete",
+                "profile_scope": (
+                    "descriptive-stock-noncompiled"
+                    if lane == "sglang-matched"
+                    and compilation.get("acceptance_scope")
+                    == "descriptive-stock-noncompiled"
+                    else "strict-compiled"
+                ),
                 "profiler_perturbs_latency": True,
                 "annotations": ["CUPTI external correlation", "NVTX"],
                 "profile_requests": PROFILE_REQUESTS,
@@ -598,11 +617,23 @@ def _profile_start_estimate(report: dict[str, object]) -> dict[str, object]:
 def reconcile(
     profiles: dict[str, object],
     performance: dict[str, object] | None = None,
+    *,
+    allow_noncompiled_matched: bool = False,
 ) -> dict[str, object]:
-    required = {"pypto", "sglang-matched", "sglang-optimized"}
+    required = (
+        {"pypto", "sglang-matched"}
+        if allow_noncompiled_matched
+        else {"pypto", "sglang-matched", "sglang-optimized"}
+    )
     if set(profiles) != required:
         raise ReleaseContractError(
-            "reconciliation requires exactly three profile lanes"
+            "descriptive reconciliation requires exactly PyPTO and matched lanes"
+            if allow_noncompiled_matched
+            else "reconciliation requires exactly three profile lanes"
+        )
+    if allow_noncompiled_matched and performance is not None:
+        raise ReleaseContractError(
+            "descriptive profile reconciliation does not accept latency inputs"
         )
     lane_starts: dict[str, list[dict[str, object]]] = {}
     lane_summaries: dict[str, dict[str, object]] = {}
@@ -626,13 +657,36 @@ def reconcile(
                     f"profile request count is invalid for {lane}"
                 )
             compilation = report.get("compilation")
+            strict_compilation = (
+                isinstance(compilation, dict)
+                and compilation.get("requested") is True
+                and compilation.get("effective") is True
+            )
+            descriptive_matched = (
+                allow_noncompiled_matched
+                and lane == "sglang-matched"
+                and isinstance(compilation, dict)
+                and compilation.get("requested") is True
+                and compilation.get("effective") is False
+                and compilation.get("acceptance_scope")
+                == "descriptive-stock-noncompiled"
+                and report.get("profile_scope") == "descriptive-stock-noncompiled"
+            )
+            if not strict_compilation and not descriptive_matched:
+                scope = (
+                    "descriptive or compiled"
+                    if allow_noncompiled_matched
+                    else "compiled"
+                )
+                raise ReleaseContractError(
+                    f"profile did not prove accepted {scope} execution for {lane}"
+                )
             if (
                 not isinstance(compilation, dict)
                 or compilation.get("requested") is not True
-                or compilation.get("effective") is not True
             ):
                 raise ReleaseContractError(
-                    f"profile did not prove compiled execution for {lane}"
+                    f"profile compilation metadata is invalid for {lane}"
                 )
             gpu_identities.append(
                 validate_resource_identity(report.get("resources"), f"profile {lane}")
@@ -725,7 +779,11 @@ def reconcile(
     if not comparability["matched_claim_allowed"]:
         return {
             "schema": SCHEMA_VERSION,
-            "kind": "qwen35-9b-profile-gap-reconciliation",
+            "kind": (
+                "qwen35-9b-descriptive-stock-profile-breakdown"
+                if allow_noncompiled_matched
+                else "qwen35-9b-profile-gap-reconciliation"
+            ),
             "workload": workload_record(),
             "methodology": fresh_start_methodology(),
             "gpu_time_definition": (
@@ -747,7 +805,12 @@ def reconcile(
             raise ReleaseContractError("performance controls are not comparable")
     candidate = lane_summaries["pypto"]
     comparisons = {}
-    for baseline_lane in ("sglang-matched", "sglang-optimized"):
+    baseline_lanes = (
+        ("sglang-matched",)
+        if allow_noncompiled_matched
+        else ("sglang-matched", "sglang-optimized")
+    )
+    for baseline_lane in baseline_lanes:
         baseline = lane_summaries[baseline_lane]
         phase_names = sorted(
             set(candidate["phase_totals"]) | set(baseline["phase_totals"])
@@ -857,7 +920,23 @@ def reconcile(
         comparisons[baseline_lane] = comparison
     return {
         "schema": SCHEMA_VERSION,
-        "kind": "qwen35-9b-profile-gap-reconciliation",
+        "kind": (
+            "qwen35-9b-descriptive-stock-profile-breakdown"
+            if allow_noncompiled_matched
+            else "qwen35-9b-profile-gap-reconciliation"
+        ),
+        "profile_scope": (
+            "descriptive-stock-noncompiled"
+            if allow_noncompiled_matched
+            else "strict-three-lane-compiled"
+        ),
+        "evidence_boundary": (
+            "The matched lane did not invoke CompilerInterface. The phase and "
+            "kernel comparison is descriptive stock CUDA evidence only; it does "
+            "not establish a torch.compile or official Inductor backend speedup."
+            if allow_noncompiled_matched
+            else "All three lanes proved effective compiled execution."
+        ),
         "workload": workload_record(),
         "methodology": fresh_start_methodology(),
         "gpu_time_definition": (

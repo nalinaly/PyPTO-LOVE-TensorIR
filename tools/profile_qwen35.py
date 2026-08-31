@@ -53,6 +53,14 @@ def _measurement_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--timeout-seconds", type=int, default=14400)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--allow-noncompiled-matched",
+        action="store_true",
+        help=(
+            "accept a matched profile as descriptive stock CUDA evidence when "
+            "the pinned runtime does not invoke CompilerInterface"
+        ),
+    )
 
 
 def _performance_from_matrix(path: Path) -> dict[str, list[dict[str, object]]]:
@@ -89,6 +97,14 @@ def parser() -> argparse.ArgumentParser:
     merge_performance.add_argument("--performance", action="append", default=[])
     merge_performance.add_argument("--performance-matrix", type=Path)
     merge.add_argument("--output", type=Path, required=True)
+    merge.add_argument(
+        "--allow-noncompiled-matched",
+        action="store_true",
+        help=(
+            "reconcile only PyPTO and descriptive noncompiled matched starts; "
+            "this is not a three-lane compiled comparison"
+        ),
+    )
     return value
 
 
@@ -112,7 +128,11 @@ def main() -> int:
             else None
         )
         output = require_path_below_runs(ROOT, args.output)
-        payload = reconcile(profiles, performance)
+        payload = reconcile(
+            profiles,
+            performance,
+            allow_noncompiled_matched=args.allow_noncompiled_matched,
+        )
         payload["inputs"] = {
             "profiles": {
                 lane: [str(path) for path in lane_paths]
@@ -143,6 +163,7 @@ def main() -> int:
             run_dir,
             ROOT,
             args.optimized_memory_mode,
+            args.allow_noncompiled_matched,
         )
 
     def launch(lane: str):
@@ -156,6 +177,8 @@ def main() -> int:
             "--optimized-memory-mode",
             args.optimized_memory_mode,
         )
+        if args.allow_noncompiled_matched:
+            worker_args += ("--allow-noncompiled-matched",)
         if lane == "pypto":
 
             def factory(pointer):
@@ -181,6 +204,11 @@ def main() -> int:
         return invoke_controlled(factory, root=ROOT, dry_run=args.dry_run)
 
     if args.command == "matrix":
+        if args.allow_noncompiled_matched:
+            raise ReleaseContractError(
+                "descriptive matched mode is for explicit collect/reconcile; "
+                "the strict three-lane matrix remains unchanged"
+            )
         records = []
         grouped_paths: dict[str, list[Path]] = defaultdict(list)
         for index, lane in enumerate(PROFILE_SCHEDULE):

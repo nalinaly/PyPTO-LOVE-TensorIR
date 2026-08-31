@@ -1,0 +1,1878 @@
+{
+  "acceptance": {
+    "accepted": true,
+    "control_mismatches": [],
+    "fresh_starts_per_lane": 3,
+    "lanes": [
+      "pypto",
+      "sglang-matched"
+    ],
+    "matched_compilation_effective": false,
+    "minimum_gpu_memory_free_bytes": 4608925696,
+    "minimum_host_memory_available_kib": 48888068,
+    "profile_requests_per_start": 5,
+    "thermal_throttle_observed": false
+  },
+  "comparisons": {
+    "sglang-matched": {
+      "baseline_lane": "sglang-matched",
+      "model_compute_gap_bootstrap_95ci_ms": {
+        "confidence": 0.95,
+        "lower": 21022.178022,
+        "method": "independent nonparametric percentile bootstrap over fresh process starts",
+        "operation": "difference",
+        "resamples": 10000,
+        "seed": 7146634098941411895,
+        "upper": 21036.294331
+      },
+      "model_compute_gap_ms": 21033.019828,
+      "phase_gap_sum_ms": 21031.48025,
+      "phase_reconciliation_boundary": "The residual can be nonzero because each phase and the total use separate medians across fresh starts.",
+      "phase_reconciliation_residual_ms": 1.5395779999998922,
+      "phases": [
+        {
+          "baseline_gpu_ms": 3.227803,
+          "gap_bootstrap_95ci_ms": {
+            "confidence": 0.95,
+            "lower": 1148.614497,
+            "method": "independent nonparametric percentile bootstrap over fresh process starts",
+            "operation": "difference",
+            "resamples": 10000,
+            "seed": 15477418919638427882,
+            "upper": 1151.880248
+          },
+          "gap_ms": 1151.132292,
+          "phase": "attention_core_gate",
+          "pypto_gpu_ms": 1154.360095
+        },
+        {
+          "baseline_gpu_ms": 67.785224,
+          "gap_bootstrap_95ci_ms": {
+            "confidence": 0.95,
+            "lower": -68.369901,
+            "method": "independent nonparametric percentile bootstrap over fresh process starts",
+            "operation": "difference",
+            "resamples": 10000,
+            "seed": 1495037870981311617,
+            "upper": -67.568515
+          },
+          "gap_ms": -67.785224,
+          "phase": "attention_projection",
+          "pypto_gpu_ms": 0.0
+        },
+        {
+          "baseline_gpu_ms": 0.103683,
+          "gap_bootstrap_95ci_ms": {
+            "confidence": 0.95,
+            "lower": 0.071583,
+            "method": "independent nonparametric percentile bootstrap over fresh process starts",
+            "operation": "difference",
+            "resamples": 10000,
+            "seed": 16815895976529597397,
+            "upper": 0.086783
+          },
+          "gap_ms": 0.071932,
+          "phase": "embedding_gather",
+          "pypto_gpu_ms": 0.175615
+        },
+        {
+          "baseline_gpu_ms": 0.102849,
+          "gap_bootstrap_95ci_ms": {
+            "confidence": 0.95,
+            "lower": 0.455966,
+            "method": "independent nonparametric percentile bootstrap over fresh process starts",
+            "operation": "difference",
+            "resamples": 10000,
+            "seed": 9676233343947950878,
+            "upper": 0.51106
+          },
+          "gap_ms": 0.474294,
+          "phase": "final_norm",
+          "pypto_gpu_ms": 0.577143
+        },
+        {
+          "baseline_gpu_ms": 3.027881,
+          "gap_bootstrap_95ci_ms": {
+            "confidence": 0.95,
+            "lower": -3.10833,
+            "method": "independent nonparametric percentile bootstrap over fresh process starts",
+            "operation": "difference",
+            "resamples": 10000,
+            "seed": 11407350690793119659,
+            "upper": -2.686858
+          },
+          "gap_ms": -3.027881,
+          "phase": "gdn_conv",
+          "pypto_gpu_ms": 0.0
+        },
+        {
+          "baseline_gpu_ms": 0.0,
+          "gap_bootstrap_95ci_ms": {
+            "confidence": 0.95,
+            "lower": 2.131122,
+            "method": "independent nonparametric percentile bootstrap over fresh process starts",
+            "operation": "difference",
+            "resamples": 10000,
+            "seed": 9212081424403010160,
+            "upper": 2.131391
+          },
+          "gap_ms": 2.131184,
+          "phase": "gdn_projection",
+          "pypto_gpu_ms": 2.131184
+        },
+        {
+          "baseline_gpu_ms": 10.608297,
+          "gap_bootstrap_95ci_ms": {
+            "confidence": 0.95,
+            "lower": 20.914562,
+            "method": "independent nonparametric percentile bootstrap over fresh process starts",
+            "operation": "difference",
+            "resamples": 10000,
+            "seed": 25440160601782380,
+            "upper": 22.750395
+          },
+          "gap_ms": 22.062361,
+          "phase": "gdn_recurrent_norm",
+          "pypto_gpu_ms": 32.670658
+        },
+        {
+          "baseline_gpu_ms": 0.0,
+          "gap_bootstrap_95ci_ms": {
+            "confidence": 0.95,
+            "lower": 0.728294,
+            "method": "independent nonparametric percentile bootstrap over fresh process starts",
+            "operation": "difference",
+            "resamples": 10000,
+            "seed": 12612112987076239687,
+            "upper": 0.728722
+          },
+          "gap_ms": 0.72845,
+          "phase": "kv_cache_write",
+          "pypto_gpu_ms": 0.72845
+        },
+        {
+          "baseline_gpu_ms": 0.0,
+          "gap_bootstrap_95ci_ms": {
+            "confidence": 0.95,
+            "lower": 930.578441,
+            "method": "independent nonparametric percentile bootstrap over fresh process starts",
+            "operation": "difference",
+            "resamples": 10000,
+            "seed": 10761999242240002540,
+            "upper": 932.140825
+          },
+          "gap_ms": 931.866138,
+          "phase": "lm_head",
+          "pypto_gpu_ms": 931.866138
+        },
+        {
+          "baseline_gpu_ms": 254.67706,
+          "gap_bootstrap_95ci_ms": {
+            "confidence": 0.95,
+            "lower": -255.399499,
+            "method": "independent nonparametric percentile bootstrap over fresh process starts",
+            "operation": "difference",
+            "resamples": 10000,
+            "seed": 16348932848422634562,
+            "upper": -252.996658
+          },
+          "gap_ms": -254.67706,
+          "phase": "mlp_down",
+          "pypto_gpu_ms": 0.0
+        },
+        {
+          "baseline_gpu_ms": 496.353524,
+          "gap_bootstrap_95ci_ms": {
+            "confidence": 0.95,
+            "lower": -498.851379,
+            "method": "independent nonparametric percentile bootstrap over fresh process starts",
+            "operation": "difference",
+            "resamples": 10000,
+            "seed": 18352960293586355698,
+            "upper": -495.589614
+          },
+          "gap_ms": -496.353524,
+          "phase": "mlp_gate_up",
+          "pypto_gpu_ms": 0.0
+        },
+        {
+          "baseline_gpu_ms": 3.735753,
+          "gap_bootstrap_95ci_ms": {
+            "confidence": 0.95,
+            "lower": -1.705989,
+            "method": "independent nonparametric percentile bootstrap over fresh process starts",
+            "operation": "difference",
+            "resamples": 10000,
+            "seed": 9154344618416263490,
+            "upper": -1.677982
+          },
+          "gap_ms": -1.699005,
+          "phase": "mlp_swiglu",
+          "pypto_gpu_ms": 2.036748
+        },
+        {
+          "baseline_gpu_ms": 12.284562,
+          "gap_bootstrap_95ci_ms": {
+            "confidence": 0.95,
+            "lower": -2.496038,
+            "method": "independent nonparametric percentile bootstrap over fresh process starts",
+            "operation": "difference",
+            "resamples": 10000,
+            "seed": 13332407560094117542,
+            "upper": -0.392827
+          },
+          "gap_ms": -2.445592,
+          "phase": "residual_norm",
+          "pypto_gpu_ms": 9.83897
+        },
+        {
+          "baseline_gpu_ms": 435.080393,
+          "gap_bootstrap_95ci_ms": {
+            "confidence": 0.95,
+            "lower": 19744.97377,
+            "method": "independent nonparametric percentile bootstrap over fresh process starts",
+            "operation": "difference",
+            "resamples": 10000,
+            "seed": 11570601484461821269,
+            "upper": 19752.90916
+          },
+          "gap_ms": 19749.001885,
+          "phase": "unattributed_compute",
+          "pypto_gpu_ms": 20184.082278
+        }
+      ]
+    }
+  },
+  "evidence_boundary": "The matched lane did not invoke CompilerInterface. The phase and kernel comparison is descriptive stock CUDA evidence only; it does not establish a torch.compile or official Inductor backend speedup.",
+  "gpu_time_definition": "sum of CUPTI activity durations, not elapsed critical-path time",
+  "inputs": {
+    "profiles": [
+      {
+        "compilation": {
+          "backend_invocation_observed": false,
+          "effective": true,
+          "pypto_inductor_cupti_calls": 10240,
+          "pypto_inductor_expected_calls": 10240,
+          "requested": true,
+          "sglang_counter": {
+            "dynamo_as_is_count": 0,
+            "num_backend_compilations": 0,
+            "num_cache_entries_updated": 0,
+            "num_compiled_artifacts_saved": 0,
+            "num_cudagraph_captured": 0,
+            "num_eager_compiles": 0,
+            "num_gpu_runner_capture_triggers": 0,
+            "num_graphs_seen": 0,
+            "num_inductor_compiles": 0,
+            "num_models_seen": 0,
+            "num_piecewise_capturable_graphs_seen": 0,
+            "num_piecewise_graphs_seen": 0
+          }
+        },
+        "gpu_identity": {
+          "driver": "610.74",
+          "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+          "total_memory_bytes": 25651314688,
+          "uuid": "GPU-64aae36b-ef77-b0d4-b1c7-f7ab17a729f1"
+        },
+        "lane": "pypto",
+        "profile_scope": "strict-compiled",
+        "raw_trace": "runs/pypto-gpu-bounded-20260831T035448Z-2533937-23f9fe/qwen35-9b-cupti-pypto.json",
+        "raw_trace_sha256": "4f162c83c1f0a1ed6c4f58516541522c0c887764b9cc7e573c59bdbf05c6232f",
+        "report": "runs/pypto-gpu-bounded-20260831T035448Z-2533937-23f9fe/qwen35-9b-profile-pypto.json",
+        "report_sha256": "33012450410754cd584ff3759dd26a52b06e678b68479ab2d7ed5806acc6fc52",
+        "resources": {
+          "minimum_gpu_memory_free_bytes": 5810638848,
+          "minimum_mem_available_kib": 52795132,
+          "peak_gpu_memory_used_bytes": 19840675840,
+          "peak_owned_pgid_rss_kib": 16235324,
+          "sample_count": 1290,
+          "thermal_throttle_observed": false
+        },
+        "run_id": "pypto-gpu-bounded-20260831T035448Z-2533937-23f9fe"
+      },
+      {
+        "compilation": {
+          "backend_invocation_observed": false,
+          "effective": true,
+          "pypto_inductor_cupti_calls": 10240,
+          "pypto_inductor_expected_calls": 10240,
+          "requested": true,
+          "sglang_counter": {
+            "dynamo_as_is_count": 0,
+            "num_backend_compilations": 0,
+            "num_cache_entries_updated": 0,
+            "num_compiled_artifacts_saved": 0,
+            "num_cudagraph_captured": 0,
+            "num_eager_compiles": 0,
+            "num_gpu_runner_capture_triggers": 0,
+            "num_graphs_seen": 0,
+            "num_inductor_compiles": 0,
+            "num_models_seen": 0,
+            "num_piecewise_capturable_graphs_seen": 0,
+            "num_piecewise_graphs_seen": 0
+          }
+        },
+        "gpu_identity": {
+          "driver": "610.74",
+          "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+          "total_memory_bytes": 25651314688,
+          "uuid": "GPU-64aae36b-ef77-b0d4-b1c7-f7ab17a729f1"
+        },
+        "lane": "pypto",
+        "profile_scope": "strict-compiled",
+        "raw_trace": "runs/pypto-gpu-bounded-20260831T040240Z-2536416-29dd2a/qwen35-9b-cupti-pypto.json",
+        "raw_trace_sha256": "296a07a6a5f2bb38179192a13c1aca9e64d356ed17e01ff4110de8d71493db2b",
+        "report": "runs/pypto-gpu-bounded-20260831T040240Z-2536416-29dd2a/qwen35-9b-profile-pypto.json",
+        "report_sha256": "eaaf3dbf3c491ce94253a66db799d29ae6b1d6f041f523db4fb33c631b561fd7",
+        "resources": {
+          "minimum_gpu_memory_free_bytes": 5810638848,
+          "minimum_mem_available_kib": 52733752,
+          "peak_gpu_memory_used_bytes": 19840675840,
+          "peak_owned_pgid_rss_kib": 16210180,
+          "sample_count": 1231,
+          "thermal_throttle_observed": false
+        },
+        "run_id": "pypto-gpu-bounded-20260831T040240Z-2536416-29dd2a"
+      },
+      {
+        "compilation": {
+          "backend_invocation_observed": false,
+          "effective": true,
+          "pypto_inductor_cupti_calls": 10240,
+          "pypto_inductor_expected_calls": 10240,
+          "requested": true,
+          "sglang_counter": {
+            "dynamo_as_is_count": 0,
+            "num_backend_compilations": 0,
+            "num_cache_entries_updated": 0,
+            "num_compiled_artifacts_saved": 0,
+            "num_cudagraph_captured": 0,
+            "num_eager_compiles": 0,
+            "num_gpu_runner_capture_triggers": 0,
+            "num_graphs_seen": 0,
+            "num_inductor_compiles": 0,
+            "num_models_seen": 0,
+            "num_piecewise_capturable_graphs_seen": 0,
+            "num_piecewise_graphs_seen": 0
+          }
+        },
+        "gpu_identity": {
+          "driver": "610.74",
+          "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+          "total_memory_bytes": 25651314688,
+          "uuid": "GPU-64aae36b-ef77-b0d4-b1c7-f7ab17a729f1"
+        },
+        "lane": "pypto",
+        "profile_scope": "strict-compiled",
+        "raw_trace": "runs/pypto-gpu-bounded-20260831T040639Z-2537610-824058/qwen35-9b-cupti-pypto.json",
+        "raw_trace_sha256": "4faa255233b7b4a6ea2dff4742169d0a386c7688913f7d4801334bafecd0a865",
+        "report": "runs/pypto-gpu-bounded-20260831T040639Z-2537610-824058/qwen35-9b-profile-pypto.json",
+        "report_sha256": "fdac8c7a87921af28a192d74689025024fd886d578e91f4906ef338feaecba54",
+        "resources": {
+          "minimum_gpu_memory_free_bytes": 5810638848,
+          "minimum_mem_available_kib": 52767036,
+          "peak_gpu_memory_used_bytes": 19840675840,
+          "peak_owned_pgid_rss_kib": 16220744,
+          "sample_count": 1197,
+          "thermal_throttle_observed": false
+        },
+        "run_id": "pypto-gpu-bounded-20260831T040639Z-2537610-824058"
+      },
+      {
+        "compilation": {
+          "acceptance_scope": "descriptive-stock-noncompiled",
+          "backend_invocation_observed": false,
+          "effective": false,
+          "evidence_boundary": "The matched control requested torch.compile but the pinned runtime did not invoke CompilerInterface. This profile is accepted only for descriptive stock CUDA phase/kernel breakdown; it is not compiled-execution evidence.",
+          "pypto_inductor_cupti_calls": 0,
+          "pypto_inductor_expected_calls": 10240,
+          "requested": true,
+          "sglang_counter": {
+            "dynamo_as_is_count": 0,
+            "num_backend_compilations": 0,
+            "num_cache_entries_updated": 0,
+            "num_compiled_artifacts_saved": 0,
+            "num_cudagraph_captured": 0,
+            "num_eager_compiles": 0,
+            "num_gpu_runner_capture_triggers": 0,
+            "num_graphs_seen": 0,
+            "num_inductor_compiles": 0,
+            "num_models_seen": 0,
+            "num_piecewise_capturable_graphs_seen": 0,
+            "num_piecewise_graphs_seen": 0
+          }
+        },
+        "gpu_identity": {
+          "driver": "610.74",
+          "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+          "total_memory_bytes": 25651314688,
+          "uuid": "GPU-64aae36b-ef77-b0d4-b1c7-f7ab17a729f1"
+        },
+        "lane": "sglang-matched",
+        "profile_scope": "descriptive-stock-noncompiled",
+        "raw_trace": "runs/pypto-gpu-bounded-20260831T044336Z-2541987-1bc678/qwen35-9b-cupti-sglang-matched.json",
+        "raw_trace_sha256": "f9f01a6e2b2aa17c71bbf6f47391779b24a8868e138dc28b68336440cdce9a3b",
+        "report": "runs/pypto-gpu-bounded-20260831T044336Z-2541987-1bc678/qwen35-9b-profile-sglang-matched.json",
+        "report_sha256": "70a1eb4a5f05b35c450105a7a0da0b076bcb18944d1fbd60d2c231ac655fb877",
+        "resources": {
+          "minimum_gpu_memory_free_bytes": 5087547392,
+          "minimum_mem_available_kib": 48995812,
+          "peak_gpu_memory_used_bytes": 20563767296,
+          "peak_owned_pgid_rss_kib": 9405832,
+          "sample_count": 252,
+          "thermal_throttle_observed": false
+        },
+        "run_id": "pypto-gpu-bounded-20260831T044336Z-2541987-1bc678"
+      },
+      {
+        "compilation": {
+          "acceptance_scope": "descriptive-stock-noncompiled",
+          "backend_invocation_observed": false,
+          "effective": false,
+          "evidence_boundary": "The matched control requested torch.compile but the pinned runtime did not invoke CompilerInterface. This profile is accepted only for descriptive stock CUDA phase/kernel breakdown; it is not compiled-execution evidence.",
+          "pypto_inductor_cupti_calls": 0,
+          "pypto_inductor_expected_calls": 10240,
+          "requested": true,
+          "sglang_counter": {
+            "dynamo_as_is_count": 0,
+            "num_backend_compilations": 0,
+            "num_cache_entries_updated": 0,
+            "num_compiled_artifacts_saved": 0,
+            "num_cudagraph_captured": 0,
+            "num_eager_compiles": 0,
+            "num_gpu_runner_capture_triggers": 0,
+            "num_graphs_seen": 0,
+            "num_inductor_compiles": 0,
+            "num_models_seen": 0,
+            "num_piecewise_capturable_graphs_seen": 0,
+            "num_piecewise_graphs_seen": 0
+          }
+        },
+        "gpu_identity": {
+          "driver": "610.74",
+          "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+          "total_memory_bytes": 25651314688,
+          "uuid": "GPU-64aae36b-ef77-b0d4-b1c7-f7ab17a729f1"
+        },
+        "lane": "sglang-matched",
+        "profile_scope": "descriptive-stock-noncompiled",
+        "raw_trace": "runs/pypto-gpu-bounded-20260831T044628Z-2542714-c53d7e/qwen35-9b-cupti-sglang-matched.json",
+        "raw_trace_sha256": "80ce4a19ff5a80dc0440f3cfc2de579623cd8edf443d612643a93f81bd1653f8",
+        "report": "runs/pypto-gpu-bounded-20260831T044628Z-2542714-c53d7e/qwen35-9b-profile-sglang-matched.json",
+        "report_sha256": "ce891e5d52e8746e39e47b1b87f357ce8fdc1b8c858a4338a11d230441c376c6",
+        "resources": {
+          "minimum_gpu_memory_free_bytes": 4608925696,
+          "minimum_mem_available_kib": 48888068,
+          "peak_gpu_memory_used_bytes": 21042388992,
+          "peak_owned_pgid_rss_kib": 9450596,
+          "sample_count": 242,
+          "thermal_throttle_observed": false
+        },
+        "run_id": "pypto-gpu-bounded-20260831T044628Z-2542714-c53d7e"
+      },
+      {
+        "compilation": {
+          "acceptance_scope": "descriptive-stock-noncompiled",
+          "backend_invocation_observed": false,
+          "effective": false,
+          "evidence_boundary": "The matched control requested torch.compile but the pinned runtime did not invoke CompilerInterface. This profile is accepted only for descriptive stock CUDA phase/kernel breakdown; it is not compiled-execution evidence.",
+          "pypto_inductor_cupti_calls": 0,
+          "pypto_inductor_expected_calls": 10240,
+          "requested": true,
+          "sglang_counter": {
+            "dynamo_as_is_count": 0,
+            "num_backend_compilations": 0,
+            "num_cache_entries_updated": 0,
+            "num_compiled_artifacts_saved": 0,
+            "num_cudagraph_captured": 0,
+            "num_eager_compiles": 0,
+            "num_gpu_runner_capture_triggers": 0,
+            "num_graphs_seen": 0,
+            "num_inductor_compiles": 0,
+            "num_models_seen": 0,
+            "num_piecewise_capturable_graphs_seen": 0,
+            "num_piecewise_graphs_seen": 0
+          }
+        },
+        "gpu_identity": {
+          "driver": "610.74",
+          "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+          "total_memory_bytes": 25651314688,
+          "uuid": "GPU-64aae36b-ef77-b0d4-b1c7-f7ab17a729f1"
+        },
+        "lane": "sglang-matched",
+        "profile_scope": "descriptive-stock-noncompiled",
+        "raw_trace": "runs/pypto-gpu-bounded-20260831T044929Z-2543444-a471a5/qwen35-9b-cupti-sglang-matched.json",
+        "raw_trace_sha256": "4f82ffda03d069942172b170c850697338f3da2a07a1007971831b51fa41c211",
+        "report": "runs/pypto-gpu-bounded-20260831T044929Z-2543444-a471a5/qwen35-9b-profile-sglang-matched.json",
+        "report_sha256": "e5ff78381506c80959fb6152cf3d40346fad2e7d086f6b26c0b3f6eec931bcd7",
+        "resources": {
+          "minimum_gpu_memory_free_bytes": 5145477120,
+          "minimum_mem_available_kib": 49086792,
+          "peak_gpu_memory_used_bytes": 20505837568,
+          "peak_owned_pgid_rss_kib": 9460864,
+          "sample_count": 258,
+          "thermal_throttle_observed": false
+        },
+        "run_id": "pypto-gpu-bounded-20260831T044929Z-2543444-a471a5"
+      }
+    ],
+    "reconciliation": "runs/release-profile-breakdown-20260831/descriptive-reconciliation.json",
+    "reconciliation_sha256": "74d87b8cc2d7fdf6e422e40a33b1102677919ee0e1b39b14f1f04dd2351f821a"
+  },
+  "kind": "qwen35-9b-descriptive-stock-profile-breakdown",
+  "lane_summaries": {
+    "pypto": {
+      "compute_gpu_time_ns_per_request": {
+        "headline_estimator": "median_of_fresh_start_estimates",
+        "max": 22319661286.0,
+        "mean": 22317037828.0,
+        "median_bootstrap_95ci": {
+          "confidence": 0.95,
+          "lower": 22312640197.0,
+          "method": "nonparametric percentile bootstrap over fresh process starts",
+          "resamples": 10000,
+          "seed": 6562679819117297738,
+          "upper": 22319661286.0
+        },
+        "min": 22312640197.0,
+        "p50": 22318812001.0,
+        "p90": 22319661286.0,
+        "p90_nearest_rank": 22319661286.0,
+        "p99": 22319661286.0,
+        "p99_nearest_rank": 22319661286.0,
+        "sample_count": 3,
+        "sample_unit": "fresh_process_start"
+      },
+      "phase_totals": {
+        "attention_core_gate": {
+          "calls_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 8608.0,
+            "mean": 8608.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 8608.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 17101884055406697642,
+              "upper": 8608.0
+            },
+            "min": 8608.0,
+            "p50": 8608.0,
+            "p90": 8608.0,
+            "p90_nearest_rank": 8608.0,
+            "p99": 8608.0,
+            "p99_nearest_rank": 8608.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          },
+          "gpu_time_ns_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 1155038094.0,
+            "mean": 1153749196.3333333,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 1151849400.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 15116735141157916342,
+              "upper": 1155038094.0
+            },
+            "min": 1151849400.0,
+            "p50": 1154360095.0,
+            "p90": 1155038094.0,
+            "p90_nearest_rank": 1155038094.0,
+            "p99": 1155038094.0,
+            "p99_nearest_rank": 1155038094.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          }
+        },
+        "embedding_gather": {
+          "calls_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 128.0,
+            "mean": 128.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 128.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 4240496168147658689,
+              "upper": 128.0
+            },
+            "min": 128.0,
+            "p50": 128.0,
+            "p90": 128.0,
+            "p90_nearest_rank": 128.0,
+            "p99": 128.0,
+            "p99_nearest_rank": 128.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          },
+          "gpu_time_ns_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 180481.0,
+            "mean": 177194.66666666666,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 175488.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 10275960244130138288,
+              "upper": 180481.0
+            },
+            "min": 175488.0,
+            "p50": 175615.0,
+            "p90": 180481.0,
+            "p90_nearest_rank": 180481.0,
+            "p99": 180481.0,
+            "p99_nearest_rank": 180481.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          }
+        },
+        "final_norm": {
+          "calls_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 64.0,
+            "mean": 64.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 64.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 18335763815551489408,
+              "upper": 64.0
+            },
+            "min": 64.0,
+            "p50": 64.0,
+            "p90": 64.0,
+            "p90_nearest_rank": 64.0,
+            "p99": 64.0,
+            "p99_nearest_rank": 64.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          },
+          "gpu_time_ns_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 613017.0,
+            "mean": 583086.6666666666,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 559100.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 7793334364887212723,
+              "upper": 613017.0
+            },
+            "min": 559100.0,
+            "p50": 577143.0,
+            "p90": 613017.0,
+            "p90_nearest_rank": 613017.0,
+            "p99": 613017.0,
+            "p99_nearest_rank": 613017.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          }
+        },
+        "gdn_projection": {
+          "calls_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 1536.0,
+            "mean": 1536.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 1536.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 7122844697196240086,
+              "upper": 1536.0
+            },
+            "min": 1536.0,
+            "p50": 1536.0,
+            "p90": 1536.0,
+            "p90_nearest_rank": 1536.0,
+            "p99": 1536.0,
+            "p99_nearest_rank": 1536.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          },
+          "gpu_time_ns_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 2131391.0,
+            "mean": 2131232.3333333335,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 2131122.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 2109364147001754781,
+              "upper": 2131391.0
+            },
+            "min": 2131122.0,
+            "p50": 2131184.0,
+            "p90": 2131391.0,
+            "p90_nearest_rank": 2131391.0,
+            "p99": 2131391.0,
+            "p99_nearest_rank": 2131391.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          }
+        },
+        "gdn_recurrent_norm": {
+          "calls_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 3816.0,
+            "mean": 3816.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 3816.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 3163118092111987868,
+              "upper": 3816.0
+            },
+            "min": 3816.0,
+            "p50": 3816.0,
+            "p90": 3816.0,
+            "p90_nearest_rank": 3816.0,
+            "p99": 3816.0,
+            "p99_nearest_rank": 3816.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          },
+          "gpu_time_ns_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 32987656.0,
+            "mean": 32736020.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 32549746.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 17841221765663832338,
+              "upper": 32987656.0
+            },
+            "min": 32549746.0,
+            "p50": 32670658.0,
+            "p90": 32987656.0,
+            "p90_nearest_rank": 32987656.0,
+            "p99": 32987656.0,
+            "p99_nearest_rank": 32987656.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          }
+        },
+        "kv_cache_write": {
+          "calls_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 512.0,
+            "mean": 512.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 512.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 18049215391077669687,
+              "upper": 512.0
+            },
+            "min": 512.0,
+            "p50": 512.0,
+            "p90": 512.0,
+            "p90_nearest_rank": 512.0,
+            "p99": 512.0,
+            "p99_nearest_rank": 512.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          },
+          "gpu_time_ns_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 728722.0,
+            "mean": 728488.6666666666,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 728294.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 10869313665934386262,
+              "upper": 728722.0
+            },
+            "min": 728294.0,
+            "p50": 728450.0,
+            "p90": 728722.0,
+            "p90_nearest_rank": 728722.0,
+            "p99": 728722.0,
+            "p99_nearest_rank": 728722.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          }
+        },
+        "lm_head": {
+          "calls_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 64.0,
+            "mean": 64.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 64.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 2822633707024945520,
+              "upper": 64.0
+            },
+            "min": 64.0,
+            "p50": 64.0,
+            "p90": 64.0,
+            "p90_nearest_rank": 64.0,
+            "p99": 64.0,
+            "p99_nearest_rank": 64.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          },
+          "gpu_time_ns_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 932140825.0,
+            "mean": 931528468.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 930578441.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 13351982402639688723,
+              "upper": 932140825.0
+            },
+            "min": 930578441.0,
+            "p50": 931866138.0,
+            "p90": 932140825.0,
+            "p90_nearest_rank": 932140825.0,
+            "p99": 932140825.0,
+            "p99_nearest_rank": 932140825.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          }
+        },
+        "mlp_swiglu": {
+          "calls_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 2048.0,
+            "mean": 2048.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 2048.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 15188803293211997067,
+              "upper": 2048.0
+            },
+            "min": 2048.0,
+            "p50": 2048.0,
+            "p90": 2048.0,
+            "p90_nearest_rank": 2048.0,
+            "p99": 2048.0,
+            "p99_nearest_rank": 2048.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          },
+          "gpu_time_ns_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 2040527.0,
+            "mean": 2037360.3333333333,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 2034806.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 9760965605407502805,
+              "upper": 2040527.0
+            },
+            "min": 2034806.0,
+            "p50": 2036748.0,
+            "p90": 2040527.0,
+            "p90_nearest_rank": 2040527.0,
+            "p99": 2040527.0,
+            "p99_nearest_rank": 2040527.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          }
+        },
+        "residual_norm": {
+          "calls_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 4096.0,
+            "mean": 4096.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 4096.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 13190240984014211311,
+              "upper": 4096.0
+            },
+            "min": 4096.0,
+            "p50": 4096.0,
+            "p90": 4096.0,
+            "p90_nearest_rank": 4096.0,
+            "p99": 4096.0,
+            "p99_nearest_rank": 4096.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          },
+          "gpu_time_ns_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 9849394.0,
+            "mean": 9835260.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 9817416.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 2300876185329085354,
+              "upper": 9849394.0
+            },
+            "min": 9817416.0,
+            "p50": 9838970.0,
+            "p90": 9849394.0,
+            "p90_nearest_rank": 9849394.0,
+            "p99": 9849394.0,
+            "p99_nearest_rank": 9849394.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          }
+        },
+        "runtime_memcpy": {
+          "calls_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 5249.0,
+            "mean": 5249.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 5249.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 17968670046764819435,
+              "upper": 5249.0
+            },
+            "min": 5249.0,
+            "p50": 5249.0,
+            "p90": 5249.0,
+            "p90_nearest_rank": 5249.0,
+            "p99": 5249.0,
+            "p99_nearest_rank": 5249.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          },
+          "gpu_time_ns_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 2610305788.0,
+            "mean": 2607024361.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 2602587256.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 13128778350747156834,
+              "upper": 2610305788.0
+            },
+            "min": 2602587256.0,
+            "p50": 2608180039.0,
+            "p90": 2610305788.0,
+            "p90_nearest_rank": 2610305788.0,
+            "p99": 2610305788.0,
+            "p99_nearest_rank": 2610305788.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          }
+        },
+        "unattributed_compute": {
+          "calls_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 12703.0,
+            "mean": 12703.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 12703.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 6578176092759873537,
+              "upper": 12703.0
+            },
+            "min": 12703.0,
+            "p50": 12703.0,
+            "p90": 12703.0,
+            "p90_nearest_rank": 12703.0,
+            "p99": 12703.0,
+            "p99_nearest_rank": 12703.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          },
+          "gpu_time_ns_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 20184187486.0,
+            "mean": 20182785245.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 20180085971.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 2329298251091157426,
+              "upper": 20184187486.0
+            },
+            "min": 20180085971.0,
+            "p50": 20184082278.0,
+            "p90": 20184187486.0,
+            "p90_nearest_rank": 20184187486.0,
+            "p99": 20184187486.0,
+            "p99_nearest_rank": 20184187486.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          }
+        }
+      },
+      "resources": {
+        "minimum_gpu_memory_free_bytes": 5810638848,
+        "minimum_mem_available_kib": 52733752,
+        "peak_gpu_memory_used_bytes": 19840675840,
+        "thermal_throttle_observed": false
+      },
+      "runtime_memcpy_gpu_time_ns_per_request": {
+        "headline_estimator": "median_of_fresh_start_estimates",
+        "max": 2610305788.0,
+        "mean": 2607024361.0,
+        "median_bootstrap_95ci": {
+          "confidence": 0.95,
+          "lower": 2602587256.0,
+          "method": "nonparametric percentile bootstrap over fresh process starts",
+          "resamples": 10000,
+          "seed": 3422057866928223695,
+          "upper": 2610305788.0
+        },
+        "min": 2602587256.0,
+        "p50": 2608180039.0,
+        "p90": 2610305788.0,
+        "p90_nearest_rank": 2610305788.0,
+        "p99": 2610305788.0,
+        "p99_nearest_rank": 2610305788.0,
+        "sample_count": 3,
+        "sample_unit": "fresh_process_start"
+      }
+    },
+    "sglang-matched": {
+      "compute_gpu_time_ns_per_request": {
+        "headline_estimator": "median_of_fresh_start_estimates",
+        "max": 1290462175.0,
+        "mean": 1286540434.3333333,
+        "median_bootstrap_95ci": {
+          "confidence": 0.95,
+          "lower": 1283366955.0,
+          "method": "nonparametric percentile bootstrap over fresh process starts",
+          "resamples": 10000,
+          "seed": 12505800764215888342,
+          "upper": 1290462175.0
+        },
+        "min": 1283366955.0,
+        "p50": 1285792173.0,
+        "p90": 1290462175.0,
+        "p90_nearest_rank": 1290462175.0,
+        "p99": 1290462175.0,
+        "p99_nearest_rank": 1290462175.0,
+        "sample_count": 3,
+        "sample_unit": "fresh_process_start"
+      },
+      "phase_totals": {
+        "attention_core_gate": {
+          "calls_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 512.0,
+            "mean": 512.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 512.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 6822186827034011860,
+              "upper": 512.0
+            },
+            "min": 512.0,
+            "p50": 512.0,
+            "p90": 512.0,
+            "p90_nearest_rank": 512.0,
+            "p99": 512.0,
+            "p99_nearest_rank": 512.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          },
+          "gpu_time_ns_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 3234903.0,
+            "mean": 3206850.6666666665,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 3157846.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 18318251695606549992,
+              "upper": 3234903.0
+            },
+            "min": 3157846.0,
+            "p50": 3227803.0,
+            "p90": 3234903.0,
+            "p90_nearest_rank": 3234903.0,
+            "p99": 3234903.0,
+            "p99_nearest_rank": 3234903.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          }
+        },
+        "attention_projection": {
+          "calls_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 1536.0,
+            "mean": 1536.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 1536.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 4031125817355520912,
+              "upper": 1536.0
+            },
+            "min": 1536.0,
+            "p50": 1536.0,
+            "p90": 1536.0,
+            "p90_nearest_rank": 1536.0,
+            "p99": 1536.0,
+            "p99_nearest_rank": 1536.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          },
+          "gpu_time_ns_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 68369901.0,
+            "mean": 67907880.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 67568515.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 1913387544919960401,
+              "upper": 68369901.0
+            },
+            "min": 67568515.0,
+            "p50": 67785224.0,
+            "p90": 68369901.0,
+            "p90_nearest_rank": 68369901.0,
+            "p99": 68369901.0,
+            "p99_nearest_rank": 68369901.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          }
+        },
+        "embedding_gather": {
+          "calls_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 64.0,
+            "mean": 64.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 64.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 12603724111719562812,
+              "upper": 64.0
+            },
+            "min": 64.0,
+            "p50": 64.0,
+            "p90": 64.0,
+            "p90_nearest_rank": 64.0,
+            "p99": 64.0,
+            "p99_nearest_rank": 64.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          },
+          "gpu_time_ns_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 103905.0,
+            "mean": 100428.66666666667,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 93698.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 13904426284978946706,
+              "upper": 103905.0
+            },
+            "min": 93698.0,
+            "p50": 103683.0,
+            "p90": 103905.0,
+            "p90_nearest_rank": 103905.0,
+            "p99": 103905.0,
+            "p99_nearest_rank": 103905.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          }
+        },
+        "final_norm": {
+          "calls_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 64.0,
+            "mean": 64.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 64.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 5403724327686904534,
+              "upper": 64.0
+            },
+            "min": 64.0,
+            "p50": 64.0,
+            "p90": 64.0,
+            "p90_nearest_rank": 64.0,
+            "p99": 64.0,
+            "p99_nearest_rank": 64.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          },
+          "gpu_time_ns_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 103134.0,
+            "mean": 102646.66666666667,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 101957.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 18353482145000356564,
+              "upper": 103134.0
+            },
+            "min": 101957.0,
+            "p50": 102849.0,
+            "p90": 103134.0,
+            "p90_nearest_rank": 103134.0,
+            "p99": 103134.0,
+            "p99_nearest_rank": 103134.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          }
+        },
+        "gdn_conv": {
+          "calls_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 1536.0,
+            "mean": 1536.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 1536.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 6849801125174694259,
+              "upper": 1536.0
+            },
+            "min": 1536.0,
+            "p50": 1536.0,
+            "p90": 1536.0,
+            "p90_nearest_rank": 1536.0,
+            "p99": 1536.0,
+            "p99_nearest_rank": 1536.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          },
+          "gpu_time_ns_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 3108330.0,
+            "mean": 2941023.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 2686858.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 13075218649520950880,
+              "upper": 3108330.0
+            },
+            "min": 2686858.0,
+            "p50": 3027881.0,
+            "p90": 3108330.0,
+            "p90_nearest_rank": 3108330.0,
+            "p99": 3108330.0,
+            "p99_nearest_rank": 3108330.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          }
+        },
+        "gdn_recurrent_norm": {
+          "calls_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 3144.0,
+            "mean": 3144.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 3144.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 8636317555467682602,
+              "upper": 3144.0
+            },
+            "min": 3144.0,
+            "p50": 3144.0,
+            "p90": 3144.0,
+            "p90_nearest_rank": 3144.0,
+            "p99": 3144.0,
+            "p99_nearest_rank": 3144.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          },
+          "gpu_time_ns_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 11635184.0,
+            "mean": 10826914.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 10237261.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 7931935944158649393,
+              "upper": 11635184.0
+            },
+            "min": 10237261.0,
+            "p50": 10608297.0,
+            "p90": 11635184.0,
+            "p90_nearest_rank": 11635184.0,
+            "p99": 11635184.0,
+            "p99_nearest_rank": 11635184.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          }
+        },
+        "mlp_down": {
+          "calls_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 2048.0,
+            "mean": 2048.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 2048.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 3235759759222947367,
+              "upper": 2048.0
+            },
+            "min": 2048.0,
+            "p50": 2048.0,
+            "p90": 2048.0,
+            "p90_nearest_rank": 2048.0,
+            "p99": 2048.0,
+            "p99_nearest_rank": 2048.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          },
+          "gpu_time_ns_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 255399499.0,
+            "mean": 254357739.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 252996658.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 16665664448358363984,
+              "upper": 255399499.0
+            },
+            "min": 252996658.0,
+            "p50": 254677060.0,
+            "p90": 255399499.0,
+            "p90_nearest_rank": 255399499.0,
+            "p99": 255399499.0,
+            "p99_nearest_rank": 255399499.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          }
+        },
+        "mlp_gate_up": {
+          "calls_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 2048.0,
+            "mean": 2048.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 2048.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 17681005837141914853,
+              "upper": 2048.0
+            },
+            "min": 2048.0,
+            "p50": 2048.0,
+            "p90": 2048.0,
+            "p90_nearest_rank": 2048.0,
+            "p99": 2048.0,
+            "p99_nearest_rank": 2048.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          },
+          "gpu_time_ns_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 498851379.0,
+            "mean": 496931505.6666667,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 495589614.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 6340977780297662641,
+              "upper": 498851379.0
+            },
+            "min": 495589614.0,
+            "p50": 496353524.0,
+            "p90": 498851379.0,
+            "p90_nearest_rank": 498851379.0,
+            "p99": 498851379.0,
+            "p99_nearest_rank": 498851379.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          }
+        },
+        "mlp_swiglu": {
+          "calls_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 2048.0,
+            "mean": 2048.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 2048.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 15849593275913239707,
+              "upper": 2048.0
+            },
+            "min": 2048.0,
+            "p50": 2048.0,
+            "p90": 2048.0,
+            "p90_nearest_rank": 2048.0,
+            "p99": 2048.0,
+            "p99_nearest_rank": 2048.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          },
+          "gpu_time_ns_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 3740795.0,
+            "mean": 3731685.6666666665,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 3718509.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 5546418705173177898,
+              "upper": 3740795.0
+            },
+            "min": 3718509.0,
+            "p50": 3735753.0,
+            "p90": 3740795.0,
+            "p90_nearest_rank": 3740795.0,
+            "p99": 3740795.0,
+            "p99_nearest_rank": 3740795.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          }
+        },
+        "residual_norm": {
+          "calls_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 4608.0,
+            "mean": 4608.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 4608.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 3334287398472310730,
+              "upper": 4608.0
+            },
+            "min": 4608.0,
+            "p50": 4608.0,
+            "p90": 4608.0,
+            "p90_nearest_rank": 4608.0,
+            "p99": 4608.0,
+            "p99_nearest_rank": 4608.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          },
+          "gpu_time_ns_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 12313454.0,
+            "mean": 11613412.333333334,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 10242221.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 157871684005501897,
+              "upper": 12313454.0
+            },
+            "min": 10242221.0,
+            "p50": 12284562.0,
+            "p90": 12313454.0,
+            "p90_nearest_rank": 12313454.0,
+            "p99": 12313454.0,
+            "p99_nearest_rank": 12313454.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          }
+        },
+        "runtime_memcpy": {
+          "calls_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 4035.0,
+            "mean": 4035.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 4035.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 17794460236609170908,
+              "upper": 4035.0
+            },
+            "min": 4035.0,
+            "p50": 4035.0,
+            "p90": 4035.0,
+            "p90_nearest_rank": 4035.0,
+            "p99": 4035.0,
+            "p99_nearest_rank": 4035.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          },
+          "gpu_time_ns_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 2607568498.0,
+            "mean": 2606349545.3333335,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 2605294471.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 4020963390970204034,
+              "upper": 2607568498.0
+            },
+            "min": 2605294471.0,
+            "p50": 2606185667.0,
+            "p90": 2607568498.0,
+            "p90_nearest_rank": 2607568498.0,
+            "p99": 2607568498.0,
+            "p99_nearest_rank": 2607568498.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          }
+        },
+        "unattributed_compute": {
+          "calls_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 7476.0,
+            "mean": 7476.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 7476.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 14082372895353063829,
+              "upper": 7476.0
+            },
+            "min": 7476.0,
+            "p50": 7476.0,
+            "p90": 7476.0,
+            "p90_nearest_rank": 7476.0,
+            "p99": 7476.0,
+            "p99_nearest_rank": 7476.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          },
+          "gpu_time_ns_per_request": {
+            "headline_estimator": "median_of_fresh_start_estimates",
+            "max": 435112201.0,
+            "mean": 433823640.0,
+            "median_bootstrap_95ci": {
+              "confidence": 0.95,
+              "lower": 431278326.0,
+              "method": "nonparametric percentile bootstrap over fresh process starts",
+              "resamples": 10000,
+              "seed": 12684203128507049902,
+              "upper": 435112201.0
+            },
+            "min": 431278326.0,
+            "p50": 435080393.0,
+            "p90": 435112201.0,
+            "p90_nearest_rank": 435112201.0,
+            "p99": 435112201.0,
+            "p99_nearest_rank": 435112201.0,
+            "sample_count": 3,
+            "sample_unit": "fresh_process_start"
+          }
+        }
+      },
+      "resources": {
+        "minimum_gpu_memory_free_bytes": 4608925696,
+        "minimum_mem_available_kib": 48888068,
+        "peak_gpu_memory_used_bytes": 21042388992,
+        "thermal_throttle_observed": false
+      },
+      "runtime_memcpy_gpu_time_ns_per_request": {
+        "headline_estimator": "median_of_fresh_start_estimates",
+        "max": 2607568498.0,
+        "mean": 2606349545.3333335,
+        "median_bootstrap_95ci": {
+          "confidence": 0.95,
+          "lower": 2605294471.0,
+          "method": "nonparametric percentile bootstrap over fresh process starts",
+          "resamples": 10000,
+          "seed": 438828329577719741,
+          "upper": 2607568498.0
+        },
+        "min": 2605294471.0,
+        "p50": 2606185667.0,
+        "p90": 2607568498.0,
+        "p90_nearest_rank": 2607568498.0,
+        "p99": 2607568498.0,
+        "p99_nearest_rank": 2607568498.0,
+        "sample_count": 3,
+        "sample_unit": "fresh_process_start"
+      }
+    }
+  },
+  "matched_comparability": {
+    "control_mismatches": [],
+    "evidence_boundary": "The matched label covers listed controls only. Backend/provider fields are intentionally different because they are the implementation under test.",
+    "intentionally_unmatched_implementation_fields": [
+      {
+        "field": "attention_backend",
+        "pypto": "pypto",
+        "reason": "implementation under test",
+        "sglang_matched": "flashinfer"
+      },
+      {
+        "field": "decode_attention_backend",
+        "pypto": "pypto",
+        "reason": "implementation under test",
+        "sglang_matched": null
+      },
+      {
+        "field": "prefill_attention_backend",
+        "pypto": "pypto",
+        "reason": "implementation under test",
+        "sglang_matched": null
+      },
+      {
+        "field": "linear_attn_backend",
+        "pypto": "pypto",
+        "reason": "implementation under test",
+        "sglang_matched": "triton"
+      },
+      {
+        "field": "linear_attn_decode_backend",
+        "pypto": "pypto",
+        "reason": "implementation under test",
+        "sglang_matched": "triton"
+      },
+      {
+        "field": "linear_attn_prefill_backend",
+        "pypto": "pypto",
+        "reason": "implementation under test",
+        "sglang_matched": "triton"
+      },
+      {
+        "field": "mamba_ssm_dtype",
+        "pypto": null,
+        "reason": "implementation under test",
+        "sglang_matched": "float32"
+      },
+      {
+        "field": "resolved.attention_prefill",
+        "pypto": "pypto",
+        "reason": "implementation under test",
+        "sglang_matched": "flashinfer"
+      },
+      {
+        "field": "resolved.attention_decode",
+        "pypto": "pypto",
+        "reason": "implementation under test",
+        "sglang_matched": "flashinfer"
+      },
+      {
+        "field": "resolved.linear_attention_default",
+        "pypto": "pypto",
+        "reason": "implementation under test",
+        "sglang_matched": "triton"
+      },
+      {
+        "field": "resolved.linear_attention_prefill",
+        "pypto": "pypto",
+        "reason": "implementation under test",
+        "sglang_matched": "triton"
+      },
+      {
+        "field": "resolved.linear_attention_decode",
+        "pypto": "pypto",
+        "reason": "implementation under test",
+        "sglang_matched": "triton"
+      },
+      {
+        "field": "resolved.mamba_ssm_dtype",
+        "pypto": null,
+        "reason": "implementation under test",
+        "sglang_matched": "float32"
+      }
+    ],
+    "matched_claim_allowed": true,
+    "matched_control_fields": [
+      "model_path",
+      "tokenizer_path",
+      "skip_tokenizer_init",
+      "enable_multimodal",
+      "json_model_override_args",
+      "load_format",
+      "dtype",
+      "kv_cache_dtype",
+      "tp_size",
+      "context_length",
+      "max_total_tokens",
+      "max_prefill_tokens",
+      "max_running_requests",
+      "prefill_max_requests",
+      "enable_torch_compile",
+      "torch_compile_max_bs",
+      "sampling_backend",
+      "cpu_offload_gb",
+      "mem_fraction_static",
+      "disable_radix_cache",
+      "disable_cuda_graph",
+      "disable_overlap_schedule",
+      "disable_custom_all_reduce",
+      "page_size",
+      "chunked_prefill_size",
+      "random_seed",
+      "stream_interval"
+    ],
+    "matched_resolved_control_fields": [
+      "sampling_backend",
+      "torch_compile_requested",
+      "cuda_graph_enabled_by_server_args",
+      "overlap_schedule_enabled_by_server_args",
+      "radix_cache_enabled_by_server_args"
+    ],
+    "status": "matched_controls_with_implementation_differences"
+  },
+  "methodology": {
+    "bootstrap_resamples": 10000,
+    "bootstrap_seed": 20260829,
+    "experimental_unit": "fresh_process_start",
+    "headline_estimator": "median across fresh-start estimates",
+    "pooling_requests_across_starts": false,
+    "tail_estimators": [
+      "p90_nearest_rank",
+      "p99_nearest_rank"
+    ],
+    "uncertainty": "95% percentile bootstrap CI resampling fresh starts",
+    "within_start_estimator": "median across requests"
+  },
+  "profile_inputs": {
+    "pypto": {
+      "fresh_starts": 3,
+      "profile_requests": 15
+    },
+    "sglang-matched": {
+      "fresh_starts": 3,
+      "profile_requests": 15
+    }
+  },
+  "profile_scope": "descriptive-stock-noncompiled",
+  "recorded_at": "2026-08-31T04:58:35.873301+00:00",
+  "schema": 1,
+  "source": {
+    "profile_runtime": "benchmarks/release/profile_runtime.py",
+    "profile_runtime_sha256": "91a160113f9a52abbd7f684b844376274d429f35d6183710d8afc7f4fcbdc814",
+    "profile_tool": "tools/profile_qwen35.py",
+    "profile_tool_sha256": "32d3cf352ba38a6a9f46cd07191df1219e239266f276c4e21ccd8c76bbca615d",
+    "repository_head": "cc6434cc536b4cc4e4bd72c3cc0786352b011559",
+    "source_lock": "vendor/source-lock.json",
+    "source_lock_sha256": "c3f5b6f0693eb593943d894c79a652b1ee5a90990c8eea003a49115bb5bbc1bc"
+  },
+  "status": "complete",
+  "workload": {
+    "chat_template_kwargs": {
+      "add_generation_prompt": true,
+      "enable_thinking": false
+    },
+    "concurrency": 1,
+    "greedy": true,
+    "ignore_eos": true,
+    "model_id": "Qwen/Qwen3.5-9B",
+    "model_size": "9B",
+    "output_tokens": 64,
+    "prompt": "为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？",
+    "prompt_token_ids": [
+      248045,
+      846,
+      198,
+      144277,
+      103426,
+      108169,
+      95967,
+      236,
+      124094,
+      26076,
+      96212,
+      103182,
+      108076,
+      96799,
+      24273,
+      95761,
+      104224,
+      109276,
+      95726,
+      111104,
+      115110,
+      10992,
+      248046,
+      198,
+      248045,
+      74455,
+      198,
+      248068,
+      271,
+      248069,
+      271
+    ],
+    "prompt_tokens": 31,
+    "raw_prompt_token_ids": [
+      144277,
+      103426,
+      108169,
+      95967,
+      236,
+      124094,
+      26076,
+      96212,
+      103182,
+      108076,
+      96799,
+      24273,
+      95761,
+      104224,
+      109276,
+      95726,
+      111104,
+      115110,
+      10992
+    ],
+    "raw_prompt_tokens": 19,
+    "rendered_input": "<|im_start|>user\n为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+    "tokenizer_files": {
+      "chat_template.jinja": "a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715",
+      "config.json": "d0883072e01861ed0b2d47be3c16c36a8e81c224c7ffaa310c6558fb3f932b05",
+      "tokenizer.json": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+      "tokenizer_config.json": "316230d6a809701f4db5ea8f8fc862bc3a6f3229c937c174e674ff3ca0a64ac8"
+    },
+    "workload_kind": "qwen35-chat-template-nonthinking"
+  }
+}

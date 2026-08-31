@@ -39,10 +39,18 @@ non-thinking 输入 31 token，greedy 输出 64 token，BF16、TP1、并发 1。
 | 9B correctness/coverage | 当前 wheel 的 3 个 fresh start 全部完成；每个 10/10 请求和 strict teacher-forced trace 通过 |
 | model-forward coverage | 已通过 trace：33,448 compute calls = 31,400 手写 PyPTO + 2,048 Inductor PyPTO，unknown/fallback 0，100% |
 | 0.8B current wheel | stock reference + 3 个 candidate fresh start 全部完成；每个 trace 22,108/22,108 covered calls = 20,572 手写 + 1,536 Inductor |
-| PyPTO output throughput | 四次 fresh start 的诊断中位数 2.6671 tok/s；资源复核后 3/4 start 低于 4 GiB GPU free floor，不能作为正式 headline |
-| matched SGLang | 同一诊断 pair 的中位数 15.4100 tok/s；baseline start 本身完整，但 pair 因 candidate 资源违规和 offload 控制变量不一致而整体不接受 |
-| PyPTO / matched | 诊断比值 17.31%，95% CI [17.22%, 17.45%]；正式比值待资源及控制变量均合规后重测 |
-| optimized SGLang | 未报告；CUDA-graph 配置在本机低于 4 GiB free-memory 门禁 |
+| PyPTO output throughput | **正式资源合规 pair：2.4124 tok/s**（四次 fresh-start 中位数） |
+| matched SGLang | **正式资源合规 pair：15.3708 tok/s**（同 workload/control） |
+| PyPTO / matched | **15.695%**，95% bootstrap CI **[15.634%, 15.753%]**；相对 matched 为 **-84.305%** |
+| Pair acceptance | `accepted=true`；8 个 start 全部高于 4 GiB GPU-free/12 GiB host-free floor，控制字段零 mismatch |
+| Cold/compile-trigger | PyPTO `16164.45/29252.20 ms`；matched `15316.70/23815.46 ms`；前者比后者高 **22.83%**（含一次完整 31+64 请求，不是 compiler-only） |
+| 历史失效 pair | 旧 `2.6671/15.4100 tok/s`、17.31% 已移至 `qwen35-9b-performance-pair-invalidated-20260830.json`，只作诊断对照 |
+| optimized SGLang | 未报告；本轮 CUDA-graph capture 到 4000 MiB free 时被 4096 MiB controller floor 停止（run `pypto-gpu-bounded-20260831T034327Z-2531381-964f87`） |
+
+optimized 的未晋级探测也保留在同一 diagnostic sidecar：`0.68` 因 GDN
+state cache 无法容纳一个请求而失败；`0.685` 在 graph capture 期间降到
+2454 MiB free；3/4 GiB CPU offload 分别在 4088/3784 MiB 被门禁停止。它们都
+没有性能报告，正式 2 GiB offload、0.69 配置不变。
 
 accepted trace 的 artifact union 与 model-forward compute intersection：
 
@@ -51,24 +59,23 @@ accepted trace 的 artifact union 与 model-forward compute intersection：
 | Qwen3.5-0.8B | 22,108 | 20,572 | 1,536 | 0 | 100% |
 | Qwen3.5-9B | 33,448 | 31,400 | 2,048 | 0 | 100% |
 
-整模四-start 诊断中位数（不作为正式发布 headline）：
+整模正式 pair 的四次 fresh-start 汇总（每次先取十个请求的 p50）：
 
 | lane | E2E | TTFT | TPOT | output tok/s | cold engine | 首次编译触发请求 |
 |---|---:|---:|---:|---:|---:|---:|
-| PyPTO | 23996.36 ms | 3154.40 ms | 330.86 ms | 2.6671 | 13578.98 ms | 25982.23 ms |
-| matched | 4153.16 ms | 69.81 ms | 64.61 ms | 15.4100 | 15208.36 ms | 24013.73 ms |
+| PyPTO | 26529.17 ms | 3159.24 ms | 370.86 ms | 2.4124 | 16164.45 ms | 29252.20 ms |
+| matched | 4163.75 ms | 70.10 ms | 64.97 ms | 15.3708 | 15316.70 ms | 23815.46 ms |
 
 首次编译触发请求包含编译和一个完整 31+64 请求，不是 compiler-only 时间。
-高频 NVML 复核记录的 PyPTO 最低 free 为 4,185,067,520 B，低于
-4,294,967,296 B 门禁 109,899,776 B；前三个 start 均低于门禁。因此上述
-时序值保留为可复现诊断数据，但 pair 状态是 `invalidated-resource-and-control`，正式
-matched 比值必须重测。旧 pair 还使用了 PyPTO `cpu_offload_gb=0`、matched
-`cpu_offload_gb=2`；新的 performance-only 配置把两条 lane 统一为
-`cpu_offload_gb=2, mem_fraction_static=0.78`，而 correctness 配置保持不变。
-首次修正后的 PyPTO 资格 start 被随后自动启动的受保护 host-heavy 任务触发
-emergency floor 中止，没有生成性能 report；见
-state/evidence/matched-performance-qualification-current.json。controller 现在会在
-这类任务出现时立即停止自己的 run，而不会等待主机内存跌穿或发送外部信号。
+正式 pair 的 PyPTO 最低 GPU free 为 `5,123,887,104 B`，最低主机可用内存为
+`47,233,052 KiB`；8 个 start 均通过 4 GiB/12 GiB 门禁且未观测 thermal throttle。
+两条 lane 统一为 `cpu_offload_gb=2, mem_fraction_static=0.78`，控制字段零 mismatch。
+旧的失效 pair 仍保留为
+`state/evidence/qwen35-9b-performance-pair-invalidated-20260830.json`，不能与当前
+正式结果混用。资格与 pair 绑定见
+`state/evidence/matched-performance-qualification-current.json`。
+该旧报告的状态仍明确为 `invalidated-resource-and-control`；当前正式报告状态为
+`complete` 且 `acceptance.accepted=true`。
 完整 JSON 为
 state/evidence/qwen35-9b-performance-pair-current.json；模型 gate
 sidecar 为 state/evidence/qwen35-0.8b-model-gate-current.json 和
@@ -79,8 +86,8 @@ state/evidence/qwen35-9b-inductor-source-current.json。
 state/evidence/qwen35-9b-eager-compile-ablation-current.json。
 
 整模 eager control 也已单独运行一次：关闭 torch.compile、保持 matched provider，
-output 15.3418 tok/s、E2E 4171.67 ms；失效 pair 中 matched compile-request
-的诊断中位数为 15.4100 tok/s、4153.16 ms。但 matched 配置禁用 CUDA Graph 后
+output 15.3418 tok/s、E2E 4171.67 ms；正式 pair 中 matched compile-request
+的中位数为 15.3708 tok/s、4163.75 ms。但 matched 配置禁用 CUDA Graph 后
 CompilerInterface/Inductor 实际未调用，因此这不是有效的整模 compile 因果加速率；
 machine-readable 记录为 state/evidence/qwen35-9b-eager-compile-ablation-current.json。
 
@@ -179,6 +186,40 @@ compiled mode 都把 6 events 降到 1，launch reduction 83.33%。PyPTO 首调�
 
 这些是逻辑功能对齐的 microbenchmark；它们解释了当前整模慢的主要来源，
 不能被外推成 PyPTO 加速。
+
+### 全模型 CUPTI 描述性 breakdown
+
+严格三 lane（PyPTO、matched、optimized）的编译执行 profile 仍是独立门禁；
+为了先给出可核查的阶段证据，我们另外采集了 3 个 PyPTO 和 3 个
+`sglang-matched` fresh start，每个 start 5 个请求、每个请求 64 个
+`ModelRunner.forward` 窗口。matched 的配置保留了 `enable_torch_compile=true`，
+但关闭 CUDA Graph 后本 pinned SGLang 没有调用 CompilerInterface，因此下面
+只表示 stock CUDA kernel 的描述性 CUPTI 活动，不是 Inductor 编译或加速证明。
+
+| forward compute（每请求 GPU activity duration） | PyPTO p50 | stock matched p50 | 差值 |
+|---|---:|---:|---:|
+| 全部 compute | 22.318812 ms | 1.285792 ms | +21.033020 ms |
+| `unattributed_compute` | 20.184082 ms | 0.435080 ms | +19.749002 ms |
+| `attention_core_gate` | 1.154360 ms | 0.003228 ms | +1.151132 ms |
+| `lm_head` | 0.931866 ms | 0 ms（未形成同名关联） | +0.931866 ms |
+
+`unattributed_compute` 和表中 stock 的 0 并不表示对应算子没有执行；它们
+表示当前 external-correlation/module-hook 规则没有把活动映射到同一逻辑名。
+阶段差值之和为 `21.031480 ms`，与总差值的 `1.539578 ms` 中位数残差来自
+分别取阶段/总量中位数。完整 phase、CI、每个 raw CUPTI trace 的 SHA 和资源
+边界见 [`qwen35-9b-descriptive-stock-profile-breakdown-current.json`](state/evidence/qwen35-9b-descriptive-stock-profile-breakdown-current.json)。
+该 sidecar 可由以下显式模式重建（不会改变严格三 lane matrix）：
+
+```bash
+envs/pypto-release/bin/python tools/profile_qwen35.py collect \
+  --lane sglang-matched --model-path models/Qwen3.5-9B \
+  --optimized-memory-mode matched --allow-noncompiled-matched
+envs/pypto-release/bin/python tools/profile_qwen35.py reconcile \
+  --allow-noncompiled-matched \
+  --profile pypto=runs/<pypto-start>/qwen35-9b-profile-pypto.json \
+  --profile sglang-matched=runs/<matched-start>/qwen35-9b-profile-sglang-matched.json \
+  --output runs/<breakdown>/descriptive-reconciliation.json
+```
 
 用户要求所有消融/breakdown 图用 GPT-Image-2。当前环境没有 OPENAI_API_KEY，
 所以保持 PENDING_GPT_IMAGE2，不用其他模型替代；提示词和 provenance 见
@@ -315,16 +356,19 @@ envs/pypto-release/bin/python tools/run_article_demo.py \
 
 `--backend ascend` 的设备阶段在本机受 `simpler_setup`/`KernelType.MIX` 阻断，
 报告中的 blocker 不是精度通过。硬件通信、CCE、NPU/ACL 和 simpler runtime
-入口在 NVIDIA 矩阵中明确跳过，不伪造结果。典型 demo 的成功 PowerShell 捕获仍缺：
-
-- PENDING_SCREENSHOT: docs/assets/screenshots/article-demo-typical.png
+入口在 NVIDIA 矩阵中明确跳过，不伪造结果。典型 `hello_world.py` 已在真实
+Windows Terminal 的 Ubuntu/PowerShell-purple 窗口中运行，`exit_code=0`，并显示
+`strict-pypto-nvidia`、`golden_pass=True`、`fallback_used=False` 和
+`max_abs_diff=0.0`。截图及窗口 metadata 由
+[`article-demo-screenshot-manifest-current.json`](state/evidence/article-demo-screenshot-manifest-current.json)
+绑定，PNG 为 1549×925；失败的黑屏尝试未被采用。
 
 Windows Terminal GUI capture 已通过非黑像素 smoke；performance 角色已用当前
 immutable ablation JSON 重新捕获并绑定窗口尺寸、命令、时间和 PNG SHA。
 model 角色严格校验并回放三次已接受的 9B run，截图明确标注不是 live rerun；
 build 覆盖 wheel build、install/pip-check 和 CTest 13/13 三阶段；operator
 也以同样方式校验并回放已接受的原始证据；article demo 的计算矩阵已完成，
-GUI 角色等待真实窗口。四个已完成角色均绑定 command source、数值/运行 evidence、capture
+GUI 角色也已完成。五个已完成角色均绑定 command source、数值/运行 evidence、capture
 metadata 和 PNG SHA。PowerShell 模板：
 tools/windows/capture_terminal.ps1。
 
@@ -336,6 +380,8 @@ tools/windows/capture_terminal.ps1。
 
 ![9B SwiGLU 算子级消融](docs/assets/screenshots/performance-ablation.png)
 
+![典型 hello_world.py 严格 NVIDIA demo](docs/assets/screenshots/article-demo-typical.png)
+
 模型固定 prompt：
 
 为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？
@@ -344,9 +390,10 @@ tools/windows/capture_terminal.ps1。
 
 只验证 SM120/RTX 5090 Laptop；静态 shape/stride specialization；完整 MLP
 不跨 matmul 融合；GDN 长 prefill 为有序 tokenwise launch；PyPTO matmul/
-LM-head/launch overhead 尚未优化；optimized lane、全模型 CUPTI/NVTX profile、
-资源合规的 matched 四-start 重测、未映射模型 demo、GPT-Image-2 图像和
-article-demo PowerShell 角色截图仍是门禁。
+LM-head/launch overhead 尚未优化；optimized lane、严格三 lane 全模型
+CUPTI/NVTX profile、未映射模型 demo 和 GPT-Image-2 图像仍是门禁。资源合规的
+PyPTO/matched 四-start pair 已接受，
+其非编译 matched 的描述性阶段 profile 见对应 sidecar。
 TensorIR 上游为 early release。
 
 PyPTO 使用 CANN Open Software License Agreement 2.0；TensorIR 使用 Apache

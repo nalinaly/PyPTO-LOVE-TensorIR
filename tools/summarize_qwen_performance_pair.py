@@ -197,6 +197,25 @@ def summarize_records(
         operation="ratio",
         salt="qwen35-pair:pypto-vs-matched:output-rate",
     )
+    all_records = pypto + matched
+    minimum_gpu_free = min(
+        int(record["resources"]["minimum_gpu_memory_free_bytes"])
+        for record in all_records
+    )
+    starts_below_floor = sum(
+        int(record["resources"]["minimum_gpu_memory_free_bytes"])
+        < GPU_FREE_FLOOR_BYTES
+        for record in all_records
+    )
+    minimum_host_free = min(
+        int(record["resources"]["minimum_mem_available_kib"])
+        for record in all_records
+    )
+    thermal_throttle = any(
+        bool(record["resources"]["thermal_throttle_observed"])
+        for record in all_records
+    )
+    control_mismatches = comparability.get("control_mismatches", [])
     return {
         "schema": 1,
         "kind": "qwen35-9b-performance-pair-summary",
@@ -209,6 +228,35 @@ def summarize_records(
             "source_lock_sha256": sha256_file(ROOT / "vendor/source-lock.json"),
         },
         "workload": workload_record(),
+        "acceptance": {
+            "accepted": (
+                starts_below_floor == 0
+                and minimum_host_free >= 12 * 1024**2
+                and not thermal_throttle
+                and comparability.get("matched_claim_allowed") is True
+            ),
+            "status": "resource-and-control-compliant",
+            "evidence_boundary": (
+                "Four fresh starts per lane are summarized at start level; all "
+                "high-frequency resource summaries must stay above the 4 GiB GPU "
+                "and 12 GiB host floors, and listed matched controls must agree."
+            ),
+            "required_gpu_free_bytes": GPU_FREE_FLOOR_BYTES,
+            "minimum_observed_gpu_free_bytes": minimum_gpu_free,
+            "starts_below_floor": starts_below_floor,
+            "starts_total": len(all_records),
+            "required_host_free_kib": 12 * 1024**2,
+            "minimum_observed_host_free_kib": minimum_host_free,
+            "thermal_throttle_observed": thermal_throttle,
+            "control_comparability": {
+                "accepted": comparability.get("matched_claim_allowed") is True,
+                "mismatches": control_mismatches,
+            },
+            "configuration": {
+                "pypto": lanes["pypto"]["memory_qualifications"][0],
+                "sglang_matched": lanes["sglang-matched"]["memory_qualifications"][0],
+            },
+        },
         "lanes": lanes,
         "comparison": {
             "throughput_metric": "output_tokens_per_second",

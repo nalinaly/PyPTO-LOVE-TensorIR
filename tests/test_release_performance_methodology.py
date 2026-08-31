@@ -458,6 +458,46 @@ def test_profile_reconciliation_uses_the_same_fresh_start_unit() -> None:
     assert result["matched_comparability"]["matched_claim_allowed"] is True
 
 
+def test_descriptive_profile_reconciliation_preserves_noncompiled_boundary() -> None:
+    profiles = {
+        lane: [_profile_report(lane, start, 1_000_000.0) for start in range(3)]
+        for lane in ("pypto", "sglang-matched")
+    }
+    for report in profiles["sglang-matched"]:
+        report["profile_scope"] = "descriptive-stock-noncompiled"
+        report["compilation"] = {
+            "requested": True,
+            "effective": False,
+            "acceptance_scope": "descriptive-stock-noncompiled",
+        }
+    result = profile_runtime.reconcile(
+        profiles, allow_noncompiled_matched=True
+    )
+    assert result["status"] == "complete"
+    assert result["kind"] == "qwen35-9b-descriptive-stock-profile-breakdown"
+    assert result["profile_scope"] == "descriptive-stock-noncompiled"
+    assert set(result["comparisons"]) == {"sglang-matched"}
+    assert "does not establish a torch.compile" in result["evidence_boundary"]
+
+
+def test_strict_profile_reconciliation_rejects_noncompiled_matched() -> None:
+    profiles = {
+        lane: [_profile_report(lane, start, 1_000_000.0) for start in range(3)]
+        for lane in workload.LANES
+    }
+    for report in profiles["sglang-matched"]:
+        report["profile_scope"] = "descriptive-stock-noncompiled"
+        report["compilation"] = {
+            "requested": True,
+            "effective": False,
+            "acceptance_scope": "descriptive-stock-noncompiled",
+        }
+    with pytest.raises(
+        workload.ReleaseContractError, match="compiled execution for sglang-matched"
+    ):
+        profile_runtime.reconcile(profiles)
+
+
 def test_profile_reconciliation_records_unmatched_controls_before_failing() -> None:
     profiles = {
         lane: [_profile_report(lane, start, 1_000_000.0) for start in range(3)]

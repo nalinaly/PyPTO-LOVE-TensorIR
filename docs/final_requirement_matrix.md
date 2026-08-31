@@ -21,22 +21,23 @@ HTML are local deliverables; the matrix itself is a publication audit.
 | Performance-only regression entry points | run_performance_regression.py, run_operator_performance.py, run_inductor_ablation.py | PASS |
 | Eager versus official NV Inductor ablation | qwen35-9b-inductor-ablation-current.json | PASS at SwiGLU operator scope |
 | Eager versus PyPTO Inductor ablation | qwen35-9b-inductor-ablation-current.json | PASS at SwiGLU operator scope; PyPTO is slower |
-| Cold-start and compile-time comparison | Inductor ablation JSON plus invalidated full-model pair | PASS at operator scope; full-model cold timings are diagnostic until the resource-compliant rerun |
+| Cold-start and compile-time comparison | Inductor ablation JSON plus accepted full-model pair | PASS for resource-qualified pair; full-model compile-trigger wall time includes one complete 31+64 request and is not compiler-only |
 | Full-model eager control | qwen35-9b-eager-compile-ablation-current.json | PASS as non-causal control; CompilerInterface was not invoked |
-| End-to-end PyPTO versus matched stock | qwen35-9b-performance-pair-current.json; matched-performance-qualification-current.json | OPEN: old diagnostic pair violated resource/control gates; first corrected qualification was interrupted by a newly started protected host-heavy workload |
-| End-to-end PyPTO versus optimized stock | optimized lane run attempts; optimized-lane-diagnostic-current.json; formal run pypto-gpu-bounded-20260830T161746Z-2433114-b55eb2 | OPEN: historical attempts failed resource/telemetry qualification; NVML fallback is fixed, but a protected-heavy-free window is unavailable; no percentage promoted |
+| End-to-end PyPTO versus matched stock | qwen35-9b-performance-pair-current.json; matched-performance-qualification-current.json | PASS: 4+4 fresh starts, `accepted=true`, zero floor/control violations; PyPTO is 15.695% of matched (CI 15.634%-15.753%) |
+| End-to-end PyPTO versus optimized stock | optimized-lane-diagnostic-current.json; formal run pypto-gpu-bounded-20260831T034327Z-2531381-964f87 plus four non-promoted probes | OPEN: current matched-memory CUDA-graph capture reached 4000 MiB GPU free and was stopped by the 4096 MiB floor; 0.68/0.685 and 3/4 GiB-offload probes also produced no report; no percentage promoted |
 | Operator performance breakdown | release-operator-ab aggregation.json, 7 aligned cases | PASS |
-| Full-model CUPTI/NVTX phase breakdown | profile attempt 20260830T152705Z; corrected performance-only profile envelope | OPEN: prior zero-offload attempt failed KV-cache qualification; corrected profile awaits an accepted pair and protected-heavy-free window |
+| Full-model CUPTI/NVTX phase breakdown | strict three-lane profile contract; corrected performance-only profile envelope | OPEN: accepted pair is available; optimized/strict compiled profile still awaits a completed protected-heavy-free run |
+| Descriptive stock CUDA phase breakdown | qwen35-9b-descriptive-stock-profile-breakdown-current.json; 3+3 fresh starts, raw CUPTI trace hashes | PASS with explicit non-causal boundary: matched requested compile but CompilerInterface was not invoked; phase zeros/unattributed activity are not execution claims |
 | Linked article URL and unchanged source import | demo/pypto-lib/SOURCE_MANIFEST.json | PASS: 151 files, 66 entrypoints, byte hashes |
 | Article-demo compatibility policy and source-line classification | state/evidence/article-demo-compatibility-policy-current.json; manifest SHA | PASS: 66/66 entries classified; 17 hardware API skips, 8 drafts, 31 unmapped model computations, 10 teaching computations covered |
 | Run computational linked demos with precision on NVIDIA | state/evidence/article-demo-matrix-nvidia-current.json; run_article_demo_nvidia.py | PASS for 10/10 teaching computations; strict PyPTO artifact 1/1, independent CUDA references 9/9; hardware APIs are explicitly skipped |
 | Run every linked article demo unchanged with precision | article demo matrix reports | PARTIAL by user-authorized hardware boundary: unchanged source/help audit is complete; hardware-facing entries are skipped and 31 model computations await bounded adapters |
-| Typical demo README and result screenshot | demo/README.md, demo/README_EN.md, screenshot manifest | PARTIAL: strict hello result and golden evidence pass; GUI capture still requires a real Ubuntu/PowerShell window |
-| Four requested terminal roles plus typical demo | current five-role screenshot manifest | PARTIAL: build/operator/model are hash-validated accepted-run evidence replays; performance is current operator evidence; article-demo GUI role remains open |
+| Typical demo README and result screenshot | demo/README.md, demo/README_EN.md, screenshot manifest | PASS: strict hello result/golden evidence and real Ubuntu/PowerShell-purple `PrintWindow` capture are hash-bound |
+| Four requested terminal roles plus typical demo | current five-role screenshot manifest | PASS: build/operator/model are hash-validated accepted-run evidence replays; performance is current operator evidence; article-demo GUI role is a completed live run |
 | GPT-Image-2 visuals for ablations/breakdowns | gpt-image2-ablation-prompts-20260829.json | OPEN: OPENAI_API_KEY absent; no model substitution |
 | Bilingual README parity and language switch | README.md, README_EN.md | PASS by audit; both use current numbers |
 | Single-file offline HTML | reports/local-blog/*.html, 5 embedded data images | PASS; browser viewport automation unavailable in this environment |
-| Plan persistence | PLAN.md revision-67 checkpoint and memory ad-hoc note | PASS |
+| Plan persistence | PLAN.md revision-68 checkpoint and memory ad-hoc note | PASS |
 | README/reproduction commit boundary | commits c336cfa/cfeb10c; origin/release/qwen35-sm120-v1 | PASS; blog/HTML/probes excluded |
 
 Open items are intentionally not converted into PASS by wording, placeholders,

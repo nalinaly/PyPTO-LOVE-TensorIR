@@ -1,28 +1,69 @@
 {
-  "schema": 1,
+  "schema": 2,
   "kind": "qwen35-9b-matched-performance-qualification",
-  "status": "open",
-  "accepted": false,
+  "status": "complete",
+  "accepted": true,
+  "acceptance": {
+    "status": "resource-and-control-compliant",
+    "pair_summary": "state/evidence/qwen35-9b-performance-pair-current.json",
+    "pair_summary_sha256": "9bba9f798b9cff9bb0b632b3f000ec2cb91b690319d54c8abd7fd723f45d383f",
+    "required_gpu_free_bytes": 4294967296,
+    "minimum_observed_gpu_free_bytes": 5123887104,
+    "required_host_free_kib": 12582912,
+    "minimum_observed_host_free_kib": 47233052,
+    "starts_below_floor": 0,
+    "starts_total": 8,
+    "thermal_throttle_observed": false,
+    "control_mismatches": []
+  },
   "attempts": [
     {
-      "run_id": "pypto-gpu-bounded-20260830T174802Z-2458897-84463a",
+      "run_id": "pypto-gpu-bounded-20260831T022854Z-2515879-0a604a",
       "lane": "pypto",
       "configuration": {
         "cpu_offload_gb": 2,
         "mem_fraction_static": 0.78,
         "optimized_memory_mode": "matched"
       },
-      "status": "aborted",
-      "abort_reason": "host-memory-emergency-floor",
-      "initial_mem_available_kib": 59807616,
-      "minimum_mem_available_kib": 8734536,
-      "latest_gpu_free_mib": 6045,
-      "external_nvidia_compute_pids": [],
-      "performance_report": null,
-      "environment_observation": "A protected zcode Qwen3.5-9B TP4/gem5 workload started after this run was admitted and drove host memory below the emergency floor.",
-      "raw_process_evidence": "runs/pypto-gpu-bounded-20260830T174802Z-2458897-84463a/process.json"
+      "status": "complete",
+      "abort_reason": null,
+      "performance_report": "runs/pypto-gpu-bounded-20260831T022854Z-2515879-0a604a/qwen35-9b-performance-pypto.json",
+      "performance_report_sha256": "e572ae9e374b3f91a0570d3f65214c29e14a412680ef6014b621e695a7acec6b",
+      "resources": {
+        "minimum_gpu_memory_free_bytes": 5787824128,
+        "minimum_mem_available_kib": 53109484,
+        "thermal_throttle_observed": false
+      },
+      "raw_process_evidence": "runs/pypto-gpu-bounded-20260831T022854Z-2515879-0a604a/process.json",
+      "raw_process_evidence_sha256": "50807d62a1b431c698bfb1ccb46fc353a2aeeb43a1ea14454410cb520880d279"
+    },
+    {
+      "run_id": "pypto-gpu-bounded-20260831T023607Z-2517976-de65a2",
+      "lane": "sglang-matched",
+      "configuration": {
+        "cpu_offload_gb": 2,
+        "mem_fraction_static": 0.78,
+        "optimized_memory_mode": "matched"
+      },
+      "status": "complete",
+      "abort_reason": null,
+      "performance_report": "runs/pypto-gpu-bounded-20260831T023607Z-2517976-de65a2/qwen35-9b-performance-sglang-matched.json",
+      "performance_report_sha256": "f9e7a63c5dff0ab0b62c808ba37646b67e5f35e5304055deb68ed87e0c7545b8",
+      "resources": {
+        "minimum_gpu_memory_free_bytes": 5132869632,
+        "minimum_mem_available_kib": 48155132,
+        "thermal_throttle_observed": false
+      },
+      "raw_process_evidence": "runs/pypto-gpu-bounded-20260831T023607Z-2517976-de65a2/process.json",
+      "raw_process_evidence_sha256": "827791ceb728154b1269350c684e280abc09b259cc385ed0423d842793ca9b76"
     }
   ],
+  "pair_matrix": {
+    "summary": "runs/release-performance-pair-matrix-20260831T032213Z-2518947-4b3cdd/summary.json",
+    "summary_sha256": "2c5ac605ffd0fc60b7b86454e282e6b0357e01584fa8bd3e84eb9a6072a35fc9",
+    "aggregation": "runs/release-performance-pair-matrix-20260831T032213Z-2518947-4b3cdd/aggregation.json",
+    "aggregation_sha256": "473f6e2a8e90c7ee9b436c5f771e780831bafa1316ce98455fea5905fb96956a"
+  },
   "current_controller_policy": {
     "controller_sha256": "9ad4c2b319102d48b34dfa0aba8ecf4de1653e9891831c109350d634c3887be5",
     "protected_heavy_required_absent": true,
@@ -30,5 +71,5 @@
     "external_process_signals": false,
     "evidence_boundary": "The controller rejects a protected heavy workload at admission or runtime and only cleans its own verified session."
   },
-  "next_step": "After heavy preflight stays green, run one PyPTO and one sglang-matched qualification start, then the independent eight-start pair matrix."
+  "next_step": "Use the accepted pair for the full optimized lane and CUPTI/NVTX profile; do not overwrite the raw starts."
 }

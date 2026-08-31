@@ -425,18 +425,31 @@ def _source_identity(root: Path) -> dict[str, object]:
 
 
 def _gpu_identity() -> dict[str, object]:
-    completed = subprocess.run(
-        [
-            "nvidia-smi",
-            "--query-gpu=name,uuid,compute_cap,memory.total,driver_version",
-            "--format=csv,noheader,nounits",
-        ],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-        timeout=10,
-    )
+    command = [
+        "nvidia-smi",
+        "--query-gpu=name,uuid,compute_cap,memory.total,driver_version",
+        "--format=csv,noheader,nounits",
+    ]
+    timeout_error: subprocess.TimeoutExpired | None = None
+    completed = None
+    for timeout_seconds in (10, 30):
+        try:
+            completed = subprocess.run(
+                command,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                timeout=timeout_seconds,
+            )
+            break
+        except subprocess.TimeoutExpired as error:
+            timeout_error = error
+    if completed is None:
+        raise ReleaseContractError(
+            "nvidia-smi identity query timed out after bounded retries: "
+            f"{timeout_error}"
+        ) from timeout_error
     if completed.returncode != 0:
         raise ReleaseContractError(
             completed.stderr.strip() or "nvidia-smi identity query failed"
