@@ -10,11 +10,9 @@
   "open_gates": [
     "optimized stock lane has no accepted sample",
     "full-model CUPTI/NVTX profile awaits a completed protected-heavy-free run",
-    "31 model article-demo compute entries have no bounded NVIDIA adapter",
-    "article demo device runtime is Ascend-only for hardware-facing entries in this environment",
     "GPT-Image-2 generation awaits local API authorization"
   ],
-  "recorded_at": "2026-08-31T06:55:18.234472+00:00",
+  "recorded_at": "2026-08-31T13:47:32.521568+00:00",
   "schema": 2,
   "status": "pass"
 }

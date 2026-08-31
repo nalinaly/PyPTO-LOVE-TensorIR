@@ -19,11 +19,11 @@ envs/pypto-release/bin/python tools/run_article_demo_matrix.py \
   --output state/evidence/article-demo-matrix-nvidia-current.json
 ~~~
 
-当前真机结果为 10/10 个教学计算入口通过（9 个独立 CUDA 数值参考，
-`hello_world.py` 额外通过严格 PyPTO -> TensorIR -> CUDA Tile artifact），
-`allreduce.py` 因分布式通信 API 跳过。矩阵保留 17 个硬件 API 跳过、8 个
-draft，以及 31 个尚无有界 NVIDIA adapter 的模型计算入口；这些条目不会被
-计入“严格 NVIDIA 编译通过”。报告中的 `compatibility_status` 和每条
+当前真机结果为全部 41 个计算入口通过：40 个独立 CUDA 数值参考，以及
+`hello_world.py` 的严格 PyPTO -> TensorIR -> CUDA Tile artifact。矩阵保留
+17 个硬件 API 跳过和 8 个 provenance-only draft；不再有未映射计算入口。
+这些 CUDA reference 不计入“严格 NVIDIA 编译通过”。报告中的
+`compatibility_status=complete` 和每条
 `hardware_api_evidence` 是发布判断依据。
 
 典型严格入口：
@@ -39,7 +39,7 @@ envs/pypto-release/bin/python tools/run_article_demo_nvidia.py \
 `fallback_used=False`；当前真机 `y` 的 `max_abs_diff=0.0`。其报告绑定导入源 SHA、策略 SHA、编译 artifact/cubin
 SHA 和 128-element tile；输入源码仍保持不变。
 
-其他 9 个教学入口使用独立 CUDA Torch 参考实现验证数学结果，报告明确写入
+其他 40 个计算入口使用独立 CUDA Torch 参考实现验证数学结果，报告明确写入
 `strict_compiler_evidence=false`，不能替代严格 PyPTO 编译证据。这一分层是
 为了让读者可以在 NVIDIA 上学习计算语义，同时不把 Ascend orchestration 或
 CPU/golden-only 结果误报成后端支持。

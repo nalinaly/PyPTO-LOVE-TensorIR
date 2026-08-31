@@ -1,8 +1,8 @@
 # PLAN
 
-**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `68`
+**Plan:** `PYPTO-NVIDIA-QWEN35-V1`, revision `73`
 
-## Current phase: accepted matched pair, optimized/profile qualification, computational demo closure, and publication
+## Current phase: computational demos closed; optimized/profile qualification and final image publication remain
 
 ## User-brief audit and release-plan closure (2026-08-30, revision 57)
 
@@ -2054,3 +2054,56 @@ The document audit now reports five open gates rather than six: optimized
 stock, strict three-lane compiled profile, 31 unmapped model computations, the
 user-authorized skip for real Ascend hardware APIs, and GPT-Image-2. The image
 generation step remains paused and last, pending the user's new key.
+
+---
+# Complete computational article-demo checkpoint: 2026-08-31 (revision 72)
+
+The user-authorized article boundary is now complete. The immutable corpus is
+still 151 files and 66 entrypoints at upstream
+`6c292d30ccc787ee4e1fe61541fd3faec0dafa65`; the manifest and full corpus hashes
+are identical before and after the final NVIDIA matrix. The external policy now
+classifies 1 strict PyPTO computation, 40 independent CUDA-reference
+computations, 17 source-evidenced hardware-API skips and 8 provenance-only
+drafts. `computational-unmapped` is absent and the matrix reports
+`compatibility_status=complete`.
+
+All 41 computational child processes passed on the RTX 5090. Each child binds
+the unchanged source record, policy, adapter source hash, seed, shapes/dtypes,
+named golden, per-output tolerance/comparison mode, raw error counts and
+`golden_pass=true`. The strict `hello_world.py` child additionally binds the
+PyPTO artifact/Cubin and `fallback_used=false`; all 40 CUDA references retain
+`strict_compiler_evidence=false`. The reference coverage includes every
+teaching example plus Qwen3 sampling and the DeepSeek V4 compressor, indexer,
+sparse-attention, HC, MoE, decode and prefill composition entrypoints.
+
+The full fail-closed matrix has 41 pass and 25 skip records, no failures, and
+zero unmapped entries. The 25 skips are exactly the 17 real distributed/CCE/
+NPU/ACL/Ascend-runtime APIs allowed by the user plus 8 source-excluded drafts;
+none is represented as a numerical pass. The document audit now treats the
+article computation requirement as closed. Remaining publication gates are
+only optimized stock, the strict three-lane full-model profile, and
+GPT-Image-2 authorization. Image generation remains paused and must be the
+last action after the user changes the key.
+
+---
+# Remaining performance-gate audit: 2026-08-31 (revision 73)
+
+No further resource-safe optimized/profile experiment is available under the
+frozen comparison contract on this 24,463 MiB GPU. The formal optimized start
+and four diagnostic memory envelopes remain non-accepted. A source-bound audit
+of pinned SGLang's official relief paths adds two negative results without
+changing the environment: `torch-memory-saver` is absent from the locked
+baseline prefix and SGLang raises if it is requested; post-capture KV sizing is
+disabled by `ServerArgs.post_capture_kv_sizing_planned()` because the formal
+lane intentionally disables the prefill CUDA graph. Installing an unpinned
+package, enabling a different prefill graph, changing serving mode or lowering
+the 4 GiB controller floor would alter or weaken the experiment, so none was
+done.
+
+The strict three-lane profile consequently remains open because it requires an
+accepted optimized start. The independent 3+3 descriptive PyPTO/matched CUPTI
+breakdown remains valid only within its explicit noncompiled-matched boundary.
+All repository-side article-demo work is complete and the final document audit
+passes with exactly three open gates: optimized stock, strict three-lane
+profile, and GPT-Image-2 authorization. GPT-Image-2 remains paused and is the
+next/final action only after the user provides the new process-local key.

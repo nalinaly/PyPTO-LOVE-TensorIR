@@ -19,13 +19,12 @@ envs/pypto-release/bin/python tools/run_article_demo_matrix.py \
   --output state/evidence/article-demo-matrix-nvidia-current.json
 ~~~
 
-The current RTX 5090 result passes all 10 teaching computational entries (nine
-independent CUDA numerical references and an additional strict
-PyPTO -> TensorIR -> CUDA Tile artifact for `hello_world.py`). `allreduce.py` is
-skipped because it uses a distributed communication API. The matrix also
-retains 17 hardware-API skips, eight drafts, and 31 model computational entries
-without a bounded NVIDIA adapter. Those entries are not counted as strict
-NVIDIA compiler passes. `compatibility_status` and each
+The current RTX 5090 result passes all 41 computational entries: 40 independent
+CUDA numerical references and one strict PyPTO -> TensorIR -> CUDA Tile artifact
+for `hello_world.py`. The matrix retains 17 hardware-API skips and eight
+provenance-only drafts; no computational entry remains unmapped. CUDA reference
+entries are not counted as strict NVIDIA compiler passes.
+`compatibility_status=complete` and each
 `hardware_api_evidence` field are the release decision boundary.
 
 Typical strict entry:
@@ -42,7 +41,7 @@ and `fallback_used=False`; the current `y` result has `max_abs_diff=0.0`. The re
 artifact/cubin hashes, and the 128-element tile; the upstream source remains
 unchanged.
 
-The other nine teaching entries use independent CUDA Torch references for their
+The other 40 computational entries use independent CUDA Torch references for their
 mathematical results. Their reports explicitly set
 `strict_compiler_evidence=false`; they do not replace strict PyPTO compiler
 evidence. This split lets readers study computational semantics on NVIDIA

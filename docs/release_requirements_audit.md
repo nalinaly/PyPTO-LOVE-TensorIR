@@ -7,8 +7,9 @@ release item.
 
 Current machine-readable audit: state/evidence/blog-requirements-audit-current.json
 (status=pass, with explicit open gates for optimized stock, full-model
-CUPTI/NVTX profile, hardware-facing article-demo runtime, 31 unmapped model
-demos, and GPT-Image-2 authorization). The five screenshot roles are complete;
+CUPTI/NVTX profile, and GPT-Image-2 authorization). All 41 computational
+article entries pass on NVIDIA; 17 hardware-API entries are accepted skips and
+eight drafts remain provenance-only. The five screenshot roles are complete;
 the resource-qualified
 matched pair is now accepted; the item-by-item mapping is
 docs/final_requirement_matrix.md; this checklist remains the detailed review
@@ -26,7 +27,7 @@ template and is not permission to promote an open item.
 - [ ] The exact CANN license wording, PyPTO/TensorIR public URLs, interview
       speaker/title, approximately 2:34:00 passage, and the WeChat article URL
       are source-checked; paraphrase is not presented as a verbatim quote.
-- [ ] Every article demo is pinned by upstream commit/path/hash/license and its
+- [x] Every article demo is pinned by upstream commit/path/hash/license and its
       source is byte-for-byte identical before and after compatibility runs.
 - [ ] Written authorization for public NVIDIA use/distribution has been
       reviewed before any push; non-commercial intent and interview remarks
@@ -68,15 +69,15 @@ template and is not permission to promote an open item.
       graphs and the Inductor SwiGLU at real 0.8B/9B shapes.
 - [ ] Correctness reports include dtype, shape, stride, seed, tolerance,
       revision, DSO identity, state mutation, and raw error metrics.
-- [ ] The external article-demo policy classifies every entrypoint against the
+- [x] The external article-demo policy classifies every entrypoint against the
       byte-locked source: computational entries have a named NVIDIA adapter;
       entries using distributed, CCE, NPU/ACL, or simpler hardware APIs carry
       source-line evidence and are explicitly skipped.
-- [ ] Every supported teaching computation compiles/runs (where marked strict)
+- [x] Every supported computation compiles/runs (where marked strict)
       or performs an independent CUDA numerical reference check. Reference-only
       results are never described as strict PyPTO compiler evidence.
-- [ ] Draft/transitive non-entrypoint files and unmapped model computations are
-      distinguished from supported demos and remain visible in the denominator.
+- [x] Draft/transitive non-entrypoint files remain provenance-only and visible
+      in the denominator; no computational entry remains unmapped.
 - [ ] Clean stock SGLang produces a frozen reference before candidate
       measurement.
 - [ ] Qwen3.5-0.8B and 9B complete multi-token prefill/decode correctness.

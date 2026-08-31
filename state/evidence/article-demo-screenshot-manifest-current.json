@@ -5,21 +5,21 @@
     "status": "pass"
   },
   "kind": "article-demo-screenshot-manifest",
-  "recorded_at": "2026-08-31T06:43:12.206472+00:00",
+  "recorded_at": "2026-08-31T13:31:14.853082+00:00",
   "schema": 1,
   "screenshots": {
     "article-demo-typical": {
       "caption_en": "Ubuntu/PowerShell purple terminal: strict NVIDIA compatibility run of unchanged hello_world.py with a PyPTO artifact and passing golden comparison.",
       "caption_zh": "Ubuntu/PowerShell 紫色终端：未改写 hello_world.py 的严格 NVIDIA 兼容运行、PyPTO artifact 与 golden 精度通过。",
       "capture_evidence": "state/evidence/article-demo-typical-capture-current.json",
-      "capture_evidence_sha256": "521bcbb221303cc72f97fb380067aacead66630924aa786379a09b09bdf00a19",
+      "capture_evidence_sha256": "2cc4d38dc94a700e72ff30181a7402c2bb2afcb3cbaa8424af7a70d3bc4c7bd2",
       "command": "envs/pypto-release/bin/python -B tools/run_article_demo_nvidia.py --demo examples/beginner/hello_world.py --device 0 --run-id article-demo-nvidia-hello-screenshot --output state/evidence/article-demos-nvidia/011-hello_world-screenshot.json",
       "command_source": "tools/run_article_demo_nvidia.py",
-      "command_source_sha256": "5b2c7fcc02c31266ff9c56b7074f5a0e3ab4e3338be1e6688dedbf482122c580",
+      "command_source_sha256": "6fc452a1f16042a2b36f0c391d8a859682c678d23baae96afd1778c85851f59e",
       "evidence": "state/evidence/article-demos-nvidia/011-hello_world-screenshot.json",
-      "evidence_sha256": "3d5a9f4742990cba6a32a0653bf2db058aea494ec1f159c5749f3d8706d3bbb8",
+      "evidence_sha256": "00f2987df99ef88e5c71cf3ed2869de9659f0559a98c9f7e275c7a3b7dbfb1e2",
       "path": "docs/assets/screenshots/article-demo-typical.png",
-      "sha256": "313e602d50c750b8ab396e8f00bb8ceb80a0d192280f82ce11c164739c3764c6",
+      "sha256": "f96d12ab763a66806129a521b5b87a7c8f2f1f717d6144cf90c6dacb74af455c",
       "status": "current-live-run"
     },
     "build": {

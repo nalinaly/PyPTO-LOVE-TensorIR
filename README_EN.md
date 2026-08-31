@@ -55,7 +55,10 @@ The non-promoted optimized probes are retained in the same diagnostic sidecar:
 `0.68` left the GDN state cache unable to serve one request; `0.685` reached
 2454 MiB free during graph capture; 3/4 GiB CPU offload reached 4088/3784 MiB
 before the floor. None produced a performance report, and the formal 2 GiB
-offload/0.69 configuration is unchanged.
+offload/0.69 configuration is unchanged. The official memory-saver dependency
+is absent from the locked environment, while post-capture KV sizing is
+incompatible with the formal disabled-prefill-graph contract; no temporary
+package install or serving-mode change was used to bypass the gate.
 
 Artifact-union versus model-forward compute intersection for accepted traces:
 
@@ -358,14 +361,18 @@ envs/pypto-release/bin/python tools/run_article_demo_matrix.py \
   --output state/evidence/article-demo-matrix-nvidia-current.json
 ~~~
 
-The current RTX 5090 result passes all 10 teaching computational entries (nine
-independent CUDA numerical references and an additional strict PyPTO -> TensorIR
--> CUDA Tile artifact for `hello_world.py`). `allreduce.py` is skipped because it
-uses a real distributed API. The full 66-entry matrix also retains 17 hardware-API
-skips, eight drafts, and 31 model computational entries without a bounded NVIDIA
-adapter; the latter two groups are not counted as strict NVIDIA compiler passes.
-`compatibility_status`, `hardware_api_evidence`, and the before/after manifest
+The current RTX 5090 result passes all 41 computational entries: 40 independent
+CUDA numerical references plus one strict PyPTO -> TensorIR -> CUDA Tile artifact
+for `hello_world.py`. Seventeen communication, CCE, NPU/ACL, or Ascend-runtime
+hardware-API entries are skipped under the supported boundary, and eight drafts
+remain provenance-only. `computational_unmapped_count=0`;
+`compatibility_status=complete`, `hardware_api_evidence`, and the before/after manifest
 hashes are the release gate.
+
+The 40 CUDA references cover nine teaching examples, two Qwen3 sampling
+entries, and 29 DeepSeek V4 compressor/indexer/sparse-attention/HC/MoE/decode/
+prefill computations. Every child report records per-output tolerances and
+error counts.
 
 Typical strict computational entry:
 
@@ -378,7 +385,7 @@ envs/pypto-release/bin/python tools/run_article_demo_nvidia.py \
 The terminal prints `strict-pypto-nvidia`, `golden_pass=True`, the artifact name,
 and `fallback_used=False`. The report binds imported-source and policy hashes,
 artifact/cubin hashes, and the 128-element tile; the upstream file is never
-rewritten. The other nine teaching reports explicitly set
+rewritten. The other 40 computational reports explicitly set
 `strict_compiler_evidence=false`: they are independent CUDA Torch numerical
 references for studying computational semantics, not strict PyPTO compiler
 evidence.
@@ -432,8 +439,8 @@ Fixed model prompt:
 Only SM120/RTX 5090 Laptop is validated. Shapes and strides are statically
 specialized; the complete MLP is not fused across matmul; long GDN prefill is
 token-ordered; PyPTO matmul/LM-head/launch overhead remains to be optimized.
-The optimized lane, strict three-lane full-model CUPTI/NVTX profile, unmapped
-model demos, and GPT-Image-2 assets remain publication gates. The
+The optimized lane, strict three-lane full-model CUPTI/NVTX profile, and
+GPT-Image-2 assets remain publication gates. The
 resource-qualified PyPTO/matched four-start pair
 is accepted; its noncompiled matched descriptive phase profile is recorded in
 the corresponding sidecar.

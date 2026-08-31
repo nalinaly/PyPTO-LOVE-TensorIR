@@ -90,6 +90,12 @@ def check_demo_docs(errors: list[str]) -> None:
             errors.append(f"{relative} misses the typical demo screenshot")
         if "PENDING_SCREENSHOT" in text:
             errors.append(f"{relative} retains a stale pending screenshot marker")
+        if (
+            "41" not in text
+            or "40" not in text
+            or ("unmapped" not in text.lower() and "未映射" not in text)
+        ):
+            errors.append(f"{relative} misses the complete computational denominator")
 
 
 def check_demo_compatibility(errors: list[str]) -> None:
@@ -122,8 +128,7 @@ def check_demo_compatibility(errors: list[str]) -> None:
         return
     counts = policy.get("counts", {})
     expected_counts = {
-        "computational-cuda-reference": 9,
-        "computational-unmapped": 31,
+        "computational-cuda-reference": 40,
         "hardware-api-skipped": 17,
         "source-excluded": 8,
         "strict-pypto-nvidia": 1,
@@ -154,11 +159,73 @@ def check_demo_compatibility(errors: list[str]) -> None:
         or matrix.get("corpus_sha256_after") != corpus_sha
         or matrix.get("compatibility_policy", {}).get("sha256") != sha256(policy_path)
         or matrix.get("strict_nvidia_pass_count") != 1
-        or matrix.get("computational_reference_pass_count") != 9
+        or matrix.get("computational_reference_pass_count") != 40
         or matrix.get("hardware_api_skipped_count") != 17
-        or matrix.get("computational_unmapped_count") != 31
+        or matrix.get("computational_unmapped_count") != 0
+        or matrix.get("compatibility_status") != "complete"
     ):
         errors.append("current NVIDIA article-demo matrix is incomplete or stale")
+        return
+    runner_path = ROOT / "tools/run_article_demo_nvidia.py"
+    runner_sha = sha256(runner_path)
+    computational_records = 0
+    for record in matrix.get("results", []):
+        if not isinstance(record, dict):
+            errors.append("article-demo matrix result is not an object")
+            continue
+        mode = record.get("compatibility_mode")
+        if mode not in {"strict-pypto-nvidia", "computational-cuda-reference"}:
+            continue
+        computational_records += 1
+        child_path = ROOT / str(record.get("child_report", ""))
+        child = load(child_path, errors)
+        if child is None:
+            continue
+        strict = mode == "strict-pypto-nvidia"
+        outputs = child.get("outputs")
+        if (
+            record.get("status") != "pass"
+            or record.get("golden_pass") is not True
+            or not child_path.is_file()
+            or record.get("child_report_sha256") != sha256(child_path)
+            or child.get("status") != "pass"
+            or child.get("golden_pass") is not True
+            or child.get("strict_compiler_evidence") is not strict
+            or child.get("compatibility", {}).get("mode") != mode
+            or child.get("source") != record.get("source")
+            or child.get("adapter_source", {}).get("path")
+            != "tools/run_article_demo_nvidia.py"
+            or child.get("adapter_source", {}).get("sha256") != runner_sha
+            or not isinstance(outputs, list)
+            or not outputs
+            or any(
+                not isinstance(output, dict)
+                or output.get("ok") is not True
+                or not isinstance(output.get("rtol"), (int, float))
+                or not isinstance(output.get("atol"), (int, float))
+                or not isinstance(output.get("error_count"), int)
+                or not isinstance(output.get("allowed_error_count"), int)
+                for output in outputs
+            )
+        ):
+            errors.append(f"article-demo child evidence drifted: {record.get('path')}")
+        if strict:
+            artifact = child.get("artifact")
+            if (
+                not isinstance(artifact, dict)
+                or artifact.get("fallback_used") is not False
+                or not artifact.get("artifact_sha256")
+                or not artifact.get("cubin_sha256")
+            ):
+                errors.append("strict article-demo artifact evidence is incomplete")
+        elif child.get("artifact") is not None:
+            errors.append(
+                f"CUDA reference was promoted to artifact evidence: {record.get('path')}"
+            )
+    if computational_records != 41:
+        errors.append(
+            f"article-demo computational child count drifted: {computational_records}"
+        )
 
 
 def check_screenshots(errors: list[str]) -> None:
@@ -430,6 +497,7 @@ def check_performance(errors: list[str]) -> None:
     )
     if optimized is not None:
         optimized_attempts = optimized.get("attempts")
+        memory_relief = optimized.get("official_memory_relief_audit", {})
         latest = (
             optimized_attempts[-1]
             if isinstance(optimized_attempts, list) and optimized_attempts
@@ -444,6 +512,25 @@ def check_performance(errors: list[str]) -> None:
             or latest.get("controller_observation", {}).get("latest_gpu_free_mib")
             != 4000
             or latest.get("performance_report") is not None
+            or memory_relief.get("status")
+            != "not-applicable-with-current-formal-contract"
+            or memory_relief.get("torch_memory_saver", {}).get(
+                "installed_in_sglang_baseline"
+            )
+            is not False
+            or memory_relief.get("torch_memory_saver", {}).get(
+                "adapter_source_sha256"
+            )
+            != sha256(
+                ROOT
+                / ".sources/sglang/python/sglang/srt/utils/torch_memory_saver_adapter.py"
+            )
+            or memory_relief.get("post_capture_kv_sizing", {}).get("enabled")
+            is not False
+            or memory_relief.get("post_capture_kv_sizing", {}).get(
+                "server_args_source_sha256"
+            )
+            != sha256(ROOT / ".sources/sglang/python/sglang/srt/server_args.py")
         ):
             errors.append("optimized lane current resource boundary drifted")
     source = load(ROOT / "state/evidence/qwen35-9b-inductor-source-current.json", errors)
@@ -648,6 +735,8 @@ def main() -> int:
                 errors.append(f"{name} misses the article-demo compatibility policy")
             if "strict-pypto-nvidia" not in text:
                 errors.append(f"{name} misses the strict computational demo mode")
+            if "computational_unmapped_count=0" not in text:
+                errors.append(f"{name} misses the closed computational demo denominator")
             if "15.695" not in text or "-84.305" not in text:
                 errors.append(f"{name} misses the accepted full-model pair metrics")
             if "--optimized-memory-mode zero-offload" in text:
@@ -682,7 +771,7 @@ def main() -> int:
         marker in matrix_text
         for marker in (
             "End-to-end PyPTO versus optimized stock",
-            "current matched-memory CUDA-graph capture reached 4000 MiB GPU free",
+            "graph capture reached 4000 MiB",
             "no percentage promoted",
         )
     ):
@@ -690,8 +779,6 @@ def main() -> int:
     blockers = [
         "optimized stock lane has no accepted sample",
         "full-model CUPTI/NVTX profile awaits a completed protected-heavy-free run",
-        "31 model article-demo compute entries have no bounded NVIDIA adapter",
-        "article demo device runtime is Ascend-only for hardware-facing entries in this environment",
         "GPT-Image-2 generation awaits local API authorization",
     ]
     screenshot_manifest = ROOT / "state/evidence/article-demo-screenshot-manifest-current.json"

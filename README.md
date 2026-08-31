@@ -50,7 +50,9 @@ non-thinking 输入 31 token，greedy 输出 64 token，BF16、TP1、并发 1。
 optimized 的未晋级探测也保留在同一 diagnostic sidecar：`0.68` 因 GDN
 state cache 无法容纳一个请求而失败；`0.685` 在 graph capture 期间降到
 2454 MiB free；3/4 GiB CPU offload 分别在 4088/3784 MiB 被门禁停止。它们都
-没有性能报告，正式 2 GiB offload、0.69 配置不变。
+没有性能报告，正式 2 GiB offload、0.69 配置不变。官方 memory-saver 依赖未
+进入锁定环境，post-capture KV sizing 又与当前 disabled prefill graph 合同不兼容，
+因此未用临时装包或改 serving mode 绕过门禁。
 
 accepted trace 的 artifact union 与 model-forward compute intersection：
 
@@ -321,12 +323,15 @@ envs/pypto-release/bin/python tools/run_article_demo_matrix.py \
   --output state/evidence/article-demo-matrix-nvidia-current.json
 ~~~
 
-当前 RTX 5090 真机结果：10/10 个教学计算入口通过（9 个独立 CUDA 数值参考，
-`hello_world.py` 另有严格 PyPTO -> TensorIR -> CUDA Tile artifact）；通信
-`allreduce.py` 因真实分布式 API 跳过。全量 66 入口还保留 17 个硬件 API 跳过、
-8 个 draft 和 31 个没有有界 NVIDIA adapter 的模型计算入口；后两类不会被
-计为严格 NVIDIA 编译通过。矩阵的 `compatibility_status`、
+当前 RTX 5090 真机结果：全部 41 个计算入口通过（40 个独立 CUDA 数值参考，
+`hello_world.py` 另有严格 PyPTO -> TensorIR -> CUDA Tile artifact）；17 个通信、
+CCE、NPU/ACL 或 Ascend runtime 硬件 API 入口按支持边界跳过，8 个 draft 仅保留
+provenance。`computational_unmapped_count=0`，矩阵的 `compatibility_status=complete`、
 `hardware_api_evidence`、manifest 前后 SHA 是发布门禁。
+
+40 个 CUDA reference 覆盖 9 个教学例子、2 个 Qwen3 sampling，以及 29 个
+DeepSeek V4 compressor/indexer/sparse-attention/HC/MoE/decode/prefill 计算入口；
+每份 child report 都记录逐输出容差和误差计数。
 
 典型严格计算入口：
 
@@ -339,7 +344,7 @@ envs/pypto-release/bin/python tools/run_article_demo_nvidia.py \
 
 终端应显示 `strict-pypto-nvidia`、`golden_pass=True`、artifact 名称和
 `fallback_used=False`；当前真机 `y` 的 `max_abs_diff=0.0`。报告绑定导入源/策略 SHA、artifact/cubin SHA 和
-128-element tile，原始文件不被改写。其余 9 个教学入口的报告显式写入
+128-element tile，原始文件不被改写。其余 40 个计算入口的报告显式写入
 `strict_compiler_evidence=false`，它们是独立 CUDA Torch 数值参考，用于在
 NVIDIA 上学习计算语义，不能替代严格 PyPTO 编译证据。
 
@@ -391,7 +396,7 @@ tools/windows/capture_terminal.ps1。
 只验证 SM120/RTX 5090 Laptop；静态 shape/stride specialization；完整 MLP
 不跨 matmul 融合；GDN 长 prefill 为有序 tokenwise launch；PyPTO matmul/
 LM-head/launch overhead 尚未优化；optimized lane、严格三 lane 全模型
-CUPTI/NVTX profile、未映射模型 demo 和 GPT-Image-2 图像仍是门禁。资源合规的
+CUPTI/NVTX profile 和 GPT-Image-2 图像仍是门禁。资源合规的
 PyPTO/matched 四-start pair 已接受，
 其非编译 matched 的描述性阶段 profile 见对应 sidecar。
 TensorIR 上游为 early release。
