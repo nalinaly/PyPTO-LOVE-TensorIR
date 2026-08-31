@@ -1793,7 +1793,7 @@
     "profile_runtime_sha256": "91a160113f9a52abbd7f684b844376274d429f35d6183710d8afc7f4fcbdc814",
     "profile_tool": "tools/profile_qwen35.py",
     "profile_tool_sha256": "32d3cf352ba38a6a9f46cd07191df1219e239266f276c4e21ccd8c76bbca615d",
-    "repository_head": "cc6434cc536b4cc4e4bd72c3cc0786352b011559",
+    "repository_head": "5ee571d3cbee442cfbaf9c1d688f933241b399dd",
     "source_lock": "vendor/source-lock.json",
     "source_lock_sha256": "c3f5b6f0693eb593943d894c79a652b1ee5a90990c8eea003a49115bb5bbc1bc"
   },
