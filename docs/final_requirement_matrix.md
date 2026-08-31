@@ -37,7 +37,7 @@ HTML are local deliverables; the matrix itself is a publication audit.
 | Bilingual README parity and language switch | README.md, README_EN.md | PASS by audit; both use current numbers |
 | Single-file offline HTML | reports/local-blog/*.html, 5 embedded data images | PASS; browser viewport automation unavailable in this environment |
 | Plan persistence | PLAN.md revision-67 checkpoint and memory ad-hoc note | PASS |
-| README/reproduction commit boundary | commit b4eae99; origin/release/qwen35-sm120-v1 | PASS; blog/HTML/probes excluded |
+| README/reproduction commit boundary | commits c336cfa/cfeb10c; origin/release/qwen35-sm120-v1 | PASS; blog/HTML/probes excluded |
 
 Open items are intentionally not converted into PASS by wording, placeholders,
 or historical checkpoints.

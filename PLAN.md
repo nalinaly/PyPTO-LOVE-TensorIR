@@ -1516,9 +1516,10 @@ Resume order:
    hashes.
 3. Re-run the final audit and render_blog.py. Do not stage the local blog/HTML
    or diagnostic probes.
-4. Completed: staged only the authorized README/reproduction deliverables,
-   excluded the local blog/HTML/probes, committed b4eae99, and pushed
-   origin/release/qwen35-sm120-v1.
+4. Historical checkpoint: staged only the then-authorized README/reproduction
+   deliverables, excluded the local blog/HTML/probes, committed b4eae99, and
+   pushed origin/release/qwen35-sm120-v1. The current article-demo revision is
+   c336cfa/cfeb10c.
 
 ---
 # Requirement-audit checkpoint: 2026-08-30 (revision 59)
