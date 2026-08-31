@@ -1,0 +1,202 @@
+{
+  "adapter": "computational-cuda-reference",
+  "adapter_source": {
+    "path": "tools/run_article_demo_nvidia.py",
+    "sha256": "6fc452a1f16042a2b36f0c391d8a859682c678d23baae96afd1778c85851f59e"
+  },
+  "article_url": "https://mp.weixin.qq.com/s/7tLlTbomH9OqyUbZDbBEhQ",
+  "compatibility": {
+    "adapter": "deepseek_prefill_compressor_ratio4_reference",
+    "mode": "computational-cuda-reference",
+    "policy_sha256": "2424b6c0693073e9a4ab69299d5cd555507e694c7a3dfdeec65d799d771734e2",
+    "reason": "bounded computational teaching example; compatibility adapter is outside imported source"
+  },
+  "device_index": 0,
+  "elapsed_seconds": 1.670327287982218,
+  "golden": {
+    "function": "golden_prefill_compressor_ratio4",
+    "outputs": [
+      "compress_state",
+      "cmp_kv"
+    ]
+  },
+  "golden_pass": true,
+  "inputs": [
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "x",
+      "shape": [
+        128,
+        4096
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": true,
+      "name": "compress_state",
+      "shape": [
+        65,
+        4,
+        2048
+      ]
+    },
+    {
+      "dtype": "torch.int32",
+      "is_output": false,
+      "name": "compress_state_block_table",
+      "shape": [
+        4096
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "wkv",
+      "shape": [
+        1024,
+        4096
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "wgate",
+      "shape": [
+        1024,
+        4096
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "ape",
+      "shape": [
+        4,
+        1024
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "norm_w",
+      "shape": [
+        512
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "freqs_cos",
+      "shape": [
+        16384,
+        64
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "freqs_sin",
+      "shape": [
+        16384,
+        64
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": true,
+      "name": "cmp_kv",
+      "shape": [
+        32,
+        32,
+        1,
+        512
+      ]
+    },
+    {
+      "dtype": "torch.int32",
+      "is_output": false,
+      "name": "position_ids",
+      "shape": [
+        128
+      ]
+    },
+    {
+      "dtype": "torch.int32",
+      "is_output": false,
+      "name": "num_tokens",
+      "shape": []
+    },
+    {
+      "dtype": "torch.int64",
+      "is_output": false,
+      "name": "cmp_slot_mapping",
+      "shape": [
+        128
+      ]
+    },
+    {
+      "dtype": "torch.int64",
+      "is_output": false,
+      "name": "state_slot_mapping",
+      "shape": [
+        128
+      ]
+    }
+  ],
+  "kind": "article-demo-nvidia-run",
+  "outputs": [
+    {
+      "allowed_error_count": 0,
+      "atol": 0.001,
+      "dtype": "torch.float32",
+      "error_count": 0,
+      "max_abs_diff": 1.1920928955078125e-07,
+      "max_error_ratio": 0.0,
+      "name": "compress_state",
+      "ok": true,
+      "rtol": 0.001,
+      "shape": [
+        65,
+        4,
+        2048
+      ]
+    },
+    {
+      "allowed_error_count": 0,
+      "atol": 0.0001,
+      "dtype": "torch.bfloat16",
+      "error_count": 0,
+      "max_abs_diff": 0.001953125,
+      "max_error_ratio": 0.0,
+      "name": "cmp_kv",
+      "ok": true,
+      "rtol": 0.0078125,
+      "shape": [
+        32,
+        32,
+        1,
+        512
+      ]
+    }
+  ],
+  "run_id": "article-demo-nvidia-036",
+  "schema": 2,
+  "seed": 20260831,
+  "source": {
+    "bytes": 33053,
+    "path": "models/deepseek_v4_flash_mtp/prefill_compressor_ratio4.py",
+    "sha256": "f593ba0b379a23e9a47bdfa1c1b8519778b7edf65079a7eac01a0e963130ecf8"
+  },
+  "stages": {
+    "compatibility_compile": "independent-cuda-reference",
+    "device_execution": "pass",
+    "golden_reference": "pass",
+    "input_generation": "pass",
+    "precision_compare": "pass",
+    "source_audit": "pass"
+  },
+  "status": "pass",
+  "strict_compiler_evidence": false,
+  "upstream_commit": "6c292d30ccc787ee4e1fe61541fd3faec0dafa65"
+}

@@ -8,8 +8,7 @@
   "article_url": "https://mp.weixin.qq.com/s/7tLlTbomH9OqyUbZDbBEhQ",
   "corpus_sha256": "e96cf020d17c6adb2ce45d249c0284896df876280520bc7ed2723979a71bdfa6",
   "counts": {
-    "computational-cuda-reference": 9,
-    "computational-unmapped": 31,
+    "computational-cuda-reference": 40,
     "hardware-api-skipped": 17,
     "source-excluded": 8,
     "strict-pypto-nvidia": 1
@@ -175,12 +174,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_decode_compressor_ratio128_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/decode_compressor_ratio128.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 29718,
         "path": "models/deepseek_v4_flash_mtp/decode_compressor_ratio128.py",
@@ -188,12 +187,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_decode_compressor_ratio4_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/decode_compressor_ratio4.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 29158,
         "path": "models/deepseek_v4_flash_mtp/decode_compressor_ratio4.py",
@@ -201,12 +200,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_decode_csa_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/decode_csa.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 45107,
         "path": "models/deepseek_v4_flash_mtp/decode_csa.py",
@@ -262,12 +261,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_decode_hca_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/decode_hca.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 33237,
         "path": "models/deepseek_v4_flash_mtp/decode_hca.py",
@@ -275,12 +274,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_decode_indexer_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/decode_indexer.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 40926,
         "path": "models/deepseek_v4_flash_mtp/decode_indexer.py",
@@ -288,12 +287,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_decode_indexer_compressor_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/decode_indexer_compressor.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 33433,
         "path": "models/deepseek_v4_flash_mtp/decode_indexer_compressor.py",
@@ -349,12 +348,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_decode_sparse_csa_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/decode_sparse_attn_csa.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 45980,
         "path": "models/deepseek_v4_flash_mtp/decode_sparse_attn_csa.py",
@@ -362,12 +361,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_decode_sparse_hca_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/decode_sparse_attn_hca.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 42998,
         "path": "models/deepseek_v4_flash_mtp/decode_sparse_attn_hca.py",
@@ -375,12 +374,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_decode_sparse_swa_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/decode_sparse_attn_swa.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 35187,
         "path": "models/deepseek_v4_flash_mtp/decode_sparse_attn_swa.py",
@@ -388,12 +387,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_decode_swa_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/decode_swa.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 22231,
         "path": "models/deepseek_v4_flash_mtp/decode_swa.py",
@@ -401,12 +400,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_expert_routed_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/expert_routed.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 24730,
         "path": "models/deepseek_v4_flash_mtp/expert_routed.py",
@@ -414,12 +413,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_expert_shared_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/expert_shared.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 18827,
         "path": "models/deepseek_v4_flash_mtp/expert_shared.py",
@@ -427,12 +426,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_gate_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/gate.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 23110,
         "path": "models/deepseek_v4_flash_mtp/gate.py",
@@ -440,12 +439,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_hc_head_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/hc_head.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 10611,
         "path": "models/deepseek_v4_flash_mtp/hc_head.py",
@@ -453,12 +452,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_hc_post_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/hc_post.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 9750,
         "path": "models/deepseek_v4_flash_mtp/hc_post.py",
@@ -466,12 +465,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_hc_pre_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/hc_pre.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 22150,
         "path": "models/deepseek_v4_flash_mtp/hc_pre.py",
@@ -503,12 +502,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_lookup_embedding_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/lookup_embedding.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 4759,
         "path": "models/deepseek_v4_flash_mtp/lookup_embedding.py",
@@ -540,12 +539,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_mtp_projection_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/mtp_projection.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 18357,
         "path": "models/deepseek_v4_flash_mtp/mtp_projection.py",
@@ -553,12 +552,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_prefill_compressor_ratio128_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/prefill_compressor_ratio128.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 25809,
         "path": "models/deepseek_v4_flash_mtp/prefill_compressor_ratio128.py",
@@ -566,12 +565,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_prefill_compressor_ratio4_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/prefill_compressor_ratio4.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 33053,
         "path": "models/deepseek_v4_flash_mtp/prefill_compressor_ratio4.py",
@@ -723,12 +722,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_prefill_csa_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/prefill_csa.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 46190,
         "path": "models/deepseek_v4_flash_mtp/prefill_csa.py",
@@ -760,12 +759,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_prefill_hca_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/prefill_hca.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 32207,
         "path": "models/deepseek_v4_flash_mtp/prefill_hca.py",
@@ -773,12 +772,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_prefill_indexer_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/prefill_indexer.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 58616,
         "path": "models/deepseek_v4_flash_mtp/prefill_indexer.py",
@@ -786,12 +785,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_prefill_indexer_compressor_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/prefill_indexer_compressor.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 43629,
         "path": "models/deepseek_v4_flash_mtp/prefill_indexer_compressor.py",
@@ -847,12 +846,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_prefill_sparse_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/prefill_sparse_attn.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 41828,
         "path": "models/deepseek_v4_flash_mtp/prefill_sparse_attn.py",
@@ -860,12 +859,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_prefill_swa_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/prefill_swa.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 22957,
         "path": "models/deepseek_v4_flash_mtp/prefill_swa.py",
@@ -873,12 +872,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_qkv_proj_rope_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/qkv_proj_rope.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 33312,
         "path": "models/deepseek_v4_flash_mtp/qkv_proj_rope.py",
@@ -886,12 +885,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_rmsnorm_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/rmsnorm.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 6158,
         "path": "models/deepseek_v4_flash_mtp/rmsnorm.py",
@@ -899,12 +898,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "deepseek_sample_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/deepseek_v4_flash_mtp/sample.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 32408,
         "path": "models/deepseek_v4_flash_mtp/sample.py",
@@ -976,12 +975,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "qwen3_greedy_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/qwen3_14b/greedy_sample.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 7649,
         "path": "models/qwen3_14b/greedy_sample.py",
@@ -1083,12 +1082,12 @@
       }
     },
     {
-      "adapter": null,
-      "compatibility_mode": "computational-unmapped",
+      "adapter": "qwen3_topk_reference",
+      "compatibility_mode": "computational-cuda-reference",
       "hardware_api_evidence": [],
       "original_execution_policy": "runnable",
       "path": "models/qwen3_14b/topk_select.py",
-      "reason": "computational entrypoint has no bounded NVIDIA adapter; retained and reported explicitly",
+      "reason": "bounded computational teaching example; compatibility adapter is outside imported source",
       "source": {
         "bytes": 18063,
         "path": "models/qwen3_14b/topk_select.py",

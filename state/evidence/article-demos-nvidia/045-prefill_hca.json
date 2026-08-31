@@ -1,0 +1,385 @@
+{
+  "adapter": "computational-cuda-reference",
+  "adapter_source": {
+    "path": "tools/run_article_demo_nvidia.py",
+    "sha256": "6fc452a1f16042a2b36f0c391d8a859682c678d23baae96afd1778c85851f59e"
+  },
+  "article_url": "https://mp.weixin.qq.com/s/7tLlTbomH9OqyUbZDbBEhQ",
+  "compatibility": {
+    "adapter": "deepseek_prefill_hca_reference",
+    "mode": "computational-cuda-reference",
+    "policy_sha256": "2424b6c0693073e9a4ab69299d5cd555507e694c7a3dfdeec65d799d771734e2",
+    "reason": "bounded computational teaching example; compatibility adapter is outside imported source"
+  },
+  "device_index": 0,
+  "elapsed_seconds": 4.392886167042889,
+  "golden": {
+    "function": "golden_prefill_attention_hca",
+    "outputs": [
+      "kv_cache",
+      "cmp_kv",
+      "x_out"
+    ]
+  },
+  "golden_pass": true,
+  "inputs": [
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "x_hc",
+      "shape": [
+        128,
+        4,
+        4096
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "hc_attn_fn",
+      "shape": [
+        24,
+        16384
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "hc_attn_scale",
+      "shape": [
+        3
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "hc_attn_base",
+      "shape": [
+        24
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "attn_norm_w",
+      "shape": [
+        4096
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "wq_a",
+      "shape": [
+        4096,
+        1024
+      ]
+    },
+    {
+      "dtype": "torch.int8",
+      "is_output": false,
+      "name": "wq_b",
+      "shape": [
+        1024,
+        32768
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "wq_b_scale",
+      "shape": [
+        32768
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "wkv",
+      "shape": [
+        4096,
+        512
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "gamma_cq",
+      "shape": [
+        1024
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "gamma_ckv",
+      "shape": [
+        512
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "freqs_cos",
+      "shape": [
+        16384,
+        64
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "freqs_sin",
+      "shape": [
+        16384,
+        64
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "cmp_wkv",
+      "shape": [
+        512,
+        4096
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "cmp_wgate",
+      "shape": [
+        512,
+        4096
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "cmp_ape",
+      "shape": [
+        128,
+        512
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "cmp_norm_w",
+      "shape": [
+        512
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "compress_state",
+      "shape": [
+        64,
+        8,
+        1024
+      ]
+    },
+    {
+      "dtype": "torch.int32",
+      "is_output": false,
+      "name": "compress_state_block_table",
+      "shape": [
+        2048
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": true,
+      "name": "kv_cache",
+      "shape": [
+        128,
+        128,
+        1,
+        512
+      ]
+    },
+    {
+      "dtype": "torch.int64",
+      "is_output": false,
+      "name": "ori_slot_mapping",
+      "shape": [
+        128
+      ]
+    },
+    {
+      "dtype": "torch.int32",
+      "is_output": false,
+      "name": "ori_block_table",
+      "shape": [
+        128
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": true,
+      "name": "cmp_kv",
+      "shape": [
+        32,
+        1,
+        1,
+        512
+      ]
+    },
+    {
+      "dtype": "torch.int32",
+      "is_output": false,
+      "name": "cmp_block_table",
+      "shape": [
+        128
+      ]
+    },
+    {
+      "dtype": "torch.int32",
+      "is_output": false,
+      "name": "position_ids",
+      "shape": [
+        128
+      ]
+    },
+    {
+      "dtype": "torch.int64",
+      "is_output": false,
+      "name": "cmp_slot_mapping",
+      "shape": [
+        128
+      ]
+    },
+    {
+      "dtype": "torch.int64",
+      "is_output": false,
+      "name": "state_slot_mapping",
+      "shape": [
+        128
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "attn_sink",
+      "shape": [
+        64
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "wo_a",
+      "shape": [
+        8,
+        1024,
+        4096
+      ]
+    },
+    {
+      "dtype": "torch.int8",
+      "is_output": false,
+      "name": "wo_b",
+      "shape": [
+        4096,
+        8192
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "wo_b_scale",
+      "shape": [
+        4096
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": true,
+      "name": "x_out",
+      "shape": [
+        128,
+        4,
+        4096
+      ]
+    },
+    {
+      "dtype": "torch.int32",
+      "is_output": false,
+      "name": "num_tokens",
+      "shape": []
+    }
+  ],
+  "kind": "article-demo-nvidia-run",
+  "outputs": [
+    {
+      "allowed_error_count": 41943,
+      "atol": 0.0001,
+      "dtype": "torch.bfloat16",
+      "error_count": 3,
+      "max_abs_diff": 0.015625,
+      "max_error_ratio": 0.005,
+      "name": "kv_cache",
+      "ok": true,
+      "rtol": 0.0078125,
+      "shape": [
+        128,
+        128,
+        1,
+        512
+      ]
+    },
+    {
+      "allowed_error_count": 82,
+      "atol": 0.0001,
+      "dtype": "torch.bfloat16",
+      "error_count": 0,
+      "max_abs_diff": 0.00048828125,
+      "max_error_ratio": 0.005,
+      "name": "cmp_kv",
+      "ok": true,
+      "rtol": 0.0078125,
+      "shape": [
+        32,
+        1,
+        1,
+        512
+      ]
+    },
+    {
+      "allowed_error_count": 0,
+      "atol": 0.01,
+      "dtype": "torch.float32",
+      "error_count": 0,
+      "max_abs_diff": 0.0002263127826154232,
+      "max_error_ratio": 0.0,
+      "name": "x_out",
+      "ok": true,
+      "rtol": 0.01,
+      "shape": [
+        128,
+        4,
+        4096
+      ]
+    }
+  ],
+  "run_id": "article-demo-nvidia-045",
+  "schema": 2,
+  "seed": 20260831,
+  "source": {
+    "bytes": 32207,
+    "path": "models/deepseek_v4_flash_mtp/prefill_hca.py",
+    "sha256": "50b5af4018f05ac6896b1f7c2a253f86d0af3354d7d960455efc75110f91f37e"
+  },
+  "stages": {
+    "compatibility_compile": "independent-cuda-reference",
+    "device_execution": "pass",
+    "golden_reference": "pass",
+    "input_generation": "pass",
+    "precision_compare": "pass",
+    "source_audit": "pass"
+  },
+  "status": "pass",
+  "strict_compiler_evidence": false,
+  "upstream_commit": "6c292d30ccc787ee4e1fe61541fd3faec0dafa65"
+}

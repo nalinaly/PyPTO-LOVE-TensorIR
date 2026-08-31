@@ -6,19 +6,17 @@
   },
   "article_url": "https://mp.weixin.qq.com/s/7tLlTbomH9OqyUbZDbBEhQ",
   "compatibility": {
-    "adapter": "multi_proj_reference",
+    "adapter": "deepseek_decode_sparse_swa_reference",
     "mode": "computational-cuda-reference",
     "policy_sha256": "2424b6c0693073e9a4ab69299d5cd555507e694c7a3dfdeec65d799d771734e2",
     "reason": "bounded computational teaching example; compatibility adapter is outside imported source"
   },
   "device_index": 0,
-  "elapsed_seconds": 1.4101777659961954,
+  "elapsed_seconds": 1.0258418380399235,
   "golden": {
-    "function": "golden_qkv_proj",
+    "function": "golden_sparse_attn",
     "outputs": [
-      "q_out",
-      "k_out",
-      "v_out"
+      "attn_out"
     ]
   },
   "golden_pass": true,
@@ -26,64 +24,101 @@
     {
       "dtype": "torch.bfloat16",
       "is_output": false,
-      "name": "x",
+      "name": "q",
       "shape": [
-        16,
-        8192
+        8,
+        64,
+        512
       ]
     },
     {
       "dtype": "torch.bfloat16",
       "is_output": false,
-      "name": "wq",
+      "name": "ori_kv",
       "shape": [
-        8192,
-        8192
+        128,
+        128,
+        1,
+        512
+      ]
+    },
+    {
+      "dtype": "torch.int32",
+      "is_output": false,
+      "name": "swa_indices",
+      "shape": [
+        8,
+        128
+      ]
+    },
+    {
+      "dtype": "torch.int32",
+      "is_output": false,
+      "name": "swa_lens",
+      "shape": [
+        8
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "attn_sink",
+      "shape": [
+        64
       ]
     },
     {
       "dtype": "torch.bfloat16",
       "is_output": false,
-      "name": "wk",
+      "name": "freqs_cos",
       "shape": [
-        8192,
-        8192
+        8,
+        64
       ]
     },
     {
       "dtype": "torch.bfloat16",
       "is_output": false,
-      "name": "wv",
+      "name": "freqs_sin",
       "shape": [
-        8192,
+        8,
+        64
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "wo_a",
+      "shape": [
+        8,
+        1024,
+        4096
+      ]
+    },
+    {
+      "dtype": "torch.int8",
+      "is_output": false,
+      "name": "wo_b",
+      "shape": [
+        4096,
         8192
       ]
     },
     {
       "dtype": "torch.float32",
-      "is_output": true,
-      "name": "q_out",
+      "is_output": false,
+      "name": "wo_b_scale",
       "shape": [
-        16,
-        8192
+        4096
       ]
     },
     {
-      "dtype": "torch.float32",
+      "dtype": "torch.bfloat16",
       "is_output": true,
-      "name": "k_out",
+      "name": "attn_out",
       "shape": [
-        16,
-        8192
-      ]
-    },
-    {
-      "dtype": "torch.float32",
-      "is_output": true,
-      "name": "v_out",
-      "shape": [
-        16,
-        8192
+        8,
+        4096
       ]
     }
   ],
@@ -91,57 +126,27 @@
   "outputs": [
     {
       "allowed_error_count": 0,
-      "atol": 0.0001,
-      "dtype": "torch.float32",
+      "atol": 0.01,
+      "dtype": "torch.bfloat16",
       "error_count": 0,
-      "max_abs_diff": 1.1920928955078125e-07,
+      "max_abs_diff": 3.0517578125e-05,
       "max_error_ratio": 0.0,
-      "name": "q_out",
+      "name": "attn_out",
       "ok": true,
-      "rtol": 0.0001,
+      "rtol": 0.01,
       "shape": [
-        16,
-        8192
-      ]
-    },
-    {
-      "allowed_error_count": 0,
-      "atol": 0.0001,
-      "dtype": "torch.float32",
-      "error_count": 0,
-      "max_abs_diff": 1.4156103134155273e-07,
-      "max_error_ratio": 0.0,
-      "name": "k_out",
-      "ok": true,
-      "rtol": 0.0001,
-      "shape": [
-        16,
-        8192
-      ]
-    },
-    {
-      "allowed_error_count": 0,
-      "atol": 0.0001,
-      "dtype": "torch.float32",
-      "error_count": 0,
-      "max_abs_diff": 1.1175870895385742e-07,
-      "max_error_ratio": 0.0,
-      "name": "v_out",
-      "ok": true,
-      "rtol": 0.0001,
-      "shape": [
-        16,
-        8192
+        8,
+        4096
       ]
     }
   ],
-  "run_id": "article-demo-nvidia-002",
+  "run_id": "article-demo-nvidia-023",
   "schema": 2,
   "seed": 20260831,
   "source": {
-    "bytes": 4328,
-    "path": "examples/advanced/multi_proj.py",
-    "sha256": "8fff720c0d7240fe50b10486387c655fa025c754b8379e8389f82a96367551c3"
+    "bytes": 35187,
+    "path": "models/deepseek_v4_flash_mtp/decode_sparse_attn_swa.py",
+    "sha256": "72547a719c27ca8fc6700e407f657bba2384c6d08358eeb400859a08b2f582bf"
   },
   "stages": {
     "compatibility_compile": "independent-cuda-reference",

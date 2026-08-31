@@ -78,6 +78,130 @@ TEACHING_ADAPTERS: dict[str, dict[str, str]] = {
         "mode": "computational-cuda-reference",
         "adapter": "softmax_reference",
     },
+    "models/qwen3_14b/greedy_sample.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "qwen3_greedy_reference",
+    },
+    "models/qwen3_14b/topk_select.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "qwen3_topk_reference",
+    },
+    "models/deepseek_v4_flash_mtp/rmsnorm.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_rmsnorm_reference",
+    },
+    "models/deepseek_v4_flash_mtp/lookup_embedding.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_lookup_embedding_reference",
+    },
+    "models/deepseek_v4_flash_mtp/hc_pre.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_hc_pre_reference",
+    },
+    "models/deepseek_v4_flash_mtp/hc_post.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_hc_post_reference",
+    },
+    "models/deepseek_v4_flash_mtp/hc_head.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_hc_head_reference",
+    },
+    "models/deepseek_v4_flash_mtp/sample.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_sample_reference",
+    },
+    "models/deepseek_v4_flash_mtp/mtp_projection.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_mtp_projection_reference",
+    },
+    "models/deepseek_v4_flash_mtp/qkv_proj_rope.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_qkv_proj_rope_reference",
+    },
+    "models/deepseek_v4_flash_mtp/gate.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_gate_reference",
+    },
+    "models/deepseek_v4_flash_mtp/expert_shared.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_expert_shared_reference",
+    },
+    "models/deepseek_v4_flash_mtp/expert_routed.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_expert_routed_reference",
+    },
+    "models/deepseek_v4_flash_mtp/decode_compressor_ratio128.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_decode_compressor_ratio128_reference",
+    },
+    "models/deepseek_v4_flash_mtp/decode_compressor_ratio4.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_decode_compressor_ratio4_reference",
+    },
+    "models/deepseek_v4_flash_mtp/prefill_compressor_ratio128.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_prefill_compressor_ratio128_reference",
+    },
+    "models/deepseek_v4_flash_mtp/prefill_compressor_ratio4.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_prefill_compressor_ratio4_reference",
+    },
+    "models/deepseek_v4_flash_mtp/decode_sparse_attn_swa.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_decode_sparse_swa_reference",
+    },
+    "models/deepseek_v4_flash_mtp/decode_sparse_attn_hca.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_decode_sparse_hca_reference",
+    },
+    "models/deepseek_v4_flash_mtp/decode_sparse_attn_csa.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_decode_sparse_csa_reference",
+    },
+    "models/deepseek_v4_flash_mtp/prefill_sparse_attn.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_prefill_sparse_reference",
+    },
+    "models/deepseek_v4_flash_mtp/decode_swa.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_decode_swa_reference",
+    },
+    "models/deepseek_v4_flash_mtp/decode_indexer_compressor.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_decode_indexer_compressor_reference",
+    },
+    "models/deepseek_v4_flash_mtp/prefill_indexer_compressor.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_prefill_indexer_compressor_reference",
+    },
+    "models/deepseek_v4_flash_mtp/decode_indexer.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_decode_indexer_reference",
+    },
+    "models/deepseek_v4_flash_mtp/prefill_indexer.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_prefill_indexer_reference",
+    },
+    "models/deepseek_v4_flash_mtp/decode_hca.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_decode_hca_reference",
+    },
+    "models/deepseek_v4_flash_mtp/decode_csa.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_decode_csa_reference",
+    },
+    "models/deepseek_v4_flash_mtp/prefill_swa.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_prefill_swa_reference",
+    },
+    "models/deepseek_v4_flash_mtp/prefill_hca.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_prefill_hca_reference",
+    },
+    "models/deepseek_v4_flash_mtp/prefill_csa.py": {
+        "mode": "computational-cuda-reference",
+        "adapter": "deepseek_prefill_csa_reference",
+    },
 }
 
 

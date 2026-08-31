@@ -6,19 +6,17 @@
   },
   "article_url": "https://mp.weixin.qq.com/s/7tLlTbomH9OqyUbZDbBEhQ",
   "compatibility": {
-    "adapter": "multi_proj_reference",
+    "adapter": "deepseek_mtp_projection_reference",
     "mode": "computational-cuda-reference",
     "policy_sha256": "2424b6c0693073e9a4ab69299d5cd555507e694c7a3dfdeec65d799d771734e2",
     "reason": "bounded computational teaching example; compatibility adapter is outside imported source"
   },
   "device_index": 0,
-  "elapsed_seconds": 1.4101777659961954,
+  "elapsed_seconds": 0.7940275990404189,
   "golden": {
-    "function": "golden_qkv_proj",
+    "function": "golden_mtp_projection",
     "outputs": [
-      "q_out",
-      "k_out",
-      "v_out"
+      "hidden_states_out"
     ]
   },
   "golden_pass": true,
@@ -26,64 +24,96 @@
     {
       "dtype": "torch.bfloat16",
       "is_output": false,
-      "name": "x",
+      "name": "hidden_states",
       "shape": [
-        16,
-        8192
+        8,
+        4096
       ]
     },
     {
-      "dtype": "torch.bfloat16",
+      "dtype": "torch.float32",
       "is_output": false,
-      "name": "wq",
+      "name": "prev_hidden_states",
       "shape": [
-        8192,
-        8192
+        8,
+        4,
+        4096
       ]
     },
     {
-      "dtype": "torch.bfloat16",
+      "dtype": "torch.float32",
       "is_output": false,
-      "name": "wk",
+      "name": "enorm_w",
       "shape": [
-        8192,
-        8192
+        4096
       ]
     },
     {
-      "dtype": "torch.bfloat16",
+      "dtype": "torch.float32",
       "is_output": false,
-      "name": "wv",
+      "name": "hnorm_w",
       "shape": [
-        8192,
-        8192
+        4096
+      ]
+    },
+    {
+      "dtype": "torch.int8",
+      "is_output": false,
+      "name": "e_proj_w",
+      "shape": [
+        4096,
+        4096
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "e_proj_w_scale",
+      "shape": [
+        4096
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "e_proj_smooth",
+      "shape": [
+        4096
+      ]
+    },
+    {
+      "dtype": "torch.int8",
+      "is_output": false,
+      "name": "h_proj_w",
+      "shape": [
+        4096,
+        4096
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "h_proj_w_scale",
+      "shape": [
+        4096
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "h_proj_smooth",
+      "shape": [
+        4096
       ]
     },
     {
       "dtype": "torch.float32",
       "is_output": true,
-      "name": "q_out",
+      "name": "hidden_states_out",
       "shape": [
-        16,
-        8192
-      ]
-    },
-    {
-      "dtype": "torch.float32",
-      "is_output": true,
-      "name": "k_out",
-      "shape": [
-        16,
-        8192
-      ]
-    },
-    {
-      "dtype": "torch.float32",
-      "is_output": true,
-      "name": "v_out",
-      "shape": [
-        16,
-        8192
+        8,
+        4,
+        4096
       ]
     }
   ],
@@ -91,57 +121,28 @@
   "outputs": [
     {
       "allowed_error_count": 0,
-      "atol": 0.0001,
+      "atol": 0.001,
       "dtype": "torch.float32",
       "error_count": 0,
-      "max_abs_diff": 1.1920928955078125e-07,
+      "max_abs_diff": 0.0002434849739074707,
       "max_error_ratio": 0.0,
-      "name": "q_out",
+      "name": "hidden_states_out",
       "ok": true,
-      "rtol": 0.0001,
+      "rtol": 0.001,
       "shape": [
-        16,
-        8192
-      ]
-    },
-    {
-      "allowed_error_count": 0,
-      "atol": 0.0001,
-      "dtype": "torch.float32",
-      "error_count": 0,
-      "max_abs_diff": 1.4156103134155273e-07,
-      "max_error_ratio": 0.0,
-      "name": "k_out",
-      "ok": true,
-      "rtol": 0.0001,
-      "shape": [
-        16,
-        8192
-      ]
-    },
-    {
-      "allowed_error_count": 0,
-      "atol": 0.0001,
-      "dtype": "torch.float32",
-      "error_count": 0,
-      "max_abs_diff": 1.1175870895385742e-07,
-      "max_error_ratio": 0.0,
-      "name": "v_out",
-      "ok": true,
-      "rtol": 0.0001,
-      "shape": [
-        16,
-        8192
+        8,
+        4,
+        4096
       ]
     }
   ],
-  "run_id": "article-demo-nvidia-002",
+  "run_id": "article-demo-nvidia-034",
   "schema": 2,
   "seed": 20260831,
   "source": {
-    "bytes": 4328,
-    "path": "examples/advanced/multi_proj.py",
-    "sha256": "8fff720c0d7240fe50b10486387c655fa025c754b8379e8389f82a96367551c3"
+    "bytes": 18357,
+    "path": "models/deepseek_v4_flash_mtp/mtp_projection.py",
+    "sha256": "bbdd61b6b0806cd0d21f8e86491e6d5b11c58c2921c8832991c120a9c2088608"
   },
   "stages": {
     "compatibility_compile": "independent-cuda-reference",

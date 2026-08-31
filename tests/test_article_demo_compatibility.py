@@ -23,8 +23,7 @@ def test_policy_is_manifest_bound_and_has_explicit_modes() -> None:
     assert policy["corpus_sha256"] == classify_article_demos.corpus_sha256(manifest)
     assert policy["acceptance"]["imported_source_must_remain_byte_identical"] is True
     assert policy["counts"] == {
-        "computational-cuda-reference": 9,
-        "computational-unmapped": 31,
+        "computational-cuda-reference": 40,
         "hardware-api-skipped": 17,
         "source-excluded": 8,
         "strict-pypto-nvidia": 1,
@@ -54,6 +53,62 @@ def test_strict_example_is_the_only_artifact_claim() -> None:
         "examples/beginner/hello_world.py"
     ]
     assert strict[0]["adapter"] == "hello_world_strict"
+
+
+def test_every_computational_entry_has_a_named_external_adapter() -> None:
+    policy = classify_article_demos.build_policy(
+        classify_article_demos.load_manifest()
+    )
+    computational = [
+        entry
+        for entry in policy["entries"]
+        if entry["compatibility_mode"]
+        in {"strict-pypto-nvidia", "computational-cuda-reference"}
+    ]
+    assert len(computational) == 41
+    assert all(entry["adapter"] for entry in computational)
+    assert not any(
+        entry["compatibility_mode"] == "computational-unmapped"
+        for entry in policy["entries"]
+    )
+    assert set(classify_article_demos.TEACHING_ADAPTERS) == {
+        entry["path"] for entry in computational
+    }
+
+
+def test_current_nvidia_matrix_binds_every_computational_child() -> None:
+    matrix = json.loads(
+        (ROOT / "state/evidence/article-demo-matrix-nvidia-current.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert matrix["status"] == "complete"
+    assert matrix["compatibility_status"] == "complete"
+    assert matrix["strict_nvidia_pass_count"] == 1
+    assert matrix["computational_reference_pass_count"] == 40
+    assert matrix["computational_unmapped_count"] == 0
+    assert matrix["hardware_api_skipped_count"] == 17
+    computational = [
+        record
+        for record in matrix["results"]
+        if record.get("compatibility_mode")
+        in {"strict-pypto-nvidia", "computational-cuda-reference"}
+    ]
+    assert len(computational) == 41
+    runner_sha = hashlib.sha256(
+        (ROOT / "tools/run_article_demo_nvidia.py").read_bytes()
+    ).hexdigest()
+    for record in computational:
+        child_path = ROOT / record["child_report"]
+        child = json.loads(child_path.read_text(encoding="utf-8"))
+        assert record["status"] == child["status"] == "pass"
+        assert record["golden_pass"] is child["golden_pass"] is True
+        assert record["child_report_sha256"] == hashlib.sha256(
+            child_path.read_bytes()
+        ).hexdigest()
+        assert child["adapter_source"]["sha256"] == runner_sha
+        assert child["outputs"] and all(output["ok"] for output in child["outputs"])
+        assert all("rtol" in output and "atol" in output for output in child["outputs"])
 
 
 def test_persisted_policy_matches_generator() -> None:

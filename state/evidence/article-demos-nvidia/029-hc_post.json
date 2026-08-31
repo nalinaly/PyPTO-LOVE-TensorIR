@@ -6,47 +6,66 @@
   },
   "article_url": "https://mp.weixin.qq.com/s/7tLlTbomH9OqyUbZDbBEhQ",
   "compatibility": {
-    "adapter": "topk_reference",
+    "adapter": "deepseek_hc_post_reference",
     "mode": "computational-cuda-reference",
     "policy_sha256": "2424b6c0693073e9a4ab69299d5cd555507e694c7a3dfdeec65d799d771734e2",
     "reason": "bounded computational teaching example; compatibility adapter is outside imported source"
   },
   "device_index": 0,
-  "elapsed_seconds": 0.38886246597394347,
+  "elapsed_seconds": 0.32613267400301993,
   "golden": {
-    "function": "golden_topk",
+    "function": "golden_hc_post",
     "outputs": [
-      "topk_vals",
-      "topk_idx"
+      "y"
     ]
   },
   "golden_pass": true,
   "inputs": [
     {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "x",
+      "shape": [
+        8,
+        4096
+      ]
+    },
+    {
       "dtype": "torch.float32",
       "is_output": false,
-      "name": "scores",
+      "name": "residual",
       "shape": [
-        64,
-        512
+        8,
+        4,
+        4096
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "post",
+      "shape": [
+        8,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "comb",
+      "shape": [
+        8,
+        16
       ]
     },
     {
       "dtype": "torch.float32",
       "is_output": true,
-      "name": "topk_vals",
+      "name": "y",
       "shape": [
-        64,
-        16
-      ]
-    },
-    {
-      "dtype": "torch.int32",
-      "is_output": true,
-      "name": "topk_idx",
-      "shape": [
-        64,
-        16
+        8,
+        4,
+        4096
       ]
     }
   ],
@@ -59,37 +78,23 @@
       "error_count": 0,
       "max_abs_diff": 0.0,
       "max_error_ratio": 0.0,
-      "name": "topk_vals",
+      "name": "y",
       "ok": true,
       "rtol": 0.0001,
       "shape": [
-        64,
-        16
-      ]
-    },
-    {
-      "allowed_error_count": 0,
-      "atol": 0.0,
-      "dtype": "torch.int32",
-      "error_count": 0,
-      "max_abs_diff": 0.0,
-      "max_error_ratio": 0.0,
-      "name": "topk_idx",
-      "ok": true,
-      "rtol": 0.0,
-      "shape": [
-        64,
-        16
+        8,
+        4,
+        4096
       ]
     }
   ],
-  "run_id": "article-demo-nvidia-003",
+  "run_id": "article-demo-nvidia-029",
   "schema": 2,
   "seed": 20260831,
   "source": {
-    "bytes": 4097,
-    "path": "examples/advanced/topk.py",
-    "sha256": "94a0adae341a142454c1b57063086652e30619dd5d801decc578ec695ee949af"
+    "bytes": 9750,
+    "path": "models/deepseek_v4_flash_mtp/hc_post.py",
+    "sha256": "3e3783d52391c0fb3a33356db6f9135a50ed07748d954b089379ef62763304b2"
   },
   "stages": {
     "compatibility_compile": "independent-cuda-reference",

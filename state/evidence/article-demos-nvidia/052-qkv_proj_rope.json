@@ -1,0 +1,226 @@
+{
+  "adapter": "computational-cuda-reference",
+  "adapter_source": {
+    "path": "tools/run_article_demo_nvidia.py",
+    "sha256": "6fc452a1f16042a2b36f0c391d8a859682c678d23baae96afd1778c85851f59e"
+  },
+  "article_url": "https://mp.weixin.qq.com/s/7tLlTbomH9OqyUbZDbBEhQ",
+  "compatibility": {
+    "adapter": "deepseek_qkv_proj_rope_reference",
+    "mode": "computational-cuda-reference",
+    "policy_sha256": "2424b6c0693073e9a4ab69299d5cd555507e694c7a3dfdeec65d799d771734e2",
+    "reason": "bounded computational teaching example; compatibility adapter is outside imported source"
+  },
+  "device_index": 0,
+  "elapsed_seconds": 0.9355200600111857,
+  "golden": {
+    "function": "golden_qkv_proj_rope",
+    "outputs": [
+      "q",
+      "kv",
+      "qr",
+      "qr_scale"
+    ]
+  },
+  "golden_pass": true,
+  "inputs": [
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "x",
+      "shape": [
+        8,
+        4096
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "wq_a",
+      "shape": [
+        4096,
+        1024
+      ]
+    },
+    {
+      "dtype": "torch.int8",
+      "is_output": false,
+      "name": "wq_b",
+      "shape": [
+        1024,
+        32768
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "wq_b_scale",
+      "shape": [
+        32768
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "wkv",
+      "shape": [
+        4096,
+        512
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "rope_cos",
+      "shape": [
+        8,
+        64
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "rope_sin",
+      "shape": [
+        8,
+        64
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "gamma_cq",
+      "shape": [
+        1024
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "gamma_ckv",
+      "shape": [
+        512
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": true,
+      "name": "q",
+      "shape": [
+        8,
+        64,
+        512
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": true,
+      "name": "kv",
+      "shape": [
+        8,
+        512
+      ]
+    },
+    {
+      "dtype": "torch.int8",
+      "is_output": true,
+      "name": "qr",
+      "shape": [
+        8,
+        1024
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": true,
+      "name": "qr_scale",
+      "shape": [
+        8,
+        1
+      ]
+    }
+  ],
+  "kind": "article-demo-nvidia-run",
+  "outputs": [
+    {
+      "allowed_error_count": 0,
+      "atol": 0.01,
+      "dtype": "torch.bfloat16",
+      "error_count": 0,
+      "max_abs_diff": 0.0078125,
+      "max_error_ratio": 0.0,
+      "name": "q",
+      "ok": true,
+      "rtol": 0.01,
+      "shape": [
+        8,
+        64,
+        512
+      ]
+    },
+    {
+      "allowed_error_count": 0,
+      "atol": 0.01,
+      "dtype": "torch.bfloat16",
+      "error_count": 0,
+      "max_abs_diff": 4.76837158203125e-07,
+      "max_error_ratio": 0.0,
+      "name": "kv",
+      "ok": true,
+      "rtol": 0.01,
+      "shape": [
+        8,
+        512
+      ]
+    },
+    {
+      "allowed_error_count": 0,
+      "atol": 0.0,
+      "dtype": "torch.int8",
+      "error_count": 0,
+      "max_abs_diff": 0.0,
+      "max_error_ratio": 0.0,
+      "name": "qr",
+      "ok": true,
+      "rtol": 0.0,
+      "shape": [
+        8,
+        1024
+      ]
+    },
+    {
+      "allowed_error_count": 0,
+      "atol": 0.0001,
+      "dtype": "torch.float32",
+      "error_count": 0,
+      "max_abs_diff": 7.450580596923828e-09,
+      "max_error_ratio": 0.0,
+      "name": "qr_scale",
+      "ok": true,
+      "rtol": 0.0001,
+      "shape": [
+        8,
+        1
+      ]
+    }
+  ],
+  "run_id": "article-demo-nvidia-052",
+  "schema": 2,
+  "seed": 20260831,
+  "source": {
+    "bytes": 33312,
+    "path": "models/deepseek_v4_flash_mtp/qkv_proj_rope.py",
+    "sha256": "5de28a148a820c1385912f7bed016a7b9955938cfc432d674af3e01efa0614f2"
+  },
+  "stages": {
+    "compatibility_compile": "independent-cuda-reference",
+    "device_execution": "pass",
+    "golden_reference": "pass",
+    "input_generation": "pass",
+    "precision_compare": "pass",
+    "source_audit": "pass"
+  },
+  "status": "pass",
+  "strict_compiler_evidence": false,
+  "upstream_commit": "6c292d30ccc787ee4e1fe61541fd3faec0dafa65"
+}

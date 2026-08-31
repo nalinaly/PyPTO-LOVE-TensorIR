@@ -1,0 +1,203 @@
+{
+  "adapter": "computational-cuda-reference",
+  "adapter_source": {
+    "path": "tools/run_article_demo_nvidia.py",
+    "sha256": "6fc452a1f16042a2b36f0c391d8a859682c678d23baae96afd1778c85851f59e"
+  },
+  "article_url": "https://mp.weixin.qq.com/s/7tLlTbomH9OqyUbZDbBEhQ",
+  "compatibility": {
+    "adapter": "deepseek_prefill_sparse_reference",
+    "mode": "computational-cuda-reference",
+    "policy_sha256": "2424b6c0693073e9a4ab69299d5cd555507e694c7a3dfdeec65d799d771734e2",
+    "reason": "bounded computational teaching example; compatibility adapter is outside imported source"
+  },
+  "device_index": 0,
+  "elapsed_seconds": 2.217587024962995,
+  "golden": {
+    "function": "golden_prefill_sparse_attn",
+    "outputs": [
+      "attn_out"
+    ]
+  },
+  "golden_pass": true,
+  "inputs": [
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "q",
+      "shape": [
+        128,
+        64,
+        512
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "ori_kv",
+      "shape": [
+        128,
+        128,
+        1,
+        512
+      ]
+    },
+    {
+      "dtype": "torch.int32",
+      "is_output": false,
+      "name": "swa_indices",
+      "shape": [
+        128,
+        128
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "cmp_kv",
+      "shape": [
+        32,
+        32,
+        1,
+        512
+      ]
+    },
+    {
+      "dtype": "torch.int32",
+      "is_output": false,
+      "name": "cmp_block_table",
+      "shape": [
+        128
+      ]
+    },
+    {
+      "dtype": "torch.int32",
+      "is_output": false,
+      "name": "cmp_storage_block_size",
+      "shape": []
+    },
+    {
+      "dtype": "torch.int32",
+      "is_output": false,
+      "name": "cmp_indices",
+      "shape": [
+        128,
+        512
+      ]
+    },
+    {
+      "dtype": "torch.int32",
+      "is_output": false,
+      "name": "valid_block_mask",
+      "shape": [
+        128,
+        8
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "attn_sink",
+      "shape": [
+        64
+      ]
+    },
+    {
+      "dtype": "torch.int32",
+      "is_output": false,
+      "name": "num_tokens",
+      "shape": []
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "freqs_cos",
+      "shape": [
+        128,
+        64
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "freqs_sin",
+      "shape": [
+        128,
+        64
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": false,
+      "name": "wo_a",
+      "shape": [
+        8,
+        1024,
+        4096
+      ]
+    },
+    {
+      "dtype": "torch.int8",
+      "is_output": false,
+      "name": "wo_b",
+      "shape": [
+        4096,
+        8192
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "is_output": false,
+      "name": "wo_b_scale",
+      "shape": [
+        4096
+      ]
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "is_output": true,
+      "name": "attn_out",
+      "shape": [
+        128,
+        4096
+      ]
+    }
+  ],
+  "kind": "article-demo-nvidia-run",
+  "outputs": [
+    {
+      "allowed_error_count": 0,
+      "atol": 0.01,
+      "dtype": "torch.bfloat16",
+      "error_count": 0,
+      "max_abs_diff": 7.62939453125e-06,
+      "max_error_ratio": 0.0,
+      "name": "attn_out",
+      "ok": true,
+      "rtol": 0.01,
+      "shape": [
+        128,
+        4096
+      ]
+    }
+  ],
+  "run_id": "article-demo-nvidia-050",
+  "schema": 2,
+  "seed": 20260831,
+  "source": {
+    "bytes": 41828,
+    "path": "models/deepseek_v4_flash_mtp/prefill_sparse_attn.py",
+    "sha256": "79eb915920b4f26d1e7f37d25bda3d769b2255227dc5f88c098ffcf653000a2f"
+  },
+  "stages": {
+    "compatibility_compile": "independent-cuda-reference",
+    "device_execution": "pass",
+    "golden_reference": "pass",
+    "input_generation": "pass",
+    "precision_compare": "pass",
+    "source_audit": "pass"
+  },
+  "status": "pass",
+  "strict_compiler_evidence": false,
+  "upstream_commit": "6c292d30ccc787ee4e1fe61541fd3faec0dafa65"
+}
