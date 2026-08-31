@@ -6,11 +6,14 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import hashlib
+from html.parser import HTMLParser
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
+from urllib.parse import unquote, urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +30,141 @@ BILIBILI_URL = (
 PROMPT = "为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？"
 PYPTO_HEAD = "c27629e993a52b47d41fb898c749279dce44221b"
 ARTICLE_COMMIT = "6c292d30ccc787ee4e1fe61541fd3faec0dafa65"
+OPERATOR_BREAKDOWN_SHA256 = (
+    "5d2580708ba664060a2c973c0c898b9b3b4912138b46dc878a5d293b9eb33ef2"
+)
+EVIDENCE_REFERENCE = re.compile(
+    r"state/evidence/[A-Za-z0-9_.\-/]+\.json"
+)
+
+
+class _ReferenceParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.references: list[tuple[str, str, str]] = []
+
+    def handle_starttag(
+        self, tag: str, attrs: list[tuple[str, str | None]]
+    ) -> None:
+        for attribute, value in attrs:
+            if attribute in {"href", "poster", "src"} and value is not None:
+                self.references.append((tag, attribute, value))
+
+
+def _parse_references(value: str) -> list[tuple[str, str, str]]:
+    parser = _ReferenceParser()
+    parser.feed(value)
+    parser.close()
+    return parser.references
+
+
+def _local_reference(document: Path, reference: str) -> Path | None:
+    split = urlsplit(reference)
+    if split.scheme or split.netloc or reference.startswith(("#", "//")):
+        return None
+    path = unquote(split.path)
+    if not path:
+        return None
+    return (document.parent / path).resolve()
+
+
+def check_markdown_references(
+    document: Path, text: str, errors: list[str]
+) -> None:
+    try:
+        import markdown
+    except ImportError:
+        errors.append("Python-Markdown is unavailable for document link audit")
+        return
+    rendered = markdown.markdown(
+        text,
+        extensions=("fenced_code", "tables", "toc", "sane_lists"),
+        output_format="html5",
+    )
+    for tag, attribute, reference in _parse_references(rendered):
+        target = _local_reference(document, reference)
+        if target is None:
+            continue
+        try:
+            relative = target.relative_to(ROOT)
+        except ValueError:
+            errors.append(
+                f"document reference escapes repository: {document.name}: {reference}"
+            )
+            continue
+        if not target.exists():
+            errors.append(f"missing document reference: {document.name}: {relative}")
+        elif tag == "img" and attribute == "src" and not target.is_file():
+            errors.append(f"document image is not a file: {document.name}: {relative}")
+
+
+def check_offline_html_resources(
+    document: Path, text: str, errors: list[str]
+) -> None:
+    resource_attributes = {
+        ("audio", "src"),
+        ("iframe", "src"),
+        ("img", "src"),
+        ("link", "href"),
+        ("script", "src"),
+        ("source", "src"),
+        ("video", "poster"),
+        ("video", "src"),
+    }
+    for tag, attribute, reference in _parse_references(text):
+        if (tag, attribute) in resource_attributes:
+            if tag == "img" and reference.startswith("data:image/"):
+                continue
+            errors.append(
+                f"offline HTML retains a non-embedded resource: {tag} {reference}"
+            )
+            continue
+        if tag != "a" or attribute != "href":
+            continue
+        target = _local_reference(document, reference)
+        if target is None:
+            continue
+        try:
+            relative = target.relative_to(ROOT)
+        except ValueError:
+            errors.append(f"offline HTML link escapes repository: {reference}")
+            continue
+        if not target.exists():
+            errors.append(f"offline HTML has a missing local link: {relative}")
+
+
+def check_document_resources(
+    texts: dict[str, str], blog_path: Path, html: str, errors: list[str]
+) -> None:
+    documents = {
+        "README.md": ROOT / "README.md",
+        "README_EN.md": ROOT / "README_EN.md",
+        "blog": blog_path,
+    }
+    for name, document in documents.items():
+        check_markdown_references(document, texts[name], errors)
+    for relative in ("demo/README.md", "demo/README_EN.md"):
+        document = ROOT / relative
+        check_markdown_references(document, read(document, errors), errors)
+    check_offline_html_resources(blog_path.with_suffix(".html"), html, errors)
+
+    completed = subprocess.run(
+        ["git", "ls-files", "--", "state/evidence"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        errors.append("cannot enumerate tracked evidence for document closure")
+        return
+    tracked = set(completed.stdout.splitlines())
+    for name, text in texts.items():
+        for reference in sorted(set(EVIDENCE_REFERENCE.findall(text))):
+            if reference not in tracked:
+                errors.append(
+                    f"{name} references evidence unavailable in a fresh clone: {reference}"
+                )
 
 
 def sha256(path: Path) -> str:
@@ -415,6 +553,69 @@ def check_performance(errors: list[str]) -> None:
             derived = ablation.get("phases", {}).get(phase, {}).get("derived", {})
             if abs(float(derived.get("compiled_launch_reduction_vs_eager_percent", -1)) - 83.33333333333334) > 1e-9:
                 errors.append(f"{phase} launch-reduction denominator drifted")
+    operator_path = (
+        ROOT / "state/evidence/qwen35-9b-operator-performance-breakdown-current.json"
+    )
+    operator = load(operator_path, errors)
+    if operator is not None:
+        comparisons = operator.get("comparisons")
+        lanes = operator.get("lanes")
+        identity = operator.get("global_evidence_identity")
+        source_lock = load(ROOT / "vendor/source-lock.json", errors)
+        expected_cases = {
+            "down-linear-decode-1x12288x4096",
+            "down-linear-prefill-31x12288x4096",
+            "fp32-lm-head-decode-and-pruned-prefill-1x4096x248320",
+            "gate-up-linear-decode-1x4096x24576",
+            "gate-up-linear-prefill-31x4096x24576",
+            "swiglu-decode-1x24576",
+            "swiglu-prefill-31x24576",
+        }
+        repositories = (
+            source_lock.get("repositories", {})
+            if isinstance(source_lock, dict)
+            else {}
+        )
+        sources = (
+            identity.get("sources", {}) if isinstance(identity, dict) else {}
+        )
+        candidate_dso = (
+            identity.get("candidate_packages", {}).get("dso", {})
+            if isinstance(identity, dict)
+            else {}
+        )
+        if (
+            sha256(operator_path) != OPERATOR_BREAKDOWN_SHA256
+            or operator.get("schema") != 1
+            or operator.get("kind")
+            != "qwen35-9b-aligned-operator-ab-performance-summary"
+            or operator.get("status") != "complete"
+            or not isinstance(comparisons, dict)
+            or set(comparisons) != expected_cases
+            or not isinstance(lanes, dict)
+            or set(lanes) != {"pypto", "sglang-matched"}
+            or any(
+                not isinstance(lanes.get(lane), dict)
+                or lanes[lane].get("fresh_starts") != 4
+                for lane in ("pypto", "sglang-matched")
+            )
+            or any(
+                not isinstance(record, dict)
+                or not isinstance(record.get("pypto_latency_percent_of_stock"), (int, float))
+                or not isinstance(record.get("median_ratio_bootstrap_95ci_percent"), dict)
+                or record.get("contract", {}).get("name") != case
+                for case, record in comparisons.items()
+            )
+            or sources.get("pypto", {}).get("commit")
+            != repositories.get("pypto", {}).get("head_commit")
+            or sources.get("tensor_ir", {}).get("commit")
+            != repositories.get("tensor_ir", {}).get("head_commit")
+            or candidate_dso.get("sha256")
+            != (load(
+                ROOT / "state/evidence/operator-regression-current.json", errors
+            ) or {}).get("source", {}).get("dso", {}).get("sha256")
+        ):
+            errors.append("checked-in operator performance breakdown drifted")
     pair = load(ROOT / "state/evidence/qwen35-9b-performance-pair-current.json", errors)
     if pair is not None:
         acceptance = pair.get("acceptance")
@@ -729,6 +930,8 @@ def main() -> int:
                 errors.append(f"{name} misses the independent matched pair matrix")
             if "qwen35-9b-descriptive-stock-profile-breakdown-current.json" not in text:
                 errors.append(f"{name} misses the descriptive profile breakdown evidence")
+            if "qwen35-9b-operator-performance-breakdown-current.json" not in text:
+                errors.append(f"{name} misses the checked-in operator breakdown evidence")
             if "matched-performance-qualification-current.json" not in text:
                 errors.append(f"{name} misses the current qualification blocker")
             if "article-demo-compatibility-policy-current.json" not in text:
@@ -758,6 +961,8 @@ def main() -> int:
         or "--optimized-memory-mode zero-offload" in html
     ):
         errors.append("offline HTML retains the stale performance boundary")
+    check_document_resources(texts, blog_path, html, errors)
+    checked.append("document-resource-closure")
     check_demo(errors)
     check_demo_docs(errors)
     check_demo_compatibility(errors)

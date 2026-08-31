@@ -2107,3 +2107,28 @@ All repository-side article-demo work is complete and the final document audit
 passes with exactly three open gates: optimized stock, strict three-lane
 profile, and GPT-Image-2 authorization. GPT-Image-2 remains paused and is the
 next/final action only after the user provides the new process-local key.
+
+---
+# Publication resource-closure checkpoint: 2026-08-31 (revision 74)
+
+An independent negative audit found two fresh-clone evidence defects after the
+demo closure. The English README named an ignored `runs/.../aggregation.json`
+as the operator A/B source, while the local blog named an untracked historical
+paged-attention sidecar from an older PyPTO revision. Neither numerical claim
+was changed. The formal 4+4 fresh-start, seven-case operator aggregation is now
+frozen byte-identically at
+`state/evidence/qwen35-9b-operator-performance-breakdown-current.json`; both
+READMEs, the blog and the final requirement matrix use that committed source.
+The paged-attention paragraph now uses the current eight-suite operator
+regression, whose tracked evidence already records the 14-case suite and result
+hash under the current wheel identity.
+
+The publication audit now renders all five Markdown deliverables with the same
+Markdown engine as the HTML builder, resolves every local link/image, rejects
+repository escapes, requires every cited `state/evidence/*.json` to be tracked,
+and rejects any non-embedded HTML media/script/style resource. It also validates
+the operator aggregation's exact hash, schema, seven contracts, 4+4 start
+denominator, bootstrap-CI records, PyPTO/TensorIR source lock, and candidate DSO
+identity. The three external gates are unchanged; this checkpoint closes only
+repository-side publication integrity and does not manufacture optimized or
+profile results.

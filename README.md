@@ -86,6 +86,9 @@ kernel 的 DSL、wrapper 和 artifact hash 见
 state/evidence/qwen35-9b-inductor-source-current.json。
 整模 eager control 的非因果对照见
 state/evidence/qwen35-9b-eager-compile-ablation-current.json。
+七个逻辑功能对齐算子的 4+4 fresh-start A/B 汇总、置信区间和 provider/source
+identity 见
+state/evidence/qwen35-9b-operator-performance-breakdown-current.json。
 
 整模 eager control 也已单独运行一次：关闭 torch.compile、保持 matched provider，
 output 15.3418 tok/s、E2E 4171.67 ms；正式 pair 中 matched compile-request

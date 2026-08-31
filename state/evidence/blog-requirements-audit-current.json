@@ -3,7 +3,8 @@
     "README.md",
     "README_EN.md",
     "blog",
-    "LEGAL_NOTICE.md"
+    "LEGAL_NOTICE.md",
+    "document-resource-closure"
   ],
   "errors": [],
   "kind": "blog-requirements-audit",
@@ -12,7 +13,7 @@
     "full-model CUPTI/NVTX profile awaits a completed protected-heavy-free run",
     "GPT-Image-2 generation awaits local API authorization"
   ],
-  "recorded_at": "2026-08-31T13:47:32.521568+00:00",
+  "recorded_at": "2026-08-31T14:14:25.852483+00:00",
   "schema": 2,
   "status": "pass"
 }

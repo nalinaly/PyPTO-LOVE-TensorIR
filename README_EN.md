@@ -96,7 +96,7 @@ Machine-readable sources (including the two model-gate sidecars):
 - state/evidence/qwen35-9b-performance-pair-current.json
 - state/evidence/qwen35-0.8b-model-gate-current.json
 - state/evidence/qwen35-9b-model-gate-current.json
-- runs/release-operator-ab-20260830T123727Z-2370421-d0d384/aggregation.json
+- state/evidence/qwen35-9b-operator-performance-breakdown-current.json
 - state/evidence/qwen35-9b-inductor-ablation-current.json
 - state/evidence/qwen35-9b-inductor-source-current.json
 

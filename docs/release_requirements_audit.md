@@ -134,6 +134,9 @@ template and is not permission to promote an open item.
       does not close the strict three-lane compiled gate.
 - [ ] Linear and LM-head shapes receive explicit A/B measurement because the
       historical diagnostic profile identified matmul as the dominant cost.
+      The accepted seven-case, 4+4 fresh-start aggregation is checked in at
+      `state/evidence/qwen35-9b-operator-performance-breakdown-current.json`;
+      the publication audit verifies its source/package identity and exact hash.
 
 ## Documentation and visual evidence
 

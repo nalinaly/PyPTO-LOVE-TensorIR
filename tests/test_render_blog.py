@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import json
 from pathlib import Path
 import sys
 
@@ -10,7 +12,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-import render_blog
+import audit_blog_requirements  # noqa: E402
+import render_blog  # noqa: E402
 
 
 def test_render_embeds_local_image_and_has_no_external_asset(tmp_path: Path) -> None:
@@ -42,3 +45,49 @@ def test_render_rejects_missing_image(tmp_path: Path) -> None:
 
     with pytest.raises(FileNotFoundError, match="does not exist"):
         render_blog.render(report)
+
+
+def test_document_audit_rejects_missing_local_reference(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(audit_blog_requirements, "ROOT", tmp_path)
+    errors: list[str] = []
+    audit_blog_requirements.check_markdown_references(
+        tmp_path / "README.md",
+        "[missing](state/evidence/missing.json)\n",
+        errors,
+    )
+    assert errors == [
+        "missing document reference: README.md: state/evidence/missing.json"
+    ]
+
+
+def test_document_audit_rejects_nonembedded_html_resource(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(audit_blog_requirements, "ROOT", tmp_path)
+    errors: list[str] = []
+    audit_blog_requirements.check_offline_html_resources(
+        tmp_path / "report.html", '<img src="image.png">', errors
+    )
+    assert errors == [
+        "offline HTML retains a non-embedded resource: img image.png"
+    ]
+
+
+def test_checked_in_operator_breakdown_is_the_formal_aggregation() -> None:
+    path = (
+        ROOT
+        / "state/evidence/qwen35-9b-operator-performance-breakdown-current.json"
+    )
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == (
+        "5d2580708ba664060a2c973c0c898b9b3b4912138b46dc878a5d293b9eb33ef2"
+    )
+    assert payload["status"] == "complete"
+    assert len(payload["comparisons"]) == 7
+    assert payload["lanes"]["pypto"]["fresh_starts"] == 4
+    assert payload["lanes"]["sglang-matched"]["fresh_starts"] == 4
+    assert payload["global_evidence_identity"]["sources"]["pypto"]["commit"] == (
+        audit_blog_requirements.PYPTO_HEAD
+    )
