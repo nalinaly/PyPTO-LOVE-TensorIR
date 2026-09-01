@@ -1,13 +1,13 @@
 {
   "all_correct": true,
   "all_suites_passed": true,
-  "control_summary": "runs/release-operator-20260830T150232Z-2411663-e4bf39/summary.json",
-  "control_summary_sha256": "3adfbb2cf5f7de23ff644d0704a85c293d368f4defb2d63e7e2f30f167ff942b",
+  "control_summary": "runs/release-operator-20260901T072856Z-81960-7d4d41/summary.json",
+  "control_summary_sha256": "7400429c2e32514a928e745a85c7280fa1bc48b2e45d00f3950ebbdbc3a42340",
   "kind": "operator-regression-evidence",
-  "recorded_at": "2026-08-30T15:46:50.298169+00:00",
-  "regression_report": "runs/pypto-gpu-bounded-20260830T150140Z-2411664-e68395/operator-numerical-regression.json",
-  "regression_report_sha256": "12270f651516c0da21774cf0a34ef869ed5b3695787d83cc3bcace7dc1206700",
-  "repository_head": "3d0e5526d88a28cea174c2424b72669410c3b278",
+  "recorded_at": "2026-09-01T07:46:51.021489+00:00",
+  "regression_report": "runs/pypto-gpu-bounded-20260901T072814Z-82939-a567f4/operator-numerical-regression.json",
+  "regression_report_sha256": "11ce9d49ddcf33b5c32c8b2e3e14c0801b0b856691625086b573c1b32aa1129a",
+  "repository_head": "5b7cc3cd37a15f7586351ca4e7ae0aef2a31a0db",
   "schema": 2,
   "source": {
     "dso": {
@@ -19,14 +19,14 @@
     "source_revisions": [
       {
         "dirty": false,
-        "head": "3d0e5526d88a28cea174c2424b72669410c3b278",
+        "head": "5b7cc3cd37a15f7586351ca4e7ae0aef2a31a0db",
         "repository": ".",
         "scope": "packages/pypto-kernels",
         "status": []
       },
       {
         "dirty": false,
-        "head": "3d0e5526d88a28cea174c2424b72669410c3b278",
+        "head": "5b7cc3cd37a15f7586351ca4e7ae0aef2a31a0db",
         "repository": ".",
         "scope": "packages/pypto-framework-plugins",
         "status": []
@@ -38,56 +38,56 @@
     {
       "case_count": 25,
       "passed": true,
-      "result": "runs/pypto-gpu-bounded-20260830T150140Z-2411664-e68395/classify-result.json",
-      "result_sha256": "c7eb9500094477fa36706a1d798f5fdc32ef9429b8e424a49c31b8ebc64ef36d",
+      "result": "runs/pypto-gpu-bounded-20260901T072814Z-82939-a567f4/classify-result.json",
+      "result_sha256": "2487d45be013ac122d5e74e41a90ac6d7fe36fc670297421619233947b241624",
       "suite_id": "handwritten-compile-classification"
     },
     {
       "case_count": 32,
       "passed": true,
-      "result": "runs/pypto-gpu-bounded-20260830T150140Z-2411664-e68395/exec-result.json",
-      "result_sha256": "a454984f32fdd547e1e60d3471b90dae114d2a72663d8856256e1b8a72ddd3f4",
+      "result": "runs/pypto-gpu-bounded-20260901T072814Z-82939-a567f4/exec-result.json",
+      "result_sha256": "b1b700415cbabbc0d462ad84d01884f428d15e989953a7f4b1f0bcb5595bb56c",
       "suite_id": "handwritten-numerical"
     },
     {
       "case_count": 14,
       "passed": true,
-      "result": "runs/pypto-gpu-bounded-20260830T150140Z-2411664-e68395/stateful-result.json",
-      "result_sha256": "3b8916a0b2720c0eb2c771a1a943a846d878232933fbe760d606e3b967f5433c",
+      "result": "runs/pypto-gpu-bounded-20260901T072814Z-82939-a567f4/stateful-result.json",
+      "result_sha256": "0acb1e5249b596b4c27c2e1ef8f760831f253b476892301ac4037841d95afb03",
       "suite_id": "stateful-real-model-shapes"
     },
     {
       "case_count": 14,
       "passed": true,
-      "result": "runs/pypto-gpu-bounded-20260830T150140Z-2411664-e68395/paged-attention-result.json",
-      "result_sha256": "96cb655c41eb4a991ff3dc2ae15166200a9aeef38a424cbfc8c50a885ee4aba5",
+      "result": "runs/pypto-gpu-bounded-20260901T072814Z-82939-a567f4/paged-attention-result.json",
+      "result_sha256": "af0cf6780a57b43ba839771d07fc44cbf81caafbc062bbd352184a805f4c4662",
       "suite_id": "paged-attention"
     },
     {
       "case_count": 4,
       "passed": true,
-      "result": "runs/pypto-gpu-bounded-20260830T150140Z-2411664-e68395/qk-result.json",
-      "result_sha256": "889d03a01e965f324575495494cf52dfcb95dad899eda71bfc7f06efd4e8abfd",
+      "result": "runs/pypto-gpu-bounded-20260901T072814Z-82939-a567f4/qk-result.json",
+      "result_sha256": "5c9ef16652ad68c6733515076b5bfd28026878996e994bdea552b7f19ff2c66f",
       "suite_id": "qk-real-model-shapes"
     },
     {
       "case_count": 8,
       "passed": true,
-      "result": "runs/pypto-gpu-bounded-20260830T150140Z-2411664-e68395/linear-result.json",
-      "result_sha256": "7cb3e9605cdedd29cfc8f6c4b2ca7041f9dd3e230a215ce20e7d2a5493257cca",
+      "result": "runs/pypto-gpu-bounded-20260901T072814Z-82939-a567f4/linear-result.json",
+      "result_sha256": "2bbf0d0ef51b7d66778330f9b118653b2ecd469c876d721f4ac2b63350b0c094",
       "suite_id": "linear-real-model-shapes"
     },
     {
       "case_count": 0,
       "passed": true,
-      "result": "runs/pypto-gpu-bounded-20260830T150140Z-2411664-e68395/cuda-graph-stateful-result.json",
-      "result_sha256": "33f245feccb0936694e75a79bb912cf52d23718bde776ba031d12a5c2f31db28",
+      "result": "runs/pypto-gpu-bounded-20260901T072814Z-82939-a567f4/cuda-graph-stateful-result.json",
+      "result_sha256": "94cf1bc1dc20fbefff4cb456212915a79236a33977d26b6822ab4da268c3404b",
       "suite_id": "stateful-cuda-graph"
     },
     {
       "case_count": 4,
       "passed": true,
-      "result": "runs/pypto-gpu-bounded-20260830T150140Z-2411664-e68395/inductor-swiglu-result.json",
+      "result": "runs/pypto-gpu-bounded-20260901T072814Z-82939-a567f4/inductor-swiglu-result.json",
       "result_sha256": "d95d9f8da65b6c3186b858a959ff22cecec27fea9e3d84f6fda0ec392b21a084",
       "suite_id": "inductor-swiglu-real-model-shapes"
     }

@@ -1,467 +1,366 @@
-# PyPTO LOVE TensorIR: Qwen3.5 on an RTX 5090
+# PyPTO ♥ TensorIR: Qwen3.5 Inference with 100% PyPTO Kernels on an NVIDIA RTX 5090
 
 [简体中文](README.md) | [English](README_EN.md)
 
 > [!IMPORTANT]
-> This is a personal, non-commercial compiler research project. Running PyPTO
-> on an NVIDIA card appears to conflict with the CANN Open Software License
-> Agreement Version 2.0,
-> which places explicit restrictions on use and distribution for non-Huawei AI
-> processors. Non-commercial intent, a public interview statement, or a
-> takedown promise is not a license exception. The work does not represent
-> Huawei, NVIDIA, PyTorch, or SGLang. Rights holders may contact the author
-> through the repository Issues to request removal. See LEGAL_NOTICE.md.
->
-> Interview attribution (approximately 2 h 34 min):
-> https://www.bilibili.com/video/BV1nB3u6tERu/?vd_source=f2f41aa7b5e3cc8e0a23942779ccea11
+> This repository is a **personal, non-profit** compiler research project. Running
+> PyPTO on NVIDIA GPUs appears, on its face, to conflict with the CANN Open
+> Software License Agreement Version 2.0, which restricts use and distribution to
+> systems with Huawei AI processors; personal research and non-profit intent are
+> not license exemptions. The motivation aligns with the vision expressed by
+> Dr. Liao Heng, Huawei Chief Scientist, at approximately 2h34m of an interview
+> with Zhang Xiaojun: that PyPTO should become a common frontend DSL for **all**
+> AI chips. That public statement is not a license change and not authorization
+> for this project. Rights holders who believe any content is inappropriate may
+> contact the author via repository Issues for removal. Full analysis in
+> [LEGAL_NOTICE.md](LEGAL_NOTICE.md).
+> Interview: <https://www.bilibili.com/video/BV1nB3u6tERu/?vd_source=f2f41aa7b5e3cc8e0a23942779ccea11>
 
-This project has two core features:
+## What this is
 
-1. PyPTO DSL/HIR is lowered through typed TensorIR ODS/OpBuilder to NVIDIA
-   TensorIR, then through CUDA Tile and tileiras to an SM120 Cubin.
-2. A standard torch.compile(backend="pypto") TorchInductor backend turns
-   eligible pointwise/reduction subgraphs into PyPTO DSL.
+A compiler implementation that brings [PyPTO](https://github.com/hw-native-sys/pypto)
+(the kernel DSL frontend of the Huawei CANN ecosystem — its positioning is
+analogous to Triton in the Ascend stack) to NVIDIA GPUs: **on an RTX 5090
+(SM120), every GPU kernel in the Qwen3.5-9B inference forward pass is expressed
+in the PyPTO frontend and produced by this repository's compilation pipeline**.
+A per-kernel CUPTI audit measures 100% coverage (zero fallback), and outputs
+match the native SGLang implementation token for token.
 
-The single execution path is:
+Two core features:
 
-~~~text
-SGLang -> pypto-kernels + TorchDynamo/Inductor -> PyPTO HIR
-       -> typed TensorIR ModuleOp -> CUDA Tile -> tileiras -> sm_120a Cubin
-       -> PyPTO Artifact/NvidiaExecutable -> caller-owned CUDA stream
-~~~
+1. **PyPTO → TensorIR bridge**: statically specialized PyPTO HIR (`@pl.jit`
+   tile graphs) is lowered through typed TensorIR (MLIR ODS/OpBuilder) →
+   CUDA Tile → `tileiras` into an `sm_120a` cubin, packaged as a validated,
+   cacheable `NvidiaExecutable` launched on the caller's CUDA stream.
+   The PyPTO fork carries 300 commits; the TensorIR fork carries 89
+   (row gather/scatter layouts, multi-output fusion, a runtime-free artifact
+   contract, and more).
+2. **A PyPTO backend for TorchInductor**: standard
+   `torch.compile(model, backend="pypto")`. It reuses the full official
+   `compile_fx` and auto-generates fusible pointwise / trailing-axis-reduction
+   subgraphs as PyPTO DSL kernels; unsupported cases fail closed and never
+   silently fall back to Triton.
 
-![PyPTO NVIDIA SM120 architecture](docs/assets/pypto-nvidia-architecture.svg)
-
-## Measured Status
-
-<!-- RELEASE_RESULTS:SUMMARY_BEGIN -->
-
-| Item | Qwen3.5-9B release-v1 |
-|---|---:|
-| 64-token greedy correctness | PASS (3 fresh starts, 30 requests) |
-| model-forward PyPTO compute coverage | 100% |
-| Operator regression | PASS (8 suites, 101 cases) |
-| PyPTO / matched SGLang | 15.62% |
-| PyPTO / optimized SGLang | 18.71% |
-| Performance bottleneck attribution | CUPTI/NVTX reconciliation complete |
-
-![Ubuntu/PowerShell purple terminal: replay of the accepted wheel, native, CTest 13/13, and install gates; the four reports share one wheel artifact set.](docs/assets/screenshots/build-ctest.png)
-
-![Ubuntu/PowerShell purple terminal: replay of 8/8 operator suites, 101 cases, and the structure gate for the current DSO; explicitly not a live GPU view.](docs/assets/screenshots/operator-correctness.png)
-
-![Ubuntu/PowerShell purple terminal: replay of the 64-token output and 100% PyPTO coverage for the same prompt; current-identity evidence is one stock reference plus three fresh candidate starts.](docs/assets/screenshots/model-inference.png)
-
-![Ubuntu/PowerShell purple terminal: operator-level SwiGLU fusion ablation; the adjacent whole-model table comes from the current 12-start three-lane matrix, and the screenshot itself is not a whole-model result.](docs/assets/screenshots/performance-ablation.png)
-
-<!-- RELEASE_RESULTS:SUMMARY_END -->
-
-Platform: NVIDIA GeForce RTX 5090 Laptop GPU (SM120, 24 GiB). Workload:
-Qwen3.5-9B text-only, non-thinking chat template, 31 input tokens, 64 greedy
-output tokens, BF16, TP1, concurrency 1.
-
-| Item | Measured status |
-|---|---|
-| 9B correctness/coverage | Three fresh starts on the current wheel completed 10/10 Engine requests and one strict teacher-forced trace each |
-| Model-forward coverage | Accepted traces: 33,448 compute calls = 31,400 handwritten PyPTO + 2,048 Inductor PyPTO, with zero unknown/fallback calls (100%) |
-| 0.8B current wheel | Stock reference plus three candidate fresh starts completed; each trace covers 22,108/22,108 calls = 20,572 handwritten + 1,536 Inductor |
-| PyPTO output throughput | **2.3393 tok/s** (median of four fresh starts) |
-| Matched SGLang | **14.9754 tok/s** (same workload, CUDA Graph/overlap disabled) |
-| Optimized SGLang | **12.5000 tok/s** (official Inductor + CUDA Graph + overlap) |
-| PyPTO / matched | **15.6208%**, 95% bootstrap CI **[15.5862%, 15.7022%]**; signed change **-84.3792%** |
-| PyPTO / optimized | **18.7143%**, 95% bootstrap CI **[18.6881%, 18.7533%]**; signed change **-81.2857%** |
-| Matrix acceptance | 12/12 starts completed; PyPTO/matched retain the 4 GiB GPU-free floor; optimized has no fixed GPU-free floor and is accepted only on complete execution, no OOM/crash, and intact controls |
-| Cold/compile-trigger | PyPTO `15725.20/29025.66 ms`; matched `14895.79/24243.59 ms`; optimized `122555.13/11921.59 ms`; optimized cold includes Inductor/CUDA Graph capture and the first request is still not compiler-only |
-
-The previous 4096 MiB-floor failure and memory probes remain in
-`state/evidence/optimized-lane-diagnostic-current.json` as historical diagnostics.
-The accepted optimized configuration remains `cpu_offload_gb=2,
-mem_fraction_static=0.69`; only its fixed runtime GPU-free floor was removed by
-explicit user authorization. Foreign-process isolation, the 12 GiB host floor,
-telemetry, timeout, thermal, OOM/exit-code, and natural-cleanup gates remain.
-
-Artifact-union versus model-forward compute intersection for accepted traces:
-
-| model | total calls | handwritten | Inductor | unknown/fallback | coverage |
-|---|---:|---:|---:|---:|---:|
-| Qwen3.5-0.8B | 22,108 | 20,572 | 1,536 | 0 | 100% |
-| Qwen3.5-9B | 33,448 | 31,400 | 2,048 | 0 | 100% |
-
-Formal four-start three-lane medians (each start first reduced to a ten-request p50):
-
-| lane | E2E | TTFT | TPOT | output tok/s | cold engine | first compile-trigger request |
-|---|---:|---:|---:|---:|---:|---:|
-| PyPTO | 27358.76 ms | 3343.10 ms | 381.23 ms | 2.3393 | 15725.20 ms | 29025.66 ms |
-| matched | 4273.67 ms | 73.21 ms | 66.66 ms | 14.9754 | 14895.79 ms | 24243.59 ms |
-| optimized | 5119.99 ms | 151.39 ms | 78.86 ms | 12.5000 | 122555.13 ms | 11921.59 ms |
-
-The first compile-trigger request includes compilation and one complete 31+64
-request; it is not compiler-only time. Minimum GPU-free memory was
-`6,872,449,024`, `6,226,878,464`, and `1,940,078,592 B` for PyPTO, matched,
-and optimized respectively. All 12 starts passed the 12 GiB host gate without
-thermal throttling. PyPTO/matched used `cpu_offload_gb=2,
-mem_fraction_static=0.78`; optimized used `2/0.69` and records
-`gpu_free_floor_mode=disabled-completion-only`. The previous invalidated pair is retained at
-`state/evidence/qwen35-9b-performance-pair-invalidated-20260830.json` and must
-not be mixed with the current headline. Historical qualification is recorded
-in `state/evidence/matched-performance-qualification-current.json`. The
-controller stops its own run if a protected workload appears and never signals
-an external process. The
-matched lane keeps
-enable_torch_compile=true but disables CUDA graphs, so this pinned SGLang
-version does not invoke the global CompilerInterface; the report records
-backend_invocation_observed=false. The PyPTO SwiGLU hook observes two generated
-Inductor wrappers containing pypto_launch.
-
-Machine-readable sources (including the two model-gate sidecars):
-
-- state/evidence/qwen35-9b-release-results-current.json
-- state/evidence/qwen35-0.8b-model-gate-current.json
-- state/evidence/qwen35-9b-model-gate-current.json
-- state/evidence/qwen35-9b-operator-performance-breakdown-current.json
-- state/evidence/qwen35-9b-inductor-ablation-current.json
-- state/evidence/qwen35-9b-inductor-source-current.json
-
-A historical full-model eager control (15.3418 tok/s) and its historical matched
-compile-request control both failed to invoke CompilerInterface, so they do not
-establish a causal whole-model compile speedup. That boundary is recorded in
-state/evidence/qwen35-9b-eager-compile-ablation-current.json. The supported
-eager/NV-Inductor/PyPTO causal comparison remains the fixed SwiGLU ablation below.
-
-These are measured implementation results, not performance targets. Fewer
-launches do not automatically mean lower latency; current dominant costs are
-handwritten matmul/LM-head and PyPTO launch/schedule overhead.
-
-## Why TensorIR Fits as the PyPTO Backend
-
-[PyPTO](https://github.com/hw-native-sys/pypto) owns the user DSL, HIR, static
-specialization, artifact/cache, and runtime. [TensorIR](https://github.com/NVIDIA/tensor-ir)
-is a tensor-level, tile-aware MLIR compiler frontend for layout propagation,
-tiling, graph splitting, and TensorIR-to-CUDA-Tile lowering. CUDA Tile is the
-downstream GPU IR/toolchain target; TensorIR is neither CUDA Tile nor a cuTile
-runtime.
-
-A PyPTO tile shape can continue lowering only when shape, dtype, element
-stride, layout, iteration space, and mutation/alias ABI are static and pass
-the TensorIR verifier. The bridge creates a TypedTensorIrModuleSpec, then uses
-mlir::OpBuilder and ODS *Op::create to construct ModuleOp. Text printing is
-only canonical serialization and diagnostics. Dynamic or overlapping strides,
-unsupported contractions, invalid result anchors, and illegal alignment fail
-closed.
-
-| PyPTO fact | TensorIR representation | Required condition |
-|---|---|---|
-| pl.range / tile | iteration space / tile sizes | statically bounded |
-| pl.load/store/view | typed slice/reshape/transpose/gather/scatter | access and layout verifiable |
-| pl.InOut | read-write operand and mutation metadata | alias and result agree |
-| matmul/reduce/broadcast | ODS operations | supported rank, dtype, contraction |
-
-## Implementation
-
-### PyPTO -> TensorIR
-
-The bridge provides NVIDIA TargetInfo and SM120/runtime discovery; immutable
-CompileRequest, CanonicalSchedule, and KernelBuildSpec; cache identity over
-shape/dtype/stride/mutation/toolchain; typed GraphOp/stride attributes/results
-and verification; pointwise, row reduction, BF16/FP32 matmul, norms,
-gather/scatter, RoPE, dense/paged attention, KV writes, causal Conv1D, GDN
-projection/recurrent lowering; Cubin/ABI/grid/workspace checks; and
-NvidiaExecutable process/device/CUcontext/current-stream lifetime checks.
-
-Key files are .sources/pypto/src/codegen/nvidia/tensor_ir_codegen.cpp,
-.sources/pypto/src/codegen/nvidia/typed_tensor_ir_module_spec.h, and
-.sources/pypto/src/compiler/nvidia_typed_tensor_ir_builder.cpp. Canonical
-NVIDIA construction rejects source-string concatenation; lint and negative
-geometry verifier tests are part of the regression contract.
-
-### TorchInductor -> PyPTO
-
-The plugin registers torch_dynamo_backends=pypto and calls full compile_fx.
-Within a context-local scope it replaces CUDA scheduling and wrapper dispatch,
-then restores the official backend. Strict mode disables fallback. The adapter
-records node-body load/op/store sequences, preserves real row-pitched strides,
-creates @pl.jit graphs, launches through pypto_launch on the current stream,
-and records callable/artifact/prewarm caches, stable source hashes, and CUPTI
-external correlation.
-
-The complete Qwen MLP is not fused:
-
-~~~text
-handwritten gate/up linear -> one Inductor-generated PyPTO SwiGLU
-                              -> handwritten down linear
-~~~
-
-Only the packed gate/up FP32 casts, sigmoid, two multiplies, and BF16 cast are
-automatically fused.
-
-## Handwritten Operator Library
-
-packages/pypto-kernels is independent of the SGLang plugin. Its 15 Python
-modules contain 18 @pl.jit graphs for dense/masked/paged attention, paged
-gather/KV write/prefill, causal Conv1D, recurrent GDN, GDN projection, Q/K
-RMSNorm plus partial RoPE and gate, embedding/integer gather, BF16 linear,
-BF16-rounded FP32 LM head, three RMSNorm variants, RoPE, sigmoid-mul, and
-SiLU-mul.
-
-The most complex representative is
-[gdn_recurrent_kernel](packages/pypto-kernels/src/pypto_kernels/gdn.py). It
-combines pl.InOut, static loops, row reduction/broadcast, FP32 matmul, and
-outer-product state updates. Long prefill advances state in token order; it is
-not presented as one mega-kernel.
-
-## Ablation and Breakdown
-
-Fixed Qwen3.5-9B SwiGLU shape, 20 warmups and 100 CUDA-event calls:
-
-| phase/mode | warm ms | first call ms | events | vs eager |
-|---|---:|---:|---:|---:|
-| prefill 19x24576 eager | 0.042966 | 35.25 | 6 | 0 |
-| prefill official NV Inductor | 0.032915 | 1098.33 | 1 | +30.54% |
-| prefill PyPTO Inductor | 0.210618 | 1696.24 | 1 | -79.60% |
-| decode 1x24576 eager | 0.040543 | 32.81 | 6 | 0 |
-| decode official NV Inductor | 0.033808 | 1045.90 | 1 | +19.92% |
-| decode PyPTO Inductor | 0.212401 | 1733.25 | 1 | -80.91% |
-
-Both compiled modes reduce six events to one (83.33% launch reduction).
-PyPTO's first call is 54.44% longer than official NV Inductor for prefill and
-65.72% longer for decode.
-
-Aligned eight-start operator A/B (four starts per lane):
-
-| case | PyPTO latency / stock |
-|---|---:|
-| SwiGLU decode / prefill | 21.70x / 22.22x |
-| gate-up linear decode / prefill | 10.87x / 179.19x |
-| down linear decode / prefill | 36.87x / 194.69x |
-| FP32 LM head | 6.00x |
-
-These are logically aligned microbenchmarks. They explain why the current
-whole-model result is slower despite fewer pointwise launches; they are not a
-claim that PyPTO is faster.
-
-### Whole-model CUPTI/NVTX hybrid breakdown
-
-Each lane has three fresh starts, five requests per start, and 64 nonempty
-`ModelRunner.forward` windows per request. PyPTO and optimized prove compiled
-execution; every optimized start also observes 315/315 `cudaGraphLaunch`
-callbacks. Matched does not invoke CompilerInterface because its frozen
-configuration disables CUDA Graphs, so it remains a descriptive stock control,
-not an Inductor speedup result.
-
-| forward compute (GPU activity duration per request) | PyPTO | matched descriptive | optimized compiled |
-|---|---:|---:|---:|
-| all compute | 22318.812 ms | 1285.792 ms | 2131.558 ms |
-| `unattributed_compute` | 20184.082 ms | 435.080 ms | 1830.714 ms |
-| `attention_core_gate` | 1154.360 ms | 3.228 ms | 3.889 ms |
-| `lm_head` | 931.866 ms | 0 (no same-name correlation) | 0 (no same-name correlation) |
-
-Versus optimized, PyPTO has a `22238.774 ms` E2E gap, a `20187.254 ms`
-profiled GPU-compute gap, and a `2051.520 ms` non-profile residual. Independent
-phase medians produce a `-9.109 ms` reconciliation residual. Unattributed or
-zero values describe attribution coverage, not operator non-execution. Full
-phase CIs, graph-replay counts, raw-trace hashes, resources, and identity are in
-[`qwen35-9b-release-results-current.json`](state/evidence/qwen35-9b-release-results-current.json).
-Rebuild the complete hybrid matrix with:
-
-```bash
-envs/pypto-release/bin/python tools/profile_qwen35.py matrix \
-  --model-path models/Qwen3.5-9B --optimized-memory-mode matched \
-  --allow-noncompiled-matched \
-  --performance-matrix runs/release-performance-matrix-<id>/summary.json
+```text
+SGLang (unpatched)
+  └─ pypto-kernels (handwritten operators) + TorchDynamo/TorchInductor (PyPTO backend)
+       └─ PyPTO HIR → typed TensorIR ModuleOp → CUDA Tile → tileiras → sm_120a Cubin
+            └─ PyPTO Artifact / NvidiaExecutable → caller-owned CUDA stream
 ```
 
-The five requested ablation/breakdown images must use GPT-Image-2. This process
-still has no `OPENAI_API_KEY`, so all assets remain `PENDING_GPT_IMAGE2`; no
-other model is substituted. Prompts, source hashes, and output paths are in
-state/evidence/gpt-image2-ablation-prompts-20260829.json. After generation and
-per-image visual review, `tools/finalize_gpt_image2_assets.py` validates PNG,
-prompt/source/image hashes, and manual-review fields before writing the final
-provenance manifest.
+![Architecture](docs/assets/pypto-nvidia-architecture.svg)
 
-## Repository Layout
+On top of this, `packages/pypto-kernels` is a framework-independent handwritten
+PyPTO operator library (13 modules / 21 `@pl.jit` graphs) covering every
+operator of Qwen3.5's hybrid-attention topology (24 GDN layers + 8 full
+attention layers): attention, GDN, RoPE, RMSNorm, causal conv, linear
+projections, embedding, LM head; the MLP activation is auto-fused by the
+Inductor backend. SGLang integrates through its official plugin mechanism —
+**zero patches to SGLang itself**.
 
-~~~text
-packages/pypto-kernels/             standalone handwritten PyPTO operators
-packages/pypto-framework-plugins/   SGLang and TorchInductor plugins
-.sources/pypto/                     locked PyPTO/TensorIR source worktree
-vendor/                             bundles, patch series, source lock
-benchmarks/release/                 workload/correctness/performance/profile contracts
-tools/                              build, controlled-run, summary, and audit entry points
-demo/pypto-lib/                     byte-for-byte article-demo import
-state/evidence/                     small check-in-ready evidence sidecars
-runs/                               local raw reports (not committed)
-~~~
+## Measured results (RTX 5090 Laptop 24 GiB; evidence frozen 2026-09)
 
-## Build and Test
+| Item | Result |
+|---|---|
+| Qwen3.5-9B correctness | PASS: 3 fresh starts × 10 requests × 64 tokens, **token-identical** to native SGLang (unique output-sequence SHA-256) |
+| model-forward PyPTO coverage | **100%**: 33,448 compute calls = 31,400 handwritten + 2,048 Inductor-generated, 0 fallback |
+| Operator regression | PASS: 8 suites / 101 cases (re-run on hardware 2026-09-01) |
+| End-to-end throughput | PyPTO **2.3393 tok/s**; SGLang matched **14.9754**; SGLang optimized **12.5000** |
+| Relative performance | **PyPTO = 15.62% of matched** (95% CI [15.59%, 15.70%]); **18.71% of optimized** (CI [18.69%, 18.75%]) |
+| Bottleneck attribution | CUPTI/NVTX reconciliation closes: the gap is dominated by unoptimized structured matmul (6–195×), not by the bridge itself |
 
-Validated environment: Ubuntu 26.04 on WSL2, CPython 3.14.6, PyTorch
-2.13.0+cu130, CUDA 13.3.73, SGLang 0.5.18, CMake 3.31.10, and Ninja 1.13.
-Use 24 CPU build/test jobs; GPU tests are serial.
+| Metric (p50) | PyPTO | matched | optimized |
+|---|---:|---:|---:|
+| E2E | 27358.76 ms | 4273.67 ms | 5119.99 ms |
+| TTFT | 3343.10 ms | 73.21 ms | 151.39 ms |
+| TPOT | 381.23 ms | 66.66 ms | 78.86 ms |
+| Output throughput | 2.3393 tok/s | 14.9754 tok/s | 12.5000 tok/s |
+| Peak GPU memory | 17.49 GiB | 18.09 GiB | 22.08 GiB |
 
-~~~bash
+Lanes: **PyPTO** (all operators via PyPTO; CUDA graphs/overlap off);
+**matched** (SGLang default operators with configuration aligned to the PyPTO
+lane: `mem_fraction_static=0.78, cpu_offload_gb=2`, CUDA graphs/overlap off);
+**optimized** (official SGLang defaults with CUDA graphs/overlap on).
+Workload: chat-template 31 input tokens + greedy 64 output tokens, BF16, TP1,
+concurrency 1; 4 fresh process starts per lane; the headline is the median of
+per-start p50s with a 10,000-resample percentile bootstrap CI. Machine-readable
+results: `state/evidence/qwen35-9b-release-results-current.json`.
+
+**Four live-run screenshots** (real execution of `wsl -d Ubuntu` inside
+PowerShell; sidecar JSONs record the command and PNG SHA-256 — see
+[Screenshot reproduction](#screenshot-reproduction)):
+
+| Stage | Command | Screenshot |
+|---|---|---|
+| Build (wheels→native→CTest→install, `status: complete`) | `tools/build_release.py --stage all` | ![build](docs/assets/screenshots/build-release.png) |
+| Operator correctness (8 suites, 101 cases, `all_correct: true`) | `tools/run_operator_regression.py --stage all` | ![operator](docs/assets/screenshots/operator-correctness.png) |
+| Operator performance A/B (PyPTO vs SGLang stock, 4+4 fresh starts) | `tools/run_operator_performance.py --matrix` | ![perf](docs/assets/screenshots/operator-performance.png) |
+| End-to-end inference (fixed prompt, 64-token greedy + per-token gate) | `tools/run_model_correctness.py all` | ![model](docs/assets/screenshots/model-inference.png) |
+
+## Environment requirements
+
+| Component | Version (pinned) |
+|---|---|
+| GPU | NVIDIA RTX 5090 (SM120 / compute capability 12.0, 24 GiB) |
+| OS | Ubuntu 26.04 (WSL2 works; all measurements were taken on WSL2) |
+| CUDA toolkit | 13.3 (ships the `tileiras` assembler; verified by path + SHA-256 + version before build) |
+| Python | CPython 3.14.6 |
+| PyTorch | 2.13.0+cu130 |
+| SGLang | 0.5.18 (`71de97b`, unmodified) |
+| Build | CMake 3.31, Ninja, C++ toolchain (`--jobs 24` is contractual) |
+
+Python dependencies are lock-driven with full hashes:
+`environment/conda-linux-64.lock`, `environment/python-requirements.lock`;
+runtime lock: `environment/release-runtime.json`. Source identity is pinned by
+`vendor/source-lock.json` + git bundles + 391 patches.
+
+## Quick start
+
+Run from the repository root; steps 1–4 are one-time.
+
+```bash
+# 0. (optional) Verify the three upstream trees match bundles+patches byte-for-byte
 python3 tools/verify_source_release.py --replay-patches
+
+# 1. Materialize upstream trees: .sources/{pypto,tensor-ir,sglang} from vendor bundles
 python3 tools/bootstrap_release.py --jobs 24
+
+# 2. Create the formal release environment envs/pypto-release (lock-driven)
 python3 tools/bootstrap_release_environment.py
+
+# 3. Four-stage build: wheels → native (CMake/Ninja with TensorIR as a private subproject)
+#    → CTest (13/13) → install
 envs/pypto-release/bin/python tools/build_release.py --stage all --jobs 24
+
+# 4. Download models (Qwen3.5-0.8B / 9B → models/, SHA-256 checked against the manifest)
 envs/pypto-release/bin/python tools/download_release_models.py --model all
+```
+
+The build produces three wheels (`pypto`, `pypto-kernels`, `pypto-framework-plugins`)
+installed into the release environment; raw logs and wheel manifests land in
+`runs/<run-id>/`.
+
+## Operator correctness regression (checked-in regression test)
+
+```bash
 envs/pypto-release/bin/python tools/run_operator_regression.py --stage all
-~~~
+```
 
-Pinned identities: PyPTO c27629e993a52b47d41fb898c749279dce44221b (300
-commits); TensorIR db41d0733eb73971ee03a74faca81d1af6e6aef7 (89 commits);
-CUDA Tile af2417041cc939b87ef56d92cfdcf61737c5457e; LLVM
-57109befac92811d2253109242ca6fa69c961fb2; SGLang
-71de97b264b04dcd514cf904003028aefe9775c8.
+Structure gate (`pytest -n24` static contract checks) + 8 GPU suites / 101
+cases: compile classification, numerical correctness, stateful operators at
+real model shapes (multi-token GDN/conv), paged attention, QK-norm+RoPE,
+linear/LM head, CUDA-graph lifecycle, and Inductor SwiGLU. Pass criteria: all
+suites `passed: true` and `all_correct: true` (re-run and passed on hardware
+2026-09-01; report at `runs/<run-id>/operator-numerical-regression.json`).
 
-Correctness:
+## Performance regression (performance-only, includes baseline comparison; checked in)
 
-~~~bash
-envs/pypto-release/bin/python tools/run_transformers_semantic_oracle.py \
-  --model-path models/Qwen3.5-9B \
-  --output runs/semantic-oracle-qwen35-9b-chat-nonthinking.json
-envs/pypto-release/bin/python tools/run_model_correctness.py all \
-  --model-path models/Qwen3.5-9B \
-  --semantic-oracle runs/semantic-oracle-qwen35-9b-chat-nonthinking.json
-~~~
+```bash
+# ① Operator-level A/B: 7 aligned operators, PyPTO vs SGLang stock, 4+4 fresh starts
+envs/pypto-release/bin/python tools/run_operator_performance.py --matrix --model-path models/Qwen3.5-9B
 
-Performance-only entry points do not read logits/token/text and do not run
-allclose, cosine, top-k, or tolerance checks:
+# ② Whole-model three-lane matrix: pypto / sglang-matched / sglang-optimized, 3×4 fresh starts
+envs/pypto-release/bin/python tools/run_performance_regression.py --matrix \
+    --model-path models/Qwen3.5-9B --optimized-memory-mode matched
 
-~~~bash
-envs/pypto-release/bin/python tools/run_performance_regression.py \
-  --pair-matrix --model-path models/Qwen3.5-9B \
-  --optimized-memory-mode matched
-# After the pair passes, run the full three-lane matrix with optimized stock.
-envs/pypto-release/bin/python tools/run_performance_regression.py \
-  --matrix --model-path models/Qwen3.5-9B \
-  --optimized-memory-mode matched
-envs/pypto-release/bin/python tools/run_qwen35_eager_control.py \
-  --model-path models/Qwen3.5-9B
-envs/pypto-release/bin/python tools/profile_qwen35.py matrix \
-  --model-path models/Qwen3.5-9B \
-  --optimized-memory-mode matched \
-  --performance-matrix runs/release-performance-matrix-<id>/summary.json
-envs/pypto-release/bin/python tools/run_operator_performance.py \
-  --matrix --model-path models/Qwen3.5-9B
-envs/pypto-release/bin/python tools/run_inductor_ablation.py \
-  --mode pypto --phase prefill --output runs/ablation-prefill-pypto.json
+# ③ SwiGLU fusion ablation: eager vs official Inductor (CUDA/Triton) vs PyPTO backend
+envs/pypto-release/bin/python tools/run_inductor_ablation.py --mode pypto --phase prefill \
+    --output runs/ablation-prefill-pypto.json
 envs/pypto-release/bin/python tools/summarize_inductor_ablation.py \
-  --prefill-eager runs/ablation-current-prefill-eager.json \
-  --prefill-inductor_nv runs/ablation-current-prefill-inductor-nv.json \
-  --prefill-pypto runs/ablation-current-prefill-pypto.json \
-  --decode-eager runs/ablation-current-decode-eager.json \
-  --decode-inductor_nv runs/ablation-current-decode-inductor-nv.json \
-  --decode-pypto runs/ablation-current-decode-pypto.json \
-  --output state/evidence/qwen35-9b-inductor-ablation-current.json
-~~~
+    --prefill-eager runs/ablation-prefill-eager.json \
+    --prefill-inductor-nv runs/ablation-prefill-nv.json \
+    --prefill-pypto runs/ablation-prefill-pypto.json \
+    --decode-eager runs/ablation-decode-eager.json \
+    --decode-inductor-nv runs/ablation-decode-nv.json \
+    --decode-pypto runs/ablation-decode-pypto.json \
+    --output state/evidence/qwen35-9b-inductor-ablation-current.json
+```
 
-## Article Demos and Screenshots
+Timing uses CUDA events; each case runs 20 warmups + 30 batches × 100 calls.
+The formal frozen results live in
+`state/evidence/qwen35-9b-operator-performance-breakdown-current.json` and
+`qwen35-9b-inductor-ablation-current.json`. After a re-run,
+`python3 tools/print_operator_ab_table.py` prints the newest per-operator
+comparison table from the latest aggregation.
 
-The motivation is to let readers without Ascend hardware learn the PyPTO DSL
-on an NVIDIA platform. The source article is:
-[让 Python 写 NPU 算子所写即所得！华为昇腾开源 PyPTO-Lib，实现 Qwen3-14B 与 DeepSeek V4-Flash 全部算子！](https://mp.weixin.qq.com/s/7tLlTbomH9OqyUbZDbBEhQ)
+## End-to-end inference: 100% PyPTO Qwen3.5-9B (fixed-prompt reproduction)
 
-The article-time pypto-lib commit
-6c292d30ccc787ee4e1fe61541fd3faec0dafa65 is imported byte-for-byte under
-`demo/pypto-lib/`. `SOURCE_MANIFEST.json` locks 151 files and 66 entry points;
-the external
-[`article-demo-compatibility-policy-current.json`](state/evidence/article-demo-compatibility-policy-current.json)
-records hardware evidence and the NVIDIA compatibility mode for each entry.
+```bash
+# ① One-time: generate the HuggingFace transformers semantic oracle (first-step logits top-k)
+envs/pypto-release/bin/python tools/run_transformers_semantic_oracle.py \
+    --model-path models/Qwen3.5-9B --device cuda \
+    --output runs/semantic-oracle-qwen35-9b-chat-nonthinking.json
 
-Generate the policy, then run the NVIDIA computational matrix:
+# ② End-to-end correctness: stock reference + 3 fresh candidate starts,
+#    per-token ID gate + coverage audit
+envs/pypto-release/bin/python tools/run_model_correctness.py all \
+    --model-path models/Qwen3.5-9B \
+    --semantic-oracle runs/semantic-oracle-qwen35-9b-chat-nonthinking.json
+```
 
-~~~bash
-python3 tools/classify_article_demos.py
-envs/pypto-release/bin/python tools/run_article_demo_matrix.py \
-  --backend nvidia --mode run --device 0 \
-  --output state/evidence/article-demo-matrix-nvidia-current.json
-~~~
+Fixed prompt (chat template, non-thinking; 31 input tokens, greedy 64 output):
 
-The current RTX 5090 result passes all 41 computational entries: 40 independent
-CUDA numerical references plus one strict PyPTO -> TensorIR -> CUDA Tile artifact
-for `hello_world.py`. Seventeen communication, CCE, NPU/ACL, or Ascend-runtime
-hardware-API entries are skipped under the supported boundary, and eight drafts
-remain provenance-only. `computational_unmapped_count=0`;
-`compatibility_status=complete`, `hardware_api_evidence`, and the before/after manifest
-hashes are the release gate.
-
-The 40 CUDA references cover nine teaching examples, two Qwen3 sampling
-entries, and 29 DeepSeek V4 compressor/indexer/sparse-attention/HC/MoE/decode/
-prefill computations. Every child report records per-output tolerances and
-error counts.
-
-Typical strict computational entry:
-
-~~~bash
-envs/pypto-release/bin/python tools/run_article_demo_nvidia.py \
-  --demo examples/beginner/hello_world.py --device 0 \
-  --output runs/article-demo-hello-nvidia.json
-~~~
-
-The terminal prints `strict-pypto-nvidia`, `golden_pass=True`, the artifact name,
-and `fallback_used=False`. The report binds imported-source and policy hashes,
-artifact/cubin hashes, and the 128-element tile; the upstream file is never
-rewritten. The other 40 computational reports explicitly set
-`strict_compiler_evidence=false`: they are independent CUDA Torch numerical
-references for studying computational semantics, not strict PyPTO compiler
-evidence.
-
-To reproduce the article's original CLI/help, or run unchanged source on an
-authorized Ascend runtime, use:
-
-~~~bash
-envs/pypto-release/bin/python tools/run_article_demo_matrix.py \
-  --backend ascend --mode help --output runs/article-demo-matrix-help.json
-envs/pypto-release/bin/python tools/run_article_demo.py \
-  --demo examples/beginner/hello_world.py --platform a2a3sim \
-  --output runs/article-demo-hello-world.json
-~~~
-
-The `--backend ascend` device stage is blocked here by
-`simpler_setup`/`KernelType.MIX`; that blocker is not a precision pass.
-Distributed hardware, CCE, NPU/ACL, and simpler-runtime entries are explicitly
-skipped in the NVIDIA matrix. The unchanged `hello_world.py` has now run in a
-real Windows Terminal Ubuntu/PowerShell-purple window with `exit_code=0`; the
-screen shows `strict-pypto-nvidia`, `golden_pass=True`, `fallback_used=False`,
-and `max_abs_diff=0.0`. The screenshot and window metadata are bound by
-[`article-demo-screenshot-manifest-current.json`](state/evidence/article-demo-screenshot-manifest-current.json);
-the PNG is 1549×925. A failed black-frame attempt was not accepted.
-
-Windows Terminal GUI capture now passes a nonblank-pixel smoke. The performance
-role was recaptured from the current immutable ablation JSON and is bound to
-window dimensions, command, timestamps, and PNG SHA. The model role strictly
-validates and replays the three accepted 9B runs, and explicitly says it is not
-a live rerun. Build covers wheel build, install/pip-check, and CTest 13/13;
-operator similarly validates and replays its accepted raw evidence. All five
-completed roles bind command source, numerical/run evidence, capture metadata,
-and PNG SHA. The computational matrix and GUI demo role are complete.
-
-![Wheel build, install, and CTest evidence replay](docs/assets/screenshots/build-ctest.png)
-
-![Accepted 8/8 operator regression evidence replay](docs/assets/screenshots/operator-correctness.png)
-
-![Accepted Qwen3.5-9B inference evidence replay](docs/assets/screenshots/model-inference.png)
-
-![Qwen3.5-9B operator-level SwiGLU ablation](docs/assets/screenshots/performance-ablation.png)
-
-![Typical hello_world.py strict NVIDIA demo](docs/assets/screenshots/article-demo-typical.png)
-
-Fixed model prompt:
-
+```text
 为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？
+```
 
-## Limits and License
+Expected output (within the 64-token cap, token-identical to native SGLang):
 
-Only SM120/RTX 5090 Laptop is validated. Shapes and strides are statically
-specialized; the complete MLP is not fused across matmul; long GDN prefill is
-token-ordered; PyPTO matmul/LM-head/launch overhead remains to be optimized.
-The three-lane performance matrix and hybrid CUPTI/NVTX profile are accepted.
-Matched is a noncompiled descriptive control; PyPTO and optimized are strict
-compiled lanes. Only GPT-Image-2 assets and the final document audit remain
-publication gates.
-TensorIR is marked early release upstream.
+```text
+关于“鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作”这一说法，**目前并不存在客观依据，
+这很可能是一个网络误传、营销号夸大其词，或者是将其他作品的评价张冠李戴了**。
 
-PyPTO uses CANN Open Software License Agreement 2.0. TensorIR uses Apache 2.0
-with LLVM Exceptions. The framework plugin uses Apache 2.0. See
-packages/pypto-kernels/LICENSE_STATUS.md for the kernels authorization boundary.
-The historical pair retains status `invalidated-resource-and-control`; current
-formal results are in `qwen35-9b-release-results-current.json`.
+事实上，《月鳞绮纪》（原名
+```
+
+Pass criteria: all 30 requests token-identical (unique output-sequence SHA-256),
+teacher-forced frozen-logits policy passes, and CUPTI coverage 33,448/33,448
+with 0 fallback. After a re-run, `python3 tools/print_model_gate_live.py`
+prints the latest run's pass status, coverage audit, and generated output.
+
+## Repository layout
+
+```text
+packages/pypto-kernels/            # handwritten PyPTO operator library (13 modules / 21 graphs)
+packages/pypto-framework-plugins/  # torch.compile(backend="pypto") backend + SGLang plugin
+.sources/pypto                     # PyPTO fork (+300 commits: NVIDIA target, compile contracts, runtime)
+.sources/tensor-ir                 # TensorIR fork (+89 commits: gather/scatter layouts, artifact contract)
+.sources/sglang                    # SGLang v0.5.18 (unmodified)
+vendor/                            # source identity locks: git bundles, 391 patches, source-lock.json
+tools/                             # all entry scripts: build / correctness / performance / inference
+benchmarks/release/                # lanes, workload, operator manifests (frozen test contracts)
+state/evidence/                    # frozen measurement-evidence JSONs
+models/ tests/ demo/ docs/         # models / harness tests / article-demo corpus / figures & screenshots
+envs/ builds/ runs/ caches/        # environments / build artifacts / raw run outputs (gitignored)
+```
+
+## Implementation summary
+
+**PyPTO side** (`.sources/pypto`): NVIDIA target identity and SM120 traits; an
+immutable `CompileRequest v1` whose `ToolchainIdentity` hashes the
+pypto/tensor-ir/cuda-tile/LLVM/CUDA-toolkit/tileiras revisions; a
+`CanonicalSchedule`/`KernelBuildSpec` pipeline behind the strict deterministic
+facade `compile_structured_strict[_cached]` (canonical MessagePack — identical
+inputs produce identical artifacts); `codegen/nvidia/tensor_ir_codegen.cpp`
+analyzes the strict HIR subset into a deterministic TensorIrModule, and
+`typed_tensor_ir_module_spec.h` + `compiler/nvidia_typed_tensor_ir_builder.cpp`
+build a typed `mlir::ModuleOp` via ODS/OpBuilder (no string-built IR — enforced
+by lint); the serializable `Artifact v1` (cubin + full kernel ABI) with an
+in-process cache; a driver-only runtime `NvidiaExecutable` (dlopens `libcuda`
+only, `PrepareLaunch` builds an immutable launch packet fired on the caller's
+stream, with a CUDA-graph lease); `tileiras` verified by path/SHA/version then
+run in a restricted subprocess; JIT specialization preserves per-element
+strides (row-pitched layouts, zero-stride broadcasts).
+
+**TensorIR side** (`.sources/tensor-ir`): row gather/scatter layout lowering
+(required by paged KV, embedding, and the GDN state pool); lazy input loads
+with one-shot layout conversion; compatible multi-output fusion; residual
+graph-splitting fixes; the runtime-free
+`CudaTilePreparedArtifact/CompiledArtifact` contract with CUDA-free cubin
+validation; `tileiras` subprocess hardening (closed stdio, explicit timeout,
+scratch quotas); plus lowering-correctness work (unit-dim matmul, reduction
+slicing, zero-stride broadcast, and more).
+
+**Inductor backend** (`packages/pypto-framework-plugins`): an entry-point
+`pypto` backend that internally runs the full official `compile_fx`
+(`cuda_backend="pypto"`, `implicit_fallbacks=False`, strict Dynamo failures);
+reversibly swaps the Inductor CUDA scheduler and wrapper (restores Triton
+outside the context) and pins the Triton hash out of cache identity; accepts
+only Pointwise and trailing-axis Reduction nodes (everything else raises
+`StrictCoverageError`); replays pointwise bodies through an ops recorder and
+**emits literal `@pl.jit` DSL source**, specializes with stride-exact meta
+tensors, and compiles via `compile_structured_strict_cached`; the generated
+wrapper calls a single `pypto_launch(...)` that validates the ABI and launches
+on the caller's stream; CUPTI coverage-audit tooling ships with the package.
+
+**Handwritten operator library** (`packages/pypto-kernels`): one operator =
+one `@pl.jit` graph; shape/stride ABI validation before every launch; shares
+the same compilation path as the Inductor backend. Inventory: attention
+(dense/masked/paged-decode/paged-prefill/KV-write/gather — 7 graphs), GDN
+recurrent (L2 norm + softplus decay gating + rank-1 state update + output
+projection over an `pl.InOut` state pool), packed GDN projection, width-4
+causal conv, QK RMSNorm + partial RoPE + gate split, BF16 linear projections,
+FP32 LM head, embedding/token-id gather, three RMSNorm variants, NeoX RoPE,
+sigmoid gating, and SwiGLU.
+
+**SGLang integration** (zero patches): the official plugin registry wraps
+~20 internal call sites via AROUND hooks, dispatching to `pypto-kernels`
+operators; registers `--attention-backend pypto` and the GDN backend;
+registration failure raises `SystemExit` (SGLang's loader swallows exceptions).
+
+## Performance details and attribution
+
+**Operator-level A/B** (PyPTO p50 / stock p50, ms/call):
+
+| Operator (shape) | PyPTO | stock | Multiple |
+|---|---:|---:|---:|
+| SwiGLU decode 1×24576 | 0.2035 | 0.0094 | 21.7× |
+| SwiGLU prefill 31×24576 | 0.2030 | 0.0091 | 22.2× |
+| gate/up linear decode 1×4096×24576 | 2.5967 | 0.2389 | 10.9× |
+| gate/up linear prefill 31×4096×24576 | 45.0186 | 0.2512 | 179.2× |
+| down linear decode 1×12288×4096 | 4.5270 | 0.1228 | 36.9× |
+| down linear prefill 31×12288×4096 | 25.2897 | 0.1299 | 194.7× |
+| FP32 LM head 1×4096×248320 | 14.5464 | 2.4238 | 6.0× |
+
+**SwiGLU fusion ablation** (warm call ms / cold compile ms / kernel count /
+vs eager):
+
+| Shape · mode | Warm call | Cold compile | Kernels | vs eager |
+|---|---:|---:|---:|---:|
+| prefill 19×24576 · eager | 0.042966 | 35.3 | 6 | — |
+| prefill · official Inductor (Triton) | 0.032915 | 1098.3 | 1 | +30.5% |
+| prefill · PyPTO backend | 0.210618 | 1696.2 | 1 | −79.6% |
+| decode 1×24576 · eager | 0.040543 | 32.8 | 6 | — |
+| decode · official Inductor (Triton) | 0.033808 | 1045.9 | 1 | +19.9% |
+| decode · PyPTO backend | 0.212401 | 1733.3 | 1 | −80.9% |
+
+**CUPTI logical-phase attribution** (p50 ms/request): total PyPTO forward
+compute 22318.81, of which the unattributed bucket (handwritten linears)
+20184.08, attention core+gate 1154.36, LM head 931.87; matched 1285.79;
+optimized 2131.56. Of the 22238.77 ms E2E gap versus optimized, 20187.25 ms is
+profiled compute plus a 2051.52 ms non-profiled residual; the independent
+phase-median reconciliation residual is −9.11 ms (closed).
+
+**Conclusion**: the 15.62%/18.71% end-to-end gap is dominated by structured
+matmul without tensor-core pipelines or tile autotuning (6–195×, worst in
+prefill shapes), followed by GDN token-ordered launches and decode launch
+density; the fusion machinery itself matches the official Triton backend
+(6→1 kernels, −83.33% launches). Exact figures live in the corresponding
+`state/evidence/` JSONs.
+
+## Screenshot reproduction
+
+The four screenshots are live captures produced by
+`tools/windows/capture_powershell.ps1` in Windows Terminal (Ubuntu purple
+profile): a nested PowerShell prompt runs `wsl -d Ubuntu`, the real Ubuntu
+prompt runs the command, and `PrintWindow` captures the frame on completion.
+From PowerShell:
+
+```powershell
+$Repo = "\\wsl.localhost\Ubuntu\home\<user>\pypto-love-tensor-ir"
+& "$Repo\tools\windows\capture_powershell.ps1" -Title "build-release" `
+  -LinuxCommand "envs/pypto-release/bin/python tools/build_release.py --stage all --jobs 24 2>&1 | tail -1 | python3 -m json.tool" `
+  -OutputPath "$Repo\docs\assets\screenshots\build-release.png" `
+  -MetadataPath "$Repo\state\evidence\build-release-capture-current.json" `
+  -Workspace "/home/<user>/pypto-love-tensor-ir"
+```
+
+Each capture writes a sidecar JSON (command, exit code, window size, PNG
+SHA-256, non-blank pixel samples); the binding manifest is regenerated with
+`python3 tools/generate_article_screenshot_manifest.py`.
+
+## Limitations and licensing
+
+- Structured matmul lacks deep optimization (no tensor-core pipeline /
+  autotune) — the dominant source of the current performance gap;
+- The Inductor backend fuses pointwise/trailing-axis reductions only;
+  GEMM+epilogue and cross-node fusion are fail-closed TODOs;
+- Long GDN prefills launch token-by-token in order (numerical state-boundary
+  contract) rather than as a batched recurrent graph;
+- Every kernel is statically specialized per shape/stride; new shapes compile
+  once (artifacts persist on disk and are reused);
+- Licensing: the PyPTO/CANN license does not permit running on or
+  redistributing to non-Huawei processors (see the IMPORTANT note above and
+  [LEGAL_NOTICE.md](LEGAL_NOTICE.md)); TensorIR is Apache-2.0 with LLVM
+  exceptions; `pypto-framework-plugins` is Apache-2.0; `pypto-kernels` does
+  not yet declare an independent license.

@@ -15,9 +15,11 @@ restrict development or distribution for systems with other processors.
 The NVIDIA SM120 work in this research tree therefore has a direct license
 boundary. Personal research, non-commercial intent, an invitation to contact
 the author for removal, and public statements about cross-platform compiler
-design are not treated here as exceptions to the license. The release branch
-and its documentation must not be pushed to the public remote until written
-authorization covering use and distribution has been reviewed.
+design are not treated here as exceptions to the license. The repository
+owner has reviewed this boundary and, for non-profit research purposes,
+accepts responsibility for hosting this snapshot on a personal public remote;
+this hosting decision does not assert any additional license or exemption,
+and rights holders may request removal at any time through GitHub Issues.
 
 Upstream project and license:
 
@@ -52,5 +54,6 @@ authorization for this project.
 - https://www.bilibili.com/video/BV1nB3u6tERu/?vd_source=f2f41aa7b5e3cc8e0a23942779ccea11
 
 Rights holders may request removal through the repository's GitHub Issues
-page. No public push is permitted before the authorization gate in
-`docs/release_requirements_audit.md` is satisfied.
+page. Public hosting of this research snapshot on the author's personal
+remote is an owner-acknowledged decision recorded here; it does not modify
+any upstream license terms.

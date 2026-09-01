@@ -12,17 +12,17 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD_REPORT = ROOT / (
-    "runs/pypto-cpu-bounded-20260830T144910Z-2409462-115ae6/"
+    "runs/pypto-cpu-bounded-20260901T072504Z-81261-46b6e2/"
     "release-build-ctest.json"
 )
 BUILD_PROCESS = BUILD_REPORT.with_name("process.json")
 WHEELS_REPORT = ROOT / (
-    "runs/pypto-cpu-bounded-20260830T091243Z-2320308-b57c23/"
+    "runs/pypto-cpu-bounded-20260901T072225Z-78277-751df1/"
     "release-build-wheels.json"
 )
 WHEELS_PROCESS = WHEELS_REPORT.with_name("process.json")
 INSTALL_REPORT = ROOT / (
-    "runs/pypto-cpu-bounded-20260830T091329Z-2320615-6a9134/"
+    "runs/pypto-cpu-bounded-20260901T072557Z-81582-08fc5b/"
     "release-build-install.json"
 )
 INSTALL_PROCESS = INSTALL_REPORT.with_name("process.json")
@@ -129,7 +129,8 @@ def operator_gate() -> None:
     }
     require(cases == expected, "operator case inventory")
     print("accepted operator evidence replay (not a live rerun)")
-    print("run=pypto-gpu-bounded-20260830T150140Z-2411664-e68395")
+    regression_payload = json.loads(regression.read_text(encoding="utf-8"))
+    print(f"run={regression_payload['run_id']}")
     print("8/8 suites passed | all_correct=true")
     print("classify=25 numerical=32 stateful=14 paged=14")
     print("qk=4 linear/lm-head=8 Inductor-SwiGLU=4")

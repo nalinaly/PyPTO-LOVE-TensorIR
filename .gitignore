@@ -21,3 +21,7 @@
 __pycache__/
 .pytest_cache/
 .mypy_cache/
+
+# Local-only blog drafts and session state.
+/blog/
+/.zcode/

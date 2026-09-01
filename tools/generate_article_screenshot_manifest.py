@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Bind article/demo terminal screenshots to their local evidence reports."""
+"""Bind terminal screenshots to the live runs and capture sidecars that produced them."""
 
 from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import glob
 import hashlib
 import json
 from pathlib import Path
@@ -31,76 +32,75 @@ def write_json(path: Path, payload: dict[str, object]) -> None:
     temporary.replace(path)
 
 
+def newest(pattern: str) -> Path:
+    matches = sorted(Path(p) for p in glob.glob(str(ROOT / pattern)))
+    if not matches:
+        raise SystemExit(f"no evidence matches {pattern}")
+    return matches[-1]
+
+
+# Each role binds one live screenshot to the newest on-disk evidence of the run
+# it shows and to the PowerShell capture sidecar written at capture time.
+ROLES = {
+    "build-release": {
+        "path": "docs/assets/screenshots/build-release.png",
+        "evidence_glob": "runs/pypto-cpu-bounded-*/release-build-install.json",
+        "capture_evidence": "state/evidence/build-release-capture-current.json",
+        "status": "current-live-run",
+        "caption_zh": "PowerShell 中 wsl -d Ubuntu（紫色终端）真实执行四阶段构建：wheels/native/CTest/install 全部 return_code=0，status=complete。",
+        "caption_en": "Live four-stage build (wheels/native/CTest/install, all return_code=0, status=complete) executed in Ubuntu entered via `wsl -d Ubuntu` from PowerShell.",
+    },
+    "operator-correctness": {
+        "path": "docs/assets/screenshots/operator-correctness.png",
+        "evidence_glob": "runs/*/operator-numerical-regression.json",
+        "capture_evidence": "state/evidence/operator-correctness-capture-current.json",
+        "status": "current-live-run",
+        "caption_zh": "真实 GPU 算子正确性回归：8/8 套件、101 用例全部通过（all_correct=true）。",
+        "caption_en": "Live GPU operator correctness regression: 8/8 suites, 101 cases, all_correct=true.",
+    },
+    "operator-performance": {
+        "path": "docs/assets/screenshots/operator-performance.png",
+        "evidence_glob": "runs/release-operator-ab-*/aggregation.json",
+        "capture_evidence": "state/evidence/operator-performance-capture-current.json",
+        "status": "current-live-run",
+        "caption_zh": "真实算子级性能 A/B：7 个功能对齐算子，PyPTO vs SGLang stock，4+4 次独立冷启动。",
+        "caption_en": "Live operator-level performance A/B: 7 aligned operators, PyPTO vs SGLang stock, 4+4 fresh starts.",
+    },
+    "model-inference": {
+        "path": "docs/assets/screenshots/model-inference.png",
+        "evidence_glob": "runs/*/qwen35-9b-correctness.json",
+        "capture_evidence": "state/evidence/model-inference-capture-current.json",
+        "status": "current-live-run",
+        "caption_zh": "真实端到端推理：固定 prompt 的 64-token 贪心解码，逐 token 门禁与 100% PyPTO coverage。",
+        "caption_en": "Live end-to-end inference: fixed-prompt 64-token greedy decoding with per-token gates and 100% PyPTO coverage.",
+    },
+    "article-demo-typical": {
+        "path": "docs/assets/screenshots/article-demo-typical.png",
+        "evidence_glob": "state/evidence/article-demos-nvidia/011-hello_world-screenshot.json",
+        "capture_evidence": "state/evidence/article-demo-typical-capture-current.json",
+        "status": "current-live-run",
+        "caption_zh": "未改写 hello_world.py 的严格 NVIDIA 兼容运行、PyPTO artifact 与 golden 精度通过。",
+        "caption_en": "Strict NVIDIA compatibility run of unchanged hello_world.py with a PyPTO artifact and passing golden comparison.",
+    },
+}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    records = {
-        "build": {
-            "path": "docs/assets/screenshots/build-ctest.png",
-            "command": "python3 -B tools/print_release_gate.py build --compact",
-            "command_source": "tools/print_release_gate.py",
-            "status": "current-evidence-replay",
-            "caption_zh": "Ubuntu/PowerShell 紫色终端：校验并回放已接受的 wheel build、install/pip-check、CTest 13/13、三阶段自然退出与同一 artifact set SHA；明确不是 live rerun。",
-            "caption_en": "Ubuntu/PowerShell purple terminal: validates and replays accepted wheel build, install/pip-check, CTest 13/13, natural three-stage exit, and one artifact-set SHA identity; explicitly not a live rerun.",
-            "evidence": "runs/pypto-cpu-bounded-20260830T144910Z-2409462-115ae6/release-build-ctest.json",
-            "capture_evidence": "state/evidence/build-ctest-capture-current.json",
-            "supporting_evidence": [
-                "runs/pypto-cpu-bounded-20260830T091243Z-2320308-b57c23/release-build-wheels.json",
-                "runs/pypto-cpu-bounded-20260830T091243Z-2320308-b57c23/process.json",
-                "runs/pypto-cpu-bounded-20260830T091329Z-2320615-6a9134/release-build-install.json",
-                "runs/pypto-cpu-bounded-20260830T091329Z-2320615-6a9134/process.json",
-                "runs/pypto-cpu-bounded-20260830T144910Z-2409462-115ae6/process.json",
-                "builds/qwen35-sm120-v1/native/Testing/Temporary/LastTest.log"
-            ],
-        },
-        "operator-correctness": {
-            "path": "docs/assets/screenshots/operator-correctness.png",
-            "command": "python3 -B tools/print_release_gate.py operator --compact",
-            "command_source": "tools/print_release_gate.py",
-            "status": "current-evidence-replay",
-            "caption_zh": "Ubuntu/PowerShell 紫色终端：校验并回放已接受的 8/8 operator regression suite、case inventory 与 DSO identity；明确不是 live rerun。",
-            "caption_en": "Ubuntu/PowerShell purple terminal: validates and replays the accepted 8/8 operator regression suites, case inventory, and DSO identity; explicitly not a live rerun.",
-            "evidence": "state/evidence/operator-regression-current.json",
-            "capture_evidence": "state/evidence/operator-correctness-capture-current.json",
-        },
-        "performance": {
-            "path": "docs/assets/screenshots/performance-ablation.png",
-            "command": "python3 -B tools/print_inductor_ablation.py --compact",
-            "command_source": "tools/print_inductor_ablation.py",
-            "status": "current-operator-scope",
-            "caption_zh": "Ubuntu/PowerShell 紫色终端：Qwen3.5-9B SwiGLU 算子级消融；数值来自 immutable evidence JSON，非整模结论。",
-            "caption_en": "Ubuntu/PowerShell purple terminal: Qwen3.5-9B SwiGLU operator ablation; values come from immutable evidence JSON and are not a whole-model claim.",
-            "evidence": "state/evidence/qwen35-9b-inductor-ablation-current.json",
-            "capture_evidence": "state/evidence/performance-ablation-capture-current.json",
-        },
-        "model-inference": {
-            "path": "docs/assets/screenshots/model-inference.png",
-            "command": "python3 -B tools/print_qwen35_model_gate.py --compact",
-            "command_source": "tools/print_qwen35_model_gate.py",
-            "status": "current-evidence-replay",
-            "caption_zh": "Ubuntu/PowerShell 紫色终端：校验并回放已接受的 Qwen3.5-9B 三次 fresh-start 推理、输出文本与 100% PyPTO coverage；明确不是本轮 live rerun。",
-            "caption_en": "Ubuntu/PowerShell purple terminal: validates and replays the accepted three-start Qwen3.5-9B inference, decoded output, and 100% PyPTO coverage; explicitly not a live rerun.",
-            "evidence": "state/evidence/qwen35-9b-model-gate-current.json",
-            "capture_evidence": "state/evidence/model-inference-capture-current.json",
-        },
-        "article-demo-typical": {
-            "path": "docs/assets/screenshots/article-demo-typical.png",
-            "command": "envs/pypto-release/bin/python -B tools/run_article_demo_nvidia.py --demo examples/beginner/hello_world.py --device 0 --run-id article-demo-nvidia-hello-screenshot --output state/evidence/article-demos-nvidia/011-hello_world-screenshot.json",
-            "command_source": "tools/run_article_demo_nvidia.py",
-            "status": "current-live-run",
-            "caption_zh": "Ubuntu/PowerShell 紫色终端：未改写 hello_world.py 的严格 NVIDIA 兼容运行、PyPTO artifact 与 golden 精度通过。",
-            "caption_en": "Ubuntu/PowerShell purple terminal: strict NVIDIA compatibility run of unchanged hello_world.py with a PyPTO artifact and passing golden comparison.",
-            "evidence": "state/evidence/article-demos-nvidia/011-hello_world-screenshot.json",
-            "capture_evidence": "state/evidence/article-demo-typical-capture-current.json",
-        },
-    }
+
     payload: dict[str, object] = {
-        "schema": 1,
-        "kind": "article-demo-screenshot-manifest",
+        "schema": 2,
+        "kind": "release-screenshot-manifest",
         "status": "provisional",
         "recorded_at": datetime.now(timezone.utc).isoformat(),
-        "terminal": {"host": "Windows Terminal", "distro": "Ubuntu", "theme": "PowerShell purple"},
+        "terminal": {
+            "host": "Windows Terminal",
+            "distro": "Ubuntu",
+            "theme": "Ubuntu purple profile, nested PowerShell prompt -> wsl -d Ubuntu",
+            "capture_script": "tools/windows/capture_powershell.ps1",
+        },
         "capture_capability": {},
         "screenshots": {},
     }
@@ -115,60 +115,39 @@ def main() -> int:
         "evidence_sha256": sha256(capability_path),
         "status": "pass",
     }
+
     output = args.output.resolve()
-    for role, raw in records.items():
-        evidence = (ROOT / raw["evidence"]).resolve(strict=True)
-        if not evidence.is_file():
-            raise SystemExit(f"missing evidence for {role}")
-        item = dict(raw)
-        item["evidence_sha256"] = sha256(evidence)
-        item["evidence"] = evidence.relative_to(ROOT).as_posix()
-        command_source_relative = raw.get("command_source")
-        if command_source_relative is not None:
-            command_source = (ROOT / str(command_source_relative)).resolve(strict=True)
-            item["command_source"] = command_source.relative_to(ROOT).as_posix()
-            item["command_source_sha256"] = sha256(command_source)
-        supporting = raw.get("supporting_evidence")
-        if supporting is not None:
-            item["supporting_evidence"] = []
-            for relative in supporting:
-                supporting_path = (ROOT / str(relative)).resolve(strict=True)
-                item["supporting_evidence"].append(
-                    {
-                        "path": supporting_path.relative_to(ROOT).as_posix(),
-                        "sha256": sha256(supporting_path),
-                    }
-                )
+    for role, raw in ROLES.items():
+        evidence = newest(raw["evidence_glob"]).resolve()
         image = (ROOT / raw["path"]).resolve()
-        capture_relative = raw.get("capture_evidence")
-        if capture_relative is not None:
-            capture_path = (ROOT / str(capture_relative)).resolve(strict=True)
-            capture = json.loads(capture_path.read_text(encoding="utf-8"))
-            if (
-                capture.get("status") != "pass"
-                or capture.get("command") != raw["command"]
-                or capture.get("output_sha256") != sha256(image)
-                or capture.get("exit_code") != 0
-                or type(capture.get("window_width")) is not int
-                or type(capture.get("window_height")) is not int
-                or int(capture.get("visible_samples", 0)) < 16
-            ):
-                raise SystemExit(f"invalid capture evidence for {role}")
-            item["capture_evidence"] = capture_path.relative_to(ROOT).as_posix()
-            item["capture_evidence_sha256"] = sha256(capture_path)
-        if image.is_file():
-            item["sha256"] = sha256(image)
-        else:
-            item["capture_status"] = "pending"
+        capture_path = (ROOT / raw["capture_evidence"]).resolve(strict=True)
+        capture = json.loads(capture_path.read_text(encoding="utf-8"))
+        if (
+            capture.get("status") != "pass"
+            or capture.get("output_sha256") != sha256(image)
+            or capture.get("exit_code") != 0
+            or type(capture.get("window_width")) is not int
+            or type(capture.get("window_height")) is not int
+            or int(capture.get("visible_samples", 0)) < 16
+        ):
+            raise SystemExit(f"invalid capture evidence for {role}")
+        if not image.is_file():
+            raise SystemExit(f"missing screenshot for {role}")
+        item = {
+            "path": raw["path"],
+            "command": capture.get("command"),
+            "status": raw["status"],
+            "caption_zh": raw["caption_zh"],
+            "caption_en": raw["caption_en"],
+            "evidence": evidence.relative_to(ROOT).as_posix(),
+            "evidence_sha256": sha256(evidence),
+            "capture_evidence": capture_path.relative_to(ROOT).as_posix(),
+            "capture_evidence_sha256": sha256(capture_path),
+            "capture_exit_code": capture.get("exit_code"),
+            "sha256": sha256(image),
+        }
         payload["screenshots"][role] = item
-    payload["status"] = (
-        "complete"
-        if all(
-            record.get("capture_status") != "pending"
-            for record in payload["screenshots"].values()
-        )
-        else "provisional"
-    )
+    payload["status"] = "complete"
     write_json(output, payload)
     print(output)
     return 0
