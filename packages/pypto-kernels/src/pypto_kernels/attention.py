@@ -1710,6 +1710,60 @@ def paged_attention_decode(
     if stream is None:
         stream = torch.cuda.current_stream(query.device)
     queries_per_kv = q_heads // kv_heads
+    out = torch.empty(
+        (batch_size, query_width),
+        dtype=torch.bfloat16,
+        device=query.device,
+    )
+    request_index_view = request_index.as_strided(
+        (batch_size, tokens), (1, 0)
+    )
+    valid_tokens_view = valid_tokens.as_strided(
+        (batch_size, tokens), (1, 0)
+    )
+    mapping_view = virtual_to_physical.view(mapping_rows, 1)
+    if batch_size == 1:
+        # Single-launch path: one graph covers every Q head, so the grid
+        # spans all heads (16x the CTAs of a per-head launch on the
+        # latency-bound decode bucket) and one launch replaces sixteen.
+        # Per-head arithmetic and reduction order are unchanged.
+        merged_key = compile_paged_decode_for(
+            1,
+            q_heads,
+            kv_heads,
+            tokens,
+            head_dim,
+            cache_rows,
+            request_rows,
+            max_context_len,
+            cache_row_stride,
+            mapping_rows,
+            query_row_stride,
+            result_row_stride,
+        )
+        merged_query = query.as_strided(
+            (q_heads, 1, head_dim),
+            (head_dim, query_row_stride, 1),
+        )
+        merged_result = out.as_strided(
+            (q_heads, 1, head_dim),
+            (head_dim, result_row_stride, 1),
+        )
+        launch_graph(
+            merged_key,
+            (
+                merged_query,
+                key_cache,
+                value_cache,
+                req_to_token,
+                request_index_view,
+                valid_tokens_view,
+                mapping_view,
+                merged_result,
+            ),
+            stream.cuda_stream,
+        )
+        return out
     graph_key = compile_paged_decode_for(
         batch_size,
         1,
@@ -1724,18 +1778,6 @@ def paged_attention_decode(
         query_row_stride,
         result_row_stride,
     )
-    out = torch.empty(
-        (batch_size, query_width),
-        dtype=torch.bfloat16,
-        device=query.device,
-    )
-    request_index_view = request_index.as_strided(
-        (batch_size, tokens), (1, 0)
-    )
-    valid_tokens_view = valid_tokens.as_strided(
-        (batch_size, tokens), (1, 0)
-    )
-    mapping_view = virtual_to_physical.view(mapping_rows, 1)
     query_storage_offset = int(query.storage_offset())
     key_storage_offset = int(key_cache.storage_offset())
     value_storage_offset = int(value_cache.storage_offset())

@@ -39,9 +39,9 @@ LANE_COLORS = {
     "sglang-optimized": WARM,
 }
 LANE_LABELS = {
-    "pypto": "PyPTO (100% PyPTO kernels)",
-    "sglang-matched": "SGLang matched",
-    "sglang-optimized": "SGLang optimized",
+    "pypto": "PyPTO\n(100% PyPTO kernels)",
+    "sglang-matched": "SGLang\nmatched",
+    "sglang-optimized": "SGLang\noptimized",
 }
 
 

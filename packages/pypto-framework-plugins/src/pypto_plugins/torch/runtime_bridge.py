@@ -31,6 +31,12 @@ _observations: dict[int, Any] = {}
 _executables: dict[str, tuple[str, str, int, Any]] = {}
 _kernel_executable_identities: dict[str, tuple[str, str, int]] = {}
 _artifact_records: dict[str, Any] = {}
+# Launch packets are immutable and fully determined by the kernel plus the
+# (pointer, shape, stride) tuple of its operands; steady decode reuses the
+# same buffers every step, so caching the prepared packet removes the
+# per-launch argument rebuild without changing what the kernel reads.
+_packet_cache: dict[tuple[str, tuple[tuple[int, ...], ...]], Any] = {}
+_PACKET_CACHE_LIMIT = 4096
 
 
 def _require_owner_process() -> None:
@@ -270,31 +276,43 @@ def pypto_launch(kernel_name: str, args: tuple[Any, ...], stream: int) -> None:
         dso_sha256,
         expected_device_index,
     )
-    arguments = [
-        runtime.NvidiaLaunchArgument.tensor(
-            int(tensor.data_ptr()),
-            list(tensor.shape),
-            list(tensor.stride()),
-        )
-        for tensor in args
-    ]
-    try:
-        packet = executable.prepare_launch(arguments)
-    except Exception as error:
-        descriptors = []
+    identity = (
+        kernel_name,
+        tuple(
+            (int(tensor.data_ptr()), tuple(tensor.shape), tuple(tensor.stride()))
+            for tensor in args
+        ),
+    )
+    packet = _packet_cache.get(identity)
+    if packet is None:
+        arguments = [
+            runtime.NvidiaLaunchArgument.tensor(
+                int(tensor.data_ptr()),
+                list(tensor.shape),
+                list(tensor.stride()),
+            )
+            for tensor in args
+        ]
         try:
-            for descriptor in artifact.kernel_abi.argument_layout.operand_descriptors:
-                descriptors.append(
-                    (str(descriptor.kind).rsplit(".", 1)[-1], list(descriptor.shape))
-                )
-        except Exception:  # pragma: no cover - diagnostics only
-            pass
-        raise type(error)(
-            f"{kernel_name}: {error}; args="
-            + repr([(tuple(t.shape), tuple(t.stride())) for t in args])
-            + "; abi="
-            + repr(descriptors)
-        ) from error
+            packet = executable.prepare_launch(arguments)
+        except Exception as error:
+            descriptors = []
+            try:
+                for descriptor in artifact.kernel_abi.argument_layout.operand_descriptors:
+                    descriptors.append(
+                        (str(descriptor.kind).rsplit(".", 1)[-1], list(descriptor.shape))
+                    )
+            except Exception:  # pragma: no cover - diagnostics only
+                pass
+            raise type(error)(
+                f"{kernel_name}: {error}; args="
+                + repr([(tuple(t.shape), tuple(t.stride())) for t in args])
+                + "; abi="
+                + repr(descriptors)
+            ) from error
+        if len(_packet_cache) >= _PACKET_CACHE_LIMIT:
+            _packet_cache.clear()
+        _packet_cache[identity] = packet
     artifact_record = _ensure_artifact_record(
         kernel_name,
         artifact,
@@ -303,4 +321,3 @@ def pypto_launch(kernel_name: str, args: tuple[Any, ...], stream: int) -> None:
     )
     with annotate_artifact_launch(artifact_record):
         executable.launch(packet, int(stream))
-    del packet
