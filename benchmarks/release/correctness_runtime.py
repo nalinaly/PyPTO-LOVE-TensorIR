@@ -499,6 +499,11 @@ def _run_engine_sequences(
     import sglang as sgl
 
     requested = server_kwargs("pypto", model_path)
+    if model_path.name == "Qwen3.5-9B":
+        # The CUPTI overlay child needs slightly more KV headroom than the
+        # shared 0.78 performance lane leaves; see run_candidate for the
+        # matching parent-side override.
+        requested["mem_fraction_static"] = 0.80
     progress_path = run_dir / "qwen35-engine-progress.json"
 
     def publish_progress(stage: str, request_index: int | None = None) -> None:
