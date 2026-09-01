@@ -891,6 +891,48 @@ def _paged_decode_partition_count(q_heads: int) -> int:
     return q_heads
 
 
+_merged_decode_support: dict[tuple[int, ...], bool] = {}
+
+
+def _merged_decode_supported(geometry: tuple[int, ...]) -> bool:
+    """Probe the all-heads decode graph in a sacrificial subprocess.
+
+    tileiras rejects (and on at least one bucket corrupts the heap of) the
+    merged 16-head program for scattered bucket sizes, so a new geometry is
+    compiled once out-of-process; on success the artifact lands in the
+    persistent cache and the caller hits it without running tileiras, and on
+    any failure the proven per-head path stays in charge.
+    """
+
+    cached = _merged_decode_support.get(geometry)
+    if cached is not None:
+        return cached
+    import os
+    import subprocess
+    import sys
+
+    if not os.environ.get("PYPTO_CACHE_DIR"):
+        # Without the persistent cache a parent-side compile would run
+        # tileiras in-process; keep the per-head path.
+        _merged_decode_support[geometry] = False
+        return False
+    probe = (
+        "from pypto_kernels import attention; "
+        "attention.compile_paged_decode_for(*%r)" % (geometry,)
+    )
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-c", probe],
+            capture_output=True,
+            timeout=180,
+        )
+        supported = completed.returncode == 0
+    except subprocess.SubprocessError:
+        supported = False
+    _merged_decode_support[geometry] = supported
+    return supported
+
+
 def _validate_paged_cache_write_shape(
     cache_rows: int,
     update_rows: int,
@@ -1723,25 +1765,26 @@ def paged_attention_decode(
     )
     mapping_view = virtual_to_physical.view(mapping_rows, 1)
     pending_launches: list[tuple[str, tuple[Any, ...]]] = []
-    if batch_size == 1:
+    merged_geometry = (
+        1,
+        q_heads,
+        kv_heads,
+        tokens,
+        head_dim,
+        cache_rows,
+        request_rows,
+        max_context_len,
+        cache_row_stride,
+        mapping_rows,
+        query_row_stride,
+        result_row_stride,
+    )
+    if batch_size == 1 and _merged_decode_supported(merged_geometry):
         # Single-launch path: one graph covers every Q head, so the grid
         # spans all heads (16x the CTAs of a per-head launch on the
         # latency-bound decode bucket) and one launch replaces sixteen.
         # Per-head arithmetic and reduction order are unchanged.
-        merged_key = compile_paged_decode_for(
-            1,
-            q_heads,
-            kv_heads,
-            tokens,
-            head_dim,
-            cache_rows,
-            request_rows,
-            max_context_len,
-            cache_row_stride,
-            mapping_rows,
-            query_row_stride,
-            result_row_stride,
-        )
+        merged_key = compile_paged_decode_for(*merged_geometry)
         merged_query = query.as_strided(
             (1, q_heads, head_dim),
             (query_row_stride, head_dim, 1),
