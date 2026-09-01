@@ -1,0 +1,191 @@
+{
+  "all_correct": true,
+  "cases": [
+    {
+      "anchor_max_abs_diff": 0.001953125,
+      "case": "decode_0_8b_valid13 cache_write",
+      "correct": true,
+      "key_max_abs_diff": 0.0,
+      "launches": 1,
+      "value_max_abs_diff": 0.0
+    },
+    {
+      "attention_launch_topology": "one_reused_single_q_head_artifact_launch_per_q_head",
+      "attention_launches": 8,
+      "batch_size": 1,
+      "bucket_tokens": 16,
+      "cache_row_stride": 512,
+      "case": "decode_0_8b_valid13",
+      "compiled_artifacts": 1,
+      "correct": true,
+      "kv_heads": 2,
+      "launch_count": 8,
+      "launches": 8,
+      "max_abs_diff": 0.008581623435020447,
+      "valid_tokens": [
+        13
+      ]
+    },
+    {
+      "anchor_max_abs_diff": 0.001953125,
+      "case": "decode_9b_valid16 cache_write",
+      "correct": true,
+      "key_max_abs_diff": 0.0,
+      "launches": 1,
+      "value_max_abs_diff": 0.0
+    },
+    {
+      "attention_launch_topology": "one_reused_single_q_head_artifact_launch_per_q_head",
+      "attention_launches": 16,
+      "batch_size": 1,
+      "bucket_tokens": 16,
+      "cache_row_stride": 1024,
+      "case": "decode_9b_valid16",
+      "compiled_artifacts": 1,
+      "correct": true,
+      "kv_heads": 4,
+      "launch_count": 16,
+      "launches": 16,
+      "max_abs_diff": 0.012333353981375694,
+      "valid_tokens": [
+        16
+      ]
+    },
+    {
+      "anchor_max_abs_diff": 0.001953125,
+      "case": "decode_batch2_0_8b_valid13_7_strided cache_write",
+      "correct": true,
+      "key_max_abs_diff": 0.0,
+      "launches": 1,
+      "value_max_abs_diff": 0.0
+    },
+    {
+      "attention_launch_topology": "one_reused_single_q_head_artifact_launch_per_q_head",
+      "attention_launches": 8,
+      "batch_size": 2,
+      "bucket_tokens": 16,
+      "cache_row_stride": 2048,
+      "case": "decode_batch2_0_8b_valid13_7_strided",
+      "compiled_artifacts": 1,
+      "correct": true,
+      "kv_heads": 2,
+      "launch_count": 8,
+      "launches": 8,
+      "max_abs_diff": 0.013500437140464783,
+      "valid_tokens": [
+        13,
+        7
+      ]
+    },
+    {
+      "anchor_max_abs_diff": 0.001953125,
+      "case": "decode_0_8b_valid83_bucket96 cache_write",
+      "correct": true,
+      "key_max_abs_diff": 0.0,
+      "launches": 1,
+      "value_max_abs_diff": 0.0
+    },
+    {
+      "attention_launch_topology": "one_reused_single_q_head_artifact_launch_per_q_head",
+      "attention_launches": 8,
+      "batch_size": 1,
+      "bucket_tokens": 96,
+      "cache_row_stride": 512,
+      "case": "decode_0_8b_valid83_bucket96",
+      "compiled_artifacts": 1,
+      "correct": true,
+      "kv_heads": 2,
+      "launch_count": 8,
+      "launches": 8,
+      "max_abs_diff": 0.005563721060752869,
+      "valid_tokens": [
+        83
+      ]
+    },
+    {
+      "anchor_max_abs_diff": 0.001953125,
+      "case": "prefill_0_8b_prefix2_extend13 cache_write",
+      "correct": true,
+      "key_max_abs_diff": 0.0,
+      "launches": 1,
+      "value_max_abs_diff": 0.0
+    },
+    {
+      "attention_launch_topology": "one_fused_all_kv_heads_launch",
+      "attention_launches": 1,
+      "bucket_tokens": 16,
+      "cache_row_stride": 512,
+      "cache_write_launches": 1,
+      "case": "prefill_0_8b_prefix2_extend13",
+      "correct": true,
+      "dirty_tail_tokens": 0,
+      "kv_heads": 2,
+      "launch_count": 2,
+      "launches": 2,
+      "max_abs_diff": 0.028930142521858215,
+      "prefix_tokens": 2,
+      "query_row_stride": 2048,
+      "query_rows": 13
+    },
+    {
+      "anchor_max_abs_diff": 0.001953125,
+      "case": "prefill_9b_prefix2_extend13 cache_write",
+      "correct": true,
+      "key_max_abs_diff": 0.0,
+      "launches": 1,
+      "value_max_abs_diff": 0.0
+    },
+    {
+      "attention_launch_topology": "one_single_kv_head_launch_per_kv_head",
+      "attention_launches": 4,
+      "bucket_tokens": 16,
+      "cache_row_stride": 1024,
+      "cache_write_launches": 1,
+      "case": "prefill_9b_prefix2_extend13",
+      "correct": true,
+      "dirty_tail_tokens": 0,
+      "kv_heads": 4,
+      "launch_count": 5,
+      "launches": 5,
+      "max_abs_diff": 0.029108621180057526,
+      "prefix_tokens": 2,
+      "query_row_stride": 4096,
+      "query_rows": 13
+    },
+    {
+      "anchor_max_abs_diff": 0.00390625,
+      "case": "prefill_0_8b_prefix0_extend19_bucket32_dirty_tail3 cache_write",
+      "correct": true,
+      "key_max_abs_diff": 0.0,
+      "launches": 1,
+      "value_max_abs_diff": 0.0
+    },
+    {
+      "attention_launch_topology": "one_fused_all_kv_heads_launch",
+      "attention_launches": 1,
+      "bucket_tokens": 32,
+      "cache_row_stride": 512,
+      "cache_write_launches": 1,
+      "case": "prefill_0_8b_prefix0_extend19_bucket32_dirty_tail3",
+      "correct": true,
+      "dirty_tail_tokens": 3,
+      "kv_heads": 2,
+      "launch_count": 2,
+      "launches": 2,
+      "max_abs_diff": 0.027944475412368774,
+      "prefix_tokens": 0,
+      "query_row_stride": 4608,
+      "query_rows": 19
+    }
+  ],
+  "dso_sha256": "3e29b1a4b462efbf6d4ab927d5406e42148682cbef7ffc686de3c07a704303f4",
+  "kind": "pypto-paged-attention-sm120",
+  "pypto_commit": "5e39819a22f4657c364ed5d174ed15d061f115d8",
+  "run_id": "paged-prefill-release-20260829",
+  "schema_version": 1,
+  "seed": 11,
+  "thresholds": {
+    "atol": 0.08,
+    "rtol": 0.1
+  }
+}

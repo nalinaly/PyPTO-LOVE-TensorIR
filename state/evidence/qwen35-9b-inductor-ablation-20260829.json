@@ -1,0 +1,96 @@
+{
+  "schema": 1,
+  "kind": "qwen35-9b-inductor-ablation",
+  "status": "provisional-operator-scope",
+  "scope": {
+    "model": "Qwen3.5-9B",
+    "model_revision": "not-loaded",
+    "operator": "packed FP32 SwiGLU pointwise",
+    "shape_prefill": [19, 12288],
+    "shape_decode": [1, 12288],
+    "input_layout": "packed BF16 [rows, 2*intermediate], gate/up views stride [2*intermediate,1]",
+    "device": "NVIDIA GeForce RTX 5090 Laptop GPU",
+    "compute_capability": "12.0",
+    "torch": "2.13.0+cu130",
+    "torch_git": "cf30153c4c131c8164ee7798e5022d810682e2cb",
+    "cuda": "13.0",
+    "pypto_parent_head": "84cf38faccabefc096e1b96f685c8ed08ed3fa23",
+    "pypto_tensorir_head": "05a5109f10af326f5937f92c70f48063e288c90e",
+    "sglang_head": "71de97b264b04dcd514cf904003028aefe9775c8"
+  },
+  "method": {
+    "warmup_calls": 20,
+    "timed_calls": 100,
+    "cold_first_call_ms_includes": "first call plus compilation when the mode compiles",
+    "warm_metric": "CUDA event elapsed time per call",
+    "launch_metric": "one torch.profiler CUDA kernel event window around one call",
+    "denominator_for_speedup": "eager warm_call_ms divided by mode warm_call_ms minus one"
+  },
+  "prefill": {
+    "eager": {
+      "warm_call_ms": 0.0749945592880249,
+      "cold_first_call_ms": 38.592345,
+      "kernel_event_count": 6,
+      "raw_report": "runs/inductor-ablation-eager.json",
+      "raw_report_sha256": "9b5628bd88d68370a9a9f652d29a85c73b38a86be35f2990485318663634ed0b",
+      "controller_run_id": "pypto-gpu-bounded-20260829T081416Z-1784878-dc31ae"
+    },
+    "inductor_nv": {
+      "warm_call_ms": 0.046994562149047854,
+      "cold_first_call_ms": 1415.831108,
+      "kernel_event_count": 1,
+      "speedup_vs_eager_percent": 59.58135549847727,
+      "raw_report": "runs/inductor-ablation-inductor-nv.json",
+      "raw_report_sha256": "32748d6c402c15a954f43f2c7b3f8e8f553403749077e9d01b4c7b2872203db8",
+      "controller_run_id": "pypto-gpu-bounded-20260829T081448Z-1785126-f6aeb2"
+    },
+    "pypto": {
+      "warm_call_ms": 0.27512479782104493,
+      "cold_first_call_ms": 2949.472987,
+      "kernel_event_count": 1,
+      "speedup_vs_eager_percent": -72.74162129987091,
+      "relative_to_inductor_nv_percent": -82.9188199241802,
+      "compile_longer_than_inductor_nv_percent": 108.32096217792665,
+      "raw_report": "runs/inductor-ablation-pypto.json",
+      "raw_report_sha256": "240252e50f7823e243f66c61892e8c57feb0f9b5cf443ad1b954090ebeb8c355",
+      "controller_run_id": "pypto-gpu-bounded-20260829T081516Z-1785409-3fb824"
+    }
+  },
+  "decode": {
+    "eager": {
+      "warm_call_ms": 0.04898496150970459,
+      "cold_first_call_ms": 45.61027,
+      "kernel_event_count": 6,
+      "raw_report": "runs/inductor-ablation-eager-decode.json",
+      "raw_report_sha256": "e9dd86f3e43b0176d65a42c3001219512c8193cc99824fc4003f2af52de1c122",
+      "controller_run_id": "pypto-gpu-bounded-20260829T081617Z-1786058-e3b4c3"
+    },
+    "inductor_nv": {
+      "warm_call_ms": 0.03812000036239624,
+      "cold_first_call_ms": 1313.271434,
+      "kernel_event_count": 1,
+      "speedup_vs_eager_percent": 28.50199644285989,
+      "raw_report": "runs/inductor-ablation-inductor-nv-decode.json",
+      "raw_report_sha256": "de658c3515d5c6667df2a81883d93ff7386d978514bfe51af11de9389d9923dc",
+      "controller_run_id": "pypto-gpu-bounded-20260829T081555Z-1785731-e19823"
+    },
+    "pypto": {
+      "warm_call_ms": 0.3342428970336914,
+      "cold_first_call_ms": 2855.275253,
+      "kernel_event_count": 1,
+      "speedup_vs_eager_percent": -85.34450187440574,
+      "relative_to_inductor_nv_percent": -88.59512028506809,
+      "compile_longer_than_inductor_nv_percent": 117.41699233518847,
+      "raw_report": "runs/inductor-ablation-pypto-decode.json",
+      "raw_report_sha256": "020a2c859528aff8fcd98d42c9de9e97f336a5845d1ebe6ff2901a51f906c463",
+      "controller_run_id": "pypto-gpu-bounded-20260829T081638Z-1786234-3e3421"
+    }
+  },
+  "interpretation": {
+    "launch_reduction_prefill_percent": 83.33333333333333,
+    "launch_reduction_decode_percent": 83.33333333333333,
+    "whole_model_speedup": null,
+    "whole_model_speedup_status": "pending-full-19-input-64-output-ablation",
+    "caveat": "The PyPTO and official Inductor timings are operator-level evidence on the real 9B SwiGLU geometry. They must not be promoted to an end-to-end Qwen3.5-9B claim. The current PyPTO pointwise path reduces launches but is slower in this small-shape probe; this is retained as an optimization target."
+  }
+}

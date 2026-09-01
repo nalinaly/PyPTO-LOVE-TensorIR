@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "kind": "pypto-operator-regression-locked",
+  "recorded_at": "2026-08-29T15:31:59Z",
+  "status": "complete",
+  "all_correct": true,
+  "run_id": "pypto-gpu-bounded-20260829T151852Z-2013486-89bb59",
+  "control_summary": "runs/release-operator-20260829T153133Z-2012432-6301b5/summary.json",
+  "control_summary_sha256": "186e10b6406182fca68fa3c6ee97f41ac75b6361690e2af56c0f9d32265d4eee",
+  "regression_report": "runs/pypto-gpu-bounded-20260829T151852Z-2013486-89bb59/operator-numerical-regression.json",
+  "regression_report_sha256": "76742e78143bb948e58b0f89c7998500687d0864979bd8d072fe0c0c78281f3b",
+  "source": {
+    "pypto_commit": "f0ab91b38ae237c82eaad57be454f783bb5fccee",
+    "tensor_ir_commit": "3623b37eddbec0f74f014867fca3dd296ec91868",
+    "cuda_tile_commit": "af2417041cc939b87ef56d92cfdcf61737c5457e",
+    "sglang_commit": "71de97b264b04dcd514cf904003028aefe9775c8",
+    "pypto_kernels_commit": "17174cf8554cdc883748ac8970e9e2ce669ca357",
+    "pypto_framework_plugins_commit": "770691bf766e7c77b9b12d5f36784827994c2a9d"
+  },
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX 5090 Laptop GPU",
+    "compute_capability": "12.0",
+    "driver": "610.74",
+    "cuda_toolkit": "13.3.73"
+  },
+  "dso": {
+    "path": "envs/pypto-release/lib/python3.14/site-packages/pypto/pypto_core.cpython-314-x86_64-linux-gnu.so",
+    "sha256": "43aae1598a74b3c156469e6ca4e7eb466bbe288a29db19c6b1d8108e01bedb9f"
+  },
+  "suites": [
+    {"id": "handwritten-compile-classification", "cases": 25, "passed": true, "result": "runs/pypto-gpu-bounded-20260829T151852Z-2013486-89bb59/classify-result.json", "result_sha256": "76ce8f8aeab8fcc25de503324a7ff608d83827c2daf83169696632f52d34be7f"},
+    {"id": "handwritten-numerical", "cases": 32, "passed": true, "result": "runs/pypto-gpu-bounded-20260829T151852Z-2013486-89bb59/exec-result.json", "result_sha256": "17ae475c253d6038fab9f8ed82ac0a4a8df2c51d235bea7b1fe22a4311d74d1c"},
+    {"id": "stateful-real-model-shapes", "cases": 14, "passed": true, "result": "runs/pypto-gpu-bounded-20260829T151852Z-2013486-89bb59/stateful-result.json", "result_sha256": "03581339538f5718dbeb8427e0efff5d5f4efd196d532ec2cbec8754a7a37417"},
+    {"id": "paged-attention", "cases": 14, "passed": true, "result": "runs/pypto-gpu-bounded-20260829T151852Z-2013486-89bb59/paged-attention-result.json", "result_sha256": "448dad336fc398281fbdb47133c07e49ed78f358901626ae54f964a089278a05"},
+    {"id": "qk-real-model-shapes", "cases": 4, "passed": true, "result": "runs/pypto-gpu-bounded-20260829T151852Z-2013486-89bb59/qk-result.json", "result_sha256": "7223a511f2eb5738c0e1078d2711ac081ed84ab97d6b2e6450c5e9ad15036102"},
+    {"id": "linear-real-model-shapes", "cases": 8, "passed": true, "result": "runs/pypto-gpu-bounded-20260829T151852Z-2013486-89bb59/linear-result.json", "result_sha256": "bcc8346621471145be657c9a87966fdd9e2829dc446fd2ebac6158f7b934d488"},
+    {"id": "stateful-cuda-graph", "cases": 0, "passed": true, "result": "runs/pypto-gpu-bounded-20260829T151852Z-2013486-89bb59/cuda-graph-stateful-result.json", "result_sha256": "2bb9e874d81b7f778f349053f9d3ebba9e33c3416b63d19f288160c39a81f709"},
+    {"id": "inductor-swiglu-real-model-shapes", "cases": 4, "passed": true, "result": "runs/pypto-gpu-bounded-20260829T151852Z-2013486-89bb59/inductor-swiglu-result.json", "result_sha256": "cccced0fd9d3cf35965ac2544efbf5e2565ae16f274fdfd5b2f00dff726aab79"}
+  ],
+  "scope": "operator-level correctness and compile/lifecycle contracts; not whole-model correctness, coverage, or performance"
+}

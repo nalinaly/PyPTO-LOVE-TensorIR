@@ -1,0 +1,33 @@
+{
+  "article_url": "https://mp.weixin.qq.com/s/7tLlTbomH9OqyUbZDbBEhQ",
+  "audit_only": false,
+  "blocker": "missing Ascend simpler runtime extension",
+  "command": [
+    "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+    "-B",
+    "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/advanced/topk.py",
+    "-p",
+    "a2a3sim",
+    "-d",
+    "0"
+  ],
+  "cwd": "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib",
+  "elapsed_seconds": 2.652249330014456,
+  "golden_pass_observed": false,
+  "kind": "article-demo-run",
+  "return_code": 1,
+  "run_id": "article-demo-1788003706",
+  "schema": 1,
+  "source": {
+    "bytes": 4097,
+    "path": "examples/advanced/topk.py",
+    "sha256": "94a0adae341a142454c1b57063086652e30619dd5d801decc578ec695ee949af",
+    "upstream_commit": "6c292d30ccc787ee4e1fe61541fd3faec0dafa65"
+  },
+  "status": "fail",
+  "stderr": "2026-08-29 19:41:49.025 I | [perf_hint] 2 hints across 2 sites; see build_output/_jit_topk_20260829_194149/report/perf_hints.log\nTraceback (most recent call last):\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/advanced/topk.py\", line 80, in <module>\n    result = run_jit(\n        fn=topk,\n    ...<10 lines>...\n        compare_fn={\"topk_idx\": topk_pair_compare(\"topk_vals\")},\n    )\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/golden/runner.py\", line 1887, in run_jit\n    _execute_via_runner(work_dir, specs, tensors, scalar_specs_eff, runtime_cfg)\n    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/golden/runner.py\", line 389, in _execute_via_runner\n    execute_compiled(work_dir, ordered, **_execute_compiled_kwargs(runtime_cfg))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/runner.py\", line 1501, in execute_compiled\n    from .device_runner import (  # noqa: PLC0415\n    ...<2 lines>...\n    )\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/device_runner.py\", line 59, in <module>\n    from .kernel_compiler import KernelCompiler\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/kernel_compiler.py\", line 28, in <module>\n    from simpler_setup import KernelCompiler as _SimplerKernelCompiler  # pyright: ignore[reportMissingImports]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nModuleNotFoundError: No module named 'simpler_setup'\n",
+  "stderr_sha256": "07e8e9973576b2521915d5560ded6f19db83c881951d3201a37bd86672679c7b",
+  "stdout": "[RUN] compile ...\n[RUN] compile done (0.04s)\n[RUN] generate inputs ...\n[RUN] generate inputs done (0.00s)\n[RUN] compute golden ...\n[RUN] compute golden done (0.00s)\n[RUN] runtime ...\n[RUN] runtime done (0.00s)\n",
+  "stdout_sha256": "51ab2e8f800cf6669bcbbb95e397fb09755423880133c08d33635c8780c11fc8",
+  "timed_out": false
+}

@@ -1,0 +1,33 @@
+{
+  "article_url": "https://mp.weixin.qq.com/s/7tLlTbomH9OqyUbZDbBEhQ",
+  "audit_only": false,
+  "blocker": null,
+  "command": [
+    "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+    "-B",
+    "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/advanced/allreduce.py",
+    "-p",
+    "a2a3sim",
+    "-d",
+    "0"
+  ],
+  "cwd": "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib",
+  "elapsed_seconds": 2.4560529770096764,
+  "golden_pass_observed": false,
+  "kind": "article-demo-run",
+  "return_code": 1,
+  "run_id": "article-demo-1788003696",
+  "schema": 1,
+  "source": {
+    "bytes": 5965,
+    "path": "examples/advanced/allreduce.py",
+    "sha256": "c1484f4b3e0273b5d800dcce914628f0ef8839eb83e0f2af0ad1b35a52ad4bce",
+    "upstream_commit": "6c292d30ccc787ee4e1fe61541fd3faec0dafa65"
+  },
+  "status": "fail",
+  "stderr": "Traceback (most recent call last):\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/advanced/allreduce.py\", line 137, in <module>\n    assert len(device_ids) == N_RANKS, f\"need exactly {N_RANKS} devices, got {device_ids}\"\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: need exactly 2 devices, got [0]\n",
+  "stderr_sha256": "0751efdcdd31136186518d2324e86c2e5667c3e321c3edc6555f42216b54ddc9",
+  "stdout": "",
+  "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "timed_out": false
+}

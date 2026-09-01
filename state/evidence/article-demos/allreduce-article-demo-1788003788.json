@@ -1,0 +1,33 @@
+{
+  "article_url": "https://mp.weixin.qq.com/s/7tLlTbomH9OqyUbZDbBEhQ",
+  "audit_only": false,
+  "blocker": null,
+  "command": [
+    "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+    "-B",
+    "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/advanced/allreduce.py",
+    "-p",
+    "a2a3sim",
+    "-d",
+    "0,1"
+  ],
+  "cwd": "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib",
+  "elapsed_seconds": 3.5462461419811007,
+  "golden_pass_observed": false,
+  "kind": "article-demo-run",
+  "return_code": 1,
+  "run_id": "article-demo-1788003788",
+  "schema": 1,
+  "source": {
+    "bytes": 5965,
+    "path": "examples/advanced/allreduce.py",
+    "sha256": "c1484f4b3e0273b5d800dcce914628f0ef8839eb83e0f2af0ad1b35a52ad4bce",
+    "upstream_commit": "6c292d30ccc787ee4e1fe61541fd3faec0dafa65"
+  },
+  "status": "fail",
+  "stderr": "Traceback (most recent call last):\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/advanced/allreduce.py\", line 139, in <module>\n    result = run_jit(\n        fn=l3_allreduce,\n    ...<11 lines>...\n        atol=1e-5,\n    )\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/golden/runner.py\", line 1884, in run_jit\n    if compiled is None or not _try_l3_dispatch(\n                               ~~~~~~~~~~~~~~~~^\n        compiled, specs, tensors, scalar_specs_eff, runtime_cfg,\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    ):\n    ^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/golden/runner.py\", line 844, in _try_l3_dispatch\n    compiled(*ordered, config=run_config)\n    ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/ir/distributed_compiled_program.py\", line 476, in __call__\n    execute_distributed(self, coerced, config)\n    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/distributed_runner.py\", line 1302, in execute_distributed\n    chip_callables, runtime_name, enable_sdma = _assemble_chip_callables(compiled)\n                                                ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/distributed_runner.py\", line 397, in _assemble_chip_callables\n    raise RuntimeError(\n    ...<2 lines>...\n    )\nRuntimeError: No chip-level tasks found in /home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/build_output/_jit_l3_allreduce_20260829_194311/next_levels (expected one or more next_levels/<name>/ sub-builds each containing a kernel_config.py).\n",
+  "stderr_sha256": "a91fde266625f779dabf418a3099aedd83dda9c803d6d939eee010d25eacf43c",
+  "stdout": "[RUN] compile ...\n[RUN] compile done (0.05s)\n[RUN] generate inputs ...\n[RUN] generate inputs done (0.00s)\n[RUN] compute golden ...\n[RUN] compute golden done (0.00s)\n[RUN] runtime ...\n[RUN] runtime done (0.00s)\n",
+  "stdout_sha256": "ca3158693dbe5f4d9428451f4cc4aa751cae281074eee20c297cff0e6e8773a2",
+  "timed_out": false
+}

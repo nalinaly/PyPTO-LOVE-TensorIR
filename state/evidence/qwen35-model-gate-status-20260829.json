@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "kind": "qwen35-model-gate-status",
+  "recorded_at": "2026-08-29",
+  "source_lock": {
+    "pypto_commit": "5e39819a22f4657c364ed5d174ed15d061f115d8",
+    "tensor_ir_commit": "eb5fc509d9ac6d7a015a29f8b8330f6d9d15fa6b",
+    "sglang_commit": "71de97b264b04dcd514cf904003028aefe9775c8"
+  },
+  "workload": {
+    "prompt": "为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？",
+    "input_tokens": 19,
+    "output_tokens": 64,
+    "sampling": "greedy",
+    "order": "0.8B then 9B"
+  },
+  "models": {
+    "Qwen3.5-0.8B": {
+      "reference": {
+        "status": "pass",
+        "run_id": "pypto-gpu-bounded-20260829T112432Z-1887175-b3207a",
+        "report": "runs/pypto-gpu-bounded-20260829T112432Z-1887175-b3207a/qwen35-0.8b-reference.json",
+        "report_sha256": "d78200a8d8ce1e31dd56e3157d02def99ab3a9a7f0a37572224a045ef16104e1",
+        "reference_identity": "0b139aebd948b27dc6164686a8543de87a456f6a622d1f3833a1b534ebb8167a",
+        "output_token_count": 64
+      },
+      "pypto_candidate": {
+        "status": "fail",
+        "run_id": "pypto-gpu-bounded-20260829T112526Z-1887978-2fc37e",
+        "report": "runs/pypto-gpu-bounded-20260829T112526Z-1887978-2fc37e/qwen35-0.8b-correctness.json",
+        "report_sha256": "f890b3c944967dcfa5c642c79e486cd1673d433fdc3ce75fffca4d5dcb25ea92",
+        "engine_requests": 10,
+        "stable_output_sequence": true,
+        "first_mismatch_step": 0,
+        "expected_token_id": 271,
+        "observed_token_id": 3321,
+        "failure": "end-to-end SGLang Engine output differs from the frozen reference"
+      }
+    },
+    "Qwen3.5-9B": {
+      "status": "pending",
+      "reason": "strict acceptance order stops after the 0.8B candidate mismatch",
+      "model_level_speedup": null,
+      "coverage": null
+    }
+  },
+  "claim_policy": {
+    "whole_model_speedup": null,
+    "whole_model_100_percent_pypto": null,
+    "operator_ablation_may_not_be_promoted": true
+  }
+}

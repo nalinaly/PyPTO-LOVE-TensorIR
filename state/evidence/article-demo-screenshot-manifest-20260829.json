@@ -1,0 +1,53 @@
+{
+  "kind": "article-demo-screenshot-manifest",
+  "recorded_at": "2026-08-29T09:44:49.405110+00:00",
+  "schema": 1,
+  "screenshots": {
+    "build": {
+      "caption_en": "Ubuntu/PowerShell purple terminal: CTest 13/13 passed (this capture binds the ctest stage; the complete four-stage build remains a release-manifest gate).",
+      "caption_zh": "Ubuntu/PowerShell 紫色终端：CTest 13/13 通过（当前截图绑定 ctest 阶段；完整四阶段 build 仍按发布 manifest 复核）。",
+      "command": "envs/pypto-release/bin/python tools/build_release.py --stage ctest --jobs 24",
+      "evidence": "runs/pypto-cpu-bounded-20260829T093556Z-1843298-9bfa53/release-build-ctest.json",
+      "evidence_sha256": "208fb96d6cfabd09fe2496a9971efdad6886f543700db685b470f7ad9be3aa3e",
+      "path": "docs/assets/screenshots/build-ctest.png",
+      "sha256": "4aa4b98cb752092fff5e9380a3af6e8a121591bbedbbf168b912a0c83488e488",
+      "status": "pass"
+    },
+    "model-inference": {
+      "caption_en": "Ubuntu/PowerShell purple terminal: the article Qwen3-14B demo is pending because the upstream pl.KernelType.MIX API is unavailable; this is not success evidence.",
+      "caption_zh": "Ubuntu/PowerShell 紫色终端：文章 Qwen3-14B demo 当前因上游 pl.KernelType.MIX API blocker 未通过；截图保留为 pending，不是成功证明。",
+      "command": "env PYPTO_RUN_ID=article-demo-qwen3-14b-smoke-ps envs/pypto-release/bin/python -B tools/run_article_demo.py --demo models/qwen3_14b/decode_fwd.py --platform a2a3sim --output runs/article-demo-qwen3-14b-smoke-ps.json -- --smoke --fwd-layers 1",
+      "evidence": "runs/article-demo-qwen3-14b-smoke-ps.json",
+      "evidence_sha256": "cd5198d26b93fd314fbd02d4096cedd0699f87d38e61692e665e7122dd67fd84",
+      "path": "docs/assets/screenshots/model-inference-pending.png",
+      "sha256": "bd99d4253fe1ea9671b52f63a42b0fd209ba6e9c58357197d2d4a2f12e855948",
+      "status": "pending"
+    },
+    "operator-correctness": {
+      "caption_en": "Ubuntu/PowerShell purple terminal: pypto-kernels regression tests, 38 passed.",
+      "caption_zh": "Ubuntu/PowerShell 紫色终端：pypto-kernels 结构/回归测试 38 passed。",
+      "command": "envs/pypto-release/bin/python -B -m pytest packages/pypto-kernels/tests/test_operators.py -q",
+      "evidence": "runs/article-demo-operator-smoke.json",
+      "evidence_sha256": "85b0502b5d90c669f834f06e792508c91c3f5accf946288e988da5f55b6b7667",
+      "path": "docs/assets/screenshots/operator-correctness.png",
+      "sha256": "aed230c13de553b1cccf7939e524d444d95d54349ee5890c55524f574942de42",
+      "status": "pass"
+    },
+    "performance": {
+      "caption_en": "Ubuntu/PowerShell purple terminal: Qwen3.5-9B SwiGLU operator ablation; values come from immutable evidence JSON and are not a whole-model claim.",
+      "caption_zh": "Ubuntu/PowerShell 紫色终端：Qwen3.5-9B SwiGLU 算子级消融；数值来自 immutable evidence JSON，非整模结论。",
+      "command": "python3 -B tools/print_inductor_ablation.py",
+      "evidence": "state/evidence/qwen35-9b-inductor-ablation-20260829.json",
+      "evidence_sha256": "d31ea93284af1138c608dfa39f9d93bedb1df82ad0c9d2e815477c80070b9a74",
+      "path": "docs/assets/screenshots/performance-ablation.png",
+      "sha256": "948025e2c2c1c2db2c4a90830fc059a445a5d2138aaedd6e1174a5d43c89cfa1",
+      "status": "provisional-operator-scope"
+    }
+  },
+  "status": "provisional",
+  "terminal": {
+    "distro": "Ubuntu",
+    "host": "Windows Terminal",
+    "theme": "PowerShell purple"
+  }
+}

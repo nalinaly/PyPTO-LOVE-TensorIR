@@ -1,0 +1,355 @@
+{
+  "article_url": "https://mp.weixin.qq.com/s/7tLlTbomH9OqyUbZDbBEhQ",
+  "elapsed_seconds": 30.125677684001857,
+  "entrypoint_count": 11,
+  "kind": "article-demo-matrix",
+  "mode": "run",
+  "path_prefix": "examples/",
+  "results": [
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/tools/run_article_demo.py",
+        "--python",
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "--demo",
+        "examples/advanced/allreduce.py",
+        "--platform",
+        "a2a3sim",
+        "--device",
+        "0"
+      ],
+      "elapsed_seconds": 2.5229659670148976,
+      "execution_policy": "runnable",
+      "path": "examples/advanced/allreduce.py",
+      "return_code": 1,
+      "source": {
+        "bytes": 5965,
+        "path": "examples/advanced/allreduce.py",
+        "sha256": "c1484f4b3e0273b5d800dcce914628f0ef8839eb83e0f2af0ad1b35a52ad4bce"
+      },
+      "status": "fail",
+      "stderr": "Traceback (most recent call last):\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/advanced/allreduce.py\", line 137, in <module>\n    assert len(device_ids) == N_RANKS, f\"need exactly {N_RANKS} devices, got {device_ids}\"\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: need exactly 2 devices, got [0]\n",
+      "stderr_sha256": "0751efdcdd31136186518d2324e86c2e5667c3e321c3edc6555f42216b54ddc9",
+      "stdout": "{\"blocker\": null, \"return_code\": 1, \"status\": \"fail\"}\narticle demo report: /home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos/allreduce-article-demo-1788003696.json\n",
+      "stdout_sha256": "6dde31d82fea7d8f35f7aeef436487699a258a4dba28b561847f60bdbb7d1241",
+      "timed_out": false
+    },
+    {
+      "blocker": "missing Ascend simpler runtime extension",
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/tools/run_article_demo.py",
+        "--python",
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "--demo",
+        "examples/advanced/gemm_eltwise.py",
+        "--platform",
+        "a2a3sim",
+        "--device",
+        "0"
+      ],
+      "elapsed_seconds": 2.584649554977659,
+      "execution_policy": "runnable",
+      "path": "examples/advanced/gemm_eltwise.py",
+      "return_code": 1,
+      "source": {
+        "bytes": 3904,
+        "path": "examples/advanced/gemm_eltwise.py",
+        "sha256": "1bfced7482c005d58bce0a3555de347bd32cc5b38795cb14f4697289d65bcb1a"
+      },
+      "status": "fail",
+      "stderr": "2026-08-29 19:41:40.832 I | [perf_hint] 4 hints across 4 sites; see build_output/_jit_gemm_eltwise_20260829_194140/report/perf_hints.log\nTraceback (most recent call last):\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/advanced/gemm_eltwise.py\", line 83, in <module>\n    result = run_jit(\n        fn=gemm_eltwise,\n    ...<8 lines>...\n        atol=1e-3,\n    )\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/golden/runner.py\", line 1887, in run_jit\n    _execute_via_runner(work_dir, specs, tensors, scalar_specs_eff, runtime_cfg)\n    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/golden/runner.py\", line 389, in _execute_via_runner\n    execute_compiled(work_dir, ordered, **_execute_compiled_kwargs(runtime_cfg))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/runner.py\", line 1501, in execute_compiled\n    from .device_runner import (  # noqa: PLC0415\n    ...<2 lines>...\n    )\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/device_runner.py\", line 59, in <module>\n    from .kernel_compiler import KernelCompiler\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/kernel_compiler.py\", line 28, in <module>\n    from simpler_setup import KernelCompiler as _SimplerKernelCompiler  # pyright: ignore[reportMissingImports]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nModuleNotFoundError: No module named 'simpler_setup'\n",
+      "stderr_sha256": "c501b95108d483eee85334cd405c75c87ae02ed0f7eaf59956681c0d2e7c09f8",
+      "stdout": "[RUN] compile ...\n[RUN] compile done (0.05s)\n[RUN] generate inputs ...\n[RUN] generate inputs done (0.43s)\n[RUN] compute golden ...\n[RUN] compute golden done (0.27s)\n[RUN] runtime ...\n[RUN] runtime done (0.00s)\n{\"blocker\": \"missing Ascend simpler runtime extension\", \"return_code\": 1, \"status\": \"fail\"}\narticle demo report: /home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos/gemm_eltwise-article-demo-1788003699.json\n",
+      "stdout_sha256": "71012940d40682fd9eae44650c5056a16f22c0f93b8aa6192e0f718ec938dbc0",
+      "timed_out": false
+    },
+    {
+      "blocker": "missing Ascend simpler runtime extension",
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/tools/run_article_demo.py",
+        "--python",
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "--demo",
+        "examples/advanced/multi_proj.py",
+        "--platform",
+        "a2a3sim",
+        "--device",
+        "0"
+      ],
+      "elapsed_seconds": 4.668806568981381,
+      "execution_policy": "runnable",
+      "path": "examples/advanced/multi_proj.py",
+      "return_code": 1,
+      "source": {
+        "bytes": 4328,
+        "path": "examples/advanced/multi_proj.py",
+        "sha256": "8fff720c0d7240fe50b10486387c655fa025c754b8379e8389f82a96367551c3"
+      },
+      "status": "fail",
+      "stderr": "2026-08-29 19:41:43.314 I | [perf_hint] 1 hint across 1 site; see build_output/_jit_qkv_proj_20260829_194143/report/perf_hints.log\nTraceback (most recent call last):\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/advanced/multi_proj.py\", line 103, in <module>\n    result = run_jit(\n        fn=qkv_proj,\n    ...<8 lines>...\n        atol=1e-3,\n    )\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/golden/runner.py\", line 1887, in run_jit\n    _execute_via_runner(work_dir, specs, tensors, scalar_specs_eff, runtime_cfg)\n    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/golden/runner.py\", line 389, in _execute_via_runner\n    execute_compiled(work_dir, ordered, **_execute_compiled_kwargs(runtime_cfg))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/runner.py\", line 1501, in execute_compiled\n    from .device_runner import (  # noqa: PLC0415\n    ...<2 lines>...\n    )\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/device_runner.py\", line 59, in <module>\n    from .kernel_compiler import KernelCompiler\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/kernel_compiler.py\", line 28, in <module>\n    from simpler_setup import KernelCompiler as _SimplerKernelCompiler  # pyright: ignore[reportMissingImports]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nModuleNotFoundError: No module named 'simpler_setup'\n",
+      "stderr_sha256": "cdd2bc143fa72bcf093a6a7998dd42a52fedac0f074dbe1fd6243e16da4602ad",
+      "stdout": "[RUN] compile ...\n[RUN] compile done (0.10s)\n[RUN] generate inputs ...\n[RUN] generate inputs done (1.81s)\n[RUN] compute golden ...\n[RUN] compute golden done (1.05s)\n[RUN] runtime ...\n[RUN] runtime done (0.00s)\n{\"blocker\": \"missing Ascend simpler runtime extension\", \"return_code\": 1, \"status\": \"fail\"}\narticle demo report: /home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos/multi_proj-article-demo-1788003701.json\n",
+      "stdout_sha256": "e33591c3e735cc708d59cac4fc21ea7b3a25a2357a71d4bde6e4764a14b15eb6",
+      "timed_out": false
+    },
+    {
+      "blocker": "missing Ascend simpler runtime extension",
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/tools/run_article_demo.py",
+        "--python",
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "--demo",
+        "examples/advanced/topk.py",
+        "--platform",
+        "a2a3sim",
+        "--device",
+        "0"
+      ],
+      "elapsed_seconds": 2.771153376001166,
+      "execution_policy": "runnable",
+      "path": "examples/advanced/topk.py",
+      "return_code": 1,
+      "source": {
+        "bytes": 4097,
+        "path": "examples/advanced/topk.py",
+        "sha256": "94a0adae341a142454c1b57063086652e30619dd5d801decc578ec695ee949af"
+      },
+      "status": "fail",
+      "stderr": "2026-08-29 19:41:49.025 I | [perf_hint] 2 hints across 2 sites; see build_output/_jit_topk_20260829_194149/report/perf_hints.log\nTraceback (most recent call last):\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/advanced/topk.py\", line 80, in <module>\n    result = run_jit(\n        fn=topk,\n    ...<10 lines>...\n        compare_fn={\"topk_idx\": topk_pair_compare(\"topk_vals\")},\n    )\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/golden/runner.py\", line 1887, in run_jit\n    _execute_via_runner(work_dir, specs, tensors, scalar_specs_eff, runtime_cfg)\n    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/golden/runner.py\", line 389, in _execute_via_runner\n    execute_compiled(work_dir, ordered, **_execute_compiled_kwargs(runtime_cfg))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/runner.py\", line 1501, in execute_compiled\n    from .device_runner import (  # noqa: PLC0415\n    ...<2 lines>...\n    )\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/device_runner.py\", line 59, in <module>\n    from .kernel_compiler import KernelCompiler\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/kernel_compiler.py\", line 28, in <module>\n    from simpler_setup import KernelCompiler as _SimplerKernelCompiler  # pyright: ignore[reportMissingImports]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nModuleNotFoundError: No module named 'simpler_setup'\n",
+      "stderr_sha256": "07e8e9973576b2521915d5560ded6f19db83c881951d3201a37bd86672679c7b",
+      "stdout": "[RUN] compile ...\n[RUN] compile done (0.04s)\n[RUN] generate inputs ...\n[RUN] generate inputs done (0.00s)\n[RUN] compute golden ...\n[RUN] compute golden done (0.00s)\n[RUN] runtime ...\n[RUN] runtime done (0.00s)\n{\"blocker\": \"missing Ascend simpler runtime extension\", \"return_code\": 1, \"status\": \"fail\"}\narticle demo report: /home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos/topk-article-demo-1788003706.json\n",
+      "stdout_sha256": "9785f0393b77013c2a874808a8102ba72e7c894952524ce04d4d3725bae3777b",
+      "timed_out": false
+    },
+    {
+      "blocker": "missing Ascend simpler runtime extension",
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/tools/run_article_demo.py",
+        "--python",
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "--demo",
+        "examples/beginner/hello_world.py",
+        "--platform",
+        "a2a3sim",
+        "--device",
+        "0"
+      ],
+      "elapsed_seconds": 2.050480334000895,
+      "execution_policy": "runnable",
+      "path": "examples/beginner/hello_world.py",
+      "return_code": 1,
+      "source": {
+        "bytes": 2894,
+        "path": "examples/beginner/hello_world.py",
+        "sha256": "1c2c882e719e5db568c5dc5f100d87b3ef02cdc441f992ab223a8b5df790d703"
+      },
+      "status": "fail",
+      "stderr": "Traceback (most recent call last):\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/beginner/hello_world.py\", line 69, in <module>\n    result = run_jit(\n        fn=hello_world,\n    ...<8 lines>...\n        atol=1e-5,\n    )\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/golden/runner.py\", line 1887, in run_jit\n    _execute_via_runner(work_dir, specs, tensors, scalar_specs_eff, runtime_cfg)\n    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/golden/runner.py\", line 389, in _execute_via_runner\n    execute_compiled(work_dir, ordered, **_execute_compiled_kwargs(runtime_cfg))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/runner.py\", line 1501, in execute_compiled\n    from .device_runner import (  # noqa: PLC0415\n    ...<2 lines>...\n    )\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/device_runner.py\", line 59, in <module>\n    from .kernel_compiler import KernelCompiler\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/kernel_compiler.py\", line 28, in <module>\n    from simpler_setup import KernelCompiler as _SimplerKernelCompiler  # pyright: ignore[reportMissingImports]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nModuleNotFoundError: No module named 'simpler_setup'\n",
+      "stderr_sha256": "912ea35eccd9445fbc0ae84585f1f116357c3728694a07ca72b6741c49dc5b87",
+      "stdout": "[RUN] compile ...\n[RUN] compile done (0.05s)\n[RUN] generate inputs ...\n[RUN] generate inputs done (0.03s)\n[RUN] compute golden ...\n[RUN] compute golden done (0.04s)\n[RUN] runtime ...\n[RUN] runtime done (0.00s)\n{\"blocker\": \"missing Ascend simpler runtime extension\", \"return_code\": 1, \"status\": \"fail\"}\narticle demo report: /home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos/hello_world-article-demo-1788003709.json\n",
+      "stdout_sha256": "e8f88b71d69ef085a20e98f82f48dd3a126d577b864886708d1c7547f1551dac",
+      "timed_out": false
+    },
+    {
+      "blocker": "missing Ascend simpler runtime extension",
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/tools/run_article_demo.py",
+        "--python",
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "--demo",
+        "examples/beginner/matmul.py",
+        "--platform",
+        "a2a3sim",
+        "--device",
+        "0"
+      ],
+      "elapsed_seconds": 2.913101933983853,
+      "execution_policy": "runnable",
+      "path": "examples/beginner/matmul.py",
+      "return_code": 1,
+      "source": {
+        "bytes": 2985,
+        "path": "examples/beginner/matmul.py",
+        "sha256": "fe0802cc7670a52a11cd73a62d90da9f1c875c8fc3361a2061c1598e241855af"
+      },
+      "status": "fail",
+      "stderr": "2026-08-29 19:41:53.843 I | [perf_hint] 2 hints across 2 sites; see build_output/_jit_matmul_20260829_194153/report/perf_hints.log\nTraceback (most recent call last):\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/beginner/matmul.py\", line 70, in <module>\n    result = run_jit(\n        fn=matmul,\n    ...<8 lines>...\n        atol=1e-3,\n    )\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/golden/runner.py\", line 1887, in run_jit\n    _execute_via_runner(work_dir, specs, tensors, scalar_specs_eff, runtime_cfg)\n    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/golden/runner.py\", line 389, in _execute_via_runner\n    execute_compiled(work_dir, ordered, **_execute_compiled_kwargs(runtime_cfg))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/runner.py\", line 1501, in execute_compiled\n    from .device_runner import (  # noqa: PLC0415\n    ...<2 lines>...\n    )\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/device_runner.py\", line 59, in <module>\n    from .kernel_compiler import KernelCompiler\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/kernel_compiler.py\", line 28, in <module>\n    from simpler_setup import KernelCompiler as _SimplerKernelCompiler  # pyright: ignore[reportMissingImports]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nModuleNotFoundError: No module named 'simpler_setup'\n",
+      "stderr_sha256": "50c28bc6bd80f67ca3aff291750129f0d61cc7130647dcc151529567e7b85f6a",
+      "stdout": "[RUN] compile ...\n[RUN] compile done (1.14s)\n[RUN] generate inputs ...\n[RUN] generate inputs done (0.03s)\n[RUN] compute golden ...\n[RUN] compute golden done (0.05s)\n[RUN] runtime ...\n[RUN] runtime done (0.00s)\n{\"blocker\": \"missing Ascend simpler runtime extension\", \"return_code\": 1, \"status\": \"fail\"}\narticle demo report: /home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos/matmul-article-demo-1788003711.json\n",
+      "stdout_sha256": "d7c4ac884feec53aa151ede53a3e8000fb8ef6614ab2420541338e37fbbacb09",
+      "timed_out": false
+    },
+    {
+      "blocker": "missing Ascend simpler runtime extension",
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/tools/run_article_demo.py",
+        "--python",
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "--demo",
+        "examples/intermediate/gemm.py",
+        "--platform",
+        "a2a3sim",
+        "--device",
+        "0"
+      ],
+      "elapsed_seconds": 2.861389441008214,
+      "execution_policy": "runnable",
+      "path": "examples/intermediate/gemm.py",
+      "return_code": 1,
+      "source": {
+        "bytes": 3420,
+        "path": "examples/intermediate/gemm.py",
+        "sha256": "fb2f52b5d1037af9a8c7bc6b82e1b9de1caf86b9842da0f4575e87ba8f294803"
+      },
+      "status": "fail",
+      "stderr": "2026-08-29 19:41:56.682 I | [perf_hint] 3 hints across 3 sites; see build_output/_jit_gemm_20260829_194156/report/perf_hints.log\nTraceback (most recent call last):\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/intermediate/gemm.py\", line 78, in <module>\n    result = run_jit(\n        fn=gemm,\n    ...<8 lines>...\n        atol=1e-3,\n    )\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/golden/runner.py\", line 1887, in run_jit\n    _execute_via_runner(work_dir, specs, tensors, scalar_specs_eff, runtime_cfg)\n    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/golden/runner.py\", line 389, in _execute_via_runner\n    execute_compiled(work_dir, ordered, **_execute_compiled_kwargs(runtime_cfg))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/runner.py\", line 1501, in execute_compiled\n    from .device_runner import (  # noqa: PLC0415\n    ...<2 lines>...\n    )\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/device_runner.py\", line 59, in <module>\n    from .kernel_compiler import KernelCompiler\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/kernel_compiler.py\", line 28, in <module>\n    from simpler_setup import KernelCompiler as _SimplerKernelCompiler  # pyright: ignore[reportMissingImports]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nModuleNotFoundError: No module named 'simpler_setup'\n",
+      "stderr_sha256": "46fcf041e1671c44cf4e781daa18988e6334f0eef607d345bc0d992a8a107ecc",
+      "stdout": "[RUN] compile ...\n[RUN] compile done (1.01s)\n[RUN] generate inputs ...\n[RUN] generate inputs done (0.04s)\n[RUN] compute golden ...\n[RUN] compute golden done (0.04s)\n[RUN] runtime ...\n[RUN] runtime done (0.00s)\n{\"blocker\": \"missing Ascend simpler runtime extension\", \"return_code\": 1, \"status\": \"fail\"}\narticle demo report: /home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos/gemm-article-demo-1788003714.json\n",
+      "stdout_sha256": "0cb6b2236134f620c6d74983b04c810032e520422b7fe78f113337abd7b4d38d",
+      "timed_out": false
+    },
+    {
+      "blocker": "missing Ascend simpler runtime extension",
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/tools/run_article_demo.py",
+        "--python",
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "--demo",
+        "examples/intermediate/layer_norm.py",
+        "--platform",
+        "a2a3sim",
+        "--device",
+        "0"
+      ],
+      "elapsed_seconds": 2.940797177987406,
+      "execution_policy": "runnable",
+      "path": "examples/intermediate/layer_norm.py",
+      "return_code": 1,
+      "source": {
+        "bytes": 4217,
+        "path": "examples/intermediate/layer_norm.py",
+        "sha256": "a97f640177e4f0d618c65e08b931a6d03e3dab77a0bfa9b8aa9740044857ca5f"
+      },
+      "status": "fail",
+      "stderr": "Traceback (most recent call last):\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/intermediate/layer_norm.py\", line 96, in <module>\n    result = run_jit(\n        fn=layer_norm,\n    ...<8 lines>...\n        atol=1e-2,\n    )\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/golden/runner.py\", line 1887, in run_jit\n    _execute_via_runner(work_dir, specs, tensors, scalar_specs_eff, runtime_cfg)\n    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/golden/runner.py\", line 389, in _execute_via_runner\n    execute_compiled(work_dir, ordered, **_execute_compiled_kwargs(runtime_cfg))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/runner.py\", line 1501, in execute_compiled\n    from .device_runner import (  # noqa: PLC0415\n    ...<2 lines>...\n    )\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/device_runner.py\", line 59, in <module>\n    from .kernel_compiler import KernelCompiler\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/kernel_compiler.py\", line 28, in <module>\n    from simpler_setup import KernelCompiler as _SimplerKernelCompiler  # pyright: ignore[reportMissingImports]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nModuleNotFoundError: No module named 'simpler_setup'\n",
+      "stderr_sha256": "eb237f048f856001f6d2e015cb55710892ce4d64100b77b2cb747df400aea6d6",
+      "stdout": "[RUN] compile ...\n[RUN] compile done (0.06s)\n[RUN] generate inputs ...\n[RUN] generate inputs done (0.02s)\n[RUN] compute golden ...\n[RUN] compute golden done (0.09s)\n[RUN] runtime ...\n[RUN] runtime done (0.00s)\n{\"blocker\": \"missing Ascend simpler runtime extension\", \"return_code\": 1, \"status\": \"fail\"}\narticle demo report: /home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos/layer_norm-article-demo-1788003717.json\n",
+      "stdout_sha256": "fdc06bd0fcb03d4dc113367f4e1924fe744ace3baaa9f3ae9c81b68a91bbdeb2",
+      "timed_out": false
+    },
+    {
+      "blocker": "missing Ascend simpler runtime extension",
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/tools/run_article_demo.py",
+        "--python",
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "--demo",
+        "examples/intermediate/rms_norm.py",
+        "--platform",
+        "a2a3sim",
+        "--device",
+        "0"
+      ],
+      "elapsed_seconds": 2.61857907299418,
+      "execution_policy": "runnable",
+      "path": "examples/intermediate/rms_norm.py",
+      "return_code": 1,
+      "source": {
+        "bytes": 4326,
+        "path": "examples/intermediate/rms_norm.py",
+        "sha256": "f525ad85eb7bebe18176d6efb7bccc346d1784b871e84db3253613ccf7901a5c"
+      },
+      "status": "fail",
+      "stderr": "2026-08-29 19:42:01.939 I | [perf_hint] 4 hints across 4 sites; see build_output/_jit_rms_norm_20260829_194201/report/perf_hints.log\nTraceback (most recent call last):\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/intermediate/rms_norm.py\", line 95, in <module>\n    result = run_jit(\n        fn=rms_norm,\n    ...<8 lines>...\n        atol=1e-2,\n    )\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/golden/runner.py\", line 1887, in run_jit\n    _execute_via_runner(work_dir, specs, tensors, scalar_specs_eff, runtime_cfg)\n    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/golden/runner.py\", line 389, in _execute_via_runner\n    execute_compiled(work_dir, ordered, **_execute_compiled_kwargs(runtime_cfg))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/runner.py\", line 1501, in execute_compiled\n    from .device_runner import (  # noqa: PLC0415\n    ...<2 lines>...\n    )\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/device_runner.py\", line 59, in <module>\n    from .kernel_compiler import KernelCompiler\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/kernel_compiler.py\", line 28, in <module>\n    from simpler_setup import KernelCompiler as _SimplerKernelCompiler  # pyright: ignore[reportMissingImports]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nModuleNotFoundError: No module named 'simpler_setup'\n",
+      "stderr_sha256": "2e69d04a1a9effeb8edb5e3d0bdf338de77e169805f65cb749c4bf3c0dd21b24",
+      "stdout": "[RUN] compile ...\n[RUN] compile done (0.06s)\n[RUN] generate inputs ...\n[RUN] generate inputs done (0.03s)\n[RUN] compute golden ...\n[RUN] compute golden done (0.09s)\n[RUN] runtime ...\n[RUN] runtime done (0.00s)\n{\"blocker\": \"missing Ascend simpler runtime extension\", \"return_code\": 1, \"status\": \"fail\"}\narticle demo report: /home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos/rms_norm-article-demo-1788003720.json\n",
+      "stdout_sha256": "1c7f830fd5008cb6233ef0f521582b241b35587b89519d865ec0391efb9ae05f",
+      "timed_out": false
+    },
+    {
+      "blocker": "missing Ascend simpler runtime extension",
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/tools/run_article_demo.py",
+        "--python",
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "--demo",
+        "examples/intermediate/rope.py",
+        "--platform",
+        "a2a3sim",
+        "--device",
+        "0"
+      ],
+      "elapsed_seconds": 2.442668694013264,
+      "execution_policy": "runnable",
+      "path": "examples/intermediate/rope.py",
+      "return_code": 1,
+      "source": {
+        "bytes": 4233,
+        "path": "examples/intermediate/rope.py",
+        "sha256": "3149eaa03574e1bac8ce0dfc620f93c92daa6faff27cdda223fa33a79c929abf"
+      },
+      "status": "fail",
+      "stderr": "2026-08-29 19:42:04.844 I | [perf_hint] 8 hints across 8 sites; see build_output/_jit_rope_20260829_194204/report/perf_hints.log\nTraceback (most recent call last):\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/intermediate/rope.py\", line 104, in <module>\n    result = run_jit(\n        fn=rope,\n    ...<8 lines>...\n        atol=1e-2,\n    )\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/golden/runner.py\", line 1887, in run_jit\n    _execute_via_runner(work_dir, specs, tensors, scalar_specs_eff, runtime_cfg)\n    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/golden/runner.py\", line 389, in _execute_via_runner\n    execute_compiled(work_dir, ordered, **_execute_compiled_kwargs(runtime_cfg))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/runner.py\", line 1501, in execute_compiled\n    from .device_runner import (  # noqa: PLC0415\n    ...<2 lines>...\n    )\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/device_runner.py\", line 59, in <module>\n    from .kernel_compiler import KernelCompiler\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/kernel_compiler.py\", line 28, in <module>\n    from simpler_setup import KernelCompiler as _SimplerKernelCompiler  # pyright: ignore[reportMissingImports]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nModuleNotFoundError: No module named 'simpler_setup'\n",
+      "stderr_sha256": "17f3b7419646fa84f6f5873846c410ee381ec5e08198f5a3bb14c9ed459d2222",
+      "stdout": "[RUN] compile ...\n[RUN] compile done (0.04s)\n[RUN] generate inputs ...\n[RUN] generate inputs done (0.00s)\n[RUN] compute golden ...\n[RUN] compute golden done (0.00s)\n[RUN] runtime ...\n[RUN] runtime done (0.00s)\n{\"blocker\": \"missing Ascend simpler runtime extension\", \"return_code\": 1, \"status\": \"fail\"}\narticle demo report: /home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos/rope-article-demo-1788003722.json\n",
+      "stdout_sha256": "db3eb6f6b753d5d540a27e8dc1ddb88dbf4c80f97a1bb5082f5d96cafc533e1c",
+      "timed_out": false
+    },
+    {
+      "blocker": "missing Ascend simpler runtime extension",
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/tools/run_article_demo.py",
+        "--python",
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "--demo",
+        "examples/intermediate/softmax.py",
+        "--platform",
+        "a2a3sim",
+        "--device",
+        "0"
+      ],
+      "elapsed_seconds": 1.7481979559815954,
+      "execution_policy": "runnable",
+      "path": "examples/intermediate/softmax.py",
+      "return_code": 1,
+      "source": {
+        "bytes": 3068,
+        "path": "examples/intermediate/softmax.py",
+        "sha256": "b6b67d887dd814cb5af4114f3f7ea3c16616e1dd026ac1e7618a03daf5bdfd64"
+      },
+      "status": "fail",
+      "stderr": "Traceback (most recent call last):\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/intermediate/softmax.py\", line 71, in <module>\n    result = run_jit(\n        fn=softmax,\n    ...<8 lines>...\n        atol=1e-5,\n    )\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/golden/runner.py\", line 1887, in run_jit\n    _execute_via_runner(work_dir, specs, tensors, scalar_specs_eff, runtime_cfg)\n    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/golden/runner.py\", line 389, in _execute_via_runner\n    execute_compiled(work_dir, ordered, **_execute_compiled_kwargs(runtime_cfg))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/runner.py\", line 1501, in execute_compiled\n    from .device_runner import (  # noqa: PLC0415\n    ...<2 lines>...\n    )\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/device_runner.py\", line 59, in <module>\n    from .kernel_compiler import KernelCompiler\n  File \"/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/lib/python3.14/site-packages/pypto/runtime/kernel_compiler.py\", line 28, in <module>\n    from simpler_setup import KernelCompiler as _SimplerKernelCompiler  # pyright: ignore[reportMissingImports]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nModuleNotFoundError: No module named 'simpler_setup'\n",
+      "stderr_sha256": "6f46b8f751e749481f46835b4b6aab43eb433db7346cb60e4af1d9322540ee85",
+      "stdout": "[RUN] compile ...\n[RUN] compile done (0.04s)\n[RUN] generate inputs ...\n[RUN] generate inputs done (0.02s)\n[RUN] compute golden ...\n[RUN] compute golden done (0.05s)\n[RUN] runtime ...\n[RUN] runtime done (0.00s)\n{\"blocker\": \"missing Ascend simpler runtime extension\", \"return_code\": 1, \"status\": \"fail\"}\narticle demo report: /home/zhaosiying/pypto-love-tensor-ir/state/evidence/article-demos/softmax-article-demo-1788003725.json\n",
+      "stdout_sha256": "398c9dd89bb6df85a1799d74c41f1fa551681968e79feb91f2c94fc61e057b38",
+      "timed_out": false
+    }
+  ],
+  "schema": 1,
+  "skipped_count": 0,
+  "status": "failed",
+  "upstream_commit": "6c292d30ccc787ee4e1fe61541fd3faec0dafa65"
+}

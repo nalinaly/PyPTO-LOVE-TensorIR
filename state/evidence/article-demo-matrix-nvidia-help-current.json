@@ -1,0 +1,1560 @@
+{
+  "article_url": "https://mp.weixin.qq.com/s/7tLlTbomH9OqyUbZDbBEhQ",
+  "backend": "nvidia",
+  "compatibility_policy": {
+    "path": "state/evidence/article-demo-compatibility-policy-current.json",
+    "revision": "nvidia-computational-v1-20260831",
+    "sha256": "d84ed25aafe7d060352a0e7191e5b9a8180a16b1560f5bef35b3da1360a1989d"
+  },
+  "compatibility_status": "partial-computational-coverage",
+  "computational_reference_pass_count": 9,
+  "computational_unmapped_count": 31,
+  "elapsed_seconds": 60.57431514799828,
+  "entrypoint_count": 66,
+  "hardware_api_skipped_count": 16,
+  "kind": "article-demo-matrix",
+  "manifest_sha256_after": "c09c2da519135d49a072c0a164542c6a1d18e4cd8a099a3a9e6e8bcee07adb64",
+  "manifest_sha256_before": "c09c2da519135d49a072c0a164542c6a1d18e4cd8a099a3a9e6e8bcee07adb64",
+  "mode": "help",
+  "path_prefix": "",
+  "results": [
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/advanced/allreduce.py",
+        "--help"
+      ],
+      "compatibility_mode": "hardware-api-skipped",
+      "elapsed_seconds": 1.0529179250006564,
+      "execution_policy": "runnable",
+      "path": "examples/advanced/allreduce.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 5965,
+        "path": "examples/advanced/allreduce.py",
+        "sha256": "c1484f4b3e0273b5d800dcce914628f0ef8839eb83e0f2af0ad1b35a52ad4bce"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: allreduce.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                    [--compile-only]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE   comma-separated device ids (need exactly 2)\n  --compile-only\n",
+      "stdout_sha256": "f13aa38801a032f710818115c39265c96278abf2c2a8e32e80518bd469f41252",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/advanced/gemm_eltwise.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-cuda-reference",
+      "elapsed_seconds": 1.0384571549948305,
+      "execution_policy": "runnable",
+      "path": "examples/advanced/gemm_eltwise.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 3904,
+        "path": "examples/advanced/gemm_eltwise.py",
+        "sha256": "1bfced7482c005d58bce0a3555de347bd32cc5b38795cb14f4697289d65bcb1a"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: gemm_eltwise.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                       [--enable-chip-swimlane]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --enable-chip-swimlane\n",
+      "stdout_sha256": "b2a9cb0dc1e0e8f6d30015aa99946dc1619a71dc10ddce33ad574a867e467eb7",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/advanced/multi_proj.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-cuda-reference",
+      "elapsed_seconds": 1.0498615519609302,
+      "execution_policy": "runnable",
+      "path": "examples/advanced/multi_proj.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 4328,
+        "path": "examples/advanced/multi_proj.py",
+        "sha256": "8fff720c0d7240fe50b10486387c655fa025c754b8379e8389f82a96367551c3"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: multi_proj.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                     [--enable-chip-swimlane]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --enable-chip-swimlane\n",
+      "stdout_sha256": "a11135378c1e97d8afcbf2037585d9696fcab136f1767af687016013de0d07ec",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/advanced/topk.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-cuda-reference",
+      "elapsed_seconds": 1.0409526859875768,
+      "execution_policy": "runnable",
+      "path": "examples/advanced/topk.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 4097,
+        "path": "examples/advanced/topk.py",
+        "sha256": "94a0adae341a142454c1b57063086652e30619dd5d801decc578ec695ee949af"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: topk.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n               [--enable-chip-swimlane]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --enable-chip-swimlane\n",
+      "stdout_sha256": "2e649c864dd87b9ba617f8b5014819df48d21a3c01cd936c011b2e0478a9aa9b",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/beginner/hello_world.py",
+        "--help"
+      ],
+      "compatibility_mode": "strict-pypto-nvidia",
+      "elapsed_seconds": 1.0498580979765393,
+      "execution_policy": "runnable",
+      "path": "examples/beginner/hello_world.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 2894,
+        "path": "examples/beginner/hello_world.py",
+        "sha256": "1c2c882e719e5db568c5dc5f100d87b3ef02cdc441f992ab223a8b5df790d703"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: hello_world.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                      [--enable-chip-swimlane]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --enable-chip-swimlane\n",
+      "stdout_sha256": "4167af74ca212df45069a64aaf25dc8a09c54e4d7d9a361fa088ba64ca4f0368",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/beginner/matmul.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-cuda-reference",
+      "elapsed_seconds": 1.04128015198512,
+      "execution_policy": "runnable",
+      "path": "examples/beginner/matmul.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 2985,
+        "path": "examples/beginner/matmul.py",
+        "sha256": "fe0802cc7670a52a11cd73a62d90da9f1c875c8fc3361a2061c1598e241855af"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: matmul.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                 [--enable-chip-swimlane]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --enable-chip-swimlane\n",
+      "stdout_sha256": "b5957f0943963efe0c9825bf23bffe700f7e0684c8d1631836ece11a9527ea3b",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/intermediate/gemm.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-cuda-reference",
+      "elapsed_seconds": 1.0710969389765523,
+      "execution_policy": "runnable",
+      "path": "examples/intermediate/gemm.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 3420,
+        "path": "examples/intermediate/gemm.py",
+        "sha256": "fb2f52b5d1037af9a8c7bc6b82e1b9de1caf86b9842da0f4575e87ba8f294803"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: gemm.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n               [--enable-chip-swimlane]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --enable-chip-swimlane\n",
+      "stdout_sha256": "d6588e1770d43b9dd4a8e05894cbfb2a9418206215339b12be50097613c5df74",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/intermediate/layer_norm.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-cuda-reference",
+      "elapsed_seconds": 1.0477567720226943,
+      "execution_policy": "runnable",
+      "path": "examples/intermediate/layer_norm.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 4217,
+        "path": "examples/intermediate/layer_norm.py",
+        "sha256": "a97f640177e4f0d618c65e08b931a6d03e3dab77a0bfa9b8aa9740044857ca5f"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: layer_norm.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                     [--enable-chip-swimlane]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --enable-chip-swimlane\n",
+      "stdout_sha256": "508aefd6b35a41be1be701662905d54bd10c4dbcb7c97ed705c0bd9a309eeccf",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/intermediate/rms_norm.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-cuda-reference",
+      "elapsed_seconds": 1.0509206369752064,
+      "execution_policy": "runnable",
+      "path": "examples/intermediate/rms_norm.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 4326,
+        "path": "examples/intermediate/rms_norm.py",
+        "sha256": "f525ad85eb7bebe18176d6efb7bccc346d1784b871e84db3253613ccf7901a5c"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: rms_norm.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                   [--enable-chip-swimlane]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --enable-chip-swimlane\n",
+      "stdout_sha256": "9f101e6e6e03a51dbde7d68f1fa8a4ec07c0d54497a76ec1fa3f20c6c3a964a4",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/intermediate/rope.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-cuda-reference",
+      "elapsed_seconds": 1.0578657180303708,
+      "execution_policy": "runnable",
+      "path": "examples/intermediate/rope.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 4233,
+        "path": "examples/intermediate/rope.py",
+        "sha256": "3149eaa03574e1bac8ce0dfc620f93c92daa6faff27cdda223fa33a79c929abf"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: rope.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n               [--enable-chip-swimlane]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --enable-chip-swimlane\n",
+      "stdout_sha256": "a5345fc00b56219c4dbce3411880c25414e10b8b6351c86aaee03edb0fd27028",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/examples/intermediate/softmax.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-cuda-reference",
+      "elapsed_seconds": 1.056187592970673,
+      "execution_policy": "runnable",
+      "path": "examples/intermediate/softmax.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 3068,
+        "path": "examples/intermediate/softmax.py",
+        "sha256": "b6b67d887dd814cb5af4114f3f7ea3c16616e1dd026ac1e7618a03daf5bdfd64"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: softmax.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                  [--enable-chip-swimlane]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --enable-chip-swimlane\n",
+      "stdout_sha256": "d23ee6b46f0b5935a0007b54da1e5c04a38575f1f7261c53e94e1d1347cc0288",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/decode_compressor_ratio128.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.0561296480009332,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/decode_compressor_ratio128.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 29718,
+        "path": "models/deepseek_v4_flash_mtp/decode_compressor_ratio128.py",
+        "sha256": "8c4a8e71ca7bd91101d7a84dd5c819a0965f873ab8a26eb8588b672549cb9578"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: decode_compressor_ratio128.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}]\n                                     [-d DEVICE] [--start-pos START_POS]\n                                     [--enable-chip-swimlane] [--dump-passes]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --start-pos START_POS\n                        Uniform fixture-only start_pos override for all\n                        batches; default (unset) uses the canonical per-batch\n                        HCA set that includes the 8k point.\n  --enable-chip-swimlane\n  --dump-passes\n",
+      "stdout_sha256": "d71b41470f456443d9df1e9e2bdb02dccf8bb08589aa614ad7d6d2324f30a986",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/decode_compressor_ratio4.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.063382186985109,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/decode_compressor_ratio4.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 29158,
+        "path": "models/deepseek_v4_flash_mtp/decode_compressor_ratio4.py",
+        "sha256": "5ff48c39925d059baaac85b00a3d918993a1bfe40b815cf055b5894a58fe45e5"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: decode_compressor_ratio4.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}]\n                                   [-d DEVICE] [--start-pos START_POS]\n                                   [--enable-chip-swimlane]\n                                   [--runtime-dir RUNTIME_DIR]\n                                   [--golden-data GOLDEN_DATA] [--dump-passes]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --start-pos START_POS\n                        Uniform fixture-only start_pos override for all\n                        batches; default (unset) uses the canonical per-batch\n                        CSA set that includes the 8k point.\n  --enable-chip-swimlane\n  --runtime-dir RUNTIME_DIR\n  --golden-data GOLDEN_DATA\n  --dump-passes\n",
+      "stdout_sha256": "61f7cb31f695c825bdb72957c69a76f8bc3b22bd8f73c7c76a04f5bde821c897",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/decode_csa.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.0781664269743487,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/decode_csa.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 45107,
+        "path": "models/deepseek_v4_flash_mtp/decode_csa.py",
+        "sha256": "afde8d6e7dcc2b4c6385c52571efda2ba6319b0889c894f5d83cdee5061e6d09"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: decode_csa.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                     [--start-pos START_POS]\n                     [--enable-chip-swimlane [{0,1,2,4}]]\n                     [--runtime-dir RUNTIME_DIR] [--golden-data GOLDEN_DATA]\n                     [--dump-passes]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --start-pos START_POS\n                        Uniform fixture-only start_pos override for all\n                        batches; default (unset) uses the canonical per-batch\n                        CSA set that includes the 8k point.\n  --enable-chip-swimlane [{0,1,2,4}]\n  --runtime-dir RUNTIME_DIR\n  --golden-data GOLDEN_DATA\n                        Reuse a prior run's data/{in,out} (skips golden\n                        recompute); requires an unchanged spec set.\n  --dump-passes\n",
+      "stdout_sha256": "0b059bd37edd761adfc6145fa83eef73f43744a43d749db3820e0bebc9d9db2d",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/decode_fwd.py",
+        "--help"
+      ],
+      "compatibility_mode": "hardware-api-skipped",
+      "elapsed_seconds": 1.1143234949558973,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/decode_fwd.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 113333,
+        "path": "models/deepseek_v4_flash_mtp/decode_fwd.py",
+        "sha256": "ab1e4f0515f027b0b505b4ff0405db21a98cdc1b30c903377b39b86ef92bf77e"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: decode_fwd.py [-h] [-p {a2a3,a5}] [--ep {2,4,8}] [--tp {2,4,8,16}]\n                     [-d DEVICE] [--start-pos START_POS]\n                     [--num-tokens NUM_TOKENS] [--ori-block-num ORI_BLOCK_NUM]\n                     [--cmp-block-num CMP_BLOCK_NUM]\n                     [--idx-block-num IDX_BLOCK_NUM]\n                     [--hca-state-block-num HCA_STATE_BLOCK_NUM]\n                     [--csa-state-block-num CSA_STATE_BLOCK_NUM]\n                     [--inner-state-block-num INNER_STATE_BLOCK_NUM]\n                     [--enable-chip-swimlane [{0,1,2}]] [--enable-scope-stats]\n                     [--compile-only] [--dump-passes]\n                     [--runtime-dir RUNTIME_DIR]\n\nDeepSeek-V4 Flash packed single-token decode forward driver.\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a5}\n  --ep {2,4,8}          EP world size / rank count (parsed at import by moe)\n  --tp {2,4,8,16}       LM-head TP world size; must be <= --ep\n  -d, --device DEVICE   comma-separated device ids; need at least 2\n  --start-pos START_POS\n                        Fixture-only start_pos for all batches; default is the\n                        8k target position.\n  --num-tokens NUM_TOKENS\n                        Active token rows for MoE routing/combine; default is\n                        T=8.\n  --ori-block-num ORI_BLOCK_NUM\n                        Per-layer physical original-KV cache blocks.\n  --cmp-block-num CMP_BLOCK_NUM\n                        Per-layer physical compressed-KV cache blocks.\n  --idx-block-num IDX_BLOCK_NUM\n                        Per-layer physical index-KV cache blocks.\n  --hca-state-block-num HCA_STATE_BLOCK_NUM\n                        Per-layer physical HCA state cache blocks.\n  --csa-state-block-num CSA_STATE_BLOCK_NUM\n                        Per-layer physical CSA state cache blocks.\n  --inner-state-block-num INNER_STATE_BLOCK_NUM\n                        Per-layer physical inner-state cache blocks.\n  --enable-chip-swimlane [{0,1,2}]\n  --enable-scope-stats\n  --compile-only\n  --dump-passes\n  --runtime-dir RUNTIME_DIR\n",
+      "stdout_sha256": "fb304e0efc36801137997596c66e12033914b3db2c07d68974edda02925e18b5",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/decode_fwd_mtp.py",
+        "--help"
+      ],
+      "compatibility_mode": "hardware-api-skipped",
+      "elapsed_seconds": 1.1399240479804575,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/decode_fwd_mtp.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 69443,
+        "path": "models/deepseek_v4_flash_mtp/decode_fwd_mtp.py",
+        "sha256": "c0797141e83be9514ec5c903ea150591dc59f68840499c189329b8dedb498b48"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: decode_fwd_mtp.py [-h] [-p {a2a3,a5}] [--ep {2,4,8}] [--tp {2,4,8,16}]\n                         [-d DEVICE] [--start-pos START_POS]\n                         [--num-tokens NUM_TOKENS]\n                         [--ori-block-num ORI_BLOCK_NUM]\n                         [--cmp-block-num CMP_BLOCK_NUM]\n                         [--idx-block-num IDX_BLOCK_NUM]\n                         [--hca-state-block-num HCA_STATE_BLOCK_NUM]\n                         [--csa-state-block-num CSA_STATE_BLOCK_NUM]\n                         [--inner-state-block-num INNER_STATE_BLOCK_NUM]\n                         [--enable-chip-swimlane [{0,1,2}]]\n                         [--enable-scope-stats] [--compile-only]\n                         [--dump-passes] [--runtime-dir RUNTIME_DIR]\n\nDeepSeek-V4 fused main-decode, verification, and MTP decode driver.\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a5}\n  --ep {2,4,8}          EP world size / rank count (parsed at import by moe).\n  --tp {2,4,8,16}       LM-head TP world size (parsed at import by lm_head);\n                        must divide --ep.\n  -d, --device DEVICE   comma-separated device ids; need at least 2\n  --start-pos START_POS\n  --num-tokens NUM_TOKENS\n  --ori-block-num ORI_BLOCK_NUM\n  --cmp-block-num CMP_BLOCK_NUM\n  --idx-block-num IDX_BLOCK_NUM\n  --hca-state-block-num HCA_STATE_BLOCK_NUM\n  --csa-state-block-num CSA_STATE_BLOCK_NUM\n  --inner-state-block-num INNER_STATE_BLOCK_NUM\n  --enable-chip-swimlane [{0,1,2}]\n  --enable-scope-stats\n  --compile-only\n  --dump-passes\n  --runtime-dir RUNTIME_DIR\n",
+      "stdout_sha256": "45cccd6e843f91e6c1817fb5578b0c84d284e30f55ee3116e2eb33121ada6862",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/decode_hca.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.0724303150200285,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/decode_hca.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 33237,
+        "path": "models/deepseek_v4_flash_mtp/decode_hca.py",
+        "sha256": "e599b9d41fa1043169edbb6b377a0c10f10719e3c6283615dbc9a32cd504ccc6"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: decode_hca.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                     [--start-pos START_POS]\n                     [--enable-chip-swimlane [{0,1,2}]]\n                     [--runtime-dir RUNTIME_DIR] [--golden-data GOLDEN_DATA]\n                     [--dump-passes]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --start-pos START_POS\n                        Uniform fixture-only start_pos override for all\n                        batches; default (unset) uses the canonical per-batch\n                        HCA set that includes the 8k point.\n  --enable-chip-swimlane [{0,1,2}]\n  --runtime-dir RUNTIME_DIR\n  --golden-data GOLDEN_DATA\n  --dump-passes\n",
+      "stdout_sha256": "2d4a8ded8f66f487aa74bdcd8051ab7177e837d4ae54b84e24c754b6bcd3730e",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/decode_indexer.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.0636374440509826,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/decode_indexer.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 40926,
+        "path": "models/deepseek_v4_flash_mtp/decode_indexer.py",
+        "sha256": "5ccc671d989ce4df81a263d34e9df60cc2ad4a810c955f7ce5001af4c4ef18d4"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: decode_indexer.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                         [--enable-chip-swimlane {0,1,2}]\n                         [--runtime-dir RUNTIME_DIR] [--start-pos START_POS]\n                         [--dump-passes]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --enable-chip-swimlane {0,1,2}\n                        chip swimlane level: 0=off, 1=AICore timing, 2=+AICPU\n                        timing.\n  --runtime-dir RUNTIME_DIR\n  --start-pos START_POS\n                        Uniform fixture-only start_pos override for all\n                        batches; default (unset) uses the canonical per-batch\n                        CSA set that includes the 8k point.\n  --dump-passes\n",
+      "stdout_sha256": "18142d7f3daba33c5cdf282b961a525c6d08837500c31cda0d76c0e24a5c0d1e",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/decode_indexer_compressor.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.051011722011026,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/decode_indexer_compressor.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 33433,
+        "path": "models/deepseek_v4_flash_mtp/decode_indexer_compressor.py",
+        "sha256": "5a3d6e65b31d0a48af6a6c338c5ceaa52e9907b69eee4102d1aa93be9fde8160"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: decode_indexer_compressor.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}]\n                                    [-d DEVICE] [--start-pos START_POS]\n                                    [--enable-chip-swimlane]\n                                    [--runtime-dir RUNTIME_DIR]\n                                    [--dump-passes]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --start-pos START_POS\n                        Uniform fixture-only start_pos override for all\n                        batches; default (unset) uses the canonical per-batch\n                        CSA set that includes the 8k point.\n  --enable-chip-swimlane\n  --runtime-dir RUNTIME_DIR\n  --dump-passes\n",
+      "stdout_sha256": "fb0761b972d31ab358ecfc4316143f0354af9a6cfead199d7276e54ee876c62b",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/decode_layer.py",
+        "--help"
+      ],
+      "compatibility_mode": "hardware-api-skipped",
+      "elapsed_seconds": 1.0792742380290292,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/decode_layer.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 42973,
+        "path": "models/deepseek_v4_flash_mtp/decode_layer.py",
+        "sha256": "f490f52ce9c298c922088cd7167601bd032e8803a67cf4bbe47019c7ce9bb368"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: decode_layer.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [--ep {2,4,8}]\n                       [-d DEVICE] [--start-pos START_POS]\n                       [--layer-id LAYER_ID]\n                       [--enable-chip-swimlane [{0,1,2}]] [--compile-only]\n                       [--runtime-dir RUNTIME_DIR] [--dump-passes]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  --ep {2,4,8}          EP world size / rank count (parsed at import by moe)\n  -d, --device DEVICE   comma-separated device ids; need at least 2\n  --start-pos START_POS\n                        Fixture-only start_pos for all batches; default is the\n                        8k target position.\n  --layer-id LAYER_ID\n  --enable-chip-swimlane [{0,1,2}]\n  --compile-only\n  --runtime-dir RUNTIME_DIR\n  --dump-passes\n",
+      "stdout_sha256": "a4dd9bc4c110feae101cf4096c0fc6c60dc7dbce2006520ccc4d7343d4f3ce3c",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/decode_mtp.py",
+        "--help"
+      ],
+      "compatibility_mode": "hardware-api-skipped",
+      "elapsed_seconds": 1.0741228029946797,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/decode_mtp.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 43505,
+        "path": "models/deepseek_v4_flash_mtp/decode_mtp.py",
+        "sha256": "e246c199c32de24df391fc3692891a215bc2d92e3598e77a1af46697527821b1"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: decode_mtp.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [--ep {2,4,8}]\n                     [--tp {2,4,8,16}] [-d DEVICE] [--start-pos START_POS]\n                     [--num-tokens NUM_TOKENS] [--ori-block-num ORI_BLOCK_NUM]\n                     [--enable-chip-swimlane [{0,1,2}]] [--compile-only]\n                     [--runtime-dir RUNTIME_DIR] [--dump-passes]\n\nDeepSeek-V4 MTP decode layer driver.\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  --ep {2,4,8}          EP world size / rank count (parsed at import by moe).\n  --tp {2,4,8,16}       LM-head TP world size (parsed at import by lm_head);\n                        must divide --ep.\n  -d, --device DEVICE   comma-separated device ids; need at least 2\n  --start-pos START_POS\n  --num-tokens NUM_TOKENS\n  --ori-block-num ORI_BLOCK_NUM\n  --enable-chip-swimlane [{0,1,2}]\n  --compile-only\n  --runtime-dir RUNTIME_DIR\n  --dump-passes\n",
+      "stdout_sha256": "dc01d2e8b173cd630814884ba2b6ed59b0d2b840f6849035bf2f1815c8269abf",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/decode_sparse_attn_csa.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.0510610129567795,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/decode_sparse_attn_csa.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 45980,
+        "path": "models/deepseek_v4_flash_mtp/decode_sparse_attn_csa.py",
+        "sha256": "f32d1092f5f3086e0faffea0992ff7fda13cb3835dd65692377f12b60b01414a"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: decode_sparse_attn_csa.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                                 [--causal-regression-fixture]\n                                 [--short-window-fixture]\n                                 [--mixed-topk-fixture]\n                                 [--cache-window-replacement-fixture]\n                                 [--golden-data GOLDEN_DATA]\n                                 [--enable-chip-swimlane [{0,1,2}]]\n                                 [--enable-dep-gen] [--enable-pmu [{0,1,2,4}]]\n                                 [--dump-passes]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --causal-regression-fixture\n                        Amplify the S=2 future-window-slot regression.\n  --short-window-fixture\n                        Use a short-window topk row with valid prefix + -1\n                        padding.\n  --mixed-topk-fixture  Use -1-padded window slots with valid compressed raw\n                        indices.\n  --cache-window-replacement-fixture\n                        Place a sentinel row inside the cache window prefix.\n  --golden-data GOLDEN_DATA\n  --enable-chip-swimlane [{0,1,2}]\n  --enable-dep-gen      Capture PTO2 dependency edges (deps.json) for the\n                        swimlane converter.\n  --enable-pmu [{0,1,2,4}]\n  --dump-passes\n",
+      "stdout_sha256": "4def7cc1b20ac30e755d127bdd3ce62c8c34cde154cbd5189925db6b9292154d",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/decode_sparse_attn_hca.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.0501350890262984,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/decode_sparse_attn_hca.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 42998,
+        "path": "models/deepseek_v4_flash_mtp/decode_sparse_attn_hca.py",
+        "sha256": "cb1c57b8b038d57d4c7650a1187bdecb61072e2e43abac289aa29a1ac7edb93f"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: decode_sparse_attn_hca.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                                 [--causal-regression-fixture]\n                                 [--short-window-fixture]\n                                 [--mixed-topk-fixture]\n                                 [--cache-window-replacement-fixture]\n                                 [--golden-data GOLDEN_DATA]\n                                 [--enable-chip-swimlane] [--enable-dep-gen]\n                                 [--enable-pmu [{0,1,2,4}]] [--dump-passes]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --causal-regression-fixture\n                        Amplify the S=2 future-window-slot regression.\n  --short-window-fixture\n                        Use a short-window topk row with valid prefix + -1\n                        padding.\n  --mixed-topk-fixture  Use -1-padded window slots with valid compressed raw\n                        indices.\n  --cache-window-replacement-fixture\n                        Place a sentinel row inside the cache window prefix.\n  --golden-data GOLDEN_DATA\n  --enable-chip-swimlane\n  --enable-dep-gen      Capture PTO2 dependency edges (deps.json); the\n                        swimlane converter draws fanout/fanin arrows from the\n                        sibling file.\n  --enable-pmu [{0,1,2,4}]\n  --dump-passes\n",
+      "stdout_sha256": "5e18dcad5af202f87b7000caebaf20996545cf376d59fde01ff089249f6ab809",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/decode_sparse_attn_swa.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.0552378800348379,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/decode_sparse_attn_swa.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 35187,
+        "path": "models/deepseek_v4_flash_mtp/decode_sparse_attn_swa.py",
+        "sha256": "72547a719c27ca8fc6700e407f657bba2384c6d08358eeb400859a08b2f582bf"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: decode_sparse_attn_swa.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                                 [--causal-regression-fixture]\n                                 [--short-window-fixture]\n                                 [--golden-data GOLDEN_DATA]\n                                 [--enable-chip-swimlane [{0,1,2,4}]]\n                                 [--enable-dep-gen] [--enable-pmu [{0,1,2,4}]]\n                                 [--dump-passes]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --causal-regression-fixture\n                        Amplify the S=2 future-window-slot regression.\n  --short-window-fixture\n                        Use a short-window topk row with valid prefix + -1\n                        padding.\n  --golden-data GOLDEN_DATA\n  --enable-chip-swimlane [{0,1,2,4}]\n  --enable-dep-gen      Capture PTO2 dependency edges (deps.json); the\n                        swimlane converter draws fanout/fanin arrows from the\n                        sibling file.\n  --enable-pmu [{0,1,2,4}]\n  --dump-passes\n",
+      "stdout_sha256": "06a8cb93e3ebe18b914aaa80a944d661a3bf6cd6a749578b42a4394464a870b6",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/decode_swa.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.0686836339882575,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/decode_swa.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 22231,
+        "path": "models/deepseek_v4_flash_mtp/decode_swa.py",
+        "sha256": "618ba712b499ab43d4d397d854116698dde896c77c739d30d4f4e4cdbd923d70"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: decode_swa.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                     [--start-pos START_POS]\n                     [--enable-chip-swimlane [{0,1,2,4}]]\n                     [--runtime-dir RUNTIME_DIR] [--golden-data GOLDEN_DATA]\n                     [--dump-passes]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --start-pos START_POS\n                        Uniform fixture-only start_pos override for all\n                        batches; default (unset) uses the canonical per-batch\n                        SWA set that includes the 8k point.\n  --enable-chip-swimlane [{0,1,2,4}]\n  --runtime-dir RUNTIME_DIR\n  --golden-data GOLDEN_DATA\n  --dump-passes\n",
+      "stdout_sha256": "019118c6b6bd63cc9a84f7e9e5db707e45cdcaf0dd89c612ac47e5f67c3bfa01",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/expert_routed.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.0529266700032167,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/expert_routed.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 24730,
+        "path": "models/deepseek_v4_flash_mtp/expert_routed.py",
+        "sha256": "cc7d1279f3c8acdb065ba63b4818c2e299bcb1cd8d386e58ed28aa4e700201b0"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: expert_routed.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                        [--enable-chip-swimlane [{0,1,2}]] [--dump-passes]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --enable-chip-swimlane [{0,1,2}]\n  --dump-passes\n",
+      "stdout_sha256": "c19512f5747eda6b7f530bf8c2b35e304aa6d3d24ce315897f9dbc99f8151027",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/expert_shared.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.0756978819845244,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/expert_shared.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 18827,
+        "path": "models/deepseek_v4_flash_mtp/expert_shared.py",
+        "sha256": "89363ce80dc7359b8513864fdcd3328e24c8987648ef3701a6cdc74b106f068d"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: expert_shared.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                        [--enable-chip-swimlane] [--dump-passes]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --enable-chip-swimlane\n  --dump-passes\n",
+      "stdout_sha256": "29c3f53c031c5827c634fc642cb0b02c0c2c9cf859b5e8c7426f35ef3843489a",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/gate.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.062913496978581,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/gate.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 23110,
+        "path": "models/deepseek_v4_flash_mtp/gate.py",
+        "sha256": "03837f608463ac3b4ae2d91ef34c7485099e026b352b3693a01ba417fa66dabf"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: gate.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n               [--layer-id LAYER_ID] [--num-tokens NUM_TOKENS]\n               [--enable-chip-swimlane [{0,1,2}]] [--dump-passes]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --layer-id LAYER_ID\n  --num-tokens NUM_TOKENS\n  --enable-chip-swimlane [{0,1,2}]\n  --dump-passes\n",
+      "stdout_sha256": "8870615c977b47eeadb17eba8e1b72eb7129ca9df457be00fea333240432c8e1",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/hc_head.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.0469052669941448,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/hc_head.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 10611,
+        "path": "models/deepseek_v4_flash_mtp/hc_head.py",
+        "sha256": "74e3e58228334dc62a161c5c250abcc0016924ef7b0478aca2e511c09306b951"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: hc_head.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE] [--seed SEED]\n                  [--enable-chip-swimlane [{0,1,2}]] [--dump-passes]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --seed SEED\n  --enable-chip-swimlane [{0,1,2}]\n  --dump-passes\n",
+      "stdout_sha256": "136f5c3e531737c9cc66f63eab97ebdd0d12fd19bc2ef4d1449aa28f801b5ff4",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/hc_post.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.0644547789706849,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/hc_post.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 9750,
+        "path": "models/deepseek_v4_flash_mtp/hc_post.py",
+        "sha256": "3e3783d52391c0fb3a33356db6f9135a50ed07748d954b089379ef62763304b2"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: hc_post.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                  [--mode {decode,prefill,all}]\n                  [--enable-chip-swimlane [{0,1,2}]] [--compile-only]\n                  [--dump-passes]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --mode {decode,prefill,all}\n                        Use decode or prefill batch sizes, or 'all' to test\n                        both.\n  --enable-chip-swimlane [{0,1,2}]\n  --compile-only\n  --dump-passes\n",
+      "stdout_sha256": "18332ce1fe82c29520350791dd66ff2f5ef782cb22db8b80b4636bf260b4bac5",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/hc_pre.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.0432090960093774,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/hc_pre.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 22150,
+        "path": "models/deepseek_v4_flash_mtp/hc_pre.py",
+        "sha256": "2fea7af39a191e44834789a9d588cdd5ffc85dba41de46a604ee6f6a46166698"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: hc_pre.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                 [--mode {decode,prefill,all}] [--enable-chip-swimlane]\n                 [--runtime-dir RUNTIME_DIR] [--golden-data GOLDEN_DATA]\n                 [--compile-only] [--dump-passes]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --mode {decode,prefill,all}\n  --enable-chip-swimlane\n  --runtime-dir RUNTIME_DIR\n  --golden-data GOLDEN_DATA\n  --compile-only\n  --dump-passes\n",
+      "stdout_sha256": "efe5ec2135eb7723c446d63a112ad581ae0310a9cf8a60f0888932d64136f2ce",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/lm_head.py",
+        "--help"
+      ],
+      "compatibility_mode": "hardware-api-skipped",
+      "elapsed_seconds": 1.0503129370044917,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/lm_head.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 28865,
+        "path": "models/deepseek_v4_flash_mtp/lm_head.py",
+        "sha256": "11ed5fff669bfc12d6c40b0c6321d538438d5c50aedeea565ee6d4da683d3b5b"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: lm_head.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [--tp {2,4,8,16}]\n                  [--dp {1,2,4,8,16}] [--num-tokens NUM_TOKENS] [-d DEVICE]\n                  [--enable-chip-swimlane [{0,1,2,4}]] [--compile-only]\n                  [--runtime-dir RUNTIME_DIR] [--dump-passes]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  --tp {2,4,8,16}       LM-head tensor-parallel world size\n  --dp {1,2,4,8,16}     DP groups (world size = tp * dp)\n  --num-tokens NUM_TOKENS\n                        Active hidden rows each owner projects\n  -d, --device DEVICE   comma-separated device ids; need at least 2\n  --enable-chip-swimlane [{0,1,2,4}]\n  --compile-only\n  --runtime-dir RUNTIME_DIR\n  --dump-passes\n",
+      "stdout_sha256": "a0a36a0301a75befdae10cb706071b3622571e4670211a702dc52926b718558b",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/lookup_embedding.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.0393663849681616,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/lookup_embedding.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 4759,
+        "path": "models/deepseek_v4_flash_mtp/lookup_embedding.py",
+        "sha256": "84c88b865d3bbed70a6b9188cc4eaeba2d5a7fe7a31b93c76a4dced48121c0ee"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: lookup_embedding.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                           [--mode {decode,prefill,all}]\n\nStandalone DeepSeek V4 Flash embedding lookup validation.\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --mode {decode,prefill,all}\n",
+      "stdout_sha256": "deb1ba0ca248c2931346f2b3ca4e8a9be82fe030f68834e260ada7ecd9bb335e",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/moe.py",
+        "--help"
+      ],
+      "compatibility_mode": "hardware-api-skipped",
+      "elapsed_seconds": 1.0583208649768494,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/moe.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 49136,
+        "path": "models/deepseek_v4_flash_mtp/moe.py",
+        "sha256": "0e44a82d264a4cc2555a52173291ee2d86dee9a663efd9974014debe82061aa1"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: moe.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [--ep {2,4,8}] [-d DEVICE]\n              [--layer-id LAYER_ID] [--num-tokens NUM_TOKENS]\n              [--balanced-routing] [--enable-chip-swimlane [{0,1,2,3,4}]]\n              [--compile-only] [--runtime-dir RUNTIME_DIR] [--save-data]\n              [--golden-data GOLDEN_DATA] [--log-level LOG_LEVEL]\n              [--dump-passes]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  --ep {2,4,8}          EP world size / rank count\n  -d, --device DEVICE   comma-separated device ids (need 2)\n  --layer-id LAYER_ID\n  --num-tokens NUM_TOKENS\n                        active token count for MoE dispatch/combine (0..8)\n  --balanced-routing    use deterministic hash routes balanced evenly across\n                        all experts\n  --enable-chip-swimlane [{0,1,2,3,4}]\n  --compile-only\n  --runtime-dir RUNTIME_DIR\n  --save-data\n  --golden-data GOLDEN_DATA\n                        dir with cached in/{name}.pt + out/{name}.pt; reuses\n                        them instead of regenerating inputs + recomputing\n                        golden.\n  --log-level LOG_LEVEL\n                        runtime log threshold: debug, v0..v9, info, warn,\n                        error, null\n  --dump-passes\n",
+      "stdout_sha256": "3f4926cc9b351e7895731f9bea8445de455f806d36511d2aa3a20a1006d46c88",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/mtp_projection.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.050144592009019,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/mtp_projection.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 18357,
+        "path": "models/deepseek_v4_flash_mtp/mtp_projection.py",
+        "sha256": "bbdd61b6b0806cd0d21f8e86491e6d5b11c58c2921c8832991c120a9c2088608"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: mtp_projection.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                         [--mode {decode,prefill,all}]\n                         [--enable-chip-swimlane [{0,1,2,4}]] [--dump-passes]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --mode {decode,prefill,all}\n  --enable-chip-swimlane [{0,1,2,4}]\n  --dump-passes\n",
+      "stdout_sha256": "2a3ebcebfcfe5ec4855456aa57600022c1a139bd24f38931e7ad4a727d77d3a5",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/prefill_compressor_ratio128.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.0479672700166702,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/prefill_compressor_ratio128.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 25809,
+        "path": "models/deepseek_v4_flash_mtp/prefill_compressor_ratio128.py",
+        "sha256": "887959d2bd807f9404365b1afcb2316069861d31baab040092223a6134f048a6"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: prefill_compressor_ratio128.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}]\n                                      [-d DEVICE] [--compile-only]\n                                      [--start-pos START_POS]\n                                      [--enable-chip-swimlane] [--dump-passes]\n\nStandalone token-major DeepSeek V4 prefill compressor ratio128 validation.\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --compile-only        Compile/codegen only. This is also the implicit\n                        behavior on *sim platforms used by CI.\n  --start-pos START_POS\n                        Fixture-only absolute position for token 0. It is\n                        lowered into position_ids and compressed write slot\n                        mapping; it is not a JIT kernel parameter.\n  --enable-chip-swimlane\n  --dump-passes\n",
+      "stdout_sha256": "bd00adcae7cd486e5a401a781dbcccda12745102c650bf57af3315324dc3c84a",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/prefill_compressor_ratio4.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.040872304001823,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/prefill_compressor_ratio4.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 33053,
+        "path": "models/deepseek_v4_flash_mtp/prefill_compressor_ratio4.py",
+        "sha256": "f593ba0b379a23e9a47bdfa1c1b8519778b7edf65079a7eac01a0e963130ecf8"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: prefill_compressor_ratio4.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}]\n                                    [-d DEVICE] [--compile-only]\n                                    [--start-pos START_POS]\n                                    [--enable-chip-swimlane] [--dump-passes]\n\nStandalone token-major DeepSeek V4 prefill compressor ratio4 validation.\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --compile-only        Compile/codegen only; also the implicit behavior on\n                        *sim platforms used by CI.\n  --start-pos START_POS\n                        Fixture-only absolute position for token 0, lowered\n                        into position_ids and cmp_slot_mapping.\n  --enable-chip-swimlane\n  --dump-passes\n",
+      "stdout_sha256": "c22c62575018cf067c66806f63c1ff6c063274a82f8304943b0a1bc6fff0364c",
+      "timed_out": false
+    },
+    {
+      "command": null,
+      "execution_policy": "excluded-draft",
+      "path": "models/deepseek_v4_flash_mtp/prefill_cp_csa_draft.py",
+      "return_code": null,
+      "source": {
+        "bytes": 138650,
+        "path": "models/deepseek_v4_flash_mtp/prefill_cp_csa_draft.py",
+        "sha256": "7ba13f388cf9b4ec5de73a2e86d736dec0307bd8810af18903ee1f09136f081d"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "execution_policy": "excluded-draft",
+      "path": "models/deepseek_v4_flash_mtp/prefill_cp_fwd_draft.py",
+      "return_code": null,
+      "source": {
+        "bytes": 159815,
+        "path": "models/deepseek_v4_flash_mtp/prefill_cp_fwd_draft.py",
+        "sha256": "1ee2bf098e87bf8071bace4c4f0a0d676ae1f3f6cd3e616a9f3412f92724aff8"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "execution_policy": "excluded-draft",
+      "path": "models/deepseek_v4_flash_mtp/prefill_cp_hca_draft.py",
+      "return_code": null,
+      "source": {
+        "bytes": 82038,
+        "path": "models/deepseek_v4_flash_mtp/prefill_cp_hca_draft.py",
+        "sha256": "64dbd16047c5a3303b0ecc8656009a7b6101d58285d399c74c58e6dd508cf070"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "execution_policy": "excluded-draft",
+      "path": "models/deepseek_v4_flash_mtp/prefill_cp_layer_draft.py",
+      "return_code": null,
+      "source": {
+        "bytes": 98547,
+        "path": "models/deepseek_v4_flash_mtp/prefill_cp_layer_draft.py",
+        "sha256": "4917445f7e2533db2e04442df4395b03d98b07eea8763c35956075c2435bf305"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "execution_policy": "excluded-draft",
+      "path": "models/deepseek_v4_flash_mtp/prefill_cp_swa_draft.py",
+      "return_code": null,
+      "source": {
+        "bytes": 46651,
+        "path": "models/deepseek_v4_flash_mtp/prefill_cp_swa_draft.py",
+        "sha256": "bf540084a86834a4c7c02de7cdfbf7fa34e9542df9bd58ee753eb1126b7f048f"
+      },
+      "status": "skipped"
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/prefill_cp_zigzag.py",
+        "--help"
+      ],
+      "compatibility_mode": "hardware-api-skipped",
+      "elapsed_seconds": 1.0549916260060854,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/prefill_cp_zigzag.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 16751,
+        "path": "models/deepseek_v4_flash_mtp/prefill_cp_zigzag.py",
+        "sha256": "b0665597af0dd888eecdc87b25877ce029f6970ce9ddac030acf38276cde3248"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: prefill_cp_zigzag.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                            [--cp {2,4,8}] [--compile-only]\n\nStandalone context-parallel zigzag exchange test.\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --cp {2,4,8}\n  --compile-only\n",
+      "stdout_sha256": "d84b53d33152d5fcb888b17632b042b33b0706fc03557c3a785ea96a9778b84e",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/prefill_csa.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.0708845400367863,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/prefill_csa.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 46190,
+        "path": "models/deepseek_v4_flash_mtp/prefill_csa.py",
+        "sha256": "71b72c58d4757314a591629f3a877684d32c62794ec9fd344e71880cd50a5e5c"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: prefill_csa.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                      [--compile-only] [--start-pos START_POS]\n                      [--num-tokens NUM_TOKENS] [--enable-chip-swimlane]\n                      [--enable-dep-gen] [--dump-passes]\n\nStandalone DeepSeek V4 packed prefill CSA correctness test.\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --compile-only\n  --start-pos START_POS\n                        context_len (multiple of S=WIN); fixture-only, lowered\n                        into token metadata.\n  --num-tokens NUM_TOKENS\n                        Active token count (q_len), capped by T; passed to the\n                        kernel as num_tokens.\n  --enable-chip-swimlane\n  --enable-dep-gen\n  --dump-passes\n",
+      "stdout_sha256": "222b19141ef27bf7076213305599d8d4516d7ccad73cfe717220c2b9fa2ac2b7",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/prefill_fwd.py",
+        "--help"
+      ],
+      "compatibility_mode": "hardware-api-skipped",
+      "elapsed_seconds": 1.1176516620325856,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/prefill_fwd.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 103308,
+        "path": "models/deepseek_v4_flash_mtp/prefill_fwd.py",
+        "sha256": "dc06d4a489cda2df7a69cf99906154390adcb25516efd1f7f4e73d9373b5ec83"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: prefill_fwd.py [-h] [-p {a2a3,a5}] [--ep {2,4,8}] [--tp {2,4,8,16}]\n                      [-d DEVICE] [--start-pos START_POS]\n                      [--active-ranks ACTIVE_RANKS] [--num-tokens NUM_TOKENS]\n                      [--ori-block-num ORI_BLOCK_NUM]\n                      [--cmp-block-num CMP_BLOCK_NUM]\n                      [--idx-block-num IDX_BLOCK_NUM]\n                      [--hca-state-block-num HCA_STATE_BLOCK_NUM]\n                      [--csa-state-block-num CSA_STATE_BLOCK_NUM]\n                      [--inner-state-block-num INNER_STATE_BLOCK_NUM]\n                      [--enable-chip-swimlane [{0,1,2}]]\n                      [--enable-scope-stats] [--num-tiles NUM_TILES]\n                      [--compile-only] [--dump-passes]\n                      [--runtime-dir RUNTIME_DIR]\n\nDeepSeek-V4 Flash packed-prefill forward driver.\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a5}\n  --ep {2,4,8}          EP world size / rank count (parsed at import by moe).\n  --tp {2,4,8,16}       LM-head TP world size; must be <= --ep.\n  -d, --device DEVICE   comma-separated device ids; need at least 2\n  --start-pos START_POS\n  --active-ranks ACTIVE_RANKS\n                        Ranks carrying tokens; the rest stay idle as in\n                        single-request serving.\n  --num-tokens NUM_TOKENS\n                        Active token rows for MoE routing/combine; default is\n                        T // 2=64.\n  --ori-block-num ORI_BLOCK_NUM\n  --cmp-block-num CMP_BLOCK_NUM\n  --idx-block-num IDX_BLOCK_NUM\n  --hca-state-block-num HCA_STATE_BLOCK_NUM\n  --csa-state-block-num CSA_STATE_BLOCK_NUM\n  --inner-state-block-num INNER_STATE_BLOCK_NUM\n  --enable-chip-swimlane [{0,1,2}]\n  --enable-scope-stats\n  --num-tiles NUM_TILES\n                        fixed-T tiles in one submitted request; 1 reproduces\n                        the packed graph.\n  --compile-only\n  --dump-passes\n  --runtime-dir RUNTIME_DIR\n",
+      "stdout_sha256": "4d64419012e5e419d4d9d2be54cf730963f446e9040c0f30d49b2bfc3930f423",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/prefill_hca.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.103028899000492,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/prefill_hca.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 32207,
+        "path": "models/deepseek_v4_flash_mtp/prefill_hca.py",
+        "sha256": "50b5af4018f05ac6896b1f7c2a253f86d0af3354d7d960455efc75110f91f37e"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: prefill_hca.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                      [--compile-only] [--start-pos START_POS]\n                      [--num-tokens NUM_TOKENS] [--enable-chip-swimlane]\n                      [--enable-dep-gen] [--dump-passes]\n\nStandalone DeepSeek V4 packed prefill HCA correctness test.\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --compile-only\n  --start-pos START_POS\n                        context_len (multiple of S=WIN); fixture-only, lowered\n                        into token metadata.\n  --num-tokens NUM_TOKENS\n                        Active token count (q_len), capped by T; passed to the\n                        kernel as num_tokens.\n  --enable-chip-swimlane\n  --enable-dep-gen\n  --dump-passes\n",
+      "stdout_sha256": "bbb7b709b216eb272966d42a7fda219672375e380f3bae7425ac8738526af04e",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/prefill_indexer.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.0787910090293735,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/prefill_indexer.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 58616,
+        "path": "models/deepseek_v4_flash_mtp/prefill_indexer.py",
+        "sha256": "5f02cfb43499218184d82dd6edfd8190371b22d3cdb290592e82e63b3ac332c9"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: prefill_indexer.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                          [--compile-only] [--start-pos START_POS]\n                          [--num-tokens NUM_TOKENS] [--enable-chip-swimlane]\n                          [--dump-passes]\n\nStandalone token-major DeepSeek V4 prefill indexer validation.\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --compile-only        Compile/codegen only. This is also the implicit\n                        behavior on *sim platforms used by CI.\n  --start-pos START_POS\n                        Fixture-only absolute position for token 0; lowered\n                        into position_ids and dense idx_slot_mapping.\n  --num-tokens NUM_TOKENS\n                        Active token prefix; inactive top-k rows must remain\n                        all -1.\n  --enable-chip-swimlane\n  --dump-passes\n",
+      "stdout_sha256": "ad9efcff283e5c622e428c243f162d06a78ea78bd6a76a20416beb037d631f94",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/prefill_indexer_compressor.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.037002405966632,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/prefill_indexer_compressor.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 43629,
+        "path": "models/deepseek_v4_flash_mtp/prefill_indexer_compressor.py",
+        "sha256": "d37202b87ee11eaa59a69e62f3313c16a58781b02d2cb0c9f893b8a7b2f60f9d"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: prefill_indexer_compressor.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}]\n                                     [-d DEVICE] [--compile-only]\n                                     [--start-pos START_POS]\n                                     [--enable-chip-swimlane] [--dump-passes]\n\nStandalone token-major DeepSeek V4 prefill indexer compressor validation.\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --compile-only        Compile/codegen only. This is also the implicit\n                        behavior on *sim platforms used by CI.\n  --start-pos START_POS\n                        Fixture-only absolute position for token 0; lowered\n                        into position_ids and dense idx_slot_mapping.\n  --enable-chip-swimlane\n  --dump-passes\n",
+      "stdout_sha256": "c30078f319f007a50169535036794d78868b0388f68d05b1a7e26f5d8d1a7532",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/prefill_layer.py",
+        "--help"
+      ],
+      "compatibility_mode": "hardware-api-skipped",
+      "elapsed_seconds": 1.1097649039584212,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/prefill_layer.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 49079,
+        "path": "models/deepseek_v4_flash_mtp/prefill_layer.py",
+        "sha256": "6196489c52689b1988d54b0bb7c3a69fe3de639ab9a2a6a71313db00de3d5c4f"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: prefill_layer.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [--ep {2,4,8}]\n                        [-d DEVICE] [--layer-id LAYER_ID]\n                        [--enable-chip-swimlane] [--compile-only]\n                        [--dump-passes]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  --ep {2,4,8}          EP world size / rank count (parsed at import by moe)\n  -d, --device DEVICE   comma-separated device ids; need at least 2\n  --layer-id LAYER_ID   Layer id selects attention by\n                        MODEL_CONFIG.compress_ratios[layer_id].\n  --enable-chip-swimlane\n  --compile-only\n  --dump-passes\n",
+      "stdout_sha256": "f7dd355ad61cf0a80c65bae6c0ba3914f1745c63b5c94045c01a76b783c63418",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/prefill_mtp.py",
+        "--help"
+      ],
+      "compatibility_mode": "hardware-api-skipped",
+      "elapsed_seconds": 1.1032149030361325,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/prefill_mtp.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 34557,
+        "path": "models/deepseek_v4_flash_mtp/prefill_mtp.py",
+        "sha256": "77df0a793f59eec9d93d0f896b89af2f56c3df3242ebf559a9fe861167fd1c2e"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: prefill_mtp.py [-h] [-p {a2a3,a5}] [--ep {2,4,8}] [-d DEVICE]\n                      [--start-pos START_POS] [--num-tokens NUM_TOKENS]\n                      [--ori-block-num ORI_BLOCK_NUM]\n                      [--output-mode {validate,device-resident}]\n                      [--enable-chip-swimlane [{0,1,2}]]\n                      [--enable-scope-stats] [--compile-only] [--dump-passes]\n                      [--runtime-dir RUNTIME_DIR]\n\nDeepSeek-V4 MTP packed-prefill forward driver.\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a5}\n  --ep {2,4,8}          EP world size / rank count (parsed at import by moe).\n  -d, --device DEVICE   comma-separated device ids; need at least 2\n  --start-pos START_POS\n  --num-tokens NUM_TOKENS\n  --ori-block-num ORI_BLOCK_NUM\n  --output-mode {validate,device-resident}\n                        validate: copy outputs to host and run golden checks;\n                        device-resident: keep hidden/pre-HC/logits on device\n                        and skip golden/readback\n  --enable-chip-swimlane [{0,1,2}]\n  --enable-scope-stats\n  --compile-only\n  --dump-passes\n  --runtime-dir RUNTIME_DIR\n",
+      "stdout_sha256": "9a8fcde9863f3372f0cee101325085638549349811f5aa1e19cf6ccc23053df5",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/prefill_sparse_attn.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.0659328260226175,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/prefill_sparse_attn.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 41828,
+        "path": "models/deepseek_v4_flash_mtp/prefill_sparse_attn.py",
+        "sha256": "79eb915920b4f26d1e7f37d25bda3d769b2255227dc5f88c098ffcf653000a2f"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: prefill_sparse_attn.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                              [--seed SEED] [--compile-only]\n                              [--compress-ratio {0,4,128}]\n                              [--num-tokens NUM_TOKENS]\n                              [--ori-block-num ORI_BLOCK_NUM]\n                              [--cmp-block-num CMP_BLOCK_NUM]\n                              [--enable-chip-swimlane [ENABLE_CHIP_SWIMLANE]]\n                              [--enable-pmu [{0,1,2,4}]] [--dump-passes]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --seed SEED           RNG seed for reproducible inputs and golden.\n  --compile-only\n  --compress-ratio {0,4,128}\n  --num-tokens NUM_TOKENS\n                        Active prefix; inactive output rows stay zero.\n  --ori-block-num ORI_BLOCK_NUM\n  --cmp-block-num CMP_BLOCK_NUM\n  --enable-chip-swimlane [ENABLE_CHIP_SWIMLANE]\n  --enable-pmu [{0,1,2,4}]\n  --dump-passes\n",
+      "stdout_sha256": "f364dfb3dd18d016a9abfc9e80c08b862228a79cdca4571de7705632f6b8ea02",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/prefill_swa.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.0746823039953597,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/prefill_swa.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 22957,
+        "path": "models/deepseek_v4_flash_mtp/prefill_swa.py",
+        "sha256": "5db6cb4e8c2ef8e4bdfd51d36e3ded0af09cd55ebdd25b7c451f6231532cf29e"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: prefill_swa.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                      [--compile-only] [--start-pos START_POS]\n                      [--num-tokens NUM_TOKENS] [--enable-chip-swimlane]\n                      [--enable-dep-gen] [--dump-passes]\n\nStandalone DeepSeek V4 packed prefill SWA correctness test.\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --compile-only\n  --start-pos START_POS\n                        context_len (multiple of S=WIN); fixture-only, lowered\n                        into token metadata.\n  --num-tokens NUM_TOKENS\n                        Active token count (q_len), capped by T; passed to the\n                        kernel as num_tokens.\n  --enable-chip-swimlane\n  --enable-dep-gen\n  --dump-passes\n",
+      "stdout_sha256": "b7ed36789882385385befacbaf55d225e04d82534d81e777d517b1f7ef9438b0",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/qkv_proj_rope.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.0704603960039094,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/qkv_proj_rope.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 33312,
+        "path": "models/deepseek_v4_flash_mtp/qkv_proj_rope.py",
+        "sha256": "5de28a148a820c1385912f7bed016a7b9955938cfc432d674af3e01efa0614f2"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: qkv_proj_rope.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                        [--mode {decode,prefill,all}]\n                        [--enable-chip-swimlane {0,1,2,4}]\n                        [--runtime-dir RUNTIME_DIR]\n                        [--golden-data GOLDEN_DATA] [--compile-only]\n                        [--dump-passes]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --mode {decode,prefill,all}\n                        Use decode or prefill batch sizes, or 'all' to test\n                        both.\n  --enable-chip-swimlane {0,1,2,4}\n                        chip swimlane level: 0=off, 1=per-kernel AICore timing\n                        (prints the per-function Task Statistics table),\n                        2=+AICPU timing.\n  --runtime-dir RUNTIME_DIR\n  --golden-data GOLDEN_DATA\n  --compile-only\n  --dump-passes\n",
+      "stdout_sha256": "660f42ac701cfa72c16352903e7cd5b6d10b35e37c683347a4987966b67825ae",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/rmsnorm.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.051708345010411,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/rmsnorm.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 6158,
+        "path": "models/deepseek_v4_flash_mtp/rmsnorm.py",
+        "sha256": "0bbeafc9ff3eeed9f00939eaddcd5ae87b566c150a5a0064e4287e9718169c7e"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: rmsnorm.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                  [--mode {decode,prefill,all}]\n                  [--enable-chip-swimlane [{0,1,2,4}]]\n                  [--runtime-dir RUNTIME_DIR] [--golden-data GOLDEN_DATA]\n                  [--compile-only] [--dump-passes]\n\nStandalone DeepSeek V4 attention RMSNorm validation.\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --mode {decode,prefill,all}\n                        Use decode or prefill batch sizes, or 'all' to test\n                        both.\n  --enable-chip-swimlane [{0,1,2,4}]\n  --runtime-dir RUNTIME_DIR\n  --golden-data GOLDEN_DATA\n  --compile-only\n  --dump-passes\n",
+      "stdout_sha256": "e6b0785f2073e7c5aba96a147d9598a7edb5507cf1110480c32df5caeb6309d8",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/deepseek_v4_flash_mtp/sample.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.0627333960146643,
+      "execution_policy": "runnable",
+      "path": "models/deepseek_v4_flash_mtp/sample.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 32408,
+        "path": "models/deepseek_v4_flash_mtp/sample.py",
+        "sha256": "2f4295b40b215da16b7389931b5c7f2c79df33b70870316124338c32e7fccec2"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: sample.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                 [--compile-only] [--enable-l2-swimlane]\n                 [--temperature TEMPERATURE] [--top-k TOP_K] [--save-data]\n                 [--golden-data GOLDEN_DATA]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --compile-only\n  --enable-l2-swimlane\n  --temperature TEMPERATURE\n  --top-k TOP_K\n  --save-data\n  --golden-data GOLDEN_DATA\n",
+      "stdout_sha256": "11e9b1c59c9028ef2002ff3a5aeb56c05eef3f49a34512792f437ab4b66d926f",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/qwen3_14b/decode_fwd.py",
+        "--help"
+      ],
+      "compatibility_mode": "hardware-api-skipped",
+      "elapsed_seconds": 1.0377439740113914,
+      "execution_policy": "runnable",
+      "path": "models/qwen3_14b/decode_fwd.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 115345,
+        "path": "models/qwen3_14b/decode_fwd.py",
+        "sha256": "a3910a38a88f2774fca2e7b4a847d1ef86e4a1b9643cb3c39d4f993df2ba7ff4"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: decode_fwd.py [-h] [-p {a2a3,a2a3sim}] [-d DEVICE]\n                     [--enable-chip-swimlane [PERF_LEVEL]] [--max-seq]\n                     [--seed SEED] [--seq-lens SEQ_LENS] [--data-dir DATA_DIR]\n                     [--smoke] [--enable-dep-gen]\n                     [--dep-output-dir DEP_OUTPUT_DIR] [--skip-reference]\n                     [--validate-fwd] [--fwd-layers FWD_LAYERS] [-b BATCH]\n                     [--decode-steps DECODE_STEPS] [--save-data]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim}\n  -d, --device DEVICE\n  --enable-chip-swimlane [PERF_LEVEL]\n                        Enable chip swimlane perf capture at the given\n                        granularity level. Bare flag = level 4 (full). Levels:\n                        1=AICore timing, 2=+dispatch/fanout, 3=+sched phases,\n                        4=+orch phases; 0 (default) disables.\n  --max-seq             set EVERY sequence length to MAX_SEQ (full KV cache)\n                        for a stable, maximum-load performance run; default\n                        samples varied random lengths.\n  --seed SEED           RNG seed for the random fixture (reproducible inputs +\n                        golden).\n  --seq-lens SEQ_LENS   exact comma-separated sequence lengths for the single-\n                        layer fixture; must contain 16 values in [1, MAX_SEQ]\n                        and is mutually exclusive with --max-seq\n  --data-dir DATA_DIR   only used by --validate-fwd (pre-generated stacked-fwd\n                        inputs).\n  --smoke               compile-only (no device); also the implicit behavior\n                        on *sim platforms.\n  --enable-dep-gen      capture the task dependency graph to\n                        dfx_outputs/deps.json (render with\n                        simpler_setup.tools.deps_viewer). Opt-in AICPU-side\n                        DFX, off by default. Keep --fwd-layers small when\n                        capturing: the per-run SHM record buffer can overflow\n                        ('records dropped') on the full 40-layer graph.\n  --dep-output-dir DEP_OUTPUT_DIR\n                        save the selected invocation's kernels and dependency\n                        capture under this directory; requires --enable-dep-\n                        gen\n  --skip-reference      under --validate-fwd, stop after the selected\n                        production decode invocation so its dependency capture\n                        cannot be overwritten by the reference invocation\n  --validate-fwd        validate the fused decode_fwd (N stacked layers + on-\n                        device LM head -> logits) against a host chain\n                        reference, instead of the default single-layer golden\n                        test.\n  --fwd-layers FWD_LAYERS\n                        layer count N for --validate-fwd\n  -b, --batch BATCH     PUBLIC batch for --validate-fwd (>= 1, no upper\n                        bound). decode_fwd's batch axes are pl.dynamic, so one\n                        compiled program serves any value; the pipeline stays\n                        internally padded to BATCH_PAD rows and a larger batch\n                        runs as ceil(batch / BATCH_PAD) row windows. Ignored\n                        by the default single-layer test, which drives the\n                        static decode_fwd_layers.\n  --decode-steps DECODE_STEPS\n                        under --validate-fwd, run this many decode steps for a\n                        device-cost timing sweep at growing context: each step\n                        feeds the previous step's sampled token back as input\n                        and grows the context by one (seq_lens += 1,\n                        slot_mapping advanced to the new token's KV slot). The\n                        context starts at MAX_SEQ (PTO2_MANUAL_MAX_SEQ) and\n                        grows to MAX_SEQ + decode_steps - 1; the paged KV pool\n                        (block_table / slot_mapping / kc / vc) is enlarged by\n                        decode_steps tokens up front so the growing seq_lens\n                        never overflow it. Read the device `Effective` span\n                        (kc/vc are re-uploaded per step, so it measures decode\n                        cost at growing context, not a correct generation).\n                        The host-ref argmax check is skipped for N > 1.\n  --save-data           persist inputs + golden for replay (off: large\n                        fixtures)\n",
+      "stdout_sha256": "76156955e70d66832b06d6625ba45f014214d1db6f0ced225d8e52bfc4acdb22",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/qwen3_14b/decode_layer_a8w8.py",
+        "--help"
+      ],
+      "compatibility_mode": "hardware-api-skipped",
+      "elapsed_seconds": 1.0602251600357704,
+      "execution_policy": "runnable",
+      "path": "models/qwen3_14b/decode_layer_a8w8.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 50808,
+        "path": "models/qwen3_14b/decode_layer_a8w8.py",
+        "sha256": "908747af401c595bd5bd04309fcd863d3ab8da8b87589b42cc8d8a3f0cee31cf"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: decode_layer_a8w8.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n\nCompile or run one Qwen3-14B A8W8 decode layer.\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n",
+      "stdout_sha256": "d86028d93542485f4782120e81f98647896ccefa5277b23797b1b851bf02fb40",
+      "timed_out": false
+    },
+    {
+      "command": null,
+      "execution_policy": "excluded-draft",
+      "path": "models/qwen3_14b/decode_ssn_draft.py",
+      "return_code": null,
+      "source": {
+        "bytes": 50503,
+        "path": "models/qwen3_14b/decode_ssn_draft.py",
+        "sha256": "55016c298d42f77500e87bccdf020dbc3e78210cbe1a4c526b97f59466d77705"
+      },
+      "status": "skipped"
+    },
+    {
+      "command": null,
+      "execution_policy": "excluded-draft",
+      "path": "models/qwen3_14b/decode_tq_draft.py",
+      "return_code": null,
+      "source": {
+        "bytes": 63454,
+        "path": "models/qwen3_14b/decode_tq_draft.py",
+        "sha256": "3b8779b4824e8376e09f01f5b419710f10a55b41c830dbea7e00534ea10b3da9"
+      },
+      "status": "skipped"
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/qwen3_14b/greedy_sample.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.0545884789898992,
+      "execution_policy": "runnable",
+      "path": "models/qwen3_14b/greedy_sample.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 7649,
+        "path": "models/qwen3_14b/greedy_sample.py",
+        "sha256": "7debaf16546387220c766cfcd405fa8d32c546ddff7b8008639bab0c868039f0"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: greedy_sample.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                        [--enable-chip-swimlane]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --enable-chip-swimlane\n",
+      "stdout_sha256": "3957f7cd58685c8a26f53d3017b44aec4fa340a1175998975f834f4bd15b7b70",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/qwen3_14b/prefill_fwd.py",
+        "--help"
+      ],
+      "compatibility_mode": "hardware-api-skipped",
+      "elapsed_seconds": 1.0486136339604855,
+      "execution_policy": "runnable",
+      "path": "models/qwen3_14b/prefill_fwd.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 119334,
+        "path": "models/qwen3_14b/prefill_fwd.py",
+        "sha256": "7b9b0be663a7952bd8d131a2e260b31403e8d8bf347705bb4b14892977a8e5a1"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: prefill_fwd.py [-h] [-p {a2a3,a5}] [-d DEVICE] [-b BATCH]\n                      [--enable-chip-swimlane [PERF_LEVEL]]\n                      [--enable-scope-stats] [--enable-dep-gen]\n                      [--max-seq MAX_SEQ] [--use-max-seq]\n                      [--chunk-start CHUNK_START] [--chunk-size CHUNK_SIZE]\n                      [--num-layers NUM_LAYERS] [--save-data] [--no-golden]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a5}\n  -d, --device DEVICE\n  -b, --batch BATCH     User-visible batch size. Host allocates every batch-\n                        dependent tensor at exactly this size; every kernel\n                        signature batch-axis dim is a pl.dynamic() variable,\n                        so a single compiled program serves any batch <= host\n                        KV-cache capacity. Default: 16\n  --enable-chip-swimlane [PERF_LEVEL]\n                        Enable chip swimlane perf capture at the given\n                        granularity level. Bare flag = level 4 (full). Levels:\n                        1=AICore timing, 2=+dispatch/fanout, 3=+sched phases,\n                        4=+orch phases; 0 (default) disables.\n  --enable-scope-stats  enable PTO2 scope lifetime statistics\n  --enable-dep-gen      capture the task dependency graph to\n                        dfx_outputs/deps.json (render with\n                        simpler_setup.tools.deps_viewer). Opt-in AICPU-side\n                        DFX, off by default. Keep --num-layers small when\n                        capturing: the per-run SHM record buffer can overflow\n                        ('records dropped') on the full 40-layer graph.\n  --max-seq MAX_SEQ     synthetic max sequence length, up to model MAX_SEQ\n  --use-max-seq         set all synthetic seq_lens to --max-seq\n  --chunk-start CHUNK_START\n                        absolute start position for a synthetic current chunk\n  --chunk-size CHUNK_SIZE\n                        current chunk size for synthetic chunked-prefill\n                        tests; 0 means full prompt\n  --num-layers NUM_LAYERS\n  --save-data           persist inputs + golden for replay (off: large\n                        fixtures)\n  --no-golden           skip host golden computation and output validation\n",
+      "stdout_sha256": "6387177fc81de264a36ffbf1389cc5c92fd2093a014411d30bdae8b54388df03",
+      "timed_out": false
+    },
+    {
+      "command": null,
+      "execution_policy": "excluded-draft",
+      "path": "models/qwen3_14b/prefill_tq_draft.py",
+      "return_code": null,
+      "source": {
+        "bytes": 69380,
+        "path": "models/qwen3_14b/prefill_tq_draft.py",
+        "sha256": "d304dde7f48290f02c54c6aa1cc00133e39028c84ffe158aab983424a212acda"
+      },
+      "status": "skipped"
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/qwen3_14b/rope_qkv_regen.py",
+        "--help"
+      ],
+      "compatibility_mode": "hardware-api-skipped",
+      "elapsed_seconds": 1.0331799529958516,
+      "execution_policy": "runnable",
+      "path": "models/qwen3_14b/rope_qkv_regen.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 21186,
+        "path": "models/qwen3_14b/rope_qkv_regen.py",
+        "sha256": "decd9e0f22dedba72fabaa6cc54bab9713da5505062d7d998ab2683aff56f02b"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: rope_qkv_regen.py [-h] [-p {a2a3,a2a3sim}] [-d DEVICE] [-b BATCH]\n                         [--emit-header [PATH]]\n\nRegeneration source for\n``kernels/paged_attention_cce/kernel/rope_qkv_generated.hpp``. The fused\n``paged_attention_rope_cce`` extern embeds a pypto/ptoas-GENERATED\n``rope_qkv`` body as an in-kernel phase 0. That body is a *copied codegen\nartifact*: it cannot be hand-edited safely, because ptoas CSEs constants by\nvalue and the batch constants collide with unrelated ones (``16`` is both the\nbatch divisor and the Q-RMSNorm tile row count; ``128`` is both the item bound\n``NUM_KV_HEADS * BATCH_PAD`` and ``HEAD_DIM``). Commit ``8ef71cc`` (#796)\nfolded the RoPE scope into the extern and DELETED the pypto scope it was\ngenerated from, which left the header's \"regenerate from decode_fwd rope_qkv\"\ninstruction pointing at code that no longer exists. This module is that\nmissing source: a standalone, AIV-only program whose single\n``pl.spmd(ROPE_CORES, name_hint=\"rope_qkv\")`` scope reproduces the phase-0\narithmetic exactly, so the header can be regenerated on demand. Regenerate\nwith:: python models/qwen3_14b/rope_qkv_regen.py -p a2a3 then follow the\nextraction steps printed at the end of the run. Invariants this file must\npreserve (violating any of them silently changes the generated GM addressing,\nwhich the extern cannot detect): * **Column extents must match decode_fwd\nexactly** -- ``q_proj`` HIDDEN, ``k_proj``/``v_proj`` KV_HIDDEN,\n``q_tnd_flat``/``k_cache``/``v_cache``/\n``rope_cos``/``rope_sin``/``q_norm_w``/``k_norm_w`` HEAD_DIM. Every stride in\nthe generated body is a baked literal derived from these. * **Row counts do\nnot matter.** They never enter the address math, which is why the internal\nbuffers can stay padded at BATCH_PAD while the public batch is dynamic. *\n**AIV-only.** A single matmul would split the program into aic/aiv halves and\nthe artifact would no longer be a drop-in for the VEC-guarded call site. *\n**``k_cache``/``v_cache`` stay statically shaped** -- no ``bind_dynamic``. The\nrow count is provably dead in the generated body, and binding it would emit a\nsecond ``int64_t`` dynamic-dim parameter next to the batch one, making the two\ntrivially swappable at the hand-written call site in ``fai_body.hpp``.\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim}\n  -d, --device DEVICE   accepted for CI-harness uniformity; compile-only,\n                        unused.\n  -b, --batch BATCH     batch used for the dummy seq_lens/slot_mapping shapes;\n                        with DYNAMIC_BATCH the compiled body is batch-\n                        independent, so this only affects the traced example\n                        shape.\n  --emit-header [PATH]  after compiling, re-wrap the artifact into an\n                        embeddable header at PATH (default:\n                        ./rope_qkv_generated.staged.hpp). Staging on purpose\n                        -- the live header has hand-written prose to preserve;\n                        diff and merge.\n",
+      "stdout_sha256": "2696b597203ff502034eefb069dac8aa8bfdca8ab456e0b9116e9b6600635b3b",
+      "timed_out": false
+    },
+    {
+      "command": null,
+      "execution_policy": "ascend-cce-only",
+      "path": "models/qwen3_14b/test_paged_attention_cce.py",
+      "return_code": null,
+      "source": {
+        "bytes": 6669,
+        "path": "models/qwen3_14b/test_paged_attention_cce.py",
+        "sha256": "c7ad46164e7e7dadecb0b1fe4573fc59ab0cadb100f449d567bb14fc2af432ee"
+      },
+      "status": "skipped"
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/qwen3_14b/test_paged_attention_pypto.py",
+        "--help"
+      ],
+      "compatibility_mode": "hardware-api-skipped",
+      "elapsed_seconds": 1.0831483509973623,
+      "execution_policy": "runnable",
+      "path": "models/qwen3_14b/test_paged_attention_pypto.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 46590,
+        "path": "models/qwen3_14b/test_paged_attention_pypto.py",
+        "sha256": "c73ea16fff3b196b750bfdee840bd6ccf32de8ef9471ff74a153f304dde896b8"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: test_paged_attention_pypto.py [-h] [-p {a2a3,a2a3sim}] [-d DEVICE]\n                                     [--compile-only] [--matrix {pr,full}]\n                                     [--matrix-json MATRIX_JSON]\n                                     [--benchmark-json BENCHMARK_JSON]\n                                     [--seed SEED] [--batch BATCH]\n                                     [--context-len CONTEXT_LEN]\n                                     [--seq-lens SEQ_LENS]\n                                     [--capacity CAPACITY]\n                                     [--physical-pages PHYSICAL_PAGES]\n                                     [--page-mapping {identity,random,noncontiguous,reverse,shared-prefix}]\n                                     [--pattern {random,zero-query,kv-head-id,dominant-score}]\n                                     [--cache-layers CACHE_LAYERS]\n                                     [--layer-index LAYER_INDEX]\n                                     [--canary-salt CANARY_SALT]\n\nDynamic correctness, codegen, and raw-performance driver for PyPTO Qwen PA.\nThe handwritten CCE backend and its existing validation remain available. This\ncomponent driver focuses on the checks needed to validate the PyPTO\nimplementation used by production decode: * dynamic batch and sequence-length\nshapes; * page-boundary, ragged, remapped, shared-prefix, and packed-layer\naddressing; * Q/K head norm, RoPE, V scaling, current-token cache append, and\nPA output; * Torch numerical comparison on a real NPU, including cache\ncanaries; * full wrapper codegen on ``a2a3sim``; * optional raw timing\nsamples, with no performance pass/fail threshold.\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim}\n  -d, --device DEVICE\n  --compile-only\n  --matrix {pr,full}\n  --matrix-json MATRIX_JSON\n  --benchmark-json BENCHMARK_JSON\n  --seed SEED\n  --batch BATCH\n  --context-len CONTEXT_LEN\n  --seq-lens SEQ_LENS\n  --capacity CAPACITY\n  --physical-pages PHYSICAL_PAGES\n  --page-mapping {identity,random,noncontiguous,reverse,shared-prefix}\n  --pattern {random,zero-query,kv-head-id,dominant-score}\n  --cache-layers CACHE_LAYERS\n  --layer-index LAYER_INDEX\n  --canary-salt CANARY_SALT\n",
+      "stdout_sha256": "92e916a620767e3db99105b27b7bf705b9a591c2a6de565623897bd06cfb6862",
+      "timed_out": false
+    },
+    {
+      "blocker": null,
+      "command": [
+        "/home/zhaosiying/pypto-love-tensor-ir/envs/pypto-release/bin/python3.14",
+        "-B",
+        "/home/zhaosiying/pypto-love-tensor-ir/demo/pypto-lib/models/qwen3_14b/topk_select.py",
+        "--help"
+      ],
+      "compatibility_mode": "computational-unmapped",
+      "elapsed_seconds": 1.0328048400115222,
+      "execution_policy": "runnable",
+      "path": "models/qwen3_14b/topk_select.py",
+      "return_code": 0,
+      "source": {
+        "bytes": 18063,
+        "path": "models/qwen3_14b/topk_select.py",
+        "sha256": "799812eb9961c00fcfa8d8d8cff7aecff0079ac7b920beed18a4ade751534785"
+      },
+      "status": "pass",
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "usage: topk_select.py [-h] [-p {a2a3,a2a3sim,a5,a5sim}] [-d DEVICE]\n                      [--selection-k {1,32}] [--enable-chip-swimlane]\n\noptions:\n  -h, --help            show this help message and exit\n  -p, --platform {a2a3,a2a3sim,a5,a5sim}\n  -d, --device DEVICE\n  --selection-k {1,32}\n  --enable-chip-swimlane\n",
+      "stdout_sha256": "362ed64d9737def6c815718d998054fb93505aa0962f9b07c9b9f99f3e093cfd",
+      "timed_out": false
+    }
+  ],
+  "schema": 1,
+  "skipped_count": 9,
+  "status": "complete",
+  "strict_nvidia_pass_count": 1,
+  "upstream_commit": "6c292d30ccc787ee4e1fe61541fd3faec0dafa65"
+}

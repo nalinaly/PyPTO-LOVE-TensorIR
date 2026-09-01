@@ -1,0 +1,198 @@
+{
+  "article_url": "https://mp.weixin.qq.com/s/7tLlTbomH9OqyUbZDbBEhQ",
+  "backend": "nvidia",
+  "compatibility_policy": {
+    "path": "state/evidence/article-demo-compatibility-policy-current.json",
+    "revision": "nvidia-computational-v1-20260831",
+    "sha256": "d84ed25aafe7d060352a0e7191e5b9a8180a16b1560f5bef35b3da1360a1989d"
+  },
+  "compatibility_status": "complete",
+  "computational_reference_pass_count": 0,
+  "computational_unmapped_count": 0,
+  "elapsed_seconds": 0.002269633987452835,
+  "entrypoint_count": 11,
+  "hardware_api_skipped_count": 1,
+  "kind": "article-demo-matrix",
+  "manifest_sha256_after": "c09c2da519135d49a072c0a164542c6a1d18e4cd8a099a3a9e6e8bcee07adb64",
+  "manifest_sha256_before": "c09c2da519135d49a072c0a164542c6a1d18e4cd8a099a3a9e6e8bcee07adb64",
+  "mode": "audit",
+  "path_prefix": "examples",
+  "results": [
+    {
+      "command": null,
+      "compatibility_mode": "hardware-api-skipped",
+      "execution_policy": "runnable",
+      "hardware_api_evidence": [
+        {
+          "line": 20,
+          "marker": "distributed-language-api",
+          "text": "import pypto.language.distributed as pld"
+        },
+        {
+          "line": 126,
+          "marker": "distributed-program-api",
+          "text": "from pypto.ir.distributed_compiled_program import DistributedConfig"
+        },
+        {
+          "line": 16,
+          "marker": "collective-or-device-control",
+          "text": "Run:  python examples/advanced/allreduce.py -p a2a3 -d 0,1"
+        }
+      ],
+      "path": "examples/advanced/allreduce.py",
+      "return_code": null,
+      "skip_reason": "entrypoint directly references an Ascend/NPU/CCE/distributed hardware API",
+      "source": {
+        "bytes": 5965,
+        "path": "examples/advanced/allreduce.py",
+        "sha256": "c1484f4b3e0273b5d800dcce914628f0ef8839eb83e0f2af0ad1b35a52ad4bce"
+      },
+      "status": "skipped"
+    },
+    {
+      "adapter": "gemm_eltwise_reference",
+      "command": null,
+      "compatibility_mode": "computational-cuda-reference",
+      "execution_policy": "runnable",
+      "path": "examples/advanced/gemm_eltwise.py",
+      "return_code": null,
+      "source": {
+        "bytes": 3904,
+        "path": "examples/advanced/gemm_eltwise.py",
+        "sha256": "1bfced7482c005d58bce0a3555de347bd32cc5b38795cb14f4697289d65bcb1a"
+      },
+      "status": "audited"
+    },
+    {
+      "adapter": "multi_proj_reference",
+      "command": null,
+      "compatibility_mode": "computational-cuda-reference",
+      "execution_policy": "runnable",
+      "path": "examples/advanced/multi_proj.py",
+      "return_code": null,
+      "source": {
+        "bytes": 4328,
+        "path": "examples/advanced/multi_proj.py",
+        "sha256": "8fff720c0d7240fe50b10486387c655fa025c754b8379e8389f82a96367551c3"
+      },
+      "status": "audited"
+    },
+    {
+      "adapter": "topk_reference",
+      "command": null,
+      "compatibility_mode": "computational-cuda-reference",
+      "execution_policy": "runnable",
+      "path": "examples/advanced/topk.py",
+      "return_code": null,
+      "source": {
+        "bytes": 4097,
+        "path": "examples/advanced/topk.py",
+        "sha256": "94a0adae341a142454c1b57063086652e30619dd5d801decc578ec695ee949af"
+      },
+      "status": "audited"
+    },
+    {
+      "adapter": "hello_world_strict",
+      "command": null,
+      "compatibility_mode": "strict-pypto-nvidia",
+      "execution_policy": "runnable",
+      "path": "examples/beginner/hello_world.py",
+      "return_code": null,
+      "source": {
+        "bytes": 2894,
+        "path": "examples/beginner/hello_world.py",
+        "sha256": "1c2c882e719e5db568c5dc5f100d87b3ef02cdc441f992ab223a8b5df790d703"
+      },
+      "status": "audited"
+    },
+    {
+      "adapter": "matmul_reference",
+      "command": null,
+      "compatibility_mode": "computational-cuda-reference",
+      "execution_policy": "runnable",
+      "path": "examples/beginner/matmul.py",
+      "return_code": null,
+      "source": {
+        "bytes": 2985,
+        "path": "examples/beginner/matmul.py",
+        "sha256": "fe0802cc7670a52a11cd73a62d90da9f1c875c8fc3361a2061c1598e241855af"
+      },
+      "status": "audited"
+    },
+    {
+      "adapter": "gemm_reference",
+      "command": null,
+      "compatibility_mode": "computational-cuda-reference",
+      "execution_policy": "runnable",
+      "path": "examples/intermediate/gemm.py",
+      "return_code": null,
+      "source": {
+        "bytes": 3420,
+        "path": "examples/intermediate/gemm.py",
+        "sha256": "fb2f52b5d1037af9a8c7bc6b82e1b9de1caf86b9842da0f4575e87ba8f294803"
+      },
+      "status": "audited"
+    },
+    {
+      "adapter": "layer_norm_reference",
+      "command": null,
+      "compatibility_mode": "computational-cuda-reference",
+      "execution_policy": "runnable",
+      "path": "examples/intermediate/layer_norm.py",
+      "return_code": null,
+      "source": {
+        "bytes": 4217,
+        "path": "examples/intermediate/layer_norm.py",
+        "sha256": "a97f640177e4f0d618c65e08b931a6d03e3dab77a0bfa9b8aa9740044857ca5f"
+      },
+      "status": "audited"
+    },
+    {
+      "adapter": "rms_norm_reference",
+      "command": null,
+      "compatibility_mode": "computational-cuda-reference",
+      "execution_policy": "runnable",
+      "path": "examples/intermediate/rms_norm.py",
+      "return_code": null,
+      "source": {
+        "bytes": 4326,
+        "path": "examples/intermediate/rms_norm.py",
+        "sha256": "f525ad85eb7bebe18176d6efb7bccc346d1784b871e84db3253613ccf7901a5c"
+      },
+      "status": "audited"
+    },
+    {
+      "adapter": "rope_reference",
+      "command": null,
+      "compatibility_mode": "computational-cuda-reference",
+      "execution_policy": "runnable",
+      "path": "examples/intermediate/rope.py",
+      "return_code": null,
+      "source": {
+        "bytes": 4233,
+        "path": "examples/intermediate/rope.py",
+        "sha256": "3149eaa03574e1bac8ce0dfc620f93c92daa6faff27cdda223fa33a79c929abf"
+      },
+      "status": "audited"
+    },
+    {
+      "adapter": "softmax_reference",
+      "command": null,
+      "compatibility_mode": "computational-cuda-reference",
+      "execution_policy": "runnable",
+      "path": "examples/intermediate/softmax.py",
+      "return_code": null,
+      "source": {
+        "bytes": 3068,
+        "path": "examples/intermediate/softmax.py",
+        "sha256": "b6b67d887dd814cb5af4114f3f7ea3c16616e1dd026ac1e7618a03daf5bdfd64"
+      },
+      "status": "audited"
+    }
+  ],
+  "schema": 1,
+  "skipped_count": 1,
+  "status": "complete",
+  "strict_nvidia_pass_count": 0,
+  "upstream_commit": "6c292d30ccc787ee4e1fe61541fd3faec0dafa65"
+}

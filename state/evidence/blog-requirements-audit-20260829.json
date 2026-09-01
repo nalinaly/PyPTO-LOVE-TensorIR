@@ -1,0 +1,23 @@
+{
+  "checked": [
+    "README.md",
+    "README_EN.md",
+    "blog",
+    "demo/SOURCE_MANIFEST.json",
+    "state/evidence/article-demo-screenshot-manifest-20260829.json",
+    "state/evidence/gpt-image2-ablation-prompts-20260829.json",
+    "state/evidence/paged-attention-typed-tensorir-20260829.json",
+    "state/evidence/operator-regression-locked-20260829.json",
+    "state/evidence/qwen35-9b-inductor-ablation-20260829.json",
+    "state/evidence/qwen35-model-gate-status-20260829.json",
+    "typical article-demo screenshot slot",
+    "locked operator regression evidence",
+    "ablation denominator",
+    "vendor/source-lock.json"
+  ],
+  "errors": [],
+  "kind": "blog-requirements-audit",
+  "recorded_at": "2026-08-29T13:30:42.276053+00:00",
+  "schema": 1,
+  "status": "pass"
+}
