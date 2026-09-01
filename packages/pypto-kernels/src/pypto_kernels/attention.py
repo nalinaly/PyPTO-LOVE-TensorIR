@@ -12,7 +12,11 @@ bootstrap()
 import pypto.language as pl  # noqa: E402
 
 _ROW_TILE = 1
-_VALUE_TILE = 64
+# 32-wide value tiles match the measured SM120 scheduling cliff
+# (see linear.py): 64-column tiles under-fill the grid and lose the
+# bandwidth-bound decode path; numerics are tile-invariant because the
+# KV reduction order is unchanged.
+_VALUE_TILE = 32
 _MAX_FUSED_PREFILL_KV_HEADS = 2
 _lock = threading.RLock()
 _cache: dict[tuple[int, int, int, int], str] = {}
@@ -1277,7 +1281,7 @@ def _paged_prefill_tiles(
     iteration_rank = (
         int(query_rows != 1) + int(q_heads != 1) + int(kv_heads > 1)
     )
-    return [*([1] * iteration_rank), 128]
+    return [*([1] * iteration_rank), 32]
 
 
 def _launch_paged_prefill_graph(

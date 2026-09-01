@@ -491,6 +491,8 @@ def compile_jit_kernel(
 _GRAPHS: dict[str, tuple[Any, Any]] = {}
 _EXECUTABLES: dict[str, Any] = {}
 _GRAPH_RECORDS: dict[str, Any] = {}
+_PACKET_CACHE: dict[tuple[str, tuple[tuple[int, ...], ...]], Any] = {}
+_PACKET_CACHE_LIMIT = 8192
 
 
 def _ready_executable(key: str) -> Any:
@@ -534,30 +536,46 @@ def launch_graph(key: str, tensors: tuple[Any, ...], stream: Any) -> None:
     artifact, request = _GRAPHS[key]
     del request
     executable = _ready_executable(key)
-    descriptors = artifact.kernel_abi.argument_layout.operand_descriptors
-    if len(descriptors) != len(tensors):
-        raise ValueError(
-            "PyPTO launch tensor count differs from the static Artifact ABI: "
-            f"expected={len(descriptors)} actual={len(tensors)}"
-        )
-    for index, (descriptor, tensor) in enumerate(zip(descriptors, tensors)):
-        expected_shape = list(descriptor.shape)
-        expected_stride = list(descriptor.strides)
-        actual_shape = list(tensor.shape)
-        actual_stride = list(tensor.stride())
-        if expected_shape != actual_shape or expected_stride != actual_stride:
+
+    # Fast path: a launch packet is immutable and fully determined by the
+    # graph plus the (pointer, shape, stride) tuple of its operands. In
+    # steady decode the allocator hands back the same buffers every step, so
+    # caching the prepared packet per operand identity removes the per-launch
+    # Python validation and C++ argument packing without changing what the
+    # kernel reads: contents are read from the passed buffers at launch time.
+    identity = tuple(
+        (int(t.data_ptr()), tuple(t.shape), tuple(t.stride())) for t in tensors
+    )
+    packet = _PACKET_CACHE.get((key, identity))
+    if packet is None:
+        descriptors = artifact.kernel_abi.argument_layout.operand_descriptors
+        if len(descriptors) != len(tensors):
             raise ValueError(
-                f"PyPTO launch operand {index} differs from static Artifact ABI: "
-                f"expected_shape={expected_shape} actual_shape={actual_shape} "
-                f"expected_stride={expected_stride} actual_stride={actual_stride}"
+                "PyPTO launch tensor count differs from the static Artifact ABI: "
+                f"expected={len(descriptors)} actual={len(tensors)}"
             )
-    arguments = [
-        runtime.NvidiaLaunchArgument.tensor(
-            int(t.data_ptr()), list(t.shape), list(t.stride())
-        )
-        for t in tensors
-    ]
-    packet = executable.prepare_launch(arguments)
+        for index, (descriptor, tensor) in enumerate(zip(descriptors, tensors)):
+            expected_shape = list(descriptor.shape)
+            expected_stride = list(descriptor.strides)
+            actual_shape = list(tensor.shape)
+            actual_stride = list(tensor.stride())
+            if expected_shape != actual_shape or expected_stride != actual_stride:
+                raise ValueError(
+                    f"PyPTO launch operand {index} differs from static Artifact ABI: "
+                    f"expected_shape={expected_shape} actual_shape={actual_shape} "
+                    f"expected_stride={expected_stride} actual_stride={actual_stride}"
+                )
+        arguments = [
+            runtime.NvidiaLaunchArgument.tensor(
+                int(t.data_ptr()), list(t.shape), list(t.stride())
+            )
+            for t in tensors
+        ]
+        packet = executable.prepare_launch(arguments)
+        if len(_PACKET_CACHE) >= _PACKET_CACHE_LIMIT:
+            _PACKET_CACHE.clear()
+        _PACKET_CACHE[(key, identity)] = packet
+
     artifact_record = _GRAPH_RECORDS.get(key)
     annotation = nullcontext()
     if artifact_record is not None:
@@ -566,7 +584,6 @@ def launch_graph(key: str, tensors: tuple[Any, ...], stream: Any) -> None:
         annotation = annotate_artifact_launch(artifact_record)
     with annotation:
         executable.launch(packet, stream)
-    del packet
 
 
 def classify(program: Any, tiles: list[int]) -> dict[str, str]:

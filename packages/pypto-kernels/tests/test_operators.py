@@ -489,9 +489,9 @@ def test_rope_is_one_native_tile_graph():
 
 
 def test_attention_is_one_native_tile_graph():
-    assert attention._dense_tiles(1) == [64]
-    assert attention._dense_tiles(19) == [1, 64]
-    assert attention._dense_tiles(64) == [1, 64]
+    assert attention._dense_tiles(1) == [32]
+    assert attention._dense_tiles(19) == [1, 32]
+    assert attention._dense_tiles(64) == [1, 32]
     program = attention.build(2, 128, 128, 128)
     rendered = str(program)
     assert len(_one_program(program).body.stmts) == 2  # one scope + return
@@ -506,9 +506,9 @@ def test_attention_is_one_native_tile_graph():
 def test_paged_attention_decode_builds_one_q_head_graph():
     assert attention._paged_decode_partition_count(8) == 8
     assert attention._paged_decode_partition_count(16) == 16
-    assert attention._paged_decode_tiles(1, 1) == [64]
-    assert attention._paged_decode_tiles(1, 4) == [1, 64]
-    assert attention._paged_decode_tiles(2, 1) == [1, 64]
+    assert attention._paged_decode_tiles(1, 1) == [32]
+    assert attention._paged_decode_tiles(1, 4) == [1, 32]
+    assert attention._paged_decode_tiles(2, 1) == [1, 32]
     with pytest.raises(ValueError, match="positive Q heads"):
         attention._paged_decode_partition_count(0)
     program = attention.build_paged_decode(
@@ -732,7 +732,7 @@ def test_paged_attention_decode_result_stride_is_in_artifact_identity(monkeypatc
     assert pitched_result == reused_pitched_result == "decode-artifact-2"
     assert [shape[-1] for shape in builds] == [1024, 4096]
     assert len(compilations) == 2
-    assert [tiles for _program, tiles, _metadata in compilations] == [[64], [64]]
+    assert [tiles for _program, tiles, _metadata in compilations] == [[32], [32]]
 
 
 def test_paged_cache_layout_accepts_static_row_pitch() -> None:
@@ -833,10 +833,10 @@ def test_paged_prefill_is_one_causal_gqa_graph():
 
 
 def test_paged_prefill_tiles_follow_canonical_iteration_rank():
-    assert attention._paged_prefill_tiles(1, 1, 1) == [128]
-    assert attention._paged_prefill_tiles(19, 1, 1) == [1, 128]
-    assert attention._paged_prefill_tiles(19, 4, 1) == [1, 1, 128]
-    assert attention._paged_prefill_tiles(19, 8, 2) == [1, 1, 1, 128]
+    assert attention._paged_prefill_tiles(1, 1, 1) == [32]
+    assert attention._paged_prefill_tiles(19, 1, 1) == [1, 32]
+    assert attention._paged_prefill_tiles(19, 4, 1) == [1, 1, 32]
+    assert attention._paged_prefill_tiles(19, 8, 2) == [1, 1, 1, 32]
     with pytest.raises(ValueError, match="positive divisible GQA geometry"):
         attention._paged_prefill_tiles(19, 7, 2)
 
