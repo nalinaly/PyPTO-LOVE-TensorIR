@@ -24,7 +24,9 @@ analogous to Triton in the Ascend stack) to NVIDIA GPUs: **on an RTX 5090
 (SM120), every GPU kernel in the Qwen3.5-9B inference forward pass is expressed
 in the PyPTO frontend and produced by this repository's compilation pipeline**.
 A per-kernel CUPTI audit measures 100% coverage (zero fallback), and outputs
-match the native SGLang implementation token for token.
+match the native SGLang implementation token for token. It is also a learning
+platform: the official PyPTO tutorial article's complete demo suite runs
+**unmodified** on this pipeline (see [Article demos](#article-demos-run-the-official-tutorial-unmodified)).
 
 Two core features:
 
@@ -43,8 +45,9 @@ Two core features:
    ablation its fusion capability matches the official Triton backend:
    **6 eager kernels fuse into 1 (−83.33% launches)**; one cold compile costs
    **1.70 s** (official backend 1.10 s, 54–66% longer); the generated kernel's
-   warm path is currently 79.6% slower than eager (pointwise scheduling not yet
-   tuned; the official backend is +30.5%).
+   warm path is currently 79.6% slower than eager (the gap is in fused-pointwise
+   code generation, isolated from scheduling by the tile-sweep experiment;
+   the official backend is +30.5%).
 
 ```text
 SGLang (unpatched)
@@ -82,37 +85,97 @@ Inductor backend. SGLang integrates through its official plugin mechanism —
 | Qwen3.5-9B correctness | PASS: 3 fresh starts × 10 requests × 64 tokens, **token-identical** to native SGLang (unique output-sequence SHA-256) |
 | model-forward PyPTO coverage | **100%**: 33,448 compute calls = 31,400 handwritten + 2,048 Inductor-generated, 0 fallback |
 | Operator regression | PASS: 8 suites / 101 cases (re-run on hardware 2026-09-01) |
-| End-to-end throughput | PyPTO **2.3393 tok/s**; SGLang matched **14.9754**; SGLang optimized **12.5000** |
-| Relative performance | **PyPTO = 15.62% of matched** (95% CI [15.59%, 15.70%]); **18.71% of optimized** (CI [18.69%, 18.75%]) |
-| Bottleneck attribution | CUPTI/NVTX reconciliation closes: the gap is dominated by unoptimized structured matmul (6–195×), not by the bridge itself |
+| End-to-end throughput | PyPTO **9.6068 tok/s**; SGLang matched **15.5936**; SGLang optimized **13.1686** |
+| Relative performance | **PyPTO = 61.61% of matched** (95% CI [52.34%, 61.77%]); **72.95% of optimized** (CI [61.98%, 73.14%]) |
+| vs previous release | 2.3393 tok/s (15.62%/18.71%) on the same matrix → **4.1× end-to-end**, entirely from scheduling-layer optimization with token-exact correctness preserved |
+| Bottleneck attribution | CUPTI/NVTX reconciliation closes (residual 1.24 ms): the remaining gap concentrates in fused-pointwise codegen and prefill GEMM row-blocking |
 
 | Metric (p50) | PyPTO | matched | optimized |
 |---|---:|---:|---:|
-| E2E | 27358.76 ms | 4273.67 ms | 5119.99 ms |
-| TTFT | 3343.10 ms | 73.21 ms | 151.39 ms |
-| TPOT | 381.23 ms | 66.66 ms | 78.86 ms |
-| Output throughput | 2.3393 tok/s | 14.9754 tok/s | 12.5000 tok/s |
-| Peak GPU memory | 17.49 GiB | 18.09 GiB | 22.08 GiB |
+| E2E | 6661.97 ms | 4104.24 ms | 4860.03 ms |
+| TTFT | 351.35 ms | 70.32 ms | 144.77 ms |
+| TPOT | 100.19 ms | 64.01 ms | 74.82 ms |
+| Output throughput | 9.6068 tok/s | 15.5936 tok/s | 13.1686 tok/s |
+| Peak GPU memory | 18.20 GiB | 18.70 GiB | 22.68 GiB |
 
-Lanes: **PyPTO** (all operators via PyPTO; CUDA graphs/overlap off);
-**matched** (SGLang default operators with configuration aligned to the PyPTO
-lane: `mem_fraction_static=0.78, cpu_offload_gb=2`, CUDA graphs/overlap off);
-**optimized** (official SGLang defaults with CUDA graphs/overlap on).
-Workload: chat-template 31 input tokens + greedy 64 output tokens, BF16, TP1,
-concurrency 1; 4 fresh process starts per lane; the headline is the median of
-per-start p50s with a 10,000-resample percentile bootstrap CI. Machine-readable
-results: `state/evidence/qwen35-9b-release-results-current.json`.
+![Three-lane end-to-end](docs/assets/charts/three-lane-end-to-end.png)
+
+Lanes: **PyPTO** (all operators via PyPTO; zero CPU offload,
+`mem_fraction_static=0.78`; CUDA graphs/overlap off — the correctness child
+alone uses 0.80 with the completion-only GPU policy); **matched** (SGLang
+default operators, `0.78 / 2 GiB offload`, CUDA graphs/overlap off);
+**optimized** (official defaults with CUDA graphs/overlap on, `0.69 /
+2 GiB offload`). Workload: chat-template 31 input tokens + greedy 64 output
+tokens, BF16, TP1, concurrency 1; 4 fresh process starts per lane; the
+headline is the median of per-start p50s with a 10,000-resample percentile
+bootstrap CI. Machine-readable results:
+`state/evidence/qwen35-9b-release-results-current.json`.
 
 **Four live-run screenshots** (real execution of `wsl -d Ubuntu` inside
-PowerShell; sidecar JSONs record the command and PNG SHA-256 — see
+PowerShell at native 3872×2312; see
 [Screenshot reproduction](#screenshot-reproduction)):
 
 | Stage | Command | Screenshot |
 |---|---|---|
-| Build (wheels→native→CTest→install, `status: complete`) | `tools/build_release.py --stage all` | ![build](docs/assets/screenshots/build-release.png) |
-| Operator correctness (8 suites, 101 cases, `all_correct: true`) | `tools/run_operator_regression.py --stage all` | ![operator](docs/assets/screenshots/operator-correctness.png) |
-| Operator performance A/B (PyPTO vs SGLang stock, 4+4 fresh starts) | `tools/run_operator_performance.py --matrix` | ![perf](docs/assets/screenshots/operator-performance.png) |
+| Build (four stages, `status: complete`) | `tools/build_release.py --stage all` | ![build](docs/assets/screenshots/build-release.png) |
+| Operator correctness (8 suites, 101 cases) | `tools/run_operator_regression.py --stage all` | ![operator](docs/assets/screenshots/operator-correctness.png) |
+| Operator performance A/B (4+4 fresh starts) | `tools/run_operator_performance.py --matrix` | ![perf](docs/assets/screenshots/operator-performance.png) |
 | End-to-end inference (fixed prompt, 64-token greedy + per-token gate) | `tools/run_model_correctness.py all` | ![model](docs/assets/screenshots/model-inference.png) |
+
+## Performance optimization: schedule tiles and the launch path
+
+Everything that moved the needle from 18.71% to 72.95% (4.1× end-to-end)
+happened **at the scheduling layer**, with the token-level gate green at every step:
+
+- **Locating the tile cliff**: the CUPTI per-kernel audit showed structured
+  matmul at 94.6% of compute; the root cause was a 128-column schedule tile
+  that gave the down-projection decode GEMV only **32 CTAs on ~170 SMs**
+  (1.5% of bandwidth). `tools/sweep_linear_tiles.py` (checked in) compiles
+  every candidate tile for every production shape and times it with CUDA
+  events while bit-comparing outputs; **tile=32** is the universal optimum
+  (a hard cliff exists at ≥64): gate/up decode 2.60→0.38 ms, down 4.53→0.22 ms,
+  LM head 14.55→3.68 ms, prefill 45→8.5 ms.
+- **Numerical invariance**: the tile only changes how output columns split
+  across CTAs; the in-element K accumulation order is untouched — every tile's
+  output was bit-identical in the sweep and the model-level token gate stayed
+  green throughout. Prefill adds a `[2,32]` row block (two rows share one
+  weight stream, another 2×) that is likewise bit-identical.
+- **Experiments the gate rejected (recorded honestly)**: a `[16,32]` row block
+  selects the tensor-core MMA path and is 14× faster in the microbenchmark,
+  but its different FP accumulation order breaks token-level agreement —
+  faster but wrong, reverted. CPU-offloading the candidate lane is
+  incompatible with the PyPTO weight hooks (deterministically degraded
+  output), disabled.
+- **Attention tile + launch-packet caching**: attention value tiles 64→32;
+  `launch_graph` reuses immutable launch packets (steady decode reuses the
+  same buffers, so hits skip per-operand validation and C++ argument packing;
+  kernels still read the caller's current buffers, and any new combination
+  falls back to full validation).
+- **An honest negative result on the Inductor side**: the same tile sweep on
+  the generated fused-pointwise kernel came out **slower** (0.238 vs 0.211 ms
+  at tile 32); 128 stays optimal. That kernel's 5× gap to eager is in tileiras
+  code generation, not scheduling (the same source as attention's 6.6× gap),
+  and is listed as future work.
+
+Operator-level before/after (PyPTO / cuBLAS):
+
+| Operator (shape) | Before | After |
+|---|---:|---:|
+| gate/up linear decode 1×4096×24576 | 10.9× | **1.19×** |
+| down linear decode 1×12288×4096 | 36.9× | **1.34×** |
+| FP32 LM head 1×4096×248320 | 6.0× | **1.51×** |
+| gate/up linear prefill 31×4096×24576 | 179.2× | **14.4×** |
+| down linear prefill 31×12288×4096 | 194.7× | **13.7×** |
+
+![Operator A/B](docs/assets/charts/operator-ab-breakdown.png)
+
+CUPTI phase attribution (GPU ms per request): total forward compute dropped
+22318.81 → **3066.64** (7.3×), with the unattributed bucket (handwritten
+linears) 20184→1636 and the LM head 932→178; **attention core+gate
+(1203 ms) is now the largest item** — a fused-pointwise codegen gap. Of the
+1801.94 ms E2E gap versus optimized, 952.45 ms is profiled compute plus an
+849.49 ms non-profiled residual; the independent phase reconciliation residual
+is 1.24 ms (closed).
 
 ## Environment requirements
 
@@ -180,7 +243,10 @@ envs/pypto-release/bin/python tools/run_operator_performance.py --matrix --model
 envs/pypto-release/bin/python tools/run_performance_regression.py --matrix \
     --model-path models/Qwen3.5-9B --optimized-memory-mode matched
 
-# ③ SwiGLU fusion ablation: eager vs official Inductor (CUDA/Triton) vs PyPTO backend
+# ③ Tile sweep (optimization tool: per-tile real compilation + timing + bit comparison)
+envs/pypto-release/bin/python tools/sweep_linear_tiles.py --output runs/linear-tile-sweep.json
+
+# ④ SwiGLU fusion ablation: eager vs official Inductor (CUDA/Triton) vs PyPTO backend
 envs/pypto-release/bin/python tools/run_inductor_ablation.py --mode pypto --phase prefill \
     --output runs/ablation-prefill-pypto.json
 envs/pypto-release/bin/python tools/summarize_inductor_ablation.py \
@@ -194,11 +260,10 @@ envs/pypto-release/bin/python tools/summarize_inductor_ablation.py \
 ```
 
 Timing uses CUDA events; each case runs 20 warmups + 30 batches × 100 calls.
-The formal frozen results live in
+After a re-run, `python3 tools/print_operator_ab_table.py` prints the newest
+A/B table. The formal frozen results live in
 `state/evidence/qwen35-9b-operator-performance-breakdown-current.json` and
-`qwen35-9b-inductor-ablation-current.json`. After a re-run,
-`python3 tools/print_operator_ab_table.py` prints the newest per-operator
-comparison table from the latest aggregation.
+`qwen35-9b-inductor-ablation-current.json`.
 
 ## End-to-end inference: 100% PyPTO Qwen3.5-9B (fixed-prompt reproduction)
 
@@ -235,6 +300,25 @@ teacher-forced frozen-logits policy passes, and CUPTI coverage 33,448/33,448
 with 0 fallback. After a re-run, `python3 tools/print_model_gate_live.py`
 prints the latest run's pass status, coverage audit, and generated output.
 
+## Article demos: run the official tutorial unmodified
+
+The complete demo suite from the official PyPTO tutorial
+[article](https://mp.weixin.qq.com/s/7tLlTbomH9OqyUbZDbBEhQ) (151 files /
+66 entrypoints) is checked in **byte-for-byte** under `demo/pypto-lib/`
+(upstream revision `6c292d30`) and runs unmodified on this pipeline: all 41
+compute entrypoints pass (1 strict PyPTO→TensorIR→CUDA-Tile `hello_world`
+with `max_abs_diff=0.0`; 40 CUDA numerical references); 17 Ascend-hardware
+entrypoints are skipped honestly. The canonical example:
+
+```bash
+envs/pypto-release/bin/python tools/run_article_demo_matrix.py --backend nvidia --mode run --device 0
+```
+
+![hello_world strict path](docs/assets/screenshots/article-demo-typical.png)
+
+(Single-demo entry: `envs/pypto-release/bin/python -B tools/run_article_demo_nvidia.py
+--demo examples/beginner/hello_world.py --device 0`.)
+
 ## Repository layout
 
 ```text
@@ -244,10 +328,11 @@ packages/pypto-framework-plugins/  # torch.compile(backend="pypto") backend + SG
 .sources/tensor-ir                 # TensorIR fork (+89 commits: gather/scatter layouts, artifact contract)
 .sources/sglang                    # SGLang v0.5.18 (unmodified)
 vendor/                            # source identity locks: git bundles, 391 patches, source-lock.json
-tools/                             # all entry scripts: build / correctness / performance / inference
+tools/                             # all entry scripts: build / correctness / performance / tile sweep / inference
 benchmarks/release/                # lanes, workload, operator manifests (frozen test contracts)
 state/evidence/                    # frozen measurement-evidence JSONs
-models/ tests/ demo/ docs/         # models / harness tests / article-demo corpus / figures & screenshots
+docs/assets/                       # architecture figure, screenshots, charts
+models/ tests/ demo/               # models / harness tests / article-demo corpus
 envs/ builds/ runs/ caches/        # environments / build artifacts / raw run outputs (gitignored)
 ```
 
@@ -291,14 +376,14 @@ wrapper calls a single `pypto_launch(...)` that validates the ABI and launches
 on the caller's stream; CUPTI coverage-audit tooling ships with the package.
 
 **Handwritten operator library** (`packages/pypto-kernels`): one operator =
-one `@pl.jit` graph; shape/stride ABI validation before every launch; shares
-the same compilation path as the Inductor backend. Inventory: attention
-(dense/masked/paged-decode/paged-prefill/KV-write/gather — 7 graphs), GDN
-recurrent (L2 norm + softplus decay gating + rank-1 state update + output
-projection over an `pl.InOut` state pool), packed GDN projection, width-4
-causal conv, QK RMSNorm + partial RoPE + gate split, BF16 linear projections,
-FP32 LM head, embedding/token-id gather, three RMSNorm variants, NeoX RoPE,
-sigmoid gating, and SwiGLU.
+one `@pl.jit` graph; shape/stride ABI validation before every launch (steady
+state hits the launch-packet cache); shares the same compilation path as the
+Inductor backend. Inventory: attention (dense/masked/paged-decode/
+paged-prefill/KV-write/gather — 7 graphs), GDN recurrent (L2 norm + softplus
+decay gating + rank-1 state update + output projection over an `pl.InOut`
+state pool), packed GDN projection, width-4 causal conv, QK RMSNorm + partial
+RoPE + gate split, BF16 linear projections, FP32 LM head, embedding/token-id
+gather, three RMSNorm variants, NeoX RoPE, sigmoid gating, and SwiGLU.
 
 **SGLang integration** (zero patches): the official plugin registry wraps
 ~20 internal call sites via AROUND hooks, dispatching to `pypto-kernels`
@@ -309,15 +394,15 @@ registration failure raises `SystemExit` (SGLang's loader swallows exceptions).
 
 **Operator-level A/B** (PyPTO p50 / stock p50, ms/call):
 
-| Operator (shape) | PyPTO | stock | Multiple |
-|---|---:|---:|---:|
-| SwiGLU decode 1×24576 | 0.2035 | 0.0094 | 21.7× |
-| SwiGLU prefill 31×24576 | 0.2030 | 0.0091 | 22.2× |
-| gate/up linear decode 1×4096×24576 | 2.5967 | 0.2389 | 10.9× |
-| gate/up linear prefill 31×4096×24576 | 45.0186 | 0.2512 | 179.2× |
-| down linear decode 1×12288×4096 | 4.5270 | 0.1228 | 36.9× |
-| down linear prefill 31×12288×4096 | 25.2897 | 0.1299 | 194.7× |
-| FP32 LM head 1×4096×248320 | 14.5464 | 2.4238 | 6.0× |
+| Operator (shape) | PyPTO | stock | Multiple | Before |
+|---|---:|---:|---:|---:|
+| gate/up linear decode 1×4096×24576 | 0.2850 | 0.2385 | **1.19×** | 10.9× |
+| down linear decode 1×12288×4096 | 0.1660 | 0.1232 | **1.34×** | 36.9× |
+| FP32 LM head 1×4096×248320 | 3.6814 | 2.4338 | **1.51×** | 6.0× |
+| gate/up linear prefill 31×4096×24576 | 3.6015 | 0.2507 | 14.4× | 179.2× |
+| down linear prefill 31×12288×4096 | 1.7539 | 0.1283 | 13.7× | 194.7× |
+| SwiGLU decode 1×24576 | 0.2084 | 0.0090 | 23.1× | 21.7× |
+| SwiGLU prefill 31×24576 | 0.2036 | 0.0090 | 22.5× | 22.2× |
 
 **SwiGLU fusion ablation** (warm call ms / cold compile ms / kernel count /
 vs eager):
@@ -331,27 +416,32 @@ vs eager):
 | decode · official Inductor (Triton) | 0.033808 | 1045.9 | 1 | +19.9% |
 | decode · PyPTO backend | 0.212401 | 1733.3 | 1 | −80.9% |
 
-**CUPTI logical-phase attribution** (p50 ms/request): total PyPTO forward
-compute 22318.81, of which the unattributed bucket (handwritten linears)
-20184.08, attention core+gate 1154.36, LM head 931.87; matched 1285.79;
-optimized 2131.56. Of the 22238.77 ms E2E gap versus optimized, 20187.25 ms is
-profiled compute plus a 2051.52 ms non-profiled residual; the independent
-phase-median reconciliation residual is −9.11 ms (closed).
+![SwiGLU ablation](docs/assets/charts/inductor-swiglu-ablation.png)
 
-**Conclusion**: the 15.62%/18.71% end-to-end gap is dominated by structured
-matmul without tensor-core pipelines or tile autotuning (6–195×, worst in
-prefill shapes), followed by GDN token-ordered launches and decode launch
-density; the fusion machinery itself matches the official Triton backend
-(6→1 kernels, −83.33% launches). Exact figures live in the corresponding
-`state/evidence/` JSONs.
+**CUPTI logical-phase attribution** (p50 ms/request): total PyPTO forward
+compute **3066.64** (was 22318.81), of which the unattributed bucket
+(handwritten linears) 1636.24, attention core+gate 1202.66, LM head 177.96;
+matched 1282.43; optimized 2114.19. Of the 1801.94 ms E2E gap versus
+optimized, 952.45 ms is profiled compute plus an 849.49 ms non-profiled
+residual; the independent phase-median reconciliation residual is 1.24 ms
+(closed).
+
+![CUPTI attribution](docs/assets/charts/cupti-phase-attribution.png)
+
+**Conclusion**: decode linear algebra now sits at 1.2–1.5× of cuBLAS; the
+remaining gap concentrates in **fused-pointwise code generation** (attention
+0.33 ms vs FlashInfer 0.05 ms, same source as SwiGLU's 5×) and **prefill GEMM
+row-blocking** (numerically safe multi-row tiles are the next priority), not
+in the bridge itself.
 
 ## Screenshot reproduction
 
 The four screenshots are live captures produced by
 `tools/windows/capture_powershell.ps1` in Windows Terminal (Ubuntu purple
-profile): a nested PowerShell prompt runs `wsl -d Ubuntu`, the real Ubuntu
-prompt runs the command, and `PrintWindow` captures the frame on completion.
-From PowerShell:
+profile): DPI-aware capture forced to the full work area (native 3872×2312);
+a nested PowerShell prompt runs `wsl -d Ubuntu`, the real Ubuntu prompt runs
+the command, and `PrintWindow` captures the frame on completion. From
+PowerShell:
 
 ```powershell
 $Repo = "\\wsl.localhost\Ubuntu\home\<user>\pypto-love-tensor-ir"
@@ -368,14 +458,22 @@ SHA-256, non-blank pixel samples); the binding manifest is regenerated with
 
 ## Limitations and licensing
 
-- Structured matmul lacks deep optimization (no tensor-core pipeline /
-  autotune) — the dominant source of the current performance gap;
+- Prefill GEMMs at 13.6–14.4×: more aggressive row blocking selects the
+  tensor-core path, changes FP accumulation order, and breaks token-level
+  agreement — numerically safe multi-row tiles are the follow-up;
+- Fused-pointwise codegen ~5× (attention/SwiGLU share the source): the gap is
+  in tileiras instruction selection/vectorization; the tile sweep has ruled
+  out scheduling;
+- Decode launch density: ~500 launches/step of host overhead remain after
+  packet caching; full convergence needs whole-step CUDA-graph capture
+  (`NvidiaExecutable` already carries the graph lease);
+- A zero-offload 9B candidate sits near the ceiling of a 24 GiB consumer card
+  shared with the display; the correctness child uses the completion-only GPU
+  policy, and CPU offload is incompatible with the PyPTO weight hooks;
 - The Inductor backend fuses pointwise/trailing-axis reductions only;
   GEMM+epilogue and cross-node fusion are fail-closed TODOs;
-- Long GDN prefills launch token-by-token in order (numerical state-boundary
-  contract) rather than as a batched recurrent graph;
-- Every kernel is statically specialized per shape/stride; new shapes compile
-  once (artifacts persist on disk and are reused);
+- Long GDN prefills launch token-by-token in order; every kernel is statically
+  specialized per shape/stride (artifacts persist on disk and are reused);
 - Licensing: the PyPTO/CANN license does not permit running on or
   redistributing to non-Huawei processors (see the IMPORTANT note above and
   [LEGAL_NOTICE.md](LEGAL_NOTICE.md)); TensorIR is Apache-2.0 with LLVM
