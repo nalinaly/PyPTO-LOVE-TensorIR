@@ -167,6 +167,64 @@ def check_document_resources(
                 )
 
 
+def check_gpt_image2_assets(texts: dict[str, str], errors: list[str]) -> bool:
+    prompt_path = ROOT / "state/evidence/gpt-image2-ablation-prompts-20260829.json"
+    prompts = load(prompt_path, errors)
+    if prompts is None:
+        return False
+    assets = prompts.get("assets")
+    if (
+        prompts.get("model") != "gpt-image-2"
+        or prompts.get("generation", {}).get("model") != "gpt-image-2"
+        or not isinstance(assets, list)
+        or len(assets) != 5
+    ):
+        errors.append("GPT-Image-2 prompt inventory drifted")
+        return False
+    outputs = [ROOT / str(record.get("output", "")) for record in assets]
+    manifest_path = ROOT / "state/evidence/gpt-image2-assets-current.json"
+    if not manifest_path.is_file():
+        if any(path.exists() for path in outputs):
+            errors.append("GPT-Image-2 outputs exist without finalized provenance")
+        return False
+    release_python = ROOT / "envs/pypto-release/bin/python"
+    python = release_python if release_python.is_file() else Path(sys.executable)
+    result = subprocess.run(
+        [
+            str(python),
+            "-B",
+            str(ROOT / "tools/finalize_gpt_image2_assets.py"),
+            "--check",
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        errors.append(
+            "GPT-Image-2 finalized provenance does not reproduce: "
+            + (result.stderr.strip() or result.stdout.strip())
+        )
+        return False
+    if "PENDING_GPT_IMAGE2" in "\n".join(texts.values()):
+        errors.append("finalized GPT-Image-2 documents retain a pending marker")
+    for record in assets:
+        output = str(record["output"])
+        if output not in texts["blog"]:
+            errors.append(f"blog misses finalized GPT-Image-2 asset: {output}")
+    core = {
+        "inductor-ablation-overview.png",
+        "qwen35-three-lane-performance.png",
+        "qwen35-kernel-breakdown.png",
+    }
+    for name in ("README.md", "README_EN.md"):
+        missing = sorted(asset for asset in core if asset not in texts[name])
+        if missing:
+            errors.append(f"{name} misses core GPT-Image-2 assets: {missing}")
+    return True
+
+
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -1038,7 +1096,11 @@ def main() -> int:
     for heading in ("# 一、", "# 二、", "# 三、", "# 四、", "# 五、", "# 六、", "# 七、", "# 八、", "# 九、", "# 十、"):
         if heading not in texts["blog"]:
             errors.append(f"blog misses heading {heading}")
-    if any("PENDING_GPT_IMAGE2" not in texts[name] for name in ("README.md", "README_EN.md", "blog")):
+    gpt_images_complete = check_gpt_image2_assets(texts, errors)
+    if not gpt_images_complete and any(
+        "PENDING_GPT_IMAGE2" not in texts[name]
+        for name in ("README.md", "README_EN.md", "blog")
+    ):
         errors.append("GPT-Image-2 pending/provenance marker is missing")
     html = read(blog_path.with_suffix(".html"), errors)
     if html and html.count("data:image/") < 3:
@@ -1069,9 +1131,11 @@ def main() -> int:
         )
     ):
         errors.append("final requirement matrix is missing current optimized/profile closure")
-    blockers = [
-        "GPT-Image-2 generation awaits local API authorization",
-    ]
+    blockers = (
+        []
+        if gpt_images_complete
+        else ["GPT-Image-2 generation awaits local API authorization"]
+    )
     screenshot_manifest = ROOT / "state/evidence/article-demo-screenshot-manifest-current.json"
     try:
         screenshot_status = json.loads(

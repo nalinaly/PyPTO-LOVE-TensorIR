@@ -3,6 +3,15 @@
   "kind": "gpt-image-2-evidence-prompts",
   "status": "pending-api-key",
   "model": "gpt-image-2",
+  "generation": {
+    "mode": "imagegen-skill-fallback-cli",
+    "cli": "${CODEX_HOME}/skills/.system/imagegen/scripts/image_gen.py",
+    "model": "gpt-image-2",
+    "quality": "high",
+    "size": "1536x1024",
+    "output_format": "png",
+    "augmentation": false
+  },
   "source_evidence": [
     {
       "path": "state/evidence/qwen35-9b-inductor-ablation-current.json",

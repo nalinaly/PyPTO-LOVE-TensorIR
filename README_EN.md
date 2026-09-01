@@ -269,10 +269,13 @@ envs/pypto-release/bin/python tools/profile_qwen35.py matrix \
   --performance-matrix runs/release-performance-matrix-<id>/summary.json
 ```
 
-The requested ablation/breakdown images must be generated with GPT-Image-2.
-OPENAI_API_KEY is absent in this environment, so assets remain
-PENDING_GPT_IMAGE2 and no other model is substituted. Prompts and provenance
-are recorded in state/evidence/gpt-image2-ablation-prompts-20260829.json.
+The five requested ablation/breakdown images must use GPT-Image-2. This process
+still has no `OPENAI_API_KEY`, so all assets remain `PENDING_GPT_IMAGE2`; no
+other model is substituted. Prompts, source hashes, and output paths are in
+state/evidence/gpt-image2-ablation-prompts-20260829.json. After generation and
+per-image visual review, `tools/finalize_gpt_image2_assets.py` validates PNG,
+prompt/source/image hashes, and manual-review fields before writing the final
+provenance manifest.
 
 ## Repository Layout
 

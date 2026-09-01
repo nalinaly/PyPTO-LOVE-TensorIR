@@ -2173,3 +2173,22 @@ All earlier statements that optimized/profile are open are historical and are
 superseded by this checkpoint. The only remaining publication gate is final
 GPT-Image-2 asset generation and inspection. The current process still lacks
 `OPENAI_API_KEY`; do not substitute another model or fabricate the images.
+
+---
+# GPT-Image-2 finalization contract: 2026-09-01 (revision 76)
+
+The final image inventory has five distinct `gpt-image-2` CLI jobs: fusion and
+launch reduction, warm/cold operator ablation, seven-case operator A/B,
+three-lane whole-model performance, and hybrid CUPTI/NVTX breakdown. All five
+high-quality `1536x1024` PNG jobs pass the imagegen-skill CLI dry-run. Exact
+numbers remain in adjacent Markdown/JSON rather than generated pixels.
+
+`tools/finalize_gpt_image2_assets.py` is the fail-closed publication boundary.
+It requires all five regular PNGs under `docs/assets/generated`, exact size and
+valid image structure, prompt and source evidence hashes, the bundled CLI hash,
+and a manual inspection record for subject/scope, layout/legibility, text,
+fabricated metrics, logo/watermark and adjacent-table requirements. Partial
+outputs without finalized provenance make the document audit fail. A complete
+manifest removes the sole GPT blocker only after all five images are linked in
+the blog, the three core figures are linked in both READMEs, and no pending
+marker remains. The current Codex process still has no `OPENAI_API_KEY`.

@@ -241,9 +241,12 @@ envs/pypto-release/bin/python tools/profile_qwen35.py matrix \
   --performance-matrix runs/release-performance-matrix-<id>/summary.json
 ```
 
-用户要求所有消融/breakdown 图用 GPT-Image-2。当前环境没有 OPENAI_API_KEY，
-所以保持 PENDING_GPT_IMAGE2，不用其他模型替代；提示词和 provenance 见
-state/evidence/gpt-image2-ablation-prompts-20260829.json。
+用户要求所有消融/breakdown 图用 GPT-Image-2。当前进程没有
+`OPENAI_API_KEY`，所以 5 张资产保持 `PENDING_GPT_IMAGE2`，不用其他模型
+替代；提示词、source SHA 和输出路径见
+state/evidence/gpt-image2-ablation-prompts-20260829.json。生成并逐张目检后运行
+`tools/finalize_gpt_image2_assets.py`，它会校验 PNG、prompt/source/image SHA 和
+manual-review 字段，再写出最终 provenance manifest。
 
 ## 目录结构
 

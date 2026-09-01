@@ -169,6 +169,8 @@ template and is not permission to promote an open item.
 - [ ] Every ablation/breakdown figure is generated with GPT-Image-2 from a
       hashed immutable JSON source, has model/prompt/run/image provenance and
       useful alt text, and is visually checked against an adjacent exact table.
+      Five CLI jobs and `finalize_gpt_image2_assets.py` are ready; the finalizer
+      requires per-image manual review plus prompt/source/image SHA closure.
 - [ ] Source excerpts and every screenshot/figure sidecar point to the same
       release identity as the prose; stale images fail closed.
 - [ ] The HTML is a single offline file with inline styling, figures, and image

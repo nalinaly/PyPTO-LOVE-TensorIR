@@ -34,7 +34,7 @@ HTML are local deliverables; the matrix itself is a publication audit.
 | Run every linked article demo unchanged with precision | article demo matrix reports | PASS within user-authorized scope: imported source remains byte-identical, every computational entry passes through an external adapter, and all 17 hardware-facing entries retain source-evidenced skips |
 | Typical demo README and result screenshot | demo/README.md, demo/README_EN.md, screenshot manifest | PASS: strict hello result/golden evidence and real Ubuntu/PowerShell-purple `PrintWindow` capture are hash-bound |
 | Four requested terminal roles plus typical demo | current five-role screenshot manifest | PASS: build/operator/model are hash-validated accepted-run evidence replays; performance is current operator evidence; article-demo GUI role is a completed live run |
-| GPT-Image-2 visuals for ablations/breakdowns | gpt-image2-ablation-prompts-20260829.json | OPEN: OPENAI_API_KEY absent; no model substitution |
+| GPT-Image-2 visuals for ablations/breakdowns | gpt-image2-ablation-prompts-20260829.json; finalize_gpt_image2_assets.py | OPEN: five CLI dry-runs and fail-closed finalizer pass, but OPENAI_API_KEY is absent; no model substitution |
 | Bilingual README parity and language switch | README.md, README_EN.md | PASS by audit; both use current numbers |
 | Single-file offline HTML | reports/local-blog/*.html, 5 embedded data images | PASS; browser viewport automation unavailable in this environment |
 | Plan persistence | PLAN.md revision-75 checkpoint and memory ad-hoc note | PASS |
