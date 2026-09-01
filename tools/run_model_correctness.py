@@ -126,6 +126,11 @@ def main() -> int:
                     tuple(worker_args),
                     pointer,
                     timeout_seconds=args.timeout_seconds,
+                    # The zero-offload 9B candidate legitimately fills the GPU
+                    # up to its static fraction; a fixed 4 GiB free floor
+                    # aborts the run mid-request. Use the completion-only
+                    # policy already authorized for tight-memory lanes.
+                    gpu_free_floor_mib=0,
                 )
 
         controlled = invoke_controlled(factory, root=ROOT, dry_run=args.dry_run)
