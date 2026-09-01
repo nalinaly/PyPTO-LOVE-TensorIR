@@ -1722,6 +1722,7 @@ def paged_attention_decode(
         (batch_size, tokens), (1, 0)
     )
     mapping_view = virtual_to_physical.view(mapping_rows, 1)
+    pending_launches: list[tuple[str, tuple[Any, ...]]] = []
     if batch_size == 1:
         # Single-launch path: one graph covers every Q head, so the grid
         # spans all heads (16x the CTAs of a per-head launch on the
@@ -1749,79 +1750,83 @@ def paged_attention_decode(
             (1, q_heads, head_dim),
             (result_row_stride, head_dim, 1),
         )
-        launch_graph(
-            merged_key,
+        pending_launches.append(
             (
-                merged_query,
-                key_cache,
-                value_cache,
-                req_to_token,
-                request_index_view,
-                valid_tokens_view,
-                mapping_view,
-                merged_result,
-            ),
-            stream.cuda_stream,
+                merged_key,
+                (
+                    merged_query,
+                    key_cache,
+                    value_cache,
+                    req_to_token,
+                    request_index_view,
+                    valid_tokens_view,
+                    mapping_view,
+                    merged_result,
+                ),
+            )
         )
-        return out
-    graph_key = compile_paged_decode_for(
-        batch_size,
-        1,
-        1,
-        tokens,
-        head_dim,
-        cache_rows,
-        request_rows,
-        max_context_len,
-        cache_row_stride,
-        mapping_rows,
-        query_row_stride,
-        result_row_stride,
-    )
-    query_storage_offset = int(query.storage_offset())
-    key_storage_offset = int(key_cache.storage_offset())
-    value_storage_offset = int(value_cache.storage_offset())
-    result_storage_offset = int(out.storage_offset())
-    # as_strided only creates tensor metadata: no gather/copy/concatenation
-    # kernel is inserted between these same-stream PyPTO launches.
-    for q_head in range(_paged_decode_partition_count(q_heads)):
-        kv_head = q_head // queries_per_kv
-        query_column = q_head * head_dim
-        cache_column = kv_head * head_dim
-        query_group = query.as_strided(
-            (batch_size, 1, head_dim),
-            (query_row_stride, head_dim, 1),
-            storage_offset=query_storage_offset + query_column,
+    else:
+        graph_key = compile_paged_decode_for(
+            batch_size,
+            1,
+            1,
+            tokens,
+            head_dim,
+            cache_rows,
+            request_rows,
+            max_context_len,
+            cache_row_stride,
+            mapping_rows,
+            query_row_stride,
+            result_row_stride,
         )
-        key_group = key_cache.as_strided(
-            (cache_rows, head_dim),
-            (cache_row_stride, 1),
-            storage_offset=key_storage_offset + cache_column,
-        )
-        value_group = value_cache.as_strided(
-            (cache_rows, head_dim),
-            (cache_row_stride, 1),
-            storage_offset=value_storage_offset + cache_column,
-        )
-        result_group = out.as_strided(
-            (batch_size, 1, head_dim),
-            (result_row_stride, head_dim, 1),
-            storage_offset=result_storage_offset + query_column,
-        )
-        launch_graph(
-            graph_key,
-            (
-                query_group,
-                key_group,
-                value_group,
-                req_to_token,
-                request_index_view,
-                valid_tokens_view,
-                mapping_view,
-                result_group,
-            ),
-            stream.cuda_stream,
-        )
+        query_storage_offset = int(query.storage_offset())
+        key_storage_offset = int(key_cache.storage_offset())
+        value_storage_offset = int(value_cache.storage_offset())
+        result_storage_offset = int(out.storage_offset())
+        # as_strided only creates tensor metadata: no gather/copy/concatenation
+        # kernel is inserted between these same-stream PyPTO launches.
+        for q_head in range(_paged_decode_partition_count(q_heads)):
+            kv_head = q_head // queries_per_kv
+            query_column = q_head * head_dim
+            cache_column = kv_head * head_dim
+            query_group = query.as_strided(
+                (batch_size, 1, head_dim),
+                (query_row_stride, head_dim, 1),
+                storage_offset=query_storage_offset + query_column,
+            )
+            key_group = key_cache.as_strided(
+                (cache_rows, head_dim),
+                (cache_row_stride, 1),
+                storage_offset=key_storage_offset + cache_column,
+            )
+            value_group = value_cache.as_strided(
+                (cache_rows, head_dim),
+                (cache_row_stride, 1),
+                storage_offset=value_storage_offset + cache_column,
+            )
+            result_group = out.as_strided(
+                (batch_size, 1, head_dim),
+                (result_row_stride, head_dim, 1),
+                storage_offset=result_storage_offset + query_column,
+            )
+            pending_launches.append(
+                (
+                    graph_key,
+                    (
+                        query_group,
+                        key_group,
+                        value_group,
+                        req_to_token,
+                        request_index_view,
+                        valid_tokens_view,
+                        mapping_view,
+                        result_group,
+                    ),
+                )
+            )
+    for pending_key, pending_operands in pending_launches:
+        launch_graph(pending_key, pending_operands, stream.cuda_stream)
     return out
 
 
