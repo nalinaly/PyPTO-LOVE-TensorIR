@@ -21,8 +21,12 @@ from .lanes import (
     prepare_worker_environment,
 )
 from .performance_runtime import (
+    HOST_FREE_FLOOR_KIB,
     ResourceSampler,
+    _cache_snapshot,
+    _compilation_observation,
     _resource_summary,
+    gpu_free_floor_bytes,
     validate_resource_identity,
 )
 from .workload import (
@@ -44,6 +48,20 @@ PHASE_ANNOTATION_KIND = "pypto.release-phase.v1"
 ARTIFACT_ANNOTATION_KIND = "pypto.artifact-launch.v1"
 PROFILE_REQUESTS = 5
 MAX_TRACE_ATTEMPTS = 10
+CUDA_GRAPH_LAUNCH_RUNTIME_CBIDS = frozenset({311, 312})
+
+
+def _cuda_graph_launch_count(windows: list[dict[str, object]]) -> int:
+    """Count cudaGraphLaunch callbacks using CUDA 13.3 CUPTI runtime CBIDs."""
+
+    return sum(
+        1
+        for window in windows
+        for event in window.get("events", [])
+        if isinstance(event, dict)
+        and event.get("kind") == "cuda_runtime"
+        and event.get("cbid") in CUDA_GRAPH_LAUNCH_RUNTIME_CBIDS
+    )
 
 
 def _load_rules(root: Path) -> dict[str, object]:
@@ -284,6 +302,7 @@ def run(
     handles = []
     sampler = ResourceSampler(os.getpgid(0))
     sampler.start()
+    cache_before = _cache_snapshot()
     try:
         report["cupti_overlay"] = activate_overlay()
         import torch
@@ -309,6 +328,7 @@ def run(
                 lane, model_path, optimized_memory_mode
             ),
         )
+        cache_after_compile = _cache_snapshot()
         report["requested_server_config"] = requested
         report["resolved_backends"] = resolved
         report["shared_runtime_compatibility"] = compatibility
@@ -382,14 +402,14 @@ def run(
                 runner.torch_runner, "graph_memory_usage", {}
             ).items()
         }
-        compilation = {
-            "requested": bool(requested.get("enable_torch_compile")),
-            "sglang_counter": counter,
-            "backend_invocation_observed": bool(
-                counter.get("num_graphs_seen", 0) > 0
-                and counter.get("num_inductor_compiles", 0) > 0
-            ),
-        }
+        compilation = _compilation_observation(
+            cache_before,
+            cache_after_compile,
+            requested=bool(requested.get("enable_torch_compile")),
+            scheduler_counter=counter,
+            lane=lane,
+        )
+        compilation["sglang_counter"] = counter
         report["execution_features"]["cuda_graph"].update(
             {
                 "capture_memory_metadata_gb": graph_memory,
@@ -411,11 +431,31 @@ def run(
         compilation["pypto_inductor_expected_calls"] = (
             PROFILE_REQUESTS * OUTPUT_TOKENS * 32
         )
-        compilation["effective"] = bool(
-            compilation["backend_invocation_observed"]
-            if lane != "pypto"
-            else inductor_calls == PROFILE_REQUESTS * OUTPUT_TOKENS * 32
+        graph_launch_calls = _cuda_graph_launch_count(all_windows)
+        graph_launch_expected = PROFILE_REQUESTS * (OUTPUT_TOKENS - 1)
+        compilation["cuda_graph_replay_calls"] = graph_launch_calls
+        compilation["cuda_graph_replay_expected_calls"] = graph_launch_expected
+        compilation["cuda_graph_replay_cbid_source"] = (
+            "/usr/local/cuda-13.3/include/cupti_runtime_cbid.h: "
+            "311=cudaGraphLaunch_v10000, 312=cudaGraphLaunch_ptsz_v10000"
         )
+        report["execution_features"]["cuda_graph"][
+            "replay_runtime_observed"
+        ] = graph_launch_calls == graph_launch_expected
+        if lane == "pypto":
+            compilation["effective"] = bool(
+                inductor_calls == PROFILE_REQUESTS * OUTPUT_TOKENS * 32
+            )
+        elif lane == "sglang-optimized":
+            compilation["effective"] = bool(
+                compilation["backend_invocation_observed"]
+                and graph_launch_calls == graph_launch_expected
+            )
+        else:
+            compilation["effective"] = False
+        report["compilation"] = compilation
+        report["collector_stats"] = stats
+        report["aggregation"] = aggregation
         if compilation["requested"] and not compilation["effective"]:
             if lane == "sglang-matched" and allow_noncompiled_matched:
                 compilation["acceptance_scope"] = "descriptive-stock-noncompiled"
@@ -508,9 +548,22 @@ def run(
             "summary": _resource_summary(sampler.samples),
             "nvml_error": sampler.nvml_error,
             "gpu_identity": sampler.identity,
+            "acceptance": {
+                "gpu_free_floor_bytes": gpu_free_floor_bytes(lane),
+                "gpu_free_floor_mode": (
+                    "disabled-completion-only"
+                    if gpu_free_floor_bytes(lane) == 0
+                    else "fixed-abort-floor"
+                ),
+                "host_free_floor_kib": HOST_FREE_FLOOR_KIB,
+            },
         }
         try:
-            validate_resource_identity(report["resources"], f"profile {lane}")
+            validate_resource_identity(
+                report["resources"],
+                f"profile {lane}",
+                minimum_gpu_free_bytes=gpu_free_floor_bytes(lane),
+            )
         except BaseException as error:
             if report.get("status") == "complete":
                 report.update(
@@ -620,18 +673,28 @@ def reconcile(
     *,
     allow_noncompiled_matched: bool = False,
 ) -> dict[str, object]:
-    required = (
-        {"pypto", "sglang-matched"}
-        if allow_noncompiled_matched
-        else {"pypto", "sglang-matched", "sglang-optimized"}
-    )
-    if set(profiles) != required:
+    lanes = set(profiles)
+    descriptive_only = allow_noncompiled_matched and lanes == {
+        "pypto",
+        "sglang-matched",
+    }
+    hybrid_three_lane = allow_noncompiled_matched and lanes == {
+        "pypto",
+        "sglang-matched",
+        "sglang-optimized",
+    }
+    strict_three_lane = not allow_noncompiled_matched and lanes == {
+        "pypto",
+        "sglang-matched",
+        "sglang-optimized",
+    }
+    if not (descriptive_only or hybrid_three_lane or strict_three_lane):
         raise ReleaseContractError(
-            "descriptive reconciliation requires exactly PyPTO and matched lanes"
+            "noncompiled-matched reconciliation requires PyPTO/matched or all three lanes"
             if allow_noncompiled_matched
             else "reconciliation requires exactly three profile lanes"
         )
-    if allow_noncompiled_matched and performance is not None:
+    if descriptive_only and performance is not None:
         raise ReleaseContractError(
             "descriptive profile reconciliation does not accept latency inputs"
         )
@@ -689,7 +752,11 @@ def reconcile(
                     f"profile compilation metadata is invalid for {lane}"
                 )
             gpu_identities.append(
-                validate_resource_identity(report.get("resources"), f"profile {lane}")
+                validate_resource_identity(
+                    report.get("resources"),
+                    f"profile {lane}",
+                    minimum_gpu_free_bytes=gpu_free_floor_bytes(lane),
+                )
             )
         configs = [report.get("requested_server_config") for report in reports]
         if any(type(config) is not dict for config in configs):
@@ -760,6 +827,12 @@ def reconcile(
                     for report in reports
                 ),
                 "thermal_throttle_observed": False,
+                "gpu_free_floor_bytes": gpu_free_floor_bytes(lane),
+                "gpu_free_floor_mode": (
+                    "disabled-completion-only"
+                    if gpu_free_floor_bytes(lane) == 0
+                    else "fixed-abort-floor"
+                ),
             },
         }
         input_counts[lane] = {
@@ -781,7 +854,9 @@ def reconcile(
             "schema": SCHEMA_VERSION,
             "kind": (
                 "qwen35-9b-descriptive-stock-profile-breakdown"
-                if allow_noncompiled_matched
+                if descriptive_only
+                else "qwen35-9b-hybrid-profile-gap-reconciliation"
+                if hybrid_three_lane
                 else "qwen35-9b-profile-gap-reconciliation"
             ),
             "workload": workload_record(),
@@ -807,7 +882,7 @@ def reconcile(
     comparisons = {}
     baseline_lanes = (
         ("sglang-matched",)
-        if allow_noncompiled_matched
+        if descriptive_only
         else ("sglang-matched", "sglang-optimized")
     )
     for baseline_lane in baseline_lanes:
@@ -873,6 +948,11 @@ def reconcile(
         explained_ms = sum(float(item["gap_ms"]) for item in phase_gaps)
         comparison: dict[str, object] = {
             "baseline_lane": baseline_lane,
+            "execution_scope": (
+                "descriptive-stock-noncompiled"
+                if hybrid_three_lane and baseline_lane == "sglang-matched"
+                else "strict-compiled"
+            ),
             "model_compute_gap_ms": total_gap_ms,
             "model_compute_gap_bootstrap_95ci_ms": {
                 **total_interval,
@@ -922,19 +1002,30 @@ def reconcile(
         "schema": SCHEMA_VERSION,
         "kind": (
             "qwen35-9b-descriptive-stock-profile-breakdown"
-            if allow_noncompiled_matched
+            if descriptive_only
+            else "qwen35-9b-hybrid-profile-gap-reconciliation"
+            if hybrid_three_lane
             else "qwen35-9b-profile-gap-reconciliation"
         ),
         "profile_scope": (
             "descriptive-stock-noncompiled"
-            if allow_noncompiled_matched
+            if descriptive_only
+            else "hybrid-compiled-pypto-optimized-descriptive-matched"
+            if hybrid_three_lane
             else "strict-three-lane-compiled"
         ),
         "evidence_boundary": (
             "The matched lane did not invoke CompilerInterface. The phase and "
             "kernel comparison is descriptive stock CUDA evidence only; it does "
             "not establish a torch.compile or official Inductor backend speedup."
-            if allow_noncompiled_matched
+            if descriptive_only
+            else (
+                "PyPTO and optimized SGLang proved effective compiled execution. "
+                "Matched SGLang is a descriptive noncompiled control because its "
+                "frozen no-CUDA-Graph configuration does not invoke CompilerInterface; "
+                "its phase gap is not an Inductor speedup claim."
+            )
+            if hybrid_three_lane
             else "All three lanes proved effective compiled execution."
         ),
         "workload": workload_record(),

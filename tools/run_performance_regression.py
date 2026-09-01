@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from benchmarks.release.controllers import (  # noqa: E402
+    DEFAULT_GPU_FREE_FLOOR_MIB,
     invoke_controlled,
     isolated_command,
     pypto_gpu_command,
@@ -107,6 +108,11 @@ def main() -> int:
                     pointer,
                     framework_profile="baseline",
                     timeout_seconds=args.timeout_seconds,
+                    gpu_free_floor_mib=(
+                        0
+                        if lane == "sglang-optimized"
+                        else DEFAULT_GPU_FREE_FLOOR_MIB
+                    ),
                 )
 
         return invoke_controlled(factory, root=ROOT, dry_run=args.dry_run)

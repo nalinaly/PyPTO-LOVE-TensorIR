@@ -554,6 +554,25 @@ class BoundedGpuPolicyTest(unittest.TestCase):
         self.assertTrue(gpu.audit_ok(owned, child_running=True))
         self.assertFalse(gpu.audit_ok(owned, child_running=False))
 
+    def test_zero_gpu_floor_disables_only_the_free_memory_abort(self) -> None:
+        report = {**self.base_audit(), "gpu_free_mib": 0}
+        self.assertTrue(
+            gpu.audit_ok(
+                report,
+                child_running=True,
+                gpu_free_floor_mib=0,
+            )
+        )
+        external = {**report, "external_compute_pids": [71]}
+        self.assertEqual(
+            gpu.audit_failure_reason(
+                external,
+                child_running=True,
+                gpu_free_floor_mib=0,
+            ),
+            "external-nvidia-compute",
+        )
+
     def test_audit_reports_protected_heavy_without_signalling_it(self) -> None:
         report = {**self.base_audit(), "protected_heavy_process_pids": [818]}
         self.assertEqual(

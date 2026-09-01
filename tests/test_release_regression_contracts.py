@@ -353,7 +353,9 @@ def test_timing_request_discards_generated_values() -> None:
     assert len(result["itl_ms"]) == 63
 
 
-def test_effective_compilation_requires_scheduler_counters_and_code() -> None:
+def test_effective_compilation_requires_scheduler_counters_and_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     after = {
         "SGLANG_CACHE_DIR/torch_compile_cache/computation_graph_1.py": {
             "bytes": 4,
@@ -392,6 +394,68 @@ def test_effective_compilation_requires_scheduler_counters_and_code() -> None:
     assert pypto_cache["backend_invocation_evidence"][
         "pypto_torchinductor_cache_wrapper"
     ] is True
+    optimized_cache = performance_runtime._compilation_observation(
+        {},
+        {
+            "TORCHINDUCTOR_CACHE_DIR/aa/generated.py": {
+                "bytes": 4,
+                "suffix": ".py",
+                "is_torch_inductor_wrapper": True,
+            }
+        },
+        requested=True,
+        scheduler_counter={},
+        lane="sglang-optimized",
+    )
+    assert optimized_cache["effective"] is True
+    assert optimized_cache["backend_invocation_evidence"][
+        "optimized_torchinductor_cache_wrapper"
+    ] is True
+
+    cache = tmp_path / "torchinductor"
+    wrapper = cache / "aa/generated.py"
+    wrapper.parent.mkdir(parents=True)
+    wrapper.write_text(
+        "\n".join(
+            (
+                "from torch._inductor.async_compile import AsyncCompile",
+                "from torch._inductor.runtime.triton_heuristics import start_graph",
+                "async_compile = AsyncCompile()",
+            )
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TORCHINDUCTOR_CACHE_DIR", str(cache))
+    monkeypatch.setenv("SGLANG_CACHE_DIR", str(tmp_path / "sglang"))
+    snapshot = performance_runtime._cache_snapshot()
+    assert snapshot["TORCHINDUCTOR_CACHE_DIR/aa/generated.py"][
+        "is_torch_inductor_wrapper"
+    ] is True
+
+
+def test_engine_shutdown_retries_only_the_sglang_reap_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Engine:
+        calls = 0
+
+        def shutdown(self) -> None:
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("2 process(es) not reaped within 60s")
+
+    engine = Engine()
+    monkeypatch.setattr(performance_runtime.time, "sleep", lambda _seconds: None)
+    attempts = performance_runtime._shutdown_engine_with_retry(engine)
+    assert [record["status"] for record in attempts] == ["failed", "complete"]
+    assert engine.calls == 2
+
+    class OtherFailure:
+        def shutdown(self) -> None:
+            raise RuntimeError("unrelated failure")
+
+    with pytest.raises(RuntimeError, match="unrelated failure"):
+        performance_runtime._shutdown_engine_with_retry(OtherFailure())
 
 
 def test_matched_performance_control_may_record_disabled_compile_effective() -> None:
@@ -746,6 +810,19 @@ def test_controller_commands_route_through_generalized_bounded_controls(
     assert str(root / "tools/run_pypto_gpu_bounded.py") in command
     assert "sglang-baseline" in command
     assert "baseline" in command
+    floor_index = command.index("--gpu-free-floor-mib")
+    assert command[floor_index + 1] == str(4 * 1024)
+    optimized_command = controllers.isolated_command(
+        root,
+        root / "tools/worker.py",
+        ("--_worker",),
+        tmp_path / "optimized-pointer.json",
+        framework_profile="baseline",
+        timeout_seconds=10,
+        gpu_free_floor_mib=0,
+    )
+    optimized_floor_index = optimized_command.index("--gpu-free-floor-mib")
+    assert optimized_command[optimized_floor_index + 1] == "0"
     cpu_command = controllers.isolated_command(
         root,
         root / "tools/worker.py",

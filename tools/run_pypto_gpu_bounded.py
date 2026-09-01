@@ -298,14 +298,29 @@ def audit(
     }
 
 
-def audit_ok(report: dict[str, object], *, child_running: bool) -> bool:
-    return audit_failure_reason(report, child_running=child_running) is None
+def audit_ok(
+    report: dict[str, object],
+    *,
+    child_running: bool,
+    gpu_free_floor_mib: int = GPU_FREE_FLOOR_MIB,
+) -> bool:
+    return (
+        audit_failure_reason(
+            report,
+            child_running=child_running,
+            gpu_free_floor_mib=gpu_free_floor_mib,
+        )
+        is None
+    )
 
 
 def audit_failure_reason(
-    report: dict[str, object], *, child_running: bool
+    report: dict[str, object],
+    *,
+    child_running: bool,
+    gpu_free_floor_mib: int = GPU_FREE_FLOOR_MIB,
 ) -> str | None:
-    if int(report["gpu_free_mib"]) < GPU_FREE_FLOOR_MIB:
+    if int(report["gpu_free_mib"]) < gpu_free_floor_mib:
         return "gpu-free-memory-floor"
     if report["external_compute_pids"]:
         return "external-nvidia-compute"
@@ -460,8 +475,16 @@ def main() -> int:
     parser.add_argument("--run-id-file", type=pathlib.Path, required=True)
     parser.add_argument("--timeout-seconds", type=int, default=1800)
     parser.add_argument("--minimum-free-disk-gib", type=int, default=64)
+    parser.add_argument(
+        "--gpu-free-floor-mib",
+        type=int,
+        default=GPU_FREE_FLOOR_MIB,
+        help="runtime GPU free-memory abort floor; 0 disables this one floor",
+    )
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
+    if args.gpu_free_floor_mib < 0:
+        parser.error("--gpu-free-floor-mib must be non-negative")
     if not (
         os.sys.flags.ignore_environment
         and os.sys.flags.no_site
@@ -476,7 +499,11 @@ def main() -> int:
     if initial_available < HOST_ABORT_KIB:
         raise BoundedGpuError("MemAvailable is already below 12 GiB abort floor")
     initial_audit = audit()
-    if not audit_ok(initial_audit, child_running=False):
+    if not audit_ok(
+        initial_audit,
+        child_running=False,
+        gpu_free_floor_mib=args.gpu_free_floor_mib,
+    ):
         raise BoundedGpuError(
             f"initial NVIDIA coexistence audit failed: {initial_audit}"
         )
@@ -485,7 +512,9 @@ def main() -> int:
     locked_available = mem_available_kib()
     locked_audit = audit()
     if locked_available < HOST_ABORT_KIB or not audit_ok(
-        locked_audit, child_running=False
+        locked_audit,
+        child_running=False,
+        gpu_free_floor_mib=args.gpu_free_floor_mib,
     ):
         lease.close()
         raise BoundedGpuError(
@@ -519,7 +548,9 @@ def main() -> int:
     identity_audit = audit()
     isolation.atomic_json(run_dir / "post-identity-audit.json", identity_audit)
     if identity_available < HOST_ABORT_KIB or not audit_ok(
-        identity_audit, child_running=False
+        identity_audit,
+        child_running=False,
+        gpu_free_floor_mib=args.gpu_free_floor_mib,
     ):
         lease.close()
         raise BoundedGpuError(
@@ -569,7 +600,12 @@ def main() -> int:
             "host_abort_floor_kib": HOST_ABORT_KIB,
             "host_emergency_abort_floor_kib": HOST_EMERGENCY_ABORT_KIB,
             "host_floor_consecutive_samples": HOST_FLOOR_CONSECUTIVE_SAMPLES,
-            "gpu_free_floor_mib": GPU_FREE_FLOOR_MIB,
+            "gpu_free_floor_mib": args.gpu_free_floor_mib,
+            "gpu_free_floor_mode": (
+                "disabled-completion-only"
+                if args.gpu_free_floor_mib == 0
+                else "fixed-abort-floor"
+            ),
             "nvidia_audit_failure_consecutive_samples": (
                 NVIDIA_AUDIT_FAILURE_CONSECUTIVE_SAMPLES
             ),
@@ -661,9 +697,15 @@ def main() -> int:
                 time.sleep(POLL_SECONDS)
                 continue
             consecutive_nvidia_audit_failures = 0
-            if not audit_ok(latest_audit, child_running=True):
+            if not audit_ok(
+                latest_audit,
+                child_running=True,
+                gpu_free_floor_mib=args.gpu_free_floor_mib,
+            ):
                 abort_reason = audit_failure_reason(
-                    latest_audit, child_running=True
+                    latest_audit,
+                    child_running=True,
+                    gpu_free_floor_mib=args.gpu_free_floor_mib,
                 )
                 break
             time.sleep(POLL_SECONDS)
@@ -743,7 +785,11 @@ def main() -> int:
         abort_reason is not None
         or not stop_run.session_cleanup_is_natural(metadata["session_cleanup"])
         or not post_audit_available
-        or not audit_ok(post_audit, child_running=False)
+        or not audit_ok(
+            post_audit,
+            child_running=False,
+            gpu_free_floor_mib=args.gpu_free_floor_mib,
+        )
     ):
         return 75
     return return_code

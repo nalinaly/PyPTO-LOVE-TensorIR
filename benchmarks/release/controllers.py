@@ -12,6 +12,9 @@ from typing import Sequence
 from .workload import ReleaseContractError
 
 
+DEFAULT_GPU_FREE_FLOOR_MIB = 4 * 1024
+
+
 @dataclass(frozen=True, slots=True)
 class ControlledRun:
     command: tuple[str, ...]
@@ -47,6 +50,7 @@ def pypto_gpu_command(
     pointer: Path,
     *,
     timeout_seconds: int,
+    gpu_free_floor_mib: int = DEFAULT_GPU_FREE_FLOOR_MIB,
 ) -> tuple[str, ...]:
     return gpu_bounded_command(
         root,
@@ -55,6 +59,7 @@ def pypto_gpu_command(
         pointer,
         framework_profile="pypto",
         timeout_seconds=timeout_seconds,
+        gpu_free_floor_mib=gpu_free_floor_mib,
     )
 
 
@@ -66,9 +71,12 @@ def gpu_bounded_command(
     *,
     framework_profile: str,
     timeout_seconds: int,
+    gpu_free_floor_mib: int = DEFAULT_GPU_FREE_FLOOR_MIB,
 ) -> tuple[str, ...]:
     if framework_profile not in {"pypto", "baseline"}:
         raise ValueError(f"unknown framework profile: {framework_profile}")
+    if gpu_free_floor_mib < 0:
+        raise ValueError("GPU free-memory floor must be non-negative")
     runtime = _runtime(root)
     profile = runtime["profiles"][framework_profile]
     environment = str(profile["environment"])
@@ -89,6 +97,8 @@ def gpu_bounded_command(
         str(timeout_seconds),
         "--minimum-free-disk-gib",
         "64",
+        "--gpu-free-floor-mib",
+        str(gpu_free_floor_mib),
         "--",
         str(_python(selected)),
         "-B",
@@ -142,6 +152,7 @@ def isolated_command(
     framework_profile: str,
     timeout_seconds: int,
     cpu_only: bool = False,
+    gpu_free_floor_mib: int = DEFAULT_GPU_FREE_FLOOR_MIB,
 ) -> tuple[str, ...]:
     if cpu_only:
         if framework_profile != "pypto":
@@ -160,6 +171,7 @@ def isolated_command(
         pointer,
         framework_profile=framework_profile,
         timeout_seconds=timeout_seconds,
+        gpu_free_floor_mib=gpu_free_floor_mib,
     )
 
 

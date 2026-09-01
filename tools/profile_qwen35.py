@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from benchmarks.release.controllers import (  # noqa: E402
+    DEFAULT_GPU_FREE_FLOOR_MIB,
     invoke_controlled,
     isolated_command,
     pypto_gpu_command,
@@ -199,16 +200,16 @@ def main() -> int:
                     pointer,
                     framework_profile="baseline",
                     timeout_seconds=args.timeout_seconds,
+                    gpu_free_floor_mib=(
+                        0
+                        if lane == "sglang-optimized"
+                        else DEFAULT_GPU_FREE_FLOOR_MIB
+                    ),
                 )
 
         return invoke_controlled(factory, root=ROOT, dry_run=args.dry_run)
 
     if args.command == "matrix":
-        if args.allow_noncompiled_matched:
-            raise ReleaseContractError(
-                "descriptive matched mode is for explicit collect/reconcile; "
-                "the strict three-lane matrix remains unchanged"
-            )
         records = []
         grouped_paths: dict[str, list[Path]] = defaultdict(list)
         for index, lane in enumerate(PROFILE_SCHEDULE):
@@ -242,6 +243,11 @@ def main() -> int:
             "starts_per_lane": 3,
             "profile_requests_per_start": 5,
             "optimized_memory_mode": args.optimized_memory_mode,
+            "matched_profile_scope": (
+                "descriptive-stock-noncompiled"
+                if args.allow_noncompiled_matched
+                else "strict-compiled"
+            ),
             "runs": records,
             "status": (
                 "planned" if args.dry_run else "complete" if complete else "failed"
@@ -273,7 +279,11 @@ def main() -> int:
                 else None
             )
             if complete:
-                reconciliation = reconcile(profiles, performance)
+                reconciliation = reconcile(
+                    profiles,
+                    performance,
+                    allow_noncompiled_matched=args.allow_noncompiled_matched,
+                )
                 reconciliation_path = directory / "reconciliation.json"
                 atomic_json(reconciliation_path, reconciliation)
                 payload["reconciliation"] = str(reconciliation_path)

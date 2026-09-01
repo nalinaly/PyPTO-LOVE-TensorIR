@@ -260,6 +260,35 @@ def test_performance_summary_uses_start_medians_and_matched_pytorch_sampler() ->
         == reports["sglang-matched"][0]["requested_server_config"]["sampling_backend"]
         == "pytorch"
     )
+    assert summary["lanes"]["pypto"]["resources"]["gpu_free_floor_bytes"] == (
+        4 * 1024**3
+    )
+    assert summary["lanes"]["sglang-matched"]["resources"][
+        "gpu_free_floor_bytes"
+    ] == 4 * 1024**3
+    assert summary["lanes"]["sglang-optimized"]["resources"][
+        "gpu_free_floor_bytes"
+    ] == 0
+
+
+def test_optimized_summary_accepts_completion_below_four_gib_only_for_that_lane() -> None:
+    reports = {
+        lane: [_performance_report(lane, index, 1.0 + index) for index in range(4)]
+        for lane in workload.LANES
+    }
+    for report in reports["sglang-optimized"]:
+        report["resources"]["summary"]["minimum_gpu_memory_free_bytes"] = 1
+    summary = performance_runtime.summarize_fresh_starts(reports)
+    assert summary["status"] == "complete"
+    assert summary["lanes"]["sglang-optimized"]["resources"][
+        "minimum_gpu_memory_free_bytes"
+    ] == 1
+
+    reports["pypto"][0]["resources"]["summary"][
+        "minimum_gpu_memory_free_bytes"
+    ] = 1
+    with pytest.raises(workload.ReleaseContractError, match="GPU free-memory floor"):
+        performance_runtime.summarize_fresh_starts(reports)
 
 
 def test_matched_label_fails_closed_on_sampler_drift() -> None:
@@ -478,6 +507,61 @@ def test_descriptive_profile_reconciliation_preserves_noncompiled_boundary() -> 
     assert result["profile_scope"] == "descriptive-stock-noncompiled"
     assert set(result["comparisons"]) == {"sglang-matched"}
     assert "does not establish a torch.compile" in result["evidence_boundary"]
+
+
+def test_hybrid_profile_requires_compiled_pypto_optimized_and_labels_matched() -> None:
+    profiles = {
+        lane: [_profile_report(lane, start, 1_000_000.0) for start in range(3)]
+        for lane in workload.LANES
+    }
+    for report in profiles["sglang-matched"]:
+        report["profile_scope"] = "descriptive-stock-noncompiled"
+        report["compilation"] = {
+            "requested": True,
+            "effective": False,
+            "acceptance_scope": "descriptive-stock-noncompiled",
+        }
+    performance = {
+        lane: [_performance_report(lane, start, 1.0 + start) for start in range(4)]
+        for lane in workload.LANES
+    }
+    result = profile_runtime.reconcile(
+        profiles,
+        performance,
+        allow_noncompiled_matched=True,
+    )
+    assert result["status"] == "complete"
+    assert result["kind"] == "qwen35-9b-hybrid-profile-gap-reconciliation"
+    assert result["profile_scope"] == (
+        "hybrid-compiled-pypto-optimized-descriptive-matched"
+    )
+    assert set(result["comparisons"]) == {
+        "sglang-matched",
+        "sglang-optimized",
+    }
+    assert result["comparisons"]["sglang-matched"]["execution_scope"] == (
+        "descriptive-stock-noncompiled"
+    )
+    assert result["comparisons"]["sglang-optimized"]["execution_scope"] == (
+        "strict-compiled"
+    )
+    assert "PyPTO and optimized SGLang proved" in result["evidence_boundary"]
+
+
+def test_profile_cuda_graph_replay_uses_official_runtime_cbids() -> None:
+    windows = [
+        {
+            "events": [
+                {"kind": "cuda_runtime", "cbid": 311},
+                {"kind": "cuda_runtime", "cbid": 312},
+                {"kind": "cuda_runtime", "cbid": 211},
+                {"kind": "cuda_driver", "cbid": 311},
+                {"kind": "kernel", "cbid": 311},
+            ]
+        }
+    ]
+    assert profile_runtime._cuda_graph_launch_count(windows) == 2
+    assert profile_runtime.CUDA_GRAPH_LAUNCH_RUNTIME_CBIDS == {311, 312}
 
 
 def test_strict_profile_reconciliation_rejects_noncompiled_matched() -> None:

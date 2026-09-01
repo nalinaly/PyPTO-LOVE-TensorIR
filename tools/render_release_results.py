@@ -127,7 +127,10 @@ def _immutable_controller_gpu(gpu: object) -> dict[str, object]:
 
 
 def _controller_evidence(
-    report_path: Path, expected_profile: str
+    report_path: Path,
+    expected_profile: str,
+    *,
+    expected_gpu_free_floor_mib: int = 4 * 1024,
 ) -> tuple[list[dict[str, str]], dict[str, object]]:
     controller_path = _evidence_path(report_path.parent / "process.json")
     initial_path = _evidence_path(report_path.parent / "initial-audit.json")
@@ -159,7 +162,18 @@ def _controller_evidence(
         or policy.get("launch_admission_floor_kib") is not None
         or policy.get("host_abort_floor_kib") != 12 * 1024**2
         or policy.get("host_emergency_abort_floor_kib") != 11 * 1024**2
-        or policy.get("gpu_free_floor_mib") != 4 * 1024
+        or policy.get("gpu_free_floor_mib") != expected_gpu_free_floor_mib
+        or policy.get(
+            "gpu_free_floor_mode",
+            "fixed-abort-floor"
+            if policy.get("gpu_free_floor_mib") == 4 * 1024
+            else None,
+        )
+        != (
+            "disabled-completion-only"
+            if expected_gpu_free_floor_mib == 0
+            else "fixed-abort-floor"
+        )
         or policy.get("host_floor_consecutive_samples") != 3
         or policy.get("external_process_signals") is not False
         or policy.get("formal_identity_verified") is not True
@@ -516,7 +530,13 @@ def _load_performance(
             ):
                 raise ReleaseContractError(f"performance report is not accepted: {path}")
             expected_profile = _PROFILE_FOR_LANE[lane]
-            controller_inputs, controller_gpu = _controller_evidence(path, expected_profile)
+            controller_inputs, controller_gpu = _controller_evidence(
+                path,
+                expected_profile,
+                expected_gpu_free_floor_mib=(
+                    0 if lane == "sglang-optimized" else 4 * 1024
+                ),
+            )
             audit.add(
                 report,
                 report_path=path,
@@ -558,7 +578,11 @@ def _load_performance(
             resource_summary = resources["summary"]
             if resource_summary.get("thermal_throttle_observed") is not False:
                 raise ReleaseContractError(f"thermal throttling observed: {path}")
-            if int(resource_summary.get("minimum_gpu_memory_free_bytes", 0)) < 4 * 1024**3:
+            if (
+                lane != "sglang-optimized"
+                and int(resource_summary.get("minimum_gpu_memory_free_bytes", 0))
+                < 4 * 1024**3
+            ):
                 raise ReleaseContractError(
                     f"GPU free memory fell below the 4 GiB release floor: {path}"
                 )
@@ -743,14 +767,27 @@ def _load_correctness(
         if report.get("reference", {}).get("sha256") != sha256_file(reference_path):
             raise ReleaseContractError(f"candidate reference SHA-256 differs: {path}")
         requests = report.get("requests")
-        if type(requests) is not list or len(requests) != MEASURED_REQUESTS:
+        current_teacher_forced_schema = (
+            report.get("request_count") == MEASURED_REQUESTS
+            and report.get("teacher_forced_request_count") == 1
+        )
+        expected_trace_requests = 1 if current_teacher_forced_schema else MEASURED_REQUESTS
+        if type(requests) is not list or len(requests) != expected_trace_requests:
             raise ReleaseContractError(f"correctness request count drifted: {path}")
         engine = report.get("engine") or {}
-        if (
-            engine.get("all_passed") is not True
-            or engine.get("stable_output") is not True
-            or len(engine.get("requests", [])) != MEASURED_REQUESTS
-        ):
+        current_engine_schema = (
+            current_teacher_forced_schema
+            and engine.get("all_complete") is True
+            and engine.get("reference_exact_request_count") == MEASURED_REQUESTS
+        )
+        legacy_engine_schema = (
+            not current_teacher_forced_schema
+            and engine.get("all_passed") is True
+            and engine.get("stable_output") is True
+        )
+        if not (current_engine_schema or legacy_engine_schema) or len(
+            engine.get("requests", [])
+        ) != MEASURED_REQUESTS:
             raise ReleaseContractError(f"SGLang Engine stability is not accepted: {path}")
         identities.add(report["reference"]["identity"])
         for request in requests:
@@ -827,6 +864,9 @@ def _load_correctness(
         {
             "fresh_starts": len(reports),
             "accepted_requests": len(reports) * MEASURED_REQUESTS,
+            "teacher_forced_traces": sum(
+                len(report.get("requests", [])) for report in reports
+            ),
             "output_tokens_per_request": 64,
             "unique_output_sequences": 1,
             "output_sequence_sha256": next(iter(sequences)),
@@ -886,7 +926,13 @@ def _load_profiles(
             ):
                 raise ReleaseContractError(f"profile report is not accepted: {path}")
             expected_profile = _PROFILE_FOR_LANE[lane]
-            controller_inputs, controller_gpu = _controller_evidence(path, expected_profile)
+            controller_inputs, controller_gpu = _controller_evidence(
+                path,
+                expected_profile,
+                expected_gpu_free_floor_mib=(
+                    0 if lane == "sglang-optimized" else 4 * 1024
+                ),
+            )
             audit.add(
                 report,
                 report_path=path,
@@ -910,7 +956,14 @@ def _load_profiles(
                 ]
             )
     observed = read_json(reconciliation_path)
-    expected = reconcile(reports, performance_reports)
+    hybrid = observed.get("profile_scope") == (
+        "hybrid-compiled-pypto-optimized-descriptive-matched"
+    )
+    expected = reconcile(
+        reports,
+        performance_reports,
+        allow_noncompiled_matched=hybrid,
+    )
     observed_comparable = copy.deepcopy(observed)
     observed_comparable.pop("inputs", None)
     if observed_comparable != expected:

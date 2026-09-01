@@ -411,6 +411,17 @@ def test_renderer_requires_complete_gpu_session_cleanup(
     assert observed_gpu["compute_capability"] == "12.0"
     assert any(item["role"] == "gpu-controller" for item in evidence)
 
+    payload["policy"]["gpu_free_floor_mib"] = 0
+    payload["policy"]["gpu_free_floor_mode"] = "disabled-completion-only"
+    process.write_text(json.dumps(payload), encoding="utf-8")
+    renderer._controller_evidence(
+        report,
+        "pypto",
+        expected_gpu_free_floor_mib=0,
+    )
+    payload["policy"]["gpu_free_floor_mib"] = 4 * 1024
+    payload["policy"].pop("gpu_free_floor_mode")
+
     payload["session_cleanup"]["complete"] = False
     payload["session_cleanup"]["survivors"] = [{"pid": 42}]
     process.write_text(json.dumps(payload), encoding="utf-8")
