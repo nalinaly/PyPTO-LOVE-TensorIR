@@ -56,7 +56,7 @@ def test_checked_in_operator_breakdown_is_the_formal_aggregation() -> None:
     )
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert hashlib.sha256(path.read_bytes()).hexdigest() == (
-        "24d416b8c11b0806090b9b2e97055fa713a77322df9845cb166fc333de5f88ba"
+        "11cd499b913be92b5d8a2a76d376e958d1a642c0d7a7490dc092fbb29ed6e99d"
     )
     assert payload["status"] == "complete"
     assert len(payload["comparisons"]) == 7

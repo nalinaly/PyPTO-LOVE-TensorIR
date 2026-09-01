@@ -32,14 +32,14 @@
       },
       "median_ratio_bootstrap_95ci_percent": {
         "confidence": 0.95,
-        "lower": 3676.471213527452,
+        "lower": 133.62899105216638,
         "method": "independent nonparametric percentile bootstrap over fresh process starts",
         "operation": "ratio",
         "resamples": 10000,
         "seed": 13517218536570439276,
-        "upper": 3696.80007413978
+        "upper": 135.67579144907037
       },
-      "pypto_latency_percent_of_stock": 3686.9775023633347
+      "pypto_latency_percent_of_stock": 134.44045522743144
     },
     "down-linear-prefill-31x12288x4096": {
       "contract": {
@@ -73,14 +73,14 @@
       },
       "median_ratio_bootstrap_95ci_percent": {
         "confidence": 0.95,
-        "lower": 19412.12748886255,
+        "lower": 1361.4826128335544,
         "method": "independent nonparametric percentile bootstrap over fresh process starts",
         "operation": "ratio",
         "resamples": 10000,
         "seed": 15558783132174069500,
-        "upper": 19508.091353466774
+        "upper": 1367.0763321671334
       },
-      "pypto_latency_percent_of_stock": 19468.625686727155
+      "pypto_latency_percent_of_stock": 1363.2852678775216
     },
     "fp32-lm-head-decode-and-pruned-prefill-1x4096x248320": {
       "contract": {
@@ -114,14 +114,14 @@
       },
       "median_ratio_bootstrap_95ci_percent": {
         "confidence": 0.95,
-        "lower": 594.6134082383936,
+        "lower": 108.9527498505858,
         "method": "independent nonparametric percentile bootstrap over fresh process starts",
         "operation": "ratio",
         "resamples": 10000,
         "seed": 17033552121091842439,
-        "upper": 604.6017365539145
+        "upper": 151.64484914908473
       },
-      "pypto_latency_percent_of_stock": 600.1557831660044
+      "pypto_latency_percent_of_stock": 150.66375754460276
     },
     "gate-up-linear-decode-1x4096x24576": {
       "contract": {
@@ -155,14 +155,14 @@
       },
       "median_ratio_bootstrap_95ci_percent": {
         "confidence": 0.95,
-        "lower": 1076.3559596938035,
+        "lower": 118.81162275120512,
         "method": "independent nonparametric percentile bootstrap over fresh process starts",
         "operation": "ratio",
         "resamples": 10000,
         "seed": 1769976262306699032,
-        "upper": 1088.1336025244605
+        "upper": 120.54210710260142
       },
-      "pypto_latency_percent_of_stock": 1087.0023456647639
+      "pypto_latency_percent_of_stock": 119.38942368467703
     },
     "gate-up-linear-prefill-31x4096x24576": {
       "contract": {
@@ -196,14 +196,14 @@
       },
       "median_ratio_bootstrap_95ci_percent": {
         "confidence": 0.95,
-        "lower": 17759.66291330289,
+        "lower": 1434.8777537480994,
         "method": "independent nonparametric percentile bootstrap over fresh process starts",
         "operation": "ratio",
         "resamples": 10000,
         "seed": 5355483763019725280,
-        "upper": 17985.82950490537
+        "upper": 1442.4726971306227
       },
-      "pypto_latency_percent_of_stock": 17919.05796687193
+      "pypto_latency_percent_of_stock": 1439.3137408616633
     },
     "swiglu-decode-1x24576": {
       "contract": {
@@ -234,14 +234,14 @@
       },
       "median_ratio_bootstrap_95ci_percent": {
         "confidence": 0.95,
-        "lower": 1917.0125796494453,
+        "lower": 2112.3189636343104,
         "method": "independent nonparametric percentile bootstrap over fresh process starts",
         "operation": "ratio",
         "resamples": 10000,
         "seed": 11442778926235925736,
-        "upper": 2289.769883486158
+        "upper": 2383.37276824749
       },
-      "pypto_latency_percent_of_stock": 2169.6216679725444
+      "pypto_latency_percent_of_stock": 2262.19693241738
     },
     "swiglu-prefill-31x24576": {
       "contract": {
@@ -272,14 +272,14 @@
       },
       "median_ratio_bootstrap_95ci_percent": {
         "confidence": 0.95,
-        "lower": 2176.7000106489795,
+        "lower": 2223.409862019147,
         "method": "independent nonparametric percentile bootstrap over fresh process starts",
         "operation": "ratio",
         "resamples": 10000,
         "seed": 3259160835884996461,
-        "upper": 2302.912437014179
+        "upper": 2334.5990468816963
       },
-      "pypto_latency_percent_of_stock": 2222.4528417040665
+      "pypto_latency_percent_of_stock": 2292.3567286080893
     }
   },
   "correctness_evaluated": false,
@@ -288,21 +288,21 @@
       "distributions": {
         "pypto": {
           "bytes": 800682151,
-          "content_tree_sha256": "c9923e26075eafa147474d4bf769b40535ce23cbaceb355f401d5be92812864b",
+          "content_tree_sha256": "1fee1ce6296ba12897c6db7b614eb4bfae5323530b0fa9786d8bd96bcbddda2f",
           "dist_info": "pypto-0.1.0.dist-info",
           "file_count": 183,
           "version": "0.1.0"
         },
         "pypto-framework-plugins": {
           "bytes": 410885,
-          "content_tree_sha256": "bfb8d7b7d09b1e2afc20b058600551ab0001378b8e2232c6358e8b6baf0f17c8",
+          "content_tree_sha256": "b4ebfc34f258962943758f8667ea5fc0ce6f18f55338ebf3f691f328f4998e83",
           "dist_info": "pypto_framework_plugins-0.1.0.dev0.dist-info",
           "file_count": 36,
           "version": "0.1.0.dev0"
         },
         "pypto-kernels": {
-          "bytes": 186614,
-          "content_tree_sha256": "e46f8a648861d2059a479dcb8182f6b8beb5319f07ea7e0106b01914f0ef98f8",
+          "bytes": 188645,
+          "content_tree_sha256": "8d9e294c2c3180715a216435cc12de601717e55148e4fc4c22f15cb961434b2c",
           "dist_info": "pypto_kernels-0.1.0.dist-info",
           "file_count": 23,
           "version": "0.1.0"
@@ -537,54 +537,54 @@
           },
           "first_compile_trigger_call_wall_ms": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 11.074748,
-            "mean": 10.926701,
+            "max": 6.907846,
+            "mean": 6.632535750000001,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 10.806804,
+              "lower": 6.404658,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 14603465264846031178,
-              "upper": 11.074748
+              "upper": 6.907846
             },
-            "min": 10.806804,
-            "p50": 10.912626,
-            "p90": 11.074748,
-            "p90_nearest_rank": 11.074748,
-            "p99": 11.074748,
-            "p99_nearest_rank": 11.074748,
+            "min": 6.404658,
+            "p50": 6.6088195,
+            "p90": 6.907846,
+            "p90_nearest_rank": 6.907846,
+            "p99": 6.907846,
+            "p99_nearest_rank": 6.907846,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
           "latency_ms_per_call": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 4.528487548828124,
-            "mean": 4.526871032714844,
+            "max": 0.16715951919555663,
+            "mean": 0.16576807975769042,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 4.524971313476563,
+              "lower": 0.16463775634765626,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 9523509442557524630,
-              "upper": 4.528487548828124
+              "upper": 0.16715951919555663
             },
-            "min": 4.524971313476563,
-            "p50": 4.5270126342773445,
-            "p90": 4.528487548828124,
-            "p90_nearest_rank": 4.528487548828124,
-            "p99": 4.528487548828124,
-            "p99_nearest_rank": 4.528487548828124,
+            "min": 0.16463775634765626,
+            "p50": 0.1656375217437744,
+            "p90": 0.16715951919555663,
+            "p90_nearest_rank": 0.16715951919555663,
+            "p99": 0.16715951919555663,
+            "p99_nearest_rank": 0.16715951919555663,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
           "provider": {
             "artifact": {
-              "artifact_id": "pypto-artifact-v1:0bb5c94722d7a737d751c39f872d247fbc2a6534f528bd9f317876499835dff0",
-              "artifact_sha256": "0bb5c94722d7a737d751c39f872d247fbc2a6534f528bd9f317876499835dff0",
+              "artifact_id": "pypto-artifact-v1:4372cef5568e90665d25dad9b27ed2d67a89585a5195d6cfb557192152fa9481",
+              "artifact_sha256": "4372cef5568e90665d25dad9b27ed2d67a89585a5195d6cfb557192152fa9481",
               "compiler_revision": "c27629e993a52b47d41fb898c749279dce44221b",
               "ir_region": "tensorir:8e2e3e2a59c55e67d442fe4bd092684d739f72ace65b6512629041872dc00b53",
               "kernel_name": "pypto_structured_matmul",
-              "kernels_revision": "sha256:6cc60704cdfc27c5810ed10accce1b0e45d00d8dbb2a702306e813b561ee67e2",
+              "kernels_revision": "sha256:18f1647290db1706bd05fe88d1fd4cc8688e2611fdf74a48c71a064c858c66df",
               "provider": "pypto.matmul",
               "source_node": "pypto_kernels.linear:linear_kernel"
             },
@@ -625,54 +625,54 @@
           },
           "first_compile_trigger_call_wall_ms": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 35.679004,
-            "mean": 33.25054525,
+            "max": 8.636041,
+            "mean": 8.1253,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 31.45216,
+              "lower": 7.813051,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 1952710698575722353,
-              "upper": 35.679004
+              "upper": 8.636041
             },
-            "min": 31.45216,
-            "p50": 32.9355085,
-            "p90": 35.679004,
-            "p90_nearest_rank": 35.679004,
-            "p99": 35.679004,
-            "p99_nearest_rank": 35.679004,
+            "min": 7.813051,
+            "p50": 8.026054,
+            "p90": 8.636041,
+            "p90_nearest_rank": 8.636041,
+            "p99": 8.636041,
+            "p99_nearest_rank": 8.636041,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
           "latency_ms_per_call": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 25.340994873046874,
-            "mean": 25.284197692871093,
+            "max": 1.755552978515625,
+            "mean": 1.754144821166992,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 25.216337890625,
+              "lower": 1.7521372985839845,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 2962898091192417385,
-              "upper": 25.340994873046874
+              "upper": 1.755552978515625
             },
-            "min": 25.216337890625,
-            "p50": 25.289729003906253,
-            "p90": 25.340994873046874,
-            "p90_nearest_rank": 25.340994873046874,
-            "p99": 25.340994873046874,
-            "p99_nearest_rank": 25.340994873046874,
+            "min": 1.7521372985839845,
+            "p50": 1.7544445037841796,
+            "p90": 1.755552978515625,
+            "p90_nearest_rank": 1.755552978515625,
+            "p99": 1.755552978515625,
+            "p99_nearest_rank": 1.755552978515625,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
           "provider": {
             "artifact": {
-              "artifact_id": "pypto-artifact-v1:4a61edba376d7bdea534a6fcd43333ab1c7aa182e1a31f4350180ff923ba14e1",
-              "artifact_sha256": "4a61edba376d7bdea534a6fcd43333ab1c7aa182e1a31f4350180ff923ba14e1",
+              "artifact_id": "pypto-artifact-v1:d4ef5ecf69b83a2566a9dc8d5e7136b3344ebb7cbaac9f69178741c4f25c0fe3",
+              "artifact_sha256": "d4ef5ecf69b83a2566a9dc8d5e7136b3344ebb7cbaac9f69178741c4f25c0fe3",
               "compiler_revision": "c27629e993a52b47d41fb898c749279dce44221b",
               "ir_region": "tensorir:21d42579167f79d73c179fd07cb83576b060fd9e8b164ca59d205b07d6c905c2",
               "kernel_name": "pypto_structured_matmul",
-              "kernels_revision": "sha256:6cc60704cdfc27c5810ed10accce1b0e45d00d8dbb2a702306e813b561ee67e2",
+              "kernels_revision": "sha256:18f1647290db1706bd05fe88d1fd4cc8688e2611fdf74a48c71a064c858c66df",
               "provider": "pypto.matmul",
               "source_node": "pypto_kernels.linear:linear_kernel"
             },
@@ -713,54 +713,54 @@
           },
           "first_compile_trigger_call_wall_ms": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 24.021974,
-            "mean": 22.27139175,
+            "max": 10.005165,
+            "mean": 9.669903999999999,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 20.863554,
+              "lower": 9.329803,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 8912635943994682586,
-              "upper": 24.021974
+              "upper": 10.005165
             },
-            "min": 20.863554,
-            "p50": 22.100019500000002,
-            "p90": 24.021974,
-            "p90_nearest_rank": 24.021974,
-            "p99": 24.021974,
-            "p99_nearest_rank": 24.021974,
+            "min": 9.329803,
+            "p50": 9.672324,
+            "p90": 10.005165,
+            "p90_nearest_rank": 10.005165,
+            "p99": 10.005165,
+            "p99_nearest_rank": 10.005165,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
           "latency_ms_per_call": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 14.654191970825195,
-            "mean": 14.562136054039001,
+            "max": 3.6910719871520996,
+            "mean": 3.4193480014801025,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 14.501488208770752,
+              "lower": 2.6519360542297363,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 10323695541769292401,
-              "upper": 14.654191970825195
+              "upper": 3.6910719871520996
             },
-            "min": 14.501488208770752,
-            "p50": 14.54643201828003,
-            "p90": 14.654191970825195,
-            "p90_nearest_rank": 14.654191970825195,
-            "p99": 14.654191970825195,
-            "p99_nearest_rank": 14.654191970825195,
+            "min": 2.6519360542297363,
+            "p50": 3.667191982269287,
+            "p90": 3.6910719871520996,
+            "p90_nearest_rank": 3.6910719871520996,
+            "p99": 3.6910719871520996,
+            "p99_nearest_rank": 3.6910719871520996,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
           "provider": {
             "artifact": {
-              "artifact_id": "pypto-artifact-v1:a4d28050d7c0745b4b5e621f69d52e75c54f147ebbd893f2c136bbee552d03ec",
-              "artifact_sha256": "a4d28050d7c0745b4b5e621f69d52e75c54f147ebbd893f2c136bbee552d03ec",
+              "artifact_id": "pypto-artifact-v1:67be5c3c8cf49fc3fbd7279feffd6617335760ed5d96b9153f4d4e11b2037c07",
+              "artifact_sha256": "67be5c3c8cf49fc3fbd7279feffd6617335760ed5d96b9153f4d4e11b2037c07",
               "compiler_revision": "c27629e993a52b47d41fb898c749279dce44221b",
               "ir_region": "tensorir:819fc41a3000fe668f9572b146167a5a988efc980feecfdec5d82fa3586002c1",
               "kernel_name": "pypto_structured_matmul",
-              "kernels_revision": "sha256:6cc60704cdfc27c5810ed10accce1b0e45d00d8dbb2a702306e813b561ee67e2",
+              "kernels_revision": "sha256:18f1647290db1706bd05fe88d1fd4cc8688e2611fdf74a48c71a064c858c66df",
               "provider": "pypto.matmul",
               "source_node": "pypto_kernels.linear:linear_to_float_kernel"
             },
@@ -801,54 +801,54 @@
           },
           "first_compile_trigger_call_wall_ms": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 12.784666,
-            "mean": 12.38151375,
+            "max": 10.864492,
+            "mean": 10.54905625,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 12.078257,
+              "lower": 10.237001,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 17565598413196245124,
-              "upper": 12.784666
+              "upper": 10.864492
             },
-            "min": 12.078257,
-            "p50": 12.331565999999999,
-            "p90": 12.784666,
-            "p90_nearest_rank": 12.784666,
-            "p99": 12.784666,
-            "p99_nearest_rank": 12.784666,
+            "min": 10.237001,
+            "p50": 10.547366,
+            "p90": 10.864492,
+            "p90_nearest_rank": 10.864492,
+            "p99": 10.864492,
+            "p99_nearest_rank": 10.864492,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
           "latency_ms_per_call": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 2.598502502441406,
-            "mean": 2.596535453796387,
+            "max": 0.2875475120544434,
+            "mean": 0.28514067888259886,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 2.594209899902344,
+              "lower": 0.2834195232391358,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 5152585361979911327,
-              "upper": 2.598502502441406
+              "upper": 0.2875475120544434
             },
-            "min": 2.594209899902344,
-            "p50": 2.5967147064208986,
-            "p90": 2.598502502441406,
-            "p90_nearest_rank": 2.598502502441406,
-            "p99": 2.598502502441406,
-            "p99_nearest_rank": 2.598502502441406,
+            "min": 0.2834195232391358,
+            "p50": 0.2847978401184082,
+            "p90": 0.2875475120544434,
+            "p90_nearest_rank": 0.2875475120544434,
+            "p99": 0.2875475120544434,
+            "p99_nearest_rank": 0.2875475120544434,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
           "provider": {
             "artifact": {
-              "artifact_id": "pypto-artifact-v1:e2cd6d91d9e73d5feb06ab1d6dd28f9e5da22c0d0a914a285c20896b29d21506",
-              "artifact_sha256": "e2cd6d91d9e73d5feb06ab1d6dd28f9e5da22c0d0a914a285c20896b29d21506",
+              "artifact_id": "pypto-artifact-v1:8e2b96c21cd95c39a2bf305c4b5c3a98ff99c64a2383d1483fc6348ed6600831",
+              "artifact_sha256": "8e2b96c21cd95c39a2bf305c4b5c3a98ff99c64a2383d1483fc6348ed6600831",
               "compiler_revision": "c27629e993a52b47d41fb898c749279dce44221b",
               "ir_region": "tensorir:0083d817525a112b6bb706d358fa13f0e8997d871ab76d91f9ed1fe1902cf849",
               "kernel_name": "pypto_structured_matmul",
-              "kernels_revision": "sha256:6cc60704cdfc27c5810ed10accce1b0e45d00d8dbb2a702306e813b561ee67e2",
+              "kernels_revision": "sha256:18f1647290db1706bd05fe88d1fd4cc8688e2611fdf74a48c71a064c858c66df",
               "provider": "pypto.matmul",
               "source_node": "pypto_kernels.linear:linear_kernel"
             },
@@ -889,54 +889,54 @@
           },
           "first_compile_trigger_call_wall_ms": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 60.308314,
-            "mean": 59.40459075,
+            "max": 14.076452,
+            "mean": 11.31364125,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 58.62569,
+              "lower": 10.271936,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 8135319295176174421,
-              "upper": 60.308314
+              "upper": 14.076452
             },
-            "min": 58.62569,
-            "p50": 59.3421795,
-            "p90": 60.308314,
-            "p90_nearest_rank": 60.308314,
-            "p99": 60.308314,
-            "p99_nearest_rank": 60.308314,
+            "min": 10.271936,
+            "p50": 10.4530885,
+            "p90": 14.076452,
+            "p90_nearest_rank": 14.076452,
+            "p99": 14.076452,
+            "p99_nearest_rank": 14.076452,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
           "latency_ms_per_call": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 45.080363769531246,
-            "mean": 44.99420166015625,
+            "max": 3.6014976501464844,
+            "mean": 3.5974621200561523,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 44.85922607421875,
+              "lower": 3.592882843017578,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 6395905857873931291,
-              "upper": 45.080363769531246
+              "upper": 3.6014976501464844
             },
-            "min": 44.85922607421875,
-            "p50": 45.0186083984375,
-            "p90": 45.080363769531246,
-            "p90_nearest_rank": 45.080363769531246,
-            "p99": 45.080363769531246,
-            "p99_nearest_rank": 45.080363769531246,
+            "min": 3.592882843017578,
+            "p50": 3.5977339935302735,
+            "p90": 3.6014976501464844,
+            "p90_nearest_rank": 3.6014976501464844,
+            "p99": 3.6014976501464844,
+            "p99_nearest_rank": 3.6014976501464844,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
           "provider": {
             "artifact": {
-              "artifact_id": "pypto-artifact-v1:21721321ccc1d2fbc272918e50f3938a4c15da1b9b208f09cd18fd5c3b0f246a",
-              "artifact_sha256": "21721321ccc1d2fbc272918e50f3938a4c15da1b9b208f09cd18fd5c3b0f246a",
+              "artifact_id": "pypto-artifact-v1:60f8bb2d3c049bff31194be47efb97522f6a9d1cd0a67ae94458f2a37b0b75af",
+              "artifact_sha256": "60f8bb2d3c049bff31194be47efb97522f6a9d1cd0a67ae94458f2a37b0b75af",
               "compiler_revision": "c27629e993a52b47d41fb898c749279dce44221b",
               "ir_region": "tensorir:cf04c9c69d34893cca193a84e85c065060a8b757dbe095def32c725c57532803",
               "kernel_name": "pypto_structured_matmul",
-              "kernels_revision": "sha256:6cc60704cdfc27c5810ed10accce1b0e45d00d8dbb2a702306e813b561ee67e2",
+              "kernels_revision": "sha256:18f1647290db1706bd05fe88d1fd4cc8688e2611fdf74a48c71a064c858c66df",
               "provider": "pypto.matmul",
               "source_node": "pypto_kernels.linear:linear_kernel"
             },
@@ -974,43 +974,43 @@
           },
           "first_compile_trigger_call_wall_ms": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 1678.181103,
-            "mean": 1667.84367625,
+            "max": 1718.327621,
+            "mean": 1705.45289475,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 1643.940983,
+              "lower": 1699.202499,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 1192329517728172658,
-              "upper": 1678.181103
+              "upper": 1718.327621
             },
-            "min": 1643.940983,
-            "p50": 1674.6263095,
-            "p90": 1678.181103,
-            "p90_nearest_rank": 1678.181103,
-            "p99": 1678.181103,
-            "p99_nearest_rank": 1678.181103,
+            "min": 1699.202499,
+            "p50": 1702.1407295,
+            "p90": 1718.327621,
+            "p90_nearest_rank": 1718.327621,
+            "p99": 1718.327621,
+            "p99_nearest_rank": 1718.327621,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
           "latency_ms_per_call": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 0.2051369571685791,
-            "mean": 0.20267688035964965,
+            "max": 0.2110867214202881,
+            "mean": 0.2090673589706421,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 0.19863632202148437,
+              "lower": 0.2065785598754883,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 18050478363210867422,
-              "upper": 0.2051369571685791
+              "upper": 0.2110867214202881
             },
-            "min": 0.19863632202148437,
-            "p50": 0.20346712112426757,
-            "p90": 0.2051369571685791,
-            "p90_nearest_rank": 0.2051369571685791,
-            "p99": 0.2051369571685791,
-            "p99_nearest_rank": 0.2051369571685791,
+            "min": 0.2065785598754883,
+            "p50": 0.209302077293396,
+            "p90": 0.2110867214202881,
+            "p90_nearest_rank": 0.2110867214202881,
+            "p99": 0.2110867214202881,
+            "p99_nearest_rank": 0.2110867214202881,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
@@ -1059,43 +1059,43 @@
           },
           "first_compile_trigger_call_wall_ms": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 123.15068,
-            "mean": 119.90146175,
+            "max": 125.835808,
+            "mean": 122.09265375,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 116.970395,
+              "lower": 118.933887,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 11301087119750292696,
-              "upper": 123.15068
+              "upper": 125.835808
             },
-            "min": 116.970395,
-            "p50": 119.742386,
-            "p90": 123.15068,
-            "p90_nearest_rank": 123.15068,
-            "p99": 123.15068,
-            "p99_nearest_rank": 123.15068,
+            "min": 118.933887,
+            "p50": 121.80045999999999,
+            "p90": 125.835808,
+            "p90_nearest_rank": 125.835808,
+            "p99": 125.835808,
+            "p99_nearest_rank": 125.835808,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
           "latency_ms_per_call": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 0.20635168075561522,
-            "mean": 0.20315004110336304,
+            "max": 0.20991967201232908,
+            "mean": 0.20675795555114745,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 0.20025792121887206,
+              "lower": 0.2035599994659424,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 1248465547665290410,
-              "upper": 0.20635168075561522
+              "upper": 0.20991967201232908
             },
-            "min": 0.20025792121887206,
-            "p50": 0.2029952812194824,
-            "p90": 0.20635168075561522,
-            "p90_nearest_rank": 0.20635168075561522,
-            "p99": 0.20635168075561522,
-            "p99_nearest_rank": 0.20635168075561522,
+            "min": 0.2035599994659424,
+            "p50": 0.20677607536315917,
+            "p90": 0.20991967201232908,
+            "p90_nearest_rank": 0.20991967201232908,
+            "p99": 0.20991967201232908,
+            "p99_nearest_rank": 0.20991967201232908,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
@@ -1152,43 +1152,43 @@
           },
           "first_compile_trigger_call_wall_ms": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 0.23221,
-            "mean": 0.22726,
+            "max": 0.24459,
+            "mean": 0.2355465,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 0.223251,
+              "lower": 0.230463,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 12317572185401150930,
-              "upper": 0.23221
+              "upper": 0.24459
             },
-            "min": 0.223251,
-            "p50": 0.22678949999999998,
-            "p90": 0.23221,
-            "p90_nearest_rank": 0.23221,
-            "p99": 0.23221,
-            "p99_nearest_rank": 0.23221,
+            "min": 0.230463,
+            "p50": 0.2335665,
+            "p90": 0.24459,
+            "p90_nearest_rank": 0.24459,
+            "p99": 0.24459,
+            "p99_nearest_rank": 0.24459,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
           "latency_ms_per_call": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 0.12313472270965577,
-            "mean": 0.12279000163078309,
+            "max": 0.12323487758636475,
+            "mean": 0.12315979838371277,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 0.12245759963989258,
+              "lower": 0.12299407958984375,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 803095068060140064,
-              "upper": 0.12313472270965577
+              "upper": 0.12323487758636475
             },
-            "min": 0.12245759963989258,
-            "p50": 0.122783842086792,
-            "p90": 0.12313472270965577,
-            "p90_nearest_rank": 0.12313472270965577,
-            "p99": 0.12313472270965577,
-            "p99_nearest_rank": 0.12313472270965577,
+            "min": 0.12299407958984375,
+            "p50": 0.12320511817932128,
+            "p90": 0.12323487758636475,
+            "p90_nearest_rank": 0.12323487758636475,
+            "p99": 0.12323487758636475,
+            "p99_nearest_rank": 0.12323487758636475,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
@@ -1231,43 +1231,43 @@
           },
           "first_compile_trigger_call_wall_ms": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 0.327604,
-            "mean": 0.312143,
+            "max": 0.402708,
+            "mean": 0.37233525,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 0.300658,
+              "lower": 0.33303,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 13910848830486554069,
-              "upper": 0.327604
+              "upper": 0.402708
             },
-            "min": 0.300658,
-            "p50": 0.310155,
-            "p90": 0.327604,
-            "p90_nearest_rank": 0.327604,
-            "p99": 0.327604,
-            "p99_nearest_rank": 0.327604,
+            "min": 0.33303,
+            "p50": 0.3768015,
+            "p90": 0.402708,
+            "p90_nearest_rank": 0.402708,
+            "p99": 0.402708,
+            "p99_nearest_rank": 0.402708,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
           "latency_ms_per_call": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 0.13000319957733153,
-            "mean": 0.1299164390563965,
+            "max": 0.12875919818878173,
+            "mean": 0.12861987829208374,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 0.1298627185821533,
+              "lower": 0.12833551883697508,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 15659069853376897326,
-              "upper": 0.13000319957733153
+              "upper": 0.12875919818878173
             },
-            "min": 0.1298627185821533,
-            "p50": 0.12989991903305054,
-            "p90": 0.13000319957733153,
-            "p90_nearest_rank": 0.13000319957733153,
-            "p99": 0.13000319957733153,
-            "p99_nearest_rank": 0.13000319957733153,
+            "min": 0.12833551883697508,
+            "p50": 0.12869239807128907,
+            "p90": 0.12875919818878173,
+            "p90_nearest_rank": 0.12875919818878173,
+            "p99": 0.12875919818878173,
+            "p99_nearest_rank": 0.12875919818878173,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
@@ -1310,43 +1310,43 @@
           },
           "first_compile_trigger_call_wall_ms": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 15.607625,
-            "mean": 14.82513925,
+            "max": 16.618128,
+            "mean": 15.181140749999999,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 14.423022,
+              "lower": 13.650818,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 12014126342360523924,
-              "upper": 15.607625
+              "upper": 16.618128
             },
-            "min": 14.423022,
-            "p50": 14.634955,
-            "p90": 15.607625,
-            "p90_nearest_rank": 15.607625,
-            "p99": 15.607625,
-            "p99_nearest_rank": 15.607625,
+            "min": 13.650818,
+            "p50": 15.2278085,
+            "p90": 16.618128,
+            "p90_nearest_rank": 16.618128,
+            "p99": 16.618128,
+            "p99_nearest_rank": 16.618128,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
           "latency_ms_per_call": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 2.4463679790496826,
-            "mean": 2.4288960099220276,
+            "max": 2.449183940887451,
+            "mean": 2.4374559819698334,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 2.421663999557495,
+              "lower": 2.432592034339905,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 17561726933202350953,
-              "upper": 2.4463679790496826
+              "upper": 2.449183940887451
             },
-            "min": 2.421663999557495,
-            "p50": 2.4237760305404663,
-            "p90": 2.4463679790496826,
-            "p90_nearest_rank": 2.4463679790496826,
-            "p99": 2.4463679790496826,
-            "p99_nearest_rank": 2.4463679790496826,
+            "min": 2.432592034339905,
+            "p50": 2.4340239763259888,
+            "p90": 2.449183940887451,
+            "p90_nearest_rank": 2.449183940887451,
+            "p99": 2.449183940887451,
+            "p99_nearest_rank": 2.449183940887451,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
@@ -1389,43 +1389,43 @@
           },
           "first_compile_trigger_call_wall_ms": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 177.22528,
-            "mean": 164.11909400000002,
+            "max": 156.57793,
+            "mean": 147.13193275,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 157.107875,
+              "lower": 143.302977,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 8387606720877549252,
-              "upper": 177.22528
+              "upper": 156.57793
             },
-            "min": 157.107875,
-            "p50": 161.07161050000002,
-            "p90": 177.22528,
-            "p90_nearest_rank": 177.22528,
-            "p99": 177.22528,
-            "p99_nearest_rank": 177.22528,
+            "min": 143.302977,
+            "p50": 144.32341200000002,
+            "p90": 156.57793,
+            "p90_nearest_rank": 156.57793,
+            "p99": 156.57793,
+            "p99_nearest_rank": 156.57793,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
           "latency_ms_per_call": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 0.24125055313110352,
-            "mean": 0.23943268060684203,
+            "max": 0.23861599922180177,
+            "mean": 0.2385542821884155,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 0.2387048053741455,
+              "lower": 0.2385105609893799,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 347619338984465102,
-              "upper": 0.24125055313110352
+              "upper": 0.23861599922180177
             },
-            "min": 0.2387048053741455,
-            "p50": 0.23888768196105958,
-            "p90": 0.24125055313110352,
-            "p90_nearest_rank": 0.24125055313110352,
-            "p99": 0.24125055313110352,
-            "p99_nearest_rank": 0.24125055313110352,
+            "min": 0.2385105609893799,
+            "p50": 0.23854528427124022,
+            "p90": 0.23861599922180177,
+            "p90_nearest_rank": 0.23861599922180177,
+            "p99": 0.23861599922180177,
+            "p99_nearest_rank": 0.23861599922180177,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
@@ -1468,43 +1468,43 @@
           },
           "first_compile_trigger_call_wall_ms": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 1.985346,
-            "mean": 1.50627675,
+            "max": 1.38781,
+            "mean": 1.31537225,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 1.30818,
+              "lower": 1.212667,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 218075782502188864,
-              "upper": 1.985346
+              "upper": 1.38781
             },
-            "min": 1.30818,
-            "p50": 1.3657905000000001,
-            "p90": 1.985346,
-            "p90_nearest_rank": 1.985346,
-            "p99": 1.985346,
-            "p99_nearest_rank": 1.985346,
+            "min": 1.212667,
+            "p50": 1.330506,
+            "p90": 1.38781,
+            "p90_nearest_rank": 1.38781,
+            "p99": 1.38781,
+            "p99_nearest_rank": 1.38781,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
           "latency_ms_per_call": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 0.25332128524780273,
-            "mean": 0.25158048152923584,
+            "max": 0.25066543579101563,
+            "mean": 0.25005483865737915,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 0.2505344009399414,
+              "lower": 0.2496303939819336,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 108354644718255729,
-              "upper": 0.25332128524780273
+              "upper": 0.25066543579101563
             },
-            "min": 0.2505344009399414,
-            "p50": 0.2512331199645996,
-            "p90": 0.25332128524780273,
-            "p90_nearest_rank": 0.25332128524780273,
-            "p99": 0.25332128524780273,
-            "p99_nearest_rank": 0.25332128524780273,
+            "min": 0.2496303939819336,
+            "p50": 0.2499617624282837,
+            "p90": 0.25066543579101563,
+            "p90_nearest_rank": 0.25066543579101563,
+            "p99": 0.25066543579101563,
+            "p99_nearest_rank": 0.25066543579101563,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
@@ -1544,43 +1544,43 @@
           },
           "first_compile_trigger_call_wall_ms": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 15.183121,
-            "mean": 14.535123500000001,
+            "max": 15.465311,
+            "mean": 14.94649475,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 14.263275,
+              "lower": 14.593432,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 17308912586671782130,
-              "upper": 15.183121
+              "upper": 15.465311
             },
-            "min": 14.263275,
-            "p50": 14.347049,
-            "p90": 15.183121,
-            "p90_nearest_rank": 15.183121,
-            "p99": 15.183121,
-            "p99_nearest_rank": 15.183121,
+            "min": 14.593432,
+            "p50": 14.863617999999999,
+            "p90": 15.465311,
+            "p90_nearest_rank": 15.465311,
+            "p99": 15.465311,
+            "p99_nearest_rank": 15.465311,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
           "latency_ms_per_call": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 0.010613760352134705,
-            "mean": 0.009563920125365256,
+            "max": 0.009908639788627625,
+            "mean": 0.009298679903149604,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 0.00888592004776001,
+              "lower": 0.008781760036945342,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 10781003384062135995,
-              "upper": 0.010613760352134705
+              "upper": 0.009908639788627625
             },
-            "min": 0.00888592004776001,
-            "p50": 0.009378000050783156,
-            "p90": 0.010613760352134705,
-            "p90_nearest_rank": 0.010613760352134705,
-            "p99": 0.010613760352134705,
-            "p99_nearest_rank": 0.010613760352134705,
+            "min": 0.008781760036945342,
+            "p50": 0.009252159893512725,
+            "p90": 0.009908639788627625,
+            "p90_nearest_rank": 0.009908639788627625,
+            "p99": 0.009908639788627625,
+            "p99_nearest_rank": 0.009908639788627625,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
@@ -1620,43 +1620,43 @@
           },
           "first_compile_trigger_call_wall_ms": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 2.402896,
-            "mean": 0.94817225,
+            "max": 9.778864,
+            "mean": 2.8282865,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 0.387871,
+              "lower": 0.371808,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 2892909370992360949,
-              "upper": 2.402896
+              "upper": 9.778864
             },
-            "min": 0.387871,
-            "p50": 0.500961,
-            "p90": 2.402896,
-            "p90_nearest_rank": 2.402896,
-            "p99": 2.402896,
-            "p99_nearest_rank": 2.402896,
+            "min": 0.371808,
+            "p50": 0.581237,
+            "p90": 9.778864,
+            "p90_nearest_rank": 9.778864,
+            "p99": 9.778864,
+            "p99_nearest_rank": 9.778864,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },
           "latency_ms_per_call": {
             "headline_estimator": "median_of_fresh_start_estimates",
-            "max": 0.009271200001239776,
-            "mean": 0.00908839985728264,
+            "max": 0.009262399971485136,
+            "mean": 0.009054959937930106,
             "median_bootstrap_95ci": {
               "confidence": 0.95,
-              "lower": 0.008814719915390016,
+              "lower": 0.008916960060596467,
               "method": "nonparametric percentile bootstrap over fresh process starts",
               "resamples": 10000,
               "seed": 17568300892153307891,
-              "upper": 0.009271200001239776
+              "upper": 0.009262399971485136
             },
-            "min": 0.008814719915390016,
-            "p50": 0.009133839756250383,
-            "p90": 0.009271200001239776,
-            "p90_nearest_rank": 0.009271200001239776,
-            "p99": 0.009271200001239776,
-            "p99_nearest_rank": 0.009271200001239776,
+            "min": 0.008916960060596467,
+            "p50": 0.009020239859819413,
+            "p90": 0.009262399971485136,
+            "p90_nearest_rank": 0.009262399971485136,
+            "p99": 0.009262399971485136,
+            "p99_nearest_rank": 0.009262399971485136,
             "sample_count": 4,
             "sample_unit": "fresh_process_start"
           },

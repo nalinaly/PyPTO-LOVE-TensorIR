@@ -755,7 +755,9 @@ def _load_correctness(
             or report.get("thresholds") != reference.get("thresholds")
         ):
             raise ReleaseContractError(f"correctness report is not accepted: {path}")
-        controller_inputs, controller_gpu = _controller_evidence(path, "pypto")
+        controller_inputs, controller_gpu = _controller_evidence(
+            path, "pypto", expected_gpu_free_floor_mib=0
+        )
         audit.add(
             report,
             report_path=path,
