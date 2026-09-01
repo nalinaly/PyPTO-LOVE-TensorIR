@@ -131,7 +131,7 @@ def memory_qualification(
         if model_path is not None and model_path.name == "Qwen3.5-9B":
             if lane == "pypto":
                 return {
-                    "name": "candidate-9b-zero-offload-0p80",
+                    "name": "candidate-9b-zero-offload-0p79",
                     "cpu_offload_gb": 0,
                     "mem_fraction_static": 0.80,
                 }
