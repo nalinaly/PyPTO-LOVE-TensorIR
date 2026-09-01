@@ -27,7 +27,10 @@ Qwen3.5-9B 推理 forward 过程的全部 GPU kernel 均由 PyPTO 前端表达�
    多输出融合、运行时无关产物契约等）。
 2. **TorchInductor 的 PyPTO 后端**：标准 `torch.compile(model, backend="pypto")` 即可使用。
    复用完整官方 `compile_fx`，将可融合的 pointwise/尾轴归约子图自动生成为 PyPTO DSL kernel；
-   不支持的场景 fail-closed，绝不静默回退 Triton。
+   不支持的场景 fail-closed，绝不静默回退 Triton。在 Qwen3.5-9B 真实形状的 SwiGLU
+   算子级消融中，融合能力与官方 Triton 后端等价：**6 个 eager kernel 融合为 1 个
+   （launch 次数 −83.33%）**；冷编译一次 **1.70 s**（官方后端 1.10 s，长 54–66%）；
+   生成 kernel 热 path 当前比 eager 慢 79.6%（pointwise 调度未调优；官方后端为 +30.5%）。
 
 ```text
 SGLang（未打补丁）
@@ -37,6 +40,14 @@ SGLang（未打补丁）
 ```
 
 ![架构](docs/assets/pypto-nvidia-architecture.svg)
+
+**为什么承接方是 TensorIR**：TensorIR 本身就以 tile 为一等公民——布局传播、tile 选择、
+多输出融合全部作用于 tile graph；它不是"cuTile 的后端"，而是 **cuTile 的前端/生产者**
+（负责 tile 布局与结构化 lowering，产出 CUDA Tile IR 交 `tileiras` 汇编）。因此职责精确
+互补：PyPTO 管 DSL/静态特化/产物契约/launch，TensorIR 管 tile 布局与 lowering，cuTile
+管最终代码生成。PyPTO 的 tile 约定经 `CanonicalSchedule` 显式传入并被继续 lower——
+手写库全部 21 个 graph 与 Inductor 生成的 kernel 均经此路径完成编译（101 个正确性用例、
+整模型 33,448 次 compute launch 零 fallback 为证）。
 
 在此之上，`packages/pypto-kernels` 是一套独立于框架的手写 PyPTO 算子库（13 模块 /
 21 个 `@pl.jit` graph），覆盖 Qwen3.5 混合注意力结构（24 层 GDN + 8 层全注意力）所需的

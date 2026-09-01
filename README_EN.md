@@ -39,7 +39,12 @@ Two core features:
    `torch.compile(model, backend="pypto")`. It reuses the full official
    `compile_fx` and auto-generates fusible pointwise / trailing-axis-reduction
    subgraphs as PyPTO DSL kernels; unsupported cases fail closed and never
-   silently fall back to Triton.
+   silently fall back to Triton. In the real-shape Qwen3.5-9B SwiGLU operator
+   ablation its fusion capability matches the official Triton backend:
+   **6 eager kernels fuse into 1 (−83.33% launches)**; one cold compile costs
+   **1.70 s** (official backend 1.10 s, 54–66% longer); the generated kernel's
+   warm path is currently 79.6% slower than eager (pointwise scheduling not yet
+   tuned; the official backend is +30.5%).
 
 ```text
 SGLang (unpatched)
@@ -49,6 +54,18 @@ SGLang (unpatched)
 ```
 
 ![Architecture](docs/assets/pypto-nvidia-architecture.svg)
+
+**Why TensorIR is the right host**: TensorIR is inherently tile-oriented —
+layout propagation, tile selection, and multi-output fusion all operate on
+tile graphs; it is not "a backend of cuTile" but rather **cuTile's
+frontend/producer** (it owns tile layout and structured lowering, emitting
+CUDA Tile IR for the `tileiras` assembler). The responsibilities therefore
+compose precisely: PyPTO owns the DSL/static specialization/artifact
+contract/launch, TensorIR owns tile layout and lowering, and cuTile owns final
+code generation. PyPTO's tile conventions are passed in explicitly through
+`CanonicalSchedule` and continue to be lowered — all 21 handwritten graphs plus
+the Inductor-generated kernels compile through this path (101 correctness
+cases and 33,448 whole-model compute launches with zero fallback attest to it).
 
 On top of this, `packages/pypto-kernels` is a framework-independent handwritten
 PyPTO operator library (13 modules / 21 `@pl.jit` graphs) covering every
