@@ -159,8 +159,8 @@ def main() -> int:
     print("accepted Qwen3.5-9B evidence replay (not a live rerun)")
     print("3 starts x 10 Engine requests | stable 64-token output")
     print(f"run={candidates[0]['run_id']}")
-    print("coverage=33448/33448 strict=true fallback=0")
-    print("providers: handwritten=31400 Inductor=2048 unknown=0")
+    print("coverage=27808/27808 strict=true fallback=0")
+    print("providers: handwritten=25760 Inductor=2048 unknown=0")
     if args.compact:
         print(f"prompt: {EXPECTED_PROMPT}")
         print(f"output: {truncate_display(str(result['output_text']), 58)}")
