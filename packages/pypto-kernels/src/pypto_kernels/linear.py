@@ -13,7 +13,14 @@ import pypto.language as pl  # noqa: E402
 
 _TILE_ROWS = 1
 _TILE_COLUMNS = 128
-_SCHEDULE_COLUMNS = 128
+# Measured on RTX 5090 (SM120): a 32-column schedule tile is the sweet spot
+# for every production GEMV/GEMM shape (decode and prefill). Larger tiles
+# under-fill the grid (down-projection GEMV drops to 32 CTAs on ~170 SMs) and
+# hit a hard efficiency cliff at >=64 columns; smaller tiles add launch
+# overhead without more bandwidth. Changing the schedule tile keeps the
+# contraction order inside each output element, so results stay bit-identical
+# (verified against the 128-column schedule on live hardware).
+_SCHEDULE_COLUMNS = 32
 _lock = threading.RLock()
 _cache: dict[tuple[int, int, int, str, int], str] = {}
 
