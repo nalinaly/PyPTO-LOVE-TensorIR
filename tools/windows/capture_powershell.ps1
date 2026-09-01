@@ -26,6 +26,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Windows.Forms
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -65,8 +66,19 @@ public static class PyptoWindowCapture {
 
     [DllImport("user32.dll")]
     public static extern bool PostMessage(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    public static extern bool MoveWindow(IntPtr hWnd, int x, int y, int width, int height, bool repaint);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetProcessDPIAware();
 }
 "@
+
+# Without DPI awareness GetWindowRect/PrintWindow operate on virtualized
+# coordinates and the capture only covers the top-left logical quadrant of
+# the window on scaled displays; make this process DPI-aware first.
+[void][PyptoWindowCapture]::SetProcessDPIAware()
 
 function Find-WindowByExactTitle([string]$ExpectedTitle) {
     $script:MatchedWindow = [IntPtr]::Zero
@@ -174,7 +186,15 @@ do {
 
 [void][PyptoWindowCapture]::ShowWindow($window, 3)
 [void][PyptoWindowCapture]::SetForegroundWindow($window)
-Start-Sleep -Milliseconds 1500
+Start-Sleep -Milliseconds 400
+# Force the window onto the full primary working area in physical pixels so
+# the whole command and its output are visible regardless of the terminal's
+# default size; maximize alone does not reliably resize Windows Terminal.
+$work = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+[void][PyptoWindowCapture]::MoveWindow(
+    $window, $work.X, $work.Y, $work.Width, $work.Height, $true
+)
+Start-Sleep -Milliseconds 1200
 
 $rect = New-Object PyptoWindowCapture+RECT
 if (-not [PyptoWindowCapture]::GetWindowRect($window, [ref]$rect)) {

@@ -38,9 +38,11 @@ def main() -> int:
     else:
         coverage_line = "coverage: (no coverage report in run directory)"
     print(f"candidate report: {report_path.relative_to(ROOT)}")
+    if report.get("status") != "passed" and "error" in report:
+        print(f"status: {report.get('status')} | error: {str(report['error'])[:200]}")
     print(
-        f"all_passed: {report['all_passed']} | requests: {report['request_count']} "
-        f"| stable_output: {report['stable_output']} | "
+        f"all_passed: {report.get('all_passed')} | requests: {report.get('request_count')} "
+        f"| stable_output: {report.get('stable_output')} | "
         f"teacher-forced: {report.get('teacher_forced_request_count', 'n/a')}"
     )
     print(coverage_line)

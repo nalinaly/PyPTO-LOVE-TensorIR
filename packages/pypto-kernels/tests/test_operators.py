@@ -919,7 +919,7 @@ def test_linear_is_one_native_tile_graph():
     assert "pl.tile.store" in rendered
     assert "tensor." not in rendered
     assert linear._tiles(1) == [32]
-    assert linear._tiles(19) == [16, 32]
+    assert linear._tiles(19) == [2, 32]
     float_program = linear.build(1, 128, 256, "float32")
     float_rendered = str(float_program)
     assert float_rendered.count("pl.tile.cast") == 2
