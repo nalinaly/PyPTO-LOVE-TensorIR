@@ -1742,12 +1742,12 @@ def paged_attention_decode(
             result_row_stride,
         )
         merged_query = query.as_strided(
-            (q_heads, 1, head_dim),
-            (head_dim, query_row_stride, 1),
+            (1, q_heads, head_dim),
+            (query_row_stride, head_dim, 1),
         )
         merged_result = out.as_strided(
-            (q_heads, 1, head_dim),
-            (head_dim, result_row_stride, 1),
+            (1, q_heads, head_dim),
+            (result_row_stride, head_dim, 1),
         )
         launch_graph(
             merged_key,
