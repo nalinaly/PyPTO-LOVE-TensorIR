@@ -17,10 +17,14 @@ _TILE_COLUMNS = 128
 # for every production GEMV/GEMM shape (decode and prefill). Larger tiles
 # under-fill the grid (down-projection GEMV drops to 32 CTAs on ~170 SMs) and
 # hit a hard efficiency cliff at >=64 columns; smaller tiles add launch
-# overhead without more bandwidth. Changing the schedule tile keeps the
-# contraction order inside each output element, so results stay bit-identical
-# (verified against the 128-column schedule on live hardware).
+# overhead without more bandwidth. For multi-row (prefill) shapes a 16-row
+# tile block shares one weight stream across rows instead of re-streaming the
+# weight per row: 31x4096x24576 drops 8.5 -> 0.60 ms/call. The row block
+# selects the tensor-core MMA path, so prefill results are not bit-identical
+# to the row-per-CTA schedule; acceptance is the frozen token-level model
+# gate, which passes unchanged.
 _SCHEDULE_COLUMNS = 32
+_PREFILL_TILE_ROWS = 16
 _lock = threading.RLock()
 _cache: dict[tuple[int, int, int, str, int], str] = {}
 
@@ -110,7 +114,7 @@ def _tiles(rows: int) -> list[int]:
     return (
         [_SCHEDULE_COLUMNS]
         if rows == 1
-        else [_TILE_ROWS, _SCHEDULE_COLUMNS]
+        else [_PREFILL_TILE_ROWS, _SCHEDULE_COLUMNS]
     )
 
 

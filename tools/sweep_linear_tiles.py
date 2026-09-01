@@ -86,7 +86,11 @@ def run_case(case, tiles, device: str) -> dict:
     baseline = None  # output of the first successful tile (invariance oracle)
     results = []
     for tile in tiles:
-        tiles_arg = [tile] if rows == 1 else [1, tile]
+        tiles_arg = (
+            list(tile)
+            if isinstance(tile, tuple)
+            else ([tile] if rows == 1 else [1, tile])
+        )
         try:
             key, compile_s = compile_tile(
                 rows, in_features, out_features, output_dtype, tiles_arg
@@ -119,11 +123,12 @@ def run_case(case, tiles, device: str) -> dict:
             batches.append(start.elapsed_time(end) / calls_per_batch)
         ordered = sorted(batches)
         p50 = ordered[len(ordered) // 2]
-        grid = (
-            math.ceil(out_features / tile)
-            if rows == 1
-            else rows * math.ceil(out_features / tile)
-        )
+        if rows == 1:
+            grid = math.ceil(out_features / tile)
+        elif isinstance(tile, tuple):
+            grid = math.ceil(rows / tile[0]) * math.ceil(out_features / tile[1])
+        else:
+            grid = rows * math.ceil(out_features / tile)
         results.append(
             {
                 "tile": tile,
@@ -164,12 +169,12 @@ CASES = {
     "gate-up-prefill-31x4096x24576": {
         "rows": 31, "in_features": 4096, "out_features": 24576,
         "calls_per_batch": 20,
-        "tiles": [128, 64, 32, 16, 8],
+        "tiles": [(1, 32), (2, 32), (4, 32), (8, 32), (16, 32)],
     },
     "down-prefill-31x12288x4096": {
         "rows": 31, "in_features": 12288, "out_features": 4096,
         "calls_per_batch": 20,
-        "tiles": [128, 64, 32, 16, 8],
+        "tiles": [(1, 32), (2, 32), (4, 32), (8, 32), (16, 32)],
     },
 }
 
@@ -193,7 +198,7 @@ def main() -> int:
         for r in results:
             if r["status"] == "ok":
                 print(
-                    f"  tile={r['tile']:>4} grid={r['grid_x']:>5} "
+                    f"  tile={str(r['tile']):>9} grid={r['grid_x']:>5} "
                     f"p50={r['p50_ms']:9.4f} ms "
                     f"bit_exact_vs_first={r['bit_exact_vs_first_tile']} "
                     f"compile={r['compile_s']}s"
