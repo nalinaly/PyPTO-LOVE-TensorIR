@@ -1147,6 +1147,14 @@ def run_candidate(
         if torch.cuda.is_initialized():
             raise ReleaseContractError("CUPTI must start before CUDA initialization")
         monitor = monitor_api.start_collection(run_dir / "cupti-monitor")
+        candidate_config = dict(server_kwargs(lane, model_path))
+        if lane == "pypto" and model_path.name == "Qwen3.5-9B":
+            # The correctness child runs under the CUPTI overlay; the shared
+            # 0.78 lane leaves no KV room once the display baseline grows, and
+            # CPU offload is incompatible with the PyPTO weight hooks. 0.80
+            # clears SGLang's minimum viable fraction; this gate measures
+            # correctness only, so the larger pool has no timing impact here.
+            candidate_config["mem_fraction_static"] = 0.80
         (
             torch,
             one_batch,
@@ -1157,7 +1165,7 @@ def run_candidate(
             resolved_workload,
             workload_resolution,
         ) = _load_runner(
-            lane, model_path
+            lane, model_path, requested_config=candidate_config
         )
         report["requested_server_config"] = requested
         report["resolved_backends"] = resolved
