@@ -34,6 +34,27 @@ SGLang -> pypto-kernels + TorchDynamo/Inductor -> PyPTO HIR
 
 ## Measured Status
 
+<!-- RELEASE_RESULTS:SUMMARY_BEGIN -->
+
+| Item | Qwen3.5-9B release-v1 |
+|---|---:|
+| 64-token greedy correctness | PASS (3 fresh starts, 30 requests) |
+| model-forward PyPTO compute coverage | 100% |
+| Operator regression | PASS (8 suites, 101 cases) |
+| PyPTO / matched SGLang | 15.62% |
+| PyPTO / optimized SGLang | 18.71% |
+| Performance bottleneck attribution | CUPTI/NVTX reconciliation complete |
+
+![Ubuntu/PowerShell purple terminal: replay of the accepted wheel, native, CTest 13/13, and install gates; the four reports share one wheel artifact set.](docs/assets/screenshots/build-ctest.png)
+
+![Ubuntu/PowerShell purple terminal: replay of 8/8 operator suites, 101 cases, and the structure gate for the current DSO; explicitly not a live GPU view.](docs/assets/screenshots/operator-correctness.png)
+
+![Ubuntu/PowerShell purple terminal: replay of the 64-token output and 100% PyPTO coverage for the same prompt; current-identity evidence is one stock reference plus three fresh candidate starts.](docs/assets/screenshots/model-inference.png)
+
+![Ubuntu/PowerShell purple terminal: operator-level SwiGLU fusion ablation; the adjacent whole-model table comes from the current 12-start three-lane matrix, and the screenshot itself is not a whole-model result.](docs/assets/screenshots/performance-ablation.png)
+
+<!-- RELEASE_RESULTS:SUMMARY_END -->
+
 Platform: NVIDIA GeForce RTX 5090 Laptop GPU (SM120, 24 GiB). Workload:
 Qwen3.5-9B text-only, non-thinking chat template, 31 input tokens, 64 greedy
 output tokens, BF16, TP1, concurrency 1.
@@ -43,22 +64,20 @@ output tokens, BF16, TP1, concurrency 1.
 | 9B correctness/coverage | Three fresh starts on the current wheel completed 10/10 Engine requests and one strict teacher-forced trace each |
 | Model-forward coverage | Accepted traces: 33,448 compute calls = 31,400 handwritten PyPTO + 2,048 Inductor PyPTO, with zero unknown/fallback calls (100%) |
 | 0.8B current wheel | Stock reference plus three candidate fresh starts completed; each trace covers 22,108/22,108 calls = 20,572 handwritten + 1,536 Inductor |
-| PyPTO output throughput | **Formal resource-qualified pair: 2.4124 tok/s** (median of four fresh starts) |
-| Matched SGLang | **Formal resource-qualified pair: 15.3708 tok/s** (same workload/controls) |
-| PyPTO / matched | **15.695%**, 95% bootstrap CI **[15.634%, 15.753%]**; signed change versus matched **-84.305%** |
-| Pair acceptance | `accepted=true`; all eight starts stayed above the 4 GiB GPU-free/12 GiB host-free floors with zero control mismatches |
-| Cold/compile-trigger | PyPTO `16164.45/29252.20 ms`; matched `15316.70/23815.46 ms`; PyPTO is **22.83%** higher for the latter (includes one full 31+64 request, not compiler-only) |
-| Historical invalidated pair | Old `2.6671/15.4100 tok/s`, 17.31% moved to `qwen35-9b-performance-pair-invalidated-20260830.json` for diagnostics only |
-| Optimized SGLang | Not reported; this CUDA-graph capture reached 4000 MiB free and was stopped by the 4096 MiB controller floor (run `pypto-gpu-bounded-20260831T034327Z-2531381-964f87`) |
+| PyPTO output throughput | **2.3393 tok/s** (median of four fresh starts) |
+| Matched SGLang | **14.9754 tok/s** (same workload, CUDA Graph/overlap disabled) |
+| Optimized SGLang | **12.5000 tok/s** (official Inductor + CUDA Graph + overlap) |
+| PyPTO / matched | **15.6208%**, 95% bootstrap CI **[15.5862%, 15.7022%]**; signed change **-84.3792%** |
+| PyPTO / optimized | **18.7143%**, 95% bootstrap CI **[18.6881%, 18.7533%]**; signed change **-81.2857%** |
+| Matrix acceptance | 12/12 starts completed; PyPTO/matched retain the 4 GiB GPU-free floor; optimized has no fixed GPU-free floor and is accepted only on complete execution, no OOM/crash, and intact controls |
+| Cold/compile-trigger | PyPTO `15725.20/29025.66 ms`; matched `14895.79/24243.59 ms`; optimized `122555.13/11921.59 ms`; optimized cold includes Inductor/CUDA Graph capture and the first request is still not compiler-only |
 
-The non-promoted optimized probes are retained in the same diagnostic sidecar:
-`0.68` left the GDN state cache unable to serve one request; `0.685` reached
-2454 MiB free during graph capture; 3/4 GiB CPU offload reached 4088/3784 MiB
-before the floor. None produced a performance report, and the formal 2 GiB
-offload/0.69 configuration is unchanged. The official memory-saver dependency
-is absent from the locked environment, while post-capture KV sizing is
-incompatible with the formal disabled-prefill-graph contract; no temporary
-package install or serving-mode change was used to bypass the gate.
+The previous 4096 MiB-floor failure and memory probes remain in
+`state/evidence/optimized-lane-diagnostic-current.json` as historical diagnostics.
+The accepted optimized configuration remains `cpu_offload_gb=2,
+mem_fraction_static=0.69`; only its fixed runtime GPU-free floor was removed by
+explicit user authorization. Foreign-process isolation, the 12 GiB host floor,
+telemetry, timeout, thermal, OOM/exit-code, and natural-cleanup gates remain.
 
 Artifact-union versus model-forward compute intersection for accepted traces:
 
@@ -67,21 +86,23 @@ Artifact-union versus model-forward compute intersection for accepted traces:
 | Qwen3.5-0.8B | 22,108 | 20,572 | 1,536 | 0 | 100% |
 | Qwen3.5-9B | 33,448 | 31,400 | 2,048 | 0 | 100% |
 
-Formal four-start end-to-end medians (each start first reduced to a ten-request p50):
+Formal four-start three-lane medians (each start first reduced to a ten-request p50):
 
 | lane | E2E | TTFT | TPOT | output tok/s | cold engine | first compile-trigger request |
 |---|---:|---:|---:|---:|---:|---:|
-| PyPTO | 26529.17 ms | 3159.24 ms | 370.86 ms | 2.4124 | 16164.45 ms | 29252.20 ms |
-| matched | 4163.75 ms | 70.10 ms | 64.97 ms | 15.3708 | 15316.70 ms | 23815.46 ms |
+| PyPTO | 27358.76 ms | 3343.10 ms | 381.23 ms | 2.3393 | 15725.20 ms | 29025.66 ms |
+| matched | 4273.67 ms | 73.21 ms | 66.66 ms | 14.9754 | 14895.79 ms | 24243.59 ms |
+| optimized | 5119.99 ms | 151.39 ms | 78.86 ms | 12.5000 | 122555.13 ms | 11921.59 ms |
 
 The first compile-trigger request includes compilation and one complete 31+64
-request; it is not compiler-only time. The formal pair's minimum GPU free memory
-was `5,123,887,104 B` and minimum host availability was `47,233,052 KiB`; all
-eight starts passed both floors without thermal throttling. Both lanes used
-`cpu_offload_gb=2` and `mem_fraction_static=0.78`, and listed controls had zero
-mismatches. The previous invalidated pair is retained separately at
+request; it is not compiler-only time. Minimum GPU-free memory was
+`6,872,449,024`, `6,226,878,464`, and `1,940,078,592 B` for PyPTO, matched,
+and optimized respectively. All 12 starts passed the 12 GiB host gate without
+thermal throttling. PyPTO/matched used `cpu_offload_gb=2,
+mem_fraction_static=0.78`; optimized used `2/0.69` and records
+`gpu_free_floor_mode=disabled-completion-only`. The previous invalidated pair is retained at
 `state/evidence/qwen35-9b-performance-pair-invalidated-20260830.json` and must
-not be mixed with the formal result. Qualification and pair binding are recorded
+not be mixed with the current headline. Historical qualification is recorded
 in `state/evidence/matched-performance-qualification-current.json`. The
 controller stops its own run if a protected workload appears and never signals
 an external process. The
@@ -93,19 +114,18 @@ Inductor wrappers containing pypto_launch.
 
 Machine-readable sources (including the two model-gate sidecars):
 
-- state/evidence/qwen35-9b-performance-pair-current.json
+- state/evidence/qwen35-9b-release-results-current.json
 - state/evidence/qwen35-0.8b-model-gate-current.json
 - state/evidence/qwen35-9b-model-gate-current.json
 - state/evidence/qwen35-9b-operator-performance-breakdown-current.json
 - state/evidence/qwen35-9b-inductor-ablation-current.json
 - state/evidence/qwen35-9b-inductor-source-current.json
 
-One full-model eager control was also run with torch.compile disabled while
-keeping the matched providers: output 15.3418 tok/s and E2E 4171.67 ms. The
-formal matched compile-request median is 15.3708 tok/s and 4163.75 ms, but disabling
-CUDA graphs prevents the pinned SGLang CompilerInterface/Inductor invocation.
-This is therefore not a causal whole-model compile speedup; the timing-only
-record is state/evidence/qwen35-9b-eager-compile-ablation-current.json.
+A historical full-model eager control (15.3418 tok/s) and its historical matched
+compile-request control both failed to invoke CompilerInterface, so they do not
+establish a causal whole-model compile speedup. That boundary is recorded in
+state/evidence/qwen35-9b-eager-compile-ablation-current.json. The supported
+eager/NV-Inductor/PyPTO causal comparison remains the fixed SwiGLU ablation below.
 
 These are measured implementation results, not performance targets. Fewer
 launches do not automatically mean lower latency; current dominant costs are
@@ -209,52 +229,44 @@ Aligned eight-start operator A/B (four starts per lane):
 
 | case | PyPTO latency / stock |
 |---|---:|
-| SwiGLU decode / prefill | 23.52x / 23.47x |
-| gate-up linear decode / prefill | 10.89x / 180.02x |
-| down linear decode / prefill | 37.11x / 189.69x |
-| FP32 LM head | 6.10x |
+| SwiGLU decode / prefill | 21.70x / 22.22x |
+| gate-up linear decode / prefill | 10.87x / 179.19x |
+| down linear decode / prefill | 36.87x / 194.69x |
+| FP32 LM head | 6.00x |
 
 These are logically aligned microbenchmarks. They explain why the current
 whole-model result is slower despite fewer pointwise launches; they are not a
 claim that PyPTO is faster.
 
-### Whole-model CUPTI descriptive breakdown
+### Whole-model CUPTI/NVTX hybrid breakdown
 
-The strict three-lane compiled profile (PyPTO, matched, optimized) remains a
-separate gate. To provide auditable phase evidence now, we collected three
-PyPTO and three `sglang-matched` fresh starts, with five profile requests per
-start and 64 `ModelRunner.forward` windows per request. The matched lane keeps
-`enable_torch_compile=true`, but disabling CUDA Graphs prevents this pinned
-SGLang build from invoking `CompilerInterface`. The table is therefore
-descriptive stock-CUDA CUPTI activity, not Inductor compilation or a speedup
-claim.
+Each lane has three fresh starts, five requests per start, and 64 nonempty
+`ModelRunner.forward` windows per request. PyPTO and optimized prove compiled
+execution; every optimized start also observes 315/315 `cudaGraphLaunch`
+callbacks. Matched does not invoke CompilerInterface because its frozen
+configuration disables CUDA Graphs, so it remains a descriptive stock control,
+not an Inductor speedup result.
 
-| forward compute (GPU activity duration per request) | PyPTO p50 | stock matched p50 | delta |
+| forward compute (GPU activity duration per request) | PyPTO | matched descriptive | optimized compiled |
 |---|---:|---:|---:|
-| all compute | 22.318812 ms | 1.285792 ms | +21.033020 ms |
-| `unattributed_compute` | 20.184082 ms | 0.435080 ms | +19.749002 ms |
-| `attention_core_gate` | 1.154360 ms | 0.003228 ms | +1.151132 ms |
-| `lm_head` | 0.931866 ms | 0 ms (no same-name correlation) | +0.931866 ms |
+| all compute | 22318.812 ms | 1285.792 ms | 2131.558 ms |
+| `unattributed_compute` | 20184.082 ms | 435.080 ms | 1830.714 ms |
+| `attention_core_gate` | 1154.360 ms | 3.228 ms | 3.889 ms |
+| `lm_head` | 931.866 ms | 0 (no same-name correlation) | 0 (no same-name correlation) |
 
-`unattributed_compute`, and a zero stock value, do not mean that an operator
-did not execute. They mean that the current external-correlation/module-hook
-rules did not map the activity to the same logical name. The phase-delta sum is
-`21.031480 ms`; the `1.539578 ms` residual against the total is a median-
-estimator reconciliation residual. Full phases, confidence intervals, every
-raw CUPTI trace SHA, and resource boundaries are in
-[`qwen35-9b-descriptive-stock-profile-breakdown-current.json`](state/evidence/qwen35-9b-descriptive-stock-profile-breakdown-current.json).
-Rebuild it explicitly with the following mode (the strict three-lane matrix is
-unchanged):
+Versus optimized, PyPTO has a `22238.774 ms` E2E gap, a `20187.254 ms`
+profiled GPU-compute gap, and a `2051.520 ms` non-profile residual. Independent
+phase medians produce a `-9.109 ms` reconciliation residual. Unattributed or
+zero values describe attribution coverage, not operator non-execution. Full
+phase CIs, graph-replay counts, raw-trace hashes, resources, and identity are in
+[`qwen35-9b-release-results-current.json`](state/evidence/qwen35-9b-release-results-current.json).
+Rebuild the complete hybrid matrix with:
 
 ```bash
-envs/pypto-release/bin/python tools/profile_qwen35.py collect \
-  --lane sglang-matched --model-path models/Qwen3.5-9B \
-  --optimized-memory-mode matched --allow-noncompiled-matched
-envs/pypto-release/bin/python tools/profile_qwen35.py reconcile \
+envs/pypto-release/bin/python tools/profile_qwen35.py matrix \
+  --model-path models/Qwen3.5-9B --optimized-memory-mode matched \
   --allow-noncompiled-matched \
-  --profile pypto=runs/<pypto-start>/qwen35-9b-profile-pypto.json \
-  --profile sglang-matched=runs/<matched-start>/qwen35-9b-profile-sglang-matched.json \
-  --output runs/<breakdown>/descriptive-reconciliation.json
+  --performance-matrix runs/release-performance-matrix-<id>/summary.json
 ```
 
 The requested ablation/breakdown images must be generated with GPT-Image-2.
@@ -439,15 +451,14 @@ Fixed model prompt:
 Only SM120/RTX 5090 Laptop is validated. Shapes and strides are statically
 specialized; the complete MLP is not fused across matmul; long GDN prefill is
 token-ordered; PyPTO matmul/LM-head/launch overhead remains to be optimized.
-The optimized lane, strict three-lane full-model CUPTI/NVTX profile, and
-GPT-Image-2 assets remain publication gates. The
-resource-qualified PyPTO/matched four-start pair
-is accepted; its noncompiled matched descriptive phase profile is recorded in
-the corresponding sidecar.
+The three-lane performance matrix and hybrid CUPTI/NVTX profile are accepted.
+Matched is a noncompiled descriptive control; PyPTO and optimized are strict
+compiled lanes. Only GPT-Image-2 assets and the final document audit remain
+publication gates.
 TensorIR is marked early release upstream.
 
 PyPTO uses CANN Open Software License Agreement 2.0. TensorIR uses Apache 2.0
 with LLVM Exceptions. The framework plugin uses Apache 2.0. See
 packages/pypto-kernels/LICENSE_STATUS.md for the kernels authorization boundary.
-The historical report retains status `invalidated-resource-and-control`; the
-current formal report is `complete` with `acceptance.accepted=true`.
+The historical pair retains status `invalidated-resource-and-control`; current
+formal results are in `qwen35-9b-release-results-current.json`.

@@ -6,12 +6,13 @@ machine-readable evidence; historical checkpoints do not satisfy an unchecked
 release item.
 
 Current machine-readable audit: state/evidence/blog-requirements-audit-current.json
-(status=pass, with explicit open gates for optimized stock, full-model
-CUPTI/NVTX profile, and GPT-Image-2 authorization). All 41 computational
+(status pending refresh, with only GPT-Image-2 authorization remaining open).
+The 12-start performance matrix and hybrid three-lane CUPTI/NVTX profile are
+complete; PyPTO/optimized are strict compiled and matched is an explicit
+descriptive noncompiled control. All 41 computational
 article entries pass on NVIDIA; 17 hardware-API entries are accepted skips and
 eight drafts remain provenance-only. The five screenshot roles are complete;
-the resource-qualified
-matched pair is now accepted; the item-by-item mapping is
+the current-identity three-lane release bundle is accepted; the item-by-item mapping is
 docs/final_requirement_matrix.md; this checklist remains the detailed review
 template and is not permission to promote an open item.
 
@@ -124,14 +125,17 @@ template and is not permission to promote an open item.
 - [ ] PyPTO relative performance is computed from median output tokens/second
       separately against matched and optimized stock; percent-of-baseline and
       signed speedup formulas/directions are printed beside the values.
-      The accepted matched result is 15.6949597607% of stock (95% CI
-      15.6337788563%-15.7526036739%); optimized remains open.
+      Current 12-start results are 15.6208285413% of matched (95% CI
+      15.5861953814%-15.7022436243%) and 18.7142538009% of optimized
+      (95% CI 18.6880658112%-18.7533301329%).
 - [ ] Independent CUPTI/NVTX profiles compare semantic operator phases and
       reconcile phase deltas plus host/scheduler/memcpy/graph residuals to the
       total performance gap. A separate descriptive stock-CUDA profile is
-      accepted at `state/evidence/qwen35-9b-descriptive-stock-profile-breakdown-current.json`,
-      but it deliberately records `matched_compilation_effective=false` and
-      does not close the strict three-lane compiled gate.
+      The accepted hybrid result is in
+      `state/evidence/qwen35-9b-release-results-current.json`: PyPTO and
+      optimized are strict compiled; matched deliberately records noncompiled
+      descriptive scope because its frozen configuration does not invoke
+      CompilerInterface.
 - [ ] Linear and LM-head shapes receive explicit A/B measurement because the
       historical diagnostic profile identified matmul as the dominant cost.
       The accepted seven-case, 4+4 fresh-start aggregation is checked in at

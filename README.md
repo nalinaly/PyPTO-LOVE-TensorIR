@@ -31,6 +31,27 @@ SGLang -> pypto-kernels + TorchDynamo/Inductor -> PyPTO HIR
 
 ## 当前实测结论
 
+<!-- RELEASE_RESULTS:SUMMARY_BEGIN -->
+
+| 项目 | Qwen3.5-9B release-v1 |
+|---|---:|
+| 64-token greedy 正确性 | PASS（3 次 fresh start，30 个请求） |
+| model-forward PyPTO compute coverage | 100% |
+| 算子 regression | PASS（8 suites，101 cases） |
+| PyPTO / matched SGLang | 15.62% |
+| PyPTO / optimized SGLang | 18.71% |
+| 性能瓶颈归因 | CUPTI/NVTX reconciliation complete |
+
+![Ubuntu/PowerShell 紫色终端：回放已接受的 wheel、native、CTest 13/13 与 install 四阶段构建门；四份报告共享同一 wheel artifact set。](docs/assets/screenshots/build-ctest.png)
+
+![Ubuntu/PowerShell 紫色终端：回放当前 DSO 下 8/8 operator suite、101 个 case 与结构门结果；明确不是本轮 live GPU 画面。](docs/assets/screenshots/operator-correctness.png)
+
+![Ubuntu/PowerShell 紫色终端：回放相同 prompt 的 64-token 输出与 100% PyPTO coverage；本轮 current-identity 证据为 stock reference 加 3 个 fresh candidate start。](docs/assets/screenshots/model-inference.png)
+
+![Ubuntu/PowerShell 紫色终端：SwiGLU 算子级融合消融截图；相邻整模表格由本轮 12-start 三 lane matrix 生成，不能把截图本身解读为整模结论。](docs/assets/screenshots/performance-ablation.png)
+
+<!-- RELEASE_RESULTS:SUMMARY_END -->
+
 平台：RTX 5090 Laptop（SM120，24 GiB），Qwen3.5-9B text-only，chat-template
 non-thinking 输入 31 token，greedy 输出 64 token，BF16、TP1、并发 1。
 
@@ -39,20 +60,19 @@ non-thinking 输入 31 token，greedy 输出 64 token，BF16、TP1、并发 1。
 | 9B correctness/coverage | 当前 wheel 的 3 个 fresh start 全部完成；每个 10/10 请求和 strict teacher-forced trace 通过 |
 | model-forward coverage | 已通过 trace：33,448 compute calls = 31,400 手写 PyPTO + 2,048 Inductor PyPTO，unknown/fallback 0，100% |
 | 0.8B current wheel | stock reference + 3 个 candidate fresh start 全部完成；每个 trace 22,108/22,108 covered calls = 20,572 手写 + 1,536 Inductor |
-| PyPTO output throughput | **正式资源合规 pair：2.4124 tok/s**（四次 fresh-start 中位数） |
-| matched SGLang | **正式资源合规 pair：15.3708 tok/s**（同 workload/control） |
-| PyPTO / matched | **15.695%**，95% bootstrap CI **[15.634%, 15.753%]**；相对 matched 为 **-84.305%** |
-| Pair acceptance | `accepted=true`；8 个 start 全部高于 4 GiB GPU-free/12 GiB host-free floor，控制字段零 mismatch |
-| Cold/compile-trigger | PyPTO `16164.45/29252.20 ms`；matched `15316.70/23815.46 ms`；前者比后者高 **22.83%**（含一次完整 31+64 请求，不是 compiler-only） |
-| 历史失效 pair | 旧 `2.6671/15.4100 tok/s`、17.31% 已移至 `qwen35-9b-performance-pair-invalidated-20260830.json`，只作诊断对照 |
-| optimized SGLang | 未报告；本轮 CUDA-graph capture 到 4000 MiB free 时被 4096 MiB controller floor 停止（run `pypto-gpu-bounded-20260831T034327Z-2531381-964f87`） |
+| PyPTO output throughput | **2.3393 tok/s**（4 个 fresh start 的中位数） |
+| matched SGLang | **14.9754 tok/s**（同 workload，关闭 CUDA Graph/overlap） |
+| optimized SGLang | **12.5000 tok/s**（官方 Inductor + CUDA Graph + overlap） |
+| PyPTO / matched | **15.6208%**，95% bootstrap CI **[15.5862%, 15.7022%]**；相对 matched **-84.3792%** |
+| PyPTO / optimized | **18.7143%**，95% bootstrap CI **[18.6881%, 18.7533%]**；相对 optimized **-81.2857%** |
+| Matrix acceptance | 12/12 start 完成；PyPTO/matched 保留 4 GiB GPU-free floor；optimized 按用户授权取消固定 GPU-free floor，只接受完整执行、零 OOM/崩溃和完整控制字段 |
+| Cold/compile-trigger | PyPTO `15725.20/29025.66 ms`；matched `14895.79/24243.59 ms`；optimized `122555.13/11921.59 ms`；后者 cold 包含 CUDA Graph/Inductor capture，首次请求仍非 compiler-only |
 
-optimized 的未晋级探测也保留在同一 diagnostic sidecar：`0.68` 因 GDN
-state cache 无法容纳一个请求而失败；`0.685` 在 graph capture 期间降到
-2454 MiB free；3/4 GiB CPU offload 分别在 4088/3784 MiB 被门禁停止。它们都
-没有性能报告，正式 2 GiB offload、0.69 配置不变。官方 memory-saver 依赖未
-进入锁定环境，post-capture KV sizing 又与当前 disabled prefill graph 合同不兼容，
-因此未用临时装包或改 serving mode 绕过门禁。
+旧的 4096 MiB floor 失败和其他内存探测仍保存在
+`state/evidence/optimized-lane-diagnostic-current.json`，只作历史诊断。当前正式
+optimized 配置仍为 `cpu_offload_gb=2, mem_fraction_static=0.69`，区别仅是按
+用户授权取消该 lane 的固定运行期 GPU-free floor；外部进程隔离、12 GiB
+主机内存、遥测、超时、热降频、OOM/退出码和自然清理门禁均保留。
 
 accepted trace 的 artifact union 与 model-forward compute intersection：
 
@@ -61,25 +81,25 @@ accepted trace 的 artifact union 与 model-forward compute intersection：
 | Qwen3.5-0.8B | 22,108 | 20,572 | 1,536 | 0 | 100% |
 | Qwen3.5-9B | 33,448 | 31,400 | 2,048 | 0 | 100% |
 
-整模正式 pair 的四次 fresh-start 汇总（每次先取十个请求的 p50）：
+整模正式三 lane 的四次 fresh-start 汇总（每次先取十个请求的 p50）：
 
 | lane | E2E | TTFT | TPOT | output tok/s | cold engine | 首次编译触发请求 |
 |---|---:|---:|---:|---:|---:|---:|
-| PyPTO | 26529.17 ms | 3159.24 ms | 370.86 ms | 2.4124 | 16164.45 ms | 29252.20 ms |
-| matched | 4163.75 ms | 70.10 ms | 64.97 ms | 15.3708 | 15316.70 ms | 23815.46 ms |
+| PyPTO | 27358.76 ms | 3343.10 ms | 381.23 ms | 2.3393 | 15725.20 ms | 29025.66 ms |
+| matched | 4273.67 ms | 73.21 ms | 66.66 ms | 14.9754 | 14895.79 ms | 24243.59 ms |
+| optimized | 5119.99 ms | 151.39 ms | 78.86 ms | 12.5000 | 122555.13 ms | 11921.59 ms |
 
 首次编译触发请求包含编译和一个完整 31+64 请求，不是 compiler-only 时间。
-正式 pair 的 PyPTO 最低 GPU free 为 `5,123,887,104 B`，最低主机可用内存为
-`47,233,052 KiB`；8 个 start 均通过 4 GiB/12 GiB 门禁且未观测 thermal throttle。
-两条 lane 统一为 `cpu_offload_gb=2, mem_fraction_static=0.78`，控制字段零 mismatch。
-旧的失效 pair 仍保留为
+PyPTO/matched/optimized 的最低 GPU free 分别为 `6,872,449,024`、
+`6,226,878,464`、`1,940,078,592 B`；12 个 start 均高于 12 GiB 主机门禁，
+未观测 thermal throttle。PyPTO/matched 使用 `cpu_offload_gb=2,
+mem_fraction_static=0.78`；optimized 使用 `2/0.69` 并明确记录
+`gpu_free_floor_mode=disabled-completion-only`。旧的失效 pair 仍保留为
 `state/evidence/qwen35-9b-performance-pair-invalidated-20260830.json`，不能与当前
 正式结果混用。资格与 pair 绑定见
-`state/evidence/matched-performance-qualification-current.json`。
-该旧报告的状态仍明确为 `invalidated-resource-and-control`；当前正式报告状态为
-`complete` 且 `acceptance.accepted=true`。
-完整 JSON 为
-state/evidence/qwen35-9b-performance-pair-current.json；模型 gate
+`state/evidence/matched-performance-qualification-current.json`，不能作为当前 headline。
+当前统一机器可读结果为
+state/evidence/qwen35-9b-release-results-current.json；模型 gate
 sidecar 为 state/evidence/qwen35-0.8b-model-gate-current.json 和
 state/evidence/qwen35-9b-model-gate-current.json；生成
 kernel 的 DSL、wrapper 和 artifact hash 见
@@ -90,11 +110,10 @@ state/evidence/qwen35-9b-eager-compile-ablation-current.json。
 identity 见
 state/evidence/qwen35-9b-operator-performance-breakdown-current.json。
 
-整模 eager control 也已单独运行一次：关闭 torch.compile、保持 matched provider，
-output 15.3418 tok/s、E2E 4171.67 ms；正式 pair 中 matched compile-request
-的中位数为 15.3708 tok/s、4163.75 ms。但 matched 配置禁用 CUDA Graph 后
-CompilerInterface/Inductor 实际未调用，因此这不是有效的整模 compile 因果加速率；
-machine-readable 记录为 state/evidence/qwen35-9b-eager-compile-ablation-current.json。
+历史整模 eager control（15.3418 tok/s）与历史 matched compile-request 都没有
+调用 CompilerInterface，因此不能形成整模 compile 因果加速率；该边界记录在
+state/evidence/qwen35-9b-eager-compile-ablation-current.json。有效的 eager/NV
+Inductor/PyPTO 因果比较仍是下文固定 SwiGLU 算子消融。
 
 ## 为什么 TensorIR 适合作为 PyPTO backend
 
@@ -184,46 +203,42 @@ compiled mode 都把 6 events 降到 1，launch reduction 83.33%。PyPTO 首调�
 
 | case | PyPTO latency / stock |
 |---|---:|
-| SwiGLU decode / prefill | 23.52x / 23.47x |
-| gate-up linear decode / prefill | 10.89x / 180.02x |
-| down linear decode / prefill | 37.11x / 189.69x |
-| FP32 LM head | 6.10x |
+| SwiGLU decode / prefill | 21.70x / 22.22x |
+| gate-up linear decode / prefill | 10.87x / 179.19x |
+| down linear decode / prefill | 36.87x / 194.69x |
+| FP32 LM head | 6.00x |
 
 这些是逻辑功能对齐的 microbenchmark；它们解释了当前整模慢的主要来源，
 不能被外推成 PyPTO 加速。
 
-### 全模型 CUPTI 描述性 breakdown
+### 全模型 CUPTI/NVTX hybrid breakdown
 
-严格三 lane（PyPTO、matched、optimized）的编译执行 profile 仍是独立门禁；
-为了先给出可核查的阶段证据，我们另外采集了 3 个 PyPTO 和 3 个
-`sglang-matched` fresh start，每个 start 5 个请求、每个请求 64 个
-`ModelRunner.forward` 窗口。matched 的配置保留了 `enable_torch_compile=true`，
-但关闭 CUDA Graph 后本 pinned SGLang 没有调用 CompilerInterface，因此下面
-只表示 stock CUDA kernel 的描述性 CUPTI 活动，不是 Inductor 编译或加速证明。
+三条 lane 各有 3 个 fresh start、每 start 5 个请求、每请求 64 个非空
+`ModelRunner.forward` window。PyPTO 和 optimized 都证明了 compiled execution；
+optimized 每个 start 还观测到 315/315 `cudaGraphLaunch`。matched 因冻结配置
+关闭 CUDA Graph 而未调用 CompilerInterface，所以它只作为 descriptive stock
+control，不能被解读为 Inductor 加速结果。
 
-| forward compute（每请求 GPU activity duration） | PyPTO p50 | stock matched p50 | 差值 |
+| forward compute（每请求 GPU activity duration） | PyPTO | matched descriptive | optimized compiled |
 |---|---:|---:|---:|
-| 全部 compute | 22.318812 ms | 1.285792 ms | +21.033020 ms |
-| `unattributed_compute` | 20.184082 ms | 0.435080 ms | +19.749002 ms |
-| `attention_core_gate` | 1.154360 ms | 0.003228 ms | +1.151132 ms |
-| `lm_head` | 0.931866 ms | 0 ms（未形成同名关联） | +0.931866 ms |
+| 全部 compute | 22318.812 ms | 1285.792 ms | 2131.558 ms |
+| `unattributed_compute` | 20184.082 ms | 435.080 ms | 1830.714 ms |
+| `attention_core_gate` | 1154.360 ms | 3.228 ms | 3.889 ms |
+| `lm_head` | 931.866 ms | 0（未形成同名关联） | 0（未形成同名关联） |
 
-`unattributed_compute` 和表中 stock 的 0 并不表示对应算子没有执行；它们
-表示当前 external-correlation/module-hook 规则没有把活动映射到同一逻辑名。
-阶段差值之和为 `21.031480 ms`，与总差值的 `1.539578 ms` 中位数残差来自
-分别取阶段/总量中位数。完整 phase、CI、每个 raw CUPTI trace 的 SHA 和资源
-边界见 [`qwen35-9b-descriptive-stock-profile-breakdown-current.json`](state/evidence/qwen35-9b-descriptive-stock-profile-breakdown-current.json)。
-该 sidecar 可由以下显式模式重建（不会改变严格三 lane matrix）：
+相对 optimized，PyPTO 的 E2E gap 为 `22238.774 ms`，其中 profiled GPU
+compute gap 为 `20187.254 ms`，非 profile residual 为 `2051.520 ms`；阶段独立
+取中位数产生 `-9.109 ms` reconciliation residual。`unattributed_compute` 和 0
+值只描述 attribution 能力，不能解释为算子未执行。完整 phase/CI、315 次 graph
+replay、raw trace SHA、资源和 identity 见
+[`qwen35-9b-release-results-current.json`](state/evidence/qwen35-9b-release-results-current.json)。
+完整重建命令为：
 
 ```bash
-envs/pypto-release/bin/python tools/profile_qwen35.py collect \
-  --lane sglang-matched --model-path models/Qwen3.5-9B \
-  --optimized-memory-mode matched --allow-noncompiled-matched
-envs/pypto-release/bin/python tools/profile_qwen35.py reconcile \
+envs/pypto-release/bin/python tools/profile_qwen35.py matrix \
+  --model-path models/Qwen3.5-9B --optimized-memory-mode matched \
   --allow-noncompiled-matched \
-  --profile pypto=runs/<pypto-start>/qwen35-9b-profile-pypto.json \
-  --profile sglang-matched=runs/<matched-start>/qwen35-9b-profile-sglang-matched.json \
-  --output runs/<breakdown>/descriptive-reconciliation.json
+  --performance-matrix runs/release-performance-matrix-<id>/summary.json
 ```
 
 用户要求所有消融/breakdown 图用 GPT-Image-2。当前环境没有 OPENAI_API_KEY，
@@ -398,12 +413,13 @@ tools/windows/capture_terminal.ps1。
 
 只验证 SM120/RTX 5090 Laptop；静态 shape/stride specialization；完整 MLP
 不跨 matmul 融合；GDN 长 prefill 为有序 tokenwise launch；PyPTO matmul/
-LM-head/launch overhead 尚未优化；optimized lane、严格三 lane 全模型
-CUPTI/NVTX profile 和 GPT-Image-2 图像仍是门禁。资源合规的
-PyPTO/matched 四-start pair 已接受，
-其非编译 matched 的描述性阶段 profile 见对应 sidecar。
+LM-head/launch overhead 尚未优化。三 lane 性能矩阵与 hybrid CUPTI/NVTX
+profile 已接受：matched 是 noncompiled descriptive control，PyPTO 与 optimized
+是 strict compiled。当前只剩 GPT-Image-2 图像与最终文档审计门槛。
 TensorIR 上游为 early release。
 
 PyPTO 使用 CANN Open Software License Agreement 2.0；TensorIR 使用 Apache
 2.0 with LLVM Exceptions；framework plugin 使用 Apache 2.0。授权边界见
-packages/pypto-kernels/LICENSE_STATUS.md。
+packages/pypto-kernels/LICENSE_STATUS.md。历史失效 pair 仍保留
+`invalidated-resource-and-control`；当前正式结果见
+`qwen35-9b-release-results-current.json`。

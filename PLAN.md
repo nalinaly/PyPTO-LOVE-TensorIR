@@ -2132,3 +2132,44 @@ denominator, bootstrap-CI records, PyPTO/TensorIR source lock, and candidate DSO
 identity. The three external gates are unchanged; this checkpoint closes only
 repository-side publication integrity and does not manufacture optimized or
 profile results.
+
+---
+# Optimized and hybrid profile closure: 2026-09-01 (revision 75)
+
+The user explicitly replaced the optimized lane's 4096 MiB runtime GPU-free
+abort floor with completion-only acceptance: no fixed GPU-free minimum, while
+zero-foreign-compute admission, 12 GiB host floor, telemetry, timeout, thermal,
+OOM/nonzero-exit and natural-cleanup gates remain fail closed. PyPTO and matched
+retain the 4096 MiB controller floor. The controller policy is per-run and
+recorded as `gpu_free_floor_mode=disabled-completion-only` only for optimized.
+
+The final `C M M C O C C O M O O M` performance matrix completed 12/12 starts.
+Median output throughput is PyPTO `2.3392872545`, matched `14.9754364710`, and
+optimized `12.5000295462 tok/s`. PyPTO is `15.6208285413%` of matched (95% CI
+`15.5861953814%-15.7022436243%`) and `18.7142538009%` of optimized (95% CI
+`18.6880658112%-18.7533301329%`). All four optimized starts generated run-local
+official Inductor wrappers, completed 10/10 requests, enabled CUDA Graph and
+overlap configuration, avoided OOM/thermal throttle and cleaned up naturally.
+
+A literal strict-three-compiled-lane profile is invalid because the frozen
+matched control disables CUDA Graph and therefore never invokes this pinned
+SGLang CompilerInterface. The completed hybrid profile preserves all three
+lanes while stating the boundary: PyPTO and optimized are strict compiled;
+matched is descriptive noncompiled. Each lane has 3 starts, 5 requests/start
+and 64 nonempty forward windows/request. Every optimized start records 315/315
+CUDA runtime graph launches using CUDA 13.3 CUPTI CBIDs 311/312. Versus
+optimized, the PyPTO E2E gap is `22238.77421525 ms`, the profiled GPU-compute
+gap is `20187.254148 ms`, and the non-profile residual is `2051.52006725 ms`.
+
+The current identity release bundle also includes a new stock reference plus
+three PyPTO correctness starts (30 Engine requests and 3 strict teacher-forced
+traces), a fresh 49-case structure plus 8-suite/101-case operator regression,
+and a fresh 4+4 seven-case operator A/B matrix. The sanitized authoritative
+bundle is `state/evidence/qwen35-9b-release-results-current.json`; the current
+operator aggregation is
+`state/evidence/qwen35-9b-operator-performance-breakdown-current.json`.
+
+All earlier statements that optimized/profile are open are historical and are
+superseded by this checkpoint. The only remaining publication gate is final
+GPT-Image-2 asset generation and inspection. The current process still lacks
+`OPENAI_API_KEY`; do not substitute another model or fabricate the images.

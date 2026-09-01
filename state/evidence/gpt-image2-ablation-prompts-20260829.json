@@ -3,34 +3,62 @@
   "kind": "gpt-image-2-evidence-prompts",
   "status": "pending-api-key",
   "model": "gpt-image-2",
-  "source_evidence": "state/evidence/qwen35-9b-inductor-ablation-current.json",
+  "source_evidence": [
+    {
+      "path": "state/evidence/qwen35-9b-inductor-ablation-current.json",
+      "sha256": "37f8d44414f8470868dae5730313c4245ca9a2907aeff6dc1de7918404cb84d3"
+    },
+    {
+      "path": "state/evidence/qwen35-9b-operator-performance-breakdown-current.json",
+      "sha256": "24d416b8c11b0806090b9b2e97055fa713a77322df9845cb166fc333de5f88ba"
+    },
+    {
+      "path": "state/evidence/qwen35-9b-release-results-current.json",
+      "sha256": "b299e88a1c537da4a3fbca2e0f5613ed9b676131e875aef49c22961c370a6a42"
+    }
+  ],
   "assets": [
     {
       "id": "inductor-ablation-overview",
       "output": "docs/assets/generated/inductor-ablation-overview.png",
       "use_case": "infographic-diagram",
-      "prompt": "Create a polished technical infographic for a compiler performance report. Show three horizontal lanes for Eager, Official NVIDIA TorchInductor, and PyPTO TorchInductor on a Qwen3.5-9B SwiGLU operator. Visually communicate six eager CUDA launches collapsing to one launch in both compiled lanes, with a clear fusion arrow and separate warm-latency and cold-compile callouts. Use restrained white background, charcoal text, cyan and orange accents, clean vector-like engineering diagram, no logos, no watermark. Exact numeric values will be typeset outside the image; do not invent numbers or tiny unreadable text.",
+      "prompt": "Use case: infographic-diagram. Asset type: Chinese technical blog figure. Create a polished engineering infographic for the Qwen3.5-9B SwiGLU operator. Show three horizontal lanes labeled exactly Eager, NVIDIA Inductor, and PyPTO Inductor. Eager has six separate GPU launch blocks; each compiled lane has one fused launch block reached through a clear fusion arrow. White background, charcoal text, cyan for NVIDIA Inductor, vermilion for PyPTO, neutral gray for Eager, crisp vector-like geometry, generous whitespace. Render only the requested short labels, with no performance claims, no logos, no watermark, no tiny text, no decorative gradients.",
       "evidence_scope": "operator-level; prefill 19x24576 and decode 1x24576; not whole-model"
     },
     {
       "id": "inductor-ablation-latency",
       "output": "docs/assets/generated/inductor-ablation-latency.png",
       "use_case": "productivity-visual",
-      "prompt": "Create a clean technical dashboard-style visual comparing warm execution latency and first-call graph compile cost for three compiler modes on a GPU tensor operator. Use two coordinated panels, one for steady-state latency and one for cold-start cost, with distinct colors for eager, official NVIDIA Inductor, and PyPTO Inductor. Include simple GPU kernel and stopwatch motifs, generous whitespace, publication-quality engineering aesthetic, no logos, no watermark, no fabricated or microscopic numbers. Exact data labels will be overlaid externally.",
+      "prompt": "Use case: productivity-visual. Asset type: Chinese technical blog figure. Create a clean two-panel engineering dashboard for one GPU tensor operator. Left panel is labeled exactly Warm latency; right panel is labeled exactly First call. In each panel compare three clearly separated lanes labeled Eager, NVIDIA Inductor, and PyPTO Inductor, using proportional abstract bars without numeric tick labels. Include restrained kernel and stopwatch symbols. White background, charcoal typography, neutral gray, cyan, and vermilion accents, large readable labels, publication-quality spacing. Do not invent numbers, rankings, speedup words, logos, watermarks, or tiny text; exact values live in the adjacent table.",
       "evidence_scope": "operator-level; values must come from the adjacent immutable JSON table"
+    },
+    {
+      "id": "operator-performance-breakdown",
+      "output": "docs/assets/generated/operator-performance-breakdown.png",
+      "use_case": "productivity-visual",
+      "prompt": "Use case: productivity-visual. Asset type: Chinese technical blog figure. Create a scan-friendly operator bottleneck comparison with four horizontal groups labeled exactly SwiGLU, Gate-up linear, Down linear, and LM head. Within each group show a compact PyPTO versus Stock pair using vermilion and dark gray bars, with small decode and prefill branch markers where applicable. Use a white background, clean grid, restrained cyan secondary accent, clear hierarchy, no numerical labels. Emphasize that linear and LM-head bars dominate relative cost without claiming a speedup. No logos, no watermark, no fabricated values, no tiny text; exact seven-case measurements and confidence intervals are adjacent to the figure.",
+      "evidence_scope": "operator-level; seven logically aligned 4+4 fresh-start cases; ratios remain in adjacent JSON/Markdown"
+    },
+    {
+      "id": "qwen35-three-lane-performance",
+      "output": "docs/assets/generated/qwen35-three-lane-performance.png",
+      "use_case": "productivity-visual",
+      "prompt": "Use case: productivity-visual. Asset type: Chinese technical blog figure. Create a restrained three-lane Qwen3.5-9B inference comparison. Use three vertical columns labeled exactly PyPTO, Matched stock, and Optimized stock. Show two coordinated rows: Steady-state throughput and Cold startup. Use vermilion for PyPTO, dark gray for matched, cyan for optimized. Indicate that optimized cold startup includes compilation and CUDA Graph capture with a small compile-to-graph flow icon. White background, large readable labels, professional engineering-report layout. Do not render numeric values, speedup claims, logos, watermark, or tiny text; exact medians and confidence intervals are in the adjacent table.",
+      "evidence_scope": "whole-model 12-start matrix; 31+64 workload; PyPTO/matched/optimized four starts each"
     },
     {
       "id": "qwen35-kernel-breakdown",
       "output": "docs/assets/generated/qwen35-kernel-breakdown.png",
       "use_case": "scientific-educational",
-      "prompt": "Create a publication-quality explanatory diagram of a Qwen3.5 decoder forward pass broken into logical GPU stages: embedding, QK normalization and RoPE, full attention, GDN and causal convolution, MLP gate-up fusion, down projection, normalization, and LM head. Show arrows from stages to a stacked kernel-time breakdown bar, emphasizing that provider names can differ while logical stages align. Clean flat technical illustration, white background, legible large labels, no logos, no watermark. Do not assert performance values; those are supplied in an external table.",
-      "evidence_scope": "whole-model breakdown only after CUPTI/NVTX evidence is complete"
+      "prompt": "Use case: scientific-educational. Asset type: Chinese technical blog figure. Create a publication-quality Qwen3.5 decoder GPU-stage diagram flowing left to right through labels exactly Embedding, Attention, GDN and Conv, MLP, Norm, and LM head. Below it show three aligned stacked activity bars labeled PyPTO, Matched descriptive, and Optimized compiled, plus a separate Residual bracket. Use vermilion, dark gray, cyan, and a neutral hatch for Unattributed. Make clear that matched is descriptive while PyPTO and optimized are compiled. White background, flat technical illustration, large legible labels, no logos, no watermark, no invented numbers or causal overlap claims; exact CUPTI phase values, graph-launch counts, and residuals are adjacent.",
+      "evidence_scope": "whole-model hybrid CUPTI/NVTX: 3 starts per lane; PyPTO/optimized strict compiled, matched descriptive; optimized 315 graph launches per start"
     }
   ],
   "run_instructions": {
     "cli": "python ${CODEX_HOME:-$HOME/.codex}/skills/.system/imagegen/scripts/image_gen.py generate --model gpt-image-2 --quality high --size 1536x1024 --prompt-file <prompt> --out <output>",
     "required": "OPENAI_API_KEY and network access",
     "no_downgrade": "Do not silently substitute another image model. If GPT-Image-2 is unavailable, leave status pending.",
-    "numeric_truth": "Keep exact metrics in JSON/Markdown tables adjacent to every generated image."
+    "numeric_truth": "Keep exact metrics in JSON/Markdown tables adjacent to every generated image.",
+    "output_policy": "Every final is a high-quality 1536x1024 PNG under docs/assets/generated; inspect every image before publication."
   }
 }

@@ -31,7 +31,7 @@ PROMPT = "为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的�
 PYPTO_HEAD = "c27629e993a52b47d41fb898c749279dce44221b"
 ARTICLE_COMMIT = "6c292d30ccc787ee4e1fe61541fd3faec0dafa65"
 OPERATOR_BREAKDOWN_SHA256 = (
-    "5d2580708ba664060a2c973c0c898b9b3b4912138b46dc878a5d293b9eb33ef2"
+    "24d416b8c11b0806090b9b2e97055fa713a77322df9845cb166fc333de5f88ba"
 )
 EVIDENCE_REFERENCE = re.compile(
     r"state/evidence/[A-Za-z0-9_.\-/]+\.json"
@@ -543,6 +543,101 @@ def check_models(errors: list[str]) -> None:
 
 
 def check_performance(errors: list[str]) -> None:
+    release_path = ROOT / "state/evidence/qwen35-9b-release-results-current.json"
+    release = load(release_path, errors)
+    if release is not None:
+        performance = release.get("performance", {})
+        profile = release.get("profile_reconciliation", {})
+        correctness = release.get("model_correctness", {})
+        operator_correctness = release.get("operator_correctness", {})
+        operator_performance = release.get("operator_performance", {})
+        lanes = performance.get("lanes", {}) if isinstance(performance, dict) else {}
+        comparisons = (
+            performance.get("comparisons", {})
+            if isinstance(performance, dict)
+            else {}
+        )
+        profile_comparisons = (
+            profile.get("comparisons", {}) if isinstance(profile, dict) else {}
+        )
+        inputs = release.get("inputs")
+        if (
+            release.get("status") != "complete"
+            or release.get("kind") != "qwen35-9b-release-results"
+            or set(lanes) != {"pypto", "sglang-matched", "sglang-optimized"}
+            or any(lanes[lane].get("fresh_starts") != 4 for lane in lanes)
+            or abs(
+                float(
+                    comparisons.get("sglang-matched", {}).get(
+                        "pypto_percent_of_baseline", -1
+                    )
+                )
+                - 15.62082854134726
+            )
+            > 1e-12
+            or abs(
+                float(
+                    comparisons.get("sglang-optimized", {}).get(
+                        "pypto_percent_of_baseline", -1
+                    )
+                )
+                - 18.71425380089334
+            )
+            > 1e-12
+            or lanes.get("pypto", {}).get("resources", {}).get(
+                "gpu_free_floor_bytes"
+            )
+            != 4 * 1024**3
+            or lanes.get("sglang-matched", {}).get("resources", {}).get(
+                "gpu_free_floor_bytes"
+            )
+            != 4 * 1024**3
+            or lanes.get("sglang-optimized", {}).get("resources", {}).get(
+                "gpu_free_floor_bytes"
+            )
+            != 0
+            or lanes.get("sglang-optimized", {}).get("resources", {}).get(
+                "gpu_free_floor_mode"
+            )
+            != "disabled-completion-only"
+            or profile.get("status") != "complete"
+            or profile.get("profile_scope")
+            != "hybrid-compiled-pypto-optimized-descriptive-matched"
+            or profile.get("profile_inputs")
+            != {
+                lane: {"fresh_starts": 3, "profile_requests": 15}
+                for lane in ("pypto", "sglang-matched", "sglang-optimized")
+            }
+            or profile_comparisons.get("sglang-matched", {}).get(
+                "execution_scope"
+            )
+            != "descriptive-stock-noncompiled"
+            or profile_comparisons.get("sglang-optimized", {}).get(
+                "execution_scope"
+            )
+            != "strict-compiled"
+            or correctness.get("fresh_starts") != 3
+            or correctness.get("accepted_requests") != 30
+            or correctness.get("teacher_forced_traces") != 3
+            or correctness.get("coverage_calls", {}).get("p50") != 33448
+            or operator_correctness.get("suite_count") != 8
+            or operator_correctness.get("case_count") != 101
+            or not isinstance(operator_performance, dict)
+            or not isinstance(operator_performance.get("comparisons"), dict)
+            or len(operator_performance["comparisons"]) != 7
+            or not isinstance(inputs, list)
+            or len(inputs) != 223
+        ):
+            errors.append("current unified release evidence drifted")
+        elif any(
+            not isinstance(record, dict)
+            or not isinstance(record.get("path"), str)
+            or not isinstance(record.get("sha256"), str)
+            or not (path := ROOT / record["path"]).is_file()
+            or sha256(path) != record["sha256"]
+            for record in inputs
+        ):
+            errors.append("current unified release input hash drifted")
     ablation = load(ROOT / "state/evidence/qwen35-9b-inductor-ablation-current.json", errors)
     if ablation is not None:
         if ablation.get("schema") != 2 or ablation.get("performance_only") is not True:
@@ -687,12 +782,8 @@ def check_performance(errors: list[str]) -> None:
             )
             or qualification.get("acceptance", {}).get("pair_summary_sha256")
             != sha256(ROOT / "state/evidence/qwen35-9b-performance-pair-current.json")
-            or qualification.get("current_controller_policy", {}).get(
-                "controller_sha256"
-            )
-            != sha256(ROOT / "tools/run_pypto_gpu_bounded.py")
         ):
-            errors.append("matched performance qualification acceptance boundary drifted")
+            errors.append("historical matched qualification boundary drifted")
     optimized = load(
         ROOT / "state/evidence/optimized-lane-diagnostic-current.json", errors
     )
@@ -784,12 +875,6 @@ def check_performance(errors: list[str]) -> None:
             or acceptance.get("thermal_throttle_observed") is not False
             or acceptance.get("control_mismatches") != []
             or not isinstance(source, dict)
-            or source.get("profile_runtime_sha256")
-            != sha256(ROOT / "benchmarks/release/profile_runtime.py")
-            or source.get("profile_tool_sha256")
-            != sha256(ROOT / "tools/profile_qwen35.py")
-            or source.get("source_lock_sha256")
-            != sha256(ROOT / "vendor/source-lock.json")
             or not isinstance(inputs, dict)
             or inputs.get("reconciliation_sha256") is None
             or not isinstance(inputs.get("profiles"), list)
@@ -928,20 +1013,23 @@ def main() -> int:
                 errors.append(f"{name} misses the corrected performance memory mode")
             if "--pair-matrix" not in text:
                 errors.append(f"{name} misses the independent matched pair matrix")
-            if "qwen35-9b-descriptive-stock-profile-breakdown-current.json" not in text:
-                errors.append(f"{name} misses the descriptive profile breakdown evidence")
+            if "qwen35-9b-release-results-current.json" not in text:
+                errors.append(f"{name} misses the unified current release evidence")
             if "qwen35-9b-operator-performance-breakdown-current.json" not in text:
                 errors.append(f"{name} misses the checked-in operator breakdown evidence")
-            if "matched-performance-qualification-current.json" not in text:
-                errors.append(f"{name} misses the current qualification blocker")
             if "article-demo-compatibility-policy-current.json" not in text:
                 errors.append(f"{name} misses the article-demo compatibility policy")
             if "strict-pypto-nvidia" not in text:
                 errors.append(f"{name} misses the strict computational demo mode")
             if "computational_unmapped_count=0" not in text:
                 errors.append(f"{name} misses the closed computational demo denominator")
-            if "15.695" not in text or "-84.305" not in text:
-                errors.append(f"{name} misses the accepted full-model pair metrics")
+            if (
+                "15.62" not in text
+                or "18.71" not in text
+                or "-84.379" not in text
+                or "-81.285" not in text
+            ):
+                errors.append(f"{name} misses the current three-lane metrics")
             if "--optimized-memory-mode zero-offload" in text:
                 errors.append(f"{name} retains the rejected performance memory mode")
         if BILIBILI_URL not in text:
@@ -976,14 +1064,12 @@ def main() -> int:
         marker in matrix_text
         for marker in (
             "End-to-end PyPTO versus optimized stock",
-            "graph capture reached 4000 MiB",
-            "no percentage promoted",
+            "18.7143% of optimized",
+            "hybrid three-lane evidence",
         )
     ):
-        errors.append("final requirement matrix is missing optimized-lane boundary")
+        errors.append("final requirement matrix is missing current optimized/profile closure")
     blockers = [
-        "optimized stock lane has no accepted sample",
-        "full-model CUPTI/NVTX profile awaits a completed protected-heavy-free run",
         "GPT-Image-2 generation awaits local API authorization",
     ]
     screenshot_manifest = ROOT / "state/evidence/article-demo-screenshot-manifest-current.json"

@@ -23,10 +23,10 @@ HTML are local deliverables; the matrix itself is a publication audit.
 | Eager versus PyPTO Inductor ablation | qwen35-9b-inductor-ablation-current.json | PASS at SwiGLU operator scope; PyPTO is slower |
 | Cold-start and compile-time comparison | Inductor ablation JSON plus accepted full-model pair | PASS for resource-qualified pair; full-model compile-trigger wall time includes one complete 31+64 request and is not compiler-only |
 | Full-model eager control | qwen35-9b-eager-compile-ablation-current.json | PASS as non-causal control; CompilerInterface was not invoked |
-| End-to-end PyPTO versus matched stock | qwen35-9b-performance-pair-current.json; matched-performance-qualification-current.json | PASS: 4+4 fresh starts, `accepted=true`, zero floor/control violations; PyPTO is 15.695% of matched (CI 15.634%-15.753%) |
-| End-to-end PyPTO versus optimized stock | optimized-lane-diagnostic-current.json; formal run plus four non-promoted probes and official memory-relief source audit | OPEN: graph capture reached 4000 MiB and was stopped by the 4096 MiB floor; alternate memory envelopes failed, memory-saver is absent from the lock, post-capture sizing conflicts with the frozen prefill-graph mode; no percentage promoted |
+| End-to-end PyPTO versus matched stock | qwen35-9b-release-results-current.json | PASS: 4+4 fresh starts in the 12-start matrix; PyPTO is 15.6208% of matched (CI 15.5862%-15.7022%) |
+| End-to-end PyPTO versus optimized stock | qwen35-9b-release-results-current.json | PASS: 4+4 fresh starts; PyPTO is 18.7143% of optimized (CI 18.6881%-18.7533%); optimized uses the user-authorized completion-only GPU-memory policy |
 | Operator performance breakdown | state/evidence/qwen35-9b-operator-performance-breakdown-current.json, 7 aligned cases | PASS: checked-in byte-identical aggregation, 4+4 fresh starts, source/package identity and bootstrap CIs |
-| Full-model CUPTI/NVTX phase breakdown | strict three-lane profile contract; corrected performance-only profile envelope | OPEN: accepted pair is available; optimized/strict compiled profile still awaits a completed protected-heavy-free run |
+| Full-model CUPTI/NVTX phase breakdown | qwen35-9b-release-results-current.json | PASS as hybrid three-lane evidence: PyPTO/optimized strict compiled, matched descriptive noncompiled; 3 starts/lane, 5 requests/start, 64 windows/request, optimized 315/315 graph launches/start |
 | Descriptive stock CUDA phase breakdown | qwen35-9b-descriptive-stock-profile-breakdown-current.json; 3+3 fresh starts, raw CUPTI trace hashes | PASS with explicit non-causal boundary: matched requested compile but CompilerInterface was not invoked; phase zeros/unattributed activity are not execution claims |
 | Linked article URL and unchanged source import | demo/pypto-lib/SOURCE_MANIFEST.json | PASS: 151 files, 66 entrypoints, byte hashes |
 | Article-demo compatibility policy and source-line classification | state/evidence/article-demo-compatibility-policy-current.json; manifest SHA | PASS: 66/66 entries classified; 17 hardware API skips, 8 drafts, 40 CUDA-reference computations, 1 strict PyPTO computation, zero unmapped |
@@ -37,7 +37,7 @@ HTML are local deliverables; the matrix itself is a publication audit.
 | GPT-Image-2 visuals for ablations/breakdowns | gpt-image2-ablation-prompts-20260829.json | OPEN: OPENAI_API_KEY absent; no model substitution |
 | Bilingual README parity and language switch | README.md, README_EN.md | PASS by audit; both use current numbers |
 | Single-file offline HTML | reports/local-blog/*.html, 5 embedded data images | PASS; browser viewport automation unavailable in this environment |
-| Plan persistence | PLAN.md revision-73 checkpoint and memory ad-hoc note | PASS |
+| Plan persistence | PLAN.md revision-75 checkpoint and memory ad-hoc note | PASS |
 | README/reproduction commit boundary | current release branch and staged-diff audit | PASS; blog/HTML/probes excluded |
 
 Open items are intentionally not converted into PASS by wording, placeholders,

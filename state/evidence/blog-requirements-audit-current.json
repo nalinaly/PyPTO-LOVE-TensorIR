@@ -9,11 +9,9 @@
   "errors": [],
   "kind": "blog-requirements-audit",
   "open_gates": [
-    "optimized stock lane has no accepted sample",
-    "full-model CUPTI/NVTX profile awaits a completed protected-heavy-free run",
     "GPT-Image-2 generation awaits local API authorization"
   ],
-  "recorded_at": "2026-08-31T14:14:25.852483+00:00",
+  "recorded_at": "2026-09-01T03:44:16.089539+00:00",
   "schema": 2,
   "status": "pass"
 }
