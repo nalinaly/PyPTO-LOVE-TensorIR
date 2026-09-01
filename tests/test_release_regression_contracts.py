@@ -558,7 +558,7 @@ def test_lane_memory_and_provider_qualifications_are_explicit() -> None:
     assert pypto["mem_fraction_static"] == matched["mem_fraction_static"] == 0.78
     assert large_pypto["cpu_offload_gb"] == 0
     assert large_matched["cpu_offload_gb"] == 2
-    assert large_pypto["mem_fraction_static"] == 0.79
+    assert large_pypto["mem_fraction_static"] == 0.80
     assert large_matched["mem_fraction_static"] == 0.78
     assert performance_pypto["cpu_offload_gb"] == 2
     assert performance_matched["cpu_offload_gb"] == 2
