@@ -12,8 +12,8 @@ import unicodedata
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_PROMPT = "为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？"
-EXPECTED_CALLS = 27_808
-EXPECTED_HANDWRITTEN = 25_760
+EXPECTED_CALLS = 29_728
+EXPECTED_HANDWRITTEN = 27_680
 EXPECTED_INDUCTOR = 2_048
 
 
@@ -159,8 +159,8 @@ def main() -> int:
     print("accepted Qwen3.5-9B evidence replay (not a live rerun)")
     print("3 starts x 10 Engine requests | stable 64-token output")
     print(f"run={candidates[0]['run_id']}")
-    print("coverage=27808/27808 strict=true fallback=0")
-    print("providers: handwritten=25760 Inductor=2048 unknown=0")
+    print("coverage=29728/29728 strict=true fallback=0")
+    print("providers: handwritten=27680 Inductor=2048 unknown=0")
     if args.compact:
         print(f"prompt: {EXPECTED_PROMPT}")
         print(f"output: {truncate_display(str(result['output_text']), 58)}")

@@ -1,0 +1,23 @@
+{
+    "schema":  1,
+    "kind":  "windows-terminal-capture",
+    "status":  "pass",
+    "role":  "sglang-raw-inference",
+    "command":  "PYPTO_CACHE_DIR=/home/zhaosiying/pypto-love-tensor-ir/caches/pypto/artifact-cache envs/pypto-release/bin/python demo/raw_sglang_inference.py",
+    "workspace":  "/home/zhaosiying/pypto-love-tensor-ir",
+    "distro":  "Ubuntu",
+    "host":  "Windows Terminal",
+    "theme":  "Ubuntu profile, nested PowerShell prompt -\u003e wsl -d Ubuntu",
+    "unique_window_title":  "PyPTO release - sglang-raw-inference - ba6449cf",
+    "started_utc":  "2026-09-02T06:38:32.4647162Z",
+    "finished_utc":  "2026-09-02T07:07:31.2411755Z",
+    "window_width":  3872,
+    "window_height":  2312,
+    "capture_method":  "PrintWindow",
+    "visible_samples":  5088,
+    "sample_count":  5238,
+    "output_path":  "\\\\wsl.localhost\\Ubuntu\\home\\zhaosiying\\pypto-love-tensor-ir\\docs\\assets\\screenshots\\sglang-raw-inference.png",
+    "output_bytes":  554576,
+    "output_sha256":  "4678ce87fdb8fde200fad60203dc64ce0d3bcccd7e5247aa7ddc605e880ff237",
+    "exit_code":  0
+}

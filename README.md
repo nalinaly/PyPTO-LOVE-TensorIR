@@ -50,7 +50,7 @@ SGLang（未打补丁）
 互补：PyPTO 管 DSL/静态特化/产物契约/launch，TensorIR 管 tile 布局与 lowering，cuTile
 管最终代码生成。PyPTO 的 tile 约定经 `CanonicalSchedule` 显式传入并被继续 lower——
 手写库全部 21 个 graph 与 Inductor 生成的 kernel 均经此路径完成编译（101 个正确性用例、
-整模型 27,808 次 compute launch 零 fallback 为证）。
+整模型 29,728 次 compute launch 零 fallback 为证）。
 
 在此之上，`packages/pypto-kernels` 是一套独立于框架的手写 PyPTO 算子库（13 模块 /
 21 个 `@pl.jit` graph），覆盖 Qwen3.5 混合注意力结构（24 层 GDN + 8 层全注意力）所需的
@@ -62,7 +62,7 @@ MLP 激活由 Inductor 后端自动融合。SGLang 以官方插件机制集成�
 | 项目 | 结果 |
 |---|---|
 | Qwen3.5-9B 正确性 | PASS：3 次冷启动 × 10 请求 × 64 token，与 SGLang 原生实现**逐 token 一致**（输出序列 SHA-256 唯一） |
-| model-forward PyPTO coverage | **100%**：27,808 次 compute 调用 = 25,760 手写 + 2,048 Inductor 生成，fallback 0 |
+| model-forward PyPTO coverage | **100%**：29,728 次 compute 调用 = 27,680 手写 + 2,048 Inductor 生成，fallback 0 |
 | 算子回归 | PASS：8 套件 / 101 用例（2026-09-01 真机复跑） |
 | 端到端吞吐 | PyPTO **11.1635 tok/s**；SGLang matched **15.5813**；SGLang optimized **13.1459** |
 | 相对性能 | **PyPTO = matched 的 71.65%**（95% CI [71.56%, 72.11%]）；**= optimized 的 84.92%**（CI [84.83%, 88.18%]） |
@@ -87,15 +87,17 @@ MLP 激活由 Inductor 后端自动融合。SGLang 以官方插件机制集成�
 headline 取各次冷启动 p50 的中位数，CI 为 10,000 次 percentile bootstrap。机器可读结果：
 `state/evidence/qwen35-9b-release-results-current.json`。
 
-**四张真机运行截图**（PowerShell 中 `wsl -d Ubuntu` 真实执行，3872×2312 原生分辨率；
-复现方法见[截图复现](#截图复现)）：
+**真机运行截图**（PowerShell 中 `wsl -d Ubuntu` 真实执行，3872×2312 原生分辨率，展示
+命令的原始日志；复现方法见[截图复现](#截图复现)）：
 
 | 环节 | 命令 | 截图 |
 |---|---|---|
-| 构建（四阶段，`status: complete`） | `tools/build_release.py --stage all` | ![build](docs/assets/screenshots/build-release.png) |
+| 编译（原始 ninja 增量重编日志） | `ninja -C builds/qwen35-sm120-v1/native` | ![ninja](docs/assets/screenshots/build-ninja-raw.png) |
+| 编译（原始 CTest 日志，13/13） | `ctest --test-dir builds/qwen35-sm120-v1/native` | ![ctest](docs/assets/screenshots/build-ctest-raw.png) |
 | 算子正确性（8 套件 101 用例） | `tools/run_operator_regression.py --stage all` | ![operator](docs/assets/screenshots/operator-correctness.png) |
 | 算子级性能 A/B（4+4 冷启动） | `tools/run_operator_performance.py --matrix` | ![perf](docs/assets/screenshots/operator-performance.png) |
-| 端到端推理（固定 prompt 64 token 贪心 + 逐 token 门禁） | `tools/run_model_correctness.py all` | ![model](docs/assets/screenshots/model-inference.png) |
+| 端到端推理（原始 SGLang 日志，480 token 完整生成） | `demo/raw_sglang_inference.py` | ![sglang](docs/assets/screenshots/sglang-raw-inference.png) |
+| 正确性门禁（固定 prompt 64 token + 逐 token 门禁） | `tools/run_model_correctness.py all` | ![model](docs/assets/screenshots/model-inference.png) |
 
 ## 性能优化：调度 tile 与 launch 路径
 
@@ -117,8 +119,13 @@ token 级精确门禁全绿为前提：
   不可变 launch packet（稳态 decode 分配器复用同一批缓冲，命中时跳过逐操作数校验与
   C++ 参数打包；内核读的仍是当前缓冲内容，新组合自动回落全量校验）。
 - **Inductor 侧负结果**：对生成的 fused pointwise kernel 做同样 tile 扫描——**0.238 vs
-  0.211 ms，更慢**，128 保持最优；该 kernel 与 eager 的 5× 差距在 tileiras 代码生成层，
-  不在调度层（与 attention 的 6.6× 差距同源），列为后续工作。
+  0.211 ms，更慢**，128 保持最优；该 kernel 与 eager 的差距在宿主发射路径与 tileiras 代码
+  生成层（反汇编证实标量 `LDG.E.U16` 载入），列为后续工作。
+- **形状泛化（桶宽重试阶梯 + 牺牲子进程探测）**：tileiras 对零散 (桶宽, 表宽) 组合的接受性
+  无规律（同几何下 336 被拒、352 通过）。每个新几何先在独立会话的子进程里编译探测（成功入
+  持久缓存、引擎进程只命中缓存；失败整组击杀）；被拒的桶宽自动升到 64/128 对齐重试——
+  KV 桶中超出有效长度的槽位本就被 kernel 有效性掩码压为 −∞，数值不变、ABI 等价。实测两套
+  引擎几何下所有 64 倍数桶宽全部通过编译。
 
 算子级前后对比（PyPTO / cuBLAS）：
 
@@ -265,7 +272,7 @@ envs/pypto-release/bin/python tools/run_model_correctness.py all \
 ```
 
 通过标准：30 请求全部逐 token 一致（输出序列 SHA-256 唯一）、teacher-forced logits 冻结
-策略通过、CUPTI coverage 27,808/27,808 且 fallback=0。复跑后可用
+策略通过、CUPTI coverage 29,728/29,728 且 fallback=0。复跑后可用
 `python3 tools/print_model_gate_live.py` 打印最新一次运行的通过状态、coverage 与输出文本。
 
 ## 文章 Demo：在 NVIDIA 上原样运行官方教学 Demo
@@ -274,15 +281,19 @@ PyPTO 官方教学[文章](https://mp.weixin.qq.com/s/7tLlTbomH9OqyUbZDbBEhQ)的
 （151 文件 / 66 入口）已**逐字节**入库 `demo/pypto-lib/`（锁定上游 revision `6c292d30`），
 可一行不改地在本管线运行：41 个计算入口全部通过（1 个严格 PyPTO→TensorIR→CUDA Tile
 路径的 `hello_world`，`max_abs_diff=0.0`；40 个 CUDA 数值参考），17 个依赖昇腾硬件 API
-的入口如实跳过。以最典型的 `hello_world` 为例：
+的入口如实跳过。整套语料的一次性运行：
 
 ```bash
 envs/pypto-release/bin/python tools/run_article_demo_matrix.py --backend nvidia --mode run --device 0
 ```
 
-![hello_world 严格路径运行](docs/assets/screenshots/article-demo-typical.png)
+最短路径的单文件演示是 `demo/raw_hello_world.py`——一个自包含的 PyPTO DSL 源文件，直接
+`envs/pypto-release/bin/python demo/raw_hello_world.py` 运行，打印 kernel 的完整特化 HIR、
+编译产物状态与逐元素比对结果：
 
-（单 Demo 运行入口：`envs/pypto-release/bin/python -B tools/run_article_demo_nvidia.py
+![hello_world 原始运行](docs/assets/screenshots/hello-world-raw.png)
+
+（教学语料的单 Demo 入口：`envs/pypto-release/bin/python -B tools/run_article_demo_nvidia.py
 --demo examples/beginner/hello_world.py --device 0`。）
 
 ## 目录结构
@@ -382,10 +393,9 @@ graph 租约）与 prefill GEMM 的数值安全行块化。
 
 ## 截图复现
 
-四张截图由 `tools/windows/capture_powershell.ps1` 在 Windows Terminal（Ubuntu 紫色
-profile）中真实运行捕获：DPI 感知 + 强制工作区全尺寸（原生 3872×2312），窗口内嵌套
-PowerShell 提示符执行 `wsl -d Ubuntu`，真实 Ubuntu 提示符运行命令，完成后 `PrintWindow`
-截图。在 PowerShell 中：
+截图由 `tools/windows/capture_powershell.ps1` 真实运行捕获：DPI 感知 + 强制工作区全尺寸
+（原生 3872×2312），窗口内 PowerShell 提示符执行 `wsl -d Ubuntu` 进入 Ubuntu 运行命令，
+完成后 `PrintWindow` 截图。在 PowerShell 中：
 
 ```powershell
 $Repo = "\\wsl.localhost\Ubuntu\home\<user>\pypto-love-tensor-ir"

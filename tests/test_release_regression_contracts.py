@@ -158,8 +158,8 @@ def test_compact_model_gate_replay_fits_one_terminal_view() -> None:
     for marker in (
         "not a live rerun",
         "3 starts x 10 Engine requests",
-        "coverage=27808/27808",
-        "handwritten=25760",
+        "coverage=29728/29728",
+        "handwritten=27680",
         "Inductor=2048",
         workload.PROMPT,
         "output:",

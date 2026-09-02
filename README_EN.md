@@ -68,7 +68,7 @@ contract/launch, TensorIR owns tile layout and lowering, and cuTile owns final
 code generation. PyPTO's tile conventions are passed in explicitly through
 `CanonicalSchedule` and continue to be lowered — all 21 handwritten graphs plus
 the Inductor-generated kernels compile through this path (101 correctness
-cases and 27,808 whole-model compute launches with zero fallback attest to it).
+cases and 29,728 whole-model compute launches with zero fallback attest to it).
 
 On top of this, `packages/pypto-kernels` is a framework-independent handwritten
 PyPTO operator library (13 modules / 21 `@pl.jit` graphs) covering every
@@ -83,7 +83,7 @@ Inductor backend. SGLang integrates through its official plugin mechanism —
 | Item | Result |
 |---|---|
 | Qwen3.5-9B correctness | PASS: 3 fresh starts × 10 requests × 64 tokens, **token-identical** to native SGLang (unique output-sequence SHA-256) |
-| model-forward PyPTO coverage | **100%**: 27,808 compute calls = 25,760 handwritten + 2,048 Inductor-generated, 0 fallback |
+| model-forward PyPTO coverage | **100%**: 29,728 compute calls = 27,680 handwritten + 2,048 Inductor-generated, 0 fallback |
 | Operator regression | PASS: 8 suites / 101 cases (re-run on hardware 2026-09-01) |
 | End-to-end throughput | PyPTO **11.1635 tok/s**; SGLang matched **15.5813**; SGLang optimized **13.1459** |
 | Relative performance | **PyPTO = 71.65% of matched** (95% CI [71.56%, 72.11%]); **84.92% of optimized** (CI [84.83%, 88.18%]) |
@@ -111,16 +111,18 @@ headline is the median of per-start p50s with a 10,000-resample percentile
 bootstrap CI. Machine-readable results:
 `state/evidence/qwen35-9b-release-results-current.json`.
 
-**Four live-run screenshots** (real execution of `wsl -d Ubuntu` inside
-PowerShell at native 3872×2312; see
+**Live-run screenshots** (real execution of `wsl -d Ubuntu` inside
+PowerShell at native 3872×2312, showing each command's raw log; see
 [Screenshot reproduction](#screenshot-reproduction)):
 
 | Stage | Command | Screenshot |
 |---|---|---|
-| Build (four stages, `status: complete`) | `tools/build_release.py --stage all` | ![build](docs/assets/screenshots/build-release.png) |
+| Build (raw ninja incremental-rebuild log) | `ninja -C builds/qwen35-sm120-v1/native` | ![ninja](docs/assets/screenshots/build-ninja-raw.png) |
+| Build (raw CTest log, 13/13) | `ctest --test-dir builds/qwen35-sm120-v1/native` | ![ctest](docs/assets/screenshots/build-ctest-raw.png) |
 | Operator correctness (8 suites, 101 cases) | `tools/run_operator_regression.py --stage all` | ![operator](docs/assets/screenshots/operator-correctness.png) |
 | Operator performance A/B (4+4 fresh starts) | `tools/run_operator_performance.py --matrix` | ![perf](docs/assets/screenshots/operator-performance.png) |
-| End-to-end inference (fixed prompt, 64-token greedy + per-token gate) | `tools/run_model_correctness.py all` | ![model](docs/assets/screenshots/model-inference.png) |
+| End-to-end inference (raw SGLang log, full 480-token generation) | `demo/raw_sglang_inference.py` | ![sglang](docs/assets/screenshots/sglang-raw-inference.png) |
+| Correctness gate (fixed prompt, 64-token greedy + per-token gate) | `tools/run_model_correctness.py all` | ![model](docs/assets/screenshots/model-inference.png) |
 
 ## Performance optimization: schedule tiles and the launch path
 
@@ -154,9 +156,18 @@ token-level gate green at every step:
   falls back to full validation).
 - **An honest negative result on the Inductor side**: the same tile sweep on
   the generated fused-pointwise kernel came out **slower** (0.238 vs 0.211 ms
-  at tile 32); 128 stays optimal. That kernel's 5× gap to eager is in tileiras
-  code generation, not scheduling (the same source as attention's 6.6× gap),
-  and is listed as future work.
+  at tile 32); 128 stays optimal. That kernel's gap to eager lives in the
+  host launch path and tileiras code generation (SASS-verified scalar
+  `LDG.E.U16` loads), listed as future work.
+- **Shape generality (bucket retry ladder + sacrificial-subprocess probe)**:
+  tileiras accepts scattered (bucket, table) pairs with no discernible
+  pattern (bucket 336 rejected, 352 accepted, same geometry). Every new
+  geometry compiles once in a dedicated-session subprocess (success publishes
+  to the persistent cache, which the engine then hits; timeout kills the
+  whole group), and a rejected bucket automatically retries at 64/128
+  alignment — slots past the valid length are already masked to −inf inside
+  the kernel, so numerics and ABI are unchanged. In both engine geometries
+  tested, every 64-multiple bucket compiles.
 
 Operator-level before/after (PyPTO / cuBLAS):
 
@@ -315,7 +326,7 @@ Expected output (within the 64-token cap, token-identical to native SGLang):
 ```
 
 Pass criteria: all 30 requests token-identical (unique output-sequence SHA-256),
-teacher-forced frozen-logits policy passes, and CUPTI coverage 27,808/27,808
+teacher-forced frozen-logits policy passes, and CUPTI coverage 29,728/29,728
 with 0 fallback. After a re-run, `python3 tools/print_model_gate_live.py`
 prints the latest run's pass status, coverage audit, and generated output.
 
@@ -327,15 +338,21 @@ The complete demo suite from the official PyPTO tutorial
 (upstream revision `6c292d30`) and runs unmodified on this pipeline: all 41
 compute entrypoints pass (1 strict PyPTO→TensorIR→CUDA-Tile `hello_world`
 with `max_abs_diff=0.0`; 40 CUDA numerical references); 17 Ascend-hardware
-entrypoints are skipped honestly. The canonical example:
+entrypoints are skipped honestly. Run the whole corpus at once:
 
 ```bash
 envs/pypto-release/bin/python tools/run_article_demo_matrix.py --backend nvidia --mode run --device 0
 ```
 
-![hello_world strict path](docs/assets/screenshots/article-demo-typical.png)
+The shortest single-file demo is `demo/raw_hello_world.py` — a self-contained
+PyPTO DSL source run directly via
+`envs/pypto-release/bin/python demo/raw_hello_world.py`; it prints the fully
+specialized HIR, the compiled artifact state, and the elementwise comparison:
 
-(Single-demo entry: `envs/pypto-release/bin/python -B tools/run_article_demo_nvidia.py
+![hello_world raw run](docs/assets/screenshots/hello-world-raw.png)
+
+(Single-demo entry for the tutorial corpus:
+`envs/pypto-release/bin/python -B tools/run_article_demo_nvidia.py
 --demo examples/beginner/hello_world.py --device 0`.)
 
 ## Repository layout
@@ -458,12 +475,11 @@ prefill row-blocking.
 
 ## Screenshot reproduction
 
-The four screenshots are live captures produced by
-`tools/windows/capture_powershell.ps1` in Windows Terminal (Ubuntu purple
-profile): DPI-aware capture forced to the full work area (native 3872×2312);
-a nested PowerShell prompt runs `wsl -d Ubuntu`, the real Ubuntu prompt runs
-the command, and `PrintWindow` captures the frame on completion. From
-PowerShell:
+The screenshots are live captures produced by
+`tools/windows/capture_powershell.ps1`: DPI-aware capture forced to the full
+work area (native 3872×2312); a PowerShell prompt runs `wsl -d Ubuntu`, the
+Ubuntu shell runs the command, and `PrintWindow` captures the frame on
+completion. From PowerShell:
 
 ```powershell
 $Repo = "\\wsl.localhost\Ubuntu\home\<user>\pypto-love-tensor-ir"

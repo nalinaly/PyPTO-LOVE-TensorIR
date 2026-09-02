@@ -5,7 +5,7 @@
     "status": "pass"
   },
   "kind": "release-screenshot-manifest",
-  "recorded_at": "2026-09-02T07:12:29.768960+00:00",
+  "recorded_at": "2026-09-02T08:47:27.795525+00:00",
   "schema": 2,
   "screenshots": {
     "article-demo-typical": {
@@ -28,8 +28,8 @@
       "capture_evidence_sha256": "3a7b9116dd95d5180a424d0c35c74e3531666a3c36e2935c928d7013891ceaf6",
       "capture_exit_code": 0,
       "command": "envs/pypto-release/bin/python tools/build_release.py --stage all --jobs 24 2>&1 | tail -1 | python3 -m json.tool",
-      "evidence": "runs/pypto-cpu-bounded-20260902T070507Z-355433-adfe22/release-build-install.json",
-      "evidence_sha256": "b596fe98daf62e9cc8b42cb8227416834a01a7ca5b3b12e4ce6f20e67e890629",
+      "evidence": "runs/pypto-cpu-bounded-20260902T073752Z-366245-fde155/release-build-install.json",
+      "evidence_sha256": "04dcdb4b590d877357c898664d6cc7ab7d4abb2a5fa6c944f416791526457038",
       "path": "docs/assets/screenshots/build-release.png",
       "sha256": "1a9a55cbd810bfaf30ba3cb8e49e3a3673f0389ec685ba5b8e141c6fdf08c1c6",
       "status": "current-live-run"
@@ -41,8 +41,8 @@
       "capture_evidence_sha256": "6effbd80cb9cd36b9a53b409d22450b94333322f8fe8be94895ca85508552548",
       "capture_exit_code": 0,
       "command": "envs/pypto-release/bin/python tools/run_model_correctness.py all --model-path models/Qwen3.5-9B --semantic-oracle runs/semantic-oracle-qwen35-9b-chat-nonthinking.json 2>&1 | tail -1 | python3 -c \"import json,sys; d=json.load(sys.stdin); print('control status:', d['status'], '| runs:', len(d.get('runs',[])))\" && python3 tools/print_model_gate_live.py",
-      "evidence": "runs/pypto-gpu-bounded-20260902T001443Z-313346-24d686/qwen35-9b-correctness.json",
-      "evidence_sha256": "d1c13f2b8c201909317c358356771ca0de03fe214fb85338e29670dce18fd5ec",
+      "evidence": "runs/pypto-gpu-bounded-20260902T082344Z-379580-9cfd22/qwen35-9b-correctness.json",
+      "evidence_sha256": "b5f241caf4d68622c15203931ab3f474f98141d1c6af2a5fb9af60ce904e9084",
       "path": "docs/assets/screenshots/model-inference.png",
       "sha256": "d2cd38c3fe7bd242eec1f7bf7a3f64868ccb98f6e70193d6652dbb4625b06107",
       "status": "current-live-run"
@@ -54,8 +54,8 @@
       "capture_evidence_sha256": "69ffb4bb61a27c7e8dc6df3f06476750c9dcf31b5a92fdf35cb750d94fc542f0",
       "capture_exit_code": 0,
       "command": "envs/pypto-release/bin/python tools/run_operator_regression.py --stage all 2>&1 | tail -1 | python3 -m json.tool && python3 -c \"import json,glob,os; p=sorted(glob.glob('runs/*/operator-numerical-regression.json'),key=os.path.getmtime)[-1]; d=json.load(open(p)); print(); print('newest GPU report:', p); print('status:', d['status'], '| all_correct:', d['all_correct']); [print(s['suite_id'], '| cases:', s['case_count'], '| rc:', s['return_code']) for s in d['suites']]; print('total cases:', sum(s['case_count'] for s in d['suites']))\"",
-      "evidence": "runs/pypto-gpu-bounded-20260902T030046Z-338314-26271b/operator-numerical-regression.json",
-      "evidence_sha256": "af3705c7f208945830cd516a9f1c15770e1c58aa8b24b39cc8c2e026fe42693a",
+      "evidence": "runs/pypto-gpu-bounded-20260902T071254Z-358060-458857/operator-numerical-regression.json",
+      "evidence_sha256": "332e7930957f318195aa56d93aeaee5a7f38514e4047bbf8599a9ae5cdc5ffe7",
       "path": "docs/assets/screenshots/operator-correctness.png",
       "sha256": "5c11da4f2dce3c6e298d15995c581f619e69b5576c8a67a38d057936f4a11bc6",
       "status": "current-live-run"

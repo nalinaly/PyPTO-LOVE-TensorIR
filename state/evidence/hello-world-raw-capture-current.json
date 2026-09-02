@@ -1,0 +1,23 @@
+{
+    "schema":  1,
+    "kind":  "windows-terminal-capture",
+    "status":  "pass",
+    "role":  "hello-world-raw",
+    "command":  "envs/pypto-release/bin/python demo/raw_hello_world.py",
+    "workspace":  "/home/zhaosiying/pypto-love-tensor-ir",
+    "distro":  "Ubuntu",
+    "host":  "Windows Terminal",
+    "theme":  "Ubuntu profile, nested PowerShell prompt -\u003e wsl -d Ubuntu",
+    "unique_window_title":  "PyPTO release - hello-world-raw - 4bc7d40f",
+    "started_utc":  "2026-09-02T07:10:22.5699775Z",
+    "finished_utc":  "2026-09-02T07:10:27.7536785Z",
+    "window_width":  3872,
+    "window_height":  2312,
+    "capture_method":  "PrintWindow",
+    "visible_samples":  5088,
+    "sample_count":  5238,
+    "output_path":  "\\\\wsl.localhost\\Ubuntu\\home\\zhaosiying\\pypto-love-tensor-ir\\docs\\assets\\screenshots\\hello-world-raw.png",
+    "output_bytes":  367661,
+    "output_sha256":  "20466c021b450a504879a8faf328b84fb68501fbdad87750695b9cc1b8c74974",
+    "exit_code":  0
+}

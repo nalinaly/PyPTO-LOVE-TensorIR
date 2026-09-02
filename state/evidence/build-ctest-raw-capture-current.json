@@ -1,0 +1,23 @@
+{
+    "schema":  1,
+    "kind":  "windows-terminal-capture",
+    "status":  "pass",
+    "role":  "build-ctest-raw",
+    "command":  "ctest --test-dir builds/qwen35-sm120-v1/native --output-on-failure 2\u003e\u00261 | tail -40",
+    "workspace":  "/home/zhaosiying/pypto-love-tensor-ir",
+    "distro":  "Ubuntu",
+    "host":  "Windows Terminal",
+    "theme":  "Ubuntu profile, nested PowerShell prompt -\u003e wsl -d Ubuntu",
+    "unique_window_title":  "PyPTO release - build-ctest-raw - cb98306f",
+    "started_utc":  "2026-09-02T07:11:18.2885737Z",
+    "finished_utc":  "2026-09-02T07:12:20.0106721Z",
+    "window_width":  3872,
+    "window_height":  2312,
+    "capture_method":  "PrintWindow",
+    "visible_samples":  5088,
+    "sample_count":  5238,
+    "output_path":  "\\\\wsl.localhost\\Ubuntu\\home\\zhaosiying\\pypto-love-tensor-ir\\docs\\assets\\screenshots\\build-ctest-raw.png",
+    "output_bytes":  465306,
+    "output_sha256":  "1f799ee52716cc5c062430f1bdab49fbddfe239a3cb83f8215c463ce6d084109",
+    "exit_code":  0
+}
