@@ -99,7 +99,8 @@ headline 取各次冷启动 p50 的中位数，CI 为 10,000 次 percentile boot
 
 ## 性能优化：调度 tile 与 launch 路径
 
-从 18.71% 到 72.95%（端到端 4.1×）的全部优化都发生在**调度层**，每一步以 token 级精确门禁全绿为前提：
+从 18.71% 到 **84.92%**（端到端 4.77×，两轮）的全部优化都发生在**调度层**，每一步以
+token 级精确门禁全绿为前提：
 
 - **tile 断崖定位**：CUPTI 逐 kernel 审计显示结构化 matmul 占 compute 的 94.6%，根因是
   128 列调度 tile 让 down 投影 decode GEMV 只生成 **32 个 CTA 跑在约 170 个 SM 上**
@@ -329,7 +330,8 @@ DSL 源码**，stride 精确特化后走 `compile_structured_strict_cached`；wr
 
 **手写算子库**（`packages/pypto-kernels`）：一个算子 = 一个 `@pl.jit` graph；launch 前做
 shape/stride ABI 校验（稳态命中 launch packet 缓存）；与 Inductor 后端共享同一编译通路。
-清单：attention（稠密/掩码/paged decode/paged prefill/KV 写入/gather，7 graph）、GDN
+清单：attention（稠密/掩码/paged decode——batch=1 时单次全 head 发射，经牺牲子进程
+探测规避 tileiras 对零散桶宽度的编译崩溃——/paged prefill/KV 写入/gather，7 graph）、GDN
 recurrent（L2 归一化 + softplus 衰减门 + 秩一状态更新 + 输出投影，`pl.InOut` 状态池）、
 打包 GDN 投影、宽度 4 因果卷积、QK RMSNorm+部分 RoPE+gate 切分、BF16 线性投影、FP32 LM
 head、embedding/token-id gather、RMSNorm 三变体、NeoX RoPE、sigmoid 门控、SwiGLU。
@@ -369,7 +371,7 @@ head、embedding/token-id gather、RMSNorm 三变体、NeoX RoPE、sigmoid 门�
 （优化前 22,318.81，10.0×），其中未归因桶（手写线性层）1,709.89、attention
 core+gate 268.37、LM head 198.39；matched 合计 1,337.55、optimized 合计 2,327.79。
 与 optimized 的 E2E 差距 864.55 ms 中 compute 差距为 **−106.07 ms**（PyPTO 更低），
-剩余全部为非采样残差 970.49 ms（宿主侧），独立阶段对账残差 −5.24 ms（闭合）。
+剩余全部为非采样残差 970.63 ms（宿主侧），独立阶段对账残差 −5.24 ms（闭合）。
 
 ![CUPTI 阶段归因](docs/assets/charts/cupti-phase-attribution.png)
 
@@ -406,8 +408,8 @@ $Repo = "\\wsl.localhost\Ubuntu\home\<user>\pypto-love-tensor-ir"
 - fused pointwise：CUPTI 证明 kernel GPU 时间仅 ~1 µs，0.20 ms 的测量值主要是每次调用的
   宿主发射成本（Inductor wrapper 的 Python 开销）；标量 `LDG.E.U16` 载入（SASS 实证）在
   更宽负载上会成为上限，属 tileiras 向量化反馈项；
-- decode launch 密度：报文缓存后仍有约 500 次/步 launch 的宿主开销，进一步收敛需要
-  CUDA Graph 整步捕获（`NvidiaExecutable` 已具备 graph 租约）；
+- decode launch 密度：报文缓存与合并发射后仍有约 430 次/步 launch 的宿主开销（见上一条），
+  属同一 CUDA Graph 待办；
 - 24 GiB 消费级卡 + 显示共占使零 offload 的 9B 候选贴近显存上限，正确性子进程使用
   completion-only 显存策略；CPU offload 与 PyPTO 权重直读 hook 不兼容；
 - Inductor 后端仅融合 pointwise/尾轴归约；GEMM+epilogue、跨节点融合为 fail-closed 待办；

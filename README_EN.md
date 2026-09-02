@@ -124,8 +124,9 @@ PowerShell at native 3872×2312; see
 
 ## Performance optimization: schedule tiles and the launch path
 
-Everything that moved the needle from 18.71% to 72.95% (4.1× end-to-end)
-happened **at the scheduling layer**, with the token-level gate green at every step:
+Everything that moved the needle from 18.71% to **84.92%** (4.77×
+end-to-end, in two rounds) happened **at the scheduling layer**, with the
+token-level gate green at every step:
 
 - **Locating the tile cliff**: the CUPTI per-kernel audit showed structured
   matmul at 94.6% of compute; the root cause was a 128-column schedule tile
@@ -396,7 +397,9 @@ on the caller's stream; CUPTI coverage-audit tooling ships with the package.
 **Handwritten operator library** (`packages/pypto-kernels`): one operator =
 one `@pl.jit` graph; shape/stride ABI validation before every launch (steady
 state hits the launch-packet cache); shares the same compilation path as the
-Inductor backend. Inventory: attention (dense/masked/paged-decode/
+Inductor backend. Inventory: attention (dense/masked/paged-decode — a single
+all-heads launch at batch 1, guarded by the sacrificial-subprocess probe
+against tileiras compile crashes on scattered bucket widths —/
 paged-prefill/KV-write/gather — 7 graphs), GDN recurrent (L2 norm + softplus
 decay gating + rank-1 state update + output projection over an `pl.InOut`
 state pool), packed GDN projection, width-4 causal conv, QK RMSNorm + partial
@@ -487,9 +490,9 @@ SHA-256, non-blank pixel samples); the binding manifest is regenerated with
   measured 0.20 ms is mostly per-call host launch cost (the Inductor
   wrapper's Python overhead); the scalar `LDG.E.U16` loads (SASS-verified)
   would cap wider workloads, a tileiras vectorization feedback item;
-- Decode launch density: ~500 launches/step of host overhead remain after
-  packet caching; full convergence needs whole-step CUDA-graph capture
-  (`NvidiaExecutable` already carries the graph lease);
+- Decode launch density: ~430 launches/step of host overhead remain after
+  packet caching and the merged launch (see the item above); it shares the
+  same whole-step CUDA-graph TODO;
 - A zero-offload 9B candidate sits near the ceiling of a 24 GiB consumer card
   shared with the display; the correctness child uses the completion-only GPU
   policy, and CPU offload is incompatible with the PyPTO weight hooks;
