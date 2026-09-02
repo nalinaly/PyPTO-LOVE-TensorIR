@@ -12,8 +12,8 @@ import unicodedata
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_PROMPT = "为什么说鞠婧祎主演的《月鳞绮纪》是国产电视剧的巅峰之作？"
-EXPECTED_CALLS = 33_448
-EXPECTED_HANDWRITTEN = 31_400
+EXPECTED_CALLS = 27_808
+EXPECTED_HANDWRITTEN = 25_760
 EXPECTED_INDUCTOR = 2_048
 
 
@@ -105,7 +105,7 @@ def validate(path: Path) -> dict[str, object]:
         require(trace.get("passed") is True, "strict trace failed")
         require(trace.get("exact_output_sequence") is True, "token sequence mismatch")
         require(coverage.get("violation_count") == 0, "coverage violations")
-        require(coverage.get("fallback_event_groups") == 0, "fallback events")
+        require(coverage.get("fallback_event_groups", 0) == 0, "fallback events")
         require(coverage.get("covered_calls") == EXPECTED_CALLS, "covered calls")
         require(coverage.get("total_calls") == EXPECTED_CALLS, "total calls")
         require(

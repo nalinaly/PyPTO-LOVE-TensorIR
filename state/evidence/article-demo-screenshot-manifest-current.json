@@ -5,20 +5,20 @@
     "status": "pass"
   },
   "kind": "release-screenshot-manifest",
-  "recorded_at": "2026-09-01T16:52:11.779213+00:00",
+  "recorded_at": "2026-09-02T00:37:53.229533+00:00",
   "schema": 2,
   "screenshots": {
     "article-demo-typical": {
       "caption_en": "Strict NVIDIA compatibility run of unchanged hello_world.py with a PyPTO artifact and passing golden comparison.",
       "caption_zh": "未改写 hello_world.py 的严格 NVIDIA 兼容运行、PyPTO artifact 与 golden 精度通过。",
       "capture_evidence": "state/evidence/article-demo-typical-capture-current.json",
-      "capture_evidence_sha256": "2cc4d38dc94a700e72ff30181a7402c2bb2afcb3cbaa8424af7a70d3bc4c7bd2",
+      "capture_evidence_sha256": "9bccc91f10980f1516f5e111c6303ee427014be50d8cf8ff9da7f19cb2200817",
       "capture_exit_code": 0,
       "command": "envs/pypto-release/bin/python -B tools/run_article_demo_nvidia.py --demo examples/beginner/hello_world.py --device 0 --run-id article-demo-nvidia-hello-screenshot --output state/evidence/article-demos-nvidia/011-hello_world-screenshot.json",
       "evidence": "state/evidence/article-demos-nvidia/011-hello_world-screenshot.json",
-      "evidence_sha256": "00f2987df99ef88e5c71cf3ed2869de9659f0559a98c9f7e275c7a3b7dbfb1e2",
+      "evidence_sha256": "fe68a9564bfa168477f1da66a85967a1cf4a7d2d1438c50705c4f3224c29dc50",
       "path": "docs/assets/screenshots/article-demo-typical.png",
-      "sha256": "f96d12ab763a66806129a521b5b87a7c8f2f1f717d6144cf90c6dacb74af455c",
+      "sha256": "f8f0e3a4e45be74a7e24febc9b56438ad30affa16e8a785698e4cfd5dc1c6270",
       "status": "current-live-run"
     },
     "build-release": {
@@ -28,8 +28,8 @@
       "capture_evidence_sha256": "3a7b9116dd95d5180a424d0c35c74e3531666a3c36e2935c928d7013891ceaf6",
       "capture_exit_code": 0,
       "command": "envs/pypto-release/bin/python tools/build_release.py --stage all --jobs 24 2>&1 | tail -1 | python3 -m json.tool",
-      "evidence": "runs/pypto-cpu-bounded-20260901T163956Z-248537-4e3cc6/release-build-install.json",
-      "evidence_sha256": "771531bad97b0672a0d31164d09c6ac934e2ff9cb16ea7d2ec2c0e6e1122c56d",
+      "evidence": "runs/pypto-cpu-bounded-20260901T225412Z-276974-db59fd/release-build-install.json",
+      "evidence_sha256": "a4e63c8c5103375088f62f80eb9d83c0db337322379c810fc2ce4b3c55f57d52",
       "path": "docs/assets/screenshots/build-release.png",
       "sha256": "1a9a55cbd810bfaf30ba3cb8e49e3a3673f0389ec685ba5b8e141c6fdf08c1c6",
       "status": "current-live-run"
@@ -41,8 +41,8 @@
       "capture_evidence_sha256": "6effbd80cb9cd36b9a53b409d22450b94333322f8fe8be94895ca85508552548",
       "capture_exit_code": 0,
       "command": "envs/pypto-release/bin/python tools/run_model_correctness.py all --model-path models/Qwen3.5-9B --semantic-oracle runs/semantic-oracle-qwen35-9b-chat-nonthinking.json 2>&1 | tail -1 | python3 -c \"import json,sys; d=json.load(sys.stdin); print('control status:', d['status'], '| runs:', len(d.get('runs',[])))\" && python3 tools/print_model_gate_live.py",
-      "evidence": "runs/pypto-gpu-bounded-20260901T165006Z-255694-d13877/qwen35-9b-correctness.json",
-      "evidence_sha256": "4a1ce225e8d162f701b6fc17e9fef2e69560f83e2dd481e515a17daf957afac5",
+      "evidence": "runs/pypto-gpu-bounded-20260902T001443Z-313346-24d686/qwen35-9b-correctness.json",
+      "evidence_sha256": "d1c13f2b8c201909317c358356771ca0de03fe214fb85338e29670dce18fd5ec",
       "path": "docs/assets/screenshots/model-inference.png",
       "sha256": "d2cd38c3fe7bd242eec1f7bf7a3f64868ccb98f6e70193d6652dbb4625b06107",
       "status": "current-live-run"
@@ -54,8 +54,8 @@
       "capture_evidence_sha256": "69ffb4bb61a27c7e8dc6df3f06476750c9dcf31b5a92fdf35cb750d94fc542f0",
       "capture_exit_code": 0,
       "command": "envs/pypto-release/bin/python tools/run_operator_regression.py --stage all 2>&1 | tail -1 | python3 -m json.tool && python3 -c \"import json,glob,os; p=sorted(glob.glob('runs/*/operator-numerical-regression.json'),key=os.path.getmtime)[-1]; d=json.load(open(p)); print(); print('newest GPU report:', p); print('status:', d['status'], '| all_correct:', d['all_correct']); [print(s['suite_id'], '| cases:', s['case_count'], '| rc:', s['return_code']) for s in d['suites']]; print('total cases:', sum(s['case_count'] for s in d['suites']))\"",
-      "evidence": "runs/pypto-gpu-bounded-20260901T164037Z-249692-8a1f33/operator-numerical-regression.json",
-      "evidence_sha256": "2180f5ee39c1722410265f4b893b95dcb0e845f6fd2fbb893c55ae923f2f5133",
+      "evidence": "runs/pypto-gpu-bounded-20260901T225437Z-278002-669b66/operator-numerical-regression.json",
+      "evidence_sha256": "ca1e860c61e2df02bf56b469cd8ad42654b37e7a570db9a28f6e92d77e193234",
       "path": "docs/assets/screenshots/operator-correctness.png",
       "sha256": "5c11da4f2dce3c6e298d15995c581f619e69b5576c8a67a38d057936f4a11bc6",
       "status": "current-live-run"
@@ -67,8 +67,8 @@
       "capture_evidence_sha256": "1a4585f72787488dc4c9c2b683c724aaca3feb588b84076b7b56b5c669b9e099",
       "capture_exit_code": 0,
       "command": "envs/pypto-release/bin/python tools/run_operator_performance.py --matrix --model-path models/Qwen3.5-9B 2>&1 | tail -1 | python3 -c \"import json,sys; d=json.load(sys.stdin); print('control status:', d['status'], '| lane starts:', len(d['runs']))\" && python3 tools/print_operator_ab_table.py",
-      "evidence": "runs/release-operator-ab-20260901T164527Z-250423-d64d50/aggregation.json",
-      "evidence_sha256": "6942f6cd7aa9cfd5d501b9d477af80ac75e52813e611d9d083bc4976f2c5af9a",
+      "evidence": "runs/release-operator-ab-20260901T232310Z-286543-431803/aggregation.json",
+      "evidence_sha256": "7df86cfdb656dffe209592cdc4a1c50ae84f65430be614a531417ab13036bdf5",
       "path": "docs/assets/screenshots/operator-performance.png",
       "sha256": "22eac65fe1e548a6250a2c78d46a79d247bfced308628255705b423aa9e444d9",
       "status": "current-live-run"
