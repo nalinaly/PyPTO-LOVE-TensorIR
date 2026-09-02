@@ -110,7 +110,13 @@ def create_attention_backend(model_runner: Any) -> Any:
                 raise BackendNotReadyError(
                     "PyPTO attention requires at least one valid KV token."
                 )
-            bucket = ((max_tokens + 15) // 16) * 16
+            # Round the static KV bucket to a multiple of 32: tileiras
+            # rejects scattered (bucket, table) pairs — bucket 336 at the
+            # 512-token engine geometry among them — and the 32-multiple
+            # ladder stays on geometries compile in practice. Slots beyond
+            # the valid length are masked to -inf inside the kernel, so the
+            # wider bucket changes no numerics.
+            bucket = ((max_tokens + 31) // 32) * 32
             if bucket > table_width:
                 raise BackendNotReadyError(
                     f"PyPTO attention bucket {bucket} exceeds request-table width "
