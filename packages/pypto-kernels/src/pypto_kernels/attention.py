@@ -946,8 +946,12 @@ def _compile_paged_decode_probed(geometry: tuple[int, ...]) -> str | None:
     already compiled in this process skip the probe.
     """
 
-    if geometry in _paged_decode_cache:
-        return _paged_decode_cache[geometry]
+    import os
+
+    if geometry in _paged_decode_cache or not os.environ.get("PYPTO_CACHE_DIR"):
+        # No persistent cache means the probe cannot hand the parent a
+        # ready artifact; compile in-process as this library always has.
+        return compile_paged_decode_for(*geometry)
     if not _decode_geometry_supported(geometry):
         return None
     return compile_paged_decode_for(*geometry)
