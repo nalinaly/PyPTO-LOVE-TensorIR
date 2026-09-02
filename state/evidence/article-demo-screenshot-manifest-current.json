@@ -5,7 +5,7 @@
     "status": "pass"
   },
   "kind": "release-screenshot-manifest",
-  "recorded_at": "2026-09-02T00:37:53.229533+00:00",
+  "recorded_at": "2026-09-02T07:12:29.768960+00:00",
   "schema": 2,
   "screenshots": {
     "article-demo-typical": {
@@ -28,8 +28,8 @@
       "capture_evidence_sha256": "3a7b9116dd95d5180a424d0c35c74e3531666a3c36e2935c928d7013891ceaf6",
       "capture_exit_code": 0,
       "command": "envs/pypto-release/bin/python tools/build_release.py --stage all --jobs 24 2>&1 | tail -1 | python3 -m json.tool",
-      "evidence": "runs/pypto-cpu-bounded-20260901T225412Z-276974-db59fd/release-build-install.json",
-      "evidence_sha256": "a4e63c8c5103375088f62f80eb9d83c0db337322379c810fc2ce4b3c55f57d52",
+      "evidence": "runs/pypto-cpu-bounded-20260902T070507Z-355433-adfe22/release-build-install.json",
+      "evidence_sha256": "b596fe98daf62e9cc8b42cb8227416834a01a7ca5b3b12e4ce6f20e67e890629",
       "path": "docs/assets/screenshots/build-release.png",
       "sha256": "1a9a55cbd810bfaf30ba3cb8e49e3a3673f0389ec685ba5b8e141c6fdf08c1c6",
       "status": "current-live-run"
@@ -54,8 +54,8 @@
       "capture_evidence_sha256": "69ffb4bb61a27c7e8dc6df3f06476750c9dcf31b5a92fdf35cb750d94fc542f0",
       "capture_exit_code": 0,
       "command": "envs/pypto-release/bin/python tools/run_operator_regression.py --stage all 2>&1 | tail -1 | python3 -m json.tool && python3 -c \"import json,glob,os; p=sorted(glob.glob('runs/*/operator-numerical-regression.json'),key=os.path.getmtime)[-1]; d=json.load(open(p)); print(); print('newest GPU report:', p); print('status:', d['status'], '| all_correct:', d['all_correct']); [print(s['suite_id'], '| cases:', s['case_count'], '| rc:', s['return_code']) for s in d['suites']]; print('total cases:', sum(s['case_count'] for s in d['suites']))\"",
-      "evidence": "runs/pypto-gpu-bounded-20260901T225437Z-278002-669b66/operator-numerical-regression.json",
-      "evidence_sha256": "ca1e860c61e2df02bf56b469cd8ad42654b37e7a570db9a28f6e92d77e193234",
+      "evidence": "runs/pypto-gpu-bounded-20260902T030046Z-338314-26271b/operator-numerical-regression.json",
+      "evidence_sha256": "af3705c7f208945830cd516a9f1c15770e1c58aa8b24b39cc8c2e026fe42693a",
       "path": "docs/assets/screenshots/operator-correctness.png",
       "sha256": "5c11da4f2dce3c6e298d15995c581f619e69b5576c8a67a38d057936f4a11bc6",
       "status": "current-live-run"
