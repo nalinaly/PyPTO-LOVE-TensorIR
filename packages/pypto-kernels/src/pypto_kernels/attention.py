@@ -891,20 +891,21 @@ def _paged_decode_partition_count(q_heads: int) -> int:
     return q_heads
 
 
-_merged_decode_support: dict[tuple[int, ...], bool] = {}
+_decode_geometry_support: dict[tuple[int, ...], bool] = {}
 
 
-def _merged_decode_supported(geometry: tuple[int, ...]) -> bool:
-    """Probe the all-heads decode graph in a sacrificial subprocess.
+def _decode_geometry_supported(geometry: tuple[int, ...]) -> bool:
+    """Probe one decode graph geometry in a sacrificial subprocess.
 
-    tileiras rejects (and on at least one bucket corrupts the heap of) the
-    merged 16-head program for scattered bucket sizes, so a new geometry is
-    compiled once out-of-process; on success the artifact lands in the
-    persistent cache and the caller hits it without running tileiras, and on
-    any failure the proven per-head path stays in charge.
+    tileiras rejects (and on at least one (bucket, table-width) pair corrupts
+    the heap of) the compiling process for scattered geometries — the failure
+    is not limited to the all-heads program. A new geometry therefore compiles
+    once out-of-process; on success the artifact lands in the persistent cache
+    and this process hits it without running tileiras, and on any failure the
+    caller keeps whatever slower-but-proven option it has.
     """
 
-    cached = _merged_decode_support.get(geometry)
+    cached = _decode_geometry_support.get(geometry)
     if cached is not None:
         return cached
     import os
@@ -913,8 +914,8 @@ def _merged_decode_supported(geometry: tuple[int, ...]) -> bool:
 
     if not os.environ.get("PYPTO_CACHE_DIR"):
         # Without the persistent cache a parent-side compile would run
-        # tileiras in-process; keep the per-head path.
-        _merged_decode_support[geometry] = False
+        # tileiras in-process; treat the geometry as unproven.
+        _decode_geometry_support[geometry] = False
         return False
     probe = (
         "from pypto_kernels import attention; "
@@ -929,8 +930,27 @@ def _merged_decode_supported(geometry: tuple[int, ...]) -> bool:
         supported = completed.returncode == 0
     except subprocess.SubprocessError:
         supported = False
-    _merged_decode_support[geometry] = supported
+    _decode_geometry_support[geometry] = supported
     return supported
+
+
+def _paged_decode_shape_key(geometry: tuple[int, ...]) -> tuple[int, ...]:
+    return geometry
+
+
+def _compile_paged_decode_probed(geometry: tuple[int, ...]) -> str | None:
+    """Compile a decode geometry, probing unproven ones out-of-process.
+
+    Returns the graph key, or ``None`` when tileiras rejects the geometry;
+    the caller then falls back to whichever alternative it has. Geometries
+    already compiled in this process skip the probe.
+    """
+
+    if geometry in _paged_decode_cache:
+        return _paged_decode_cache[geometry]
+    if not _decode_geometry_supported(geometry):
+        return None
+    return compile_paged_decode_for(*geometry)
 
 
 def _validate_paged_cache_write_shape(
@@ -1779,12 +1799,15 @@ def paged_attention_decode(
         query_row_stride,
         result_row_stride,
     )
-    if batch_size == 1 and _merged_decode_supported(merged_geometry):
+    if batch_size == 1:
         # Single-launch path: one graph covers every Q head, so the grid
         # spans all heads (16x the CTAs of a per-head launch on the
         # latency-bound decode bucket) and one launch replaces sixteen.
         # Per-head arithmetic and reduction order are unchanged.
-        merged_key = compile_paged_decode_for(*merged_geometry)
+        merged_key = _compile_paged_decode_probed(merged_geometry)
+    else:
+        merged_key = None
+    if merged_key is not None:
         merged_query = query.as_strided(
             (1, q_heads, head_dim),
             (query_row_stride, head_dim, 1),
@@ -1809,7 +1832,7 @@ def paged_attention_decode(
             )
         )
     else:
-        graph_key = compile_paged_decode_for(
+        per_head_geometry = (
             batch_size,
             1,
             1,
@@ -1823,6 +1846,12 @@ def paged_attention_decode(
             query_row_stride,
             result_row_stride,
         )
+        graph_key = _compile_paged_decode_probed(per_head_geometry)
+        if graph_key is None:
+            raise RuntimeError(
+                "tileiras rejected every decode geometry for this bucket; "
+                f"per-head fallback geometry={per_head_geometry}"
+            )
         query_storage_offset = int(query.storage_offset())
         key_storage_offset = int(key_cache.storage_offset())
         value_storage_offset = int(value_cache.storage_offset())
