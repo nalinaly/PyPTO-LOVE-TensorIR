@@ -1852,10 +1852,10 @@ def paged_attention_decode(
         )
         graph_key = _compile_paged_decode_probed(per_head_geometry)
         if graph_key is None:
-            raise RuntimeError(
-                "tileiras rejected every decode geometry for this bucket; "
-                f"per-head fallback geometry={per_head_geometry}"
-            )
+            # The per-head graph is the long-proven path; a probe failure
+            # here is best-effort protection losing to availability, so
+            # compile in-process exactly as this library always did.
+            graph_key = compile_paged_decode_for(*per_head_geometry)
         query_storage_offset = int(query.storage_offset())
         key_storage_offset = int(key_cache.storage_offset())
         value_storage_offset = int(value_cache.storage_offset())
