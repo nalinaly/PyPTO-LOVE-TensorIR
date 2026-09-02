@@ -921,14 +921,27 @@ def _decode_geometry_supported(geometry: tuple[int, ...]) -> bool:
         "from pypto_kernels import attention; "
         "attention.compile_paged_decode_for(*%r)" % (geometry,)
     )
+    # The probe runs in its own session so the assembler grandchildren it
+    # spawns never join this process's run session; a controlled engine
+    # would otherwise find a straggling tileiras at shutdown, TERMed it,
+    # and failed its own "natural cleanup" audit.
+    import signal
+
+    process = subprocess.Popen(
+        [sys.executable, "-c", probe],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
     try:
-        completed = subprocess.run(
-            [sys.executable, "-c", probe],
-            capture_output=True,
-            timeout=180,
-        )
-        supported = completed.returncode == 0
-    except subprocess.SubprocessError:
+        process.communicate(timeout=180)
+        supported = process.returncode == 0
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.communicate()
         supported = False
     _decode_geometry_support[geometry] = supported
     return supported
