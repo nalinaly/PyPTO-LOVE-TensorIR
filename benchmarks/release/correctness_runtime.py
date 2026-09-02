@@ -503,7 +503,7 @@ def _run_engine_sequences(
         # The CUPTI overlay child needs slightly more KV headroom than the
         # shared 0.78 performance lane leaves; see run_candidate for the
         # matching parent-side override.
-        requested["mem_fraction_static"] = 0.84
+        requested["mem_fraction_static"] = 0.86
     progress_path = run_dir / "qwen35-engine-progress.json"
 
     def publish_progress(stage: str, request_index: int | None = None) -> None:
@@ -1159,7 +1159,7 @@ def run_candidate(
             # CPU offload is incompatible with the PyPTO weight hooks. 0.80
             # clears SGLang's minimum viable fraction; this gate measures
             # correctness only, so the larger pool has no timing impact here.
-            candidate_config["mem_fraction_static"] = 0.84
+            candidate_config["mem_fraction_static"] = 0.86
         (
             torch,
             one_batch,
