@@ -934,6 +934,28 @@ def _decode_geometry_supported(geometry: tuple[int, ...]) -> bool:
     return supported
 
 
+def _paged_decode_bucket_ladder(
+    tokens: int, max_context_len: int
+) -> tuple[int, ...]:
+    """Candidate static bucket widths, widest-last, for shape generality.
+
+    tileiras accepts and rejects scattered (bucket, table) pairs; when the
+    exact bucket's graph is rejected, the next 64- and 128-aligned buckets
+    give the assembler a different program while the kernel's validity mask
+    keeps every extra slot numerically inert. The ladder never exceeds the
+    engine's request-table width.
+    """
+
+    ladder = [tokens]
+    for alignment in (64, 128):
+        rounded = ((tokens + alignment - 1) // alignment) * alignment
+        if rounded > max_context_len:
+            rounded = max_context_len
+        if rounded > ladder[-1] and rounded not in ladder:
+            ladder.append(rounded)
+    return tuple(ladder)
+
+
 def _paged_decode_shape_key(geometry: tuple[int, ...]) -> tuple[int, ...]:
     return geometry
 
@@ -1803,15 +1825,28 @@ def paged_attention_decode(
         query_row_stride,
         result_row_stride,
     )
+    compiled_bucket = tokens
+    merged_key = None
     if batch_size == 1:
         # Single-launch path: one graph covers every Q head, so the grid
         # spans all heads (16x the CTAs of a per-head launch on the
         # latency-bound decode bucket) and one launch replaces sixteen.
-        # Per-head arithmetic and reduction order are unchanged.
-        merged_key = _compile_paged_decode_probed(merged_geometry)
-    else:
-        merged_key = None
+        # Per-head arithmetic and reduction order are unchanged. When
+        # tileiras rejects the exact bucket, walk the wider-bucket ladder:
+        # the validity mask makes extra slots numerically inert.
+        for candidate in _paged_decode_bucket_ladder(tokens, max_context_len):
+            geometry = merged_geometry[:3] + (candidate,) + merged_geometry[4:]
+            merged_key = _compile_paged_decode_probed(geometry)
+            if merged_key is not None:
+                compiled_bucket = candidate
+                break
     if merged_key is not None:
+        request_index_view = request_index.as_strided(
+            (batch_size, compiled_bucket), (1, 0)
+        )
+        valid_tokens_view = valid_tokens.as_strided(
+            (batch_size, compiled_bucket), (1, 0)
+        )
         merged_query = query.as_strided(
             (1, q_heads, head_dim),
             (query_row_stride, head_dim, 1),
@@ -1836,7 +1871,7 @@ def paged_attention_decode(
             )
         )
     else:
-        per_head_geometry = (
+        per_head_base = (
             batch_size,
             1,
             1,
@@ -1850,12 +1885,24 @@ def paged_attention_decode(
             query_row_stride,
             result_row_stride,
         )
-        graph_key = _compile_paged_decode_probed(per_head_geometry)
+        graph_key = None
+        for candidate in _paged_decode_bucket_ladder(tokens, max_context_len):
+            per_head_geometry = per_head_base[:3] + (candidate,) + per_head_base[4:]
+            graph_key = _compile_paged_decode_probed(per_head_geometry)
+            if graph_key is not None:
+                compiled_bucket = candidate
+                break
         if graph_key is None:
             # The per-head graph is the long-proven path; a probe failure
             # here is best-effort protection losing to availability, so
             # compile in-process exactly as this library always did.
-            graph_key = compile_paged_decode_for(*per_head_geometry)
+            graph_key = compile_paged_decode_for(*per_head_base)
+        request_index_view = request_index.as_strided(
+            (batch_size, compiled_bucket), (1, 0)
+        )
+        valid_tokens_view = valid_tokens.as_strided(
+            (batch_size, compiled_bucket), (1, 0)
+        )
         query_storage_offset = int(query.storage_offset())
         key_storage_offset = int(key_cache.storage_offset())
         value_storage_offset = int(value_cache.storage_offset())
