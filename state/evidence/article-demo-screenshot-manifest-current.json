@@ -5,7 +5,7 @@
     "status": "pass"
   },
   "kind": "release-screenshot-manifest",
-  "recorded_at": "2026-09-02T08:47:27.795525+00:00",
+  "recorded_at": "2026-09-02T09:22:45.598062+00:00",
   "schema": 2,
   "screenshots": {
     "article-demo-typical": {
@@ -38,13 +38,13 @@
       "caption_en": "Live end-to-end inference: fixed-prompt 64-token greedy decoding with per-token gates and 100% PyPTO coverage.",
       "caption_zh": "真实端到端推理：固定 prompt 的 64-token 贪心解码，逐 token 门禁与 100% PyPTO coverage。",
       "capture_evidence": "state/evidence/model-inference-capture-current.json",
-      "capture_evidence_sha256": "6effbd80cb9cd36b9a53b409d22450b94333322f8fe8be94895ca85508552548",
+      "capture_evidence_sha256": "e98037b5de90d526065d315deb141c88edbf03e0707e49a9098867e8e051b075",
       "capture_exit_code": 0,
       "command": "envs/pypto-release/bin/python tools/run_model_correctness.py all --model-path models/Qwen3.5-9B --semantic-oracle runs/semantic-oracle-qwen35-9b-chat-nonthinking.json 2>&1 | tail -1 | python3 -c \"import json,sys; d=json.load(sys.stdin); print('control status:', d['status'], '| runs:', len(d.get('runs',[])))\" && python3 tools/print_model_gate_live.py",
-      "evidence": "runs/pypto-gpu-bounded-20260902T082344Z-379580-9cfd22/qwen35-9b-correctness.json",
-      "evidence_sha256": "b5f241caf4d68622c15203931ab3f474f98141d1c6af2a5fb9af60ce904e9084",
+      "evidence": "runs/pypto-gpu-bounded-20260902T090900Z-391099-6c37f2/qwen35-9b-correctness.json",
+      "evidence_sha256": "67dc78463462fad8dbd9ad9ff4e857859e29a3bab7411e323c214afe5ee64225",
       "path": "docs/assets/screenshots/model-inference.png",
-      "sha256": "d2cd38c3fe7bd242eec1f7bf7a3f64868ccb98f6e70193d6652dbb4625b06107",
+      "sha256": "6c5c16d36607061f37dea14341d4ff9217caa690bfbb388edc84ff2e5a089f22",
       "status": "current-live-run"
     },
     "operator-correctness": {
