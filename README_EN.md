@@ -68,7 +68,7 @@ contract/launch, TensorIR owns tile layout and lowering, and cuTile owns final
 code generation. PyPTO's tile conventions are passed in explicitly through
 `CanonicalSchedule` and continue to be lowered — all 21 handwritten graphs plus
 the Inductor-generated kernels compile through this path (101 correctness
-cases and 33,448 whole-model compute launches with zero fallback attest to it).
+cases and 27,808 whole-model compute launches with zero fallback attest to it).
 
 On top of this, `packages/pypto-kernels` is a framework-independent handwritten
 PyPTO operator library (13 modules / 21 `@pl.jit` graphs) covering every
@@ -83,20 +83,20 @@ Inductor backend. SGLang integrates through its official plugin mechanism —
 | Item | Result |
 |---|---|
 | Qwen3.5-9B correctness | PASS: 3 fresh starts × 10 requests × 64 tokens, **token-identical** to native SGLang (unique output-sequence SHA-256) |
-| model-forward PyPTO coverage | **100%**: 33,448 compute calls = 31,400 handwritten + 2,048 Inductor-generated, 0 fallback |
+| model-forward PyPTO coverage | **100%**: 27,808 compute calls = 25,760 handwritten + 2,048 Inductor-generated, 0 fallback |
 | Operator regression | PASS: 8 suites / 101 cases (re-run on hardware 2026-09-01) |
-| End-to-end throughput | PyPTO **9.6068 tok/s**; SGLang matched **15.5936**; SGLang optimized **13.1686** |
-| Relative performance | **PyPTO = 61.61% of matched** (95% CI [52.34%, 61.77%]); **72.95% of optimized** (CI [61.98%, 73.14%]) |
-| vs previous release | 2.3393 tok/s (15.62%/18.71%) on the same matrix → **4.1× end-to-end**, entirely from scheduling-layer optimization with token-exact correctness preserved |
-| Bottleneck attribution | CUPTI/NVTX reconciliation closes (residual 1.24 ms): the remaining gap concentrates in fused-pointwise codegen and prefill GEMM row-blocking |
+| End-to-end throughput | PyPTO **11.1635 tok/s**; SGLang matched **15.5813**; SGLang optimized **13.1459** |
+| Relative performance | **PyPTO = 71.65% of matched** (95% CI [71.56%, 72.11%]); **84.92% of optimized** (CI [84.83%, 88.18%]) |
+| vs previous release | 2.3393 tok/s (15.62%/18.71%) on the same matrix → **4.77× end-to-end**, entirely from scheduling-layer optimization with token-exact correctness preserved |
+| GPU compute total | PyPTO forward compute **2,221.72 ms/request < optimized's 2,327.79**; the remaining E2E gap is entirely host-side launch residual (970.63 ms) |
 
 | Metric (p50) | PyPTO | matched | optimized |
 |---|---:|---:|---:|
-| E2E | 6661.97 ms | 4104.24 ms | 4860.03 ms |
-| TTFT | 351.35 ms | 70.32 ms | 144.77 ms |
-| TPOT | 100.19 ms | 64.01 ms | 74.82 ms |
-| Output throughput | 9.6068 tok/s | 15.5936 tok/s | 13.1686 tok/s |
-| Peak GPU memory | 18.20 GiB | 18.70 GiB | 22.68 GiB |
+| E2E | 5732.99 ms | 4107.48 ms | 4868.44 ms |
+| TTFT | 351.02 ms | 70.26 ms | 145.48 ms |
+| TPOT | 85.32 ms | 64.08 ms | 74.95 ms |
+| Output throughput | 11.1635 tok/s | 15.5813 tok/s | 13.1459 tok/s |
+| Peak GPU memory | 18.92 GiB | 18.70 GiB | 22.68 GiB |
 
 ![Three-lane end-to-end](docs/assets/charts/three-lane-end-to-end.png)
 
@@ -169,13 +169,31 @@ Operator-level before/after (PyPTO / cuBLAS):
 
 ![Operator A/B](docs/assets/charts/operator-ab-breakdown.png)
 
-CUPTI phase attribution (GPU ms per request): total forward compute dropped
-22318.81 → **3066.64** (7.3×), with the unattributed bucket (handwritten
-linears) 20184→1636 and the LM head 932→178; **attention core+gate
-(1203 ms) is now the largest item** — a fused-pointwise codegen gap. Of the
-1801.94 ms E2E gap versus optimized, 952.45 ms is profiled compute plus an
-849.49 ms non-profiled residual; the independent phase reconciliation residual
-is 1.24 ms (closed).
+Round two (launch structure): the per-head decode launches merge into one
+all-heads launch (16 launches → 1 at batch 1; the grid widens 16×; per-head
+arithmetic and reduction order are unchanged). tileiras rejects the merged
+graph — and on scattered bucket widths corrupts the compiling process heap —
+so every new geometry is probed in a **sacrificial subprocess** (success
+publishes the artifact to the persistent cache, which the parent then hits;
+any failure falls back to the per-head path). Disassembly plus CUPTI also
+proved the SwiGLU kernel itself runs in ~1 µs (the measured 0.21 ms was
+nine-tenths host launch cost), so the Inductor wrapper's `pypto_launch`
+gained the same packet caching as the handwritten path.
+
+| Metric | Before | Round 1 | Round 2 (final) |
+|---|---:|---:|---:|
+| Output throughput | 2.3393 tok/s | 9.6068 | **11.1635 (4.77×)** |
+| = of optimized | 18.71% | 72.95% | **84.92%** |
+| TPOT | 381.23 ms | 100.19 | **85.32 (4.5×)** |
+| Attention / request | 1154 ms | 1203 ms | **268 ms** |
+| Forward compute / request | 22318.81 ms | 3066.64 | **2221.72 (10.0×)** |
+
+CUPTI phase attribution (GPU ms per request): attention 1154→268 (4.3× from
+the merged launch), unattributed (handwritten linears) 20184→1710, LM head
+932→198; **PyPTO forward compute (2221.72) is now below the optimized lane
+(2327.79)** — of the 864.55 ms E2E gap versus optimized, the entire remainder
+is the 970.63 ms host-side non-profiled residual, with the independent phase
+reconciliation residual at −5.24 ms (closed).
 
 ## Environment requirements
 
@@ -296,7 +314,7 @@ Expected output (within the 64-token cap, token-identical to native SGLang):
 ```
 
 Pass criteria: all 30 requests token-identical (unique output-sequence SHA-256),
-teacher-forced frozen-logits policy passes, and CUPTI coverage 33,448/33,448
+teacher-forced frozen-logits policy passes, and CUPTI coverage 27,808/27,808
 with 0 fallback. After a re-run, `python3 tools/print_model_gate_live.py`
 prints the latest run's pass status, coverage audit, and generated output.
 
@@ -396,13 +414,13 @@ registration failure raises `SystemExit` (SGLang's loader swallows exceptions).
 
 | Operator (shape) | PyPTO | stock | Multiple | Before |
 |---|---:|---:|---:|---:|
-| gate/up linear decode 1×4096×24576 | 0.2850 | 0.2385 | **1.19×** | 10.9× |
-| down linear decode 1×12288×4096 | 0.1660 | 0.1232 | **1.34×** | 36.9× |
-| FP32 LM head 1×4096×248320 | 3.6814 | 2.4338 | **1.51×** | 6.0× |
-| gate/up linear prefill 31×4096×24576 | 3.6015 | 0.2507 | 14.4× | 179.2× |
-| down linear prefill 31×12288×4096 | 1.7539 | 0.1283 | 13.7× | 194.7× |
-| SwiGLU decode 1×24576 | 0.2084 | 0.0090 | 23.1× | 21.7× |
-| SwiGLU prefill 31×24576 | 0.2036 | 0.0090 | 22.5× | 22.2× |
+| gate/up linear decode 1×4096×24576 | 0.2859 | 0.2392 | **1.20×** | 10.9× |
+| down linear decode 1×12288×4096 | 0.1649 | 0.1232 | **1.34×** | 36.9× |
+| FP32 LM head 1×4096×248320 | 2.6728 | 2.4276 | **1.10×** | 6.0× |
+| gate/up linear prefill 31×4096×24576 | 3.6025 | 0.2496 | 14.4× | 179.2× |
+| down linear prefill 31×12288×4096 | 1.7528 | 0.1293 | 13.6× | 194.7× |
+| SwiGLU decode 1×24576 | 0.2029 | 0.0093 | 21.9× | 21.7× |
+| SwiGLU prefill 31×24576 | 0.2028 | 0.0093 | 21.8× | 22.2× |
 
 **SwiGLU fusion ablation** (warm call ms / cold compile ms / kernel count /
 vs eager):
@@ -419,20 +437,21 @@ vs eager):
 ![SwiGLU ablation](docs/assets/charts/inductor-swiglu-ablation.png)
 
 **CUPTI logical-phase attribution** (p50 ms/request): total PyPTO forward
-compute **3066.64** (was 22318.81), of which the unattributed bucket
-(handwritten linears) 1636.24, attention core+gate 1202.66, LM head 177.96;
-matched 1282.43; optimized 2114.19. Of the 1801.94 ms E2E gap versus
-optimized, 952.45 ms is profiled compute plus an 849.49 ms non-profiled
-residual; the independent phase-median reconciliation residual is 1.24 ms
-(closed).
+compute **2,221.72** (was 22,318.81, 10.0×), of which the unattributed
+bucket (handwritten linears) 1,709.89, attention core+gate 268.37, LM head
+198.39; matched 1,337.55; optimized 2,327.79. Of the 864.55 ms E2E gap
+versus optimized the compute gap is **−106.07 ms** (PyPTO is lower) — the
+entire remainder is the 970.63 ms host-side non-profiled residual, with the
+independent phase reconciliation residual at −5.24 ms (closed).
 
 ![CUPTI attribution](docs/assets/charts/cupti-phase-attribution.png)
 
-**Conclusion**: decode linear algebra now sits at 1.2–1.5× of cuBLAS; the
-remaining gap concentrates in **fused-pointwise code generation** (attention
-0.33 ms vs FlashInfer 0.05 ms, same source as SwiGLU's 5×) and **prefill GEMM
-row-blocking** (numerically safe multi-row tiles are the next priority), not
-in the bridge itself.
+**Conclusion**: decode linear algebra now sits at 1.1–1.3× of cuBLAS and the
+merged launch drops attention to 268 ms/request (4.3×); **PyPTO's total
+forward GPU compute is already below the optimized lane's** — the remaining
+E2E gap is entirely host-side launch residual, pointing next at whole-step
+CUDA-graph capture (the graph lease already exists) and numerically safe
+prefill row-blocking.
 
 ## Screenshot reproduction
 
@@ -458,12 +477,16 @@ SHA-256, non-blank pixel samples); the binding manifest is regenerated with
 
 ## Limitations and licensing
 
+- Host-side launch path (largest remaining item, 970.63 ms/request): the
+  per-step launch/orchestration overhead of ~430 launches needs whole-step
+  CUDA-graph capture (the lease is ready) and launch batching;
 - Prefill GEMMs at 13.6–14.4×: more aggressive row blocking selects the
   tensor-core path, changes FP accumulation order, and breaks token-level
   agreement — numerically safe multi-row tiles are the follow-up;
-- Fused-pointwise codegen ~5× (attention/SwiGLU share the source): the gap is
-  in tileiras instruction selection/vectorization; the tile sweep has ruled
-  out scheduling;
+- Fused pointwise: CUPTI proves the kernel itself runs in ~1 µs — the
+  measured 0.20 ms is mostly per-call host launch cost (the Inductor
+  wrapper's Python overhead); the scalar `LDG.E.U16` loads (SASS-verified)
+  would cap wider workloads, a tileiras vectorization feedback item;
 - Decode launch density: ~500 launches/step of host overhead remain after
   packet caching; full convergence needs whole-step CUDA-graph capture
   (`NvidiaExecutable` already carries the graph lease);

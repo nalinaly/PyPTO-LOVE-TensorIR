@@ -50,7 +50,7 @@ SGLang（未打补丁）
 互补：PyPTO 管 DSL/静态特化/产物契约/launch，TensorIR 管 tile 布局与 lowering，cuTile
 管最终代码生成。PyPTO 的 tile 约定经 `CanonicalSchedule` 显式传入并被继续 lower——
 手写库全部 21 个 graph 与 Inductor 生成的 kernel 均经此路径完成编译（101 个正确性用例、
-整模型 33,448 次 compute launch 零 fallback 为证）。
+整模型 27,808 次 compute launch 零 fallback 为证）。
 
 在此之上，`packages/pypto-kernels` 是一套独立于框架的手写 PyPTO 算子库（13 模块 /
 21 个 `@pl.jit` graph），覆盖 Qwen3.5 混合注意力结构（24 层 GDN + 8 层全注意力）所需的
@@ -62,20 +62,20 @@ MLP 激活由 Inductor 后端自动融合。SGLang 以官方插件机制集成�
 | 项目 | 结果 |
 |---|---|
 | Qwen3.5-9B 正确性 | PASS：3 次冷启动 × 10 请求 × 64 token，与 SGLang 原生实现**逐 token 一致**（输出序列 SHA-256 唯一） |
-| model-forward PyPTO coverage | **100%**：33,448 次 compute 调用 = 31,400 手写 + 2,048 Inductor 生成，fallback 0 |
+| model-forward PyPTO coverage | **100%**：27,808 次 compute 调用 = 25,760 手写 + 2,048 Inductor 生成，fallback 0 |
 | 算子回归 | PASS：8 套件 / 101 用例（2026-09-01 真机复跑） |
-| 端到端吞吐 | PyPTO **9.6068 tok/s**；SGLang matched **15.5936**；SGLang optimized **13.1686** |
-| 相对性能 | **PyPTO = matched 的 61.61%**（95% CI [52.34%, 61.77%]）；**= optimized 的 72.95%**（CI [61.98%, 73.14%]） |
-| 相对优化前 | 同一矩阵优化前为 2.3393 tok/s（15.62%/18.71%）→ **端到端 4.1×，全部来自调度层优化且逐 token 精确一致** |
-| 瓶颈归因 | CUPTI/NVTX 对账闭合（残差 1.24 ms）：剩余差距集中于 fused pointwise 代码生成与 prefill GEMM 行块化 |
+| 端到端吞吐 | PyPTO **11.1635 tok/s**；SGLang matched **15.5813**；SGLang optimized **13.1459** |
+| 相对性能 | **PyPTO = matched 的 71.65%**（95% CI [71.56%, 72.11%]）；**= optimized 的 84.92%**（CI [84.83%, 88.18%]） |
+| 相对优化前 | 同一矩阵优化前为 2.3393 tok/s（15.62%/18.71%）→ **端到端 4.77×，全部来自调度层优化且逐 token 精确一致** |
+| GPU 计算总量 | PyPTO forward compute **2,221.72 ms/请求 < optimized 的 2,327.79**；剩余 E2E 差距全部为宿主侧发射残差（970.63 ms） |
 
 | 指标（p50） | PyPTO | matched | optimized |
 |---|---:|---:|---:|
-| E2E | 6661.97 ms | 4104.24 ms | 4860.03 ms |
-| TTFT | 351.35 ms | 70.32 ms | 144.77 ms |
-| TPOT | 100.19 ms | 64.01 ms | 74.82 ms |
-| 输出吞吐 | 9.6068 tok/s | 15.5936 tok/s | 13.1686 tok/s |
-| 峰值显存 | 18.20 GiB | 18.70 GiB | 22.68 GiB |
+| E2E | 5732.99 ms | 4107.48 ms | 4868.44 ms |
+| TTFT | 351.02 ms | 70.26 ms | 145.48 ms |
+| TPOT | 85.32 ms | 64.08 ms | 74.95 ms |
+| 输出吞吐 | 11.1635 tok/s | 15.5813 tok/s | 13.1459 tok/s |
+| 峰值显存 | 18.92 GiB | 18.70 GiB | 22.68 GiB |
 
 ![三 lane 端到端对比](docs/assets/charts/three-lane-end-to-end.png)
 
@@ -131,11 +131,26 @@ headline 取各次冷启动 p50 的中位数，CI 为 10,000 次 percentile boot
 
 ![算子级 A/B 对比](docs/assets/charts/operator-ab-breakdown.png)
 
-CUPTI 阶段归因（每请求 GPU ms）：forward compute 合计从 22318.81 降到 **3066.64**
-（7.3×），其中未归因桶（手写线性层）20184→1636、LM head 932→178；
-**attention core+gate（1203 ms）现为最大单项**，属 fused pointwise 代码生成差距。
-与 optimized 的 E2E 差距 1801.94 ms = compute 952.45 + 非采样残差 849.49，
-阶段对账残差 1.24 ms（闭合）。
+第二轮（launch 结构）：合并 attention 逐 head launch 为单次全 head 发射（batch=1
+时 16 次 launch → 1 次，grid 扩大 16 倍；每个 head 的算术与归约顺序不变）。合并图在
+零散 KV 桶宽度上会被 tileiras 拒绝甚至破坏编译进程堆，因此每个新几何先在**牺牲子
+进程**中编译探测（成功则产物入持久缓存，父进程命中缓存；失败回退逐 head 路径）。
+反汇编与 CUPTI 同时证实 SwiGLU kernel 实际 GPU 时间仅 ~1 µs（此前测得的 0.21 ms
+九成是宿主发射成本），据此为 Inductor wrapper 的 `pypto_launch` 加上与手写路径相同
+的报文缓存。
+
+| 指标 | 优化前 | 第一轮 | 第二轮（最终） |
+|---|---:|---:|---:|
+| 输出吞吐 | 2.3393 tok/s | 9.6068 | **11.1635（4.77×）** |
+| = optimized 的 | 18.71% | 72.95% | **84.92%** |
+| TPOT | 381.23 ms | 100.19 | **85.32（4.5×）** |
+| attention/请求 | 1154 ms | 1203 ms | **268 ms** |
+| forward compute/请求 | 22318.81 ms | 3066.64 | **2221.72（10.0×）** |
+
+CUPTI 阶段归因（每请求 GPU ms）：attention 1154→268（合并发射 4.3×）、未归因
+（手写线性）20184→1710、LM head 932→198；**PyPTO forward compute（2221.72）已低于
+optimized lane（2327.79）**，与 optimized 的 E2E 差距 864.55 ms 全部为宿主侧非采样
+残差 970.63 ms，阶段对账残差 −5.24 ms（闭合）。
 
 ## 环境要求
 
@@ -249,7 +264,7 @@ envs/pypto-release/bin/python tools/run_model_correctness.py all \
 ```
 
 通过标准：30 请求全部逐 token 一致（输出序列 SHA-256 唯一）、teacher-forced logits 冻结
-策略通过、CUPTI coverage 33,448/33,448 且 fallback=0。复跑后可用
+策略通过、CUPTI coverage 27,808/27,808 且 fallback=0。复跑后可用
 `python3 tools/print_model_gate_live.py` 打印最新一次运行的通过状态、coverage 与输出文本。
 
 ## 文章 Demo：在 NVIDIA 上原样运行官方教学 Demo
@@ -329,13 +344,13 @@ head、embedding/token-id gather、RMSNorm 三变体、NeoX RoPE、sigmoid 门�
 
 | 算子（形状） | PyPTO | stock | 倍数 | 优化前 |
 |---|---:|---:|---:|---:|
-| gate/up 线性 decode 1×4096×24576 | 0.2850 | 0.2385 | **1.19×** | 10.9× |
-| down 线性 decode 1×12288×4096 | 0.1660 | 0.1232 | **1.34×** | 36.9× |
-| FP32 LM head 1×4096×248320 | 3.6814 | 2.4338 | **1.51×** | 6.0× |
-| gate/up 线性 prefill 31×4096×24576 | 3.6015 | 0.2507 | 14.4× | 179.2× |
-| down 线性 prefill 31×12288×4096 | 1.7539 | 0.1283 | 13.7× | 194.7× |
-| SwiGLU decode 1×24576 | 0.2084 | 0.0090 | 23.1× | 21.7× |
-| SwiGLU prefill 31×24576 | 0.2036 | 0.0090 | 22.5× | 22.2× |
+| gate/up 线性 decode 1×4096×24576 | 0.2859 | 0.2392 | **1.20×** | 10.9× |
+| down 线性 decode 1×12288×4096 | 0.1649 | 0.1232 | **1.34×** | 36.9× |
+| FP32 LM head 1×4096×248320 | 2.6728 | 2.4276 | **1.10×** | 6.0× |
+| gate/up 线性 prefill 31×4096×24576 | 3.6025 | 0.2496 | 14.4× | 179.2× |
+| down 线性 prefill 31×12288×4096 | 1.7528 | 0.1293 | 13.6× | 194.7× |
+| SwiGLU decode 1×24576 | 0.2029 | 0.0093 | 21.9× | 21.7× |
+| SwiGLU prefill 31×24576 | 0.2028 | 0.0093 | 21.8× | 22.2× |
 
 **SwiGLU 融合消融**（热 call ms / 冷编译 ms / kernel 数 / vs eager）：
 
@@ -350,17 +365,18 @@ head、embedding/token-id gather、RMSNorm 三变体、NeoX RoPE、sigmoid 门�
 
 ![SwiGLU 融合消融](docs/assets/charts/inductor-swiglu-ablation.png)
 
-**CUPTI 逻辑阶段归因**（p50 ms/请求）：PyPTO forward compute 合计 **3066.64**（优化前
-22318.81），其中未归因桶（手写线性层）1636.24、attention core+gate 1202.66、LM head
-177.96；matched 合计 1282.43、optimized 合计 2114.19。与 optimized 的 E2E 差距
-1801.94 ms = 采样 compute 差距 952.45 ms + 非采样残差 849.49 ms，独立阶段对账残差
-1.24 ms（闭合）。
+**CUPTI 逻辑阶段归因**（p50 ms/请求）：PyPTO forward compute 合计 **2,221.72**
+（优化前 22,318.81，10.0×），其中未归因桶（手写线性层）1,709.89、attention
+core+gate 268.37、LM head 198.39；matched 合计 1,337.55、optimized 合计 2,327.79。
+与 optimized 的 E2E 差距 864.55 ms 中 compute 差距为 **−106.07 ms**（PyPTO 更低），
+剩余全部为非采样残差 970.49 ms（宿主侧），独立阶段对账残差 −5.24 ms（闭合）。
 
 ![CUPTI 阶段归因](docs/assets/charts/cupti-phase-attribution.png)
 
-**结论**：decode 线性代数已达 cuBLAS 的 1.2–1.5 倍区间；剩余差距的重心在 **fused
-pointwise 代码生成**（attention 0.33 ms vs FlashInfer 0.05 ms，与 SwiGLU 的 5× 差距同源）
-与 **prefill GEMM 行块化**（数值安全的多行 tile 是下一优先级），而非桥接机制本身。
+**结论**：decode 线性代数已达 cuBLAS 的 1.1–1.3 倍区间，attention 经合并发射后降至
+268 ms/请求（4.3×）；**PyPTO 的 forward GPU 计算总量已低于 optimized lane**——剩余 E2E
+差距全部是宿主侧发射残差，下一步是整步 CUDA Graph 捕获（`NvidiaExecutable` 已具备
+graph 租约）与 prefill GEMM 的数值安全行块化。
 
 ## 截图复现
 
@@ -383,10 +399,13 @@ $Repo = "\\wsl.localhost\Ubuntu\home\<user>\pypto-love-tensor-ir"
 
 ## 限制与许可
 
+- 宿主侧发射路径（最大剩余项，970.63 ms/请求）：每步约 430 次 launch 的宿主开销与编排
+  间隙，需要整步 CUDA Graph 捕获（graph 租约已备）与 launch 批量化；
 - prefill GEMM 13.6–14.4×：更激进的行块化（tensor-core 路径）会改变浮点累加顺序并破坏
   token 级一致，需要数值安全的多行 tile 设计；
-- fused pointwise 代码生成约 5×（attention/SwiGLU 同源）：差距在 tileiras 指令选择/
-  向量化层，tile 扫描已排除调度因素；
+- fused pointwise：CUPTI 证明 kernel GPU 时间仅 ~1 µs，0.20 ms 的测量值主要是每次调用的
+  宿主发射成本（Inductor wrapper 的 Python 开销）；标量 `LDG.E.U16` 载入（SASS 实证）在
+  更宽负载上会成为上限，属 tileiras 向量化反馈项；
 - decode launch 密度：报文缓存后仍有约 500 次/步 launch 的宿主开销，进一步收敛需要
   CUDA Graph 整步捕获（`NvidiaExecutable` 已具备 graph 租约）；
 - 24 GiB 消费级卡 + 显示共占使零 offload 的 9B 候选贴近显存上限，正确性子进程使用
