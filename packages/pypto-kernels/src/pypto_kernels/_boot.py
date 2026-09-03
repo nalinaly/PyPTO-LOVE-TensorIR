@@ -528,6 +528,16 @@ def acquire_cuda_graph_leases(
         }
 
 
+def compiled_artifact(key: str) -> Any:
+    """Return the Artifact produced by ``compile_graph`` for ``key``."""
+
+    with _lock:
+        try:
+            return _GRAPHS[key][0]
+        except KeyError as error:
+            raise KeyError(f"unknown compiled graph key: {key}") from error
+
+
 def launch_graph(key: str, tensors: tuple[Any, ...], stream: Any) -> None:
     """Launch one compiled graph (the single launch of one operator)."""
 

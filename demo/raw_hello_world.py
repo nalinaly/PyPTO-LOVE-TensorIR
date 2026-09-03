@@ -61,6 +61,22 @@ def main() -> int:
         source_node="demo/raw_hello_world.py",
     )
     print(f"compiled graph key: {graph_key}")
+    artifact = _boot.compiled_artifact(graph_key)
+    actual = artifact.actual_target
+    print(
+        "artifact target : "
+        f"name={actual.name} cc={actual.compute_capability} "
+        f"portability={actual.portability}"
+    )
+    from pypto.runtime import nvidia as runtime
+
+    observation = runtime.observe_current_nvidia_runtime(*_boot._live_runtime_expectation())
+    live = observation.target_info
+    print(
+        "live GPU target : "
+        f"arch={live.architecture} codegen={live.arch_conditional_architecture} "
+        f"cc={live.traits.compute_capability}"
+    )
     executable = _boot._ready_executable(graph_key)
     print(f"executable state  : {executable.state}")
 

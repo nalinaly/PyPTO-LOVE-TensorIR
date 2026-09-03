@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "pypto-kernels"
 version = "0.1.0"
 description = "Native PyPTO tile operators required by Qwen3.5 inference"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 
 [tool.setuptools.packages.find]
 where = ["src"]
