@@ -23,6 +23,9 @@ EXPECTED_SGLANG_COMMIT = "71de97b264b04dcd514cf904003028aefe9775c8"
 SOURCE_CHECKOUT_SGLANG_VERSION = "0.0.0.dev0"
 EXPECTED_TORCH_CUDA = "13.0"
 EXPECTED_COMPUTE_CAPABILITY = (12, 0)
+# Live Ada proof lane. The SM120 torch 2.13 identity lock does not apply;
+# compile/launch still uses the observed GPU (8.9), not a forged 12.0.
+ADA_COMPUTE_CAPABILITY = (8, 9)
 
 
 def _base_version(version: str) -> str:
@@ -56,6 +59,16 @@ def assert_torch_compatible(
 ) -> None:
     if torch_module is None:
         import torch as torch_module
+    if torch_module.version.hip is not None:
+        raise FrameworkCompatibilityError(
+            "PyPTO requires the pinned NVIDIA CUDA build; "
+            f"found cuda={torch_module.version.cuda!r}, hip={torch_module.version.hip!r}."
+        )
+    if not torch_module.cuda.is_available():
+        raise FrameworkCompatibilityError("the pinned PyTorch build cannot access CUDA")
+    capability = tuple(torch_module.cuda.get_device_capability(0))
+    if capability == ADA_COMPUTE_CAPABILITY:
+        return
     version = str(torch_module.__version__)
     commit = str(torch_module.version.git_version)
     if (
@@ -75,9 +88,6 @@ def assert_torch_compatible(
             "PyPTO requires the pinned NVIDIA CUDA build; "
             f"found cuda={torch_module.version.cuda!r}, hip={torch_module.version.hip!r}."
         )
-    if not torch_module.cuda.is_available():
-        raise FrameworkCompatibilityError("the pinned PyTorch build cannot access CUDA")
-    capability = tuple(torch_module.cuda.get_device_capability(0))
     if capability != EXPECTED_COMPUTE_CAPABILITY:
         raise FrameworkCompatibilityError(
             f"PyPTO requires compute capability {EXPECTED_COMPUTE_CAPABILITY}, got {capability}"

@@ -188,10 +188,20 @@ def pypto_dso_sha256() -> str:
     with _DSO_DIGEST_LOCK:
         if _DSO_DIGEST_CACHE is not None and _DSO_DIGEST_CACHE[:4] == identity:
             return _DSO_DIGEST_CACHE[4]
+        digest = hashlib.sha256()
         with path.open("rb") as stream:
-            digest = hashlib.file_digest(stream, "sha256").hexdigest()
-        _DSO_DIGEST_CACHE = (*identity, digest)
-        return digest
+            file_digest = getattr(hashlib, "file_digest", None)
+            if file_digest is not None:
+                digest_hex = file_digest(stream, "sha256").hexdigest()
+            else:
+                while True:
+                    chunk = stream.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    digest.update(chunk)
+                digest_hex = digest.hexdigest()
+        _DSO_DIGEST_CACHE = (*identity, digest_hex)
+        return digest_hex
 
 
 @dataclass(frozen=True, slots=True)
@@ -430,10 +440,7 @@ class NativePointwiseProgram:
                     )
                 name = f"value_{instruction.result.key}"
                 source_name = names[instruction.arguments[0].key]
-                lines.append(
-                    f"{indent}{name} = pl.cast({source_name}, "
-                    f"target_type={dtype_expr})"
-                )
+                lines.append(f"{indent}{name} = pl.cast({source_name}, {dtype_expr})")
                 names[instruction.result.key] = name
                 continue
             op = self._OPS.get(instruction.op_name)
@@ -1221,6 +1228,28 @@ def _pointwise_tile_shape(shape: tuple[int, ...], tile: int) -> tuple[int, ...]:
 
     if not shape or tile <= 0 or shape[-1] % tile:
         raise StrictCoverageError("pointwise shape is incompatible with its tile")
+    # Ada TensorIR collapses a dense multi-d pointwise nest to rank-1 numel.
+    # Keep a 1-D schedule tile so CanonicalSchedule matches that space.
+    # SM120 evidence still uses the leading-ones form below.
+    try:
+        import torch
+
+        if (
+            torch.cuda.is_available()
+            and tuple(torch.cuda.get_device_capability(0)) == (8, 9)
+        ):
+            numel = 1
+            for extent in shape:
+                numel *= int(extent)
+            if numel % tile:
+                raise StrictCoverageError(
+                    "pointwise numel is incompatible with its tile"
+                )
+            return (tile,)
+    except StrictCoverageError:
+        raise
+    except Exception:
+        pass
     return (*([1] * sum(extent != 1 for extent in shape[:-1])), tile)
 
 

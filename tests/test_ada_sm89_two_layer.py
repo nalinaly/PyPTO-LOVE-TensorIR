@@ -42,12 +42,17 @@ def test_two_layer_census_and_inductor_on_live_sm89() -> None:
     assert evidence["all_operators_correct"]
     two = evidence["two_layer"]
     assert two["core_ok"]
+    assert "error" not in two, two.get("error")
     match = two["pypto_vs_eager"]
     assert match["finite"]
     assert match["correct"], match
     inductor = two["inductor"]
     assert inductor["ok"], inductor.get("error")
     assert inductor["correct_vs_eager"], inductor
+    ew = two["inductor_pypto_elementwise"]
+    assert ew["all_native"], ew
+    assert ew["kernels"]
+    assert all(item["entry_name"] == "pypto_fused_pointwise" for item in ew["kernels"])
     assert two["pypto_ms"] > 0
     assert two["eager_ms"] > 0
     assert inductor["ms"] > 0

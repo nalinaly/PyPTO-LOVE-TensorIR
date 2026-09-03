@@ -132,6 +132,20 @@ def test_torch_version_mismatch_fails_closed(tmp_path) -> None:
         )
 
 
+class FakeAdaCuda:
+    def is_available(self) -> bool:
+        return True
+
+    def get_device_capability(self, _device: int) -> tuple[int, int]:
+        return (8, 9)
+
+
+def test_ada_sm89_skips_sm120_torch_identity_lock(tmp_path) -> None:
+    module = fake_torch(tmp_path, version="2.11.0+cu128", commit="not-the-sm120-pin")
+    module.cuda = FakeAdaCuda()
+    assert_torch_compatible(module)
+
+
 def test_sglang_requires_source_identity(monkeypatch, tmp_path) -> None:
     monkeypatch.delenv("PYPTO_SGLANG_SOURCE_ROOT", raising=False)
     with pytest.raises(FrameworkCompatibilityError, match="PYPTO_SGLANG_SOURCE_ROOT"):

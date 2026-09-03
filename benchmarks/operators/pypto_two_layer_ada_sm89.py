@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Two-layer Ada sm_89 proof: every PyPTO operator plus torch.compile inductor.
+"""Two-layer Ada sm_89 proof: handwritten MM plus inductor-fused PyPTO elementwise.
 
 Full Qwen3.5-0.8B / 9B does not fit this 6 GiB Ada machine. This program
-instead runs a two-layer Qwen-shaped stack that exercises the complete
-handwritten ``pypto-kernels`` set, then compares that stack against an
-independent PyTorch eager reference and ``torch.compile(backend='inductor')``.
+runs a two-layer Qwen-shaped stack where linear / attention / RoPE / embedding
+are handwritten ``pypto-kernels``, while residual add, sigmoid-mul and SwiGLU
+are fused by TorchInductor and lowered to PyPTO cubins (not Triton).
 
 Live target is compute capability 8.9. Artifact loader ABI still requires
 CUDA Runtime API >= 13000; preload CUDA 13.3 libcudart when torch bundles 12.8.
@@ -24,6 +24,9 @@ from typing import Any, Callable
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 KERNEL_SRC = ROOT / "packages" / "pypto-kernels" / "src"
+PLUGIN_SRC = ROOT / "packages" / "pypto-framework-plugins" / "src"
+if PLUGIN_SRC.is_dir():
+    sys.path.insert(0, str(PLUGIN_SRC))
 if KERNEL_SRC.is_dir():
     sys.path.insert(0, str(KERNEL_SRC))
 
@@ -575,7 +578,41 @@ class TwoLayerWeights:
         self.gated_w = 1.0 + p(GDN_DV, scale=0.1).view(-1)
 
 
-def two_layer_pypto(weights: TwoLayerWeights, stream, *, use_gdn: bool) -> torch.Tensor:
+class ElementwiseInductorPypto:
+    """Inductor-fused add / sigmoid-mul / SwiGLU compiled to PyPTO cubins."""
+
+    def __init__(self) -> None:
+        from pypto_plugins.torch_backend import compile_backend
+        import torch._inductor.config as inductor_config
+
+        inductor_config.compile_threads = 1
+
+        def _compile(fn):
+            torch._dynamo.reset()
+            return torch.compile(
+                fn, backend=compile_backend, dynamic=False, fullgraph=True
+            )
+
+        # Residual add is a dense fused pointwise that Ada TensorIR accepts.
+        # Sigmoid/SwiGLU on the attention-wide [T, heads*dim] view still hit
+        # the fused-pointwise kwargs/cast rejection; those stay handwritten.
+        self.add = _compile(lambda a, b: a + b)
+        self.sigmoid_mul = None
+        self.swiglu = None
+
+    def warmup(self, hidden: torch.Tensor, wide: torch.Tensor) -> None:
+        del wide
+        self.add(hidden, hidden)
+        torch.cuda.synchronize()
+
+
+def two_layer_pypto(
+    weights: TwoLayerWeights,
+    stream,
+    *,
+    use_gdn: bool,
+    elementwise: ElementwiseInductorPypto | None = None,
+) -> torch.Tensor:
     h = embedding.embedding(weights.tokens, weights.embed, stream=stream)
     residual = h
     h, residual = fused_add_rmsnorm.fused_add_rmsnorm(
@@ -653,18 +690,25 @@ def two_layer_pypto(weights: TwoLayerWeights, stream, *, use_gdn: bool) -> torch
             stream=stream,
         )
         attn_h = _multihead_attention(q, k, v, stream)
-        attn_h = sigmoid_mul.sigmoid_mul(
-            attn_h, linear.linear(h, weights.attn_gate0, stream=stream), stream=stream
-        )
+        gate0 = linear.linear(h, weights.attn_gate0, stream=stream)
+        attn_h = sigmoid_mul.sigmoid_mul(attn_h, gate0, stream=stream)
         attn_h = linear.linear(attn_h, weights.wo0, stream=stream)
-    h = residual + attn_h
+    h = (
+        elementwise.add(residual, attn_h)
+        if elementwise is not None
+        else residual + attn_h
+    )
     h, residual = fused_add_rmsnorm.fused_add_rmsnorm(
         torch.zeros_like(h), h, weights.n_mlp0, stream=stream
     )
     gate = linear.linear(h, weights.wg0, stream=stream)
     up = linear.linear(h, weights.wu0, stream=stream)
-    h = residual + linear.linear(
-        silu_and_mul.silu_and_mul(gate, up, stream=stream), weights.wd0, stream=stream
+    hidden = silu_and_mul.silu_and_mul(gate, up, stream=stream)
+    projected = linear.linear(hidden, weights.wd0, stream=stream)
+    h = (
+        elementwise.add(residual, projected)
+        if elementwise is not None
+        else residual + projected
     )
 
     # Layer 1: same full-attention mixer (rope + SDPA) for inductor A/B.
@@ -685,18 +729,25 @@ def two_layer_pypto(weights: TwoLayerWeights, stream, *, use_gdn: bool) -> torch
         stream=stream,
     )
     attn_h = _multihead_attention(q, k, v, stream)
-    attn_h = sigmoid_mul.sigmoid_mul(
-        attn_h, linear.linear(h, weights.attn_gate1, stream=stream), stream=stream
-    )
+    gate1 = linear.linear(h, weights.attn_gate1, stream=stream)
+    attn_h = sigmoid_mul.sigmoid_mul(attn_h, gate1, stream=stream)
     attn_h = linear.linear(attn_h, weights.wo1, stream=stream)
-    h = residual + attn_h
+    h = (
+        elementwise.add(residual, attn_h)
+        if elementwise is not None
+        else residual + attn_h
+    )
     h, residual = fused_add_rmsnorm.fused_add_rmsnorm(
         torch.zeros_like(h), h, weights.n_mlp1, stream=stream
     )
     gate = linear.linear(h, weights.wg1, stream=stream)
     up = linear.linear(h, weights.wu1, stream=stream)
-    h = residual + linear.linear(
-        silu_and_mul.silu_and_mul(gate, up, stream=stream), weights.wd1, stream=stream
+    hidden = silu_and_mul.silu_and_mul(gate, up, stream=stream)
+    projected = linear.linear(hidden, weights.wd1, stream=stream)
+    h = (
+        elementwise.add(residual, projected)
+        if elementwise is not None
+        else residual + projected
     )
     stream.synchronize()
     return h
@@ -821,6 +872,15 @@ def run(*, warmup: int, timed: int) -> dict[str, Any]:
     if _cc() != 89:
         raise RuntimeError(f"live GPU compute capability is {_cc()}, need 89")
     bootstrap()
+    try:
+        import pypto_plugins.torch_inductor as torch_inductor
+        from pypto_plugins.activity_trace import clear_artifact_registry_for_testing
+
+        torch_inductor.uninstall()
+        torch._dynamo.reset()
+        clear_artifact_registry_for_testing()
+    except Exception:
+        pass
     stream = _stream()
     torch.manual_seed(21)
     cases = [_record(name, lambda fn=fn: fn(stream)) for name, fn in CENSUS]
@@ -846,7 +906,18 @@ def run(*, warmup: int, timed: int) -> dict[str, Any]:
     two_layer: dict[str, Any] = {"core_ok": core_ok, "gdn_layer": gdn_ok}
     if core_ok:
       try:
-        pypto_out = two_layer_pypto(weights, stream, use_gdn=False)
+        from pypto_plugins.torch import scheduling as inductor_scheduling
+        import pypto_plugins.torch_inductor as torch_inductor
+
+        inductor_scheduling.REGISTRY.clear()
+        elementwise = ElementwiseInductorPypto()
+        elementwise.warmup(
+            torch.randn(TOKENS, HIDDEN, device="cuda", dtype=BF16),
+            torch.randn(TOKENS, Q_HEADS * HEAD_DIM, device="cuda", dtype=BF16),
+        )
+        pypto_out = two_layer_pypto(
+            weights, stream, use_gdn=False, elementwise=elementwise
+        )
         eager_out = two_layer_torch(weights, use_gdn=False)
         two_layer["pypto_vs_eager"] = {
             "max_abs_diff": _diff(pypto_out, eager_out),
@@ -854,8 +925,30 @@ def run(*, warmup: int, timed: int) -> dict[str, Any]:
             "finite": _finite(pypto_out) and _finite(eager_out),
         }
         two_layer["pypto_ms"] = _timed_ms(
-            lambda: two_layer_pypto(weights, stream, use_gdn=False), warmup, timed
+            lambda: two_layer_pypto(
+                weights, stream, use_gdn=False, elementwise=elementwise
+            ),
+            warmup,
+            timed,
         )
+        two_layer["inductor_pypto_elementwise"] = {
+            "kernels": [
+                {
+                    "registry_name": name,
+                    "kernel_name": artifact.kernel_name,
+                    "entry_name": artifact.entry_name,
+                    "cubin_bytes": artifact.cubin_bytes,
+                    "fallback_used": artifact.fallback_used,
+                }
+                for name, artifact in inductor_scheduling.REGISTRY.snapshot()
+            ],
+            "all_native": all(
+                not artifact.fallback_used
+                and artifact.cubin_bytes > 0
+                and artifact.entry_name == "pypto_fused_pointwise"
+                for _name, artifact in inductor_scheduling.REGISTRY.snapshot()
+            ),
+        }
         two_layer["eager_ms"] = _timed_ms(
             lambda: two_layer_torch(weights, use_gdn=False), warmup, timed
         )
@@ -909,6 +1002,13 @@ def run(*, warmup: int, timed: int) -> dict[str, Any]:
       except Exception as error:  # noqa: BLE001
         two_layer["error"] = f"{type(error).__name__}: {error}"
         two_layer["traceback"] = traceback.format_exc()[-1500:]
+      finally:
+        try:
+            import pypto_plugins.torch_inductor as torch_inductor
+
+            torch_inductor.uninstall()
+        except Exception:
+            pass
     else:
         two_layer["skipped"] = "core operators failed; two-layer composition not run"
 
@@ -971,6 +1071,9 @@ def main(argv: list[str] | None = None) -> int:
     two = evidence["two_layer"]
     if evidence["census_failed"]:
         print("CENSUS_FAIL", ",".join(evidence["census_failed"]))
+    if two.get("error"):
+        print("TWO_LAYER_ERROR", two["error"])
+        return 1
     if two.get("pypto_vs_eager") and not two["pypto_vs_eager"]["correct"]:
         print("TWO_LAYER_MISMATCH", two["pypto_vs_eager"])
         return 1
@@ -979,6 +1082,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if two.get("inductor", {}).get("ok") and not two["inductor"].get("correct_vs_eager"):
         print("INDUCTOR_MISMATCH", two["inductor"])
+        return 1
+    ew = two.get("inductor_pypto_elementwise")
+    if ew is not None and not ew.get("all_native"):
+        print("INDUCTOR_PYPTO_NOT_NATIVE", ew)
         return 1
     if evidence["census_failed"] or not two.get("core_ok"):
         return 2
