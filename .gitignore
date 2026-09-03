@@ -15,7 +15,9 @@
 /logs/
 /runs/
 /state/evidence/current-*-run.json
-/reports/data/
+# Keep JSON evidence in git; ignore other dumps under reports/data.
+/reports/data/*
+!/reports/data/*.json
 .sources/
 *.pyc
 __pycache__/
